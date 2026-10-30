@@ -34,11 +34,6 @@ from osprey.profiles.providers import (
 )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _new(runner: CliRunner, target: Path, *extra: str):
     """Materialize a deployment repo at *target* from the smallest preset."""
     return runner.invoke(init, [str(target), "--preset", "hello-world", "--no-git", *extra])

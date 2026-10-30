@@ -79,7 +79,7 @@ def _redirect(location: str = LANDING_PATH) -> RedirectResponse:
 
     ``location`` is the landing page unless the logout named a ``return=`` that
     every return-to rule admits — a same-origin path, or the history page on the
-    readers' origin, which is where a reader's sign-out comes from.
+    history page's origin, which is where a reader's sign-out comes from.
 
     303 rather than 302: the browser must follow it with a ``GET`` regardless of
     how it arrived, and the landing page is a different resource rather than a

@@ -28,11 +28,13 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from mcp.types import CallToolRequestParams
 
-from osprey.audit import dedup, writer
+from osprey.agent_record.contract import SPOOL_DIR_ENV
+from osprey.audit import dedup
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, SURFACE_EXECUTOR
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
-from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests.audit._verdict_arming import arm_writes
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers
@@ -58,8 +60,8 @@ def _no_marker_between_tests():
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch):
-    """A healthy render zone with the audit zone redirected under ``tmp_path``.
+def project(tmp_path, monkeypatch, recorded_entries):
+    """A healthy render zone, and the audit entries the test itself produces.
 
     Prefix ``python`` throughout: the dedup pairs that exist today are the
     middleware and the executor's own gates, and a prefix the render lists is
@@ -70,7 +72,6 @@ def project(tmp_path, monkeypatch):
     for marker in (
         TERMINAL_USER_ENV,
         AUDIT_IDENTITY_ENV,
-        writer.AUDIT_WRITER_ENV,
         am.POSTURE_ENV,
         am.POSTURE_SOURCE_ENV,
         am.POSTURE_SESSION_ENV,
@@ -94,40 +95,42 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setenv(am.CONFIG_ENV, str(config))
     monkeypatch.setenv(am.TOOL_PREFIX_ENV, "python")
 
-    audit_root = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: audit_root)
     am.reset_audit_state()
     dedup.clear_recorded()
 
-    # The redirect is process-global — the writer is imported at call time, so
-    # anything else recording in this process lands here too. A web server left
-    # running by an earlier test answers a probe with a `GET /` refusal, and the
-    # zone this fixture promises to hand over empty is not. Hand over what the
-    # docstring says: whatever arrived before the test began is not the test's.
-    for stray in audit_root.rglob("*.jsonl"):
-        stray.unlink()
+    # The spool is process-global — the writer resolves it at call time, so
+    # anything else recording in this process lands in this test's spool too.
+    # A web server left running by an earlier test answers a probe with a
+    # `GET /` refusal, and the record this fixture promises to hand over empty
+    # is not. Hand over what the docstring says: whatever arrived before the
+    # test began is not the test's.
+    before = {entry.key for entry in recorded_entries("audit")}
 
-    yield audit_root
+    def audit() -> list[dict]:
+        entries = [entry for entry in recorded_entries("audit") if entry.key not in before]
+        return sorted((dict(entry.body) for entry in entries), key=lambda body: body["ts"])
+
+    yield audit
 
     am.reset_audit_state()
     dedup.clear_recorded()
 
 
-def _records(audit_root, surface: str) -> list[dict]:
-    path = audit_root / acting_identity() / f"{surface}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+def _records(audit, surface: str) -> list[dict]:
+    """The test's audit entries on one surface, oldest first."""
+    return [body for body in audit() if body["surface"] == surface]
 
 
-def _all_records(audit_root) -> list[dict]:
-    """Every record in the zone, whatever surface it landed on."""
-    if not audit_root.exists():
-        return []
-    out: list[dict] = []
-    for path in sorted(audit_root.rglob("*.jsonl")):
-        out += [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    return out
+def _all_records(audit) -> list[dict]:
+    """Every audit entry the test produced, whatever surface it landed on."""
+    return audit()
+
+
+def _unwritable_spool(monkeypatch, tmp_path) -> None:
+    """Point the spool under a regular file, so no audit entry can be written."""
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("")
+    monkeypatch.setenv(SPOOL_DIR_ENV, str(blocker / "alice"))
 
 
 def _context(tool: str) -> MiddlewareContext:
@@ -293,7 +296,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         """``readwrite`` in the run is ``readwrite`` in the record and the alert.
 
         The refusal a readwrite run reports is the armed raw-put block's: a
-        direct client-library write the subprocess refused. The ledger must
+        direct client-library write the subprocess refused. The record must
         call that run readwrite and the alert must name the raw-client layer,
         not tell an operator approved for writes that they were sandboxed.
         """
@@ -421,6 +424,8 @@ class TestThePostureClampRecordsAndMarks:
         assert records[0]["subject"] == PYTHON_EXECUTE
         assert records[0]["posture"] == gates.POSTURE_SANDBOX
         assert records[0].get("source") is None
+        # The verdict's own reason rides in the detail, as on every layer.
+        assert records[0]["detail"].startswith("reason=readonly_run")
 
         marked = dedup.recorded_decision()
         assert marked is not None
@@ -461,21 +466,20 @@ class TestThePostureClampRecordsAndMarks:
         assert _all_records(project) == []
         assert dedup.recorded_decision() is None
 
-    def test_the_writes_posture_is_neither_recorded_nor_marked(self, project, monkeypatch):
+    def test_the_writes_posture_is_neither_recorded_nor_marked(
+        self, project, monkeypatch, tmp_path
+    ):
+        arm_writes(monkeypatch, tmp_path / "agent_data")
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, "readwrite")
         gates.enforce_posture_clamp("readwrite", tool="execute")
         assert _all_records(project) == []
         assert dedup.recorded_decision() is None
 
     @pytest.mark.usefixtures("project")
-    def test_an_unwritable_audit_zone_still_refuses_and_still_marks(self, monkeypatch):
+    def test_an_unwritable_spool_still_refuses_and_still_marks(self, monkeypatch, tmp_path):
         """Recording never costs the refusal — and never costs the defer either."""
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, gates.SANDBOX_POSTURE)
-
-        def boom():
-            raise OSError("no audit zone")
-
-        monkeypatch.setattr(writer, "audit_dir", boom)
+        _unwritable_spool(monkeypatch, tmp_path)
 
         with pytest.raises(ToolError):
             gates.enforce_posture_clamp("readwrite", tool="execute")
@@ -531,7 +535,7 @@ class TestPinnedSpellings:
     def test_the_sandbox_mode_value_matches(self):
         assert gates.SANDBOX_POSTURE == am.SANDBOX_MODE
 
-    def test_the_ledger_posture_spelling_matches(self):
+    def test_the_recorded_posture_spelling_matches(self):
         assert gates.POSTURE_SANDBOX == am.POSTURE_SANDBOX
 
     def test_the_clamp_reason_matches(self):
@@ -700,9 +704,9 @@ class TestTheInnerRecorderMustBeOnTheAwaitingTask:
 
 
 class TestAnInnerRecordThatDidNotLand:
-    """``stored=False``: the decision is owned, but no line reached the ledger.
+    """``stored=False``: the decision is owned, but no entry reached the record.
 
-    Deferring blindly then costs the ledger the record entirely when the tool
+    Deferring blindly then costs the record the entry entirely when the tool
     also raises. The rule: the outer layer may file its own record only where
     that record cannot contradict the inner decision — the ``ToolError``
     branch, never the success branch.
@@ -734,11 +738,8 @@ class TestAnInnerRecordThatDidNotLand:
         assert _all_records(project) == []
 
     @pytest.mark.usefixtures("project")
-    def test_a_failed_write_marks_the_decision_as_unstored(self, monkeypatch):
-        def boom():
-            raise OSError("no audit zone")
-
-        monkeypatch.setattr(writer, "audit_dir", boom)
+    def test_a_failed_write_marks_the_decision_as_unstored(self, monkeypatch, tmp_path):
+        _unwritable_spool(monkeypatch, tmp_path)
         dedup.record_and_mark(
             decision=DECISION_REFUSED,
             reason="runtime_guard",

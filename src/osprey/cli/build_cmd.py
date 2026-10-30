@@ -60,14 +60,10 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
+from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import (
-    BUILD_DIR_NAME,
-    IMAGE_DIR_NAME,
-    STATE_DIR_NAME,
-    STATE_ZONE_DIRS,
-)
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 from .build_environment import (
     _create_project_venv,
@@ -338,8 +334,8 @@ def _ensure_state_zone(repo_root: Path) -> None:
     """Create the ``var/`` skeleton when it is absent (idempotent).
 
     A build is the first command a fresh clone runs, and a clone carries no
-    git-ignored directory: ``var/agent_data`` and ``var/audit`` have to exist
-    before anything writes into them. Creating them here rather than at ``up``
+    git-ignored directory: ``var/agent_data`` has to exist before anything
+    writes into it. Creating it here rather than at ``up``
     keeps a cloned repo and an ``osprey init``-ed one identical from the first
     command either one runs.
 
@@ -1220,7 +1216,8 @@ def _render_compose_files(
 
     from osprey.deployment.compose_generator import prepare_compose_files
 
-    unrenderable = _service_existence_errors(_rendered_config(zones.stage), zones.stage)
+    staged_config = _rendered_config(zones.stage)
+    unrenderable = _service_existence_errors(staged_config, zones.stage)
     if unrenderable:
         raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrenderable))
 
@@ -1471,23 +1468,23 @@ _rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
 def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     """Record ``deployment.host_identity`` in a render that states none.
 
-    A session launched on the host sends telemetry under one name and files
-    its ledger under another unless both are told the same one. The name is
+    A session launched on the host sends its OTLP events to the record under
+    one name and files its ledger under another unless both are told the same
+    one. The name is
     fixed at build — the account building, unless the profile states one — so a
     repo built by one account and run by another still agrees with itself.
-    Only where the telemetry store is deployed: nothing else reads the key.
+    Every deployment records it: the agent record is always deployed, and it
+    reads the host's transcripts and spool under this name.
 
     Returns:
         Whether the render's ``config.yml`` was changed.
     """
     import getpass
 
-    from osprey.deployment import telemetry_config
+    from osprey.agent_record.identities import host_identity
     from osprey.utils.config_writer import config_update_fields
 
-    if not telemetry_config.store_deployed(rendered):
-        return False
-    if telemetry_config.host_identity(rendered) is not None:
+    if host_identity(rendered) is not None:
         return False
     try:
         account = getpass.getuser()
@@ -1499,22 +1496,23 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     return True
 
 
-def _ensure_telemetry_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
-    """Mint the telemetry credential files this build's compose files name.
+def _ensure_agent_record_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
+    """Mint the agent record's login files and regenerate its service file.
 
+    The record is always deployed and keeps its files under its own prefix.
     Reader keys are left to ``osprey up``: a build must not produce a key
     nobody was told about.
     """
-    from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
+    from osprey.agent_record.credentials import ensure_agent_record_credentials
 
     try:
-        report = ensure_telemetry_credentials(repo_root, rendered, reader_keys=False)
+        report = ensure_agent_record_credentials(repo_root, rendered, reader_keys=False)
     except ValueError as exc:
         raise click.UsageError(str(exc)) from exc
     for name in report.minted:
-        logger.debug("telemetry credential file created: %s", name)
+        logger.debug("agent record credential file created: %s", name)
     for name in report.purged:
-        logger.debug("telemetry credential file removed: %s", name)
+        logger.debug("agent record credential file removed: %s", name)
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
@@ -1550,7 +1548,7 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     """Run the execution-backend resolver on a render, writing back what runs.
 
     ``execution.execution_method`` is read by every container's python
-    executor through :func:`osprey_connectors.config.resolve_execution_method`
+    executor through :func:`osprey.utils.execution_method.resolve_execution_method`
     — at its first ``execute`` call. A profile's ``config:`` overlay writes
     whatever it says into the render and nothing else reads it back, so a
     typo used to survive build, deploy and MCP startup. The same resolver
@@ -1563,7 +1561,7 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     Returns:
         The refusal, as one message, or nothing.
     """
-    from osprey_connectors.config import resolve_execution_method
+    from osprey.utils.execution_method import resolve_execution_method
 
     config_path = render_dir / "config.yml"
     config = _rendered_config(render_dir)
@@ -2005,6 +2003,7 @@ def _render_project(
     Returns:
         The rendered project directory.
     """
+    from osprey.agent_record.config import agent_record_config_overrides
     from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.deployment.reach import reach_errors
 
@@ -2186,6 +2185,9 @@ def _render_project(
                 dispatch_tier=profile_dispatch_tier(build_profile) if deployment else None,
             ),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
+            # The resolved record block, defaults included, rendered as the
+            # top-level `agent_record` key the record service reads.
+            "agent_record": agent_record_config_overrides(build_profile.agent_record),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
             # that named none of its own.
@@ -2471,21 +2473,15 @@ def _render_project(
             "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
         )
     try:
-        # Reachability: with defer_unresolved_telemetry_creds=True, a sender's
-        # gateway login or a collector token absent at build time does not
-        # raise here — a build never carries the secret, so
-        # the gateway and bearer header builders in claude_code_telemetry.py
-        # omit the auth header instead. Only a malformed credential still
-        # raises ObservabilityCredentialError into this ValueError catch.
-        #
-        # A provider base_url still spelled "${VAR}" is deferred for the same
-        # reason: this render may start on another host (a container image is
-        # built here and handed its gateway there), so the reference is the
-        # render's contract with its runtime. The launch paths resolve it for
-        # real and refuse by name when nothing supplies it.
+        # Reachability: a provider base_url still spelled "${VAR}" is
+        # deferred, because this render may start on another host (a container
+        # image is built here and handed its gateway there), so the reference
+        # is the render's contract with its runtime. The launch paths resolve
+        # it for real and refuse by name when nothing supplies it. The OTLP
+        # block is a launch's, never a build's, so it is not resolved here.
         spec = load_provider_spec(
             render_dir,
-            defer_unresolved_telemetry_creds=True,
+            include_telemetry=False,
             defer_unresolved_base_url=True,
         )
     except ValueError as e:
@@ -3170,7 +3166,7 @@ def _render_container_projects(
     same things the deployment's does.
 
     A tier's or app's needs are in fact sharper. Its render is the ONLY place
-    its ``config:`` exists (``control_system.writes_enabled`` among it), and an
+    its ``config:`` exists (``control_system.writes`` among it), and an
     image built from the deployment's render would come up with the
     deployment's config and none of its own, which is the difference between a
     read-only terminal and one that writes to hardware. Its ``.mcp.json`` names
@@ -3214,6 +3210,54 @@ def _render_container_projects(
             )
         )
     return contexts
+
+
+def _stage_tiered_dispatch_config(zones: _RenderZones, config: dict[str, Any]) -> Path | None:
+    """Stage a tiered dispatch worker's ``config.yml``: its tier's render plus the login→tier map.
+
+    The worker at a tier runs that tier's image, and the root flatten
+    (:func:`~osprey.deployment.compose_generator._stages_runtime_config`) would
+    hand it the root's posture. So its staged config is the tier's
+    container-rooted render, ``.image/<project>-<tier>/build/config.yml`` — which
+    exists only once :func:`_render_container_projects` has run — with
+    ``control_system.login_tiers`` added and nothing else changed. The compose
+    file mounts it over the image's baked copy
+    (``osprey_worker_stages_config``); a redeploy keeps it as it is.
+
+    Args:
+        zones: The render's paths; everything is read and written in the
+            staged tree.
+        config: The deploy config the compose render loaded.
+
+    Returns:
+        The staged file, or ``None`` when no worker runs at a tier.
+
+    Raises:
+        BuildProfileError: The tier's container render has no ``config.yml``.
+    """
+    from osprey.deployment.compose_generator import staged_login_tiers, with_login_tiers
+    from osprey.deployment.web_terminals.render_images import resolve_dispatch_tier
+    from osprey_connectors import yaml_loader
+
+    if "dispatch_worker" not in [str(name) for name in config.get("deployed_services") or []]:
+        return None
+    tier = resolve_dispatch_tier(config, strict=True)
+    if tier is None:
+        return None
+    source = zones.stage / IMAGE_DIR_NAME / str(tier["project"]) / BUILD_DIR_NAME / "config.yml"
+    if not source.is_file():
+        raise BuildProfileError(
+            f"The dispatch worker runs at tier {tier['render']!r}, but its container render "
+            f"has no config.yml at {source.relative_to(zones.stage)}; the worker's staged "
+            f"config cannot be written."
+        )
+    document = yaml_loader.safe_load(source.read_text(encoding="utf-8")) or {}
+    staged = with_login_tiers(document, staged_login_tiers(config, str(zones.stage)))
+    target = zones.stage / "services" / "dispatch_worker" / "config.yml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as f:
+        yaml_loader.safe_dump(staged, f, default_flow_style=False, sort_keys=False)
+    return target
 
 
 def _build_repo(
@@ -3352,6 +3396,7 @@ def _build_repo(
             profile_root=repo_root,
             project_name=name,
             dispatch_tier=dispatch_tier,
+            agent_record=build_profile.agent_record,
         )
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
@@ -3372,6 +3417,7 @@ def _build_repo(
             profile_root=repo_root,
             project_name=name,
             dispatch_tier=dispatch_tier,
+            agent_record=build_profile.agent_record,
         )
         # An authored `web.bar_items` entry the served default will not carry:
         # the server filters a panel-gated item whose panel this profile does
@@ -3645,15 +3691,15 @@ def _build_repo(
                     f"carry it, or run `osprey init --revalidate`."
                 )
 
-            # The telemetry credential files, before the compose files that
-            # name them as `env_file`: every sender's login (the render
+            # The agent record's credential files, before the compose files
+            # that name them as `env_file`: every sender's login (the render
             # renders above settled the roster) and every service account's.
             # At the real repo root, never in the staged tree — they are
             # durable secrets, and `build/` is disposable. Not under
             # --runtime-root, for the reason the compose files are not: those
             # files belong to the host that deploys.
             if not runtime_root:
-                _ensure_telemetry_credentials(zones.repo_root, rendered)
+                _ensure_agent_record_credentials(zones.repo_root, rendered)
 
             config = _render_compose_files(zones, runtime_root, dev_mode=dev)
             phase.step("compose files")
@@ -3673,6 +3719,10 @@ def _build_repo(
             )
             if image_renders:
                 phase.step(f"{len(image_renders)} image build context(s)")
+                # After the image contexts: a tiered worker's staged config is
+                # its tier's container render, which exists only now.
+                if config is not None:
+                    _stage_tiered_dispatch_config(zones, config)
 
         # Both remaining phases run against the staged tree, before the swap:
         # a profile whose own validation fails must not be able to replace a
@@ -3902,7 +3952,7 @@ def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
         if not isinstance(value, str) or not value.strip():
             continue
         relative = posixpath.normpath(value.strip())
-        if relative.startswith("/") or relative in (".", "..") or relative.startswith("../"):
+        if relative.startswith(("/", "../")) or relative in (".", ".."):
             return ""
         # The path is written into a shell line; anything outside this set is
         # left to the operator's own image step.

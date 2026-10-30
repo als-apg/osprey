@@ -235,8 +235,45 @@ class TestBuildSessionArgv:
                 {"resume_id": "r"},
                 ["/abs/claude", "--setting-sources", "project", *_MCP, "--resume", "r"],
             ),
+            (
+                build_claude_launch_argv({}),
+                {
+                    "print_mode": True,
+                    "effort": "high",
+                    "thinking_display": "summarized",
+                    "prompt": "hi",
+                },
+                [
+                    *_PREFIX,
+                    "--print",
+                    "--effort",
+                    "high",
+                    "--thinking-display",
+                    "summarized",
+                    "hi",
+                ],
+            ),
+            (
+                build_claude_launch_argv({}),
+                {"effort": "high", "thinking_display": "summarized", "prompt": "hi"},
+                [*_PREFIX, "--effort", "high", "hi"],
+            ),
+            (
+                build_claude_launch_argv({}),
+                {"print_mode": True, "thinking_display": "", "prompt": "hi"},
+                [*_PREFIX, "--print", "hi"],
+            ),
         ],
-        ids=["new-session-effort", "pinned-resume", "chat", "no-pin-print", "resolved-pty"],
+        ids=[
+            "new-session-effort",
+            "pinned-resume",
+            "chat",
+            "no-pin-print",
+            "resolved-pty",
+            "print-thinking",
+            "interactive-thinking-ignored",
+            "empty-thinking-omitted",
+        ],
     )
     def test_parity_table(self, base, kwargs, expected):
         assert build_session_argv(base, **kwargs) == expected
@@ -251,6 +288,12 @@ class TestBuildSessionArgv:
     def test_resume_and_session_id_together_are_refused(self):
         with pytest.raises(ValueError):
             build_session_argv(_PREFIX, resume_id="r", session_id="k")
+
+    def test_thinking_display_leaves_the_prompt_last(self):
+        argv = build_session_argv(
+            _PREFIX, print_mode=True, thinking_display="omitted", prompt="what now"
+        )
+        assert argv[-3:] == ["--thinking-display", "omitted", "what now"]
 
     def test_empty_resume_and_effort_are_omitted(self):
         assert build_session_argv(_PREFIX, resume_id="", effort="") == _PREFIX

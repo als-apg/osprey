@@ -42,8 +42,8 @@ PYTHON_SHEBANG = re.compile(rb"^#![^\n]*\bpython[0-9.]*\b")
 #: then its arguments up to the end of the shell word list.
 RUFF_INVOCATION = re.compile(r"\bruff\s+(?:check|format)\b((?:[ \t]+[^\s`'\"|;&>)]+)*)")
 
-#: The one declaration CI's ruff steps run from.
-CHECK_SCRIPT = "scripts/check.py"
+#: The checks module that declares the ruff checks CI's ruff steps run.
+CHECK_SCRIPT = "scripts/repo_checks.py"
 
 #: Every place that runs ruff or tells a contributor how to.
 INVOCATION_SURFACES = (
@@ -62,12 +62,17 @@ def _git(*args: str) -> str:
 
 
 def _tracked_modes() -> dict[str, str]:
-    """Map every tracked path to its git file mode."""
+    """Map every tracked path present in the working tree to its git file mode.
+
+    A tracked path deleted from the working tree is linted by nothing, so it is
+    not part of either selection.
+    """
     modes: dict[str, str] = {}
     for line in _git("ls-files", "-s", "-z").split("\0"):
         if line:
             meta, path = line.split("\t", 1)
-            modes[path] = meta.split()[0]
+            if (REPO_ROOT / path).exists():
+                modes[path] = meta.split()[0]
     return modes
 
 

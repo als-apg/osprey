@@ -66,9 +66,6 @@ check. What this module deliberately does not assert, and why:
 * ``display_results`` all-passing/warnings/errors/verbose calls — rendering belongs
   to ``osprey.health.render`` (owned by the render tests); the CLI wires it and we
   assert the stdout/stderr split, not the glyph layout.
-* ``telemetry_store`` / ``telemetry_gateway`` probe and counter rules — owned by
-  the ``core/telemetry_store`` and ``core/telemetry_gateway`` tests; here we pin
-  only that ``--category`` accepts both names.
 * Exit-code mapping is a property of ``CheckReport``, so it is pinned here by
   injecting a report at the ``_run_suite`` boundary rather than by patching any
   checker object.
@@ -85,21 +82,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.health_cmd import health
-from osprey.health.core import CORE_CATEGORY_NAMES
 from osprey.health.models import CheckReport, CheckResult, Status
 
 # --------------------------------------------------------------------------- #
 # Fixtures and helpers
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """A Click CLI test runner (stdout and stderr are captured separately)."""
-    return CliRunner()
 
 
 def _write_config(project: Path, body: str) -> Path:
@@ -163,10 +152,10 @@ def _find(results: list[dict], name: str) -> dict | None:
     return next((r for r in results if r.get("name") == name), None)
 
 
-def test_the_suite_runs_against_the_loaded_project_config(cli_runner, valid_project):
+def test_the_suite_runs_against_the_loaded_project_config(runner, valid_project):
     suite = AsyncMock(return_value=_report(_result("a", Status.OK)))
     with patch("osprey.cli.health_cmd._run_suite", suite):
-        result = cli_runner.invoke(health, ["--project", str(valid_project)])
+        result = runner.invoke(health, ["--project", str(valid_project)])
     assert result.exit_code == 0, result.output
     config = suite.call_args.kwargs["config"]
     assert config["project_name"] == "test_project"
@@ -180,39 +169,39 @@ def test_the_suite_runs_against_the_loaded_project_config(cli_runner, valid_proj
 class TestExitCodes:
     """The CLI's process exit code follows the report / failure class."""
 
-    def test_exit_code_all_ok_is_0(self, cli_runner, valid_project):
+    def test_exit_code_all_ok_is_0(self, runner, valid_project):
         report = _report(_result("a", Status.OK), _result("b", Status.OK))
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project)])
+            result = runner.invoke(health, ["--project", str(valid_project)])
         assert result.exit_code == 0
 
-    def test_exit_code_warnings_only_is_1(self, cli_runner, valid_project):
+    def test_exit_code_warnings_only_is_1(self, runner, valid_project):
         report = _report(_result("a", Status.OK), _result("b", Status.WARNING))
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project)])
+            result = runner.invoke(health, ["--project", str(valid_project)])
         assert result.exit_code == 1
 
-    def test_exit_code_errors_is_2(self, cli_runner, valid_project):
+    def test_exit_code_errors_is_2(self, runner, valid_project):
         report = _report(_result("a", Status.OK), _result("b", Status.ERROR))
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project)])
+            result = runner.invoke(health, ["--project", str(valid_project)])
         assert result.exit_code == 2
 
-    def test_exit_code_unexpected_wrapper_failure_is_3(self, cli_runner):
+    def test_exit_code_unexpected_wrapper_failure_is_3(self, runner):
         # A failure anywhere in the wrapper (here: project resolution) is exit 3.
         with patch(
             "osprey.cli.project_utils.resolve_project_path",
             side_effect=RuntimeError("boom"),
         ):
-            result = cli_runner.invoke(health, [])
+            result = runner.invoke(health, [])
         assert result.exit_code == 3
 
-    def test_exit_code_keyboard_interrupt_is_130(self, cli_runner):
+    def test_exit_code_keyboard_interrupt_is_130(self, runner):
         with patch(
             "osprey.cli.project_utils.resolve_project_path",
             side_effect=KeyboardInterrupt,
         ):
-            result = cli_runner.invoke(health, [])
+            result = runner.invoke(health, [])
         assert result.exit_code == 130
 
 
@@ -224,8 +213,8 @@ class TestExitCodes:
 class TestBasicAlias:
     """``--basic`` is a hidden, deprecated no-op that warns only on stderr."""
 
-    def test_basic_flag_is_hidden_in_help(self, cli_runner):
-        result = cli_runner.invoke(health, ["--help"])
+    def test_basic_flag_is_hidden_in_help(self, runner):
+        result = runner.invoke(health, ["--help"])
         assert result.exit_code == 0
         # Hidden option: present as a flag but never advertised in --help.
         assert "--basic" not in result.output
@@ -233,20 +222,20 @@ class TestBasicAlias:
         assert "--json" in result.output
         assert "--category" in result.output
 
-    def test_basic_deprecation_on_stderr_not_stdout(self, cli_runner, valid_project):
+    def test_basic_deprecation_on_stderr_not_stdout(self, runner, valid_project):
         report = _report(_result("a", Status.OK))
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project), "--basic"])
+            result = runner.invoke(health, ["--project", str(valid_project), "--basic"])
         assert result.exit_code == 0
         assert "deprecated" in result.stderr.lower()
         assert "deprecated" not in result.stdout.lower()
 
-    def test_basic_is_noop(self, cli_runner, valid_project):
+    def test_basic_is_noop(self, runner, valid_project):
         report = _report(_result("a", Status.WARNING))
         with _patch_suite(report):
-            without = cli_runner.invoke(health, ["--project", str(valid_project)])
+            without = runner.invoke(health, ["--project", str(valid_project)])
         with _patch_suite(report):
-            with_basic = cli_runner.invoke(health, ["--project", str(valid_project), "--basic"])
+            with_basic = runner.invoke(health, ["--project", str(valid_project), "--basic"])
         # Same exit code and same report on stdout — the flag changes nothing.
         assert without.exit_code == with_basic.exit_code == 1
         assert without.stdout == with_basic.stdout
@@ -260,10 +249,10 @@ class TestBasicAlias:
 class TestFullGating:
     """``--full`` is the sole on_demand gate; ``--category`` never elevates cost."""
 
-    def test_full_gating_model_chat_skipped_without_full(self, cli_runner, tmp_path):
+    def test_full_gating_model_chat_skipped_without_full(self, runner, tmp_path):
         project = tmp_path / "proj"
         _write_config(project, _NO_MODELS_CONFIG)
-        result = cli_runner.invoke(
+        result = runner.invoke(
             health, ["--project", str(project), "--json", "--category", "model_chat"]
         )
         payload = json.loads(result.stdout)
@@ -272,12 +261,12 @@ class TestFullGating:
         assert row["status"] == "skip"
         assert "--full" in row["message"]
 
-    def test_full_gating_model_chat_runs_with_full(self, cli_runner, tmp_path):
+    def test_full_gating_model_chat_runs_with_full(self, runner, tmp_path):
         # With --full the on_demand category actually executes; a zero-model
         # config short-circuits to its own skip row (no live completion issued).
         project = tmp_path / "proj"
         _write_config(project, _NO_MODELS_CONFIG)
-        result = cli_runner.invoke(
+        result = runner.invoke(
             health, ["--project", str(project), "--json", "--full", "--category", "model_chat"]
         )
         payload = json.loads(result.stdout)
@@ -291,9 +280,9 @@ class TestFullGating:
         assert result.exit_code == 0
         assert payload["deadline_hit"] is False
 
-    def test_full_category_does_not_elevate_cost(self, cli_runner, valid_project):
+    def test_full_category_does_not_elevate_cost(self, runner, valid_project):
         # Selecting an on_demand category without --full must not run it.
-        result = cli_runner.invoke(
+        result = runner.invoke(
             health, ["--project", str(valid_project), "--json", "--category", "claude_cli_pinned"]
         )
         payload = json.loads(result.stdout)
@@ -311,43 +300,21 @@ class TestFullGating:
 class TestCategorySelection:
     """``--category`` resolution: unknown-name handling and the pinned-skip row."""
 
-    def test_unknown_category_on_valid_config_is_usage_error(self, cli_runner, valid_project):
-        result = cli_runner.invoke(
+    def test_unknown_category_on_valid_config_is_usage_error(self, runner, valid_project):
+        result = runner.invoke(
             health, ["--project", str(valid_project), "--category", "does_not_exist"]
         )
         assert result.exit_code == 2
         assert "Unknown health categor" in result.output
 
-    def test_both_telemetry_categories_are_listed(self, cli_runner, valid_project):
-        # A config that deploys neither: each name is accepted and contributes no rows.
-        with _no_container_runtime():
-            result = cli_runner.invoke(
-                health,
-                [
-                    "--project",
-                    str(valid_project),
-                    "--json",
-                    "--category",
-                    "telemetry_store",
-                    "--category",
-                    "telemetry_gateway",
-                ],
-            )
-        assert "Unknown health categor" not in result.output
-        payload = json.loads(result.stdout)
-        assert [r for r in payload["results"] if r["category"].startswith("telemetry_")] == []
-        assert {"telemetry_store", "telemetry_gateway"} <= set(CORE_CATEGORY_NAMES)
-
-    def test_unknown_category_with_missing_config_renders_no_usage_error(
-        self, cli_runner, tmp_path
-    ):
+    def test_unknown_category_with_missing_config_renders_no_usage_error(self, runner, tmp_path):
         # No config.yml: category names cannot be validated, so a non-core name
         # passes through — the report renders (exit 2 from config errors) rather
         # than raising a UsageError.
         project = tmp_path / "empty"
         project.mkdir()
         with _no_container_runtime():
-            result = cli_runner.invoke(
+            result = runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "does_not_exist"]
             )
         assert result.exit_code == 2
@@ -358,10 +325,10 @@ class TestCategorySelection:
         assert config_row is not None
         assert config_row["status"] == "error"
 
-    def test_category_claude_cli_pinned_unpinned_skip(self, cli_runner, valid_project):
+    def test_category_claude_cli_pinned_unpinned_skip(self, runner, valid_project):
         # A valid config without a claude_code.cli_version pin: the on_demand
         # category runs under --full but returns a skip row (no npx invoked).
-        result = cli_runner.invoke(
+        result = runner.invoke(
             health,
             [
                 "--project",
@@ -388,11 +355,11 @@ class TestCategorySelection:
 class TestConfigFailureDegradation:
     """A config-load failure degrades into report rows; the report still renders."""
 
-    def test_missing_config_yields_config_file_exists_error(self, cli_runner, tmp_path):
+    def test_missing_config_yields_config_file_exists_error(self, runner, tmp_path):
         project = tmp_path / "empty"
         project.mkdir()
         with _no_container_runtime():
-            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+            result = runner.invoke(health, ["--project", str(project), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         row = _find(payload["results"], "config_file_exists")
@@ -402,25 +369,25 @@ class TestConfigFailureDegradation:
         assert "file_system" in categories
         assert "python_environment" in categories
 
-    def test_malformed_yaml_yields_yaml_valid_error(self, cli_runner, tmp_path):
+    def test_malformed_yaml_yields_yaml_valid_error(self, runner, tmp_path):
         project = tmp_path / "proj"
         _write_config(project, "invalid: yaml: content:\n")
         with _no_container_runtime():
-            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+            result = runner.invoke(health, ["--project", str(project), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         assert _find(payload["results"], "config_file_exists")["status"] == "ok"
         yaml_row = _find(payload["results"], "yaml_valid")
         assert yaml_row is not None and yaml_row["status"] == "error"
 
-    def test_malformed_health_section_yields_health_config_error(self, cli_runner, tmp_path):
+    def test_malformed_health_section_yields_health_config_error(self, runner, tmp_path):
         project = tmp_path / "proj"
         _write_config(
             project,
             "project_name: bad_health\nhealth:\n  suite_timeout_s: not-a-number\n",
         )
         with _no_container_runtime():
-            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+            result = runner.invoke(health, ["--project", str(project), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         assert _find(payload["results"], "config_file_exists")["status"] == "ok"
@@ -437,9 +404,9 @@ class TestConfigFailureDegradation:
 class TestContainerRuntime:
     """Absent container runtime contributes a skip row, not an error."""
 
-    def test_no_container_runtime_is_skip(self, cli_runner, valid_project):
+    def test_no_container_runtime_is_skip(self, runner, valid_project):
         with _no_container_runtime():
-            result = cli_runner.invoke(
+            result = runner.invoke(
                 health, ["--project", str(valid_project), "--json", "--category", "containers"]
             )
         assert result.exit_code == 0
@@ -469,22 +436,22 @@ system:
 class TestTimezoneExitCode:
     """UTC is information; a zone no reader can open is an error."""
 
-    def _run(self, cli_runner, tmp_path, zone):
+    def _run(self, runner, tmp_path, zone):
         project = tmp_path / "proj"
         _write_config(project, _TIMEZONE_CONFIG.format(zone=zone))
         with _no_container_runtime():
-            return cli_runner.invoke(
+            return runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "configuration"]
             )
 
-    def test_a_utc_deployment_exits_0(self, cli_runner, tmp_path):
-        result = self._run(cli_runner, tmp_path, "UTC")
+    def test_a_utc_deployment_exits_0(self, runner, tmp_path):
+        result = self._run(runner, tmp_path, "UTC")
         assert result.exit_code == 0, result.output
         row = _find(json.loads(result.stdout)["results"], "timezone")
         assert row is not None and row["status"] == "ok"
 
-    def test_a_misspelt_zone_exits_2(self, cli_runner, tmp_path):
-        result = self._run(cli_runner, tmp_path, "Amerika/Los_Angeles")
+    def test_a_misspelt_zone_exits_2(self, runner, tmp_path):
+        result = self._run(runner, tmp_path, "Amerika/Los_Angeles")
         assert result.exit_code == 2, result.output
         row = _find(json.loads(result.stdout)["results"], "timezone")
         assert row is not None and row["status"] == "error"
@@ -498,9 +465,7 @@ class TestTimezoneExitCode:
 class TestProjectResolution:
     """``--project`` resolves config and ``.env`` from the named directory."""
 
-    def test_project_resolves_config_and_env_from_foreign_cwd(
-        self, cli_runner, tmp_path, monkeypatch
-    ):
+    def test_project_resolves_config_and_env_from_foreign_cwd(self, runner, tmp_path, monkeypatch):
         project = tmp_path / "proj"
         _write_config(
             project,
@@ -521,7 +486,7 @@ class TestProjectResolution:
         monkeypatch.chdir(foreign)
 
         with _no_container_runtime():
-            result = cli_runner.invoke(
+            result = runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "configuration"]
             )
         payload = json.loads(result.stdout)
@@ -560,18 +525,18 @@ class TestThreeZoneAnchors:
         (repo / ".env").write_text("OSPREY_HEALTH_ZONE_CANARY=resolved-from-repo-root-env\n")
         return repo
 
-    def _configuration_rows(self, cli_runner, stance: Path) -> list[dict]:
+    def _configuration_rows(self, runner, stance: Path) -> list[dict]:
         with _no_container_runtime():
-            result = cli_runner.invoke(
+            result = runner.invoke(
                 health, ["--project", str(stance), "--json", "--category", "configuration"]
             )
         return json.loads(result.stdout)["results"]
 
-    def test_repo_root_stance_finds_the_rendered_config(self, cli_runner, tmp_path):
+    def test_repo_root_stance_finds_the_rendered_config(self, runner, tmp_path):
         repo = self._repo(tmp_path)
         assert "OSPREY_HEALTH_ZONE_CANARY" not in os.environ
 
-        rows = self._configuration_rows(cli_runner, repo)
+        rows = self._configuration_rows(runner, repo)
 
         config_row = _find(rows, "config_file_exists")
         assert config_row is not None and config_row["status"] == "ok"
@@ -580,9 +545,7 @@ class TestThreeZoneAnchors:
         assert env_row is not None and env_row["status"] == "ok"
 
     @pytest.mark.parametrize("stance", ["repo", "build"])
-    def test_channel_finder_reads_the_render_not_the_source_zone(
-        self, cli_runner, tmp_path, stance
-    ):
+    def test_channel_finder_reads_the_render_not_the_source_zone(self, runner, tmp_path, stance):
         """A build-owned database is read from the render, whatever the stance.
 
         The two categories used to share one anchor. The repo root is right for
@@ -612,7 +575,7 @@ class TestThreeZoneAnchors:
 
         project = repo if stance == "repo" else repo / "build"
         with _no_container_runtime():
-            result = cli_runner.invoke(
+            result = runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "channel_finder"]
             )
         rows = json.loads(result.stdout)["results"]
@@ -621,13 +584,13 @@ class TestThreeZoneAnchors:
         assert db_row is not None and db_row["status"] == "ok", db_row
         assert db_row["value"] == "11 B", db_row  # the render's file, not the source's
 
-    def test_render_stance_still_reads_the_repo_root_env(self, cli_runner, tmp_path):
+    def test_render_stance_still_reads_the_repo_root_env(self, runner, tmp_path):
         # Pointing at the render is the stance that used to look for `.env` inside
         # `build/`, which no build ever writes.
         repo = self._repo(tmp_path)
         assert "OSPREY_HEALTH_ZONE_CANARY" not in os.environ
 
-        rows = self._configuration_rows(cli_runner, repo / "build")
+        rows = self._configuration_rows(runner, repo / "build")
 
         env_row = _find(rows, "environment_variables")
         assert env_row is not None and env_row["status"] == "ok"
@@ -651,41 +614,41 @@ class TestSubdirectoryStance:
         (repo / "build" / "config.yml").write_text(_VALID_CONFIG)
         return repo
 
-    def _configuration_rows(self, cli_runner) -> list[dict]:
+    def _configuration_rows(self, runner) -> list[dict]:
         with _no_container_runtime():
-            result = cli_runner.invoke(health, ["--json", "--category", "configuration"])
+            result = runner.invoke(health, ["--json", "--category", "configuration"])
         return json.loads(result.stdout)["results"]
 
-    def test_subdirectory_stance_finds_the_rendered_config(self, cli_runner, tmp_path, monkeypatch):
+    def test_subdirectory_stance_finds_the_rendered_config(self, runner, tmp_path, monkeypatch):
         repo = self._repo(tmp_path)
         subdir = repo / "data" / "raw"
         subdir.mkdir(parents=True)
         monkeypatch.chdir(subdir)
 
-        rows = self._configuration_rows(cli_runner)
+        rows = self._configuration_rows(runner)
 
         config_row = _find(rows, "config_file_exists")
         assert config_row is not None, rows
         assert config_row["status"] == "ok", config_row
         assert "build" in config_row["message"], config_row
 
-    def test_subdirectory_stance_does_not_exit_2(self, cli_runner, tmp_path, monkeypatch):
+    def test_subdirectory_stance_does_not_exit_2(self, runner, tmp_path, monkeypatch):
         repo = self._repo(tmp_path)
         subdir = repo / "data" / "raw"
         subdir.mkdir(parents=True)
         monkeypatch.chdir(subdir)
 
         with _no_container_runtime():
-            result = cli_runner.invoke(health, ["--category", "configuration"])
+            result = runner.invoke(health, ["--category", "configuration"])
         assert result.exit_code != 2, result.output
 
-    def test_short_p_is_not_the_project_flag(self, cli_runner):
+    def test_short_p_is_not_the_project_flag(self, runner):
         """``-p`` means ``--port`` on every serving verb; it must not mean this.
 
         One letter cannot mean "the deployment to report on" here and "the port
         to bind" on ``osprey web``/``artifacts web``/``ariel``/``theme-lab``.
         """
-        result = cli_runner.invoke(health, ["--help"])
+        result = runner.invoke(health, ["--help"])
         assert "--project" in result.output
         assert "-p," not in result.output
 
@@ -710,42 +673,42 @@ class TestJsonOutput:
         "results",
     }
 
-    def test_json_stdout_roundtrips_to_report(self, cli_runner, valid_project):
+    def test_json_stdout_roundtrips_to_report(self, runner, valid_project):
         report = _report(
             _result("a", Status.OK),
             _result("b", Status.WARNING),
             _result("c", Status.SKIP),
         )
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project), "--json"])
+            result = runner.invoke(health, ["--project", str(valid_project), "--json"])
         assert result.exit_code == 1
         payload = json.loads(result.stdout)
         assert payload == report.to_dict()
 
-    def test_json_wire_shape_keys(self, cli_runner, valid_project):
+    def test_json_wire_shape_keys(self, runner, valid_project):
         report = _report(_result("a", Status.OK))
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project), "--json"])
+            result = runner.invoke(health, ["--project", str(valid_project), "--json"])
         payload = json.loads(result.stdout)
         assert set(payload) == self._WIRE_KEYS
 
-    def test_json_stdout_is_single_document(self, cli_runner, valid_project):
+    def test_json_stdout_is_single_document(self, runner, valid_project):
         # Exactly one JSON document, nothing else, on stdout (spinner is on stderr).
         report = _report(_result("a", Status.OK))
         with _patch_suite(report):
-            result = cli_runner.invoke(health, ["--project", str(valid_project), "--json"])
+            result = runner.invoke(health, ["--project", str(valid_project), "--json"])
         stripped = result.stdout.strip()
         assert stripped.startswith("{") and stripped.endswith("}")
         assert "\n" not in stripped  # a single compact line
 
-    def test_json_clean_despite_config_load_error(self, cli_runner, tmp_path):
+    def test_json_clean_despite_config_load_error(self, runner, tmp_path):
         # Regression: the loader reports bad-YAML failures at ERROR. Under --json
         # that chatter must stay off stdout so it remains a single parseable JSON
         # document, whichever stream the host has logging pointed at.
         project = tmp_path / "proj"
         _write_config(project, "invalid: yaml: content:\n")
         with _no_container_runtime():
-            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+            result = runner.invoke(health, ["--project", str(project), "--json"])
         payload = json.loads(result.stdout)  # must not raise
         assert _find(payload["results"], "yaml_valid")["status"] == "error"
 

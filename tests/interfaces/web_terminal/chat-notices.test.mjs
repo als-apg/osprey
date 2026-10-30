@@ -74,6 +74,32 @@ describe('transportNotice', () => {
   });
 });
 
+describe('transportNotice for a slash command the chat does not offer', () => {
+  /**
+   * @param {string} [command]
+   */
+  function refused(command) {
+    return Object.assign(transportError(400, 'command_not_available'), { command });
+  }
+
+  test.each([
+    ['an unlisted command', refused('model'), '/model is not available in this chat.'],
+    [
+      '/login',
+      refused('login'),
+      '/login is not available in this chat. Your administrator sets sign-in.',
+    ],
+    [
+      '/logout',
+      refused('logout'),
+      '/logout is not available in this chat. Your administrator sets sign-in.',
+    ],
+    ['no name in the body', refused(), 'This command is not available in this chat.'],
+  ])('%s', (_case, err, notice) => {
+    expect(transportNotice(err)).toBe(notice);
+  });
+});
+
 describe('handoffRefusal', () => {
   test.each([
     ['session_attached_elsewhere', { message: HANDOFF_HELD_ELSEWHERE_MESSAGE, action: null }],

@@ -10,8 +10,8 @@ making the calls, and prove six things:
 (a) a write the limits hook denies is not executed, although the approval hook
     asks about it, and the operator is never shown it;
 (b) a write the writes-check hook denies (writes off for the deployment) is not
-    executed, although the approval hook asks about it, and the operator is never
-    shown it;
+    executed, the approval hook defers to that deny rather than asking, and the
+    operator is never shown it;
 (c) a write only the approval hook asks about is put to the operator, with no
     "Allow for this session" offered, and an allow lets it run;
 (d) an operator's decline blocks the call.
@@ -31,8 +31,8 @@ that the operator approved it (APPROVAL_NOTE). That note reaches the request aft
 Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
 it reads "ran" in (c), "not run" in (d), and "failed" in (e).
 
-Each gate's own decision for each call is read from the render's hook log, which
-records every decision a hook makes, denials included. The transcript is not the
+Each gate's own decision for each call is read from the agent record's hook debug
+lines, which record every decision a hook makes, denials included. The transcript is not the
 witness: it keeps a hook's output when the hook asks or allows, and nothing when
 the hook denies.
 """
@@ -292,18 +292,21 @@ async def test_an_over_limit_write_is_not_executed_though_approval_asks(
 
 
 # ---------------------------------------------------------------------------
-# (b) writes-check denies (writes off); the approval hook asks; the operator approves everything
+# (b) writes-check denies (writes off); the approval hook defers; the operator approves everything
 # ---------------------------------------------------------------------------
 
 
-async def test_a_write_with_writes_off_is_not_executed_though_approval_asks(
+async def test_a_write_with_writes_off_is_not_executed_and_approval_defers(
     safety_project, scripted_model
 ):
-    """(b): a deployment-wide readonly run denies the write at writes-check. The render's
-    static ``permissions.ask`` still names the write, and the approval hook still asks."""
-    assert WRITE in _rendered_ask_list(safety_project), (
-        "the render carries no static ask for the write; the scenario would not test "
-        "a deny against an ask"
+    """(b): a deployment-wide readonly run denies the write at writes-check. On an
+    ``allowed`` render the write's rule carries both hooks, so the render pulls its
+    static ``permissions.ask`` and denies nothing: the hook chain is the whole boundary,
+    and the approval hook defers on a write the verdict refuses, so no operator is
+    offered an approval for a write that cannot run."""
+    assert WRITE not in _rendered_ask_list(safety_project), (
+        "the render still carries a static ask for the write; an ask there would put "
+        "the refused write in front of the operator"
     )
     model, run = await drive_chat(
         safety_project,
@@ -317,7 +320,8 @@ async def test_a_write_with_writes_off_is_not_executed_though_approval_asks(
     facts = run.describe(call)
     print(f"chat-gates (b) {facts}")
 
-    assert ("approval", "ask") in run.statuses(call), facts
+    assert ("approval", "defer") in run.statuses(call), facts
+    assert ("approval", "ask") not in run.statuses(call), facts
     assert ("writes-check", "deny") in run.statuses(call), facts
 
     assert not run.was_carded(call), f"the operator was shown a write with writes off: {facts}"

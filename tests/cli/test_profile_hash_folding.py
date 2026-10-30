@@ -33,7 +33,7 @@ from osprey.cli.build_profile import compute_preset_hash, compute_profile_hash
 from osprey.cli.build_profile_document import RETIRED_TIER_KEY
 from osprey.cli.build_profile_merge import layer_fold_label, profile_triggers_material
 from osprey.cli.profile_conventions import CONVENTION_SOURCES
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 

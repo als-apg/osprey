@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 
 from .build_profile_document import _read_profile_document
 from .profile_root import ProfileKind

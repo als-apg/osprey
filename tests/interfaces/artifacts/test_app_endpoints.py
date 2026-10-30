@@ -12,6 +12,7 @@ Covers:
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,6 +24,7 @@ from osprey.interfaces.artifacts.app import (
     create_app,
     run_server,
 )
+from osprey.interfaces.opaque_origin import INERT_TYPES, OPAQUE_CSP
 
 
 def _save_text_artifact(store, title="Plain text"):
@@ -49,19 +51,13 @@ def _save_html_artifact(store, content: str):
     )
 
 
-@pytest.fixture
-def app_client(tmp_path):
-    return TestClient(create_app(workspace_root=tmp_path)), tmp_path
-
-
 class TestArtifactEntryAPI:
     """GET and DELETE /api/artifacts/{artifact_id}."""
 
     def test_get_artifact_returns_entry(self, app_client):
-        client, _ = app_client
-        entry = _save_text_artifact(client.app.state.artifact_store, title="Fetch Me")
+        entry = _save_text_artifact(app_client.app.state.artifact_store, title="Fetch Me")
 
-        resp = client.get(f"/api/artifacts/{entry.id}")
+        resp = app_client.get(f"/api/artifacts/{entry.id}")
         assert resp.status_code == 200
         assert resp.json()["id"] == entry.id
         assert resp.json()["title"] == "Fetch Me"
@@ -75,8 +71,7 @@ class TestArtifactEntryAPI:
             unregister_artifact_delete_listener,
         )
 
-        client, _ = app_client
-        entry = _save_text_artifact(client.app.state.artifact_store)
+        entry = _save_text_artifact(app_client.app.state.artifact_store)
 
         actors = []
 
@@ -85,43 +80,40 @@ class TestArtifactEntryAPI:
 
         register_artifact_delete_listener(record_actor)
         try:
-            assert client.delete(f"/api/artifacts/{entry.id}").status_code == 200
+            assert app_client.delete(f"/api/artifacts/{entry.id}").status_code == 200
         finally:
             unregister_artifact_delete_listener(record_actor)
 
         assert actors == ["human"]
 
     def test_delete_artifact_removes_entry(self, app_client):
-        client, _ = app_client
-        entry = _save_text_artifact(client.app.state.artifact_store)
+        entry = _save_text_artifact(app_client.app.state.artifact_store)
 
-        resp = client.delete(f"/api/artifacts/{entry.id}")
+        resp = app_client.delete(f"/api/artifacts/{entry.id}")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok", "artifact_id": entry.id}
-        assert client.get(f"/api/artifacts/{entry.id}").status_code == 404
-        assert client.delete(f"/api/artifacts/{entry.id}").status_code == 404
+        assert app_client.get(f"/api/artifacts/{entry.id}").status_code == 404
+        assert app_client.delete(f"/api/artifacts/{entry.id}").status_code == 404
 
 
 class TestBulkDelete:
     """POST /api/artifacts/delete."""
 
     def test_bulk_delete_removes_the_listed_ids_and_reports_missing(self, app_client):
-        client, _ = app_client
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
         a = _save_text_artifact(store, title="A")
         b = _save_text_artifact(store, title="B")
         keep = _save_text_artifact(store, title="Keep")
 
-        resp = client.post("/api/artifacts/delete", json={"ids": [a.id, b.id, "nope"]})
+        resp = app_client.post("/api/artifacts/delete", json={"ids": [a.id, b.id, "nope"]})
         assert resp.status_code == 200
         assert resp.json() == {"deleted": [a.id, b.id], "missing": ["nope"]}
-        assert client.get(f"/api/artifacts/{a.id}").status_code == 404
-        assert client.get(f"/api/artifacts/{b.id}").status_code == 404
-        assert client.get(f"/api/artifacts/{keep.id}").status_code == 200
+        assert app_client.get(f"/api/artifacts/{a.id}").status_code == 404
+        assert app_client.get(f"/api/artifacts/{b.id}").status_code == 404
+        assert app_client.get(f"/api/artifacts/{keep.id}").status_code == 200
 
     def test_bulk_delete_reports_a_repeated_missing_id_once(self, app_client):
-        client, _ = app_client
-        resp = client.post("/api/artifacts/delete", json={"ids": ["x", "y", "x"]})
+        resp = app_client.post("/api/artifacts/delete", json={"ids": ["x", "y", "x"]})
         assert resp.status_code == 200
         assert resp.json() == {"deleted": [], "missing": ["x", "y"]}
 
@@ -132,8 +124,7 @@ class TestBulkDelete:
             unregister_artifact_delete_listener,
         )
 
-        client, _ = app_client
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
         a = _save_text_artifact(store)
         b = _save_text_artifact(store)
 
@@ -144,7 +135,7 @@ class TestBulkDelete:
 
         register_artifact_delete_listener(record_actor)
         try:
-            resp = client.post("/api/artifacts/delete", json={"ids": [a.id, b.id]})
+            resp = app_client.post("/api/artifacts/delete", json={"ids": [a.id, b.id]})
             assert resp.status_code == 200
         finally:
             unregister_artifact_delete_listener(record_actor)
@@ -165,76 +156,86 @@ class TestBulkDelete:
             assert (tmp_path / "focus_state.txt").read_text() == ""
 
     def test_bulk_delete_refuses_an_empty_list(self, app_client):
-        client, _ = app_client
-        assert client.post("/api/artifacts/delete", json={"ids": []}).status_code == 422
+        assert app_client.post("/api/artifacts/delete", json={"ids": []}).status_code == 422
 
     def test_bulk_delete_refuses_more_than_the_cap(self, app_client):
-        client, _ = app_client
         ids = [f"id{i}" for i in range(1001)]
-        assert client.post("/api/artifacts/delete", json={"ids": ids}).status_code == 422
+        assert app_client.post("/api/artifacts/delete", json={"ids": ids}).status_code == 422
 
 
 class TestFocus:
     """GET/POST /api/focus and the focus_state.txt file the CLI hook reads."""
 
     def test_focus_lifecycle(self, app_client):
-        client, _ = app_client
-        store = client.app.state.artifact_store
-        assert client.get("/api/focus").json() == {"focused": False, "artifact": None}
+        store = app_client.app.state.artifact_store
+        assert app_client.get("/api/focus").json() == {"focused": False, "artifact": None}
 
         first = _save_text_artifact(store, title="First")
         _save_text_artifact(store, title="Second")
-        assert client.post("/api/focus", json={"artifact_id": "nonexistent"}).status_code == 404
+        assert app_client.post("/api/focus", json={"artifact_id": "nonexistent"}).status_code == 404
 
-        resp = client.post("/api/focus", json={"artifact_id": first.id})
+        resp = app_client.post("/api/focus", json={"artifact_id": first.id})
         assert resp.json() == {"status": "ok", "artifact_id": first.id}
-        focus = client.get("/api/focus").json()
+        focus = app_client.get("/api/focus").json()
         assert focus["focused"] is True
         assert focus["artifact"]["id"] == first.id  # not the latest artifact
 
-        resp = client.post("/api/focus", json={"artifact_id": first.id, "fullscreen": True})
+        resp = app_client.post("/api/focus", json={"artifact_id": first.id, "fullscreen": True})
         assert resp.status_code == 200
         assert resp.json()["artifact_id"] == first.id
 
-    def test_stale_focus_cleared_and_falls_back_to_latest(self, app_client):
+    @pytest.mark.parametrize(
+        ("body", "flag"),
+        [({}, None), ({"automatic": True}, True)],
+        ids=["chosen", "automatic"],
+    )
+    def test_a_focus_event_says_whether_it_was_automatic(self, app_client, body, flag):
+        """The Simple layout keeps its selection through an automatic focus, so
+        the broadcast must carry the flag exactly when the sender set it."""
+        store = app_client.app.state.artifact_store
+        entry = _save_text_artifact(store, title="Review")
+        with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
+            app_client.post("/api/focus", json={"artifact_id": entry.id, **body})
+        (event,), _ = broadcast.call_args
+        assert event.get("automatic") is flag
+
+    def test_stale_focus_cleared_and_falls_back_to_latest(self, app_client, tmp_path):
         """A focused artifact deleted out from under the app contributes no
         line to focus_state.txt; GET /api/focus clears the stale id and falls
         back to the newest remaining entry."""
-        client, workspace = app_client
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
         doomed = _save_text_artifact(store, title="Doomed")
-        client.post("/api/focus", json={"artifact_id": doomed.id})
+        app_client.post("/api/focus", json={"artifact_id": doomed.id})
         store.delete_entry(doomed.id)
         survivor = _save_text_artifact(store, title="Survivor")
 
         # Rewriting the file while the stale id is still set omits the artifact line.
-        client.post(f"/api/artifacts/{survivor.id}/pin", json={"pinned": True})
-        text = (workspace / "focus_state.txt").read_text()
+        app_client.post(f"/api/artifacts/{survivor.id}/pin", json={"pinned": True})
+        text = (tmp_path / "focus_state.txt").read_text()
         assert "artifact:" not in text
         assert 'pinned:   "Survivor"' in text
 
-        focus = client.get("/api/focus").json()
+        focus = app_client.get("/api/focus").json()
         assert focus["focused"] is False
         assert focus["artifact"]["id"] == survivor.id
-        assert client.app.state.focused_artifact_id is None  # stale id was cleared
+        assert app_client.app.state.focused_artifact_id is None  # stale id was cleared
 
-    def test_focus_file_pin_unpin_and_dedupe(self, app_client):
+    def test_focus_file_pin_unpin_and_dedupe(self, app_client, tmp_path):
         """Pinning writes a pinned line; unpinning empties (not deletes) the
         file; an artifact both focused and pinned appears only as the focused
         line, not duplicated as a pinned line."""
-        client, workspace = app_client
-        entry = _save_text_artifact(client.app.state.artifact_store, title="Both")
-        focus_file = workspace / "focus_state.txt"
+        entry = _save_text_artifact(app_client.app.state.artifact_store, title="Both")
+        focus_file = tmp_path / "focus_state.txt"
 
-        client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
+        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
         assert 'pinned:   "Both"' in focus_file.read_text()
 
-        client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
+        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
         # The file is emptied, not deleted -- the hook treats both as "no focus".
         assert focus_file.read_text() == ""
 
-        client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        client.post("/api/focus", json={"artifact_id": entry.id})
+        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
+        app_client.post("/api/focus", json={"artifact_id": entry.id})
         text = focus_file.read_text()
         assert f'artifact: "Both" (id={entry.id})' in text
         assert "pinned:" not in text
@@ -265,13 +266,12 @@ class TestServeFileEndpoint:
     """GET /files/{artifact_id}/{filename}."""
 
     def test_missing_artifact_or_file_returns_404(self, app_client):
-        client, _ = app_client
-        assert client.get("/files/nonexistent/whatever.html").status_code == 404
+        assert app_client.get("/files/nonexistent/whatever.html").status_code == 404
 
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
         entry = _save_text_artifact(store)
         store.get_file_path(entry.id).unlink()
-        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
 
@@ -280,14 +280,13 @@ class TestServeFileEndpoint:
         local Plotly bundle plus the responsive snippet injected (offline mode
         pins the injected src to the local vendor path); one already carrying
         the bundle must not get a second 4.8MB script tag."""
-        client, _ = app_client
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
 
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
         bare = _save_html_artifact(
             store, '<html><head></head><body><div class="plotly-graph-div"></div></body></html>'
         )
-        resp = client.get(f"/files/{bare.id}/{bare.filename}")
+        resp = app_client.get(f"/files/{bare.id}/{bare.filename}")
         assert resp.status_code == 200
         assert resp.headers["content-disposition"].startswith("inline")
         assert 'src="/static/js/vendor/plotly-3.3.1.min.js"' in resp.text
@@ -300,7 +299,7 @@ class TestServeFileEndpoint:
             '<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>'
             "</head><body></body></html>",
         )
-        resp = client.get(f"/files/{bundled.id}/{bundled.filename}")
+        resp = app_client.get(f"/files/{bundled.id}/{bundled.filename}")
         assert resp.status_code == 200
         assert resp.text.count("plotly-3.3.1.min.js") == 1
         assert ".js-plotly-plot" in resp.text  # snippet still injected
@@ -309,15 +308,14 @@ class TestServeFileEndpoint:
         """A figure exported with include_plotlyjs=False calls Plotly but never
         loads it; serving it injects exactly one local bundle script tag."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
         entry = _save_html_artifact(
-            client.app.state.artifact_store,
+            app_client.app.state.artifact_store,
             "<html><head></head><body>"
             '<div id="fig" class="plotly-graph-div"></div>'
             '<script>Plotly.newPlot("fig", [{"y": [1, 2, 3]}], {});</script>'
             "</body></html>",
         )
-        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
         assert resp.status_code == 200
         assert resp.text.count('src="/static/js/vendor/plotly-3.3.1.min.js"') == 1
 
@@ -326,9 +324,8 @@ class TestServeFileEndpoint:
         (banner ``plotly.js v...``); no second copy is injected, whatever its
         version, while the responsive snippet still is."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
         entry = _save_html_artifact(
-            client.app.state.artifact_store,
+            app_client.app.state.artifact_store,
             "<html><head></head><body>"
             "<script>/**\n* plotly.js v2.35.2\n* Copyright 2012-2024, Plotly, Inc.\n*/"
             "window.Plotly = {};</script>"
@@ -336,7 +333,7 @@ class TestServeFileEndpoint:
             '<script>Plotly.newPlot("fig", [{"y": [1, 2, 3]}], {});</script>'
             "</body></html>",
         )
-        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
         assert resp.status_code == 200
         assert "plotly-3.3.1.min.js" not in resp.text
         assert "cdn.plot.ly" not in resp.text
@@ -347,16 +344,15 @@ class TestServeFileEndpoint:
         copy and its SRI attributes are stripped (the local file may differ
         from the CDN version, and SRI would block it)."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
         entry = _save_html_artifact(
-            client.app.state.artifact_store,
+            app_client.app.state.artifact_store,
             "<html><head>"
             '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"'
             ' integrity="sha384-abc123" crossorigin="anonymous"></script>'
             "</head><body></body></html>",
         )
 
-        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
         assert resp.status_code == 200
         body = resp.text
         assert "cdn.plot.ly" not in body
@@ -381,16 +377,18 @@ class TestServedPlotThemeBridge:
     """
 
     def test_bridge_loads_design_system_instead_of_reading_parent(self, app_client):
-        client, _ = app_client
         entry = _save_html_artifact(
-            client.app.state.artifact_store,
+            app_client.app.state.artifact_store,
             '<html><head></head><body><div class="plotly-graph-div"></div></body></html>',
         )
-        body = client.get(f"/files/{entry.id}/{entry.filename}").text
+        body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
         assert '/design-system/js/theme-boot.js"' in body
         assert '/design-system/css/tokens.css"' in body
         assert "/design-system/js/theme-manager.js" in body
-        assert "window.parent" not in body
+        # The C-MSG listener posts to window.parent, but nothing reads the
+        # parent's document or theme -- on an opaque origin it could not.
+        assert "parent.document" not in body
+        assert "parent.localStorage" not in body
 
     def test_snippets_carry_no_hardcoded_palette(self):
         """No injected snippet may carry a color literal or a baked theme id --
@@ -410,8 +408,7 @@ class TestServedPlotThemeBridge:
         """table_html / html / dashboard_html pages join the design system too:
         theme-boot pre-paint, tokens.css, follower role -- an unstyled table
         must not render as a black-on-white browser-default island."""
-        client, _ = app_client
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
         entry = store.save_file(
             file_content=b'<table class="artifact-table"><tr><td>1</td></tr></table>',
             filename="table.html",
@@ -421,7 +418,7 @@ class TestServedPlotThemeBridge:
             mime_type="text/html",
             tool_source="test",
         )
-        body = client.get(f"/files/{entry.id}/{entry.filename}").text
+        body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
         assert '/design-system/js/theme-boot.js"' in body
         assert '/design-system/css/tokens.css"' in body
         assert "initTheme({ role: 'follower' })" in body
@@ -608,14 +605,12 @@ class TestIndexPlotlyVendorMeta:
         from osprey.interfaces.vendor import asset_cdn_url
 
         monkeypatch.setenv("OSPREY_OFFLINE", "0")
-        client, _ = app_client
-        html = client.get("/").text
+        html = app_client.get("/").text
         assert f'name="osprey-vendor-plotly" content="{asset_cdn_url("Plotly.js")}"' in html
 
     def test_offline_mode_carries_the_vendored_path(self, app_client, monkeypatch):
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
-        html = client.get("/").text
+        html = app_client.get("/").text
         assert 'name="osprey-vendor-plotly" content="/static/js/vendor/plotly-3.3.1.min.js"' in html
 
 
@@ -670,8 +665,140 @@ class TestIndexArtifactDirMeta:
         ids=["default", "two-segment", "single-segment", "absolute", "home", "mismatched"],
     )
     def test_agent_artifact_dir_spells_each_layout(self, root, base_dir, expected):
-        from osprey_connectors.workspace import repo_root_for_agent_data
+        from osprey.utils.workspace import repo_root_for_agent_data
 
         root_path = Path(root)
         repo_root = repo_root_for_agent_data(root_path, base_dir)
         assert _agent_artifact_dir(root_path / "artifacts", repo_root, base_dir) == expected
+
+
+def _save_typed_artifact(store, *, artifact_type, mime_type, filename, content=b"<x/>"):
+    return store.save_file(
+        file_content=content,
+        filename=filename,
+        artifact_type=artifact_type,
+        title=filename,
+        description="",
+        mime_type=mime_type,
+        tool_source="test",
+    )
+
+
+class TestServedArtifactsAreOpaque:
+    """Agent-written bytes that a browser could run are served on an opaque
+    origin (C-OPAQUE); inert types keep their headers plus ``nosniff``; the
+    gallery's own pages carry neither."""
+
+    @pytest.mark.parametrize(
+        ("mime_type", "filename"),
+        [
+            ("image/svg+xml", "figure.svg"),
+            ("application/xhtml+xml", "page.xhtml"),
+            ("application/atom+xml", "feed.xml"),
+            ("application/xslt+xml", "style.xsl"),
+            ("application/octet-stream", "blob.bin"),
+        ],
+    )
+    def test_a_served_file_of_a_scriptable_type_carries_the_opaque_sandbox(
+        self, app_client, mime_type, filename
+    ):
+        entry = _save_typed_artifact(
+            app_client.app.state.artifact_store,
+            artifact_type="file",
+            mime_type=mime_type,
+            filename=filename,
+        )
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert resp.headers["content-security-policy"] == OPAQUE_CSP
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize(
+        "mime_type",
+        sorted(INERT_TYPES),
+    )
+    def test_a_served_file_of_an_inert_type_gets_nosniff_and_no_sandbox(
+        self, app_client, mime_type
+    ):
+        entry = _save_typed_artifact(
+            app_client.app.state.artifact_store,
+            artifact_type="file",
+            mime_type=mime_type,
+            filename="data.bin",
+            content=b"\x00\x01",
+        )
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert "content-security-policy" not in resp.headers
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_a_text_artifact_is_served_as_inert_plain_text(self, app_client):
+        """A ``text`` artifact (a .tex file, say) is served as text/plain, which
+        is inert whatever type it was saved under."""
+        entry = _save_typed_artifact(
+            app_client.app.state.artifact_store,
+            artifact_type="text",
+            mime_type="application/x-tex",
+            filename="paper.tex",
+            content=b"\\section{x}",
+        )
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.headers["content-type"].startswith("text/plain")
+        assert "content-security-policy" not in resp.headers
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize("artifact_type", ["plot_html", "html", "table_html", "dashboard_html"])
+    def test_an_injected_html_artifact_carries_the_opaque_sandbox(self, app_client, artifact_type):
+        entry = _save_typed_artifact(
+            app_client.app.state.artifact_store,
+            artifact_type=artifact_type,
+            mime_type="text/html",
+            filename="page.html",
+            content=b"<html><head></head><body><script>fetch('/x')</script></body></html>",
+        )
+        resp = app_client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert resp.headers["content-security-policy"] == OPAQUE_CSP
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        assert resp.headers["content-disposition"].startswith("inline")
+
+    @pytest.mark.parametrize("path", ["/", "/static/js/md-render.js", "/api/artifacts"])
+    def test_the_gallerys_own_pages_carry_no_sandbox(self, app_client, path):
+        resp = app_client.get(path)
+        assert resp.status_code == 200
+        assert "content-security-policy" not in resp.headers
+
+
+class TestArtifactMessageListener:
+    """C-MSG: every injection point carries the print/ready listener and keeps
+    following the theme through the design-system module."""
+
+    def test_the_listener_posts_ready_and_prints_on_request(self):
+        from osprey.interfaces.artifacts.app import _ARTIFACT_MESSAGE_LISTENER
+
+        assert "osprey-artifact-ready" in _ARTIFACT_MESSAGE_LISTENER
+        assert "osprey-artifact-print" in _ARTIFACT_MESSAGE_LISTENER
+        assert "window.opener || window.parent" in _ARTIFACT_MESSAGE_LISTENER
+        assert "window.print()" in _ARTIFACT_MESSAGE_LISTENER
+        # print is accepted only from the frame's opener or parent
+        assert "event.source" in _ARTIFACT_MESSAGE_LISTENER
+
+    @pytest.mark.parametrize("artifact_type", ["plot_html", "html", "table_html", "dashboard_html"])
+    def test_every_html_snippet_carries_the_listener_and_the_theme_follower(self, artifact_type):
+        from osprey.interfaces.artifacts.app import (
+            _ARTIFACT_MESSAGE_LISTENER,
+            _RESPONSIVE_SNIPPETS,
+        )
+
+        snippet = _RESPONSIVE_SNIPPETS[artifact_type]
+        assert _ARTIFACT_MESSAGE_LISTENER in snippet
+        assert "from '/design-system/js/theme-manager.js'" in snippet
+        assert "initTheme({ role: 'follower' })" in snippet
+
+    def test_a_served_html_artifact_carries_the_listener(self, app_client):
+        entry = _save_html_artifact(
+            app_client.app.state.artifact_store, "<html><head></head><body></body></html>"
+        )
+        body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
+        assert "osprey-artifact-ready" in body
+        assert "osprey-artifact-print" in body

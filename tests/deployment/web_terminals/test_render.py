@@ -62,9 +62,22 @@ from osprey.services.auth_sidecar.app import (
     ENV_USERS,
     ENV_WEB_APP_NAME,
 )
-from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX, env_var_suffix
+from osprey.services.auth_sidecar.roster_env import (
+    HISTORY_ORIGIN_VAR,
+    PW_HASH_VAR_PREFIX,
+    READERS_VAR,
+    ROSTER_HISTORY_VAR_PREFIX,
+    env_var_suffix,
+)
 from osprey_connectors.workspace import agent_data_base_dir
 from tests._renders import tier_render
+from tests.deployment.web_terminals._nginx import (
+    nginx_directives,
+    nginx_location_body,
+    nginx_server_blocks,
+    nginx_terminals_part,
+    render_nginx,
+)
 
 
 class _InMemoryBytecodeCache(BytecodeCache):
@@ -275,8 +288,8 @@ def test_render_is_deterministic() -> None:
     assert first == second
 
 
-def test_compose_parses_as_yaml_with_one_service_and_one_volume_pair_per_user() -> None:
-    """The compose overlay is valid YAML: one web-<user> service + nginx, one volume pair per user."""
+def test_compose_parses_as_yaml_with_one_service_and_its_volumes_per_user() -> None:
+    """The compose overlay is valid YAML: one web-<user> service + nginx, three volumes per user."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     users = config["modules"]["web_terminals"]["users"]
@@ -288,7 +301,9 @@ def test_compose_parses_as_yaml_with_one_service_and_one_volume_pair_per_user() 
     # Assert
     assert set(compose["services"].keys()) == {"nginx", *(f"web-{u}" for u in users)}
     assert set(compose["volumes"].keys()) == {
-        volume for u in users for volume in (f"{u}-claude-config", f"{u}-agent-data")
+        volume
+        for u in users
+        for volume in (f"{u}-claude-config", f"{u}-claude-projects", f"{u}-agent-data")
     }
 
 
@@ -567,8 +582,8 @@ def test_landing_escapes_html_special_characters_in_link_labels() -> None:
 
     Exercised through the LINK labels rather than a roster name: a group label
     and a link label are free prose a facility authors, while a roster name can
-    no longer reach this template unescaped at all — it is the audit
-    subdirectory's name in every auth posture, so `_check_roster_audit_identities`
+    never reach this template unescaped at all — it is the spool and state
+    subdirectories' name in every auth posture, so `_check_roster_audit_identities`
     refuses anything outside the username charset before the landing page is
     built (see the companion test below). Both halves run through the same `|e`
     filter, so what is pinned here is the same escaping.
@@ -597,12 +612,12 @@ def test_landing_escapes_html_special_characters_in_link_labels() -> None:
 def test_a_roster_name_carrying_markup_never_reaches_the_landing_page() -> None:
     """The stronger half of the escaping story: such a name is refused outright.
 
-    It would be a host directory name (`var/audit/<user>/`, bound read-write into
+    It would be a host directory name (`var/spool/<user>/`, bound read-write into
     that user's container) before it were ever an HTML label, so the render stops
     it rather than escaping it downstream.
     """
     # Act / Assert
-    with pytest.raises(ValueError, match="audit subdirectory"):
+    with pytest.raises(ValueError, match="spool and state subdirectories"):
         render_web_terminals(copy.deepcopy(_config(["<script>alert('u')</script>"])))
 
 
@@ -1653,8 +1668,8 @@ def test_theme_value_is_yaml_quoted_and_round_trips() -> None:
 def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     """A render's `extra_mounts` render as additional `volumes:` entries on every
     user of that render, after the framework mounts (claude-config, agent-data,
-    this user's audit subdirectory, its control-context record directory, the
-    simulator logs and the guarded-run directory)."""
+    this user's spool and state subdirectories, its control-context
+    record directory, the simulator logs and the guarded-run directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -1683,12 +1698,14 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the six default mounts plus the render's two
+    # Assert — bob (gui) carries the eight default mounts plus the render's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
+        "bob-claude-projects:/data/claude-config/projects",
         "bob-agent-data:/app/dls-gui/var/agent_data",
-        "./var/audit/bob:/app/dls-gui/var/audit/bob",
+        "./var/spool/bob:/app/dls-gui/var/spool/bob",
+        "./var/state/bob:/app/dls-gui/var/state/bob",
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
         "./var/guarded_run:/app/dls-gui/var/guarded_run",
@@ -1696,11 +1713,13 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "shared-cache:/app/cache",
     ]
     # alice (default tier, no extra_mounts) keeps exactly the framework's own
-    # six mounts — the render's list adds to them, never reorders them.
+    # eight mounts — the render's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
+        "alice-claude-projects:/data/claude-config/projects",
         "alice-agent-data:/app/dls_controls-assistant/var/agent_data",
-        "./var/audit/alice:/app/dls_controls-assistant/var/audit/alice",
+        "./var/spool/alice:/app/dls_controls-assistant/var/spool/alice",
+        "./var/state/alice:/app/dls_controls-assistant/var/state/alice",
         (
             "./var/agent_data/control_target/alice"
             ":/app/dls_controls-assistant/var/agent_data/control_target/alice"
@@ -1711,9 +1730,10 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the six
-    framework per-user volume lines — claude-config, agent-data, this user's own
-    audit subdirectory, its own control-context record directory, the simulator
+    """A render with no `extra_mounts` emits exactly the eight
+    framework per-user volume lines — claude-config, the transcripts volume
+    nested in it, agent-data, this user's own
+    spool and state subdirectories, its own control-context record directory, the simulator
     logs of its mock target and the guarded-run directory — and the extra_mounts
     loop adds nothing."""
     # Arrange
@@ -1727,8 +1747,10 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
     for user in config["modules"]["web_terminals"]["users"]:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
+            f"{user}-claude-projects:/data/claude-config/projects",
             f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data",
-            f"./var/audit/{user}:/app/dls_controls-assistant/var/audit/{user}",
+            f"./var/spool/{user}:/app/dls_controls-assistant/var/spool/{user}",
+            f"./var/state/{user}:/app/dls_controls-assistant/var/state/{user}",
             (
                 f"./var/agent_data/control_target/{user}"
                 f":/app/dls_controls-assistant/var/agent_data/control_target/{user}"
@@ -2343,10 +2365,10 @@ def test_nginx_seam_auth_method_set_gates_every_proxied_user_location() -> None:
     nginx_conf = artifacts["nginx/nginx.conf"]
 
     # Assert
-    directives = _directives(nginx_conf)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
     assert directives.count("auth_request ") == len(users)
     assert directives.count("    location /u/") == len(users)
-    assert "return 200;" not in directives
+    assert "return 200;" not in nginx_directives(nginx_conf)
 
 
 def test_nginx_seam_auth_token_omits_auth_request_even_with_tls_enabled() -> None:
@@ -2395,7 +2417,7 @@ def test_nginx_seam_open_omits_auth_request_even_with_tls_enabled() -> None:
     assert "auth_request" not in nginx_conf
 
     # Assert — non-vacuous: this render really is the injecting posture.
-    assert _secret_include("alice") in _directives(nginx_conf)
+    assert _secret_include("alice") in nginx_directives(nginx_conf)
 
 
 # ---------------------------------------------------------------------------
@@ -2548,19 +2570,10 @@ def _open_config(users: list | None = None) -> dict:
     return config
 
 
-def _render_nginx(config: dict) -> str:
-    return render_web_terminals(config)["nginx/nginx.conf"]
-
-
-def _directives(conf: str) -> str:
-    """`conf` with its comment lines dropped.
-
-    Counting and absence assertions have to ignore comment prose, which in this
-    template frequently names the very construct being counted or ruled out —
-    the comment above `error_page` explains what the `auth_request` above it
-    does, and would otherwise be counted as a second `auth_request`.
-    """
-    return "\n".join(line for line in conf.splitlines() if not line.lstrip().startswith("#"))
+#: The history page's gate snippet: rendered by every signed-in render, beside
+#: the per-user ones, and included by the history page's origin's history location.
+_HISTORY_GATE_TEMPLATE = "nginx/templates/history-gate.conf.template"
+_HISTORY_GATE_INCLUDE = "/etc/nginx/osprey/history-gate.conf"
 
 
 def test_auth_location_is_rendered_once_per_roster_user() -> None:
@@ -2575,7 +2588,7 @@ def test_auth_location_is_rendered_once_per_roster_user() -> None:
     users = ["alice", "bob", "carol"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
@@ -2595,14 +2608,14 @@ def test_auth_location_is_named_by_each_users_own_auth_request() -> None:
     users = ["alice", "bob", "carol"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
         location = re.search(rf"location /u/{user}/ \{{(.*?)\n    \}}", nginx_conf, flags=re.DOTALL)
         assert location is not None, f"no proxied location rendered for {user}"
         assert f"auth_request /_osprey_auth/{user};" in location.group(1)
-    assert _directives(nginx_conf).count("auth_request ") == len(users)
+    assert nginx_directives(nginx_terminals_part(nginx_conf)).count("auth_request ") == len(users)
 
 
 def test_auth_location_verifies_against_the_sidecar_with_a_render_time_username() -> None:
@@ -2613,7 +2626,7 @@ def test_auth_location_verifies_against_the_sidecar_with_a_render_time_username(
     crafted URL, header, or cookie chooses a different one.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice", "bob"]))
+    nginx_conf = render_nginx(_auth_config(["alice", "bob"]))
 
     # Assert
     assert f"proxy_pass http://127.0.0.1:{_DEFAULT_AUTH_PORT}/verify?user=alice;" in nginx_conf
@@ -2624,7 +2637,7 @@ def test_auth_location_follows_the_configured_auth_port() -> None:
     """A facility that moves the sidecar off its layout default is routed to the
     new port — the template reads `auth_port`, it never hardcodes the default."""
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice"], port=_OVERRIDE_AUTH_PORT))
+    nginx_conf = render_nginx(_auth_config(["alice"], port=_OVERRIDE_AUTH_PORT))
 
     # Assert
     assert f"proxy_pass http://127.0.0.1:{_OVERRIDE_AUTH_PORT}/verify?user=alice;" in nginx_conf
@@ -2638,7 +2651,7 @@ def test_auth_location_is_internal_only() -> None:
     users = ["alice", "bob", "carol"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
@@ -2647,7 +2660,7 @@ def test_auth_location_is_internal_only() -> None:
         )
         assert target is not None, f"no auth target rendered for {user}"
         assert "internal;" in target.group(1)
-    assert nginx_conf.count("internal;") == len(users)
+    assert nginx_terminals_part(nginx_conf).count("internal;") == len(users)
 
 
 def test_auth_location_suppresses_the_subrequest_body() -> None:
@@ -2663,11 +2676,15 @@ def test_auth_location_suppresses_the_subrequest_body() -> None:
     users = ["alice", "bob"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
-    assert nginx_conf.count("proxy_pass_request_body off;") == len(users)
-    assert nginx_conf.count('proxy_set_header Content-Length "";') == len(users)
+    terminals = nginx_terminals_part(nginx_conf)
+    assert terminals.count("proxy_pass_request_body off;") == len(users)
+    assert terminals.count('proxy_set_header Content-Length "";') == len(users)
+    # The history page's verify target, on the history page's origin, is one more.
+    assert nginx_conf.count("proxy_pass_request_body off;") == len(users) + 1
+    assert nginx_conf.count('proxy_set_header Content-Length "";') == len(users) + 1
 
 
 def test_auth_location_verify_subrequest_fails_fast() -> None:
@@ -2682,16 +2699,16 @@ def test_auth_location_verify_subrequest_fails_fast() -> None:
     users = ["alice", "bob", "carol"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
-        body = _location_body(nginx_conf, f"location = /_osprey_auth/{user}")
+        body = nginx_location_body(nginx_conf, f"location = /_osprey_auth/{user}")
         assert "proxy_connect_timeout 2s;" in body
         assert "proxy_read_timeout 5s;" in body
     # The gated terminal locations keep the long SSE/WebSocket read timeout —
     # the short one belongs to the subrequest only.
-    assert "proxy_read_timeout 3600s;" in _location_body(nginx_conf, "location /u/alice/")
+    assert "proxy_read_timeout 3600s;" in nginx_location_body(nginx_conf, "location /u/alice/")
 
 
 def test_no_sidecar_surface_when_the_method_runs_no_sidecar() -> None:
@@ -2710,8 +2727,8 @@ def test_no_sidecar_surface_when_the_method_runs_no_sidecar() -> None:
     explicit_none["modules"]["web_terminals"]["auth"] = {"method": "none"}
 
     # Act
-    default_conf = _render_nginx(default_config)
-    explicit_conf = _render_nginx(explicit_none)
+    default_conf = render_nginx(default_config)
+    explicit_conf = render_nginx(explicit_none)
 
     # Assert
     for conf in (default_conf, explicit_conf):
@@ -2721,8 +2738,8 @@ def test_no_sidecar_surface_when_the_method_runs_no_sidecar() -> None:
 
     # Assert — and the one thing that DOES separate them. Read off the
     # directives: the template names this very include in the prose above it.
-    assert _secret_include("alice") in _directives(explicit_conf)
-    assert "include " not in _directives(default_conf)
+    assert _secret_include("alice") in nginx_directives(explicit_conf)
+    assert "include " not in nginx_directives(default_conf)
 
 
 def test_the_absent_auth_stanza_renders_exactly_the_explicit_token_posture() -> None:
@@ -2753,7 +2770,7 @@ def test_auth_location_zero_users_renders_no_auth_targets() -> None:
     """An empty roster with auth on has nobody to authorize: no targets, and —
     critically — no location that answers 200 in their absence."""
     # Act
-    nginx_conf = _render_nginx(_auth_config([]))
+    nginx_conf = render_nginx(_auth_config([]))
 
     # Assert
     assert "_osprey_auth" not in nginx_conf
@@ -2765,24 +2782,17 @@ def test_auth_location_zero_users_renders_no_auth_targets() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _location_body(nginx_conf: str, header: str) -> str:
-    """The directives inside a top-level `location …` block, by its header line."""
-    match = re.search(rf"{re.escape(header)} \{{(.*?)\n    \}}", nginx_conf, flags=re.DOTALL)
-    assert match is not None, f"no `{header}` block in the rendered fragment"
-    return match.group(1)
-
-
 def test_auth_public_location_proxies_the_login_surface_to_the_sidecar() -> None:
     """`/auth/` reaches the sidecar's own `/auth/` prefix — the login page, the
     credential POST, the OIDC callback, logout, and the page's assets all ride
     this one prefix location rather than an enumeration that drifts from the
     sidecar's router."""
     # Act
-    nginx_conf = _render_nginx(_auth_config())
+    nginx_conf = render_nginx(_auth_config())
 
     # Assert
     assert "    location /auth/ {" in nginx_conf
-    assert f"proxy_pass http://127.0.0.1:{_DEFAULT_AUTH_PORT}/auth/;" in _location_body(
+    assert f"proxy_pass http://127.0.0.1:{_DEFAULT_AUTH_PORT}/auth/;" in nginx_location_body(
         nginx_conf, "location /auth/"
     )
 
@@ -2791,7 +2801,7 @@ def test_auth_public_location_follows_the_configured_auth_port() -> None:
     """The public surface and the internal verify targets are pointed at the same
     configured sidecar port — neither hardcodes the layout default."""
     # Act
-    nginx_conf = _render_nginx(_auth_config(port=_OVERRIDE_AUTH_PORT))
+    nginx_conf = render_nginx(_auth_config(port=_OVERRIDE_AUTH_PORT))
 
     # Assert
     assert f"proxy_pass http://127.0.0.1:{_OVERRIDE_AUTH_PORT}/auth/;" in nginx_conf
@@ -2803,11 +2813,11 @@ def test_auth_public_location_is_not_behind_auth_request() -> None:
     locked door whose key is inside the room. Same for the landing page at `= /`,
     which is both the identity chooser and what the nginx healthcheck probes."""
     # Act
-    nginx_conf = _render_nginx(_auth_config())
+    nginx_conf = render_nginx(_auth_config())
 
     # Assert
-    assert "auth_request" not in _location_body(nginx_conf, "location /auth/")
-    assert "auth_request" not in _location_body(nginx_conf, "location = /")
+    assert "auth_request" not in nginx_location_body(nginx_conf, "location /auth/")
+    assert "auth_request" not in nginx_location_body(nginx_conf, "location = /")
 
 
 def test_auth_public_location_is_not_internal() -> None:
@@ -2815,10 +2825,10 @@ def test_auth_public_location_is_not_internal() -> None:
     login attempt (the exact failure a copy-paste from the verify targets makes,
     and one no syntax check catches)."""
     # Act
-    nginx_conf = _render_nginx(_auth_config())
+    nginx_conf = render_nginx(_auth_config())
 
     # Assert
-    assert "internal;" not in _location_body(nginx_conf, "location /auth/")
+    assert "internal;" not in nginx_location_body(nginx_conf, "location /auth/")
 
 
 def test_auth_public_location_sets_explicit_short_proxy_timeouts() -> None:
@@ -2831,7 +2841,7 @@ def test_auth_public_location_sets_explicit_short_proxy_timeouts() -> None:
     hang a browser tab.
     """
     # Act
-    body = _location_body(_render_nginx(_auth_config()), "location /auth/")
+    body = nginx_location_body(render_nginx(_auth_config()), "location /auth/")
 
     # Assert
     assert "proxy_connect_timeout 5s;" in body
@@ -2845,16 +2855,24 @@ def test_auth_public_location_does_not_expose_the_verify_endpoint() -> None:
     must not be proxied under the public prefix, where a browser could ask the
     sidecar about any username it liked."""
     # Act
-    nginx_conf = _render_nginx(_auth_config())
+    nginx_conf = render_nginx(_auth_config())
 
     # Assert
-    assert "location /verify" not in nginx_conf
-    assert "location = /verify" not in nginx_conf
+    assert not re.search(r"location (= )?/verify[ /{?]", nginx_conf)
     # Every directive (as opposed to comment prose) naming `/verify` is the
-    # proxy_pass target of an internal per-user location.
-    verify_lines = [line for line in _directives(nginx_conf).splitlines() if "/verify" in line]
+    # proxy_pass target of an internal per-user location — or belongs to the
+    # history page's own internal verify target, `/verify-history`.
+    directives = nginx_directives(nginx_conf)
+    verify_lines = [
+        line
+        for line in directives.splitlines()
+        if "/verify" in line and "/verify-history" not in line
+    ]
     assert verify_lines, "the verify targets themselves should still be rendered"
     assert all("/verify?user=" in line for line in verify_lines)
+    history_target = re.search(r"location = /verify-history \{(.*?)\n    \}", directives, re.DOTALL)
+    assert history_target is not None
+    assert "internal;" in history_target.group(1)
 
 
 def test_auth_public_location_absent_when_method_is_token() -> None:
@@ -2862,7 +2880,7 @@ def test_auth_public_location_absent_when_method_is_token() -> None:
     `/auth/` location at all. (`none` is held by the open-render tests in
     test_nginx_auth_surface.py, which rule out the bare prefix as well.)"""
     # Act
-    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     assert "location /auth/" not in nginx_conf
@@ -2873,7 +2891,7 @@ def test_auth_public_location_renders_for_an_empty_roster() -> None:
     rendered even with zero users, so a roster added later needs no second
     render path (and an empty deployment still serves a coherent origin)."""
     # Act
-    nginx_conf = _render_nginx(_auth_config([]))
+    nginx_conf = render_nginx(_auth_config([]))
 
     # Assert
     assert "    location /auth/ {" in nginx_conf
@@ -2896,11 +2914,13 @@ def test_cookie_strip_on_every_proxied_user_location() -> None:
     users = ["alice", "bob", "carol"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
-        assert 'proxy_set_header Cookie "";' in _location_body(nginx_conf, f"location /u/{user}/")
+        assert 'proxy_set_header Cookie "";' in nginx_location_body(
+            nginx_conf, f"location /u/{user}/"
+        )
 
 
 def test_cookie_strip_spares_the_sidecar_locations() -> None:
@@ -2908,11 +2928,13 @@ def test_cookie_strip_spares_the_sidecar_locations() -> None:
     thing that reads the session. Stripping it there would deny every request
     and lock the deployment out."""
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice"]))
+    nginx_conf = render_nginx(_auth_config(["alice"]))
 
     # Assert
-    assert "Cookie" not in _location_body(nginx_conf, "location /auth/")
-    assert "Cookie" not in _directives(_location_body(nginx_conf, "location = /_osprey_auth/alice"))
+    assert "Cookie" not in nginx_location_body(nginx_conf, "location /auth/")
+    assert "Cookie" not in nginx_directives(
+        nginx_location_body(nginx_conf, "location = /_osprey_auth/alice")
+    )
 
 
 def test_cookie_strip_absent_when_method_is_token() -> None:
@@ -2926,12 +2948,12 @@ def test_cookie_strip_absent_when_method_is_token() -> None:
     else.
     """
     # Act
-    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     for index, user in enumerate(("alice", "bob", "carol")):
         port = allocate_ports(_BASE_PORTS, index)["web"]
-        body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
+        body = nginx_directives(nginx_location_body(nginx_conf, f"location /u/{user}/"))
         cookie = f"osprey_terminal_session_{port}"
         assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in body
         # Never the blanket strip, which would leave this location with no gate
@@ -2954,7 +2976,7 @@ def test_negotiated_401_classifies_requests_by_accept_and_upgrade() -> None:
     whatever its Accept header claims.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config())
+    nginx_conf = render_nginx(_auth_config())
 
     # Assert
     assert "map $http_upgrade$http_accept $osprey_auth_wants_login_page {" in nginx_conf
@@ -2980,11 +3002,11 @@ def test_negotiated_401_every_user_location_intercepts_with_the_shared_handler()
     users = ["alice", "bob", "carol"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
-        body = _location_body(nginx_conf, f"location /u/{user}/")
+        body = nginx_location_body(nginx_conf, f"location /u/{user}/")
         assert f"set $osprey_auth_user {user};" in body
         assert "error_page 401 = @osprey_auth_401;" in body
 
@@ -2998,7 +3020,7 @@ def test_negotiated_401_handler_redirects_navigations_and_bares_everything_else(
     the stream it asked for.
     """
     # Act
-    body = _location_body(_render_nginx(_auth_config()), "location @osprey_auth_401")
+    body = nginx_location_body(render_nginx(_auth_config()), "location @osprey_auth_401")
 
     # Assert
     assert "if ($osprey_auth_wants_login_page) {" in body
@@ -3017,12 +3039,12 @@ def test_negotiated_401_return_to_is_allowlisted_never_a_raw_path_variable() -> 
     the allowlist map produces a value that is safe to emit AND safe to trust.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config())
-    body = _location_body(nginx_conf, "location @osprey_auth_401")
+    nginx_conf = render_nginx(_auth_config())
+    body = nginx_location_body(nginx_conf, "location @osprey_auth_401")
 
     # Assert
     assert "next=$osprey_auth_next;" in body
-    directives = _directives(body)
+    directives = nginx_directives(body)
     assert "next=$uri" not in directives
     assert "$request_uri" not in directives
 
@@ -3036,7 +3058,7 @@ def test_negotiated_401_return_to_allowlist_rejects_injection_and_keeps_deep_lin
     arrives as a real CR LF, `%26` as a real `&`.
     """
     # Arrange
-    nginx_conf = _render_nginx(_auth_config())
+    nginx_conf = render_nginx(_auth_config())
     pattern = re.search(r'\n    "~(\S+)" \$uri;', nginx_conf)
     assert pattern is not None, "no allowlist entry in the $osprey_auth_next map"
     # PCRE's `\z` is spelled `\Z` in Python; the anchor semantics are the same
@@ -3077,7 +3099,7 @@ def test_every_nginx_mount_and_landing_card_renders_from_the_mount_root(monkeypa
 
     # Act
     out = render_web_terminals(_auth_config(["alice"]))
-    nginx = _directives(out["nginx/nginx.conf"])
+    nginx = nginx_directives(out["nginx/nginx.conf"])
 
     # Assert — the locations and the bookmark redirect
     assert "location /m.v/alice/ {" in nginx
@@ -3109,36 +3131,36 @@ def test_negotiated_401_every_redirect_is_relative_to_the_clients_own_origin() -
     operator is far more likely to have saved — still absolute.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice"]))
-    content = _server_blocks(nginx_conf)[0]
+    nginx_conf = render_nginx(_auth_config(["alice"]))
+    content = nginx_server_blocks(nginx_conf)[0]
 
     # Assert — declared before the first location, so every one inherits it
-    server_preamble = _directives(content).split("location", 1)[0]
+    server_preamble = nginx_directives(content).split("location", 1)[0]
     assert "absolute_redirect off;" in server_preamble
     assert content.count("absolute_redirect off;") == 1
     assert "return 302 http" not in content
     # The bookmark redirect is the one this placement exists to cover.
-    assert "return 301 /u/alice/;" in _location_body(nginx_conf, "location = /u/alice")
+    assert "return 301 /u/alice/;" in nginx_location_body(nginx_conf, "location = /u/alice")
 
 
 def test_negotiated_401_login_target_is_the_public_auth_prefix() -> None:
     """The place denied users are sent must itself be reachable without a
     session — the redirect target lives under the ungated `/auth/` prefix."""
     # Act
-    nginx_conf = _render_nginx(_auth_config())
-    body = _location_body(nginx_conf, "location @osprey_auth_401")
+    nginx_conf = render_nginx(_auth_config())
+    body = nginx_location_body(nginx_conf, "location @osprey_auth_401")
 
     # Assert
     assert "/auth/login" in body
     assert "    location /auth/ {" in nginx_conf
-    assert "auth_request" not in _location_body(nginx_conf, "location /auth/")
+    assert "auth_request" not in nginx_location_body(nginx_conf, "location /auth/")
 
 
 def test_negotiated_401_absent_when_method_is_token() -> None:
     """Nothing to negotiate without a wall: no map, no `error_page`,
     no handler."""
     # Act
-    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     assert "$osprey_auth_wants_login_page" not in nginx_conf
@@ -3156,7 +3178,7 @@ def test_negotiated_401_absent_when_the_method_is_open() -> None:
     handler redirects to `/auth/login`, which this deployment does not serve.
     """
     # Act
-    nginx_conf = _render_nginx(_open_config())
+    nginx_conf = render_nginx(_open_config())
 
     # Assert
     assert "$osprey_auth_wants_login_page" not in nginx_conf
@@ -3164,7 +3186,7 @@ def test_negotiated_401_absent_when_the_method_is_open() -> None:
     assert "@osprey_auth_401" not in nginx_conf
 
     # Assert — non-vacuous: this render is the injecting one, not an empty one.
-    assert _secret_include("alice") in _directives(nginx_conf)
+    assert _secret_include("alice") in nginx_directives(nginx_conf)
 
 
 # ---------------------------------------------------------------------------
@@ -3172,25 +3194,14 @@ def test_negotiated_401_absent_when_the_method_is_open() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _server_blocks(nginx_conf: str) -> list[str]:
-    """The top-level `server { … }` blocks, in render order.
-
-    Split on the closing brace in column 0, which only a top-level block has
-    (every nested `location` closes at an indent).
-    """
-    blocks = re.findall(r"^server \{\n(.*?)^\}$", nginx_conf, flags=re.DOTALL | re.MULTILINE)
-    assert blocks, "no top-level server block in the rendered fragment"
-    return blocks
-
-
 def test_tls_off_renders_the_content_server_and_a_redirect_for_every_other_name() -> None:
     """Without TLS the plain port carries two servers: the content server on the
     origin's host, and a default server sending every other name to the origin."""
     # Act
-    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
-    blocks = _server_blocks(nginx_conf)
+    blocks = nginx_server_blocks(nginx_conf)
     assert len(blocks) == 2
     content, catch_all = blocks
     assert f"listen {_NGINX_PORT};" in content
@@ -3208,10 +3219,10 @@ def test_tls_off_renders_the_content_server_and_a_redirect_for_every_other_name(
 def test_roster_less_render_keeps_one_server_for_every_name() -> None:
     """A render with no origin has no name to prefer: one server answers all."""
     # Act
-    nginx_conf = _render_nginx(_config([]))
+    nginx_conf = render_nginx(_config([]))
 
     # Assert
-    blocks = _server_blocks(nginx_conf)
+    blocks = nginx_server_blocks(nginx_conf)
     assert len(blocks) == 1
     assert "server_name _;" in blocks[0]
     assert "default_server" not in nginx_conf
@@ -3220,11 +3231,11 @@ def test_roster_less_render_keeps_one_server_for_every_name() -> None:
 def test_the_content_server_serves_only_the_origin_host() -> None:
     """The content server claims the origin's host and no other name."""
     # Act
-    content, catch_all = _server_blocks(_render_nginx(_config(["alice"])))
+    content, catch_all = nginx_server_blocks(render_nginx(_config(["alice"])))
 
     # Assert
     assert "server_name dls-deploy.dls.example.org;" in content
-    server_names = re.findall(r"server_name ([^;]+);", _directives(content + catch_all))
+    server_names = re.findall(r"server_name ([^;]+);", nginx_directives(content + catch_all))
     assert server_names == ["dls-deploy.dls.example.org", "_"]
 
 
@@ -3235,7 +3246,7 @@ def test_a_configured_external_origin_is_the_served_name_and_the_redirect_target
     config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
 
     # Act
-    content, catch_all = _server_blocks(_render_nginx(config))
+    content, catch_all = nginx_server_blocks(render_nginx(config))
 
     # Assert
     assert "server_name terminals.example.org;" in content
@@ -3246,11 +3257,11 @@ def test_a_configured_external_origin_is_the_served_name_and_the_redirect_target
 def test_the_origin_port_never_reaches_server_name() -> None:
     """`server_name` matches the host alone; the listener decides the port."""
     # Act
-    nginx_conf = _render_nginx(_tls_config(port=_ALT_TLS_PORT))
+    nginx_conf = render_nginx(_tls_config(port=_ALT_TLS_PORT))
 
     # Assert
     assert "server_name dls-deploy.dls.example.org;" in nginx_conf
-    for name in re.findall(r"server_name ([^;]+);", _directives(nginx_conf)):
+    for name in re.findall(r"server_name ([^;]+);", nginx_directives(nginx_conf)):
         assert f":{_ALT_TLS_PORT}" not in name
 
 
@@ -3262,7 +3273,7 @@ def test_tls_redirect_splits_into_a_redirect_server_and_a_content_server() -> No
     clear — the exact risk TLS was enabled to remove.
     """
     # Act
-    blocks = _server_blocks(_render_nginx(_tls_config()))
+    blocks = nginx_server_blocks(render_nginx(_tls_config()))
 
     # Assert
     assert len(blocks) == 3
@@ -3286,7 +3297,7 @@ def test_tls_redirect_server_serves_nothing_but_the_redirect() -> None:
     only content is the 301. Anything else served there would be served over
     cleartext."""
     # Act
-    redirect = _server_blocks(_render_nginx(_tls_config()))[0]
+    redirect = nginx_server_blocks(render_nginx(_tls_config()))[0]
 
     # Assert
     assert "return 301 https://dls-deploy.dls.example.org$request_uri;" in redirect
@@ -3303,11 +3314,11 @@ def test_tls_redirect_target_is_the_origin_not_the_requested_host() -> None:
     whose pages load and whose every write is refused.
     """
     # Act
-    redirect = _server_blocks(_render_nginx(_tls_config()))[0]
+    redirect = nginx_server_blocks(render_nginx(_tls_config()))[0]
 
     # Assert
     assert "return 301 https://dls-deploy.dls.example.org$request_uri;" in redirect
-    assert "$host" not in _directives(redirect)
+    assert "$host" not in nginx_directives(redirect)
 
 
 def test_tls_redirect_follows_a_configured_external_origin() -> None:
@@ -3317,7 +3328,7 @@ def test_tls_redirect_follows_a_configured_external_origin() -> None:
     config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
 
     # Act
-    redirect = _server_blocks(_render_nginx(config))[0]
+    redirect = nginx_server_blocks(render_nginx(config))[0]
 
     # Assert
     assert "return 301 https://terminals.example.org$request_uri;" in redirect
@@ -3327,7 +3338,7 @@ def test_roster_less_tls_render_keeps_the_requested_host_redirect() -> None:
     """A render with no origin has nowhere fixed to send a browser, so the plain
     listener keeps the requested host."""
     # Act
-    blocks = _server_blocks(_render_nginx(_tls_config([])))
+    blocks = nginx_server_blocks(render_nginx(_tls_config([])))
 
     # Assert
     assert len(blocks) == 2
@@ -3355,7 +3366,9 @@ def test_tls_content_server_listens_on_a_configured_non_default_port() -> None:
     privileged) or answers on a port nothing else in the deployment knows about.
     """
     # Act
-    redirect, content, _catch_all = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))
+    redirect, content, _catch_all = nginx_server_blocks(
+        render_nginx(_tls_config(port=_ALT_TLS_PORT))
+    )
 
     # Assert — the content server is entirely on the configured port
     assert f"listen {_ALT_TLS_PORT} ssl;" in content
@@ -3375,7 +3388,7 @@ def test_tls_redirect_names_a_non_default_port_in_its_bounce_target() -> None:
     front door becomes a redirect into a connection refusal.
     """
     # Act
-    redirect = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))[0]
+    redirect = nginx_server_blocks(render_nginx(_tls_config(port=_ALT_TLS_PORT)))[0]
 
     # Assert
     assert f"return 301 https://dls-deploy.dls.example.org:{_ALT_TLS_PORT}$request_uri;" in redirect
@@ -3390,12 +3403,13 @@ def test_tls_port_left_at_the_default_keeps_the_port_out_of_the_redirect() -> No
     value, in the canonical form, from either config.
     """
     # Act
-    explicit = _render_nginx(_tls_config(port=TLS_LISTEN_PORT))
+    explicit = render_nginx(_tls_config(port=TLS_LISTEN_PORT))
 
     # Assert
-    assert explicit == _render_nginx(_tls_config())
+    assert explicit == render_nginx(_tls_config())
     assert (
-        "return 301 https://dls-deploy.dls.example.org$request_uri;" in _server_blocks(explicit)[0]
+        "return 301 https://dls-deploy.dls.example.org$request_uri;"
+        in nginx_server_blocks(explicit)[0]
     )
 
 
@@ -3406,7 +3420,7 @@ def test_tls_redirect_content_server_holds_the_cert_and_every_user_route() -> No
     config = _tls_config(["alice", "bob"])
 
     # Act
-    content = _server_blocks(_render_nginx(config))[1]
+    content = nginx_server_blocks(render_nginx(config))[1]
 
     # Assert
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
@@ -3429,8 +3443,8 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
         "key": "/etc/nginx/certs/dls.key",
     }
 
-    # Act
-    redirect, content, catch_all = _server_blocks(_render_nginx(config))
+    # Act — the fourth server is the history page's origin, the history page's.
+    redirect, content, catch_all, readers = nginx_server_blocks(render_nginx(config))
 
     # Assert
     assert "location /auth/" not in redirect
@@ -3441,12 +3455,16 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
     # every auth target lives in the 443 server and nowhere else, so the split
     # cannot silently leave a duplicate of one on the cleartext listener.
     users = config["modules"]["web_terminals"]["users"]
-    assert _directives(content).count("auth_request ") == len(users)
-    assert _directives(redirect).count("auth_request ") == 0
+    assert nginx_directives(content).count("auth_request ") == len(users)
+    assert nginx_directives(redirect).count("auth_request ") == 0
     assert content.count("location = /_osprey_auth/") == len(users)
     assert redirect.count("location") == 0
-    assert _directives(catch_all).count("auth_request ") == 0
+    assert nginx_directives(catch_all).count("auth_request ") == 0
     assert "location" not in catch_all
+    # The history page's origin serves its sign-in-gated page behind TLS too, and
+    # holds none of the per-user gates.
+    assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)
+    assert "_osprey_auth" not in readers
 
 
 def test_nginx_landing_location_is_exact_match_only() -> None:
@@ -3614,7 +3632,11 @@ def test_web_volumes_carry_no_checkout_label() -> None:
     a volume whose labels disagree with its compose file. Services keep it."""
     compose = _compose(_config(["alice"]))
 
-    assert compose["volumes"] == {"alice-claude-config": None, "alice-agent-data": None}
+    assert compose["volumes"] == {
+        "alice-claude-config": None,
+        "alice-claude-projects": None,
+        "alice-agent-data": None,
+    }
     assert "com.osprey.repo-id" in compose["services"]["web-alice"]["labels"]
 
 
@@ -3755,16 +3777,25 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
         # id (absent here, since this config names none) and the facility name
         # the terminals behind the sidecar already carry.
         ENV_WEB_APP_NAME,
-        # The sidecar's audit identity and the directory it writes its login and
-        # denial events to. Neither is a secret: one is the fixed name
-        # `sidecar`, the other a container path.
+        # The sidecar's identity: the fixed name `sidecar`, not a secret.
         "OSPREY_AUDIT_IDENTITY",
-        "OSPREY_AUTH_AUDIT_DIR",
+        # Its spool and state directories: container paths, not secrets. The
+        # state directory holds the logout revocations.
+        "OSPREY_SPOOL_DIR",
+        "OSPREY_STATE_DIR",
         ENV_METHOD,
         ENV_SESSION_LIFETIME,
         ENV_TLS_ENABLED,
         ENV_EXTERNAL_ORIGIN,
         ENV_USERS,
+        # The history page's origin, each roster user's history scope and the
+        # configured readers' names: the sign-in's routing and scope, none of
+        # them a credential.
+        HISTORY_ORIGIN_VAR,
+        f"{ROSTER_HISTORY_VAR_PREFIX}ALICE",
+        f"{ROSTER_HISTORY_VAR_PREFIX}BOB",
+        f"{ROSTER_HISTORY_VAR_PREFIX}CAROL",
+        READERS_VAR,
         # No egress passthrough: this render is told no proxy name holds a
         # value, so it writes none under either spelling. Its shape when one
         # does is asserted below.
@@ -4216,7 +4247,8 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
     for name, service in compose["services"].items():
         if not name.startswith("web-"):
             continue
-        assert service["env_file"] == ".env.users"
+        user = name.removeprefix("web-")
+        assert service["env_file"] == [".env.users", f".env.agent-record.login.{user}"]
         assert AUTH_ENV_FILENAME not in str(service["env_file"])
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
 
@@ -4552,22 +4584,19 @@ def test_render_auth_off_refuses_a_roster_name_outside_the_charset(name: str) ->
     reasoning (the name is an nginx location key and the auth subrequest's
     `?user=` value) only applies behind a login wall. What applies in every
     posture is that the name is a host DIRECTORY: the render emits
-    `./var/audit/<name>:<container>/var/audit/<name>`, so `../../etc` is a
+    `./var/spool/<name>:<container>/var/spool/<name>`, so `../../etc` is a
     read-write bind resolving outside the repo into a container that runs
     agent-generated code, and `alice` beside `Alice` is two terminals sharing
     one subdirectory on a case-insensitive host filesystem.
 
-    This inverts the earlier contract ("no security gain"), which the audit mount
-    invalidated: the renderer used to emit a bind the provisioning seam
-    (`compose_generator.audit_identity_dir`) refuses to create, and the renderer
-    wins — it is the artifact compose reads, and the runtime creates whatever
-    source is missing.
+    The renderer is the artifact compose reads, and the runtime creates
+    whatever bind source is missing, so the refusal has to happen here.
     """
     # Arrange
     config = _config(["alice", name])
 
     # Act / Assert
-    with pytest.raises(ValueError, match="audit subdirectory") as exc_info:
+    with pytest.raises(ValueError, match="spool and state subdirectories") as exc_info:
         render_web_terminals(config)
     assert repr(name) in str(exc_info.value)
 
@@ -4586,7 +4615,7 @@ def test_render_auth_off_still_renders_an_in_charset_roster_name() -> None:
 
 def test_with_authentication_on_the_charset_gate_is_the_one_that_answers() -> None:
     """Both gates refuse an out-of-charset name and both are right about it, but
-    they explain it differently — and only the audit gate applies in both
+    they explain it differently — and only the spool and state gate applies in both
     postures, so it is the one that would shadow the other if the two ran in the
     wrong order. With a login wall the name is the AUTHORIZATION identity (the
     nginx location key, the auth subrequest's `?user=` value), which is the more
@@ -4597,7 +4626,7 @@ def test_with_authentication_on_the_charset_gate_is_the_one_that_answers() -> No
     # Act / Assert
     with pytest.raises(ValueError, match="nginx location key") as exc_info:
         render_web_terminals(_auth_config(["alice", "bob.jones"]))
-    assert "audit subdirectory" not in str(exc_info.value)
+    assert "spool and state subdirectories" not in str(exc_info.value)
 
 
 def test_render_auth_on_charset_gate_rejects_a_trailing_newline_in_a_roster_name() -> None:
@@ -4704,11 +4733,22 @@ def test_render_without_events_panel_gets_no_dispatcher_token() -> None:
     assert not any("EVENT_DISPATCHER_TOKEN" in line for line in bob_env)
 
 
-def test_render_without_dispatcher_renders_emits_no_token_line() -> None:
+@pytest.mark.parametrize(
+    "var",
+    [
+        "EVENT_DISPATCHER_TOKEN",
+        "ARIEL_DB_PASSWORD",
+        "MONGO_ROOT_PASSWORD",
+        # No user is armed on any lane.
+        "BLUESKY_LAUNCH_TOKEN",
+        "GRAPHDB_PASSWORD",
+    ],
+)
+def test_render_without_a_render_set_emits_no_credential_line(var: str) -> None:
     """The no-project-root render path (`osprey scaffold web-terminals render`)
-    passes no render set, the same way it passes no auth digest -- so it emits no
-    credential. Harmless: every `osprey up` re-renders through the artifacts seam,
-    which resolves the set from disk."""
+    passes no render set or per-lane map, the same way it passes no auth digest
+    -- so it emits no credential. Harmless: every `osprey up` re-renders through
+    the artifacts seam, which resolves them from disk."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(_events_render_config())["docker-compose.web.yml"]
@@ -4717,7 +4757,7 @@ def test_render_without_dispatcher_renders_emits_no_token_line() -> None:
     # Assert
     for service in ("web-alice", "web-bob"):
         env = compose["services"][service]["environment"]
-        assert not any("EVENT_DISPATCHER_TOKEN" in line for line in env)
+        assert not any(var in line for line in env)
 
 
 # ---------------------------------------------------------------------------
@@ -4787,20 +4827,6 @@ def test_ariel_render_gets_the_readonly_role_password() -> None:
     assert _ARIEL_READONLY_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
     bob_env = compose["services"]["web-bob"]["environment"]
     assert not any("ARIEL_DB_READONLY_PASSWORD" in line for line in bob_env)
-
-
-def test_render_without_ariel_renders_emits_no_password_line() -> None:
-    """The no-project-root render path passes no render set and so emits no
-    credential, exactly as it does for the dispatcher token."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
-    )
-
-    # Assert
-    for service in ("web-alice", "web-bob"):
-        env = compose["services"][service]["environment"]
-        assert not any("ARIEL_DB_PASSWORD" in line for line in env)
 
 
 # ---------------------------------------------------------------------------
@@ -4935,20 +4961,6 @@ def test_render_without_an_archiver_credential_gets_none() -> None:
     # Assert
     bob_env = compose["services"]["web-bob"]["environment"]
     assert not any("MONGO_ROOT_PASSWORD" in line for line in bob_env)
-
-
-def test_render_without_archiver_renders_emits_no_password_line() -> None:
-    """The no-project-root render path passes no render map and so emits no
-    credential, exactly as it does for the other three."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
-    )
-
-    # Assert
-    for service in ("web-alice", "web-bob"):
-        env = compose["services"][service]["environment"]
-        assert not any("MONGO_ROOT_PASSWORD" in line for line in env)
 
 
 def test_archiver_grant_emits_one_line_per_named_variable() -> None:
@@ -5198,22 +5210,6 @@ def test_render_emits_no_launch_token_value_anywhere() -> None:
     ]
 
 
-def test_render_without_launch_token_renders_emits_no_token_line() -> None:
-    """The no-project-root render path (`osprey scaffold web-terminals render`)
-    passes no per-lane map, so no user is armed on any lane. Harmless: every
-    `osprey up` re-renders through the artifacts seam, which resolves the map
-    from disk."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
-    )
-
-    # Assert
-    for service in ("web-alice", "web-bob"):
-        env = compose["services"][service]["environment"]
-        assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)
-
-
 # ---------------------------------------------------------------------------
 # Graph store config -> per-user Neo4j password
 #
@@ -5264,86 +5260,19 @@ def test_render_without_graphdb_gets_no_store_password() -> None:
     assert not any("GRAPHDB_PASSWORD" in line for line in bob_env)
 
 
-def test_render_without_graphdb_renders_emits_no_store_password_line() -> None:
-    """The no-project-root render path passes no render set and so emits no
-    credential, exactly as it does for the dispatcher token."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
-    )
-
-    # Assert
-    for service in ("web-alice", "web-bob"):
-        env = compose["services"][service]["environment"]
-        assert not any("GRAPHDB_PASSWORD" in line for line in env)
-
-
 # ---------------------------------------------------------------------------
-# Telemetry login -> each terminal's own file, never the environment
-#
-# Every terminal runs an agent that sends to the deployment's telemetry gateway
-# under its own login. The login is a file per terminal (`env_file`), so no
-# rendered `environment:` line names it and nothing is interpolated from the
-# shared deploy `.env`. `test_telemetry_gateway_render.py` pins the address and
-# the file per network shape.
+# No telemetry credential rides a terminal's environment
 # ---------------------------------------------------------------------------
 
 
 def test_no_terminal_environment_names_a_telemetry_credential() -> None:
-    """Neither the login nor any store-issued token rides `environment:`."""
+    """Neither a gateway login nor any store-issued token rides `environment:`."""
     for config in (_events_render_config(), _config(["alice"])):
         compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
         for name, service in compose["services"].items():
             env = service.get("environment") or []
             assert not any(str(line).startswith("OSPREY_TELEMETRY_LOGIN") for line in env), name
             assert not any("ZO_" in str(line) for line in env), name
-
-
-_COLLECTOR_VARS = ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME")
-
-
-def test_a_render_exporting_to_a_collector_gets_its_token_and_every_referenced_variable() -> None:
-    """Each referenced variable, in order, one `${VAR:-}` line each."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(
-            _events_render_config(), telemetry_vars_renders={"readwrite": _COLLECTOR_VARS}
-        )["docker-compose.web.yml"]
-    )
-
-    # Assert
-    alice_env = compose["services"]["web-alice"]["environment"]
-    lines = [f"{name}=${{{name}:-}}" for name in _COLLECTOR_VARS]
-    assert all(line in alice_env for line in lines)
-    positions = [alice_env.index(line) for line in lines]
-    assert positions == sorted(positions)
-    assert positions == list(range(positions[0], positions[0] + len(lines)))
-
-
-def test_a_render_without_telemetry_variables_gets_no_extra_line() -> None:
-    """Only the render that names the variables receives them."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(
-            _events_render_config(), telemetry_vars_renders={"readwrite": _COLLECTOR_VARS}
-        )["docker-compose.web.yml"]
-    )
-
-    # Assert
-    bob_env = compose["services"]["web-bob"]["environment"]
-    assert not any(line.startswith(_COLLECTOR_VARS) for line in bob_env)
-
-
-def test_the_collector_variables_are_interpolated_never_written() -> None:
-    """Compose resolves each reference from the deploy `.env`; no value is rendered."""
-    # Act
-    rendered = render_web_terminals(
-        _events_render_config(), telemetry_vars_renders={"readwrite": ("OTLP_TOKEN",)}
-    )["docker-compose.web.yml"]
-
-    # Assert
-    assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in rendered
-    assert re.search(r"OTLP_TOKEN=[^$]", rendered) is None
 
 
 # ---------------------------------------------------------------------------
@@ -5449,6 +5378,7 @@ def test_terminal_secrets_render_one_snippet_per_gated_roster_user() -> None:
         "nginx/templates/secret-alice.conf.template",
         "nginx/templates/secret-bob.conf.template",
         "nginx/templates/secret-carol.conf.template",
+        _HISTORY_GATE_TEMPLATE,
     }
 
 
@@ -5476,6 +5406,7 @@ def test_no_secret_snippet_is_written_for_a_location_nothing_gates() -> None:
     assert [path for path in auth_on if path.startswith("nginx/templates/")] == [
         "nginx/templates/secret-alice.conf.template",
         "nginx/templates/secret-kiosk.conf.template",
+        _HISTORY_GATE_TEMPLATE,
     ]
 
 
@@ -5506,7 +5437,11 @@ def test_every_secret_snippet_is_included_by_exactly_one_location() -> None:
             flags=re.MULTILINE,
         )
     }
-    assert materialized == included == {"secret-alice.conf", "secret-kiosk.conf"}
+    assert (
+        materialized
+        == included
+        == {"secret-alice.conf", "secret-kiosk.conf", Path(_HISTORY_GATE_INCLUDE).name}
+    )
 
 
 def test_terminal_secret_snippet_names_the_variable_never_the_value() -> None:
@@ -5718,7 +5653,7 @@ def test_the_secret_carrier_refuses_a_roster_name_that_is_not_one_snippet_filena
 
     Driven at the carrier directly, not through `render_web_terminals`: the
     roster gates now refuse this name earlier and on their own grounds (it is
-    also the audit subdirectory's name), so going through the front door would
+    also the spool and state subdirectories' name), so going through the front door would
     pin THAT refusal and leave this one — the carrier's own last line of
     defence, and the only one that runs when the carrier is called with a
     roster the render did not build — unexercised.
@@ -5746,7 +5681,7 @@ def test_terminal_secret_snippets_stay_inside_the_templates_directory() -> None:
 
     # Assert
     snippets = [path for path in artifacts if path.startswith("nginx/templates/")]
-    assert len(snippets) == 3
+    assert len(snippets) == 3 + 1  # one per user, and the history page's gate
     for path in snippets:
         assert Path(path).parent.as_posix() == "nginx/templates"
 
@@ -5770,12 +5705,10 @@ def test_the_secret_carrier_refuses_a_dotted_name_that_derives_an_illegal_variab
 
 def test_render_refuses_a_dotted_roster_name_with_authentication_off() -> None:
     """A dot is outside the username charset, and the charset now binds in every
-    auth posture: the name is the audit subdirectory's name whether or not the
-    deployment authenticates. This inverts an earlier contract, under which such
-    a name rendered as long as no operator secret was carried — the audit mount
-    is what invalidated it."""
+    auth posture: the name is the spool and state subdirectories' name whether
+    or not the deployment authenticates."""
     # Act / Assert
-    with pytest.raises(ValueError, match="audit subdirectory") as exc_info:
+    with pytest.raises(ValueError, match="spool and state subdirectories") as exc_info:
         render_web_terminals(_config(["alice.b"]))
     assert "alice.b" in str(exc_info.value)
 
@@ -5799,7 +5732,7 @@ def test_the_secret_carrier_refuses_case_colliding_names_too() -> None:
 
     At the carrier directly: an uppercase name is outside the username charset,
     so the roster gates refuse this pair first — on the neighbouring grounds
-    that the two would also share ONE audit subdirectory on a case-insensitive
+    that the two would also share ONE spool subdirectory on a case-insensitive
     host filesystem.
     """
     # Act / Assert
@@ -5871,11 +5804,11 @@ def test_nginx_gated_location_includes_only_its_own_users_secret_snippet() -> No
     users = ["alice", "bob"]
 
     # Act
-    nginx_conf = _render_nginx(_auth_config(users))
+    nginx_conf = render_nginx(_auth_config(users))
 
     # Assert
     for user in users:
-        body = _location_body(nginx_conf, f"location /u/{user}/")
+        body = nginx_location_body(nginx_conf, f"location /u/{user}/")
         assert _secret_include(user) in body
         assert terminal_secret_env_var(user) in body
         for other in users:
@@ -5893,7 +5826,9 @@ def test_nginx_secret_include_sits_inside_the_auth_guarded_branch() -> None:
     carry the header to a terminal.
     """
     # Act
-    body = _directives(_location_body(_render_nginx(_auth_config(["alice"])), "location /u/alice/"))
+    body = nginx_directives(
+        nginx_location_body(render_nginx(_auth_config(["alice"])), "location /u/alice/")
+    )
 
     # Assert
     assert body.index("auth_request /_osprey_auth/alice;") < body.index(_secret_include("alice"))
@@ -5906,10 +5841,10 @@ def test_nginx_secret_include_absent_when_auth_method_is_token() -> None:
     session is the only gate — the posture the render had before this carrier
     existed. `none` is NOT this case; it injects without a login wall."""
     # Act
-    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
-    assert "include " not in _directives(nginx_conf)
+    assert "include " not in nginx_directives(nginx_conf)
     assert "/etc/nginx/osprey/" not in nginx_conf
 
 
@@ -5931,7 +5866,7 @@ def test_nginx_open_render_injects_the_secret_without_any_login_wall() -> None:
     # Assert — every user is vouched for (read off the directives: the template
     # names this very include in the prose above it)
     for user in ("alice", "kiosk"):
-        body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
+        body = nginx_directives(nginx_location_body(nginx_conf, f"location /u/{user}/"))
         assert _secret_include(user) in body
         assert 'proxy_set_header X-Osprey-Terminal-Secret "";' not in body
 
@@ -5950,13 +5885,13 @@ def test_nginx_renders_no_exempt_location_for_the_retired_login_key() -> None:
     carries no exemption flag for the template to read.
     """
     # Act
-    nginx_conf = _render_nginx(_retired_login_key_config("kiosk"))
-    kiosk = _location_body(nginx_conf, "location /u/kiosk/")
-    alice = _location_body(nginx_conf, "location /u/alice/")
+    nginx_conf = render_nginx(_retired_login_key_config("kiosk"))
+    kiosk = nginx_location_body(nginx_conf, "location /u/kiosk/")
+    alice = nginx_location_body(nginx_conf, "location /u/alice/")
 
     # Assert — both locations carry both halves
     for user, body in (("kiosk", kiosk), ("alice", alice)):
-        assert "auth_request " in _directives(body)
+        assert "auth_request " in nginx_directives(body)
         assert _secret_include(user) in body
         assert 'proxy_set_header Cookie "";' in body
     # Assert — and the rendered perimeter knows no exemption
@@ -5990,9 +5925,9 @@ def test_nginx_secret_include_and_cookie_strip_share_one_predicate() -> None:
 
     # Act / Assert
     for shape, (config, users) in shapes.items():
-        nginx_conf = _render_nginx(config)
+        nginx_conf = render_nginx(config)
         for user in users:
-            body = _location_body(nginx_conf, f"location /u/{user}/")
+            body = nginx_location_body(nginx_conf, f"location /u/{user}/")
             has_secret = _secret_include(user) in body
             has_strip = 'proxy_set_header Cookie "";' in body
             assert has_secret == has_strip, f"{shape}/{user}: {has_secret=} {has_strip=}"
@@ -6006,12 +5941,12 @@ def test_nginx_secret_include_target_is_outside_the_globbed_conf_d() -> None:
     included — instead of to one user's location.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice"]))
+    nginx_conf = render_nginx(_auth_config(["alice"]))
 
     # Assert
     includes = re.findall(r"^\s*include (\S+);", nginx_conf, flags=re.MULTILINE)
-    assert includes == ["/etc/nginx/osprey/secret-alice.conf"]
-    assert "conf.d" not in includes[0]
+    assert includes == ["/etc/nginx/osprey/secret-alice.conf", _HISTORY_GATE_INCLUDE]
+    assert not any("conf.d" in include for include in includes)
 
 
 def test_nginx_secret_include_matches_the_filename_the_renderer_writes() -> None:
@@ -6031,7 +5966,7 @@ def test_nginx_secret_include_matches_the_filename_the_renderer_writes() -> None
 
     # Assert
     snippets = [path for path in artifacts if path.startswith("nginx/templates/")]
-    assert len(snippets) == len(users)
+    assert len(snippets) == len(users) + 1  # and the history page's gate
     for path in snippets:
         materialized = Path(path).name.removesuffix(".template")
         assert f"include /etc/nginx/osprey/{materialized};" in nginx_conf
@@ -6046,7 +5981,7 @@ def test_nginx_conf_never_spells_the_secret_header_itself() -> None:
     spelled into build/, into git status, and into an image layer.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice"]))
+    nginx_conf = render_nginx(_auth_config(["alice"]))
 
     # Assert
     assert TERMINAL_SECRET_HEADER not in nginx_conf
@@ -6105,9 +6040,9 @@ def test_every_terminal_location_clears_the_authorization_header() -> None:
 
     # Act / Assert
     for shape, (config, users) in shapes.items():
-        nginx_conf = _render_nginx(config)
+        nginx_conf = render_nginx(config)
         for user in users:
-            body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
+            body = nginx_directives(nginx_location_body(nginx_conf, f"location /u/{user}/"))
             assert 'proxy_set_header Authorization "";' in body, f"{shape}/{user}"
 
 
@@ -6119,19 +6054,19 @@ def test_ungated_locations_clear_the_operator_secret_header() -> None:
     would let anyone who can reach the port authenticate as the operator.
     """
     # Arrange / Act
-    token = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
-    auth_on = _render_nginx(_retired_login_key_config("kiosk"))
+    token = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    auth_on = render_nginx(_retired_login_key_config("kiosk"))
     cleared = 'proxy_set_header X-Osprey-Terminal-Secret "";'
 
     # Assert — `token` injects nowhere, so every location clears it
     for user in ("alice", "bob", "carol"):
-        assert cleared in _directives(_location_body(token, f"location /u/{user}/"))
+        assert cleared in nginx_directives(nginx_location_body(token, f"location /u/{user}/"))
 
     # Assert — with auth on, no location does: each has the include that SETS
     # it and must not clear it afterwards. The retired `login: false` used to
     # make one location the exception; it makes none now.
     for user in ("alice", "kiosk"):
-        gated = _directives(_location_body(auth_on, f"location /u/{user}/"))
+        gated = nginx_directives(nginx_location_body(auth_on, f"location /u/{user}/"))
         assert cleared not in gated
         assert _secret_include(user) in gated
 
@@ -6146,8 +6081,8 @@ def test_ungated_locations_forward_only_that_users_own_session_cookie() -> None:
     left in front of the terminal — so exactly one is forwarded.
     """
     # Arrange — `token` is the posture that leaves a location ungated
-    token = _render_nginx(_config([{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1}]))
-    exempt = _directives(_location_body(token, "location /u/kiosk/"))
+    token = render_nginx(_config([{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1}]))
+    exempt = nginx_directives(nginx_location_body(token, "location /u/kiosk/"))
     kiosk_port = allocate_ports(_BASE_PORTS, 1)["web"]
 
     # Assert
@@ -6168,12 +6103,12 @@ def test_forwarded_cookie_name_comes_from_the_apps_own_helper() -> None:
     from osprey.interfaces.common_middleware import session_cookie_name
 
     # Act
-    nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     for index, user in enumerate(("alice", "bob", "carol")):
         expected = session_cookie_name(allocate_ports(_BASE_PORTS, index)["web"])
-        body = _location_body(nginx_conf, f"location /u/{user}/")
+        body = nginx_location_body(nginx_conf, f"location /u/{user}/")
         assert f'proxy_set_header Cookie "{expected}=$cookie_{expected}";' in body
 
 

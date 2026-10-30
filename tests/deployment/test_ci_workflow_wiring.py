@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import dataclasses
 import functools
 import importlib.util
 import json
@@ -84,8 +85,11 @@ def _load_by_path(relative: str, name: str) -> ModuleType:
     return module
 
 
-#: The one declaration of the repository's checks, which the caller jobs run.
+#: The one declaration of the repository's checks, which the caller jobs run:
+#: what every checks module declares, collected.
 check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
+#: The framework's checks module: the unit sweep's selection and the package build.
+framework_checks = check_set.FRAMEWORK
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -176,8 +180,6 @@ NO_MODEL_RUN_STEP = "Run the model-free E2E files"
 NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 #: The files the model-free lane names, in the order its run step names them.
 NO_MODEL_TEST_FILES = (
-    "tests/e2e/test_telemetry_store_e2e.py",
-    "tests/e2e/test_telemetry_access_e2e.py",
     "tests/e2e/test_sdk_helpers.py",
     "tests/e2e/test_scripted_model.py",
     "tests/e2e/claude_code/test_safety_gates_scripted.py",
@@ -193,6 +195,18 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/claude_code/test_chat_plan_mode_scripted.py",
     "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
 )
+
+#: The agent record's replay: model-free, but its own lane, because it deploys
+#: two stacks in turn and waits out a stopped source twice.
+RECORD_E2E_JOB = "agent-record-e2e"
+RECORD_E2E_RUN_STEP = "Run the agent record replay"
+RECORD_E2E_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+RECORD_E2E_FILE = "tests/e2e/test_agent_record_e2e.py"
+#: The two stopped-source waits of five minutes each, plus two deploys: the
+#: run step's floor. Below it the lane reds on its own waits, not on a fault.
+RECORD_E2E_MIN_STEP_MINUTES = 40
+#: Every model-free file, whichever of the two model-free lanes runs it.
+MODEL_FREE_TEST_FILES = (*NO_MODEL_TEST_FILES, RECORD_E2E_FILE)
 SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
@@ -473,86 +487,6 @@ def _find_named_step(wf: dict[str, Any], job_name: str, step_name: str) -> dict[
 
 
 # ---------------------------------------------------------------------------
-# (a) tiled-roundtrip-e2e job exists
-# ---------------------------------------------------------------------------
-
-
-def test_tiled_roundtrip_job_exists(workflow: dict[str, Any]) -> None:
-    assert TILED_JOB in _jobs(workflow)
-
-
-def test_tiled_roundtrip_job_exists__mutation_drops_job() -> None:
-    """Dropping the job from the parsed dict must fail the existence check."""
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][TILED_JOB]
-    with pytest.raises(AssertionError):
-        assert TILED_JOB in _jobs(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (a) va-substrate-equivalence-e2e job exists (the Phase-1 gap fix)
-# ---------------------------------------------------------------------------
-
-
-def test_va_substrate_equivalence_job_exists(workflow: dict[str, Any]) -> None:
-    assert VA_JOB in _jobs(workflow)
-
-
-def test_va_substrate_equivalence_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][VA_JOB]
-    with pytest.raises(AssertionError):
-        assert VA_JOB in _jobs(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (b) tiled-roundtrip-e2e declares no ALS_APG_API_KEY secret anywhere in it
-# ---------------------------------------------------------------------------
-
-
-def test_tiled_roundtrip_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    assert not _job_declares_secret(workflow, TILED_JOB, SECRET_TOKEN)
-
-
-def test_tiled_roundtrip_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    """Injecting the secret into a step env must flip the check to failing."""
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][TILED_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        assert not _job_declares_secret(mutated, TILED_JOB, SECRET_TOKEN)
-
-
-def test_tiled_roundtrip_job_has_no_llm_secret__mutation_survives_lookalike() -> None:
-    """A differently-spelled secret expression must NOT trip the assertion —
-    proves the check matches the real token, not any 'secrets.' substring."""
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][TILED_JOB]["steps"].append(
-        {"name": "unrelated", "env": {"CODECOV_TOKEN": "${{ secrets.CODECOV_TOKEN }}"}}
-    )
-    assert not _job_declares_secret(mutated, TILED_JOB, SECRET_TOKEN)
-
-
-# ---------------------------------------------------------------------------
-# (b) va-substrate-equivalence-e2e declares no ALS_APG_API_KEY secret either
-# ---------------------------------------------------------------------------
-
-
-def test_va_substrate_equivalence_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    assert not _job_declares_secret(workflow, VA_JOB, SECRET_TOKEN)
-
-
-def test_va_substrate_equivalence_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][VA_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        assert not _job_declares_secret(mutated, VA_JOB, SECRET_TOKEN)
-
-
-# ---------------------------------------------------------------------------
 # (c) e2e-tests' run step --ignores both new-lane files
 # ---------------------------------------------------------------------------
 
@@ -599,30 +533,6 @@ def test_e2e_tests_ignores_both_new_lane_files__mutation_drops_va_ignore() -> No
 # ---------------------------------------------------------------------------
 # (d) all-checks-passed depends on the new job(s)
 # ---------------------------------------------------------------------------
-
-
-def test_all_checks_passed_needs_tiled_roundtrip(workflow: dict[str, Any]) -> None:
-    assert TILED_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_tiled_roundtrip__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    needs = _jobs(mutated)[GATE_JOB]["needs"]
-    needs.remove(TILED_JOB)
-    with pytest.raises(AssertionError):
-        assert TILED_JOB in _jobs(mutated)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_va_substrate_equivalence(workflow: dict[str, Any]) -> None:
-    assert VA_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_va_substrate_equivalence__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    needs = _jobs(mutated)[GATE_JOB]["needs"]
-    needs.remove(VA_JOB)
-    with pytest.raises(AssertionError):
-        assert VA_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 def _needs_contains_both_new_jobs(wf: dict[str, Any]) -> bool:
@@ -2462,9 +2372,10 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_deman
 
 
 # The full tier is held tighter than the quick one: every pytest line it runs
-# is either the lane's sweep, with exactly the lane's marker expression, or one
-# table row's serial run, with no workers. A line that is neither (a
-# hand-added term, a dropped expression, a parallelized serial run) is drift.
+# is the lane's sweep, with exactly the lane's marker expression, one table
+# row's serial run, with no workers, or the invariant tests, named file by file
+# with no marker and no workers. A line that is none of these (a hand-added
+# term, a dropped expression, a parallelized serial run) is drift.
 
 #: A ``-m`` expression on a command line, double-quoted or a bare word.
 _MARKER_EXPR_RE = re.compile(r'(?<!\S)-m\s+("[^"]*"|\S+)')
@@ -2482,7 +2393,12 @@ def _gate_lines_off_the_table(source: str) -> list[str]:
         serial = (
             len(exprs) == 1 and exprs[0] in selects and not has_workers and "--dist" not in line
         )
-        if not (sweep or serial):
+        invariant = (
+            not exprs
+            and not has_workers
+            and all(f" {path} " in f"{line} " for path in framework_checks.INVARIANT_TESTS)
+        )
+        if not (sweep or serial or invariant):
             off.append(line.strip())
     return off
 
@@ -2686,32 +2602,6 @@ def test_every_dockerbuild_marked_file_is_ignored__mutation_new_marked_file() ->
 # ---------------------------------------------------------------------------
 
 
-def test_orm_roundtrip_job_exists(workflow: dict[str, Any]) -> None:
-    assert ORM_JOB in _jobs(workflow)
-
-
-def test_orm_roundtrip_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][ORM_JOB]
-    with pytest.raises(AssertionError):
-        assert ORM_JOB in _jobs(mutated)
-
-
-def test_orm_roundtrip_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    """The ORM roundtrip drives the bridge HTTP API directly — an LLM secret
-    appearing in its job would mean the lane's scope silently grew."""
-    assert not _job_declares_secret(workflow, ORM_JOB, SECRET_TOKEN)
-
-
-def test_orm_roundtrip_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][ORM_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        assert not _job_declares_secret(mutated, ORM_JOB, SECRET_TOKEN)
-
-
 def test_orm_roundtrip_job_runs_the_grid_scan_module(workflow: dict[str, Any]) -> None:
     """The grid-scan roundtrip's ``dockerbuild`` marker takes it OUT of the
     shared lane; this job is where it went. The blanket marker->--ignore guard
@@ -2729,17 +2619,6 @@ def test_orm_roundtrip_job_runs_the_grid_scan_module__mutation_drops_the_step() 
     _jobs(mutated)[ORM_JOB]["steps"] = kept
     with pytest.raises(AssertionError):
         test_orm_roundtrip_job_runs_the_grid_scan_module(mutated)
-
-
-def test_dispatch_overlay_job_exists(workflow: dict[str, Any]) -> None:
-    assert OVERLAY_JOB in _jobs(workflow)
-
-
-def test_dispatch_overlay_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][OVERLAY_JOB]
-    with pytest.raises(AssertionError):
-        assert OVERLAY_JOB in _jobs(mutated)
 
 
 def test_dispatch_overlay_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
@@ -2882,17 +2761,6 @@ def test_all_checks_passed_needs_promoted_lanes__mutation_drops_sandbox() -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_dependency_floor_job_exists(workflow: dict[str, Any]) -> None:
-    assert FLOOR_JOB in _jobs(workflow)
-
-
-def test_dependency_floor_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][FLOOR_JOB]
-    with pytest.raises(AssertionError):
-        assert FLOOR_JOB in _jobs(mutated)
-
-
 def test_dependency_floor_job_pins_the_versions_pyproject_declares() -> None:
     """The lane certifies nothing if its pin drifts from the declared floor."""
     pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
@@ -2937,17 +2805,6 @@ def test_dependency_floor_gates_the_merge__mutation_drops_needs_entry() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_nextcloud_talk_bridge_job_exists(workflow: dict[str, Any]) -> None:
-    assert NEXTCLOUD_JOB in _jobs(workflow)
-
-
-def test_nextcloud_talk_bridge_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][NEXTCLOUD_JOB]
-    with pytest.raises(AssertionError):
-        assert NEXTCLOUD_JOB in _jobs(mutated)
-
-
 def test_e2e_lane_ignores_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
     """The lane runs a real Nextcloud container plus a dispatcher/worker pair;
     swept into the shared e2e-tests lane it would double-execute against its
@@ -2961,17 +2818,6 @@ def test_e2e_lane_ignores_nextcloud_talk_bridge__mutation_drops_ignore() -> None
     step["run"] = _drop_ignore_line(step["run"], NEXTCLOUD_TEST_FILE)
     assert _run_step_ignores_all(mutated, [BENCHMARKS_TEST_FILE]) == []  # others survive
     assert _run_step_ignores_all(mutated, [NEXTCLOUD_TEST_FILE]) == [NEXTCLOUD_TEST_FILE]
-
-
-def test_all_checks_passed_needs_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
-    assert NEXTCLOUD_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_nextcloud_talk_bridge__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(NEXTCLOUD_JOB)
-    with pytest.raises(AssertionError):
-        assert NEXTCLOUD_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 def test_gate_checks_nextcloud_talk_bridge_result(workflow: dict[str, Any]) -> None:
@@ -3123,17 +2969,6 @@ def test_nextcloud_fixture_pins__mutation_tag_drifts_from_dockerfile() -> None:
 # ---------------------------------------------------------------------------
 # (j) gchat-bridge-e2e lane
 # ---------------------------------------------------------------------------
-
-
-def test_gchat_bridge_job_exists(workflow: dict[str, Any]) -> None:
-    assert GCHAT_JOB in _jobs(workflow)
-
-
-def test_gchat_bridge_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][GCHAT_JOB]
-    with pytest.raises(AssertionError):
-        assert GCHAT_JOB in _jobs(mutated)
 
 
 def _emulator_container_e2e_files() -> list[str]:
@@ -3362,49 +3197,9 @@ def test_gchat_bridge_job_declares_llm_secret__mutation_strips_secret() -> None:
         assert _job_declares_secret(mutated, GCHAT_JOB, SECRET_TOKEN)
 
 
-def test_all_checks_passed_needs_gchat_bridge(workflow: dict[str, Any]) -> None:
-    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
-    needed job that failed still lets it start; the ``check_pr_lane`` line is
-    what turns the result into an exit code. Both halves are pinned."""
-    assert GCHAT_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{GCHAT_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_gchat_bridge__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(GCHAT_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_gchat_bridge(mutated)
-
-
-def test_all_checks_passed_needs_gchat_bridge__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
-    job) while the line that reads its result is gone — the lane could go red
-    forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if GCHAT_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert GCHAT_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_gchat_bridge(mutated)
-
-
 # ---------------------------------------------------------------------------
 # (k) teams-bridge-e2e lane
 # ---------------------------------------------------------------------------
-
-
-def test_teams_bridge_job_exists(workflow: dict[str, Any]) -> None:
-    assert TEAMS_JOB in _jobs(workflow)
-
-
-def test_teams_bridge_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][TEAMS_JOB]
-    with pytest.raises(AssertionError):
-        assert TEAMS_JOB in _jobs(mutated)
 
 
 def test_shared_lane_ignores_both_teams_files(workflow: dict[str, Any]) -> None:
@@ -3570,25 +3365,6 @@ def test_teams_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> N
         test_teams_job_fails_on_any_skipped_test(mutated)
 
 
-def test_teams_bridge_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    """The Teams lane is deterministic end to end: loopback fakes for the token
-    endpoint, the Bot Connector and the queue receiver, and no agentic tier at
-    all. Handing it the gateway key would buy nothing and would move it into
-    the spend-posture classification below, where it would have to be gated by
-    label — turning a lane that can honestly run on every pull request into one
-    that runs on a few."""
-    assert not _job_declares_secret(workflow, TEAMS_JOB, SECRET_TOKEN)
-
-
-def test_teams_bridge_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][TEAMS_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        test_teams_bridge_job_has_no_llm_secret(mutated)
-
-
 def test_teams_bridge_job_runs_on_every_pull_request(workflow: dict[str, Any]) -> None:
     """The whole point of a secret-free, container-free bridge lane: no ``if:``
     gate, so it also runs on fork and Dependabot pull requests, where every
@@ -3609,35 +3385,6 @@ def test_teams_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate()
         test_teams_bridge_job_runs_on_every_pull_request(mutated)
 
 
-def test_all_checks_passed_needs_teams_bridge(workflow: dict[str, Any]) -> None:
-    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
-    needed job that failed still lets it start; the ``check_pr_lane`` line is
-    what turns the result into an exit code. Both halves are pinned."""
-    assert TEAMS_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{TEAMS_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_teams_bridge__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(TEAMS_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_teams_bridge(mutated)
-
-
-def test_all_checks_passed_needs_teams_bridge__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
-    job) while the line that reads its result is gone — the lane could go red
-    forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if TEAMS_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert TEAMS_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_teams_bridge(mutated)
-
-
 # ---------------------------------------------------------------------------
 # the model-free end-to-end lane: the tests/e2e files that reach no gateway
 # ---------------------------------------------------------------------------
@@ -3647,6 +3394,17 @@ def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
     """The paths the model-free lane's run step hands pytest to collect."""
     run_text = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
     return [token for token in run_text.split() if token.startswith("tests/")]
+
+
+def _record_lane_paths(wf: dict[str, Any]) -> list[str]:
+    """The paths the agent record lane's run step hands pytest to collect."""
+    run_text = _find_named_step(wf, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    return [token for token in run_text.split() if token.startswith("tests/")]
+
+
+def _model_free_lanes_paths(wf: dict[str, Any]) -> list[str]:
+    """Every path either model-free lane names."""
+    return [*_model_free_selected_paths(wf), *_record_lane_paths(wf)]
 
 
 def _collected_ids(args: list[str]) -> set[str]:
@@ -3684,12 +3442,13 @@ def test_the_model_free_marker_equals_the_model_free_lane_selection(
     the lane is where those tests run. A test the lane runs without the marker
     would be refused in a run with no provider; a marked test the lane leaves
     out claims a lane that never runs it."""
-    paths = _model_free_selected_paths(workflow)
+    paths = _model_free_lanes_paths(workflow)
     marked = _collected_ids([*paths, "-m", "model_free"])
     selected = _collected_ids(paths)
+    lanes = f"'{NO_MODEL_JOB}'/'{RECORD_E2E_JOB}'"
     assert marked == selected, (
-        f"marked model_free but not run by '{NO_MODEL_JOB}': {sorted(marked - selected)}; "
-        f"run by '{NO_MODEL_JOB}' but not marked model_free: {sorted(selected - marked)}"
+        f"marked model_free but not run by {lanes}: {sorted(marked - selected)}; "
+        f"run by {lanes} but not marked model_free: {sorted(selected - marked)}"
     )
 
 
@@ -3698,14 +3457,17 @@ def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any
     anywhere else under ``tests/e2e/`` is read from source instead of from a
     whole-directory collection."""
     root = CI_YML.parents[2]
-    lane = set(_model_free_selected_paths(workflow))
+    lane = set(_model_free_lanes_paths(workflow))
     stray = sorted(
         path.relative_to(root).as_posix()
         for path in (root / "tests" / "e2e").rglob("test_*.py")
         if "mark.model_free" in path.read_text(encoding="utf-8")
         and path.relative_to(root).as_posix() not in lane
     )
-    assert stray == [], f"marked model_free but not named in '{NO_MODEL_RUN_STEP}': {stray}"
+    assert stray == [], (
+        f"marked model_free but not named in '{NO_MODEL_RUN_STEP}' or "
+        f"'{RECORD_E2E_RUN_STEP}': {stray}"
+    )
 
 
 def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
@@ -3781,31 +3543,13 @@ def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_th
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
     lines = step["run"].splitlines(keepends=True)
-    kept = [line for line in lines if "tests/e2e/test_telemetry_store_e2e.py" not in line]
+    kept = [line for line in lines if "tests/e2e/test_sdk_helpers.py" not in line]
     assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
     step["run"] = "".join(kept)
     # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/test_sdk_helpers.py" in _model_free_selected_paths(mutated)
+    assert "tests/e2e/test_scripted_model.py" in _model_free_selected_paths(mutated)
     with pytest.raises(AssertionError, match="does not name"):
         test_model_free_lane_names_every_file_it_owns(mutated)
-
-
-def test_model_free_lane_declares_no_gateway_key(workflow: dict[str, Any]) -> None:
-    """Every test this lane selects carries ``model_free``, so the directory's
-    provider refusal does not apply to it; the workflow-level
-    ``OSPREY_E2E_PROVIDER`` is still present but not needed here. A gateway key
-    would buy nothing and would move the lane into the label-gated posture it
-    was built to leave."""
-    assert not _job_declares_secret(workflow, NO_MODEL_JOB, SECRET_TOKEN)
-
-
-def test_model_free_lane_declares_no_gateway_key__mutation_adds_the_key() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][NO_MODEL_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        test_model_free_lane_declares_no_gateway_key(mutated)
 
 
 def test_model_free_lane_carries_no_dependabot_guard(workflow: dict[str, Any]) -> None:
@@ -3887,32 +3631,126 @@ def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing(
         test_model_free_lane_fails_on_any_skipped_test(mutated)
 
 
-def test_all_checks_passed_needs_the_model_free_lane(workflow: dict[str, Any]) -> None:
-    """``needs:`` makes the roll-up wait and ``check_pr_lane`` makes it care —
-    the reason spelled out on the Google Chat pair."""
-    assert NO_MODEL_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{NO_MODEL_JOB}.result" in _gate_run_text(workflow)
+# ---------------------------------------------------------------------------
+# The agent record replay: its own model-free lane
+# ---------------------------------------------------------------------------
 
 
-def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_needs_entry() -> None:
+def test_record_lane_runs_exactly_the_replay(workflow: dict[str, Any]) -> None:
+    """The replay deploys two stacks one after the other on one port block, so
+    it runs alone, serially, and by path — a path that stops existing exits
+    pytest 4 instead of selecting nothing."""
+    paths = _record_lane_paths(workflow)
+    assert paths == [RECORD_E2E_FILE], f"'{RECORD_E2E_RUN_STEP}' runs {paths}, not the replay alone"
+    assert (REPO_ROOT / RECORD_E2E_FILE).is_file(), f"{RECORD_E2E_FILE} is not on disk"
+    run = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    assert not re.search(r"(^|\s)(-n|--numprocesses)\b", run), (
+        f"'{RECORD_E2E_RUN_STEP}' runs under xdist; its cases share one port block"
+    )
+
+
+def test_record_lane_runs_exactly_the_replay__mutation_adds_xdist() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(NO_MODEL_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_the_model_free_lane(mutated)
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    step["run"] = step["run"].replace("--durations=15", "--durations=15 -n 2")
+    with pytest.raises(AssertionError, match="xdist"):
+        test_record_lane_runs_exactly_the_replay(mutated)
 
 
-def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
-    job) while the line that reads its result is gone — the lane could go red
-    forever inside a green check."""
+def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if NO_MODEL_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert NO_MODEL_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    step["run"] = step["run"].replace(
+        RECORD_E2E_FILE, f"{RECORD_E2E_FILE} tests/e2e/test_sdk_helpers.py"
+    )
+    with pytest.raises(AssertionError, match="replay alone"):
+        test_record_lane_runs_exactly_the_replay(mutated)
+
+
+def test_record_lane_is_not_in_the_model_free_lane(workflow: dict[str, Any]) -> None:
+    """One file, one lane: in both it is deployed twice per pull request."""
+    assert RECORD_E2E_FILE not in _model_free_selected_paths(workflow), (
+        f"'{NO_MODEL_JOB}' still runs {RECORD_E2E_FILE}, which has its own lane"
+    )
+
+
+def test_record_lane_is_not_in_the_model_free_lane__mutation_names_it_there() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(
+        "tests/e2e/test_sdk_helpers.py", f"{RECORD_E2E_FILE} tests/e2e/test_sdk_helpers.py"
+    )
+    with pytest.raises(AssertionError, match="has its own lane"):
+        test_record_lane_is_not_in_the_model_free_lane(mutated)
+
+
+def test_record_lane_timeout_covers_its_waits(workflow: dict[str, Any]) -> None:
+    """The run step's cap holds the two five-minute stopped-source waits and
+    both deploys; the job's cap sits above it so a hang fails the run step and
+    the diagnostics capture still runs."""
+    job = _jobs(workflow)[RECORD_E2E_JOB]
+    step = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    step_cap = int(step.get("timeout-minutes", 0))
+    assert step_cap >= RECORD_E2E_MIN_STEP_MINUTES, (
+        f"'{RECORD_E2E_RUN_STEP}' caps at {step_cap} min, under the "
+        f"{RECORD_E2E_MIN_STEP_MINUTES} min its waits need"
+    )
+    assert int(job.get("timeout-minutes", 0)) > step_cap, (
+        f"'{RECORD_E2E_JOB}' job cap must sit above its run step's {step_cap} min"
+    )
+
+
+def test_record_lane_timeout_covers_its_waits__mutation_shrinks_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["timeout-minutes"] = 25
+    with pytest.raises(AssertionError, match="its waits need"):
+        test_record_lane_timeout_covers_its_waits(mutated)
+
+
+def test_record_lane_timeout_covers_its_waits__mutation_job_cap_under_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)
+    _jobs(mutated)[RECORD_E2E_JOB]["timeout-minutes"] = step["timeout-minutes"]
+    with pytest.raises(AssertionError, match="must sit above"):
+        test_record_lane_timeout_covers_its_waits(mutated)
+
+
+def test_record_lane_runs_on_every_pull_request_without_a_key(workflow: dict[str, Any]) -> None:
+    """Model-free: no label, no actor guard, no gateway key."""
+    job = _jobs(workflow)[RECORD_E2E_JOB]
+    assert job.get("if") == "github.event_name == 'pull_request'", job.get("if")
+    assert not _job_declares_secret(workflow, RECORD_E2E_JOB, SECRET_TOKEN), (
+        f"'{RECORD_E2E_JOB}' declares the gateway key; it reaches no model"
+    )
+
+
+def test_record_lane_runs_on_every_pull_request_without_a_key__mutation_adds_a_label() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[RECORD_E2E_JOB]
+    job["if"] = f"{job['if']} && {FULL_CI_LABEL_CLAUSE}"
     with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_the_model_free_lane(mutated)
+        test_record_lane_runs_on_every_pull_request_without_a_key(mutated)
+
+
+def test_record_lane_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    reports = _JUNIT_RE.findall(
+        _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    )
+    assert len(reports) == 1, (
+        f"'{RECORD_E2E_RUN_STEP}' must write exactly one --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_SKIP_GATE_STEP)["run"]
+    assert reports[0] in gate, f"'{RECORD_E2E_SKIP_GATE_STEP}' never reads: {reports[0]}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_record_lane_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_record_lane_fails_on_any_skipped_test(mutated)
 
 
 def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
@@ -3933,22 +3771,22 @@ def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
 def test_shared_lane_hands_over_every_model_free_file(workflow: dict[str, Any]) -> None:
     """The handover is one ``--ignore`` per file: the shared lane names a
     directory, so a file only stops being swept when it is named."""
-    missing = _run_step_ignores_all(workflow, list(NO_MODEL_TEST_FILES))
+    missing = _run_step_ignores_all(workflow, list(MODEL_FREE_TEST_FILES))
     assert missing == [], (
         f"model-free e2e file(s) still swept by the '{E2E_TESTS_JOB}' lane: {missing} — "
         f"they would run in both lanes, paying the label for work that needs no label"
     )
 
 
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_telemetry_ignore() -> (
+def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_record_smoke_ignore() -> (
     None
 ):
-    telemetry = "tests/e2e/test_telemetry_store_e2e.py"
+    smoke = RECORD_E2E_FILE
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], telemetry)
-    others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    step["run"] = _drop_ignore_line(step["run"], smoke)
+    others = [f for f in MODEL_FREE_TEST_FILES if f != smoke]
+    assert _run_step_ignores_all(mutated, others) == []  # every other file survives
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -3963,7 +3801,7 @@ def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_termin
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], terminal_auth)
-    others = [f for f in NO_MODEL_TEST_FILES if f != terminal_auth]
+    others = [f for f in MODEL_FREE_TEST_FILES if f != terminal_auth]
     assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
@@ -3979,7 +3817,7 @@ def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None
         f"the '{E2E_TESTS_JOB}' sweep was computed as empty — the discovery broke, and "
         f"an empty set makes the disjointness below vacuous"
     )
-    both = sorted(set(NO_MODEL_TEST_FILES) & swept)
+    both = sorted(set(MODEL_FREE_TEST_FILES) & swept)
     assert both == [], (
         f"file(s) in both end-to-end lanes: {both} — each is collected twice, once "
         f"behind the label and once without it"
@@ -3991,7 +3829,7 @@ def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_s
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], render)
-    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
+    assert set(MODEL_FREE_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
     with pytest.raises(AssertionError, match="in both end-to-end lanes"):
         test_no_end_to_end_file_runs_in_both_lanes(mutated)
 
@@ -4307,96 +4145,39 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the
     assert _browser_steps_gated_on_outputs(mutated) == ["Install Playwright webkit"]
 
 
-def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
+COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
+HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
+LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
+
+#: The browser suites (h) and its siblings each pin by name: the login flow, the
+#: channel combobox, the history page and the lattice dashboard.
+_NAMED_BROWSER_TEST_FILES = [
+    AUTH_BROWSER_TEST_FILE,
+    COMBOBOX_BROWSER_TEST_FILE,
+    HISTORY_BROWSER_TEST_FILE,
+    LATTICE_BROWSER_TEST_FILE,
+]
+
+
+@pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
+def test_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any], test_file: str) -> None:
     """The suite has to be NAMED in the lane's pytest invocation.
 
     The lane runs an explicit file list, not a directory glob, so a new
     browser-marked file that nobody adds here is never collected anywhere: the
     unit lane skips it (no chromium), and this lane never hears of it. It
     reports green by running nothing at all."""
-    assert AUTH_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+    assert test_file in _browser_lane_files(workflow)
 
 
-def test_login_flow_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+@pytest.mark.parametrize("test_file", _NAMED_BROWSER_TEST_FILES)
+def test_browser_test_runs_in_the_browser_lane__mutation_drops_the_file(test_file: str) -> None:
     """Removing the file from the invocation must fail the guard — the exact
     vacuous-green shape above."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
-    assert AUTH_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (h2) channel-combobox browser test: same vacuous-green shape as (h) — the
-# lane runs an explicit file list, and a suite missing from it runs nowhere
-# ---------------------------------------------------------------------------
-
-COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
-
-
-def test_channel_combobox_browser_test_runs_in_the_browser_lane(
-    workflow: dict[str, Any],
-) -> None:
-    """The combobox suite has to be NAMED in the lane's pytest invocation —
-    the unit lane skips browser-marked files, so this lane is the only place
-    it is ever collected."""
-    assert COMBOBOX_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    """Removing the file from the invocation must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{COMBOBOX_BROWSER_TEST_FILE} \\\n", "")
-    assert COMBOBOX_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (h3) history page browser test: same vacuous-green shape as (h) — the lane
-# runs an explicit file list, and a suite missing from it runs nowhere
-# ---------------------------------------------------------------------------
-
-HISTORY_BROWSER_TEST_FILE = "tests/interfaces/history/test_history_page_browser.py"
-
-
-def test_history_page_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
-    """The history page suite has to be NAMED in the lane's pytest invocation —
-    the unit lane skips browser-marked files, so this lane is the only place
-    it is ever collected."""
-    assert HISTORY_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_history_page_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    """Removing the file from the invocation must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{HISTORY_BROWSER_TEST_FILE} \\\n", "")
-    assert HISTORY_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-# ---------------------------------------------------------------------------
-# (h2b) lattice-dashboard browser test: same vacuous-green shape as (h) — the
-# lane runs an explicit file list, and a suite missing from it runs nowhere
-# ---------------------------------------------------------------------------
-
-LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
-
-
-def test_lattice_dashboard_browser_test_runs_in_the_browser_lane(
-    workflow: dict[str, Any],
-) -> None:
-    """The lattice dashboard suite has to be NAMED in the lane's pytest
-    invocation — the unit lane skips browser-marked files, so this lane is the
-    only place it is ever collected."""
-    assert LATTICE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
-
-
-def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
-    """Removing the file from the invocation must fail the guard."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
-    step["run"] = step["run"].replace(f"{LATTICE_BROWSER_TEST_FILE} \\\n", "")
-    assert LATTICE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+    step["run"] = step["run"].replace(f"{test_file} \\\n", "")
+    assert test_file not in _browser_lane_files(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -4771,21 +4552,6 @@ def test_bluesky_queue_job_exists__mutation_drops_the_run_step() -> None:
         test_bluesky_queue_job_exists(mutated)
 
 
-def test_bluesky_queue_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    """Every stage drives the bridge HTTP API and the osprey CLI directly — an
-    LLM secret appearing here would mean the lane's scope silently grew."""
-    assert not _job_declares_secret(workflow, QUEUE_JOB, SECRET_TOKEN)
-
-
-def test_bluesky_queue_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][QUEUE_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        assert not _job_declares_secret(mutated, QUEUE_JOB, SECRET_TOKEN)
-
-
 def test_e2e_lane_ignores_bluesky_queue(workflow: dict[str, Any]) -> None:
     """The guards above catch "runs nowhere"; this one catches "runs twice".
 
@@ -4805,41 +4571,6 @@ def test_e2e_lane_ignores_bluesky_queue__mutation_drops_ignore() -> None:
     step["run"] = _drop_ignore_line(step["run"], QUEUE_TEST_FILE)
     assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
     assert _run_step_ignores_all(mutated, [QUEUE_TEST_FILE]) == [QUEUE_TEST_FILE]
-
-
-def test_all_checks_passed_needs_bluesky_queue(workflow: dict[str, Any]) -> None:
-    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
-    needed job that failed still lets it start; the ``check_pr_lane`` line is
-    what turns the result into an exit code. Both halves are pinned.
-
-    These two assertions travel with the lane: if ``bluesky-queue-e2e`` cannot
-    go green in the PR, the job, its gate entry AND this guard pair are dropped
-    together and re-landed together in the follow-up. A gate entry left behind
-    without its lane blocks every merge; a lane left behind without its gate
-    entry is unwatched."""
-    assert QUEUE_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{QUEUE_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_bluesky_queue__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(QUEUE_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_bluesky_queue(mutated)
-
-
-def test_all_checks_passed_needs_bluesky_queue__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
-    job) while the line that reads its result is gone — the lane could go red
-    forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if QUEUE_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert QUEUE_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_bluesky_queue(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -4960,43 +4691,6 @@ def test_scan_agentic_job_fails_on_any_skipped_test__mutation_gate_stops_failing
         test_scan_agentic_job_fails_on_any_skipped_test(mutated)
 
 
-def test_all_checks_passed_needs_scan_agentic(workflow: dict[str, Any]) -> None:
-    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
-    needed job that failed still lets it start; the ``check_pr_lane`` line is
-    what turns the result into an exit code. Both halves are pinned.
-
-    Same drop-together/re-land-together discipline as the queue lane: if
-    ``scan-agentic-e2e`` cannot go green in the PR, the job, its gate entry AND
-    this guard pair leave as a unit and come back as a unit. Splitting them
-    either wedges the merge gate on a job that does not exist or leaves the
-    lane running unwatched."""
-    assert SCAN_AGENTIC_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{SCAN_AGENTIC_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_scan_agentic__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(SCAN_AGENTIC_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_scan_agentic(mutated)
-
-
-def test_all_checks_passed_needs_scan_agentic__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
-    job) while the line that reads its result is gone — the lane could go red
-    forever inside a green check. Worth pinning twice over here, because this
-    lane is the expensive one: nobody re-reads a lane's log once the roll-up
-    is green."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if SCAN_AGENTIC_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert SCAN_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_scan_agentic(mutated)
-
-
 # ---------------------------------------------------------------------------
 # (l) every CLI-dependent lane installs the pinned Claude Code CLI
 # ---------------------------------------------------------------------------
@@ -5017,6 +4711,7 @@ CLI_DEPENDENT_JOBS = (
     "e2e-tests",
     "channel-finder-benchmarks",
     NO_MODEL_JOB,
+    RECORD_E2E_JOB,
     SCAN_AGENTIC_JOB,
     TARGET_SWITCH_AGENTIC_JOB,
     NEXTCLOUD_JOB,
@@ -5122,34 +4817,6 @@ def test_no_lane_reaches_for_the_agent_sdks_bundled_cli() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_archiver_world_job_exists(workflow: dict[str, Any]) -> None:
-    assert ARCHIVER_JOB in _jobs(workflow)
-
-
-def test_archiver_world_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][ARCHIVER_JOB]
-    with pytest.raises(AssertionError):
-        assert ARCHIVER_JOB in _jobs(mutated)
-
-
-def test_archiver_world_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    """Every assertion in that file is mechanical — seed duration, store size, a
-    setpoint round-trip, a noise-band step, document counts — and the archiver
-    read goes through the connector rather than an agent turn. A secret
-    appearing in this job would mean the lane's scope silently grew."""
-    assert not _job_declares_secret(workflow, ARCHIVER_JOB, SECRET_TOKEN)
-
-
-def test_archiver_world_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][ARCHIVER_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        assert not _job_declares_secret(mutated, ARCHIVER_JOB, SECRET_TOKEN)
-
-
 def test_archiver_world_job_installs_osprey(workflow: dict[str, Any]) -> None:
     """The staged bring-up preflights pymongo before any image build, so a lane
     that never installed osprey would abort in seconds with an install hint
@@ -5191,33 +4858,6 @@ def test_archiver_world_job_runs_pytest_unbuffered__mutation_drops_the_flag() ->
     )
     with pytest.raises(AssertionError):
         test_archiver_world_job_runs_pytest_unbuffered(mutated)
-
-
-def test_all_checks_passed_needs_archiver_world(workflow: dict[str, Any]) -> None:
-    """Both halves of the gate, for the reason spelled out on the gchat pair:
-    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
-    assert ARCHIVER_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{ARCHIVER_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_archiver_world__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(ARCHIVER_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_archiver_world(mutated)
-
-
-def test_all_checks_passed_needs_archiver_world__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the job is still waited on, but nothing reads its
-    result — the lane could go red forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if ARCHIVER_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert ARCHIVER_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_archiver_world(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -5777,17 +5417,6 @@ def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
     return [step.get("name", "") for step in _jobs(wf)[job_name]["steps"]]
 
 
-def test_two_shape_boot_job_exists(workflow: dict[str, Any]) -> None:
-    assert TWO_SHAPE_JOB in _jobs(workflow)
-
-
-def test_two_shape_boot_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][TWO_SHAPE_JOB]
-    with pytest.raises(AssertionError):
-        assert TWO_SHAPE_JOB in _jobs(mutated)
-
-
 def test_two_shape_boot_job_runs_the_module_under_podman(workflow: dict[str, Any]) -> None:
     """The module reads its runtime off ``OSPREY_E2E_RUNTIME`` and defaults to
     docker. Without that variable the lane would install podman-compose, force
@@ -5997,22 +5626,6 @@ def test_two_shape_lane_asserts_its_provider__mutation_drops_the_version_check()
     assert "ComposeProvider.PODMAN_COMPOSE" in step["run"]  # the provider half survives
     with pytest.raises(AssertionError, match="parsed version"):
         test_two_shape_lane_asserts_its_provider_before_the_boot(mutated)
-
-
-def test_two_shape_boot_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    """Every answer this lane reads comes off the runtime — published ports,
-    ``/proc/net/tcp``, container environment, the rendered compose document.
-    A secret appearing here would mean the lane's scope silently grew."""
-    assert not _job_declares_secret(workflow, TWO_SHAPE_JOB, SECRET_TOKEN)
-
-
-def test_two_shape_boot_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][TWO_SHAPE_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        assert not _job_declares_secret(mutated, TWO_SHAPE_JOB, SECRET_TOKEN)
 
 
 def test_e2e_lane_ignores_two_shape_boot(workflow: dict[str, Any]) -> None:
@@ -6229,8 +5842,6 @@ def _two_shape_resource_names() -> list[str]:
 
     project = _two_shape_module_constant("PROJECT_NAME")
     compose_project = resolve_project_name({"project_name": project})
-    telemetry = _two_shape_module_constant("TELEMETRY_PROJECT_NAME")
-    telemetry_compose = resolve_project_name({"project_name": telemetry})
     return [
         f"{project}-event-dispatcher",
         f"{project}-dispatch-worker-1",
@@ -6238,27 +5849,14 @@ def _two_shape_resource_names() -> list[str]:
         f"{compose_project}_osprey-network",
         f"{project}:local",
         f"{project}-dispatch:local",
-        f"{telemetry}-telemetry-store",
-        f"{telemetry}-telemetry-gateway",
-        f"{telemetry_compose}_telemetry_store_data",
-        f"{telemetry_compose}_gateway-state",
-        f"{telemetry_compose}_osprey-network",
     ]
 
 
 def _two_shape_module_ports() -> list[str]:
-    """The host ports the module binds: the dispatch pair's, and the telemetry
-    case's gateway, gateway counters and store, resolved from that case's port
-    block exactly as the deployment resolves them."""
-    from osprey.deployment import telemetry_config
-
-    config = {"deployment": {"port_base": _two_shape_module_constant("TELEMETRY_PORT_BASE")}}
+    """The host ports the module binds: the dispatcher's and the worker's."""
     return [
         str(_two_shape_module_constant("DISPATCHER_PORT")),
         str(_two_shape_module_constant("WORKER_PORT")),
-        str(telemetry_config.gateway_port(config)),
-        str(telemetry_config.metrics_port(config)),
-        str(telemetry_config.store_port(config)),
     ]
 
 
@@ -6325,20 +5923,11 @@ def test_two_shape_lane_ports_match_the_module__mutation_drifts_the_probed_ports
     symptom the mutation is meant to expose."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
-    loop = "for port in 21781 21791 18151 18152 18904; do"
+    loop = "for port in 21781 21791; do"
     assert loop in step["run"], "the pre-flight loop moved — mutation is stale"
-    step["run"] = step["run"].replace(loop, "for port in 8020 9190 18151 18152 18904; do")
+    step["run"] = step["run"].replace(loop, "for port in 8020 9190; do")
     assert "21781" in step["run"], "the echo must still carry the real ports"
     with pytest.raises(AssertionError, match="does not probe"):
-        test_two_shape_lane_ports_match_the_module(mutated)
-
-
-def test_two_shape_lane_ports_match_the_module__mutation_drops_a_telemetry_port() -> None:
-    """The telemetry case publishes its own ports beside the dispatch pair's."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
-    step["run"] = step["run"].replace(" 18904; do", "; do")
-    with pytest.raises(AssertionError, match="18904"):
         test_two_shape_lane_ports_match_the_module(mutated)
 
 
@@ -6557,33 +6146,6 @@ def test_two_shape_boot_step_shares_step_zero_environment__mutation_readds_the_s
     )
     with pytest.raises(AssertionError, match="must not export DOCKER_HOST"):
         test_two_shape_boot_step_shares_step_zero_environment(mutated)
-
-
-def test_all_checks_passed_needs_two_shape_boot(workflow: dict[str, Any]) -> None:
-    """Both halves of the gate, for the reason spelled out on the gchat pair:
-    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
-    assert TWO_SHAPE_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{TWO_SHAPE_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_two_shape_boot__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(TWO_SHAPE_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_two_shape_boot(mutated)
-
-
-def test_all_checks_passed_needs_two_shape_boot__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the job is still waited on, but nothing reads its
-    result — the lane could go red forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if TWO_SHAPE_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert TWO_SHAPE_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_two_shape_boot(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -7087,21 +6649,6 @@ PRIVSPLIT_JOB = "privilege-split-e2e"
 JOBS_OUTSIDE_THE_GATE = frozenset({BENCHMARKS_JOB, TIER2_JOB, GATE_JOB})
 
 
-def test_all_checks_passed_needs_privilege_split(workflow: dict[str, Any]) -> None:
-    """The privilege-split lane is the only EXECUTED proof that the render
-    zone is root-owned and the served process runs as uid 1000. It must
-    gate the merge like every other e2e lane."""
-    assert PRIVSPLIT_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{PRIVSPLIT_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_privilege_split__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(PRIVSPLIT_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_privilege_split(mutated)
-
-
 def _jobs_missing_from_the_gate(wf: dict[str, Any]) -> list[str]:
     needs = set(_jobs(wf)[GATE_JOB]["needs"])
     return sorted(set(_jobs(wf)) - needs - JOBS_OUTSIDE_THE_GATE)
@@ -7153,33 +6700,6 @@ def test_posture_toggle_browser_test_runs_in_the_browser_lane__mutation_drops_th
 # notices going red.
 
 
-def test_all_checks_passed_needs_target_switch(workflow: dict[str, Any]) -> None:
-    """Both halves of the gate, for the reason spelled out on the gchat pair:
-    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
-    assert TARGET_SWITCH_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{TARGET_SWITCH_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_target_switch__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(TARGET_SWITCH_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_target_switch(mutated)
-
-
-def test_all_checks_passed_needs_target_switch__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half: the job is still waited on, but nothing reads its
-    result — the lane could go red forever inside a green check."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if TARGET_SWITCH_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    assert TARGET_SWITCH_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_target_switch(mutated)
-
-
 # ---------------------------------------------------------------------------
 # The agent-driven control-target switch lane: the same triple, one tier riskier
 # ---------------------------------------------------------------------------
@@ -7190,45 +6710,6 @@ def test_all_checks_passed_needs_target_switch__mutation_drops_check_pr_lane_lin
 # ``CLI_DEPENDENT_JOBS`` parametrization (the pinned-CLI step) and
 # ``_als_apg_probe_steps`` discovery (the pre-flight probe honours
 # ``ALS_APG_BASE_URL``). What is left is the gate wiring, pinned here.
-
-
-def test_all_checks_passed_needs_target_switch_agentic(workflow: dict[str, Any]) -> None:
-    """Both halves of the gate, for the reason spelled out on the gchat pair:
-    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care.
-
-    Worth its own pair rather than folding into the sibling's: these two lanes
-    can be added, reverted or re-landed independently — they share only the two
-    images — and a gate entry that quietly covers "the target-switch lane"
-    without saying which one is exactly how the expensive half goes unwatched.
-    """
-    assert TARGET_SWITCH_AGENTIC_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{TARGET_SWITCH_AGENTIC_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_target_switch_agentic__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(TARGET_SWITCH_AGENTIC_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_target_switch_agentic(mutated)
-
-
-def test_all_checks_passed_needs_target_switch_agentic__mutation_drops_check_pr_lane_line() -> None:
-    """The dangerous half, and dangerous twice over here: this is the lane that
-    spends real API budget on five agent sessions, so nobody re-reads its log
-    once the roll-up is green."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [
-        line
-        for line in step["run"].splitlines(keepends=True)
-        if TARGET_SWITCH_AGENTIC_JOB not in line
-    ]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    # the needs entry survives
-    assert TARGET_SWITCH_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_target_switch_agentic(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -7339,7 +6820,7 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
 # comment promises of every module it names.
 CHAIN_BOOT_MODULE = f"{VA_LIVE_SUITE_DIR}/test_chain_boot.py"
 _COLLECTED_FLOOR_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
-_CHAIN_BOOT_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
+_CHAIN_BOOT_FLOOR_GUARD = "assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)"
 
 
 def test_chain_boot_suite_runs_in_the_va_live_run_step(
@@ -8686,113 +8167,17 @@ def test_the_quick_tier_runs_the_plugin_version_check__mutation_drops_the_line()
 # the merge gate: each CI step that needs no secret or Docker calls one check
 # ---------------------------------------------------------------------------
 #
-# scripts/check.py is the one declaration of the merge gate, and each check CI
-# runs without a secret or a container is one step that calls it by id. The
-# table below holds those steps as main's ci.yml spells them; the full tier
-# runs each one's command too, so a contributor's `check.py full` is the
-# command CI runs.
+# scripts/check.py runs the merge gate from what the checks modules declare,
+# and each check CI runs without a secret or a container is one step that calls
+# it by id. Which step calls which check is read from ci.yml itself (see "One
+# check set" below); the full tier runs each call's command too, so a
+# contributor's `check.py full` is the command CI runs.
 
 FRONTEND_JS_JOB = "frontend-js"
 DOCS_JOB = "docs"
 #: How a caller step names the comparison base of the two diff checks: the
 #: pull request's base ref, read from ``env:``.
 CI_BASE = "origin/$BASE_REF"
-
-
-@dataclass(frozen=True)
-class CallerStep:
-    """One CI step that calls one check; ``based`` when it passes the base."""
-
-    job: str
-    step: str
-    check: str
-    based: bool = False
-
-    def call(self) -> list[str]:
-        return ["run", self.check, *(["--base", CI_BASE] if self.based else [])]
-
-
-CALLER_STEPS = (
-    CallerStep(LINT_JOB, LOCK_CHECK_STEP, "lockfile"),
-    CallerStep(LINT_JOB, "Run ruff (linting)", "ruff"),
-    CallerStep(LINT_JOB, "Run ruff (formatting)", "ruff-format"),
-    CallerStep(LINT_JOB, "Run lint-imports (import boundaries)", "import-contracts"),
-    CallerStep(LINT_JOB, "Run ruff import-private-name on the framework", "private-imports"),
-    CallerStep(LINT_JOB, "Run config-key resurrection guard (with back-test)", "config-keys"),
-    CallerStep(LINT_JOB, CHANGELOG_STEP, "changelog", based=True),
-    CallerStep(LINT_JOB, PLUGIN_VERSION_STEP, "plugin-version", based=True),
-    CallerStep(LINT_JOB, "No tracked file is gitignored", "tracked-ignored"),
-    CallerStep(LINT_JOB, "Run mypy (type checking)", "mypy"),
-    CallerStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "tsc"),
-    CallerStep(FRONTEND_JS_JOB, "Lint (eslint)", "eslint"),
-    CallerStep(FRONTEND_JS_JOB, "Run JS tests (vitest)", "vitest"),
-    CallerStep(FRONTEND_JS_JOB, "Check the dock-engine bundle is current", "dock-engine-bundle"),
-    CallerStep(FRONTEND_JS_JOB, "Run dock-engine tests (vitest)", "dock-engine-tests"),
-    CallerStep(DOCS_JOB, "Build documentation", "docs"),
-    CallerStep("package", "Build and check the packages", "package"),
-)
-assert len({row.step for row in CALLER_STEPS}) == len(CALLER_STEPS)
-
-
-@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
-def test_each_caller_step_calls_its_check(
-    row: CallerStep, raw_workflow: dict[str, Any] | None = None
-) -> None:
-    """The CI step exists in its job and calls exactly the row's check, so the
-    command it runs is the one the declaration holds."""
-    wf = _load_raw_workflow() if raw_workflow is None else raw_workflow
-    calls = _check_calls(_find_named_step(wf, row.job, row.step))
-    assert calls == [row.call()], f"{row.job}/{row.step} calls {calls}, the table says {row.call()}"
-
-
-@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
-def test_each_caller_step_calls_its_check__mutation_calls_another(row: CallerStep) -> None:
-    mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, row.job, row.step)
-    step["run"] = step["run"].replace(f" run {row.check}", " run lockfile ruff", 1)
-    with pytest.raises(AssertionError):
-        test_each_caller_step_calls_its_check(row, mutated)
-
-
-def _ci_commands(row: CallerStep) -> list[str]:
-    """The command lines *row*'s call resolves to, one shell line each."""
-    return [_render(argv).replace("\n", " ") for argv in check_set.resolve(row.call())]
-
-
-@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
-def test_the_gate_runs_each_ci_step_once(row: CallerStep, gate_source: str | None = None) -> None:
-    """The full tier runs the row's check, and each of its commands exactly once.
-    A check implemented in check.py itself runs no command of its own."""
-    assert row.check in {check.id for check in check_set.tier_checks("full")}
-    source = _tier_source("full", CI_BASE) if gate_source is None else gate_source
-    lines = source.splitlines()
-    for command in _ci_commands(row):
-        count = lines.count(command)
-        assert count == 1, f"the full tier runs {command!r} {count} times, not once"
-
-
-#: The rows whose check runs at least one command.
-_COMMAND_ROWS = tuple(row for row in CALLER_STEPS if check_set.resolve(row.call()))
-
-
-@pytest.mark.parametrize("row", _COMMAND_ROWS, ids=lambda row: row.step)
-def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: CallerStep) -> None:
-    source = _tier_source("full", CI_BASE)
-    first = _ci_commands(row)[0]
-    mutated = "\n".join(line for line in source.splitlines() if line != first)
-    assert mutated != source, f"the full tier has no {first!r}; mutation is stale"
-    with pytest.raises(AssertionError):
-        test_the_gate_runs_each_ci_step_once(row, mutated)
-
-
-def test_the_gate_runs_each_ci_step_once__mutation_hardcodes_a_second_base() -> None:
-    (row,) = [row for row in CALLER_STEPS if row.step == CHANGELOG_STEP]
-    source = _tier_source("full", CI_BASE)
-    (command,) = _ci_commands(row)
-    mutated = source.replace(command, command + " --base origin/main", 1)
-    assert mutated != source, f"the full tier has no {command!r}; mutation is stale"
-    with pytest.raises(AssertionError):
-        test_the_gate_runs_each_ci_step_once(row, mutated)
 
 
 def _first_index(commands: list[str], predicate: Callable[[str], bool]) -> int:
@@ -9103,17 +8488,6 @@ def test_every_dockerbuild_marked_module_reaches_a_gating_lane__mutation_gate_st
         test_every_dockerbuild_marked_module_reaches_a_gating_lane(mutated)
 
 
-def test_full_chain_auth_job_exists(workflow: dict[str, Any]) -> None:
-    assert FULL_CHAIN_JOB in _jobs(workflow)
-
-
-def test_full_chain_auth_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][FULL_CHAIN_JOB]
-    with pytest.raises(AssertionError):
-        assert FULL_CHAIN_JOB in _jobs(mutated)
-
-
 def test_full_chain_auth_job_runs_its_module(workflow: dict[str, Any]) -> None:
     """The named step is the lane's whole point; the generic guard above reports
     the module as homeless if it goes, this one says which step to look at."""
@@ -9129,17 +8503,6 @@ def test_full_chain_auth_job_runs_its_module__mutation_drops_the_module() -> Non
     step["run"] = step["run"].replace(FULL_CHAIN_TEST_FILE, "tests/e2e/test_something_else.py")
     with pytest.raises(AssertionError):
         test_full_chain_auth_job_runs_its_module(mutated)
-
-
-def test_all_checks_passed_needs_full_chain_auth(workflow: dict[str, Any]) -> None:
-    assert FULL_CHAIN_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_full_chain_auth__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(FULL_CHAIN_JOB)
-    with pytest.raises(AssertionError):
-        assert FULL_CHAIN_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 def test_check_pr_lane_covers_full_chain_auth(workflow: dict[str, Any]) -> None:
@@ -9291,7 +8654,7 @@ def test_privilege_split_lane_fails_on_a_lane_wide_skip__mutation_gate_tolerates
 
 #: The pytest targets of the full-chain lane's run step: its own module and
 #: nothing else, so the stack it builds once serves exactly the cases written
-#: for it (the reader-origin and `/play` proofs among them).
+#: for it (the history proofs among them).
 FULL_CHAIN_PYTEST_FILES = (FULL_CHAIN_TEST_FILE,)
 FULL_CHAIN_PLAYWRIGHT_STEP = "Install Playwright chromium"
 
@@ -9313,7 +8676,7 @@ def test_full_chain_auth_lane_runs_exactly_its_own_module__mutation_adds_a_file(
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_RUN_STEP)
     step["run"] = step["run"].replace(
-        FULL_CHAIN_TEST_FILE, f"{FULL_CHAIN_TEST_FILE} tests/e2e/test_telemetry_access_e2e.py"
+        FULL_CHAIN_TEST_FILE, f"{FULL_CHAIN_TEST_FILE} {RECORD_E2E_FILE}"
     )
     with pytest.raises(AssertionError, match="alone"):
         test_full_chain_auth_lane_runs_exactly_its_own_module(mutated)
@@ -9322,7 +8685,7 @@ def test_full_chain_auth_lane_runs_exactly_its_own_module__mutation_adds_a_file(
 def test_full_chain_auth_lane_installs_chromium_before_its_module(
     workflow: dict[str, Any],
 ) -> None:
-    """The `/play` and history proofs drive a real browser against the lane's stack."""
+    """The history proofs drive a real browser against the lane's stack."""
     steps = _jobs(workflow)[FULL_CHAIN_JOB]["steps"]
     names = [step.get("name") for step in steps]
     assert FULL_CHAIN_PLAYWRIGHT_STEP in names, f"'{FULL_CHAIN_JOB}' installs no browser"
@@ -9475,7 +8838,7 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # Model-spending lanes: `full-ci` on a pull request, on demand on main
 # ---------------------------------------------------------------------------
 #
-# Nine jobs drive real Claude sessions through the gateway. Measured on its
+# Ten jobs drive real Claude sessions through the gateway. Measured on its
 # ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
 # The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
@@ -9491,6 +8854,7 @@ SPENDING_LANES = frozenset(
         "e2e-tests",
         "dispatch-deploy-e2e",
         "single-user-narrowing-e2e",
+        "host-record-e2e",
         "dispatch-overlay-e2e",
         "scan-agentic-e2e",
         "nextcloud-talk-bridge-e2e",
@@ -10317,7 +9681,7 @@ def test_both_lean_wheel_checks_run_the_shared_walk(
     """The wheel a tag publishes passes the check every PR runs, isolated from the
     checkout. Every PR runs it through the package check, whose steps are
     declared once, in ``PACKAGE_STEPS`` of scripts/check.py."""
-    steps = check_set.PACKAGE_STEPS if package_steps is None else package_steps
+    steps = framework_checks.PACKAGE_STEPS if package_steps is None else package_steps
     walks = [step for step in steps if LEAN_WALK_SCRIPT in step]
     assert walks == [("{scratch}/lean/bin/python", "-I", LEAN_WALK_SCRIPT)], (
         f"the package check must run {LEAN_WALK_SCRIPT} once, in isolated mode from the "
@@ -10350,7 +9714,7 @@ def test_both_lean_wheel_checks_run_the_shared_walk__mutation_inline_probe() -> 
         ("{scratch}/lean/bin/python", "-c", "import osprey_connectors")
         if LEAN_WALK_SCRIPT in step
         else step
-        for step in check_set.PACKAGE_STEPS
+        for step in framework_checks.PACKAGE_STEPS
     )
     with pytest.raises(AssertionError, match="must run scripts/ci/connectors_lean_import_walk"):
         test_both_lean_wheel_checks_run_the_shared_walk(steps)
@@ -10944,9 +10308,9 @@ def _package_events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         events.append(" ".join(argv))
         return 0
 
-    monkeypatch.setattr(check_set, "shutil", _Shutil)
-    monkeypatch.setattr(check_set, "_run", _run)
-    assert check_set._check_package(check_set.Context()) == 0
+    monkeypatch.setattr(framework_checks, "shutil", _Shutil)
+    monkeypatch.setattr(check_set.kit, "run", _run)
+    assert framework_checks._check_package(check_set.Context()) == 0
     return events
 
 
@@ -11004,11 +10368,11 @@ def test_the_package_check_reports_twines_own_verdict() -> None:
     status, so anything downstream of twine answers for it — and twine reports
     per artifact, so a downstream match on a passing line is satisfied by one
     good artifact beside a broken one."""
-    assert _twine_verdict_missing(check_set.PACKAGE_STEPS) == []
+    assert _twine_verdict_missing(framework_checks.PACKAGE_STEPS) == []
 
 
 def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_grep() -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     piped = ("sh", "-c", 'uvx twine check dist/* 2>&1 | grep -q "PASSED"')
     mutated = tuple(piped if step == TWINE_CHECK_STEP else step for step in steps)
     assert mutated != steps, "the twine step moved; this mutation is stale"
@@ -11016,46 +10380,170 @@ def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_gre
 
 
 # ---------------------------------------------------------------------------
-# the link check is advisory: a CI step that cannot fail, and no check
+# a broken documentation link fails the run, by the checker's own status
 # ---------------------------------------------------------------------------
 #
-# External links break for reasons no change controls, so the docs job reports
-# them without failing, and the check command declares no link check whose
-# verdict a local run would then treat as binding.
+# A check can fail open in three independent ways: the status a pipeline
+# reports is its LAST command's, so a verdict read through a grep or an
+# `|| true` is not the checker's; a step marked `continue-on-error` reports a
+# failure and passes the job; and a check that is in no tier a contributor runs
+# cannot reach the verdict at all.
 
+LINKCHECK_CHECK = "linkcheck"
+LINKCHECK_COMMAND = "uv run make linkcheck"
 LINKCHECK_STEP = "Check for broken links"
+DOCS_BUILD_STEP = "Build documentation"
+DOCS_UPLOAD_STEP = "Upload documentation artifact"
+_SHELLS = frozenset({"sh", "bash", "zsh"})
 
 
-def _linkcheck_problems(wf: dict[str, Any], checks: tuple[Any, ...]) -> list[str]:
+def _linkcheck_verdict_missing(commands: list[list[str]]) -> list[str]:
+    """What the full tier's link check is missing (empty = sphinx's own status decides).
+
+    *commands* are the argument vectors the tier resolves to. The check
+    command runs each one without a shell and fails the run on any non-zero
+    exit, so the checker's status decides exactly when it is its own command.
+    """
+    checks = [argv for argv in commands if LINKCHECK_COMMAND in shlex.join(argv)]
+    if not checks:
+        return ["a link check"]
+    return [
+        f"the checker's own status on {shlex.join(argv)!r}"
+        for argv in checks
+        if argv[0] in _SHELLS or shlex.join(argv) != LINKCHECK_COMMAND
+    ]
+
+
+def _full_tier_commands() -> list[list[str]]:
+    return check_set.resolve(["full"])
+
+
+def test_the_full_tier_blocks_on_a_broken_documentation_link() -> None:
+    """A link the docs publish and no reader can follow fails the run a push
+    needs, by the checker's own status and in the checker's own words."""
+    assert _linkcheck_verdict_missing(_full_tier_commands()) == []
+    linkcheck = {check.id: check for check in check_set.CHECKS}[LINKCHECK_CHECK]
+    assert linkcheck.workdir == "docs"
+
+
+def test_the_full_tier_blocks_on_a_broken_documentation_link__mutation_restores_the_grep() -> None:
+    piped = f'{LINKCHECK_COMMAND} 2>&1 | grep -q "build succeeded"'
+    mutated = [
+        ["sh", "-c", piped] if shlex.join(argv) == LINKCHECK_COMMAND else argv
+        for argv in _full_tier_commands()
+    ]
+    assert _linkcheck_verdict_missing(mutated) == [
+        f"the checker's own status on {shlex.join(['sh', '-c', piped])!r}"
+    ]
+
+
+def test_the_full_tier_blocks_on_a_broken_documentation_link__mutation_drops_the_check() -> None:
+    """A link check no tier runs is advisory, whatever its verdict says."""
+    commands = _full_tier_commands()
+    mutated = [argv for argv in commands if shlex.join(argv) != LINKCHECK_COMMAND]
+    assert mutated != commands, "no link check in the full tier; mutation is stale"
+    assert _linkcheck_verdict_missing(mutated) == ["a link check"]
+
+
+def _linkcheck_step_problems(wf: dict[str, Any]) -> list[str]:
+    """What lets the docs job's link check pass over a broken link (empty = nothing)."""
     step = _find_named_step(wf, DOCS_JOB, LINKCHECK_STEP)
     problems = []
-    if step.get("continue-on-error") is not True:
-        problems.append("the link-check step can fail the docs job")
-    problems += [
-        f"{check.id}: a check runs the link check" for check in checks if "linkcheck" in check.argv
-    ]
+    if "continue-on-error" in step:
+        problems.append("the link-check step carries continue-on-error")
+    if str(step.get("run", "")).strip() != f"python3 {CHECK_SCRIPT} run {LINKCHECK_CHECK}":
+        problems.append(f"the link-check step is not exactly a call of {CHECK_SCRIPT}")
     return problems
 
 
-def test_the_link_check_is_advisory(workflow: dict[str, Any]) -> None:
-    assert _linkcheck_problems(workflow, check_set.CHECKS) == []
+def test_the_link_check_can_fail_the_docs_job(raw_workflow: dict[str, Any]) -> None:
+    """The docs job runs the link check as the check command declares it, and
+    its failure fails the job."""
+    assert _linkcheck_step_problems(raw_workflow) == []
 
 
-def test_the_link_check_is_advisory__mutation_declares_a_check() -> None:
-    extra = check_set.Check(
-        "linkcheck", "build", check_set.FULL, ("uv", "run", "make", "linkcheck")
-    )
-    assert _linkcheck_problems(_load_workflow(), (*check_set.CHECKS, extra)) == [
-        "linkcheck: a check runs the link check"
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ({"continue-on-error": True}, "the link-check step carries continue-on-error"),
+        (
+            {"run": f"python3 {CHECK_SCRIPT} run {LINKCHECK_CHECK} || true"},
+            f"the link-check step is not exactly a call of {CHECK_SCRIPT}",
+        ),
+    ],
+)
+def test_the_link_check_can_fail_the_docs_job__mutation(
+    change: dict[str, Any], problem: str
+) -> None:
+    mutated = _load_raw_workflow()
+    _find_named_step(mutated, DOCS_JOB, LINKCHECK_STEP).update(change)
+    assert _linkcheck_step_problems(mutated) == [problem]
+
+
+def test_docs_preview_uploads_before_the_link_check(workflow: dict[str, Any]) -> None:
+    """A broken link must not cost the reader the preview that shows it: the
+    built pages are uploaded after the build and before the link check, so a
+    red link check still fails the job and the preview is still published."""
+    names = _step_names(workflow, DOCS_JOB)
+    for step in (DOCS_BUILD_STEP, DOCS_UPLOAD_STEP, LINKCHECK_STEP):
+        assert step in names, f"no {step!r} step in the {DOCS_JOB} job; got {names}"
+    assert (
+        names.index(DOCS_BUILD_STEP) < names.index(DOCS_UPLOAD_STEP) < names.index(LINKCHECK_STEP)
+    ), "the documentation preview must upload after the build and BEFORE the link check"
+
+
+def test_docs_preview_uploads_before_the_link_check__mutation_moves_it_last() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[DOCS_JOB]["steps"]
+    upload = next(s for s in steps if s.get("name") == DOCS_UPLOAD_STEP)
+    steps.remove(upload)
+    steps.append(upload)
+    with pytest.raises(AssertionError, match="BEFORE the link check"):
+        test_docs_preview_uploads_before_the_link_check(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the secret scan runs the gitleaks the pre-commit hook pins
+# ---------------------------------------------------------------------------
+
+PRE_COMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
+GITLEAKS_HOOK_REPO = "https://github.com/gitleaks/gitleaks"
+#: The lint job's two steps for the secret scan: the binary, then the call.
+GITLEAKS_INSTALL_STEP = "Install gitleaks"
+GITLEAKS_SCAN_STEP = "Run gitleaks (secret scan)"
+
+
+def _hook_gitleaks_rev(config: dict[str, Any]) -> str:
+    """The ``rev`` of the gitleaks hook repository in a parsed pre-commit config."""
+    revs = [repo["rev"] for repo in config["repos"] if repo.get("repo") == GITLEAKS_HOOK_REPO]
+    assert len(revs) == 1, f"expected one {GITLEAKS_HOOK_REPO} entry; got {revs}"
+    return str(revs[0])
+
+
+def _hook_and_ci_gitleaks_disagree(config: dict[str, Any], wf: dict[str, Any]) -> list[str]:
+    step = _find_named_step(wf, LINT_JOB, GITLEAKS_INSTALL_STEP)
+    hook, installed = _hook_gitleaks_rev(config), f"v{step['env']['GITLEAKS_VERSION']}"
+    return [] if hook == installed else [f"the hook runs gitleaks {hook}; CI installs {installed}"]
+
+
+def test_ci_installs_the_gitleaks_the_hook_pins(workflow: dict[str, Any]) -> None:
+    """The secret scan CI runs and the pre-commit hook's scan use one gitleaks.
+    Two versions carry different rules, so a commit the hook passed can fail
+    the scan. The hook's ``rev`` is the repository's statement of the version:
+    CI installs that release, and raising gitleaks moves both together."""
+    config = yaml.safe_load(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    assert _hook_and_ci_gitleaks_disagree(config, workflow) == []
+
+
+def test_ci_installs_the_gitleaks_the_hook_pins__mutation_the_hook_moves_ahead() -> None:
+    wf = _load_workflow()
+    installed = _find_named_step(wf, LINT_JOB, GITLEAKS_INSTALL_STEP)["env"]["GITLEAKS_VERSION"]
+    config = {"repos": [{"repo": GITLEAKS_HOOK_REPO, "rev": "v99.0.0"}, {"repo": "x", "rev": "v1"}]}
+    assert _hook_and_ci_gitleaks_disagree(config, wf) == [
+        f"the hook runs gitleaks v99.0.0; CI installs v{installed}"
     ]
-
-
-def test_the_link_check_is_advisory__mutation_lets_it_fail() -> None:
-    mutated = _load_workflow()
-    del _find_named_step(mutated, DOCS_JOB, LINKCHECK_STEP)["continue-on-error"]
-    assert _linkcheck_problems(mutated, check_set.CHECKS) == [
-        "the link-check step can fail the docs job"
-    ]
+    config["repos"][0]["rev"] = f"v{installed}"
+    assert _hook_and_ci_gitleaks_disagree(config, wf) == []
 
 
 # ---------------------------------------------------------------------------
@@ -11232,21 +10720,17 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_ima
 
 
 # ---------------------------------------------------------------------------
-# A lane whose stack deploys the telemetry store removes it by exact name
+# The compose projects each stack lane's cleanup step owes
 # ---------------------------------------------------------------------------
 
-#: Every belt-and-suspenders cleanup step of a lane whose deployment runs the
-#: telemetry store and its gateway, with the compose projects that deployment
-#: takes. Both shipped presets deploy the pair and no lane module narrows
-#: ``deployed_services``, so every lane that runs ``osprey up`` belongs here, as
-#: does every lane whose modules deploy the store directly. A killed run
-#: otherwise leaves the store holding its port and its credential-pinned volume
-#: on a self-hosted or reused runner.
+#: The belt-and-suspenders cleanup step of a lane whose modules deploy a stack
+#: under their own compose projects. A killed run otherwise leaves that stack
+#: holding its ports and volumes on a self-hosted or reused runner.
 STACK_CLEANUP_STEP = "Clean up any stranded stack resources"
 
-#: The compose projects of the lanes that deploy the store, each from its
-#: module's ``PROJECT_NAME``. The shared ``e2e-tests`` lane can run any of them
-#: through its ``E2E_FILTER`` input, so its cleanup step names them all.
+#: The compose projects of the lanes whose modules deploy a stack, each from
+#: its module's ``PROJECT_NAME``. The shared ``e2e-tests`` lane can run any of
+#: them through its ``E2E_FILTER`` input, so its cleanup step names them all.
 _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "bluesky-queue-e2e": ("queue-e2e",),
     "bluesky-deploy-e2e": ("osprey-e2e-bluesky-deploy",),
@@ -11264,9 +10748,10 @@ _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "dispatch-deploy-e2e": ("osprey-e2e-dispatch",),
     "dispatch-overlay-e2e": ("osprey-e2e-overlay",),
     "single-user-narrowing-e2e": ("suproj",),
+    "host-record-e2e": ("osprey-e2e-host-record",),
     "va-substrate-equivalence-e2e": ("osprey-e2e-va-substrate",),
     "va-bluesky-deploy-e2e": ("lane-e2e",),
-    "e2e-no-model": ("osprey-e2e-telemetry-store", "osprey-e2e-telemetry-access"),
+    RECORD_E2E_JOB: ("osprey-e2e-agent-record",),
 }
 
 #: Where each lane's projects come from: the module constant they must equal.
@@ -11287,11 +10772,13 @@ _STACK_PROJECT_SOURCES: dict[str, str] = {
     "suproj": "tests/e2e/test_single_user_narrowing_e2e.py",
     "osprey-e2e-va-substrate": "tests/e2e/test_va_substrate_equivalence.py",
     "lane-e2e": "tests/va/e2e/test_bluesky_lanes.py",
-    "osprey-e2e-telemetry-store": "tests/e2e/test_telemetry_store_e2e.py",
-    "osprey-e2e-telemetry-access": "tests/e2e/test_telemetry_access_e2e.py",
+    "osprey-e2e-agent-record": RECORD_E2E_FILE,
+    "osprey-e2e-host-record": "tests/e2e/test_host_record_e2e.py",
 }
 
-TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
+#: Every such cleanup step, with the compose projects its lane deploys: the
+#: stack lanes above, plus the lanes whose cleanup step carries its own name.
+STACK_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
     (
         "multi-user-deploy-lifecycle-e2e",
         "Clean up any stranded lifecycle-e2e resources",
@@ -11300,9 +10787,6 @@ TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "multi-user-deploy-lifecycle-e2e-podman",
         "Clean up any stranded lifecycle-e2e resources",
     ): ("osprey-e2e-mus-p3",),
-    (TWO_SHAPE_JOB, "Clean up any stranded two-shape resources"): (
-        "osprey-e2e-two-shape-telemetry",
-    ),
     (
         "full-chain-auth-e2e",
         "Clean up any stranded full-chain-auth resources",
@@ -11311,10 +10795,6 @@ TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "jupyter-panel-e2e",
         "Clean up any stranded notebook-panel resources",
     ): ("osprey-e2e-jnb",),
-    (
-        "agentic-per-preset",
-        "Clean up any stranded tutorial-stack resources",
-    ): (_module_constant(TESTS_ROOT / "e2e" / "test_preset_agentic.py", "TUTORIAL_PROJECT_NAME"),),
     **{(job, STACK_CLEANUP_STEP): projects for job, projects in _STACK_LANE_PROJECTS.items()},
     ("e2e-tests", STACK_CLEANUP_STEP): tuple(
         project for projects in _STACK_LANE_PROJECTS.values() for project in projects
@@ -11335,56 +10815,171 @@ def test_stack_lane_projects_match_their_modules() -> None:
     assert listed == set(_STACK_PROJECT_SOURCES)
 
 
-def _telemetry_cleanup_gaps(run: str, project: str) -> list[str]:
-    """What *run* fails to remove of *project*'s store, gateway and their volumes.
+# ---------------------------------------------------------------------------
+# Every lane that can bring up a stack removes the agent record by exact name
+# ---------------------------------------------------------------------------
 
-    A volume counts as removed when the step names it exactly or sweeps the
+#: The step that tears down what ``deploy-e2e``'s ``osprey up`` started, and
+#: the step that does the same for ``archiver-world-e2e``.
+DEPLOY_STACK_CLEANUP_STEP = "Clean up any stranded hello-world resources"
+ARCHIVER_CLEANUP_STEP = "Clean up any stranded archiver-world resources"
+TWO_SHAPE_CLEANUP_STEP = "Clean up any stranded two-shape resources"
+
+
+def _deploy_e2e_project(wf: dict[str, Any]) -> str:
+    """The project ``deploy-e2e`` creates, read off its own ``osprey init``."""
+    for step in _jobs(wf)[DEPLOY_JOB]["steps"]:
+        found = re.search(r"\bosprey init (\S+)", str(step.get("run", "")))
+        if found:
+            return found.group(1)
+    raise AssertionError(f"'{DEPLOY_JOB}' runs no `osprey init <project>`")
+
+
+def _record_cleanup_steps(wf: dict[str, Any]) -> dict[tuple[str, str], tuple[str, ...]]:
+    """Every belt-and-suspenders cleanup step of a lane that can bring up a
+    stack, with the compose projects that lane deploys.
+
+    The agent record renders into every deployment, so every lane that runs
+    ``osprey up`` (directly or through its module) owes it, whichever other
+    services the lane also deploys.
+    """
+    return {
+        **STACK_CLEANUP_STEPS,
+        **WEB_TERMINAL_CLEANUP_STEPS,
+        (WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP): tuple(
+            f"{WRITEBACK_PROJECT_PREFIX}{case}" for case in sorted(_writeback_project_cases())
+        ),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP): (_two_shape_module_constant("PROJECT_NAME"),),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP): (
+            _module_constant(REPO_ROOT / ARCHIVER_TEST_FILE, "PROJECT_NAME"),
+        ),
+        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP): (_deploy_e2e_project(wf),),
+    }
+
+
+#: Lanes that run a docker-backed module or carry a docker cleanup step but
+#: never run ``osprey up``, so no agent record can exist there to strand.
+RECORD_CLEANUP_EXEMPT: dict[str, str] = {
+    "dockerfile-e2e": "runs the generated image on its own; no compose deployment",
+    "execution-environment-parity-e2e": "builds and runs the project image only",
+    "graph-reseed-e2e": "runs the graph store container only",
+    "nextcloud-talk-bridge-e2e": "runs fixture containers and the bridge process only",
+    "target-switch-agentic-e2e": "runs the VA and an agent turn; no osprey up deployment",
+    "privilege-split-e2e": "starts hand-named containers and sweeps their name prefix",
+}
+
+_OSPREY_UP = re.compile(r"\bosprey (?:deploy )?up\b")
+_COMPOSE_DOWN = re.compile(r"\b(?:docker|podman)[ -]compose\b[^\n]*\bdown\b")
+
+
+def _expand_shell_loops(run: str) -> str:
+    """*run* with each ``for <var> in <cases>; do … done`` loop unrolled, and
+    each plain ``name="…"`` assignment in the unrolled body substituted, so a
+    removal spelled ``"${project}-agent-record"`` reads as the names it removes.
+    """
+    loop = re.compile(r"for (\w+) in ([^;\n]+); do\n(.*?)\ndone", re.DOTALL)
+
+    def _unroll(match: re.Match[str]) -> str:
+        var, cases, body = match.group(1), match.group(2).split(), match.group(3)
+        out = []
+        for case in cases:
+            text = body.replace(f"${{{var}}}", case).replace(f"${var}", case)
+            for name, value in re.findall(r'^\s*(\w+)="([^"$]*)"\s*$', text, re.MULTILINE):
+                text = text.replace(f"${{{name}}}", value).replace(f"${name}", value)
+            out.append(text)
+        return "\n".join(out)
+
+    return loop.sub(_unroll, run)
+
+
+def _record_cleanup_gaps(run: str, project: str) -> list[str]:
+    """What *run* fails to remove of *project*'s agent record, its ClickHouse
+    store and the store's data volume.
+
+    The volume counts as removed when the step names it exactly or sweeps the
     project's own volume prefix (``--filter "name=^<project>_"``).
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
-    removed = set(_CONTAINER_REMOVAL.findall(run))
+    expanded = _expand_shell_loops(run)
+    removed = set(_CONTAINER_REMOVAL.findall(expanded))
+    name = resolve_project_name({"project_name": project})
     gaps = [
-        name
-        for name in (f"{project}-telemetry-store", f"{project}-telemetry-gateway")
-        if name not in removed
+        container
+        for container in (f"{name}-agent-record", f"{name}-agent-record-clickhouse")
+        if container not in removed
     ]
-    prefix = f"{resolve_project_name({'project_name': project})}_"
-    swept = f'name=^{prefix}"' in run
-    for suffix in ("telemetry_store_data", "gateway-state"):
-        volume = f"{prefix}{suffix}"
-        if not swept and not re.search(rf"volume rm (?:-f )?{re.escape(volume)}(?:\s|$)", run):
-            gaps.append(volume)
+    volume = f"{name}_agent_record_clickhouse_data"
+    swept = f'name=^{name}_"' in expanded
+    if not swept and not re.search(
+        rf"volume rm (?:-f )?\"?{re.escape(volume)}\"?(?:\s|$)", expanded
+    ):
+        gaps.append(volume)
     return gaps
 
 
-def test_store_deploying_lanes_remove_the_store_by_name(workflow: dict[str, Any]) -> None:
-    """A store left behind by a killed run holds its port and its credential-
-    pinned data volume on a host that outlives the job;
-    a cleanup spelling the names any other way removes nothing."""
+def _stack_capable_jobs(wf: dict[str, Any]) -> set[str]:
+    """Every job that can bring up a stack: it runs a docker-backed e2e module,
+    runs ``osprey up`` itself, or carries an ``if: always()`` docker or podman
+    cleanup step."""
+    jobs = {job for f in _dockerbuild_marked_e2e_files() for job in _jobs_running_e2e_file(wf, f)}
+    for job, spec in _jobs(wf).items():
+        for step in spec.get("steps") or []:
+            run = str(step.get("run", ""))
+            if _OSPREY_UP.search(run):
+                jobs.add(job)
+            if step.get("if") == "always()" and (
+                _CONTAINER_REMOVAL.search(run)
+                or _COMPOSE_DOWN.search(run)
+                or re.search(r"\b(?:docker|podman) ps -aq\b", run)
+            ):
+                jobs.add(job)
+    return jobs
+
+
+def test_every_stack_lane_owes_the_record_cleanup(workflow: dict[str, Any]) -> None:
+    """A lane that can bring up a stack and has no record cleanup leaves the
+    record container holding the next lane's port and volume after a failed
+    run. Each such lane is either in the record-cleanup table or exempt with
+    a reason; an exemption for a lane outside the rule is stale."""
+    covered = {job for job, _ in _record_cleanup_steps(workflow)}
+    unowned = sorted(_stack_capable_jobs(workflow) - covered - set(RECORD_CLEANUP_EXEMPT))
+    assert unowned == [], f"stack lanes with no agent-record cleanup: {unowned}"
+    stale = sorted(
+        job
+        for job in RECORD_CLEANUP_EXEMPT
+        if job in covered or job not in _stack_capable_jobs(workflow)
+    )
+    assert stale == [], f"record-cleanup exemptions that no longer apply: {stale}"
+
+
+def test_stack_lanes_remove_the_agent_record_by_name(workflow: dict[str, Any]) -> None:
+    """Each cleanup step removes ``<project>-agent-record``,
+    ``<project>-agent-record-clickhouse`` and the store's data volume for every
+    project its lane deploys."""
     gaps = {
         job: missing
-        for (job, step_name), projects in TELEMETRY_CLEANUP_STEPS.items()
+        for (job, step_name), projects in _record_cleanup_steps(workflow).items()
         if (
             missing := [
                 gap
                 for project in projects
-                for gap in _telemetry_cleanup_gaps(
+                for gap in _record_cleanup_gaps(
                     _cleanup_step_run(workflow, job, step_name), project
                 )
             ]
         )
     }
-    assert gaps == {}, f"cleanup steps that do not remove the telemetry store: {gaps}"
+    assert gaps == {}, f"cleanup steps that do not remove the agent record: {gaps}"
 
 
-def test_store_cleanup_steps_run_always_after_the_failure_capture(
+def test_record_cleanup_steps_run_always_after_the_failure_capture(
     workflow: dict[str, Any],
 ) -> None:
-    """The cleanup must run on a failed or cancelled run, and only after the
+    """The record cleanup runs on a failed or cancelled run, and only after the
     failure capture has read the containers' logs."""
     misplaced = []
-    for job, step_name in TELEMETRY_CLEANUP_STEPS:
+    for job, step_name in _record_cleanup_steps(workflow):
         steps = workflow["jobs"][job]["steps"]
         step = _find_named_step(workflow, job, step_name)
         captures = [
@@ -11392,52 +10987,97 @@ def test_store_cleanup_steps_run_always_after_the_failure_capture(
         ]
         if step.get("if") != "always()" or any(i > steps.index(step) for i in captures):
             misplaced.append(job)
-    assert misplaced == [], f"store cleanup not always() or before the failure capture: {misplaced}"
-
-
-def test_store_cleanup_steps_run_always_after_the_failure_capture__mutation_drops_always() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del _find_named_step(mutated, "bluesky-queue-e2e", STACK_CLEANUP_STEP)["if"]
-    with pytest.raises(AssertionError, match="bluesky-queue-e2e"):
-        test_store_cleanup_steps_run_always_after_the_failure_capture(mutated)
-
-
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_one_project() -> None:
-    """The shared lane's step names many projects; losing one is a gap."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, "e2e-tests", STACK_CLEANUP_STEP)
-    before = step["run"]
-    step["run"] = "\n".join(line for line in before.splitlines() if "suproj" not in line)
-    assert step["run"] != before, "no suproj in the shared cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="suproj-telemetry-store"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
-
-
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_gateway() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated,
-        "multi-user-deploy-lifecycle-e2e-podman",
-        "Clean up any stranded lifecycle-e2e resources",
+    assert misplaced == [], (
+        f"record cleanup not always() or before the failure capture: {misplaced}"
     )
-    before = step["run"]
-    step["run"] = "\n".join(line for line in before.splitlines() if "telemetry-gateway" not in line)
-    assert step["run"] != before, "no gateway removal in the cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-mus-p3-telemetry-gateway"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
 
 
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_a_volume() -> None:
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_cleanup_step() -> None:
+    """A stack lane whose cleanup step is gone is named by the rule."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, "Clean up any stranded two-shape resources")
+    steps = _jobs(mutated)[ARCHIVER_JOB]["steps"]
+    before = len(steps)
+    steps[:] = [s for s in steps if s.get("name") != ARCHIVER_CLEANUP_STEP]
+    assert len(steps) == before - 1, "no archiver-world cleanup step — mutation is stale"
+    with pytest.raises(AssertionError, match=ARCHIVER_JOB):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_every_stack_lane_owes_the_record_cleanup__mutation_adds_an_unowned_lane() -> None:
+    """A new lane that runs ``osprey up`` with no table entry is named."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["stray-stack-e2e"] = {
+        "steps": [{"name": "boot", "run": "uv run osprey up -d --dev"}]
+    }
+    with pytest.raises(AssertionError, match="stray-stack-e2e"):
+        test_every_stack_lane_owes_the_record_cleanup(mutated)
+
+
+def test_every_stack_lane_owes_the_record_cleanup__mutation_stale_exemption() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)["graph-reseed-e2e"]
+    with pytest.raises(AssertionError, match="graph-reseed-e2e"):
+        test_every_stack_lane_owes_the_record_cleanup(mutated)
+
+
+@pytest.mark.parametrize(
+    ("job", "step_name", "dropped"),
+    [
+        ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e-agent-record"),
+        ("e2e-tests", STACK_CLEANUP_STEP, "suproj-agent-record-clickhouse"),
+        (
+            "auth-perimeter-e2e",
+            "Clean up any stranded auth-perimeter resources",
+            "osprey-e2e-auth-perimeter-agent-record",
+        ),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP, "osprey-e2e-two-shape-agent-record-clickhouse"),
+        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP, "hello-world-test-agent-record"),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP, "archiver-world-agent-record"),
+    ],
+)
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
+    job: str, step_name: str, dropped: str
+) -> None:
+    """Dropping one record removal from one lane is a gap naming that lane."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job, step_name)
     before = step["run"]
-    step["run"] = "\n".join(line for line in before.splitlines() if "_gateway-state" not in line)
-    assert step["run"] != before, "no gateway-state volume in the cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-two-shape-telemetry_gateway-state"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if not line.rstrip().endswith(f"{dropped} || true")
+    )
+    assert step["run"] != before, f"no {dropped} removal in '{job}' — mutation is stale"
+    with pytest.raises(
+        AssertionError, match=rf"'{re.escape(job)}': \[[^\]]*'{re.escape(dropped)}'"
+    ):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
 
 
-def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_volume_sweep() -> None:
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_loop_removal() -> None:
+    """The write-back lane removes its records inside its per-project loop."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if '"${project}-agent-record" ' not in line
+    )
+    assert step["run"] != before, "no looped record removal — mutation is stale"
+    with pytest.raises(AssertionError, match="osprey-e2e-wb-render-agent-record'"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_record_volume() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if "agent_record_clickhouse_data" not in line
+    )
+    assert step["run"] != before, "no record volume removal — mutation is stale"
+    with pytest.raises(AssertionError, match="archiver-world_agent_record_clickhouse_data"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_volume_sweep() -> None:
     """The notebook-panel lane removes its volumes by project prefix only."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(
@@ -11446,8 +11086,28 @@ def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_volu
     before = step["run"]
     step["run"] = before.replace('"name=^osprey-e2e-jnb_"', '"name=^osprey-e2e-jnb-web_"')
     assert step["run"] != before, "no project volume sweep — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-jnb_telemetry_store_data"):
-        test_store_deploying_lanes_remove_the_store_by_name(mutated)
+    with pytest.raises(AssertionError, match="osprey-e2e-jnb_agent_record_clickhouse_data"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_record_cleanup_steps_run_always_after_the_failure_capture__mutation_drops_always() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)["if"]
+    with pytest.raises(AssertionError, match=DEPLOY_JOB):
+        test_record_cleanup_steps_run_always_after_the_failure_capture(mutated)
+
+
+def test_expand_shell_loops_unrolls_cases_and_assignments() -> None:
+    run = (
+        "for case in a b; do\n"
+        '  project="p-${case}"\n'
+        '  docker rm -f "${project}-agent-record" || true\n'
+        "done\n"
+    )
+    assert _CONTAINER_REMOVAL.findall(_expand_shell_loops(run)) == [
+        "p-a-agent-record",
+        "p-b-agent-record",
+    ]
 
 
 _YAML_KEY_LINE = re.compile(r"^\s*[A-Za-z_][\w-]*:(?:\s|$)")
@@ -11475,9 +11135,7 @@ def test_no_run_script_absorbs_a_step_key(workflow: dict[str, Any]) -> None:
 
 def test_no_run_script_absorbs_a_step_key__mutation_splices_a_key() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated, "agentic-per-preset", "Clean up any stranded tutorial-stack resources"
-    )
+    step = _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)
     step["run"] += "engine: docker\n"
     with pytest.raises(AssertionError, match="engine: docker"):
         test_no_run_script_absorbs_a_step_key(mutated)
@@ -11485,9 +11143,7 @@ def test_no_run_script_absorbs_a_step_key__mutation_splices_a_key() -> None:
 
 def test_no_run_script_absorbs_a_step_key__a_heredoc_block_is_not_a_key() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(
-        mutated, "agentic-per-preset", "Clean up any stranded tutorial-stack resources"
-    )
+    step = _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)
     step["run"] = "python - <<'PY'\ntry:\n    pass\nfinally:\n    pass\nPY\n" + step["run"]
     test_no_run_script_absorbs_a_step_key(mutated)
 
@@ -11513,21 +11169,6 @@ def test_graph_reseed_job_runs_its_file_in_a_named_step__mutation_drops_job() ->
         test_graph_reseed_job_runs_its_file_in_a_named_step(mutated)
 
 
-def test_graph_reseed_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    """Every assertion in that file reads the store or the render; no model is
-    reached, so a secret here would mean the lane's scope silently grew."""
-    assert not _job_declares_secret(workflow, GRAPH_RESEED_JOB, SECRET_TOKEN)
-
-
-def test_graph_reseed_job_has_no_llm_secret__mutation_adds_secret() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][GRAPH_RESEED_JOB]["steps"].append(
-        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
-    )
-    with pytest.raises(AssertionError):
-        test_graph_reseed_job_has_no_llm_secret(mutated)
-
-
 def test_e2e_tests_ignores_the_graph_reseed_file(workflow: dict[str, Any]) -> None:
     step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
     assert f"--ignore={GRAPH_RESEED_TEST_FILE}" in step["run"]
@@ -11539,29 +11180,6 @@ def test_e2e_tests_ignores_the_graph_reseed_file__mutation_drops_ignore() -> Non
     step["run"] = _drop_ignore_line(step["run"], GRAPH_RESEED_TEST_FILE)
     with pytest.raises(AssertionError):
         test_e2e_tests_ignores_the_graph_reseed_file(mutated)
-
-
-def test_all_checks_passed_needs_graph_reseed(workflow: dict[str, Any]) -> None:
-    """``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
-    assert GRAPH_RESEED_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert f"needs.{GRAPH_RESEED_JOB}.result" in _gate_run_text(workflow)
-
-
-def test_all_checks_passed_needs_graph_reseed__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(GRAPH_RESEED_JOB)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_graph_reseed(mutated)
-
-
-def test_all_checks_passed_needs_graph_reseed__mutation_drops_check_pr_lane_line() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
-    kept = [line for line in step["run"].splitlines(keepends=True) if GRAPH_RESEED_JOB not in line]
-    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
-    step["run"] = "".join(kept)
-    with pytest.raises(AssertionError):
-        test_all_checks_passed_needs_graph_reseed(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -11670,7 +11288,7 @@ def test_the_package_job_import_walks_the_pyaml_wheel(
     by design -- while the lean check keeps the connectors wheel alone. The
     package check runs it after twine has judged the framework-only dist/, and
     the job uploads the framework's artifacts alone."""
-    steps = check_set.PACKAGE_STEPS if steps is None else steps
+    steps = framework_checks.PACKAGE_STEPS if steps is None else steps
     twine = _step_index(steps, lambda step: step == TWINE_CHECK_STEP, "runs twine")
     build = _step_index(steps, lambda step: step == PYAML_BUILD_STEP, "builds the pyAML wheel")
     lean = _step_index(steps, lambda step: step[0] == LEAN_PYTHON, "runs the lean probe")
@@ -11702,13 +11320,13 @@ def _replace_step(steps: PackageSteps, index: int, new: tuple[str, ...]) -> Pack
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_drops_the_step() -> None:
-    steps = tuple(s for s in check_set.PACKAGE_STEPS if s[0] != PYAML_PYTHON)
+    steps = tuple(s for s in framework_checks.PACKAGE_STEPS if s[0] != PYAML_PYTHON)
     with pytest.raises(AssertionError, match="no step that"):
         test_the_package_job_import_walks_the_pyaml_wheel(_load_workflow(), steps)
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_walks_without_framework() -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     index = _step_index(steps, _installs_into(PYAML_PYTHON), "fills the pyAML venv")
     narrowed = tuple(word for word in steps[index] if word != "dist/osprey_framework-*.whl")
     with pytest.raises(AssertionError, match="does not install dist/osprey_framework"):
@@ -11718,7 +11336,7 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_walks_without_fr
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_lean_venv_gets_framework() -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     index = _step_index(steps, _installs_into(LEAN_PYTHON), "fills the lean venv")
     widened = (*steps[index], "dist/osprey_framework-*.whl")
     with pytest.raises(AssertionError, match="connectors wheel alone"):
@@ -11728,7 +11346,7 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_lean_venv_gets_f
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_twine() -> None:
-    steps = [s for s in check_set.PACKAGE_STEPS if s != PYAML_BUILD_STEP]
+    steps = [s for s in framework_checks.PACKAGE_STEPS if s != PYAML_BUILD_STEP]
     steps.insert(steps.index(TWINE_CHECK_STEP), PYAML_BUILD_STEP)
     with pytest.raises(AssertionError, match="framework-only dist/"):
         test_the_package_job_import_walks_the_pyaml_wheel(_load_workflow(), tuple(steps))
@@ -11752,7 +11370,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
     so the package check reads the framework wheel's file list for the module and
     the package data ``dock_engine._data`` needs. No dock-engine wheel is built
     anywhere in the check or the job."""
-    steps = check_set.PACKAGE_STEPS if steps is None else steps
+    steps = framework_checks.PACKAGE_STEPS if steps is None else steps
     check = _step_index(steps, _checks_dock_engine, "checks the framework wheel for dock_engine")
     assert "dist/osprey_framework-*.whl" in steps[check], (
         "the check does not read the framework wheel"
@@ -11769,7 +11387,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
 def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_drops_the_step() -> (
     None
 ):
-    steps = tuple(s for s in check_set.PACKAGE_STEPS if not _checks_dock_engine(s))
+    steps = tuple(s for s in framework_checks.PACKAGE_STEPS if not _checks_dock_engine(s))
     with pytest.raises(AssertionError, match="no step that"):
         test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
 
@@ -11778,7 +11396,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_dr
 def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_skips_data(
     member: str,
 ) -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     index = _step_index(steps, _checks_dock_engine, "checks the framework wheel")
     step = steps[index]
     assert member in step[2], f"the check no longer names {member}; mutation is stale"
@@ -11790,7 +11408,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_sk
 def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_builds_a_wheel() -> (
     None
 ):
-    steps = (*check_set.PACKAGE_STEPS, ("uv", "build", "--package", "osprey-dock-engine"))
+    steps = (*framework_checks.PACKAGE_STEPS, ("uv", "build", "--package", "osprey-dock-engine"))
     with pytest.raises(AssertionError, match="no distribution of its own"):
         test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
 
@@ -12034,7 +11652,7 @@ def _unit_shards(unit: Any = None) -> dict[str, str]:
     """Each shard's own pytest selection, its paths and its own ignores, keyed
     by its name. The ignores every shard shares are left out: they narrow the
     lane, not the partition."""
-    unit = unit or check_set.UNIT_SELECTION
+    unit = unit or framework_checks.UNIT_SELECTION
     return {
         name: " ".join(["pytest", *paths, *(f"--ignore={path}" for path in ignores)])
         for name, (paths, ignores) in unit.shards.items()
@@ -12105,14 +11723,14 @@ def test_the_unit_shards_cover_the_test_tree_exactly_once(
 
 def _with_shard(shard: str, paths: tuple[str, ...], ignores: tuple[str, ...]) -> Any:
     """The declared selection with *shard* redefined."""
-    unit = check_set.UNIT_SELECTION
+    unit = framework_checks.UNIT_SELECTION
     assert shard in unit.shards, f"no '{shard}' shard declared; mutation is stale"
     return replace(unit, shards={**unit.shards, shard: (paths, ignores)})
 
 
 def _last_shard() -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     """The shard spelled by exclusion: its name, paths and ignored directories."""
-    for name, (paths, ignores) in check_set.UNIT_SELECTION.shards.items():
+    for name, (paths, ignores) in framework_checks.UNIT_SELECTION.shards.items():
         if ignores:
             return name, paths, ignores
     raise AssertionError("no unit shard is spelled by exclusion")
@@ -12150,11 +11768,107 @@ def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() ->
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
 
 
+# ---------------------------------------------------------------------------
+# The unit lane's macOS cells are one trimmed job each
+# ---------------------------------------------------------------------------
+#
+# The account's macOS ceiling is 5 concurrent jobs, so a macOS cell is one
+# `include` job running the check's `macos` trim, never os x shard.
+
+UNIT_MACOS_TRIM = "macos"
+
+#: macOS jobs per event against the ceiling of 5: one push and three PRs fit.
+UNIT_MACOS_BUDGET = {"pull_request": 1, "other": 2}
+
+
+def _unit_macos_cells(wf: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """The unit matrix's `include` cells per event, from the two JSON arrays
+    in its fromJSON expression (pull request first)."""
+    include = str(_jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"].get("include", ""))
+    arrays = re.findall(r"'(\[[^']*\])'", include)
+    assert re.search(r"github\.event_name\s*==\s*'pull_request'\s*&&", include) and (
+        len(arrays) == 2
+    ), f"unit matrix include is not the per-event fromJSON: {include!r}"
+    return {"pull_request": json.loads(arrays[0]), "other": json.loads(arrays[1])}
+
+
+def _macos_cell_problems(wf: dict[str, Any]) -> list[str]:
+    matrix = _jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    problems = []
+    if "macos-latest" in matrix["os"]:
+        problems.append(
+            f"macos-latest is on the os axis, so each shard is a macOS job: {matrix['os']}"
+        )
+    if UNIT_MACOS_TRIM in matrix["shard"]:
+        problems.append(f"'{UNIT_MACOS_TRIM}' is on the shard axis, so ubuntu runs it too")
+    if UNIT_MACOS_TRIM not in framework_checks.UNIT_SELECTION.trims:
+        problems.append(f"the check declares no '{UNIT_MACOS_TRIM}' trim")
+    cells = _unit_macos_cells(wf)
+    for event, event_cells in cells.items():
+        for cell in event_cells:
+            if cell != {**cell, "os": "macos-latest", "shard": UNIT_MACOS_TRIM}:
+                problems.append(f"{event} cell is not one macOS '{UNIT_MACOS_TRIM}' job: {cell}")
+        if len(event_cells) > UNIT_MACOS_BUDGET[event]:
+            problems.append(
+                f"{event} runs {len(event_cells)} macOS jobs, over its "
+                f"{UNIT_MACOS_BUDGET[event]} of the account's 5"
+            )
+    # Paired with the ubuntu coverage cell, a PR macOS failure isolates to the OS.
+    coverage = _coverage_cell_version(wf)
+    pr_versions = [cell.get("python-version") for cell in cells["pull_request"]]
+    if pr_versions != [coverage]:
+        problems.append(
+            f"the pull request's macOS cell runs {pr_versions}, not the coverage cell's {coverage}"
+        )
+    return problems
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each(workflow: dict[str, Any]) -> None:
+    assert _macos_cell_problems(workflow) == []
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_puts_macos_on_the_axis() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]["os"].append("macos-latest")
+    assert any("on the os axis" in p for p in _macos_cell_problems(mutated))
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_runs_a_shard() -> None:
+    mutated = _load_workflow()
+    matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    matrix["include"] = matrix["include"].replace('"shard":"macos"', '"shard":"cli"', 1)
+    assert any("is not one macOS 'macos' job" in p for p in _macos_cell_problems(mutated))
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_moves_the_pr_cell() -> None:
+    """Off the coverage cell's interpreter, a PR macOS failure no longer
+    isolates to the OS."""
+    mutated = _load_workflow()
+    matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    original = matrix["include"]
+    matrix["include"] = original.replace(
+        '&& \'[{"python-version":"3.12"', '&& \'[{"python-version":"3.11"', 1
+    )
+    assert matrix["include"] != original, "PR macOS cell not found -- mutation is stale"
+    assert any("not the coverage cell's" in p for p in _macos_cell_problems(mutated))
+
+
+def test_the_unit_macos_cells_are_one_trimmed_job_each__mutation_adds_a_pr_cell() -> None:
+    """A second PR macOS cell lets one push and three PRs exceed the ceiling."""
+    mutated = _load_workflow()
+    matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    original = matrix["include"]
+    cell = '{"python-version":"3.11","os":"macos-latest","shard":"macos"}'
+    matrix["include"] = original.replace("&& '[", f"&& '[{cell},", 1)
+    assert matrix["include"] != original, "PR include array not found -- mutation is stale"
+    assert any("over its 1" in p for p in _macos_cell_problems(mutated))
+
+
 def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_shard() -> None:
     """The case's directory leaves the shard the pin names, so the pinned
     shard name no longer says where the case runs."""
     directory = "/".join(TWO_UID_LOG_FILE.split("/")[:2])
-    paths, ignores = check_set.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
+    paths, ignores = framework_checks.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
     kept = tuple(path for path in paths if path != directory)
     assert len(kept) == len(paths) - 1, (
         f"{directory} not named by '{TWO_UID_LOG_SHARD}'; mutation is stale"
@@ -12167,7 +11881,7 @@ def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_s
 def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_level() -> None:
     """A shard ignores a subdirectory of a directory it names: those files run in
     no shard, and a top-level check alone would still see the directory once."""
-    paths, ignores = check_set.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
+    paths, ignores = framework_checks.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
     deeper = "tests/deployment/web_terminals"
     assert "tests/deployment" in paths, "rest-a no longer names tests/deployment"
     mutated = _with_shard(TWO_UID_LOG_SHARD, paths, (*ignores, deeper))
@@ -12472,20 +12186,27 @@ _SETUP_RUN_RES = (
     re.compile(
         r"python3 scripts/ci/diag_summary\.py ci-diag >> \"\$GITHUB_STEP_SUMMARY\" \|\| true"
     ),
+    re.compile(
+        r'curl -sSfL -o "\$RUNNER_TEMP/gitleaks\.tar\.gz" '
+        r'"https://github\.com/gitleaks/gitleaks/releases/download/v\$\{GITLEAKS_VERSION\}/'
+        r'gitleaks_\$\{GITLEAKS_VERSION\}_linux_x64\.tar\.gz"\n'
+        r'echo "\$\{GITLEAKS_SHA256\}  \$RUNNER_TEMP/gitleaks\.tar\.gz" \| sha256sum -c -\n'
+        r'sudo tar -C /usr/local/bin -xzf "\$RUNNER_TEMP/gitleaks\.tar\.gz" gitleaks'
+    ),
 )
 #: The steps of a caller job that prepare or report in ways no pattern above
-#: states, by job and step name; each has its own tests above. The docs job's
-#: link check reports and cannot fail (test_the_link_check_is_advisory).
-CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {DOCS_JOB: (LINKCHECK_STEP,)}
+#: states, by job and step name; each has its own tests above. None on main: a
+#: caller job a branch adds names its own here.
+CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {}
 #: The commands the checks run. One of these in a caller step is a check
-#: spelled a second time. The link check is not one: it is advisory and no
-#: check declares it.
+#: spelled a second time.
 LEAF_COMMANDS = (
     "ruff ",
     "mypy",
     "pytest",
     "tsc",
     "eslint",
+    "actionlint",
     "vitest",
     "lint-imports",
     "npm run ",
@@ -12497,18 +12218,23 @@ LEAF_COMMANDS = (
     "uv lock --check",
     "git ls-files -ci",
     "make html",
+    "make linkcheck",
     "twine",
     "uv build",
+    "gitleaks git",
 )
 #: Full-tier checks no caller step names, each with the reason CI needs no step
 #: for it.
 CHECKS_WITHOUT_A_CI_STEP = {
+    # Its files are test modules inside the parallel sweep, so the `pytest`
+    # caller runs them on every CI run; a step of its own would run them twice.
+    "invariant-tests": "its files are inside the parallel sweep the pytest caller runs",
     # The wall-clock budgets run alone in the lane that hosts their marker
     # (LANE_LEAVING_MARKERS), on a runner with no xdist workers beside them.
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
 }
 #: The `if:` clause that puts a step on the runners that meet the venue.
-VENUE_RUNNER_CLAUSES = {check_set.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
+VENUE_RUNNER_CLAUSES = {framework_checks.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
 
 
 @pytest.fixture()
@@ -12698,6 +12424,28 @@ def test_no_caller_step_spells_a_check__mutation_restores_the_bundle_check() -> 
     ]
 
 
+def test_no_caller_step_spells_a_check__mutation_spells_actionlint() -> None:
+    mutated = _load_raw_workflow()
+    _find_named_step(mutated, LINT_JOB, "Run actionlint (workflow lint)")["run"] = (
+        "uv run actionlint"
+    )
+    assert _spelled_checks(mutated) == [
+        f"lint: 'Run actionlint (workflow lint)' is neither a setup step nor a call of "
+        f"{CHECK_SCRIPT}",
+        "lint: 'Run actionlint (workflow lint)' spells ['actionlint']",
+    ]
+
+
+def test_no_caller_step_spells_a_check__mutation_spells_the_secret_scan() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, LINT_JOB, GITLEAKS_SCAN_STEP)
+    step["run"] = 'gitleaks git --log-opts="origin/$BASE_REF..HEAD" --no-banner --redact'
+    assert _spelled_checks(mutated) == [
+        f"lint: '{GITLEAKS_SCAN_STEP}' is neither a setup step nor a call of {CHECK_SCRIPT}",
+        f"lint: '{GITLEAKS_SCAN_STEP}' spells ['gitleaks git']",
+    ]
+
+
 def test_no_caller_step_spells_a_check__mutation_spells_one_beside_a_call() -> None:
     mutated = _load_raw_workflow()
     step = _find_named_step(mutated, FRONTEND_JS_JOB, "Run JS tests (vitest)")
@@ -12752,8 +12500,18 @@ def _called_checks(wf: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return called
 
 
-def _checks_missing_from_ci(wf: dict[str, Any]) -> list[str]:
+def _swept(path: str, unit: Any) -> bool:
+    """Whether the parallel sweep collects the test module at *path*."""
+    ignored = any(
+        path == entry or path.startswith(entry.rstrip("/") + "/") for entry, _host in unit.ignores
+    )
+    rooted = any(path.startswith(root.rstrip("/") + "/") for root in unit.roots)
+    return rooted and not path.startswith(TERMINAL_HOST.path) and not ignored
+
+
+def _checks_missing_from_ci(wf: dict[str, Any], unit: Any = None) -> list[str]:
     """What is wrong with CI as a caller of the full tier, one line per defect."""
+    unit = unit or framework_checks.UNIT_SELECTION
     called = _called_checks(wf)
     problems = []
     for check in check_set.CHECKS:
@@ -12775,15 +12533,33 @@ def _checks_missing_from_ci(wf: dict[str, Any]) -> list[str]:
         f"{name}: exempted and not declared"
         for name in sorted(set(CHECKS_WITHOUT_A_CI_STEP) - declared)
     ]
+    problems += [
+        f"invariant-tests: {path} is outside the parallel sweep"
+        for path in framework_checks.INVARIANT_TESTS
+        if not _swept(path, unit)
+    ]
     return problems
 
 
 def test_every_full_check_is_called_on_ci(raw_workflow: dict[str, Any]) -> None:
     """A check the full tier runs and CI does not is a check a pushed change
     passes without. Every full-tier check is named by a caller step, and a
-    check bound to a venue by a step held to runners that meet it; the one
-    exemption is named beside its reason in ``CHECKS_WITHOUT_A_CI_STEP``."""
+    check bound to a venue by a step held to runners that meet it; each
+    exemption is named beside its reason in ``CHECKS_WITHOUT_A_CI_STEP``, and
+    the reason of ``invariant-tests`` is a fact this test holds: every file of
+    it is collected by the parallel sweep."""
     assert _checks_missing_from_ci(raw_workflow) == []
+
+
+def test_every_full_check_is_called_on_ci__mutation_the_sweep_ignores_an_invariant_test() -> None:
+    """The exemption of ``invariant-tests`` holds only while the sweep runs
+    its files: an ignore over one of them leaves it run by nothing on CI."""
+    unit = framework_checks.UNIT_SELECTION
+    path = "tests/deployment/test_ci_workflow_wiring.py"
+    narrowed = dataclasses.replace(unit, ignores=(*unit.ignores, (path, "none")))
+    assert _checks_missing_from_ci(_load_raw_workflow(), narrowed) == [
+        f"invariant-tests: {path} is outside the parallel sweep"
+    ]
 
 
 def test_every_full_check_is_called_on_ci__mutation_drops_the_mypy_step() -> None:
@@ -12821,6 +12597,101 @@ def test_every_full_check_is_called_on_ci__mutation_calls_an_exempted_check() ->
     assert _checks_missing_from_ci(mutated) == [
         "pytest-wallclock: a caller step runs it; drop its exemption"
     ]
+
+
+@dataclass(frozen=True)
+class CallerCall:
+    """One ``check.py run`` call a caller step makes, as ci.yml spells it."""
+
+    job: str
+    step: str
+    call: tuple[str, ...]
+
+    @property
+    def checks(self) -> tuple[str, ...]:
+        declared = {check.id for check in check_set.CHECKS}
+        return tuple(word for word in self.call[1:] if word in declared)
+
+
+def _gate_calls(wf: dict[str, Any]) -> list[CallerCall]:
+    """Every call a caller step makes that the full tier spells the same way.
+
+    A call that passes execution flags or a shard, or names a check the full
+    tier passes execution flags to, runs with flags of its own on CI; the
+    lane-leaving-marker tests above hold those.
+    """
+    flagged = {check.id for check in check_set.CHECKS if check.tier_flags.get("full")}
+    calls = []
+    for job, step in _caller_steps(wf):
+        for call in _check_calls(step):
+            row = CallerCall(job, str(step.get("name")), tuple(call))
+            if "--" in call or "--shard" in call or flagged & set(row.checks):
+                continue
+            calls.append(row)
+    return calls
+
+
+#: Read from ci.yml as written: the rows are the caller steps, not a table of them.
+GATE_CALLS = _gate_calls(_load_raw_workflow())
+
+
+def _ci_commands(row: CallerCall) -> list[str]:
+    """The command lines *row*'s call resolves to, one shell line each."""
+    return [_render(argv).replace("\n", " ") for argv in check_set.resolve(list(row.call))]
+
+
+def test_the_caller_steps_make_gate_calls() -> None:
+    assert GATE_CALLS, "no caller step calls a check the full tier spells alike; scan is stale"
+    assert len({row.step for row in GATE_CALLS}) == len(GATE_CALLS)
+
+
+@pytest.mark.parametrize("row", GATE_CALLS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once(row: CallerCall, gate_source: str | None = None) -> None:
+    """The full tier runs the call's checks, and each of its commands exactly
+    once. A check implemented in Python runs no command of its own."""
+    assert set(row.checks) <= {check.id for check in check_set.tier_checks("full")}
+    source = _tier_source("full", CI_BASE) if gate_source is None else gate_source
+    lines = source.splitlines()
+    for command in _ci_commands(row):
+        count = lines.count(command)
+        assert count == 1, f"the full tier runs {command!r} {count} times, not once"
+
+
+#: The calls whose checks run at least one command.
+_COMMAND_CALLS = tuple(row for row in GATE_CALLS if check_set.resolve(list(row.call)))
+
+
+@pytest.mark.parametrize("row", _COMMAND_CALLS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: CallerCall) -> None:
+    source = _tier_source("full", CI_BASE)
+    first = _ci_commands(row)[0]
+    mutated = "\n".join(line for line in source.splitlines() if line != first)
+    assert mutated != source, f"the full tier has no {first!r}; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_runs_each_ci_step_once(row, mutated)
+
+
+def test_the_gate_runs_each_ci_step_once__mutation_hardcodes_a_second_base() -> None:
+    (row,) = [row for row in GATE_CALLS if row.step == CHANGELOG_STEP]
+    source = _tier_source("full", CI_BASE)
+    (command,) = _ci_commands(row)
+    mutated = source.replace(command, command + " --base origin/main", 1)
+    assert mutated != source, f"the full tier has no {command!r}; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_runs_each_ci_step_once(row, mutated)
+
+
+def test_a_new_caller_step_is_a_gate_call_without_a_table_row() -> None:
+    """A step a branch adds is held the moment it lands in ci.yml: nothing
+    beside the workflow lists it."""
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[LINT_JOB]["steps"].append(
+        {
+            "name": "List what git ignores, again",
+            "run": "python3 scripts/check.py run tracked-ignored",
+        }
+    )
+    assert "List what git ignores, again" in {row.step for row in _gate_calls(mutated)}
 
 
 def _unknown_required_jobs(wf: dict[str, Any]) -> list[str]:
@@ -12865,3 +12736,187 @@ def test_every_required_job_is_a_caller_or_a_named_lane__mutation_gate_drops_a_c
     assert _unknown_required_jobs(mutated) == [
         "frontend-js: a caller job the gate does not require"
     ]
+
+
+# ---------------------------------------------------------------------------
+# Wiring every dedicated lane shares
+#
+# Each dedicated lane must exist, most must hold no LLM secret, and each must
+# gate the merge. The per-lane sections above pin what is particular to a lane;
+# these tables pin the common contracts once, a row per lane.
+# ---------------------------------------------------------------------------
+
+
+#: Lanes whose job must exist under exactly this name.
+_DEDICATED_LANES = [
+    TILED_JOB,
+    VA_JOB,
+    ORM_JOB,
+    OVERLAY_JOB,
+    FLOOR_JOB,
+    NEXTCLOUD_JOB,
+    GCHAT_JOB,
+    TEAMS_JOB,
+    ARCHIVER_JOB,
+    TWO_SHAPE_JOB,
+    FULL_CHAIN_JOB,
+]
+
+
+@pytest.mark.parametrize("job", _DEDICATED_LANES)
+def test_dedicated_lane_job_exists(workflow: dict[str, Any], job: str) -> None:
+    assert job in _jobs(workflow)
+
+
+@pytest.mark.parametrize("job", _DEDICATED_LANES)
+def test_dedicated_lane_job_exists__mutation_drops_job(job: str) -> None:
+    """Dropping the job from the parsed dict must fail the existence check."""
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][job]
+    with pytest.raises(AssertionError):
+        test_dedicated_lane_job_exists(mutated, job)
+
+
+#: The lanes that must never hold the LLM gateway key, each with the reason a
+#: secret appearing there would be wrong.
+_SECRET_FREE_LANES = [
+    TILED_JOB,
+    VA_JOB,
+    # The ORM roundtrip drives the bridge HTTP API directly — an LLM secret
+    # appearing in its job would mean the lane's scope silently grew.
+    ORM_JOB,
+    # The Teams lane is deterministic end to end: loopback fakes for the token
+    # endpoint, the Bot Connector and the queue receiver, and no agentic tier at
+    # all. Handing it the gateway key would buy nothing and would move it into
+    # the spend-posture classification, where it would have to be gated by
+    # label — turning a lane that can honestly run on every pull request into
+    # one that runs on a few.
+    TEAMS_JOB,
+    # Every test this lane selects carries ``model_free``, so the directory's
+    # provider refusal does not apply to it; the workflow-level
+    # ``OSPREY_E2E_PROVIDER`` is still present but not needed here. A gateway
+    # key would buy nothing and would move the lane into the label-gated
+    # posture it was built to leave.
+    NO_MODEL_JOB,
+    # Every stage drives the bridge HTTP API and the osprey CLI directly — an
+    # LLM secret appearing here would mean the lane's scope silently grew.
+    QUEUE_JOB,
+    # Every assertion in that file is mechanical — seed duration, store size, a
+    # setpoint round-trip, a noise-band step, document counts — and the
+    # archiver read goes through the connector rather than an agent turn.
+    ARCHIVER_JOB,
+    # Every answer this lane reads comes off the runtime — published ports,
+    # ``/proc/net/tcp``, container environment, the rendered compose document.
+    TWO_SHAPE_JOB,
+    # Every assertion in that file reads the store or the render; no model is
+    # reached.
+    GRAPH_RESEED_JOB,
+]
+
+
+@pytest.mark.parametrize("job", _SECRET_FREE_LANES)
+def test_secret_free_lane_has_no_llm_secret(workflow: dict[str, Any], job: str) -> None:
+    assert not _job_declares_secret(workflow, job, SECRET_TOKEN)
+
+
+@pytest.mark.parametrize("job", _SECRET_FREE_LANES)
+def test_secret_free_lane_has_no_llm_secret__mutation_adds_secret(job: str) -> None:
+    """Injecting the secret into a step env must flip the check to failing."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][job]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        test_secret_free_lane_has_no_llm_secret(mutated, job)
+
+
+def test_secret_free_lane_has_no_llm_secret__mutation_survives_lookalike() -> None:
+    """A differently-spelled secret expression must NOT trip the assertion —
+    proves the check matches the real token, not any 'secrets.' substring."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][TILED_JOB]["steps"].append(
+        {"name": "unrelated", "env": {"CODECOV_TOKEN": "${{ secrets.CODECOV_TOKEN }}"}}
+    )
+    assert not _job_declares_secret(mutated, TILED_JOB, SECRET_TOKEN)
+
+
+#: Lanes pinned on the ``needs:`` entry alone.
+_NEEDED_LANES = [TILED_JOB, VA_JOB, NEXTCLOUD_JOB, FULL_CHAIN_JOB]
+
+
+@pytest.mark.parametrize("job", _NEEDED_LANES)
+def test_all_checks_passed_needs_lane(workflow: dict[str, Any], job: str) -> None:
+    """A single job nobody depends on can go red forever without blocking a merge."""
+    assert job in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+@pytest.mark.parametrize("job", _NEEDED_LANES)
+def test_all_checks_passed_needs_lane__mutation_drops_needs_entry(job: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(job)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_lane(mutated, job)
+
+
+#: The lanes pinned on both halves of the gate.
+_GATED_LANES = [
+    GCHAT_JOB,
+    TEAMS_JOB,
+    NO_MODEL_JOB,
+    # These two travel with the lane: if ``bluesky-queue-e2e`` cannot go green
+    # in the PR, the job, its gate entry AND its guard rows are dropped together
+    # and re-landed together in the follow-up. A gate entry left behind without
+    # its lane blocks every merge; a lane left behind without its gate entry is
+    # unwatched.
+    QUEUE_JOB,
+    # Same drop-together/re-land-together discipline as the queue lane. This
+    # lane is the expensive one: nobody re-reads its log once the roll-up is
+    # green.
+    SCAN_AGENTIC_JOB,
+    ARCHIVER_JOB,
+    TWO_SHAPE_JOB,
+    # The only EXECUTED proof that the render zone is root-owned and the served
+    # process runs as uid 1000.
+    PRIVSPLIT_JOB,
+    TARGET_SWITCH_JOB,
+    # Its own row rather than folded into the sibling's: these two lanes can be
+    # added, reverted or re-landed independently — they share only the two
+    # images — and a gate entry that quietly covers "the target-switch lane"
+    # without saying which one is exactly how the expensive half, five agent
+    # sessions on real API budget, goes unwatched.
+    TARGET_SWITCH_AGENTIC_JOB,
+    GRAPH_RESEED_JOB,
+    RECORD_E2E_JOB,
+]
+
+
+@pytest.mark.parametrize("job", _GATED_LANES)
+def test_all_checks_passed_gates_on_lane(workflow: dict[str, Any], job: str) -> None:
+    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
+    needed job that failed still lets it start; the ``check_pr_lane`` line is
+    what turns the result into an exit code. Both halves are pinned."""
+    assert job in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{job}.result" in _gate_run_text(workflow)
+
+
+@pytest.mark.parametrize("job", _GATED_LANES)
+def test_all_checks_passed_gates_on_lane__mutation_drops_needs_entry(job: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(job)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_gates_on_lane(mutated, job)
+
+
+@pytest.mark.parametrize("job", [lane for lane in _GATED_LANES if lane != PRIVSPLIT_JOB])
+def test_all_checks_passed_gates_on_lane__mutation_drops_check_pr_lane_line(job: str) -> None:
+    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
+    job) while the line that reads its result is gone — the lane could go red
+    forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if job not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert job in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_gates_on_lane(mutated, job)

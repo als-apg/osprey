@@ -33,6 +33,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
@@ -43,7 +44,6 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
-from osprey.port_layout import default_port
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -497,85 +497,41 @@ def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, monke
     assert "claude_code.provider" not in text
 
 
-def _config_with_telemetry(block: str) -> str:
-    """The rendered config, plus a ``claude_code.telemetry`` block under it.
+#: The record's address the launch is handed.
+_RECORD_URL = "http://127.0.0.1:10061"
 
-    Resolving the provider also resolves telemetry, so what a broken telemetry
-    block does to the *provider* line is a property of the status report and
-    testable from the config alone — no stub in front of the resolver, which is
-    the piece whose behaviour is under test.
-    """
-    return _RENDERED_CONFIG + block
-
-
-@pytest.mark.usefixtures("runtime")
-def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
-    lifecycle_repo,
-    monkeypatch,
-):
-    """The provider is fine; the telemetry gateway has no login for this launch.
-
-    Telemetry resolves as part of the provider spec, so a missing observability
-    credential surfaces as a failure to read the provider. Reported that way, an
-    operator goes and audits a provider configuration that was never wrong.
-    """
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: gateway\n"),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "telemetry" in text
-    assert "credentials are missing or unresolved" in text
-    assert ".env" in text
-    # A provider framing would send the operator to the wrong subsystem.
-    assert "could not be read from the build" not in text
-
-
-@pytest.mark.usefixtures("runtime")
-def test_a_telemetry_endpoint_failure_still_reads_as_a_provider_problem(
-    lifecycle_repo,
-    monkeypatch,
-):
-    """Only the credential case is re-framed.
-
-    An enabled telemetry block with no reachable endpoint is not a secret-store
-    problem, and the credential remedy would be the wrong advice. It stays on
-    the general handler, which names the provider and quotes the resolver.
-    """
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: nowhere\n"),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "could not be read from the build" in text
-    assert "credentials are missing or unresolved" not in text
-
-
-#: A gateway telemetry block. With :data:`_WORKING_LOGIN` in the repo ``.env``
-#: the provider spec comes back with a populated env block — including the OTLP
-#: headers, which is where the gateway's authorization header ends up.
-_WORKING_TELEMETRY = "  telemetry:\n    enabled: true\n    backend: gateway\n"
-
-#: The sender login the gateway authenticates, as ``<identity>:<password>``.
+#: The record login the exporter authenticates with, as ``<login>:<token>``.
 _WORKING_LOGIN = "observability-user:not-a-real-password"
 
 
+@pytest.mark.usefixtures("runtime")
+def test_a_missing_record_login_is_not_a_provider_failure(lifecycle_repo, monkeypatch):
+    """Without a record login the launch exports nothing; the provider still reads."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    render_build(lifecycle_repo, config=_RENDERED_CONFIG)
+
+    text = report(lifecycle_repo)
+
+    assert "could not be read from the build" not in text
+    assert "credentials are missing or unresolved" not in text
+
+
 def _telemetry_report(repo: Path, monkeypatch) -> str:
-    """``osprey status`` for a repo whose agent has working telemetry configured."""
+    """``osprey status`` for a repo whose launch exports to the agent record."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_URL", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
     env_file = repo / ".env"
     existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
-    env_file.write_text(existing + f"OSPREY_TELEMETRY_LOGIN={_WORKING_LOGIN}\n")
-    render_build(repo, config=_config_with_telemetry(_WORKING_TELEMETRY))
+    env_file.write_text(
+        existing
+        + f"OSPREY_AGENT_RECORD_URL={_RECORD_URL}\n"
+        + f"OSPREY_AGENT_RECORD_LOGIN={_WORKING_LOGIN}\n"
+    )
+    render_build(repo, config=_RENDERED_CONFIG)
     return report(repo)
 
 
@@ -583,8 +539,8 @@ def _telemetry_report(repo: Path, monkeypatch) -> str:
 def test_the_observability_authorization_header_is_never_printed(lifecycle_repo, monkeypatch):
     """The env block is printed key AND value, and one of those values is a credential.
 
-    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the telemetry
-    gateway — base64 of ``user:password``, decodable by anyone who reads the
+    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the agent
+    record — base64 of ``login:token``, decodable by anyone who reads the
     terminal. Neither the credentials nor the encoding of them may appear.
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
@@ -593,34 +549,6 @@ def test_the_observability_authorization_header_is_never_printed(lifecycle_repo,
     assert token not in text
     assert "not-a-real-password" not in text
     assert "Basic " not in text
-
-
-@pytest.mark.usefixtures("runtime")
-def test_the_collector_bearer_token_is_never_printed(lifecycle_repo, monkeypatch):
-    """A collector's bearer token is read from the repo ``.env`` and never shown."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
-    env_file = lifecycle_repo / ".env"
-    existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
-    env_file.write_text(existing + "OTLP_COLLECTOR_TOKEN=not-a-real-bearer-token\n")
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry(
-            "  telemetry:\n"
-            "    enabled: true\n"
-            "    backend: generic\n"
-            "    endpoint: https://collector.example.org:4318\n"
-            "    auth:\n"
-            "      token_env: OTLP_COLLECTOR_TOKEN\n"
-        ),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "OTEL_EXPORTER_OTLP_HEADERS" in text
-    assert "not-a-real-bearer-token" not in text
-    assert "Bearer " not in text
 
 
 @pytest.mark.usefixtures("runtime")
@@ -640,16 +568,15 @@ def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, mo
 def test_the_rest_of_the_telemetry_block_still_shows_its_values(lifecycle_repo, monkeypatch):
     """Only the credential-bearing variable is masked, not the block around it.
 
-    Ten of the eleven telemetry variables are ordinary configuration, and a mask
-    broad enough to cover them would leave the section unable to answer where
-    the agent ships its metrics — which is what the section is for.
+    The other telemetry variables are ordinary configuration, and a mask broad
+    enough to cover them would leave the section unable to answer where the
+    agent ships its events — which is what the section is for.
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
 
-    # The config names no ``services.telemetry_gateway.port``, so the endpoint
-    # carries the layout's gateway slot at the default base.
-    assert f":{default_port('telemetry_gateway')}" in text
-    assert "value not shown" not in text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+    endpoint_row = text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+    assert _RECORD_URL in endpoint_row
+    assert "value not shown" not in endpoint_row
 
 
 @pytest.mark.parametrize(
@@ -1188,3 +1115,278 @@ def test_logs_help_states_that_both_stacks_are_covered():
     help_text = logs_verb.__doc__ or ""
 
     assert "web-terminal stack" in help_text
+
+
+# ---------------------------------------------------------------------------
+# Writes: per login its tier, its record's target, and which machines are on
+# ---------------------------------------------------------------------------
+
+
+def _write_record(repo: Path, identity: str, *, target: str, switch: dict | None = None) -> None:
+    """One identity's control-context record, where the deploy binds the tree."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    directory = control_target_identity_dir({}, repo, identity)
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": 1,
+        "owner": None,
+        "target": target,
+        "generation": 1,
+        "posture": {},
+        "last_switch": None,
+        "switch": switch or {},
+        "switch_epoch": None,
+    }
+    (directory / RECORD_FILENAME).write_text(json.dumps(payload), encoding="utf-8")
+
+
+#: The map every multi-user case stages unless it says otherwise.
+_MAP = {"alice": "allowed", "bob": "never"}
+
+
+def _stage_map(repo: Path, login_tiers, *, service: str = "bluesky") -> Path:
+    """Stage a shared container's ``config.yml`` carrying *login_tiers*, as a build does."""
+    path = repo / "build" / "services" / service / "config.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {"control_system": {"writes": "allowed", "login_tiers": login_tiers}}
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    return path
+
+
+def _render(repo: Path, name: str, writes: str) -> dict:
+    """A rendered tier project whose ``control_system.writes`` is *writes*.
+
+    Status must not read it: the staged map is the one answer (CC-3). The
+    cases below keep renders that disagree with the map to prove it.
+    """
+    project = repo / "build" / f"demo-{name}"
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "config.yml").write_text(f"control_system:\n  writes: {writes}\n", encoding="utf-8")
+    return {"kind": "tier", "project": f"demo-{name}", "project_path": f"build/demo-{name}"}
+
+
+def _multi_user_config(repo: Path, *, login_tiers=_MAP, **web_terminals) -> dict:
+    """A two-person roster; *login_tiers* is staged unless it is ``None``."""
+    block = {
+        "enabled": True,
+        "users": [{"name": "alice", "tier": "operator"}, {"name": "bob", "tier": "viewer"}],
+        "renders": {
+            # Inverted against the map: a reader of the renders gets every tier wrong.
+            "operator": _render(repo, "operator", "never"),
+            "viewer": _render(repo, "viewer", "allowed"),
+        },
+    }
+    block.update(web_terminals)
+    if login_tiers is not None:
+        _stage_map(repo, login_tiers)
+    return {"modules": {"web_terminals": block}}
+
+
+def _rows_by_login(config: dict, repo: Path) -> dict[str, list[str]]:
+    return {login: row for login, *row in status_display.writes_rows(config, repo)}
+
+
+def _writes_text(config: dict, repo: Path) -> str:
+    status_display._print_writes_section(config, repo)
+    return _CAPTURE["console"].export_text()
+
+
+def test_single_user_lists_its_record_at_the_deployments_own_tier(tmp_path):
+    _write_record(tmp_path, "thorsten", target="standin", switch={"standin": "on"})
+    config = {"control_system": {"writes": "allowed"}}
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert rows == [("thorsten", "allowed", "standin", "standin")]
+    text = _writes_text(config, tmp_path)
+    assert "Writes:" in text
+    assert "not in the roster" not in text
+
+
+def test_single_user_with_no_record_says_every_machine_is_off(tmp_path):
+    text = _writes_text({"control_system": {"writes": "allowed"}}, tmp_path)
+
+    assert "Writes:" in text
+    assert "every machine's writes are off" in text
+
+
+def test_multi_user_lists_each_login_with_its_tier_target_and_machines(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="live", switch={"live": "on", "standin": "on"})
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert rows == [
+        ("alice", "allowed", "live", "live, standin"),
+        # No record is every switch off; nothing is created to say so.
+        ("bob", "never", "—", "off"),
+    ]
+    from osprey.deployment.compose_generator import control_target_identity_dir
+
+    assert not control_target_identity_dir({}, tmp_path, "bob").exists()
+
+
+def test_an_on_under_a_never_tier_is_marked_inert(tmp_path):
+    """O-3: a demoted login's "on" stays recorded and inert."""
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "bob", target="standin", switch={"standin": "on"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["bob"] == ["never", "standin", "standin on — tier never, inert"]
+    assert "standin on — tier never, inert" in _writes_text(config, tmp_path)
+
+
+def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "mallory", target="live", switch={"live": "on"})
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert rows[-1] == ("mallory", "not in the roster — cannot write", "live", "live")
+    assert [row[0] for row in rows] == ["alice", "bob", "mallory"]
+
+
+def test_an_unreadable_record_reads_refused_never_off(tmp_path):
+    """Carried R3 CF-6: fail closed and say so."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    config = _multi_user_config(tmp_path)
+    directory = control_target_identity_dir({}, tmp_path, "alice")
+    directory.mkdir(parents=True)
+    (directory / RECORD_FILENAME).write_text("{not json", encoding="utf-8")
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "?", "record unreadable — writes refused"]
+    text = _writes_text(config, tmp_path)
+    assert "record unreadable — writes refused" in text
+
+
+def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
+    """Carried R2 CF-4: the claim picks the role, so no file here names the tier."""
+    config = _multi_user_config(
+        tmp_path,
+        users=[{"name": "alice", "role": "operator"}, {"name": "carol"}],
+        default_tier="viewer",
+        auth={"method": "oidc"},
+        authorization={
+            "roles": {"operator": {"tier": "operator"}, "expert": {"tier": "viewer"}},
+            "claims": {"claim": "groups", "map": {"ops": "operator", "experts": "expert"}},
+        },
+    )
+    _write_record(tmp_path, "carol", target="standin", switch={"standin": "on"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "—", "off"]
+    assert rows["carol"] == ["by role at sign-in", "standin", "standin"]
+
+
+def test_no_staged_map_answers_unknown_for_every_card_not_a_guess(tmp_path):
+    """A build that staged no shared container has no map to show; renders are not read."""
+    config = _multi_user_config(tmp_path, login_tiers=None)
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows == {"alice": ["unknown", "—", "off"], "bob": ["unknown", "—", "off"]}
+
+
+def test_the_map_is_read_from_the_dispatch_worker_copy_too(tmp_path):
+    config = _multi_user_config(tmp_path, login_tiers=None)
+    _stage_map(tmp_path, _MAP, service="dispatch_worker")
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "allowed"
+    assert rows["bob"][0] == "never"
+
+
+def test_the_rendered_map_wins_over_the_live_roster(tmp_path):
+    """CC-3: a roster edit shows after the next build, and status flags no drift."""
+    config = _multi_user_config(tmp_path)
+    # alice was moved to the viewer tier in the profile, not yet rebuilt.
+    config["modules"]["web_terminals"]["users"][0]["tier"] = "viewer"
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "—", "off"]
+    text = _writes_text(config, tmp_path)
+    assert "drift" not in text.lower()
+
+
+def test_a_card_the_map_does_not_name_answers_unknown(tmp_path):
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "allowed"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["bob"] == ["unknown", "—", "off"]
+
+
+def test_a_mapped_login_outside_the_roster_lists_only_with_a_record_at_its_mapped_tier(tmp_path):
+    """The build account is mapped for its owned jobs; it is not "not in the roster"."""
+    config = _multi_user_config(
+        tmp_path, login_tiers={**_MAP, "builder": "allowed", "ghost": "never"}
+    )
+    _write_record(tmp_path, "builder", target="standin", switch={"standin": "on"})
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert [row[0] for row in rows] == ["alice", "bob", "builder"]
+    assert rows[-1] == ("builder", "allowed", "standin", "standin")
+
+
+@pytest.mark.parametrize(
+    "login_tiers",
+    [["alice"], {"alice": "allowed", "bob": "maybe"}, {"alice": True}, "allowed"],
+    ids=["list", "bad-value", "non-string-value", "scalar"],
+)
+def test_a_malformed_map_answers_unknown_for_every_card(tmp_path, login_tiers):
+    """One render's output: unreadable as a whole, as the write verdict reads it."""
+    config = _multi_user_config(tmp_path, login_tiers=login_tiers)
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "unknown"
+    assert rows["bob"][0] == "unknown"
+
+
+def test_an_unparseable_staged_config_answers_unknown(tmp_path):
+    config = _multi_user_config(tmp_path)
+    (tmp_path / "build" / "services" / "bluesky" / "config.yml").write_text(
+        "control_system: [unclosed\n", encoding="utf-8"
+    )
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "unknown"
+
+
+def test_the_map_is_read_with_no_tree_bound_in_the_reading_process(tmp_path, monkeypatch):
+    """Status's own environment never turns a readable map into unknown."""
+    monkeypatch.setenv("OSPREY_CONTROL_CONTEXT_TREE", str(tmp_path / "elsewhere"))
+    config = _multi_user_config(tmp_path)
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "allowed"
+
+
+def test_an_unrostered_identity_reads_cannot_write_in_the_printed_section(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "mallory", target="live", switch={"live": "on"})
+
+    assert "not in the roster — cannot write" in _writes_text(config, tmp_path)
+
+
+@pytest.mark.usefixtures("runtime")
+def test_status_prints_the_writes_section_after_the_endpoints(lifecycle_repo):
+    render_build(lifecycle_repo)
+
+    text = report(lifecycle_repo)
+
+    assert "Writes:" in text
+    assert text.index("Writes:") < text.index("Agent:")

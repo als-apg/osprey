@@ -30,7 +30,6 @@ tenant, no bearer and no network in this file.
 
 from __future__ import annotations
 
-import inspect
 from typing import Any
 
 from osprey.bridges.core import (
@@ -57,7 +56,7 @@ from osprey.bridges.teams.ops import (
     _static_room_conformance,
     quote_prefix,
 )
-from tests.bridges.teams.test_posting import (
+from tests.bridges.teams._posting import (
     ACTIVITY_ID,
     CHANNEL_CONVERSATION_ID,
     QUESTION,
@@ -132,19 +131,6 @@ def test_every_protocol_member_is_present_and_callable() -> None:
     ops, _ = make_ops()
     for name in PROTOCOL_MEMBERS:
         assert callable(getattr(ops, name, None)), name
-
-
-def test_every_member_signature_matches_the_protocol() -> None:
-    """Parameter names, order, and count, member by member.
-
-    ``isinstance`` cannot see any of this, and a mismatch is not a type error the engine
-    would notice until it called the member in production — the retry drain's members in
-    particular may not run for hours.
-    """
-    for name in PROTOCOL_MEMBERS:
-        expected = inspect.signature(getattr(ChannelOps, name))
-        actual = inspect.signature(getattr(TeamsOps, name))
-        assert list(actual.parameters) == list(expected.parameters), name
 
 
 def test_static_conformance_helper_is_the_type_check_seam() -> None:

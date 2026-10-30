@@ -5,8 +5,10 @@ per-server and per-section shapes that only the parser can see (MCP
 command/url/port exclusivity, mapping-vs-scalar sections) and rejecting keys
 the schema does not define, both at the top level and inside the closed
 ``environment:`` and ``bluesky:`` blocks, and inside the closed blocks of the
-otherwise open ``config:`` block (``claude_code.telemetry`` and the telemetry
-services). :func:`load_profile` is the
+otherwise open ``config:`` block (the bundled services). A ``config:`` key the
+agent record replaced is refused with its replacement named
+(:func:`~osprey.agent_record.config.refuse_retired_config_keys`).
+:func:`load_profile` is the
 plain single-file entry point; the preset/override/``--set`` layering path in
 :mod:`osprey.cli.build_profile_resolve` reuses :func:`_parse_profile` after it has
 assembled its own raw dict.
@@ -15,14 +17,16 @@ assembled its own raw dict.
 from __future__ import annotations
 
 import difflib
+import logging
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.agent_record.config import parse_agent_record_block, refuse_retired_config_keys
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
-from osprey.build.claude_code_telemetry import TELEMETRY_AUTH_KEYS, TELEMETRY_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.facility.errors import FacilityBuildError
@@ -33,6 +37,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
@@ -46,7 +51,6 @@ from osprey_connectors.types import (
     retired_type_message,
     talks_to_network,
 )
-from osprey_connectors.workspace import PROFILE_FILENAME
 
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import _limits_block_leaf, _rendered_leaf_paths, parse_deploy_block
@@ -194,6 +198,15 @@ _PROFILE_SCHEMA_MIN_OSPREY = "2026.10.0"
 #: removed.
 RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.11.0"
 
+#: The one sunset of the write-posture migration windows: the retired write
+#: keys, undeclared write-looking facility tools, ``control_system.write_tools``
+#: and unknown per-server keys are read with a warning until this release, and
+#: refused from it. It is the roster sunset itself, not a second literal, so the
+#: two windows close on the same release. Like the roster sunset it is a test
+#: tripwire, not a runtime version compare: the release that reaches it fails
+#: the window test until every such warning becomes its refusal.
+RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
+
 
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
 # a typo of one of these (e.g. mcp_server vs mcp_servers).
@@ -245,6 +258,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "gchat_bridge",
         "teams_bridge",
         "va_archiver",
+        "agent_record",
         "provenance",
     }
 )
@@ -267,6 +281,9 @@ ROOT_ONLY_KEYS = frozenset(
         "environment",
         "dependencies",
         "exclude",
+        # Where the deployment's one agent record lives: a fact about the whole
+        # deployment, never about one access level of its agent.
+        "agent_record",
     }
 )
 
@@ -276,11 +293,13 @@ ROOT_ONLY_KEYS = frozenset(
 TIER_KIND_KEYS = (ROOT_KIND_KEYS - ROOT_ONLY_KEYS) | RENDER_KEYS
 
 #: The known keys of an app: a whole agent definition (lists, brief, config and
-#: tool servers) plus the per-render keys. The deployment's provider, model,
-#: services and roster stay the host's.
+#: tool servers), the model it runs, plus the per-render keys. The model is an
+#: id the host's provider serves, and an app that names none runs the host's.
+#: The deployment's provider, services and roster stay the host's.
 APP_KIND_KEYS = frozenset(
     {
         "name",
+        "model",
         "hooks",
         "rules",
         "skills",
@@ -321,6 +340,26 @@ def known_profile_keys(kind: ProfileKind) -> frozenset[str]:
 # misspelled `deviation_marker:` would silently leave the default tag in force
 # and every `# SITE-DEVIATION:` comment unread.
 _KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "providers_hash", "deviation_marker"})
+
+
+_LOGGER = logging.getLogger(__name__)
+
+# Keys recognized inside one ``mcp_servers.<name>`` entry, derived from the
+# dataclass so a new field is a known key the moment it exists. An unknown key
+# warns until RETIRED_WRITE_KEYS_REFUSED_FROM (it used to vanish silently).
+_KNOWN_MCP_SERVER_KEYS = frozenset(f.name for f in fields(McpServerDef))
+
+# The hook events a server's ``hooks:`` block may name — the ones
+# registry.mcp._custom_server_from_spec reads back.
+_KNOWN_MCP_SERVER_HOOK_EVENTS = frozenset({"pre_tool_use"})
+
+# A ``writes:`` entry is one bare tool name. Anything outside this alphabet is
+# a wildcard, a regex or a prefix, which the registry would turn into a
+# matcher covering tools the facility never listed.
+_BARE_TOOL_NAME = re.compile(r"[A-Za-z0-9_-]+")
+
+# (server, key) pairs already warned about this process.
+_WARNED_MCP_SERVER_KEYS: set[tuple[str, str]] = set()
 
 
 # Keys recognized inside the ``environment:`` block. Rejected outright like the
@@ -665,15 +704,10 @@ def reject_unknown_closed_config_keys(config: Any) -> None:
 
     The ``config:`` block is open — it addresses the rendered config, whose key
     space belongs to every reader in the tree — except for the blocks whose
-    readers are known exactly:
-
-    * ``claude_code.telemetry``, closed to
-      :data:`~osprey.build.claude_code_telemetry.TELEMETRY_KEYS`, its ``auth``
-      member to ``TELEMETRY_AUTH_KEYS``; ``resource_attributes`` stays open;
-    * ``services.<name>`` for every bundled service
-      (:func:`bundled_service_names`), closed to the manifest's rows under its
-      family (:func:`service_family`) plus the generic service axes. A custom
-      service's block stays open: its template is the facility's own.
+    readers are known exactly: ``services.<name>`` for every bundled service
+    (:func:`bundled_service_names`), closed to the manifest's rows under its
+    family (:func:`service_family`) plus the generic service axes. A custom
+    service's block stays open: its template is the facility's own.
 
     Read over every spelling at once — a nested mapping, a partly nested one
     and dotted keys address the same tree
@@ -689,21 +723,6 @@ def reject_unknown_closed_config_keys(config: Any) -> None:
             naming every unknown key in it.
     """
     tree = _expand_dotted(config)
-    claude_code = tree.get("claude_code")
-    telemetry = claude_code.get("telemetry") if isinstance(claude_code, Mapping) else None
-    if isinstance(telemetry, Mapping):
-        _reject_unknown_block_keys(
-            (key for key in telemetry if isinstance(key, str)),
-            TELEMETRY_KEYS,
-            "claude_code.telemetry",
-        )
-        auth = telemetry.get("auth")
-        if isinstance(auth, Mapping):
-            _reject_unknown_block_keys(
-                (key for key in auth if isinstance(key, str)),
-                TELEMETRY_AUTH_KEYS,
-                "claude_code.telemetry.auth",
-            )
     services = tree.get("services")
     if isinstance(services, Mapping):
         bundled = bundled_service_names()
@@ -998,9 +1017,11 @@ def _permission_lists(config: dict[str, Any]) -> list[tuple[str, Any]]:
     for permissions, spelling in sources:
         if not isinstance(permissions, dict):
             continue
-        for key in _PERMISSION_LIST_KEYS:
-            if key in permissions:
-                found.append((f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key]))
+        found.extend(
+            (f"{_PERMISSIONS_CONFIG_PATH}.{key} ({spelling})", permissions[key])
+            for key in _PERMISSION_LIST_KEYS
+            if key in permissions
+        )
     return found
 
 
@@ -1367,6 +1388,112 @@ def _block(raw: Mapping[str, Any], key: str) -> dict[str, Any]:
     return {} if value is None else value
 
 
+def _config_server_definitions(raw: dict[str, Any]) -> dict[str, Any]:
+    """``config:``'s ``claude_code.servers`` tree, whichever spelling addressed it."""
+    claude_code = _expand_dotted(raw.get("config")).get("claude_code")
+    servers = claude_code.get("servers") if isinstance(claude_code, dict) else None
+    return servers if isinstance(servers, dict) else {}
+
+
+def _refuse_second_server_spelling(name: str, config_servers: dict[str, Any]) -> None:
+    """Refuse a server defined both in ``mcp_servers`` and in ``config:``.
+
+    ``claude_code.servers.<name>`` is where the build persists a profile
+    server, so a definition key there (anything ``mcp_servers`` takes) is the
+    same server spelled twice, and which one the render keeps would depend on
+    write order. An ``enabled`` switch alone is not a definition.
+    """
+    entry = config_servers.get(name)
+    if not isinstance(entry, dict):
+        return
+    spelled = sorted(k for k in entry if k in _KNOWN_MCP_SERVER_KEYS)
+    if spelled:
+        raise BuildProfileError(
+            f"MCP server '{name}' is defined under both `mcp_servers.{name}` and "
+            f"`config: claude_code.servers.{name}` ({', '.join(spelled)}), two "
+            f"spellings of one server. Keep `mcp_servers.{name}` only."
+        )
+
+
+def _warn_unknown_server_keys(name: str, sdef: dict[str, Any]) -> None:
+    """Warn, once per server and key, about a key ``mcp_servers.<name>`` does not define."""
+    for key in sdef:
+        if key in _KNOWN_MCP_SERVER_KEYS or (name, str(key)) in _WARNED_MCP_SERVER_KEYS:
+            continue
+        _WARNED_MCP_SERVER_KEYS.add((name, str(key)))
+        close = difflib.get_close_matches(str(key), sorted(_KNOWN_MCP_SERVER_KEYS), n=1)
+        hint = f" (did you mean '{close[0]}'?)" if close else ""
+        _LOGGER.warning(
+            "MCP server '%s' has unknown key '%s'%s; it is ignored, and refused from "
+            "OSPREY %s. Known keys: %s",
+            name,
+            key,
+            hint,
+            RETIRED_WRITE_KEYS_REFUSED_FROM,
+            ", ".join(sorted(_KNOWN_MCP_SERVER_KEYS)),
+        )
+
+
+def _parse_server_hooks(name: str, hooks: Any) -> dict[str, list[str]]:
+    """``mcp_servers.<name>.hooks``: ``{pre_tool_use: [<preset>, ...]}`` or absent."""
+    if hooks is None:
+        return {}
+    if not isinstance(hooks, dict):
+        raise BuildProfileError(
+            f"MCP server '{name}' hooks must be a mapping like "
+            f"{{pre_tool_use: [<preset>, ...]}} (got {type(hooks).__name__})"
+        )
+    parsed: dict[str, list[str]] = {}
+    for event, presets in hooks.items():
+        if event not in _KNOWN_MCP_SERVER_HOOK_EVENTS:
+            raise BuildProfileError(
+                f"MCP server '{name}' hooks has unknown event {event!r}; known: "
+                f"{', '.join(sorted(_KNOWN_MCP_SERVER_HOOK_EVENTS))}"
+            )
+        if not isinstance(presets, list) or not all(isinstance(p, str) for p in presets):
+            raise BuildProfileError(
+                f"MCP server '{name}' hooks.{event} must be a list of preset names "
+                f"(got {presets!r})"
+            )
+        parsed[event] = list(presets)
+    return parsed
+
+
+def _parse_server_writes(name: str, writes: Any) -> list[str] | None:
+    """``mcp_servers.<name>.writes``: bare tool names, validated as written (CC-5).
+
+    The build never asks the server for its tool list: a name the server does
+    not serve is the facility's to fix, and nothing here can tell it apart.
+    """
+    if writes is None:
+        return None
+    if not isinstance(writes, list):
+        raise BuildProfileError(
+            f"MCP server '{name}' writes must be a list of bare tool names "
+            f"(got {type(writes).__name__})"
+        )
+    seen: set[str] = set()
+    for tool in writes:
+        if not isinstance(tool, str):
+            raise BuildProfileError(
+                f"MCP server '{name}' writes entry {tool!r} is not a string; list bare tool names"
+            )
+        if tool.startswith("mcp__"):
+            raise BuildProfileError(
+                f"MCP server '{name}' writes entry {tool!r} carries the mcp__ "
+                "prefix; list the bare tool name the server serves"
+            )
+        if not _BARE_TOOL_NAME.fullmatch(tool):
+            raise BuildProfileError(
+                f"MCP server '{name}' writes entry {tool!r} is not a bare tool name "
+                "(letters, digits, '_' and '-' only); wildcards and regexes are refused"
+            )
+        if tool in seen:
+            raise BuildProfileError(f"MCP server '{name}' writes lists {tool!r} more than once")
+        seen.add(tool)
+    return list(writes)
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile.
 
@@ -1388,9 +1515,14 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     _apply_connector_shorthand(raw)
     _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}
+    config_servers = _config_server_definitions(raw)
     for name, sdef in _block(raw, "mcp_servers").items():
         if not isinstance(sdef, dict):
             raise BuildProfileError(f"MCP server '{name}' must be a mapping")
+        _refuse_second_server_spelling(name, config_servers)
+        _warn_unknown_server_keys(name, sdef)
+        hooks = _parse_server_hooks(name, sdef.get("hooks"))
+        writes = _parse_server_writes(name, sdef.get("writes"))
         perms = sdef.get("permissions", {})
         url = sdef.get("url")
         command = sdef.get("command", "")
@@ -1442,6 +1574,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             url=url,
             transport=transport,
             port=port,
+            hooks=hooks,
+            writes=writes,
         )
 
     services: dict[str, ServiceDef] = {}
@@ -1716,6 +1850,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     # no single permissions list to check the shape of.
     _reject_mixed_claude_code_spellings(config)
     _reject_permission_list_shapes(config)
+    refuse_retired_config_keys(config)
     reject_unknown_closed_config_keys(config)
     if isinstance(config, dict):
         try:
@@ -1760,5 +1895,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
+        agent_record=parse_agent_record_block(raw, base=port_base),
         provenance=provenance,
     )

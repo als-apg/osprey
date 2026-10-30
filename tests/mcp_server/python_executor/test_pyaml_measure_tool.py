@@ -168,6 +168,37 @@ def test_the_posture_clamp_comes_first(monkeypatch):
         _call(kind="orm")
 
 
+@pytest.mark.usefixtures("gated")
+def test_a_switched_off_machine_is_refused_by_the_real_clamp(tmp_path, monkeypatch):
+    """The tool reaches the executor's entry gate: an off switch refuses the measurement.
+
+    The real clamp, not a stand-in: the deployment allows writes by its tier and
+    is on the simulator, whose switch is off, so the write verdict refuses before
+    the render is read or the gate sequence is reached.
+    """
+    from osprey.audit import posture
+    from osprey.mcp_server.python_executor.tools import _execution_gates
+    from osprey_connectors.refusals import refusal_text
+    from osprey_connectors_tests._write_fakes import (
+        ARMED_SECTION,
+        ARMED_TARGET,
+        arm_switch,
+        turn_switch,
+    )
+
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, tmp_path / "agent_data", ARMED_TARGET, stamp=False)
+    turn_switch(ARMED_TARGET, "off")
+    monkeypatch.setattr(tool, "enforce_posture_clamp", _execution_gates.enforce_posture_clamp)
+    monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: 1 / 0)
+
+    envelope = _error(kind="orm")
+
+    assert envelope["error_type"] == "safety_error"
+    assert envelope["error_message"] == refusal_text("switch_off", "simulator")
+    assert envelope["details"] == {"reason": "switch_off", "target": ARMED_TARGET}
+
+
 # --- what the tool answers ---------------------------------------------------------
 
 

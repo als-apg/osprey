@@ -126,35 +126,39 @@ class TestPvWatcherEdgeDetection:
             loop=loop,
         )
 
-    def test_rising_edge_detected(self) -> None:
-        w = self._make_watcher("rising", threshold=1.0)
-        assert w._detect_edge(0.5, 1.0) is True  # exactly at threshold
-        assert w._detect_edge(0.0, 2.0) is True  # crosses above
-
-    def test_rising_edge_not_detected_when_falling(self) -> None:
-        w = self._make_watcher("rising", threshold=1.0)
-        assert w._detect_edge(1.5, 0.5) is False  # falling through threshold
-        assert w._detect_edge(0.5, 0.8) is False  # below threshold both sides
-
-    def test_falling_edge_detected(self) -> None:
-        w = self._make_watcher("falling", threshold=1.0)
-        assert w._detect_edge(1.5, 0.5) is True  # crosses below
-        assert w._detect_edge(2.0, 1.0) is True  # exactly at threshold
-
-    def test_falling_edge_not_detected_when_rising(self) -> None:
-        w = self._make_watcher("falling", threshold=1.0)
-        assert w._detect_edge(0.5, 1.5) is False
-        assert w._detect_edge(1.5, 2.0) is False  # above threshold both sides
-
-    def test_both_edge_detects_rising_and_falling(self) -> None:
-        w = self._make_watcher("both", threshold=1.0)
-        assert w._detect_edge(0.5, 1.0) is True  # rising
-        assert w._detect_edge(1.5, 0.5) is True  # falling
-
-    def test_both_edge_no_fire_when_same_side(self) -> None:
-        w = self._make_watcher("both", threshold=1.0)
-        assert w._detect_edge(0.5, 0.8) is False
-        assert w._detect_edge(1.5, 2.0) is False
+    @pytest.mark.parametrize(
+        ("edge", "transitions", "expected"),
+        [
+            # Exactly at the threshold, then crossing above.
+            pytest.param("rising", [(0.5, 1.0), (0.0, 2.0)], True, id="rising_edge_detected"),
+            # Falling through the threshold, then below it on both sides.
+            pytest.param(
+                "rising",
+                [(1.5, 0.5), (0.5, 0.8)],
+                False,
+                id="rising_edge_not_detected_when_falling",
+            ),
+            # Crossing below, then exactly at the threshold.
+            pytest.param("falling", [(1.5, 0.5), (2.0, 1.0)], True, id="falling_edge_detected"),
+            # Rising through it, then above it on both sides.
+            pytest.param(
+                "falling",
+                [(0.5, 1.5), (1.5, 2.0)],
+                False,
+                id="falling_edge_not_detected_when_rising",
+            ),
+            pytest.param(
+                "both", [(0.5, 1.0), (1.5, 0.5)], True, id="both_edge_detects_rising_and_falling"
+            ),
+            pytest.param(
+                "both", [(0.5, 0.8), (1.5, 2.0)], False, id="both_edge_no_fire_when_same_side"
+            ),
+        ],
+    )
+    def test_edge_detection(self, edge, transitions, expected) -> None:
+        w = self._make_watcher(edge, threshold=1.0)
+        for previous, current in transitions:
+            assert w._detect_edge(previous, current) is expected
 
 
 # ---------------------------------------------------------------------------

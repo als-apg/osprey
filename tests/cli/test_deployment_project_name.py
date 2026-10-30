@@ -15,15 +15,11 @@ checkout happens to sit in. These tests pin the four places that holds:
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
 import pytest
-import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import build_lint_view
 from osprey.cli.build_profile_model import (
     BuildProfile,
@@ -36,8 +32,7 @@ from osprey.deployment.web_terminals.render_naming import (
     render_project,
 )
 from osprey_connectors.errors import BuildProfileError
-
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
+from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 
 #: A deployment that stands up its own web-terminal stack, spelling no render.
 _CATALOG = {"modules.web_terminals": {"enabled": True}}
@@ -51,15 +46,6 @@ def layer_repo(tmp_path: Path) -> Path:
     (tmp_path / "apps").mkdir()
     (tmp_path / "apps" / "logbook.yml").write_text("name: Logbook\n", encoding="utf-8")
     return tmp_path
-
-
-def _build(runner: CliRunner, cwd: Path):
-    previous = Path.cwd()
-    os.chdir(cwd)
-    try:
-        return runner.invoke(build, CI_FLAGS)
-    finally:
-        os.chdir(previous)
 
 
 def _rewrite_profile(repo: Path, old: str, new: str) -> None:
@@ -165,10 +151,10 @@ class TestTheBuild:
     def test_the_folder_name_does_not_name_the_deployment(self, lifecycle_repo_factory, tmp_path):
         repo = lifecycle_repo_factory(tmp_path / "My.Other Checkout")
 
-        result = _build(CliRunner(), repo)
+        result = invoke_build_in(repo)
 
         assert result.exit_code == 0, result.output
-        config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+        config = rendered_config(repo)
         assert config["project_name"] == "als-exemplar"
         assert (repo / "build" / "als-exemplar-readonly" / "config.yml").is_file()
         renders = config["modules"]["web_terminals"]["renders"]
@@ -184,12 +170,10 @@ class TestTheBuild:
             "OSPREY_PROFILE_VARIANT=scratch\n", encoding="utf-8"
         )
 
-        result = _build(CliRunner(), lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        config = yaml.safe_load(
-            (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        config = rendered_config(lifecycle_repo)
         assert config["project_name"] == "als-exemplar-scratch"
         renders = config["modules"]["web_terminals"]["renders"]
         assert renders["admin"]["project"] == "als-exemplar-scratch-admin"
@@ -200,7 +184,7 @@ class TestTheBuild:
         repo = lifecycle_repo_factory(tmp_path / "Legacy.Checkout")
         _rewrite_profile(repo, "project_name: als-exemplar\n", "")
 
-        result = _build(CliRunner(), repo)
+        result = invoke_build_in(repo)
 
         assert result.exit_code != 0
         assert "states no project_name" in caplog.text
@@ -217,7 +201,7 @@ class TestTheBuild:
             "        project_path: build/als-exemplar-readonly\n",
         )
 
-        result = _build(CliRunner(), lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
 
         assert result.exit_code != 0
         assert "modules.web_terminals.renders is written by the build" in caplog.text

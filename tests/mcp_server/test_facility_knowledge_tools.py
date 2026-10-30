@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 
 from osprey.deployment.qmd_service import QMDServiceConfig
 from osprey.services.qmd import QMDClient, QMDSearchResult
+from tests.mcp_server._facility_bundle import install_bundle, write_doc, write_minimal_bundle
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 # ---------------------------------------------------------------------------
@@ -22,48 +22,10 @@ from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 # ---------------------------------------------------------------------------
 
 
-def _write(path: Path, body: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dedent(body).lstrip(), encoding="utf-8")
-
-
 @pytest.fixture
 def fixture_bundle(tmp_path: Path) -> Path:
     """Minimal OKF bundle used across all tool tests."""
-    root = tmp_path / "bundle"
-    _write(
-        root / "index.md",
-        """\
-        # Facility Bundle
-        * [Accelerator Overview](/accelerator_overview.md) - High-level accelerator overview.
-        """,
-    )
-    _write(
-        root / "accelerator_overview.md",
-        """\
-        ---
-        type: facility_overview
-        title: Accelerator Overview
-        description: Overview of the accelerator complex.
-        ---
-
-        The facility uses a synchrotron ring to produce bright X-ray light.
-        """,
-    )
-    _write(
-        root / "tables" / "beam_params.md",
-        """\
-        ---
-        type: data_table
-        title: Beam Parameters
-        description: Live beam parameter PVs from the EPICS control system.
-        tags: [epics, beam]
-        ---
-
-        Contains PV names for all beam parameters.
-        """,
-    )
-    return root
+    return write_minimal_bundle(tmp_path / "bundle")
 
 
 class _FakeQMDClient(QMDClient):
@@ -93,10 +55,7 @@ class _FakeQMDClient(QMDClient):
 @pytest.fixture(autouse=True)
 def _patch_bundle(fixture_bundle: Path, monkeypatch):
     """Inject the fixture bundle into the server module's ``_bundle`` global."""
-    import osprey.mcp_server.facility_knowledge.server as srv
-    from osprey.services.facility_knowledge.okf.bundle import OKFBundle
-
-    monkeypatch.setattr(srv, "_bundle", OKFBundle(fixture_bundle))
+    install_bundle(monkeypatch, fixture_bundle)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +110,7 @@ class TestListConcepts:
 
     @pytest.mark.asyncio
     async def test_a_discovered_id_with_a_space_is_encoded_in_its_url(self, fixture_bundle: Path):
-        _write(
+        write_doc(
             fixture_bundle / "procedures" / "orbit correction.md",
             """\
             ---
@@ -241,7 +200,7 @@ class TestReadConcept:
     @pytest.mark.asyncio
     async def test_broken_cross_links_still_load(self, fixture_bundle: Path):
         """A concept with dangling cross-links must load (OKF §9 tolerance)."""
-        _write(
+        write_doc(
             fixture_bundle / "dangling.md",
             """\
             ---
@@ -371,7 +330,7 @@ class TestSearch:
     async def test_snippet_is_truncated(self, fixture_bundle: Path):
         """Body snippets must be at most 200 characters."""
         long_body = "word " * 200
-        _write(
+        write_doc(
             fixture_bundle / "long_doc.md",
             f"---\ntype: note\ntitle: Long\ndescription: A long doc.\n---\n\n{long_body}\n",
         )

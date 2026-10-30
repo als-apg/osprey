@@ -594,7 +594,7 @@ tier and per app:
        channel-finder.yml # channel search
 
 A tier holds only its **differences** from ``profile.yml`` — for ``readonly``,
-chiefly ``control_system.writes_enabled: false``; for ``admin``, the
+chiefly ``control_system.writes: never``; for ``admin``, the
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, ``config:`` keys win. A tier never subtracts
 and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
@@ -603,6 +603,21 @@ and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
 An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment's services, data and provider. Every app
 render is read-only on the machine.
+
+An app runs the deployment's model unless its file names its own with a
+top-level ``model:``, such as a cheaper model for a research card:
+
+.. code-block:: yaml
+
+   # apps/logbook.yml
+   model: claude-sonnet-5
+
+The id must be one the deployment's provider serves; the provider itself is
+always ``profile.yml``'s. As for ``profile.yml``, an id the provider's
+``models`` list does not carry is used as written, and the build warns that the
+provider does not list it. A tier may set ``model:`` the same way. Neither
+spells ``config: claude_code.default_model``; the build renders that key from
+``model:`` and refuses it in the file that spells it.
 
 Both kinds may set ``extra_mounts``, ``seed_base`` and ``image`` at the top of
 the file. Edit a file to change what its terminals can do, and see the merged
@@ -695,11 +710,9 @@ that points at a dropped file. See :ref:`profile-unwire-hook`.
    ``exclude:`` carves a tier by *removing* capability. When the boundary you
    want is "may not write," prefer flipping the enforcement switch instead —
    the bundled ``readonly`` tier differs from its
-   write-capable sibling only on write posture, leaving the tool surface
-   identical (see :doc:`web-terminal/multi-user/tiers`). Write posture is per
-   control target, so that tier pins the deployment-wide
-   ``control_system.writes_enabled`` *and* each connector type's own key: the
-   flat key is what a type inherits, not a floor over it.
+   write-capable sibling only on the tier key, ``control_system.writes``,
+   leaving the tool surface identical (see
+   :doc:`web-terminal/multi-user/tiers` and :ref:`write-safety-config`).
 
 To keep the bluesky server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:
@@ -755,7 +768,10 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
 anything, and says which variant it used in its output. Tiers and apps are rendered
-for the same host, so a stack cannot come up half-configured for another one.
+for the same host, so a stack cannot come up half-configured for another one: each
+sees the overlay through the ``profile.yml`` it merges over. An overlay that adds a
+``services:`` entry therefore adds it to the deployment, and the tier and app renders
+stay attached to it like any other service the deployment runs.
 
 The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — ``.env.variant`` is covered by

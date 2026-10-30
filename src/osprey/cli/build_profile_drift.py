@@ -42,13 +42,8 @@ from osprey.profiles.providers import (
     load_provider_catalog,
     packaged_catalog_path,
 )
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import (
-    APPS_DIRNAME,
-    LAYER_DIR_KINDS,
-    PROFILE_FILENAME,
-    TIERS_DIRNAME,
-)
 
 from .build_profile_document import _parse_profile_document, _read_profile_document
 from .build_profile_emit import emit_layer_delta_yaml, materialized_profile
@@ -610,6 +605,12 @@ def _locate(node: Any, segments: list[str]) -> int | None:
             found = _locate(node[head], rest)
             if found is not None:
                 return found
+        # A block path the file spells only as dotted leaves (``control_system``
+        # under ``control_system.writes: never``) is cited at its first leaf.
+        prefix = ".".join(segments) + "."
+        for key in node:
+            if isinstance(key, str) and key.startswith(prefix):
+                return int(node.lc.key(key)[0]) + 1
         return None
     if isinstance(node, CommentedSeq) and len(segments) == 1:
         for index, item in enumerate(node):

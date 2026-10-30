@@ -23,60 +23,33 @@ from osprey.models.providers.litellm_adapter import (
 class TestGetLiteLLMModelName:
     """Tests for model name mapping."""
 
-    def test_anthropic_model(self):
-        """Anthropic models get anthropic/ prefix."""
-        result = get_litellm_model_name("anthropic", "claude-sonnet-4")
-        assert result == "anthropic/claude-sonnet-4"
-
-    def test_google_model(self):
-        """Google models get gemini/ prefix."""
-        result = get_litellm_model_name("google", "gemini-2.5-flash")
-        assert result == "gemini/gemini-2.5-flash"
-
-    def test_openai_model(self):
-        """OpenAI models are routed explicitly, not by LiteLLM's model map."""
-        result = get_litellm_model_name("openai", "gpt-4o")
-        assert result == "openai/gpt-4o"
-
-    def test_ollama_model(self):
-        """Ollama models get ollama/ prefix."""
-        result = get_litellm_model_name("ollama", "llama3.1:8b")
-        assert result == "ollama/llama3.1:8b"
-
-    def test_cborg_model(self):
-        """CBORG uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("cborg", "anthropic/claude-haiku")
-        assert result == "openai/anthropic/claude-haiku"
-
-    def test_stanford_model(self):
-        """Stanford uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("stanford", "gpt-4o")
-        assert result == "openai/gpt-4o"
-
-    def test_argo_model(self):
-        """ARGO uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("argo", "claudesonnet45")
-        assert result == "openai/claudesonnet45"
-
-    def test_amsc_i2_model(self):
-        """AMSC i2 uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("amsc-i2", "anthropic/claude-haiku")
-        assert result == "openai/anthropic/claude-haiku"
-
-    def test_vllm_model(self):
-        """vLLM uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("vllm", "some-model")
-        assert result == "openai/some-model"
-
-    def test_als_apg_model(self):
-        """als-apg uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("als-apg", "some-model")
-        assert result == "openai/some-model"
-
-    def test_ds4_model(self):
-        """ds4 uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("ds4", "some-model")
-        assert result == "openai/some-model"
+    @pytest.mark.parametrize(
+        ("provider", "model", "expected"),
+        [
+            pytest.param(
+                "anthropic", "claude-sonnet-4", "anthropic/claude-sonnet-4", id="anthropic"
+            ),
+            pytest.param("google", "gemini-2.5-flash", "gemini/gemini-2.5-flash", id="google"),
+            # Routed explicitly, not by LiteLLM's model map.
+            pytest.param("openai", "gpt-4o", "openai/gpt-4o", id="openai"),
+            pytest.param("ollama", "llama3.1:8b", "ollama/llama3.1:8b", id="ollama"),
+            # The OpenAI-compatible providers all take the openai/ prefix.
+            pytest.param(
+                "cborg", "anthropic/claude-haiku", "openai/anthropic/claude-haiku", id="cborg"
+            ),
+            pytest.param("stanford", "gpt-4o", "openai/gpt-4o", id="stanford"),
+            pytest.param("argo", "claudesonnet45", "openai/claudesonnet45", id="argo"),
+            pytest.param(
+                "amsc-i2", "anthropic/claude-haiku", "openai/anthropic/claude-haiku", id="amsc_i2"
+            ),
+            pytest.param("vllm", "some-model", "openai/some-model", id="vllm"),
+            pytest.param("als-apg", "some-model", "openai/some-model", id="als_apg"),
+            pytest.param("ds4", "some-model", "openai/some-model", id="ds4"),
+        ],
+    )
+    def test_provider_prefix(self, provider, model, expected):
+        """Each built-in provider routes its model under its LiteLLM prefix."""
+        assert get_litellm_model_name(provider, model) == expected
 
     def test_registry_class_attributes_drive_routing(self, monkeypatch):
         """A registry-resolved provider class drives routing even when the
@@ -231,30 +204,19 @@ class TestSupportsNativeStructuredOutput:
 class TestCleanJsonResponse:
     """Tests for JSON response cleaning."""
 
-    def test_clean_json_no_markdown(self):
-        """Clean JSON without markdown passes through."""
-        result = _clean_json_response('{"key": "value"}')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_with_json_block(self):
-        """Removes ```json markdown blocks."""
-        result = _clean_json_response('```json\n{"key": "value"}\n```')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_with_generic_block(self):
-        """Removes generic ``` markdown blocks."""
-        result = _clean_json_response('```\n{"key": "value"}\n```')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_with_whitespace(self):
-        """Handles whitespace around JSON."""
-        result = _clean_json_response('  {"key": "value"}  ')
-        assert result == '{"key": "value"}'
-
-    def test_clean_json_only_trailing_block(self):
-        """Handles only trailing markdown."""
-        result = _clean_json_response('{"key": "value"}```')
-        assert result == '{"key": "value"}'
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            pytest.param('{"key": "value"}', id="no_markdown"),
+            pytest.param('```json\n{"key": "value"}\n```', id="json_block"),
+            pytest.param('```\n{"key": "value"}\n```', id="generic_block"),
+            pytest.param('  {"key": "value"}  ', id="whitespace"),
+            pytest.param('{"key": "value"}```', id="only_trailing_block"),
+        ],
+    )
+    def test_clean_json(self, raw):
+        """Markdown fences and surrounding whitespace are removed; bare JSON passes through."""
+        assert _clean_json_response(raw) == '{"key": "value"}'
 
     def test_fixes_python_style_booleans(self):
         """Python-style True/False values are rewritten to JSON true/false.

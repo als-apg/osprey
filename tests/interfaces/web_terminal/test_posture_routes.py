@@ -1,22 +1,28 @@
-"""Tests for ``POST /api/terminal/posture`` — the operator's write-posture toggle.
+"""Tests for ``POST /api/terminal/posture`` — the person's write switch (C-POST).
 
-The posture is the operator's per-target sandbox toggle, and it belongs to the
-**login identity**: one control context, one ``posture`` field in its record,
-read live by every write-time gate. There is no per-session store behind it any
-more, so a ``session_id`` names who made the gesture and decides nothing about
-what the gesture does.
+The switch is the **login's**: one ``on``/``off`` per machine in the ``switch``
+field of that login's control-context record, written only by
+:func:`~osprey_connectors.control_context.set_switch` and read at write time by
+every write path through the write verdict.
 
 What the tests below pin:
 
-* **The record write is the commit point.** It happens inside the mutation
-  primitive, so a toggle is always derived from the record it lands on, and a
-  terminal that may not write the record refuses instead of half-applying.
-* **Narrows, never widens.** The ceiling is read per target, so a deployment
-  that arms only its simulator never offers a writes toggle on the facility's
-  own machine; narrowing needs no ceiling at all.
-* **Absence spells ``writes``.** An entry that narrows nothing removes the key.
-* **Nothing is respawned.** Neither the PTY child nor the chat child is torn
-  down: the gates read the record live.
+* **On is locked only by what no chip can lift.** A turn-on is refused 403 for
+  a ``never`` tier (an app render is one) or a read-only run; a stop is never
+  refused for those, for a follower terminal, or for a run in flight.
+* **The epoch is a compare-and-swap.** A chip that read no epoch sends null;
+  an epoch-less record is stamped and answers 409 ``stamped``, the retry lands;
+  a turn-on that raced a stop stays off.
+* **No usable record is a 503, never a 409 loop or a 200** — and a stop that
+  did not take says writes are still on, never that they are refused.
+* **One envelope, one audit line.** Every non-200 is exactly
+  ``{detail: {reason, phrase?, epoch?, stamped?, taken?}}``, and every outcome
+  files one ledger line.
+* **Runs keep what they started with; off reaches them.** A turn-on lands
+  while a sandbox run is going and that run's next write stays pinned; the
+  next run writes; a stop refuses the running sandbox's next write.
+
+The GET roster's fields are pinned by its own suite, not here.
 """
 
 from __future__ import annotations
@@ -26,19 +32,31 @@ import os
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
-from osprey.audit import writer as audit_writer
+from osprey.audit import posture as audit_posture
 from osprey.interfaces.web_terminal import control_context_owner
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
+from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
-from osprey_connectors_tests._harness import owner, state_dir_under, write_control_context
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.refusals import REASONS, refusal_phrase
+from osprey_connectors_tests._harness import (
+    owner,
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+    write_payload,
+    write_server_report,
+)
+from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
+from tests.interfaces.web_terminal._control_context import only_alive, read_record
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -46,14 +64,22 @@ CHAT_A = "cccccccc-1111-2222-3333-444444444444"
 
 STANDIN_PORT = 5074
 
-#: A pid no kernel hands out: the largest a 32-bit ``pid_t`` holds.
-DEAD_PID = 2_147_483_646
-
 #: The terminal that owns the context in the follower cases. ``os.getppid()``
-#: is a real, live process, so a follower test is refused for the reason it
-#: claims rather than because the owner it names is a corpse.
+#: is a real, live process, so the record names a holder that is not a corpse.
 OTHER_TERMINAL_PID = os.getppid()
 OTHER_TERMINAL_PORT = 8090
+
+#: A controls server's pid for the target-switch case, reported alive by patch.
+SERVER_PID = 5150
+
+#: C-WORDS' sentence for a stop the record did not take.
+STOP_SENTENCE = (
+    "The stop did not take effect — writes are still on. Retry; if it fails again, "
+    "ask the deployment admin."
+)
+
+#: Every key a C-POST refusal may carry.
+ENVELOPE_KEYS = {"reason", "phrase", "epoch", "stamped", "taken"}
 
 
 # -- render shapes ----------------------------------------------------------
@@ -64,48 +90,40 @@ def _gateways(port):
     return {"read_only": dict(row), "write_access": dict(row)}
 
 
-def control_system_section(
-    *,
-    global_writes=False,
-    va_writes=None,
-    epics_writes=None,
-    standin_writes=None,
-    standin_gateways=None,
-):
+def control_system_section(*, writes=None, with_live=True):
     """The three-target render every test here starts from.
 
     ``epics`` is the facility's own machine, ``live_standin`` the co-deployed
     stand-in, ``virtual_accelerator`` the simulator — three connector blocks,
-    therefore three targets, which is what makes this deployment switchable and
-    ``session_posture`` answer one ceiling per target. The virtual accelerator
-    carries a gateway table because the build writes one for every project that
-    deploys the service; a VA with no table would derive no endpoints at all.
+    therefore three configured targets. *writes* is the tier key: ``None``
+    leaves it out, which with no ``writes_enabled`` leaf anywhere is the
+    ``never`` tier an app render answers; ``"allowed"`` arms the tier.
+    *with_live* ``False`` drops the ``epics`` block, so ``live`` is a machine
+    this render does not configure.
     """
-    epics = {"gateways": _gateways(5064)}
-    standin = {
-        "gateways": _gateways(STANDIN_PORT) if standin_gateways is None else standin_gateways
+    connector = {
+        "live_standin": {"gateways": _gateways(STANDIN_PORT)},
+        "virtual_accelerator": {"gateways": _gateways(5064)},
     }
-    va = {"gateways": _gateways(5064)}
-    if epics_writes is not None:
-        epics["writes_enabled"] = epics_writes
-    if standin_writes is not None:
-        standin["writes_enabled"] = standin_writes
-    if va_writes is not None:
-        va["writes_enabled"] = va_writes
-    return {
-        "type": "live_standin",
-        "writes_enabled": global_writes,
-        "connector": {"epics": epics, "live_standin": standin, "virtual_accelerator": va},
-    }
+    if with_live:
+        connector["epics"] = {"gateways": _gateways(5064)}
+    section = {"type": "live_standin", "connector": connector}
+    if writes is not None:
+        section["writes"] = writes
+    return section
+
+
+#: The tier-allowed render, as the write verdict and the executor read it.
+ALLOWED = control_system_section(writes="allowed")
 
 
 def write_config(tmp_path, section=None, *, name="config.yml"):
-    """Write a ``config.yml`` carrying *section* (default: the shape above)."""
+    """Write a ``config.yml`` carrying *section* (default: the tier-allowed shape)."""
     path = tmp_path / name
     path.write_text(
         yaml.safe_dump(
             {
-                "control_system": control_system_section() if section is None else section,
+                "control_system": ALLOWED if section is None else section,
                 "services": {
                     "live_standin": {"port": STANDIN_PORT},
                     "virtual_accelerator": {"port": 5064},
@@ -122,44 +140,12 @@ def write_config(tmp_path, section=None, *, name="config.yml"):
 
 
 @pytest.fixture
-def agent_data_root(tmp_path, monkeypatch):
-    """Point every resolver at one throwaway agent-data root.
-
-    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
-    ``posture_store`` both prefer — the stamp this feature puts in every
-    session child's environment. Patching ``resolve_shared_data_root`` instead
-    would redirect only one of them: ``posture_store`` binds the resolver at
-    import, so the other half would write into the repository's own
-    ``var/agent_data``.
-    """
-    root = tmp_path / "agent_data"
-    state_dir_under(root).mkdir(parents=True)
-    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    yield root
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_watch"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def make_client(agent_data_root, workspace_dir, tmp_path):
     """Build an app + TestClient, repeatably, over the same stamped root.
 
     The record is written **before** the first app starts, so the lifespan
-    claim merges into it rather than minting a fresh one from
-    ``load_osprey_config``, which this process has no workspace for. The owner
-    task's loop is stubbed out: every tick these tests need has happened by the
-    time the client is handed over, and a loop ticking underneath the
-    assertions would be a race rather than coverage.
+    claim merges into it. The owner task's loop is stubbed out: a loop ticking
+    underneath the assertions would be a race rather than coverage.
     """
     write_control_context(agent_data_root, target="live", generation=1)
 
@@ -168,16 +154,11 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
         with patch.object(
             control_context_owner.ControlContextOwnerTask, "start", lambda self: None
         ):
-            with patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ):
-                app = create_app(shell_command="echo")
-                with TestClient(app) as test_client:
-                    test_client.app.state.config_path = (
-                        write_config(tmp_path) if config_path is None else config_path
-                    )
-                    yield test_client
+            with terminal_client(workspace_dir) as test_client:
+                test_client.app.state.config_path = (
+                    write_config(tmp_path) if config_path is None else config_path
+                )
+                yield test_client
 
     return _make
 
@@ -186,25 +167,6 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
 def client(make_client):
     with make_client() as c:
         yield c
-
-
-@pytest.fixture
-def ledger():
-    """Capture every audit record this request would have written.
-
-    Patches ``osprey.audit.writer.record``, which BOTH recorders resolve at
-    call time — the route's ``record_and_mark`` and
-    ``HttpAuditMiddleware._emit_audit_record`` — so the count is the true
-    number of ledger lines one POST produces.
-    """
-    records: list[dict] = []
-
-    def _record(**fields):
-        records.append(fields)
-        return Path("/dev/null/ledger.jsonl")
-
-    with patch.object(audit_writer, "record", side_effect=_record):
-        yield records
 
 
 class _RecordingChatPool:
@@ -223,34 +185,67 @@ class _RecordingChatPool:
         self.terminated.append(key)
 
     async def cleanup_all(self) -> None:
-        """Deliberately not recorded: it runs when the lifespan exits, long
-        after the assertion, and recording it would make the case fail."""
+        """Not recorded: it runs when the lifespan exits, after the assertion."""
 
 
 # -- harness ----------------------------------------------------------------
 
 
-def recorded_posture():
-    """The deployment's narrowings, straight off the record."""
-    control_context.invalidate_cache()
-    record = control_context.read_record()
-    return {} if record is None else dict(record.posture)
+def switch_now():
+    """This login's switch, straight off the record."""
+    record = read_record()
+    return {} if record is None else dict(record.switch)
 
 
-def read_record():
+def epoch_now():
+    record = read_record()
+    return None if record is None else record.switch_epoch
+
+
+def wire_now():
+    """The record's epoch as the route carries it: a decimal string, or ``None``."""
+    epoch = epoch_now()
+    return None if epoch is None else str(epoch)
+
+
+def make_epochless():
+    """Rewrite the record with no ``switch_epoch``, as a file from before epochs."""
+    path = control_context.record_path()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["switch_epoch"] = None
+    write_payload(path, payload)
     control_context.invalidate_cache()
-    return control_context.read_record()
+
+
+def post_switch(client, *, session_id=SESSION_A, target="standin", state="on", epoch="read"):
+    """POST C-POST's body. ``epoch="read"`` sends the record's epoch, as the chip does."""
+    body = {"target": target, "state": state, "epoch": wire_now() if epoch == "read" else epoch}
+    if session_id is not None:
+        body["session_id"] = session_id
+    return client.post("/api/terminal/posture", json=body)
+
+
+def turn_on(client, target="standin", **kwargs):
+    """The chip's turn-on: send the epoch read, retry once when the 409 stamped."""
+    response = post_switch(client, target=target, state="on", **kwargs)
+    if response.status_code == 409 and response.json()["detail"]["stamped"]:
+        response = post_switch(
+            client, target=target, state="on", epoch=response.json()["detail"]["epoch"]
+        )
+    return response
+
+
+def assert_envelope(response, status, **expected):
+    """The response is *status* with exactly the C-POST refusal *expected*."""
+    assert response.status_code == status, response.text
+    detail = response.json()["detail"]
+    assert set(detail) <= ENVELOPE_KEYS
+    assert detail == expected
 
 
 def write_inflight_marker(root: Path, *, pid, target="standin"):
-    """Plant one execution marker, as the python executor writes it.
-
-    The executor writes into ``target_state.state_dir()``, which carries the
-    acting identity's own hop below ``control_target/``. A marker one level up
-    is a marker the gate's glob never sees.
-    """
+    """Plant one execution marker where the executor writes it."""
     directory = state_dir_under(root)
-    directory.mkdir(parents=True, exist_ok=True)
     path = (
         directory / f"{target_state.INFLIGHT_FILE_PREFIX}{pid}{target_state.INFLIGHT_FILE_SUFFIX}"
     )
@@ -271,72 +266,7 @@ def write_inflight_marker(root: Path, *, pid, target="standin"):
     return path
 
 
-@contextmanager
-def only_alive(*pids):
-    """Report exactly *pids* as running processes.
-
-    One patch reaches every reader in the request: ``control_context`` owns the
-    predicate, and ``target_state.is_process_alive`` — which the marker sweep
-    calls — delegates to it at call time.
-    """
-    wanted = {int(p) for p in pids}
-
-    def alive(pid):
-        try:
-            return int(pid) in wanted
-        except (TypeError, ValueError):
-            return False
-
-    with patch.object(control_context, "is_process_alive", side_effect=alive):
-        yield
-
-
-#: The 400's sentence for a target this render does not configure, spelled
-#: once in ``_unknown_target_message`` and pinned on both gesture routes.
-UNKNOWN_TARGET_SENTENCE = "This deployment configures no control target by that name."
-
-
-def post_posture(client, *, session_id=SESSION_A, target="standin", posture="sandbox"):
-    body = {"target": target, "posture": posture}
-    if session_id is not None:
-        body["session_id"] = session_id
-    return client.post("/api/terminal/posture", json=body)
-
-
-# -- the refusal ladder -----------------------------------------------------
-
-
-class TestTheGetTakesTheSameOptionalId:
-    """``GET /api/terminal/posture`` follows the two POSTs, or they drift apart."""
-
-    def test_the_roster_answers_with_no_session_id_at_all(self, client):
-        """The Lab page's bar has no terminal session to name, and needs none."""
-        response = client.get("/api/terminal/posture")
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["session_id"] is None
-        assert [row["target"] for row in body["targets"]] == ["live", "va", "standin"]
-
-    def test_a_malformed_id_is_still_the_400_the_posts_give(self, client):
-        response = client.get("/api/terminal/posture", params={"session_id": "nope"})
-        assert response.status_code == 400
-        assert response.json()["detail"]["error"] == "invalid_session_id"
-
-    def test_the_roster_reports_the_recorded_narrowing(self, client, tmp_path):
-        """The posture the GET shows is the one the POST just wrote.
-
-        The stand-in is armed, so ``effective`` can only be false because the
-        narrowing reached the record the GET reads.
-        """
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(standin_writes=True)
-        )
-        assert post_posture(client, target="standin", posture="sandbox").status_code == 200
-        rows = client.get("/api/terminal/posture").json()["targets"]
-        standin = next(row for row in rows if row["target"] == "standin")
-        assert standin["ceiling_writes"] is True
-        assert standin["posture"] == "sandbox"
-        assert standin["effective"] is False
+# -- the request body -------------------------------------------------------
 
 
 class TestGrammar:
@@ -344,406 +274,659 @@ class TestGrammar:
         "bad_id",
         ["../../etc/passwd", "operator-deadbeef", "", "AAAAAAAA-1111-2222-3333-444444444444"],
     )
-    def test_an_id_outside_the_closed_grammar_is_400(self, client, bad_id):
-        resp = post_posture(client, session_id=bad_id)
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "invalid_session_id"
+    def test_an_id_outside_the_closed_grammar_is_400_in_the_c_post_envelope(self, client, bad_id):
+        assert_envelope(post_switch(client, session_id=bad_id), 400, reason="invalid_session_id")
+        assert switch_now() == {}
 
-    @pytest.mark.usefixtures("agent_data_root")
-    def test_a_body_with_no_session_id_is_accepted(self, client):
-        """The posture is the deployment's, so the gesture needs no session."""
-        resp = post_posture(client, session_id=None)
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["session_id"] is None
-        assert recorded_posture() == {"standin": "sandbox"}
-
-    @pytest.mark.parametrize("bad", ["readonly", "SANDBOX", "", "readwrite", "true"])
-    def test_only_the_two_named_postures_are_accepted(self, client, bad):
-        assert post_posture(client, posture=bad).status_code == 422
-
-    def test_a_body_missing_a_field_is_422(self, client):
-        for body in (
-            {"session_id": SESSION_A, "target": "standin"},
-            {"session_id": SESSION_A, "posture": "sandbox"},
-        ):
-            assert client.post("/api/terminal/posture", json=body).status_code == 422
-
-    def test_a_target_this_deployment_does_not_configure_is_400(self, client):
-        resp = post_posture(client, target="banana")
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "unknown_target"
-        assert resp.json()["detail"]["message"].startswith(UNKNOWN_TARGET_SENTENCE + " It has: ")
-
-    def test_all_plus_writes_is_400(self, client):
-        """Widening is per target, always.
-
-        ``[ Sandbox everything ]`` is one gesture because narrowing everything
-        is unambiguous; there is no matching "arm everything", because each
-        target's ceiling is its own and an operator arming three machines at
-        once could not have meant all three.
-        """
-        resp = post_posture(client, target="all", posture="writes")
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "writes_requires_one_target"
-        assert recorded_posture() == {}
+    @pytest.mark.parametrize("bad", ["sandbox", "writes", "ON", "", "true"])
+    def test_only_on_and_off_are_states(self, client, bad):
+        response = post_switch(client, state=bad)
+        assert response.status_code == 422
+        assert isinstance(response.json()["detail"], list)
 
     @pytest.mark.parametrize(
-        ("target", "posture"),
-        [("all", "sandbox"), ("standin", "sandbox"), ("standin", "writes")],
+        "bad", [True, 5, 1.5, [], "", "-1", "+1", "01", "1e3", " 5", "5 ", "0x1f", "1" * 21]
     )
-    def test_an_unreadable_render_configures_no_target(self, client, target, posture):
-        """No readable config, no vocabulary — and therefore nothing to toggle.
+    def test_the_epoch_is_a_decimal_string_or_null(self, client, bad):
+        """Never coerced: a number, ``true`` or any other spelling is a 422 that says so."""
+        response = post_switch(client, epoch=bad)
+        assert response.status_code == 422, response.text
+        assert websocket_routes.EPOCH_FORMAT_PHRASE in response.text
+        assert switch_now() == {}
 
-        ``configured_targets`` is what every row, probe and refusal here
-        enumerates; a server that cannot read its own render does not know
-        which machines exist. ``all`` in particular must not fall through: over
-        an empty vocabulary it would CLEAR the narrowings rather than add one,
-        which is the one direction this field must never move by accident.
-        """
+    def test_the_old_posture_body_is_422(self, client):
+        response = client.post(
+            "/api/terminal/posture",
+            json={"session_id": SESSION_A, "target": "standin", "posture": "writes"},
+        )
+        assert response.status_code == 422
+        assert switch_now() == {}
+
+    def test_all_with_on_is_400_bulk_on_refused(self, client):
+        """A machine is turned on one at a time; the route refuses before the record."""
+        with patch.object(control_context, "set_switch") as setter:
+            assert_envelope(post_switch(client, target="all"), 400, reason="bulk_on_refused")
+        setter.assert_not_called()
+
+    @pytest.mark.parametrize("state", ["on", "off"])
+    def test_a_target_this_render_does_not_configure_is_400(self, client, state):
+        assert_envelope(
+            post_switch(client, target="banana", state=state), 400, reason="unknown_target"
+        )
+
+    def test_an_unreadable_render_configures_no_named_target(self, client):
         client.app.state.config_path = None
-        resp = post_posture(client, target=target, posture=posture)
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "unknown_target"
-        assert resp.json()["detail"]["message"] == UNKNOWN_TARGET_SENTENCE + " It has: none."
+        assert_envelope(post_switch(client, state="off"), 400, reason="unknown_target")
+
+    def test_route_outcomes_are_not_verdict_reasons(self):
+        """The closed set stays closed: these answer the request, not a write."""
+        for reason in ("bulk_on_refused", "unknown_target", "not_taken", "invalid_session_id"):
+            assert reason not in REASONS
 
 
-class TestOwnership:
-    """Who may write the record at all, before any judgement about the posture."""
-
-    def test_a_terminal_with_no_owner_is_503(self, client):
-        del client.app.state.control_context_owner
-        resp = post_posture(client)
-        assert resp.status_code == 503
-        assert resp.json()["detail"]["error"] == "store_unavailable"
-        assert recorded_posture() == {}
-
-    def test_a_follower_is_409_naming_the_owners_pid_and_port(self, client):
-        client.app.state.control_context_follows = owner(
-            pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT
-        )
-        resp = post_posture(client)
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "context_owned_elsewhere"
-        assert str(OTHER_TERMINAL_PID) in detail["message"]
-        assert str(OTHER_TERMINAL_PORT) in detail["message"]
-        assert recorded_posture() == {}
-
-    def test_a_takeover_between_the_hint_and_the_write_is_the_same_409(
-        self, client, agent_data_root
-    ):
-        """``app.state`` can be a tick stale; the primitive is the guard."""
-        write_control_context(
-            agent_data_root,
-            target="live",
-            generation=1,
-            owned_by=owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT),
-        )
-        resp = post_posture(client)
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "context_owned_elsewhere"
-        assert recorded_posture() == {}
-
-    def test_a_failing_write_is_503_and_narrows_nothing(self, client):
-        with patch.object(
-            control_context_owner, "write_record", side_effect=OSError("read-only volume")
-        ):
-            resp = post_posture(client)
-        assert resp.status_code == 503
-        assert resp.json()["detail"]["error"] == "store_write_failed"
-        assert recorded_posture() == {}
+# -- on, off, all off -------------------------------------------------------
 
 
-class TestCeiling:
-    """403 ``writes_disabled``, per target, naming that target's own key."""
+class TestTheGesture:
+    def test_on_arms_that_machine_and_answers_exactly_c_post(self, client):
+        response = turn_on(client, "standin")
 
-    def test_widening_an_unarmed_target_is_403_naming_its_key(self, client):
-        resp = post_posture(client, target="standin", posture="writes")
-        assert resp.status_code == 403
-        detail = resp.json()["detail"]
-        assert detail["error"] == "writes_disabled"
-        assert "control_system.connector.live_standin.writes_enabled" in detail["message"]
-
-    def test_a_mixed_render_arms_the_va_and_refuses_the_live_machine(self, client, tmp_path):
-        """The union is true here and says nothing about where the operator is.
-
-        This is the whole reason the ceiling is read per target: a deployment
-        that arms only its simulator would otherwise offer a writes toggle on
-        the facility's own machine, and every write through it would be refused
-        one layer down.
-        """
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(va_writes=True)
-        )
-        armed = post_posture(client, target="va", posture="writes")
-        unarmed = post_posture(client, target="live", posture="writes")
-        assert armed.status_code == 200
-        assert unarmed.status_code == 403
-        assert (
-            "control_system.connector.epics.writes_enabled" in unarmed.json()["detail"]["message"]
-        )
-
-    def test_a_va_plus_standin_render_arms_its_standin(self, client, tmp_path):
-        """Two configured targets are switch-capable with no live machine at all.
-
-        ``session_posture`` answers per target on any switch-capable render, so
-        a deployment rehearsing on its stand-in beside the simulator gets the
-        stand-in's own ceiling — not a 403 for want of an ``epics`` block it
-        never claimed to have.
-        """
-        section = {
-            "type": "virtual_accelerator",
-            "writes_enabled": False,
-            "connector": {
-                "virtual_accelerator": {
-                    "gateways": _gateways(5064),
-                    "writes_enabled": True,
-                },
-                "live_standin": {
-                    "gateways": _gateways(STANDIN_PORT),
-                    "writes_enabled": True,
-                },
-            },
+        assert response.status_code == 200, response.text
+        assert response.json() == {
+            "target": "standin",
+            "state": "on",
+            "switch_epoch": wire_now(),
         }
-        client.app.state.config_path = write_config(tmp_path, section)
-        assert post_posture(client, target="standin", posture="writes").status_code == 200
+        assert isinstance(response.json()["switch_epoch"], str)
+        assert switch_now() == {"standin": "on"}
 
+    def test_off_disarms_only_that_machine(self, client):
+        assert turn_on(client, "standin").status_code == 200
+        assert turn_on(client, "va").status_code == 200
 
-class TestSelectedRoleMissing:
-    """409 when narrowing would leave the target with no gateway to select."""
+        response = post_switch(client, target="standin", state="off")
 
-    def _write_access_only(self, client, tmp_path, *, name="config.yml", **kwargs):
-        row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
-        client.app.state.config_path = write_config(
-            tmp_path,
-            control_system_section(standin_gateways={"write_access": row}, **kwargs),
-            name=name,
-        )
+        assert response.status_code == 200, response.text
+        assert response.json() == {"target": "standin", "state": "off", "switch_epoch": wire_now()}
+        assert switch_now() == {"va": "on"}
 
-    def test_a_write_access_only_target_cannot_be_narrowed(self, client, tmp_path):
-        self._write_access_only(client, tmp_path)
-        resp = post_posture(client, target="standin", posture="sandbox")
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "selected_role_missing"
-        assert "control_system.connector.live_standin.gateways.read_only" in detail["message"]
+    def test_all_off_clears_every_machine_and_moves_the_epoch(self, client):
+        assert turn_on(client, "standin").status_code == 200
+        assert turn_on(client, "live").status_code == 200
+        before = epoch_now()
 
-    def test_the_other_targets_are_unaffected(self, client, tmp_path):
-        self._write_access_only(client, tmp_path)
-        assert post_posture(client, target="va", posture="sandbox").status_code == 200
+        response = post_switch(client, target="all", state="off")
 
-    def test_sandbox_everything_narrows_the_rest_and_reports_what_it_skipped(
-        self, client, tmp_path
+        assert response.status_code == 200, response.text
+        assert response.json()["target"] == "all"
+        assert switch_now() == {}
+        assert epoch_now() > before
+
+    def test_all_off_clears_machines_this_render_does_not_configure(
+        self, client, tmp_path, agent_data_root
     ):
-        """ "Everything" means everything it can, and says so — not nothing.
-
-        Refusing the whole gesture because one target is write_access-only
-        would leave "Sandbox everything" doing nothing at all on that
-        deployment, while the popover offers the button. The other machines
-        are narrowed, and the one that stayed writable is named with its
-        reason so the operator is never told a narrowing happened that did not.
-        """
-        self._write_access_only(client, tmp_path)
-        resp = post_posture(client, target="all", posture="sandbox")
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["entry"] == {"live": "sandbox", "va": "sandbox"}
-        assert [row["target"] for row in body["skipped"]] == ["standin"]
-        assert body["skipped"][0]["reason"] == "selected_role_missing"
-        assert "gateways.read_only" in body["skipped"][0]["detail"]
-        assert recorded_posture() == {"live": "sandbox", "va": "sandbox"}
-
-    def test_an_already_sandboxed_target_does_not_veto_a_later_gesture(self, client, tmp_path):
-        """``narrowing_refusal`` is record-blind, so only CHANGING targets are asked.
-
-        A target narrowed while the deployment could still derive a read_only
-        gateway keeps its narrowing when that gateway later disappears from the
-        render. Asking about it again would have it refuse on behalf of a
-        change nobody requested — freezing every later toggle.
-        """
-        assert post_posture(client, target="standin", posture="sandbox").status_code == 200
-
-        # The stand-in's read_only gateway goes away under the running session.
-        self._write_access_only(client, tmp_path, name="config2.yml")
-        resp = post_posture(client, target="all", posture="sandbox")
-
-        assert resp.status_code == 200
-        assert resp.json()["skipped"] == []
-        assert recorded_posture() == {
-            "standin": "sandbox",
-            "live": "sandbox",
-            "va": "sandbox",
-        }
-
-    def test_widening_is_not_checked(self, client, tmp_path):
-        """The question is what NARROWING would cost; widening does not narrow."""
-        row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
+        """``any_on`` counts every machine in the record; "Turn all off" must reach them."""
+        write_control_context(agent_data_root, target="live", generation=1, switch={"live": "on"})
         client.app.state.config_path = write_config(
-            tmp_path,
-            control_system_section(standin_writes=True, standin_gateways={"write_access": row}),
+            tmp_path, control_system_section(writes="allowed", with_live=False), name="two.yml"
         )
-        assert post_posture(client, target="standin", posture="writes").status_code == 200
-
-    def test_the_narrowing_check_derives_against_the_terminals_own_render(
-        self, client, monkeypatch
-    ):
-        """An unset gateway port is filled from the file the terminal parsed."""
-        original = target_eligibility.narrowing_refusal
-        seen: list = []
-
-        def recording(*args, **kwargs):
-            seen.append(kwargs.get("config_path"))
-            return original(*args, **kwargs)
-
-        monkeypatch.setattr(target_eligibility, "narrowing_refusal", recording)
-        post_posture(client, target="standin", posture="sandbox")
-        assert seen
-        assert set(seen) == {str(client.app.state.config_path)}
-
-
-class TestExecutionInFlight:
-    """A run that started narrow is never widened out from under itself."""
-
-    def test_widening_under_a_live_marker_is_409(self, client, tmp_path, agent_data_root):
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(va_writes=True)
+        assert_envelope(
+            post_switch(client, target="live", state="off"), 400, reason="unknown_target"
         )
-        write_inflight_marker(agent_data_root, pid=4242, target="standin")
-        with only_alive(4242):
-            resp = post_posture(client, target="va", posture="writes")
-        assert resp.status_code == 409
-        detail = resp.json()["detail"]
-        assert detail["error"] == "execution_in_flight"
-        # The switch gate's own words, so the popover and the agent read alike.
-        assert "in flight on target" in detail["message"].lower()
-        assert "standin" in detail["message"]
-        assert "wait" in detail["message"].lower()
 
-    def test_narrowing_under_a_live_marker_still_lands(self, client, agent_data_root):
-        """Narrowing is always safe; it is the gesture an operator needs most."""
-        write_inflight_marker(agent_data_root, pid=4242, target="standin")
-        with only_alive(4242):
-            resp = post_posture(client, target="standin", posture="sandbox")
-        assert resp.status_code == 200
-        assert recorded_posture() == {"standin": "sandbox"}
+        assert post_switch(client, target="all", state="off").status_code == 200
+        assert switch_now() == {}
 
-    def test_a_marker_whose_writer_is_gone_does_not_block(self, client, tmp_path, agent_data_root):
-        """A killed executor's residue is swept, not treated as a running run."""
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(va_writes=True)
-        )
-        marker = write_inflight_marker(agent_data_root, pid=DEAD_PID, target="standin")
-        with only_alive():
-            resp = post_posture(client, target="va", posture="writes")
-        assert resp.status_code == 200
-        assert not marker.exists()
+    def test_all_off_needs_no_readable_render(self, client, agent_data_root):
+        write_control_context(agent_data_root, target="live", generation=1, switch={"va": "on"})
+        client.app.state.config_path = None
+        assert post_switch(client, target="all", state="off").status_code == 200
+        assert switch_now() == {}
 
+    def test_a_session_less_gesture_is_accepted(self, client):
+        """The Lab page's bar posts with no session; the switch is the login's."""
+        assert turn_on(client, "standin", session_id=None).status_code == 200
+        assert switch_now() == {"standin": "on"}
 
-# -- the accepted gesture ---------------------------------------------------
-
-
-class TestAcceptedPosture:
-    @pytest.mark.parametrize("target", ["standin", "live"])
-    def test_a_narrowing_lands_in_the_record(self, client, target):
-        """Exactly that target, on disk, the moment the route answers.
-
-        Neither target is armed in this render: narrowing needs no ceiling.
-        The raw read is the file itself, so a narrowing held only in memory,
-        written elsewhere, or spelled as a bare ``"sandbox"`` all fail here.
-        """
-        resp = post_posture(client, target=target, posture="sandbox")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["session_id"] == SESSION_A
-        assert body["target"] == target
-        assert body["posture"] == "sandbox"
-        assert body["entry"] == {target: "sandbox"}
-        assert recorded_posture() == {target: "sandbox"}
-        raw = json.loads(control_context.record_path().read_text(encoding="utf-8"))
-        assert raw["posture"] == {target: "sandbox"}
-
-    def test_the_toggle_moves_neither_target_nor_generation(self, client):
+    def test_the_gesture_moves_neither_target_nor_generation(self, client):
         before = read_record()
-        post_posture(client, target="standin", posture="sandbox")
+        assert turn_on(client, "standin").status_code == 200
         after = read_record()
-        assert (after.target, after.generation) == (before.target, before.generation)
-        assert after.last_switch == before.last_switch
-
-    def test_targets_narrow_independently(self, client):
-        """Each gesture adds to the record, whichever session made the one before."""
-        post_posture(client, session_id=SESSION_A, target="standin", posture="sandbox")
-        resp = post_posture(client, session_id=SESSION_B, target="va", posture="sandbox")
-        assert resp.json()["entry"] == {"standin": "sandbox", "va": "sandbox"}
-        assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
-
-    def test_widening_removes_only_that_target(self, client, tmp_path):
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(va_writes=True)
+        assert (after.target, after.generation, after.owner) == (
+            before.target,
+            before.generation,
+            before.owner,
         )
-        post_posture(client, target="standin", posture="sandbox")
-        post_posture(client, target="va", posture="sandbox")
-        resp = post_posture(client, target="va", posture="writes")
-        assert resp.json()["entry"] == {"standin": "sandbox"}
-        assert recorded_posture() == {"standin": "sandbox"}
 
-    def test_the_last_widening_clears_the_field(self, client, tmp_path):
-        """Absence is how this field spells ``writes``; a stored value is not."""
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(standin_writes=True)
+    def test_each_gesture_pushes_the_context_frame(self, client):
+        broadcaster = MagicMock()
+        client.app.state.broadcaster = broadcaster
+        assert turn_on(client, "standin").status_code == 200
+        assert post_switch(client, target="standin", state="off").status_code == 200
+        frames = [call.args[0] for call in broadcaster.broadcast.call_args_list]
+        assert frames
+        assert all(frame == {"type": "control_context"} for frame in frames)
+        assert len(frames) >= 2
+
+
+class TestOffIsNeverRefused:
+    """A stop always lands — the gesture an operator needs most."""
+
+    @pytest.fixture
+    def on(self, client):
+        assert turn_on(client, "standin").status_code == 200
+        return client
+
+    def test_off_lands_on_a_never_tier(self, on, tmp_path):
+        on.app.state.config_path = write_config(tmp_path, control_system_section(), name="n.yml")
+        assert post_switch(on, target="standin", state="off").status_code == 200
+        assert switch_now() == {}
+
+    def test_off_lands_on_a_readonly_run(self, on, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert post_switch(on, target="standin", state="off").status_code == 200
+        assert switch_now() == {}
+
+    def test_off_lands_from_a_follower_terminal(self, on, agent_data_root):
+        """The switch is the login's, so a follower acts exactly like the holder."""
+        holder = owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT)
+        write_control_context(
+            agent_data_root, target="live", generation=1, owned_by=holder, switch={"standin": "on"}
         )
-        post_posture(client, target="standin", posture="sandbox")
-        resp = post_posture(client, target="standin", posture="writes")
-        assert resp.json()["entry"] == {}
-        assert recorded_posture() == {}
-        raw = json.loads(control_context.record_path().read_text(encoding="utf-8"))
-        assert raw["posture"] == {}
+        on.app.state.control_context_follows = holder
 
-    def test_sandbox_everything_narrows_every_configured_target(self, client):
-        """No target in this render is armed, and none is left out."""
-        resp = post_posture(client, target="all", posture="sandbox")
-        assert resp.status_code == 200
-        assert resp.json()["entry"] == {
-            "live": "sandbox",
-            "va": "sandbox",
-            "standin": "sandbox",
-        }
-        assert resp.json()["skipped"] == []
+        assert post_switch(on, target="standin", state="off").status_code == 200
+        assert switch_now() == {}
+        assert read_record().owner == holder
 
-    def test_a_repeated_narrowing_writes_nothing_new(self, client):
-        """A gesture asking for what is already stored moves no signature.
+    def test_on_lands_from_a_follower_terminal_too(self, client, agent_data_root):
+        holder = owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT)
+        write_control_context(agent_data_root, target="live", generation=1, owned_by=holder)
+        client.app.state.control_context_follows = holder
 
-        Readers watch the record's ``(mtime_ns, size, ino)``; rewriting it for
-        a change of nothing would wake every one of them for nothing.
+        assert turn_on(client, "va").status_code == 200
+        assert switch_now() == {"va": "on"}
+        assert read_record().owner == holder
+
+    def test_neither_gesture_needs_the_owner_primitive(self, client):
+        """No owner on ``app.state`` is no 503: ``set_switch`` is called directly."""
+        del client.app.state.control_context_owner
+        assert turn_on(client, "standin").status_code == 200
+        assert post_switch(client, target="standin", state="off").status_code == 200
+
+    @pytest.mark.parametrize("state", ["on", "off"])
+    def test_a_run_in_flight_refuses_neither(self, client, agent_data_root, state):
+        write_inflight_marker(agent_data_root, pid=4242, target="standin")
+        with only_alive(4242, os.getpid()):
+            response = (
+                turn_on(client, "standin") if state == "on" else post_switch(client, state="off")
+            )
+        assert response.status_code == 200, response.text
+
+
+class TestTurnOnLocks:
+    """403 ``{reason, phrase}`` for the two locks no chip gesture can lift."""
+
+    def test_a_never_tier_refuses_on(self, client, tmp_path):
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="never"), name="never.yml"
+        )
+        assert_envelope(
+            post_switch(client, target="standin"),
+            403,
+            reason="tier_never",
+            phrase=refusal_phrase("tier_never", "real"),
+        )
+        assert switch_now() == {}
+
+    def test_an_app_render_refuses_on_as_tier_never(self, client, tmp_path):
+        """No tier key and no writes leaf: the verdict answers ``tier_never``."""
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(), name="app.yml"
+        )
+        verdict = posture_store.write_verdict(control_system_section(), "va")
+        assert verdict.reason == "tier_never"
+        assert_envelope(
+            post_switch(client, target="va"),
+            403,
+            reason="tier_never",
+            phrase=refusal_phrase("tier_never", verdict.kind),
+        )
+        assert switch_now() == {}
+
+    def test_a_readonly_run_refuses_on(self, client, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert_envelope(
+            post_switch(client, target="live"),
+            403,
+            reason="readonly_run",
+            phrase=refusal_phrase("readonly_run", "real"),
+        )
+        assert switch_now() == {}
+
+    def test_the_lock_is_the_verdict_for_this_login_with_the_pin_ignored(self, client, monkeypatch):
+        seen = []
+        real = posture_store.write_verdict
+
+        def recording(section, target, **kwargs):
+            seen.append((target, kwargs))
+            return real(section, target, **kwargs)
+
+        monkeypatch.setattr(posture_store, "write_verdict", recording)
+        assert turn_on(client, "standin").status_code == 200
+        assert seen
+        assert all(
+            kwargs == {"owner": acting_identity(), "ignore_launch_pin": True}
+            for target, kwargs in seen
+        )
+
+
+class TestTheLoginsOwnTierLock:
+    """``locks.tier`` on a terminal: its own render's tier, never ``unknown`` (BC-1).
+
+    A terminal-served render carries no ``control_system.login_tiers`` and the
+    terminal binds no control-context tree, so the owner rung answers ``skip``
+    and the render's tier governs the card's own login.
+    """
+
+    def _locks(self, client):
+        resp = client.get("/api/terminal/posture")
+        assert resp.status_code == 200, resp.text
+        return resp.json()["locks"]
+
+    @pytest.mark.usefixtures("agent_data_root")
+    def test_the_terminal_render_carries_no_map_and_binds_no_tree(self):
+        assert posture_store.LOGIN_TIERS_KEY.rsplit(".", 1)[-1] not in ALLOWED
+        assert "OSPREY_CONTROL_CONTEXT_TREE" not in os.environ
+        assert posture_store.owner_tier_term(ALLOWED, acting_identity()) == "skip"
+
+    def test_an_allowed_render_locks_its_own_login_allowed(self, client):
+        assert self._locks(client)["tier"] == "allowed"
+
+    def test_a_never_render_locks_its_own_login_never(self, client, tmp_path):
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="never"), name="never.yml"
+        )
+        assert self._locks(client)["tier"] == "never"
+
+    @pytest.mark.usefixtures("agent_data_root")
+    @pytest.mark.parametrize("login", ["alice", "someone-else", ""])
+    def test_no_login_reads_unknown_on_a_map_free_terminal_render(self, login):
+        assert websocket_routes._login_tier(ALLOWED, login) == "allowed"
+
+    @pytest.mark.usefixtures("agent_data_root")
+    def test_a_section_carrying_the_map_reads_the_logins_entry(self):
+        """The shared-container shape, for contrast: the map decides, absent is unknown."""
+        section = {**ALLOWED, "login_tiers": {"alice": "allowed", "bob": "never"}}
+        assert websocket_routes._login_tier(section, "alice") == "allowed"
+        assert websocket_routes._login_tier(section, "bob") == "never"
+        assert websocket_routes._login_tier(section, "carol") == websocket_routes.TIER_UNKNOWN
+
+
+# -- the epoch --------------------------------------------------------------
+
+
+class TestEpoch:
+    def test_a_null_epoch_on_an_epochless_record_stamps_then_the_retry_lands(self, client):
+        make_epochless()
+        assert epoch_now() is None
+
+        first = post_switch(client, epoch=None)
+
+        assert first.status_code == 409, first.text
+        detail = first.json()["detail"]
+        assert set(detail) == {"reason", "epoch", "stamped"}
+        assert detail["reason"] == "stopped_since"
+        assert detail["stamped"] is True
+        assert isinstance(detail["epoch"], str)
+        assert detail["epoch"] == wire_now()
+        assert switch_now() == {}
+
+        second = post_switch(client, epoch=detail["epoch"])
+        assert second.status_code == 200, second.text
+        assert switch_now() == {"standin": "on"}
+
+    def test_a_stale_epoch_is_an_unstamped_409_carrying_the_records(self, client):
+        on_disk = epoch_now()
+        assert on_disk is not None
+        assert_envelope(
+            post_switch(client, epoch=str(on_disk - 1)),
+            409,
+            reason="stopped_since",
+            epoch=str(on_disk),
+            stamped=False,
+        )
+        assert switch_now() == {}
+
+    def test_a_null_epoch_on_a_record_with_one_is_unstamped(self, client):
+        """The sentinel 0 never matches a real epoch: the chip re-reads."""
+        assert_envelope(
+            post_switch(client, epoch=None),
+            409,
+            reason="stopped_since",
+            epoch=wire_now(),
+            stamped=False,
+        )
+
+    def test_a_turn_on_that_raced_a_stop_leaves_nothing_on(self, client):
+        """The chip read an epoch; a stop of everything landed; the turn-on stays off."""
+        seen = wire_now()
+        assert post_switch(client, target="all", state="off").status_code == 200
+
+        response = post_switch(client, epoch=seen)
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["stamped"] is False
+        assert switch_now() == {}
+
+    def test_a_nanosecond_epoch_round_trips_from_the_read_to_the_turn_on(self, client, monkeypatch):
+        """An epoch with nanosecond digits comes back from the read exactly as stored.
+
+        Above 2**53 a JSON number reaches a browser rounded, and the turn-on
+        it sends back no longer matches: every gesture answered 409. A clock
+        with non-zero low digits, as on Linux, pins the string on every host.
         """
-        post_posture(client, target="standin", posture="sandbox")
-        before = control_context.file_signature(control_context.record_path())
-        assert post_posture(client, target="standin", posture="sandbox").status_code == 200
-        assert control_context.file_signature(control_context.record_path()) == before
+        ns = 4102444800123456789
+        assert int(float(ns)) != ns, "the pin needs an epoch a double cannot hold"
+        monkeypatch.setattr(control_context.time, "time_ns", lambda: ns)
+        assert post_switch(client, target="all", state="off").status_code == 200
+        assert epoch_now() == ns
+
+        read = client.get("/api/terminal/posture", params={"session_id": SESSION_A})
+        assert read.status_code == 200, read.text
+        assert read.json()["switch_epoch"] == str(ns)
+
+        response = post_switch(client, epoch=read.json()["switch_epoch"])
+
+        assert response.status_code == 200, response.text
+        assert response.json()["switch_epoch"] == str(ns)
+        assert switch_now() == {"standin": "on"}
+
+    def test_the_server_never_retries(self, client, monkeypatch):
+        calls = []
+        real = control_context.set_switch
+
+        def counting(*args, **kwargs):
+            calls.append(kwargs.get("epoch"))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(control_context, "set_switch", counting)
+        make_epochless()
+        assert post_switch(client, epoch=None).status_code == 409
+        assert calls == [0]
+
+
+# -- no usable record -------------------------------------------------------
+
+
+class TestNoUsableRecord:
+    """503 for on and for off — never a 409 loop, never a 200."""
+
+    @pytest.fixture
+    def missing(self, client):
+        control_context.record_path().unlink()
+        control_context.invalidate_cache()
+        return client
+
+    @pytest.fixture
+    def unreadable(self, client):
+        control_context.record_path().write_text("{not json", encoding="utf-8")
+        control_context.invalidate_cache()
+        return client
+
+    @pytest.mark.parametrize("which", ["missing", "unreadable"])
+    def test_on_answers_record_unavailable(self, request, which):
+        client = request.getfixturevalue(which)
+        for epoch in (None, "0", "12345"):
+            assert_envelope(
+                post_switch(client, epoch=epoch),
+                503,
+                reason="record_unavailable",
+                phrase=refusal_phrase("record_unavailable"),
+            )
+
+    @pytest.mark.parametrize("which", ["missing", "unreadable"])
+    @pytest.mark.parametrize("target", ["standin", "all"])
+    def test_off_answers_not_taken_with_the_stop_sentence(self, request, which, target):
+        client = request.getfixturevalue(which)
+        response = post_switch(client, target=target, state="off")
+        assert_envelope(response, 503, reason="not_taken", taken=False, phrase=STOP_SENTENCE)
+        assert "writes are refused" not in response.json()["detail"]["phrase"].lower()
+
+    def test_the_stop_sentence_is_the_routes_constant(self):
+        assert websocket_routes.STOP_NOT_TAKEN_PHRASE == STOP_SENTENCE
+
+    @pytest.mark.parametrize("error", [OSError("read-only volume"), RuntimeError("lock wait")])
+    def test_a_failed_write_of_off_is_not_taken_and_writes_stay_on(self, client, error):
+        assert turn_on(client, "standin").status_code == 200
+        with patch.object(control_context, "_write_record_unlocked", side_effect=error):
+            response = post_switch(client, target="standin", state="off")
+        assert_envelope(response, 503, reason="not_taken", taken=False, phrase=STOP_SENTENCE)
+        assert switch_now() == {"standin": "on"}
+
+    def test_a_failed_write_of_on_is_not_taken_with_the_record_phrase(self, client):
+        with patch.object(
+            control_context, "_write_record_unlocked", side_effect=OSError("read-only volume")
+        ):
+            response = post_switch(client)
+        assert_envelope(
+            response,
+            503,
+            reason="not_taken",
+            taken=False,
+            phrase=refusal_phrase("record_unavailable"),
+        )
+        assert switch_now() == {}
+
+    def test_a_record_lost_after_the_status_read_is_still_503(self, client):
+        """``set_switch`` answers no record with ``StoppedSince(epoch=None)``: not a 409."""
+        with patch.object(
+            control_context, "set_switch", side_effect=control_context.StoppedSince(epoch=None)
+        ):
+            assert_envelope(
+                post_switch(client),
+                503,
+                reason="record_unavailable",
+                phrase=refusal_phrase("record_unavailable"),
+            )
+        with patch.object(control_context, "set_switch", return_value=None):
+            assert_envelope(
+                post_switch(client, state="off"),
+                503,
+                reason="not_taken",
+                taken=False,
+                phrase=STOP_SENTENCE,
+            )
+
+
+# -- the envelope -----------------------------------------------------------
+
+
+class TestEnvelope:
+    def test_the_posture_refusal_helper_admits_only_c_post_keys(self):
+        with pytest.raises(TypeError):
+            websocket_routes._refuse_posture(
+                None, status_code=400, gesture="g", reason="unknown_target", message="no"
+            )
+
+    def test_the_target_route_keeps_error_and_message(self, client):
+        response = client.post(
+            "/api/terminal/target", json={"session_id": SESSION_A, "target": "banana"}
+        )
+        assert response.status_code == 400
+        assert set(response.json()["detail"]) == {"error", "message"}
+
+
+# -- audit ------------------------------------------------------------------
+
+
+def _assert_one_line(ledger, *, decision, reason, state, target="standin"):
+    assert len(ledger) == 1, ledger
+    line = ledger[0]
+    assert line["subject"] == "session_posture_set"
+    assert line["decision"] == decision
+    assert line["reason"] == reason
+    for part in (f"login={acting_identity()}", f"target={target}", f"state={state}"):
+        assert part in line["detail"]
+    assert f"outcome={reason}" in line["detail"]
+    return line
+
+
+class TestAudit:
+    """One ledger line per outcome, whichever outcome it was."""
+
+    def test_an_accepted_on_files_one_allowed_line(self, client, ledger):
+        assert post_switch(client).status_code == 200
+        line = _assert_one_line(ledger, decision="allowed", reason="switch_set", state="on")
+        assert line["session"] == SESSION_A
+        assert "on=standin" in line["detail"]
+
+    def test_an_accepted_all_off_files_one_line(self, client, ledger):
+        assert post_switch(client, target="all", state="off").status_code == 200
+        _assert_one_line(ledger, decision="allowed", reason="switch_set", state="off", target="all")
+
+    def test_the_stamped_409_files_one_gesture_line(self, client, ledger):
+        make_epochless()
+        assert post_switch(client, epoch=None).status_code == 409
+        line = _assert_one_line(ledger, decision="refused", reason="stopped_since", state="on")
+        assert "stamped=true" in line["detail"]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "status", "reason"),
+        [
+            ({"target": "all", "state": "on"}, 400, "bulk_on_refused"),
+            ({"target": "banana", "state": "on"}, 400, "unknown_target"),
+            ({"epoch": "1"}, 409, "stopped_since"),
+        ],
+    )
+    def test_each_refusal_files_one_refused_line(self, client, ledger, kwargs, status, reason):
+        response = post_switch(client, **kwargs)
+        assert response.status_code == status
+        _assert_one_line(
+            ledger,
+            decision="refused",
+            reason=reason,
+            state=kwargs.get("state", "on"),
+            target=kwargs.get("target", "standin"),
+        )
+
+    def test_the_403_files_one_refused_line(self, client, ledger, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert post_switch(client).status_code == 403
+        _assert_one_line(ledger, decision="refused", reason="readonly_run", state="on")
+
+    def test_the_503_files_one_refused_line(self, client, ledger):
+        control_context.record_path().unlink()
+        control_context.invalidate_cache()
+        assert post_switch(client, state="off").status_code == 503
+        _assert_one_line(ledger, decision="refused", reason="not_taken", state="off")
+
+    def test_a_malformed_session_id_still_leaves_exactly_one_line(self, client, ledger):
+        """The middleware files it: there is no legitimate key to name."""
+        assert post_switch(client, session_id="../../etc/passwd").status_code == 400
+        assert len(ledger) == 1
+        assert ledger[0]["decision"] == "refused"
+
+    def test_a_session_less_gesture_is_filed_on_the_lab_surface(self, client, ledger):
+        assert post_switch(client, session_id=None).status_code == 200
+        assert len(ledger) == 1
+        assert ledger[0]["session"] is None
+        assert ledger[0]["surface"] == websocket_routes.LAB_MUTATION_SURFACE
+
+
+# -- logins, restarts, target switches --------------------------------------
+
+
+class TestTheSwitchIsTheLogins:
+    def test_two_logins_are_isolated(self, client, agent_data_root, monkeypatch):
+        pin_identity(monkeypatch, "alice")
+        write_control_context(agent_data_root, target="live", generation=1)
+        pin_identity(monkeypatch, "bob")
+        write_control_context(agent_data_root, target="live", generation=1)
+
+        pin_identity(monkeypatch, "alice")
+        assert turn_on(client, "standin").status_code == 200
+
+        pin_identity(monkeypatch, "bob")
+        assert switch_now() == {}
+        assert turn_on(client, "va").status_code == 200
+        assert post_switch(client, target="all", state="off").status_code == 200
+
+        pin_identity(monkeypatch, "alice")
+        assert switch_now() == {"standin": "on"}
+
+    def test_on_survives_a_restart(self, make_client):
+        with make_client() as first:
+            assert turn_on(first, "standin").status_code == 200
+        with make_client() as second:
+            assert switch_now() == {"standin": "on"}
+            assert post_switch(second, target="standin", state="off").status_code == 200
+        assert switch_now() == {}
+
+    def test_on_survives_a_target_switch(self, client, agent_data_root, tmp_path):
+        """The target route writes through the owner primitive and keeps the switch.
+
+        A render the switch gate lets through to ``va`` (a probe channel, its
+        own gateway, a real archiver, the acknowledged live gateway).
+        """
+        row = {"address": "gw.example.org", "use_name_server": False}
+        va_row = {"address": "localhost", "port": 5074, "use_name_server": True}
+        render = {
+            "control_system": {
+                "type": "epics",
+                "writes": "allowed",
+                "connector": {
+                    "epics": {
+                        "probe_channel": "LIVE:PROBE:CHANNEL",
+                        "gateways": {
+                            "read_only": {**row, "port": 5064},
+                            "write_access": {**row, "port": 5084},
+                        },
+                    },
+                    "virtual_accelerator": {
+                        "probe_channel": "VA:PROBE:CHANNEL",
+                        "gateways": {"read_only": dict(va_row), "write_access": dict(va_row)},
+                    },
+                },
+                "target_switch": {target_eligibility.ACK_LEAF: "gw.example.org"},
+            },
+            "archiver": {"type": "epics_archiver"},
+        }
+        path = tmp_path / "switchable.yml"
+        path.write_text(yaml.safe_dump(render), encoding="utf-8")
+        client.app.state.config_path = path
+        assert turn_on(client, "live").status_code == 200
+        before = read_record()
+        epoch = epoch_now()
+        write_server_report(
+            agent_data_root,
+            SERVER_PID,
+            reachability={
+                "targets": {
+                    "va": {
+                        "read_only": {
+                            "state": target_eligibility.REACHABILITY_REACHED,
+                            "probed_at": datetime.now(UTC).isoformat(),
+                        }
+                    }
+                }
+            },
+        )
+        with only_alive(SERVER_PID, os.getpid()):
+            moved = client.post(
+                "/api/terminal/target", json={"session_id": SESSION_A, "target": "va"}
+            )
+        assert moved.status_code == 202, moved.text
+        record = read_record()
+        assert (record.target, record.generation) == ("va", before.generation + 1)
+        assert switch_now() == {"live": "on"}
+        assert epoch_now() == epoch
 
 
 class TestNoTermination:
-    """The POST never respawns the session — the whole point of the feature."""
+    """The POST never respawns a session: every write path reads the switch live."""
 
-    def test_the_live_child_survives_a_narrowing(self, client):
-        registry = client.app.state.pty_registry
-        registry.get_or_create_session(SESSION_A, "echo")
-        assert registry.get_session(SESSION_A) is not None
-
-        assert post_posture(client, target="standin").status_code == 200
-
-        assert registry.get_session(SESSION_A) is not None
-
-    def test_the_route_never_reaches_for_the_pool_teardown(self, client):
-        """Pinned on the registry, not on a helper name.
-
-        The old route applied a posture by terminating the child so the next
-        attach respawned it under a fresh environment. Asserting that some
-        ``_terminate_for_respawn`` helper is not called would stop meaning
-        anything the moment that helper is deleted. The durable statement is
-        that this POST touches none of the ways the pool lets go of a live PTY
-        session.
-        """
+    def test_the_live_child_survives_a_gesture(self, client):
         registry = client.app.state.pty_registry
         registry.get_or_create_session(SESSION_A, "echo")
         with (
@@ -751,73 +934,96 @@ class TestNoTermination:
             patch.object(registry, "terminate_session") as terminate,
             patch.object(registry, "terminate_session_if_owner") as terminate_if_owner,
         ):
-            assert post_posture(client, target="standin").status_code == 200
+            assert turn_on(client, "standin").status_code == 200
+            assert post_switch(client, target="all", state="off").status_code == 200
         detach.assert_not_called()
         terminate.assert_not_called()
         terminate_if_owner.assert_not_called()
+        assert registry.get_session(SESSION_A) is not None
 
-    def test_the_chat_child_survives_a_narrowing(self, client):
-        """The chat-key analogue, and the half nothing else covers."""
+    def test_the_chat_child_survives_a_gesture(self, client):
         recorder = _RecordingChatPool()
         client.app.state.operator_registry = recorder
-
-        resp = post_posture(client, session_id=CHAT_A, target="standin")
-
-        assert resp.status_code == 200
-        assert recorded_posture() == {"standin": "sandbox"}
+        assert turn_on(client, "standin", session_id=CHAT_A).status_code == 200
         assert recorder.terminated == []
 
 
-class TestPersistence:
-    """The narrowing outlives the process that recorded it."""
-
-    def test_a_narrowing_reloads_in_a_fresh_app(self, make_client):
-        """A container recreation must not silently lift a narrowing."""
-        with make_client() as first:
-            assert post_posture(first, target="standin").status_code == 200
-
-        with make_client() as second:
-            rows = second.get("/api/terminal/posture").json()["targets"]
-            standin = next(row for row in rows if row["target"] == "standin")
-            assert standin["posture"] == "sandbox"
-            assert post_posture(second, target="va").status_code == 200
-        assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
+# -- what running and later writes see --------------------------------------
 
 
-# -- audit ------------------------------------------------------------------
+class TestRunsAndTheSwitch:
+    """On reaches the next run and the next connector write; off reaches running ones.
 
+    The sandbox's reference monitor asks
+    :func:`~osprey_connectors.posture_store.write_verdict` on every write with
+    the launch pin stamped by :func:`host_executor._launch_posture`, exactly as
+    the executor stamps it; the connector asks it for its stamped machine.
+    """
 
-class TestAudit:
-    def test_an_accepted_toggle_files_exactly_one_record(self, client, ledger):
-        assert post_posture(client, target="standin").status_code == 200
-        assert len(ledger) == 1
-        record = ledger[0]
-        assert record["subject"] == "session_posture_set"
-        assert record["decision"] == "allowed"
-        assert record["session"] == SESSION_A
-        assert "standin" in record["detail"]
-        assert "sandbox" in record["detail"]
+    @pytest.fixture(autouse=True)
+    def _tier(self, monkeypatch):
+        monkeypatch.setattr(audit_posture, "control_system_section", lambda: dict(ALLOWED))
 
-    def test_a_refusal_files_exactly_one_record_too(self, client, ledger):
-        assert post_posture(client, target="standin", posture="writes").status_code == 403
-        assert len(ledger) == 1
-        assert ledger[0]["decision"] == "refused"
-        assert ledger[0]["reason"] == "writes_disabled"
+    @staticmethod
+    def _launch(monkeypatch, target):
+        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        posture_store.invalidate_cache()
+        stamp = host_executor._launch_posture(target)
+        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
+        posture_store.invalidate_cache()
+        return stamp
 
-    def test_a_malformed_session_id_still_leaves_exactly_one_record(self, client, ledger):
-        """The one refusal the route does NOT file itself is still filed once.
+    @staticmethod
+    def _next_write(target):
+        read_record()
+        return posture_store.write_verdict(ALLOWED, target)
 
-        ``_require_session_uuid`` runs before there is a legitimate key to put
-        in the envelope's ``session`` field, so the route does not record it and
-        ``HttpAuditMiddleware`` files its own ``route_refused`` line instead.
-        The count is what matters: a refused request leaves one line, never two
-        and never none, whichever layer wrote it.
-        """
-        assert post_posture(client, session_id="../../etc/passwd").status_code == 400
-        assert len(ledger) == 1
-        assert ledger[0]["decision"] == "refused"
+    def test_a_turn_on_lands_under_a_live_run_which_stays_pinned(
+        self, client, agent_data_root, monkeypatch
+    ):
+        assert self._launch(monkeypatch, "standin") == "standin=sandbox"
+        write_inflight_marker(agent_data_root, pid=4242, target="standin")
 
-    def test_a_session_less_gesture_is_filed_on_the_lab_surface(self, client, ledger):
-        assert post_posture(client, session_id=None, target="standin").status_code == 200
-        assert ledger[0]["session"] is None
-        assert ledger[0]["surface"] == websocket_routes.LAB_MUTATION_SURFACE
+        with only_alive(4242, os.getpid()):
+            response = turn_on(client, "standin")
+
+        assert response.status_code == 200, response.text
+        verdict = self._next_write("standin")
+        assert verdict.allowed is False
+        assert verdict.reason == "launch_pinned"
+
+    def test_a_run_launched_after_the_turn_on_writes(self, client, monkeypatch):
+        assert turn_on(client, "standin").status_code == 200
+        assert self._launch(monkeypatch, "standin") == "standin=writes"
+        assert self._next_write("standin").allowed is True
+
+    def test_off_refuses_the_running_sandboxs_next_write(self, client, monkeypatch):
+        assert turn_on(client, "standin").status_code == 200
+        assert self._launch(monkeypatch, "standin") == "standin=writes"
+        assert self._next_write("standin").allowed is True
+
+        assert post_switch(client, target="standin", state="off").status_code == 200
+
+        verdict = self._next_write("standin")
+        assert verdict.allowed is False
+        assert verdict.reason == "switch_off"
+
+    @pytest.mark.asyncio
+    async def test_a_connector_write_for_this_login_passes_at_its_next_call(
+        self, client, monkeypatch
+    ):
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(ALLOWED))
+        connector = RecordingConnector()
+        connector._connector_type = "epics"
+        connector._control_target = "va"
+
+        refused = await connector.write_channel("VA:CORR:1:SP", 0.5)
+        assert refused.outcome is WriteOutcome.REFUSED
+        assert connector.writes == []
+
+        assert turn_on(client, "va").status_code == 200
+        read_record()
+
+        landed = await connector.write_channel("VA:CORR:1:SP", 0.5)
+        assert landed.outcome is WriteOutcome.CONFIRMED
+        assert connector.writes == [("VA:CORR:1:SP", 0.5)]

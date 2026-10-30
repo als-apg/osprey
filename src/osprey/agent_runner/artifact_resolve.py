@@ -30,7 +30,6 @@ the dispatch worker without coupling the worker to that server.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -195,19 +194,34 @@ def deployed_agent_data_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Run-record + store location
+# Dispatch directory, record retention and store location
 # ---------------------------------------------------------------------------
 
 
 def dispatch_log_dir() -> Path:
-    """Directory holding one persisted JSON record per completed dispatch run.
+    """The dispatch worker's own directory on the durable agent-data volume.
 
-    The single spelling of that location, shared by the worker that writes the
-    records (``dispatch_api._persist_run``), the retention sweep that ages them
-    out, and the status route that reads one back after its in-memory entry was
-    evicted.
+    Holds the per-run scratch of converted artifacts (``artifacts/<run_id>``).
+    Run history is not kept here: it lives in the agent record.
     """
     return deployed_agent_data_root() / "dispatch"
+
+
+def deployed_record_retention_days() -> int:
+    """The deployment's ``agent_record.retention_days``: how far back the record keeps runs.
+
+    Read from the same deployed config as the agent-data root, so the worker's
+    run list covers exactly the window the record keeps. A config that is
+    absent, unreadable or invalid yields the record's default.
+    """
+    from osprey.agent_record.config import DEFAULT_RETENTION_DAYS, parse_agent_record_block
+
+    try:
+        days = parse_agent_record_block(_deployed_config()).retention_days
+    except Exception:
+        logger.warning("Could not read agent_record.retention_days — using the default")
+        return DEFAULT_RETENTION_DAYS
+    return days if days >= 1 else DEFAULT_RETENTION_DAYS
 
 
 DISPATCH_CLAUDE_CONFIG_DIRNAME = "claude-config"
@@ -236,22 +250,20 @@ def _run_artifacts_dir(run_id: str) -> Path:
     return out
 
 
-def load_run_record(run_id: str) -> dict[str, Any] | None:
-    """Load a persisted dispatch run record by ID, or ``None`` if absent.
+def record_lacks_run(answer: Any, run_id: str) -> bool:
+    """Whether a ``run`` read of the agent record found no entry of *run_id* at all.
 
-    Used only for the run-status disk fallback (a completed run evicted from the
-    worker's in-memory cap is still readable on disk). It is NOT used for
-    artifact association — that is the store's write-time ``run_id`` tag.
+    The record answers a run it holds no accept or terminal entry of as
+    incomplete, naming exactly that as the only reason; a read that also could
+    not drain, or that was cut short, names more. So an answer that is served,
+    carries no run and names that one reason alone is the record saying it
+    does not have the run — not that it might still be catching up.
     """
-    path = dispatch_log_dir() / f"{run_id}.json"
-    if not path.is_file():
-        return None
-    try:
-        record: dict[str, Any] = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        logger.warning("Failed to read dispatch run record %s", path, exc_info=True)
-        return None
-    return record
+    return (
+        getattr(answer, "unavailable", None) is None
+        and getattr(answer, "data", None) is None
+        and getattr(answer, "reason", None) == f"run {run_id} has no accept or terminal entry yet"
+    )
 
 
 def _get_store() -> ArtifactStore:
@@ -483,12 +495,9 @@ async def _resolve_one(
             convertible=False,
         )
 
-    if result_path == file_path:
-        # Passthrough (image, PDF, table) — served as-is with its original MIME type.
-        mime_type = entry.mime_type
-    else:
-        # Rendered to PNG by the converter registry.
-        mime_type = "image/png"
+    # A passthrough (image, PDF, table) is served as-is with its original MIME
+    # type; anything else was rendered to PNG by the converter registry.
+    mime_type = entry.mime_type if result_path == file_path else "image/png"
 
     return ArtifactRef(
         artifact_id=artifact_id,

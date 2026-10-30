@@ -50,13 +50,6 @@ class TestResolveUiMode:
 # ---- Render + API paths: startup resolves web.ui_mode from config ----
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [

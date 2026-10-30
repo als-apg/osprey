@@ -54,7 +54,7 @@ independently guards. A test that would break under behavior-preserving
 refactoring is asserting implementation, not behavior; rewrite it at the
 owning boundary before landing it. Also pass every item of the tests/README.md
 §7 checklist ("Adding a batch of new tests"), including: unique basename;
-reuse the shared helpers (`free_port()` in tests/fixtures/bench_ioc.py,
+reuse the shared helpers (the `reserve_port` fixture in tests/conftest.py,
 `patch_subprocess()` in tests/cli/_scoped_subprocess.py, `isolated_home` in
 tests/cli/conftest.py, the named reset seams); new global state gets a public reset seam plus an autouse
 fixture; no import-time side effects; no new `xdist_group`; almost no flaky
@@ -253,7 +253,7 @@ in the checkout. Run gates in the foreground. Run e2e only by path
 1. Run the smallest owner and sibling tests twice, serially then parallel:
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,
    `uv run pytest tests/<area> -m "not pty and not wallclock" -n 4 --dist loadgroup`
-   with the `pytest` check's `--ignore` list from `scripts/check.py`
+   with the `pytest` check's `--ignore` list from `scripts/repo_checks.py`
    (`uv run python scripts/check.py list --json` prints it; those files run
    in their own CI jobs, such as tests/va/test_apply_fault.py — run them by
    path). Run

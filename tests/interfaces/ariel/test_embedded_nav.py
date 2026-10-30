@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.interfaces.test_load_smokes import _launch_ariel
+from tests.interfaces._launchers import launch_ariel
 
 try:
     from playwright.sync_api import expect
@@ -40,7 +40,7 @@ def _embedded_search_on(page) -> None:
 
 def test_embedded_hides_header_and_defaults_to_browse(tmp_path, monkeypatch, chromium_browser):
     """``?embedded=true`` hides the panel's own header and lands on Browse."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         page.goto(f"{base_url}?embedded=true", wait_until="load")
@@ -57,7 +57,7 @@ def test_embedded_hides_header_and_defaults_to_browse(tmp_path, monkeypatch, chr
 
 def test_embedded_redirects_search_hash_to_browse(tmp_path, monkeypatch, chromium_browser):
     """A stray ``#search`` deep link is rerouted to Browse when Search is off."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         page.goto(f"{base_url}?embedded=true#search", wait_until="load")
@@ -70,7 +70,7 @@ def test_embedded_redirects_search_hash_to_browse(tmp_path, monkeypatch, chromiu
 
 def test_embedded_search_switch_defaults_to_search(tmp_path, monkeypatch, chromium_browser):
     """With ``ariel.embedded_search`` on, the embedded panel opens on Search."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         _embedded_search_on(page)
 
@@ -84,7 +84,7 @@ def test_embedded_search_switch_defaults_to_search(tmp_path, monkeypatch, chromi
 
 def test_embedded_search_switch_keeps_search_hash(tmp_path, monkeypatch, chromium_browser):
     """With ``ariel.embedded_search`` on, a ``#search`` deep link stays on Search."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         _embedded_search_on(page)
 
@@ -98,7 +98,7 @@ def test_embedded_search_switch_keeps_search_hash(tmp_path, monkeypatch, chromiu
 
 def test_embedded_redirects_status_hash_to_browse(tmp_path, monkeypatch, chromium_browser):
     """Status is standalone-only: ``#status`` reroutes, so its poll never starts."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         page.goto(f"{base_url}?embedded=true#status", wait_until="load")
@@ -112,7 +112,7 @@ def test_embedded_redirects_status_hash_to_browse(tmp_path, monkeypatch, chromiu
 
 def test_standalone_keeps_header_and_search_default(tmp_path, monkeypatch, chromium_browser):
     """Without ``?embedded=true`` the panel keeps its header and opens on Search."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         page.goto(base_url, wait_until="load")
@@ -134,7 +134,7 @@ def test_entry_route_opens_the_detail_card_over_browse(
     The launched panel has no database, so the entry cannot load and the card
     shows the panel's ordinary failure message.
     """
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         page.goto(f"{base_url}/{query}#entry?id=no-such-entry&attachment=att-x", wait_until="load")

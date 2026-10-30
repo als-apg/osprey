@@ -22,8 +22,10 @@ from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
     GRAPHDB_SERVICE_NAME,
@@ -34,7 +36,6 @@ from osprey.deployment.host_binding import (
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
 )
-from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -405,10 +406,15 @@ def _copy_service_templates(project_path: Path) -> int:
         if name not in names:
             names.append(name)
     # The history page is never a deployed_services entry: it is rendered
-    # exactly when the deployment runs the store and signs people in.
+    # exactly when the web terminals sign people in.
     if history_page_deployed(config) and HISTORY_SERVICE not in names:
         names.append(HISTORY_SERVICE)
         deployed.append(HISTORY_SERVICE)
+    # The agent record is derived and always deployed: it is never a
+    # deployed_services entry, and every deployment renders it.
+    if AGENT_RECORD_TEMPLATE_DIR not in names:
+        names.append(AGENT_RECORD_TEMPLATE_DIR)
+        deployed.append(AGENT_RECORD_TEMPLATE_DIR)
 
     if not names:
         return 0
@@ -1115,8 +1121,8 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
     variable that fails loudly at ``osprey up``, or the co-deployed stand-in
     container. Such a lane's worker is built as the
     deployment baseline and keeps working; what it does not have is a connector
-    block of its own, so it inherits the deployment-wide write posture instead
-    of carrying one. That is worth saying at build time, when the author is
+    block of its own, so the connector refuses each of its writes as an
+    unknown target. That is worth saying at build time, when the author is
     still holding the profile.
     """
     control_system = config.get("control_system") or {}
@@ -1130,7 +1136,7 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
             logger.warning(
                 "    Lane %s declares the %r target, which this config cannot resolve "
                 "to a control system: its worker builds %r — the deployment baseline — "
-                "and inherits control_system.writes_enabled. Configure the connector "
+                "and its writes are refused as an unknown target. Configure the connector "
                 "block for the machine it addresses (control_system.connector.%s, say) "
                 "to make the lane concrete.",
                 lane_key,

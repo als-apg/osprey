@@ -30,7 +30,6 @@ import copy
 import json
 import logging
 import re
-import socket
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -51,8 +50,8 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.search import image_lane
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.ariel_search.search.qmd import PICTURE_UNAVAILABLE_MESSAGE
-from osprey.services.qmd import QMDSearchResult
 from tests.mcp_server.conftest import get_tool_fn
+from tests.services.ariel_search.integration._support import FakeQMDClient
 from tests.services.ariel_search.llama_stub import FIXTURES
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -94,11 +93,8 @@ VOCABULARY = (
 # --- servers -----------------------------------------------------------------------
 
 
-def _closed_url() -> str:
-    """A local URL nothing listens on: a port bound once, then released."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
+def _closed_url(port: int) -> str:
+    """A local URL nothing listens on, at *port*, a reserved port."""
     return f"http://127.0.0.1:{port}"
 
 
@@ -202,36 +198,6 @@ def ollama_stub() -> Iterator[OllamaStub]:
 
 
 # --- fakes -------------------------------------------------------------------------
-
-
-class _FakeQMDClient:
-    """qmd faked at its client boundary: one hit, the entry's mirror file."""
-
-    is_configured = True
-    base_url = "http://127.0.0.1:8180"
-
-    def __init__(self, mirror_file: str, title: str) -> None:
-        self.mirror_file = mirror_file
-        self.title = title
-        self.queries = 0
-
-    def is_available(self) -> bool:
-        return True
-
-    def query(self, collection: str | None, _text: str, **kwargs: Any) -> list[QMDSearchResult]:
-        self.queries += 1
-        hits = [
-            QMDSearchResult(
-                docid="#000000",
-                file=self.mirror_file,
-                collection=collection or "ariel",
-                title=self.title,
-                score=0.9,
-                line=1,
-                snippet=f"1: {TEXT}",
-            )
-        ]
-        return hits[: kwargs.get("limit", len(hits))]
 
 
 # --- config ------------------------------------------------------------------------
@@ -422,7 +388,7 @@ def _mirror_hit(tmp_path: Path) -> tuple[str, str]:
 
 
 @pytest.fixture(autouse=True)
-def _isolated(monkeypatch, tmp_path):
+def _isolated(reserve_port, monkeypatch, tmp_path):
     """Fresh process state, ``cwd`` in ``tmp_path``, every server URL closed by default."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
     from osprey_connectors.workspace import reset_config_cache
@@ -436,8 +402,8 @@ def _isolated(monkeypatch, tmp_path):
     _local_server.reset_cache()
     monkeypatch.chdir(tmp_path)
 
-    closed = {"ollama": _closed_url(), "llama-cpp": _closed_url()}
-    fallbacks = [_closed_url(), _closed_url()]
+    closed = {"ollama": _closed_url(reserve_port()), "llama-cpp": _closed_url(reserve_port())}
+    fallbacks = [_closed_url(reserve_port()), _closed_url(reserve_port())]
     # The api.providers entries point at closed ports: an env override names
     # the in-test server, and nothing ever reaches the host's own servers.
     monkeypatch.setattr(
@@ -447,8 +413,8 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(
         _local_server, "container_fallback_urls", lambda base_url, default_port: list(fallbacks)
     )
-    monkeypatch.setenv("OLLAMA_HOST", _closed_url())
-    monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url())
+    monkeypatch.setenv("OLLAMA_HOST", _closed_url(reserve_port()))
+    monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url(reserve_port()))
     yield
     reset_ariel_context()
     reset_config_cache()
@@ -502,7 +468,7 @@ async def _run_case(
 
     # -- the MCP surface ---------------------------------------------------------
     hybrid_on = bool(raw["search_modules"]["hybrid"]["enabled"])
-    qmd_client = _FakeQMDClient(*_mirror_hit(tmp_path)) if hybrid_on else None
+    qmd_client = FakeQMDClient(*_mirror_hit(tmp_path), TEXT) if hybrid_on else None
     if qmd_client is not None:
         monkeypatch.setattr(qmd_module, "_resolve_client", lambda client: (qmd_client, True))
     initialize_ariel_context()

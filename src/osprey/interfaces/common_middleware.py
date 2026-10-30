@@ -35,6 +35,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Iterable, Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
@@ -54,6 +55,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger("osprey.interfaces.middleware")
 
 __all__ = [
+    "ASSET_CORS_HEADERS",
     "AUDITED_REFUSAL_STATUSES",
     "AUDIT_ACCOUNT_HEADER",
     "AUDIT_ACCOUNT_KEY",
@@ -65,6 +67,10 @@ __all__ = [
     "EXEMPT_PATHS",
     "EXTERNAL_ORIGIN_ENV",
     "FACILITY_TIMEZONE_ATTRIBUTE",
+    "FIRST_PARTY_PANEL_STATIC",
+    "FORM_BODY_ROUTES",
+    "FORM_BODY_TYPES",
+    "FORM_UPLOAD_HEADER",
     "HTTP_MUTATION_POSTURE",
     "HTTP_MUTATION_SURFACE",
     "MAX_BODY_PEEK_BYTES",
@@ -73,6 +79,9 @@ __all__ = [
     "MOUNT_SEGMENT_RE",
     "OPERATOR_SECRET_HEADER",
     "OWNER_STATE_KEY",
+    "PANEL_ASSET_SUBPATHS",
+    "PANEL_CAP_ROOTS",
+    "PANEL_CAP_SEGMENT",
     "REASON_MUTATION",
     "REASON_MUTATION_UNANSWERED",
     "REASON_ROUTE_REFUSED",
@@ -98,6 +107,8 @@ __all__ = [
     "compute_url_prefix",
     "forwarded_identity",
     "is_exempt_path",
+    "is_panel_asset_path",
+    "is_panel_cap_path",
     "read_cookie_candidates",
     "read_cookies",
     "resolve_storage_scope",
@@ -124,7 +135,7 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        elif path.startswith("/static/") or path.startswith("/api/"):
+        elif path.startswith(("/static/", "/api/")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
@@ -259,6 +270,38 @@ MAX_SESSION_COOKIE_CANDIDATES = 3
 #: the answer; a cross-site ``POST`` needs no answer to do damage.
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+#: The request body types an HTML ``<form>`` can send — the three a browser
+#: also lets a page send cross-origin without a CORS preflight. A form is the
+#: one way a page makes a credentialed write without running script, so a
+#: script-blocking CSP does not stop it, and a form posted from a page on this
+#: app's own origin carries that origin and passes the Origin check. What it
+#: cannot choose is its body type, so the gate refuses these three on every
+#: admitted write (:meth:`WebAuthMiddleware._body_type_refused`) and every
+#: mutating route takes a JSON body, or none. Media types only, lower case:
+#: parameters such as ``charset`` or ``boundary`` are stripped before the
+#: comparison.
+FORM_BODY_TYPES: frozenset[str] = frozenset(
+    {"application/x-www-form-urlencoded", "multipart/form-data", "text/plain"}
+)
+
+#: The header that admits a form-type body on a route in
+#: :data:`FORM_BODY_ROUTES`. It is not a CORS-safelisted request header, so a
+#: ``<form>`` cannot set it and a cross-origin script cannot send it without a
+#: preflight nothing here grants; the first-party client that posts the
+#: multipart body sets it. Its value is not checked beyond being non-blank.
+FORM_UPLOAD_HEADER: str = "X-Osprey-Upload"
+
+#: The ``(method, path)`` routes that take a form-type body by design, and only
+#: with :data:`FORM_UPLOAD_HEADER`. One today: ARIEL's multipart entry upload,
+#: which carries files beside the entry fields. Matched exactly on the path the
+#: gate sees, so the header unlocks nothing else.
+FORM_BODY_ROUTES: frozenset[tuple[str, str]] = frozenset({("POST", "/api/entries/upload")})
+
+#: A proxied panel path: relayed by the web terminal to the panel's own app,
+#: which keeps the body types it was built with. A first-party panel app runs
+#: this same gate on its own routes, so the rule still holds there.
+_PROXIED_PANEL_PREFIX = "/panel/"
+
 #: Paths reachable with no credential at all, matched exactly.
 #:
 #: ``/health`` is the container healthcheck and the load balancer's probe, which
@@ -299,6 +342,45 @@ TOKEN_EXCHANGE_PATHS: frozenset[str] = frozenset({"/", "/static/session.html"})
 #: the websockets, and none of it is under these prefixes.
 STATIC_MOUNT_PREFIXES: tuple[str, ...] = ("/static/fonts", "/design-system", "/static")
 
+#: The header every C-ASSETS response carries: first-party CSS, JavaScript and
+#: fonts are readable from ANY origin, the opaque one (``Origin: null``) of an
+#: agent-authored document included. Without it a ``<script type="module">`` or
+#: a font that document imports is refused by the browser's CORS check, and the
+#: page loses its theme, its Plotly re-theming and its fonts.
+#:
+#: ``*`` and nothing else: never ``Access-Control-Allow-Credentials``. A browser
+#: refuses ``*`` together with credentials, so these paths can only ever be read
+#: credential-less — which is all they need, because they are exempt from the
+#: gate (:data:`STATIC_MOUNT_PREFIXES`, :func:`is_panel_asset_path`). Nothing
+#: agent-writable is served under any C-ASSETS path; that is the property that
+#: makes a wildcard read harmless.
+ASSET_CORS_HEADERS: Mapping[str, str] = MappingProxyType({"Access-Control-Allow-Origin": "*"})
+
+#: The panel-scoped sub-paths the hub answers from its OWN package for every
+#: panel id, in ``/panel/<id>/<sub-path>/…``: the shared design system and the
+#: shared fonts (``proxy_panel_design_system`` and ``proxy_panel_shared_fonts``
+#: in the web terminal's proxy). The bytes are the hub's, whichever panel's
+#: namespace asks, so they are as public as :data:`STATIC_MOUNT_PREFIXES`.
+PANEL_ASSET_SUBPATHS: tuple[str, ...] = ("design-system", "static/fonts")
+
+#: The static module trees of config-defined first-party panels, served by the
+#: hub from the panel's own package directory rather than relayed to its
+#: backend — panel id to the sub-paths under ``/panel/<id>/``. Keyed on
+#: framework panel ids only: a runtime-registered or discovered panel's
+#: ``/panel/<id>/static/…`` is agent-chosen bytes and stays behind the gate.
+FIRST_PARTY_PANEL_STATIC: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {"artifacts": ("static/js", "static/css")}
+)
+
+#: The path segment that marks a C-CAP capability path:
+#: ``/panel-static/<id>/~c/<cap>/…`` or ``/panel/<id>/~c/<cap>/…``. The ``~``
+#: keeps it out of the space a panel id or a bundle file name is spelled in.
+PANEL_CAP_SEGMENT = "~c"
+
+#: The two panel trees a cap path may sit under: discovered bundles
+#: (``/panel-static``) and runtime-registered panels (``/panel``).
+PANEL_CAP_ROOTS: tuple[str, ...] = ("panel-static", "panel")
+
 #: How much of a request body the panel-tier check will read before giving up
 #: and calling the body unknowable. A panel registration is a few hundred bytes;
 #: anything past this is not one, and reading it would let an unauthenticated
@@ -317,6 +399,7 @@ _MISSING_DETAIL = "authentication required"
 _INVALID_DETAIL = "invalid credential"
 _TIER_DETAIL = "this route requires operator credentials"
 _ORIGIN_DETAIL = "cross-origin request refused"
+_BODY_TYPE_DETAIL = "this route accepts a JSON body only"
 _UNAVAILABLE_DETAIL = "authentication is not available; see the service log"
 
 # --------------------------------------------------------------------------- #
@@ -682,6 +765,70 @@ def is_exempt_path(path: str) -> bool:
     if path in EXEMPT_PATHS:
         return True
     return any(path == prefix or path.startswith(f"{prefix}/") for prefix in STATIC_MOUNT_PREFIXES)
+
+
+#: The methods a hub-local panel asset route answers; see :func:`is_panel_asset_path`.
+_ASSET_METHODS = frozenset({"GET", "HEAD"})
+
+
+def is_panel_asset_path(path: str) -> bool:
+    """Whether ``path`` is a hub-local C-ASSETS path under ``/panel/<id>/``.
+
+    True for ``/panel/<id>/<sub>/<rest>`` where ``<sub>`` is one of
+    :data:`PANEL_ASSET_SUBPATHS` (any well-formed ``<id>``), or one of the
+    :data:`FIRST_PARTY_PANEL_STATIC` sub-paths of that one panel id. The
+    sub-path must be followed by ``/``: the bare ``/panel/<id>/design-system``
+    is not answered by the hub's local route — the proxy's catch-all would
+    relay it to the panel's backend — so it is never exempt.
+
+    ``<id>`` must match :data:`MOUNT_SEGMENT_RE` in full, which is also what
+    keeps an id that would be interpolated into a rewritten body from carrying
+    a quote or a backslash. A ``..`` segment is never exempt, for the reason
+    :func:`is_exempt_path` gives.
+
+    The gate consults this only for an ``http`` ``GET``/``HEAD``: the local
+    routes answer those methods alone, and any other method (or a websocket)
+    on the same path falls through to the proxy's catch-all, which must stay
+    gated.
+    """
+    parts = path.split("/")
+    if ".." in parts or len(parts) < 5 or parts[0] != "" or parts[1] != "panel":
+        return False
+    panel_id = parts[2]
+    if MOUNT_SEGMENT_RE.fullmatch(panel_id) is None:
+        return False
+    rest = "/".join(parts[3:])
+    subpaths = (*PANEL_ASSET_SUBPATHS, *FIRST_PARTY_PANEL_STATIC.get(panel_id, ()))
+    return any(rest.startswith(f"{sub}/") for sub in subpaths)
+
+
+def is_panel_cap_path(path: str) -> bool:
+    """Whether ``path`` is a C-CAP capability path, admitted by its cap and not the cookie.
+
+    True for ``/<root>/<id>/~c/<cap>/<rest>`` where ``<root>`` is one of
+    :data:`PANEL_CAP_ROOTS`, ``<id>`` and ``<cap>`` match
+    :data:`MOUNT_SEGMENT_RE` in full, and the cap is followed by ``/`` (the
+    form the hub mints; the bare ``…/~c/<cap>`` is not a cap path and stays
+    gated). A ``..`` segment is never exempt, for the reason
+    :func:`is_exempt_path` gives.
+
+    Exempting the path from the gate is safe only because every route that
+    answers under it validates the cap itself
+    (:mod:`osprey.interfaces.web_terminal.panel_cap`) and serves only that one
+    panel's bytes. Every method and the websocket upgrade are exempt alike: the
+    cap is the credential for all of them, and a websocket under a cap path is
+    the one ``Origin: null`` handshake the gate does not refuse.
+    """
+    parts = path.split("/")
+    if ".." in parts or len(parts) < 6 or parts[0] != "":
+        return False
+    root, panel_id, marker, cap = parts[1:5]
+    return (
+        root in PANEL_CAP_ROOTS
+        and marker == PANEL_CAP_SEGMENT
+        and MOUNT_SEGMENT_RE.fullmatch(panel_id) is not None
+        and MOUNT_SEGMENT_RE.fullmatch(cap) is not None
+    )
 
 
 def _scope_headers(scope: Scope) -> dict[str, str]:
@@ -1374,7 +1521,21 @@ class WebAuthMiddleware:
             return
 
         path = scope.get("path") or ""
-        exempt = is_exempt_path(path)
+        # A hub-local C-ASSETS path under /panel/<id>/ is exempt for a plain
+        # GET/HEAD only: those are the methods its local route answers, and
+        # anything else on the same path (or a websocket) is matched by the
+        # proxy's catch-all instead, which must stay behind the gate.
+        exempt = (
+            is_exempt_path(path)
+            or (
+                scope["type"] == "http"
+                and scope.get("method") in _ASSET_METHODS
+                and is_panel_asset_path(path)
+            )
+            # A C-CAP path carries its own credential, which the route under
+            # it validates; the cookie and the Origin check do not apply.
+            or is_panel_cap_path(path)
+        )
 
         # Read before the exempt short-circuit, because one exchange page
         # (``/static/session.html``) is itself exempt: a browser with no cookie
@@ -1465,7 +1626,7 @@ class WebAuthMiddleware:
                 await self._refuse(scope, send, 403, _ORIGIN_DETAIL, headers)
                 return
             _stamp_owner(scope, identity if isinstance(identity, str) else None)
-            await self.app(scope, receive, send)
+            await self._admit(scope, receive, send, headers)
             return
 
         cookie_name = self._cookie_name or session_cookie_name()
@@ -1511,7 +1672,7 @@ class WebAuthMiddleware:
         # was attributable, and inferring an owner from the browser's own header
         # is exactly the claim this gate exists to drop.
         _stamp_owner(scope, None)
-        await self.app(scope, receive, send)
+        await self._admit(scope, receive, send, headers)
 
     async def _authenticate_panel(
         self,
@@ -1559,7 +1720,50 @@ class WebAuthMiddleware:
         # The panel token is one shared value held by every in-process
         # companion, so it identifies a component and never a person.
         _stamp_owner(scope, None)
+        await self._admit(scope, receive, send, headers)
+
+    async def _admit(
+        self, scope: Scope, receive: Receive, send: Send, headers: dict[str, str]
+    ) -> None:
+        """Hand an authenticated request on, unless its body is one a form could send.
+
+        Every credential converges here once it is accepted, so the body-type
+        rule applies to all of them alike, as the Origin check does.
+        """
+        if self._body_type_refused(scope, headers):
+            await self._refuse(scope, send, 415, _BODY_TYPE_DETAIL, headers)
+            return
         await self.app(scope, receive, send)
+
+    @staticmethod
+    def _body_type_refused(scope: Scope, headers: dict[str, str]) -> bool:
+        """Whether this write carries a body type an HTML form can send.
+
+        Applies to an ``http`` request with an unsafe method, outside the
+        proxied ``/panel/`` tree. A request with no ``Content-Type`` passes —
+        a form always declares one, and the routes that read no body are posted
+        bodiless — as does every JSON type and anything else a form cannot
+        produce (the chat attachment upload's ``application/octet-stream``).
+        A route in :data:`FORM_BODY_ROUTES` takes a form type with a non-blank
+        :data:`FORM_UPLOAD_HEADER`.
+
+        Answered ``415`` and not filed in the audit ledger: like a ``413`` it is
+        about the request's shape, not about who sent it.
+        """
+        if scope["type"] != "http":
+            return False
+        method = (scope.get("method") or "").upper()
+        if method in SAFE_METHODS:
+            return False
+        path = scope.get("path") or ""
+        if path.startswith(_PROXIED_PANEL_PREFIX):
+            return False
+        media_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if media_type not in FORM_BODY_TYPES:
+            return False
+        if (method, path) in FORM_BODY_ROUTES:
+            return not headers.get(FORM_UPLOAD_HEADER.lower(), "").strip()
+        return True
 
     def _origin_refused(self, scope: Scope, headers: dict[str, str], *, strict: bool) -> bool:
         """Whether this request must be refused for its ``Origin``.

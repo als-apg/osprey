@@ -33,9 +33,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 
 from .output import report, section
 from .profile_conventions import (
@@ -961,7 +961,7 @@ def _exported_provider_keys(
     ``.env`` — the file an operator can read, edit, and account for, and the one
     store compose and every ``${VAR}`` expansion read. There is no second copy
     to derive: a build only ever appends to that file
-    (:func:`~osprey_connectors.dotenv.append_profile_env`), so a key seeded here
+    (:func:`~osprey.deployment.dotenv.append_profile_env`), so a key seeded here
     survives every rebuild and a key that reaches a running deployment was
     written to this file first.
 
@@ -1106,7 +1106,7 @@ def _write_secret_channel(
     Returns:
         Profile-relative names of the files written, for the caller's summary.
     """
-    from osprey_connectors.dotenv import append_profile_env
+    from osprey.deployment.dotenv import append_profile_env
 
     from .templates.scaffolding import (
         provider_api_key_entries,
@@ -1382,7 +1382,6 @@ def _layer_profile_texts(
     dispatch_tier = resolved.dispatch.tier if resolved.dispatch is not None else None
     tiers, apps = _roster_layers(resolved.config, dispatch_tier)
     texts: dict[str, str] = {}
-    problems: list[str] = []
     # What each layer can edit, recorded BOTH ways, because the two rules in
     # `_privileged_tier_problems` read two different answers: relative to
     # the host for the inherited `default_tier`, absolute for a shared card.
@@ -1390,11 +1389,11 @@ def _layer_profile_texts(
     host_privileges = tier_privileges(resolved.config)
     privileges: dict[str, tuple[str, ...]] = {}
     absolute: dict[str, tuple[str, ...]] = {}
-    for name in sorted(set(tiers) & set(apps)):
-        problems.append(
-            f"{name!r} is both a tier the roster names and an app in shared:, but a "
-            f"card renders from one file — rename one of them"
-        )
+    problems: list[str] = [
+        f"{name!r} is both a tier the roster names and an app in shared:, but a "
+        f"card renders from one file — rename one of them"
+        for name in sorted(set(tiers) & set(apps))
+    ]
     for dirname, word, names, bundled in (
         (TIERS_DIRNAME, LAYER_DIR_KINDS[TIERS_DIRNAME], tiers, list_tiers()),
         (APPS_DIRNAME, LAYER_DIR_KINDS[APPS_DIRNAME], apps, list_apps()),
@@ -1711,7 +1710,7 @@ def _materialize_profile_directory(
     """
     import shutil
 
-    from osprey_connectors.dotenv import env_lock_path
+    from osprey.deployment.dotenv import env_lock_path
 
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,

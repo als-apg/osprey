@@ -33,7 +33,6 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.env_production import renders_needing_telemetry_vars
 from osprey.deployment.web_terminals.render import (
     PROXY_ENV_NAMES,
     _auth_tls_context,
@@ -61,7 +60,7 @@ from osprey.deployment.web_terminals.roster import (
     settings_json_is_rendered,
 )
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
-from osprey_connectors.types import WRITES_ENABLED_KEY
+from osprey_connectors.types import WRITES_KEY
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 #: Filename of the rendered web-stack compose file, as
@@ -162,10 +161,9 @@ class BashLaunchTokenConflictError(DeploymentError):
             caller holding only the flat set (the collect-all preflight, which
             asks :func:`bash_launch_token_offenders`) still gets the refusal and
             the remedy, without the per-lane breakdown.
-        writes_keys: Per lane, the config key that decides that lane's write
-            posture (:func:`~osprey.deployment.web_terminals.roster.launch_token_writes_key`).
-            Named per lane rather than deployment-wide because that is the key
-            an operator actually edits to withdraw one lane's entitlement.
+        writes_keys: Per lane, the config key that decides that lane's token
+            entitlement (:func:`~osprey.deployment.web_terminals.roster.launch_token_writes_key`),
+            which is the login tier's ``control_system.writes`` on every lane.
     """
 
     def __init__(
@@ -183,24 +181,16 @@ class BashLaunchTokenConflictError(DeploymentError):
         breakdown = "".join(
             f"\n  - lane {lane!r} ({lane_env_prefix(lane)}_LAUNCH_TOKEN): "
             f"{', '.join(repr(name) for name in names)} — armed by "
-            f"{(writes_keys or {}).get(lane, WRITES_ENABLED_KEY)} and "
+            f"{(writes_keys or {}).get(lane, WRITES_KEY)} and "
             f"claude_code.servers.bluesky.enabled"
             for lane, names in self.renders_by_lane.items()
         )
-        # A caller holding only the flat set has no lane to point at, so the
-        # remedy describes the key instead of referring back to a line that
-        # would not be there.
-        writes_remedy = (
-            "the control_system.connector.<type>.writes_enabled named above, set to false"
-            if self.renders_by_lane
-            else "control_system.connector.<type>.writes_enabled: false for the "
-            "target the lane drives"
-        )
+        writes_remedy = f"{WRITES_KEY}: never in that render's tier"
         super().__init__(
             f"Refusing to deploy: {named} would be granted a Bluesky launch token "
             f"while also permitted to run a shell.{breakdown}\n"
             f"Each named render is entitled to that lane's token — its rendered "
-            f"config.yml arms writes for the control target the lane drives AND leaves "
+            f"config.yml allows writes ({WRITES_KEY}: allowed) AND leaves "
             f"the bluesky MCP server enabled — and its shipped "
             f'.claude/settings.json does not list both "Bash" and "Monitor" in '
             f"permissions.deny (Monitor runs shell commands too; a missing or unparseable settings.json counts the same — it is not "
@@ -214,7 +204,7 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"is the one baked into the image, and the per-user services declare only "
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
             f"moving that render off the bluesky server "
-            f"(claude_code.servers.bluesky.enabled: false) or off that lane's writes "
+            f"(claude_code.servers.bluesky.enabled: false) or off writes "
             f"({writes_remedy})."
         )
 
@@ -843,7 +833,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     configure a graph store and so need its Neo4j password — each in their own
     per-user environment block; which name a facility-knowledge bundle or run
     a qmd export and so get the deployment's bundle or mirror bind-mounted,
-    and the groups those shared directories (and every user's audit zone)
+    and the groups those shared directories (and every user's spool and state directories)
     were provisioned with; the roster's operator secrets; and which proxy
     settings hold a value where compose will read them (this process's
     environment, then the chain); and the facility's display name, from the
@@ -882,9 +872,8 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         resolve_facility_bundle_dir,
         shared_corpus_gid,
     )
-    from osprey.deployment.telemetry_credentials import sender_digests
     from osprey.utils.facility import facility_name
-    from osprey_connectors.workspace import APPS_DIRNAME
+    from osprey.utils.workspace import APPS_DIRNAME
 
     root = Path(repo_root)
     launch_token_renders_by_lane = check_bash_launch_token_conflict(config, root)
@@ -894,9 +883,6 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     check_open_mode_requirements(config, root)
     return {
         "auth_env_digest": auth_env_digest(root),
-        # The sha256 of each terminal's telemetry login file, by audit
-        # identity; empty without a gateway.
-        "telemetry_cred_digests": sender_digests(root, config),
         "dispatcher_renders": renders_needing_dispatcher_token(config, root),
         "ariel_renders": renders_needing_ariel_password(config, root),
         # Every lane's slice: the render grants each render one launch token
@@ -906,7 +892,6 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "graphdb_renders": renders_needing_graphdb_password(config, root),
         "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),
-        "telemetry_vars_renders": renders_needing_telemetry_vars(config, root),
         "facility_bundle_renders": renders_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see
@@ -917,7 +902,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "facility_bundle_gid": shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
         # The ARIEL mirror: the same pure read, for the same reason, of a
         # directory the deploy provisioned before this render. The per-user
-        # audit subdirectories read back no gid here — their group is joined
+        # spool and state subdirectories read back no gid here — their group is joined
         # inside the container by the entrypoint, off the mounted directory.
         "ariel_mirror_renders": renders_needing_ariel_mirror(config, root),
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
@@ -1016,18 +1001,15 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
     inputs = resolve_render_inputs(config, root)
-    # Every terminal the overlay is about to name a login file for has one
-    # before the overlay exists: a roster verb can add a terminal between two
-    # starts, and a compose document naming a missing `env_file` fails every
-    # command run against it. After the two refusals above, so a refused
-    # render still writes nothing; the digests are read once the files exist.
-    from osprey.deployment.telemetry_credentials import (
-        ensure_telemetry_credentials,
-        sender_digests,
-    )
+    # After the two refusals above, so a refused render still writes nothing.
+    # Every terminal the overlay is about to name a record login file for has
+    # one before the overlay exists, and so does the history page's gate
+    # secret the nginx sidecar reads: a roster verb can add a terminal between
+    # two starts, and a compose document naming a missing `env_file` fails
+    # every command run against it.
+    from osprey.agent_record.credentials import ensure_agent_record_credentials
 
-    ensure_telemetry_credentials(root, config, reader_keys=False)
-    inputs["telemetry_cred_digests"] = sender_digests(root, config)
+    ensure_agent_record_credentials(root, config, reader_keys=False)
     artifacts = render_web_terminals(config, **inputs)
     dest = web_artifacts_dir(root)
     # Before the first write, never after: a render that raised above must not

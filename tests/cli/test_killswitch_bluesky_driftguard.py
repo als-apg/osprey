@@ -19,19 +19,16 @@ kinds of drift: a future change that decouples the template from
 kill-switch coverage — including the bluesky queue's arming tools
 specifically, but not limited to them.
 
-The same sweep runs against the third render the per-target write posture
-introduces: when the deployment's two targets DISAGREE, one settings.json
-cannot deny a tool that is legal on the armed target, so the whole gated set is
-pulled from ``ask`` and denied nowhere, and the runtime hooks decide per call.
-The last section covers that render and pins that a posture spelled out per
-connector, but agreeing with the deployment-wide key, renders byte-identically
-to the deployment-wide key alone.
+The same sweep runs against the ``allowed`` tier, which denies nothing and
+pulls from ``ask`` every gated tool whose rule also carries an approval hook,
+and the last section pins that the retired per-connector ``writes_enabled``
+leaves change no byte of a render whose tier (``control_system.writes``) is
+spelled.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import yaml
 
@@ -43,39 +40,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_SERVERS,
     is_mixed_matcher,
 )
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 _PROJECT_COUNTER = 0
 
@@ -100,10 +65,8 @@ def _write_gated_matchers() -> dict[str, list[str]]:
 def _build_project(
     tmp_path,
     *,
-    writes_enabled: bool,
+    writes: str,
     connector_writes: dict | None = None,
-    control_system_type: str | None = None,
-    drop_connectors: tuple[str, ...] = (),
 ):
     """Create a real project on disk with every write-gated server enabled.
 
@@ -113,50 +76,26 @@ def _build_project(
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name=f"killswitch-driftguard-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
-    _rerender(
-        manager,
-        project_dir,
-        writes_enabled,
-        connector_writes,
-        control_system_type=control_system_type,
-        drop_connectors=drop_connectors,
-    )
+    _rerender(manager, project_dir, writes, connector_writes)
     return project_dir
 
 
-def _rerender(
-    manager,
-    project_dir,
-    writes_enabled: bool,
-    connector_writes: dict | None = None,
-    *,
-    control_system_type: str | None = None,
-    drop_connectors: tuple[str, ...] = (),
-):
-    """Apply the write posture to config.yml and re-render the Claude Code artifacts.
+def _rerender(manager, project_dir, writes: str, connector_writes: dict | None = None):
+    """Apply the tier to config.yml and re-render the Claude Code artifacts.
 
-    *connector_writes* sets ``control_system.connector.<type>.writes_enabled``
-    per connector type and *control_system_type* sets the type the deployment
-    builds. Both matter: the render counts only the targets a session here can
-    be pointed at, and a deployment has two of those only when it renders the
-    switch — its own type is one of the targets and both have a configured
-    block. The control-assistant preset builds the live stand-in and already
-    carries an ``epics`` block for ``live`` and a ``virtual_accelerator`` block
-    for ``va``, so naming a type here is what decides which are selectable.
+    *writes* is ``control_system.writes``, the one key the kill switch reads;
+    *connector_writes* sets the retired per-connector ``writes_enabled`` leaves,
+    which must not move the render once the tier is spelled.
     """
     config = yaml.safe_load((project_dir / "config.yml").read_text())
-    config["control_system"]["writes_enabled"] = writes_enabled
-    if control_system_type is not None:
-        config["control_system"]["type"] = control_system_type
-    for connector_type in drop_connectors:
-        del config["control_system"]["connector"][connector_type]
+    config["control_system"]["writes"] = writes
     for connector_type, armed in (connector_writes or {}).items():
         config["control_system"]["connector"][connector_type]["writes_enabled"] = armed
     # Force-enable every write-gated template (some, like bluesky, are opt-in) so
@@ -169,7 +108,7 @@ def _rerender(
 
     # Re-render .claude/settings.json (and the rest of the Claude Code
     # integration) from the just-edited config.yml -- create_project() already
-    # rendered once with the *original* config, before writes_enabled/servers
+    # rendered once with the *original* config, before the tier/servers
     # were overridden above.
     claude_code.regenerate_claude_code(manager.template_root, manager.jinja_env, project_dir)
 
@@ -188,7 +127,7 @@ def test_every_write_gated_tool_is_covered_when_writes_off(tmp_path):
     A future write-gated tool added to FRAMEWORK_SERVERS with no matching
     kill-switch coverage fails this test with no code change required here.
     """
-    project_dir = _build_project(tmp_path, writes_enabled=False)
+    project_dir = _build_project(tmp_path, writes="never")
     perms = _rendered_permissions(project_dir)
     deny = set(perms["deny"])
     ask = set(perms["ask"])
@@ -217,18 +156,19 @@ def test_bluesky_arming_tools_specifically_hard_denied_when_writes_off(tmp_path)
     vacuous (an empty matcher map, a bluesky server that stopped rendering)
     cannot quietly take this coverage with it.
     """
-    project_dir = _build_project(tmp_path, writes_enabled=False)
+    project_dir = _build_project(tmp_path, writes="never")
     perms = _rendered_permissions(project_dir)
     for tool in bsky.ARMING_TOOLS:
         assert f"mcp__bluesky__{tool}" in perms["deny"]
 
 
 def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
-    project_dir = _build_project(tmp_path, writes_enabled=True)
+    project_dir = _build_project(tmp_path, writes="allowed")
     perms = _rendered_permissions(project_dir)
     for tool in bsky.ARMING_TOOLS:
         assert f"mcp__bluesky__{tool}" not in perms["deny"]
-        assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
+        # writes-check plus the preflight approval: out of the static ask.
+        assert f"mcp__bluesky__{tool}" not in perms["ask"]
 
 
 def test_bluesky_queue_stop_never_denied_even_with_writes_off(tmp_path):
@@ -238,13 +178,13 @@ def test_bluesky_queue_stop_never_denied_even_with_writes_off(tmp_path):
     denying the bluesky server wholesale — and that a kill switch which took
     away the queue's stop would fail here.
     """
-    project_dir = _build_project(tmp_path, writes_enabled=False)
+    project_dir = _build_project(tmp_path, writes="never")
     perms = _rendered_permissions(project_dir)
     assert f"mcp__bluesky__{bsky.QUEUE_STOP}" not in perms["deny"]
-    assert f"mcp__bluesky__{bsky.QUEUE_STOP}" not in perms.get("remove_ask", [])
+    assert f"mcp__bluesky__{bsky.QUEUE_STOP}" in perms["ask"]
 
 
-def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
+def test_bluesky_stop_run_never_denied_on_either_tier(tmp_path):
     """stop_run carries approval only (no _WRITES_CHECK) -- the kill switch
     must never block stopping a run, in either direction.
 
@@ -253,20 +193,16 @@ def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
     Denying it under writes-off would take the emergency halt away at exactly
     the moment writes were disabled because something was wrong.
     """
-    for writes_enabled in (True, False):
-        project_dir = _build_project(tmp_path, writes_enabled=writes_enabled)
+    for writes in ("allowed", "never"):
+        project_dir = _build_project(tmp_path, writes=writes)
         perms = _rendered_permissions(project_dir)
         assert "mcp__bluesky__stop_run" not in perms["deny"]
 
 
 # ---------------------------------------------------------------------------
-# Mixed posture: the two targets disagree, so nothing is denied and nothing asks
+# allowed: nothing denied, approval-gated writes out of ask, none in allow
 # ---------------------------------------------------------------------------
 
-#: The connector block backing each control target once the deployment renders
-#: the switch. Named rather than resolved so a preset that stopped configuring
-#: both targets fails these tests instead of quietly turning them into a second
-#: copy of the all-off case.
 _LIVE_CONNECTOR = "epics"
 _VA_CONNECTOR = "virtual_accelerator"
 
@@ -275,22 +211,19 @@ def _settings_text(project_dir) -> str:
     return (project_dir / ".claude" / "settings.json").read_text()
 
 
-def test_every_write_gated_tool_is_pulled_from_ask_on_a_mixed_render(tmp_path):
-    """Drift guard for the mixed case: no deny, no ask, for the whole gated set.
+def _carries_approval(template_name: str, matcher: str) -> bool:
+    rule = next(r for r in FRAMEWORK_SERVERS[template_name].hooks_pre if r.matcher == matcher)
+    return any("osprey_approval.py" in h.command for h in rule.hooks)
 
-    Computed from ``FRAMEWORK_SERVERS`` the same way as the writes-off sweep, so
-    a new write-gated tool is covered here too with no change to this file. The
-    ask half is the load-bearing one: a matcher left in ``permissions.ask``
-    would reach the SDK's can_use_tool prompt, which the per-target writes-check
-    hook cannot suppress, and an operator would be asked to approve a write the
-    active target's posture forbids.
+
+def test_every_write_gated_tool_is_undenied_on_an_allowed_render(tmp_path):
+    """Drift guard for ``allowed``: no deny; approval-gated writes leave ask.
+
+    Computed from ``FRAMEWORK_SERVERS`` the same way as the ``never`` sweep, so
+    a new write-gated tool is covered here with no change to this file. A tool
+    whose rule carries no approval hook would have to keep its static ask.
     """
-    project_dir = _build_project(
-        tmp_path,
-        writes_enabled=False,
-        control_system_type=_LIVE_CONNECTOR,
-        connector_writes={_VA_CONNECTOR: True},
-    )
+    project_dir = _build_project(tmp_path, writes="allowed")
     perms = _rendered_permissions(project_dir)
     deny = set(perms["deny"])
     ask = set(perms["ask"])
@@ -301,29 +234,19 @@ def test_every_write_gated_tool_is_pulled_from_ask_on_a_mixed_render(tmp_path):
     for template_name, template_matchers in matchers.items():
         for matcher in template_matchers:
             assert matcher not in deny, (
-                f"{matcher!r} ({template_name}) is legal on the armed target and must "
-                f"not be statically denied on a mixed render"
+                f"{matcher!r} ({template_name}) must not be statically denied on an "
+                f"allowed render; the runtime switch decides it per call"
             )
-            assert matcher not in ask, (
-                f"{matcher!r} ({template_name}) must be pulled from ask on a mixed "
-                f"render so the writes-check hook decides it per call"
-            )
+            if _carries_approval(template_name, matcher):
+                assert matcher not in ask, (
+                    f"{matcher!r} ({template_name}) carries writes-check and approval "
+                    f"and must leave the static ask"
+                )
 
 
-def test_mixed_render_never_allows_a_pure_write_tool(tmp_path):
-    """Pulling the gated set from ask must not push any of it into allow.
-
-    ``allow`` is auto-approval at the permission layer. It is where the
-    required-tool rescue re-grants python's read/write-mixed ``execute``, and it
-    is where a rescue keyed on the wrong set would deposit ``channel_write`` and
-    the queue's arming tools.
-    """
-    project_dir = _build_project(
-        tmp_path,
-        writes_enabled=True,
-        control_system_type=_LIVE_CONNECTOR,
-        connector_writes={_LIVE_CONNECTOR: False},
-    )
+def test_allowed_render_never_allows_a_pure_write_tool(tmp_path):
+    """Pulling the gated set from ask must not push any of it into allow."""
+    project_dir = _build_project(tmp_path, writes="allowed")
     allow = set(_rendered_permissions(project_dir)["allow"])
 
     for template_name, template_matchers in _write_gated_matchers().items():
@@ -331,84 +254,45 @@ def test_mixed_render_never_allows_a_pure_write_tool(tmp_path):
             if is_mixed_matcher(template_name, matcher):
                 continue
             assert matcher not in allow, (
-                f"{matcher!r} ({template_name}) is pure-write and must never be "
-                f"auto-approved on a mixed render"
+                f"{matcher!r} ({template_name}) is pure-write and must never be auto-approved"
             )
-    assert "mcp__controls__channel_write" not in allow
     for tool in bsky.ARMING_TOOLS:
         assert f"mcp__bluesky__{tool}" not in allow
 
 
-def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp_path):
-    """Spelling the writes-off posture out per connector changes no byte.
+# ---------------------------------------------------------------------------
+# The tier alone: retired per-connector leaves change no byte
+# ---------------------------------------------------------------------------
 
-    Rendered twice into the SAME project so the comparison is of the posture
-    keying alone — project name, paths and interpreter are held fixed. The
-    three-way render reads the resolved per-target postures, and per-connector
-    keys that merely restate the deployment-wide one must resolve to the render
-    that deployment already had.
-    """
+
+def _identity(tmp_path, name: str, writes: str, leaves: dict) -> tuple[str, str]:
+    """Render one project with the tier alone, then with *leaves* added."""
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
-        project_name="killswitch-identity-off",
+        project_name=name,
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
-    _rerender(manager, project_dir, False, control_system_type=_LIVE_CONNECTOR)
-    from_global_key_only = _settings_text(project_dir)
+    _rerender(manager, project_dir, writes)
+    tier_only = _settings_text(project_dir)
+    _rerender(manager, project_dir, writes, leaves)
+    return tier_only, _settings_text(project_dir)
 
-    _rerender(
-        manager,
-        project_dir,
-        False,
-        {_LIVE_CONNECTOR: False, _VA_CONNECTOR: False},
-        control_system_type=_LIVE_CONNECTOR,
+
+def test_armed_connector_leaves_change_no_byte_of_a_never_render(tmp_path):
+    tier_only, with_leaves = _identity(
+        tmp_path, "killswitch-identity-never", "never", {_LIVE_CONNECTOR: True, _VA_CONNECTOR: True}
     )
-    assert _settings_text(project_dir) == from_global_key_only
+    assert with_leaves == tier_only
 
 
-def test_agreeing_per_connector_keys_render_byte_identically_with_writes_on(tmp_path):
-    """The same identity in the armed direction."""
-    manager = TemplateManager()
-    project_dir = _create_project(
-        manager,
-        project_name="killswitch-identity-on",
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
-        context={"channel_finder_mode": "hierarchical"},
-    )
-    _rerender(manager, project_dir, True, control_system_type=_LIVE_CONNECTOR)
-    from_global_key_only = _settings_text(project_dir)
-
-    _rerender(
-        manager,
-        project_dir,
-        True,
-        {_LIVE_CONNECTOR: True, _VA_CONNECTOR: True},
-        control_system_type=_LIVE_CONNECTOR,
-    )
-    assert _settings_text(project_dir) == from_global_key_only
-
-
-def test_an_armed_block_for_an_unreachable_machine_still_renders_the_deny(tmp_path):
-    """The rendered-settings pin for a one-target deployment.
-
-    This project builds the ``doocs`` connector and, with no simulator block,
-    does not render the switch, so the armed ``epics`` block below describes a
-    second real machine no session here reaches. Counting it as a second
-    target would call the render mixed and drop the hard deny — writes off, and
-    yet ``channel_write`` in neither deny nor ask.
-    """
-    project_dir = _build_project(
+def test_disagreeing_connector_leaves_change_no_byte_of_an_allowed_render(tmp_path):
+    tier_only, with_leaves = _identity(
         tmp_path,
-        writes_enabled=False,
-        control_system_type="doocs",
-        drop_connectors=(_VA_CONNECTOR,),
-        connector_writes={_LIVE_CONNECTOR: True},
+        "killswitch-identity-allowed",
+        "allowed",
+        {_LIVE_CONNECTOR: False, _VA_CONNECTOR: True},
     )
-    deny = _rendered_permissions(project_dir)["deny"]
-    assert "mcp__controls__channel_write" in deny
-    for tool in bsky.ARMING_TOOLS:
-        assert f"mcp__bluesky__{tool}" in deny
+    assert with_leaves == tier_only

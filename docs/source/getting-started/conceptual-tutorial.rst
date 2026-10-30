@@ -63,11 +63,12 @@ The agent can propose writes but cannot execute them alone. When a
 write is proposed, the operator sees the target channel and value and
 must explicitly approve before anything reaches hardware.
 
-Two automated checks run behind the scenes. The **kill switch**
-(``writes_enabled`` in ``config.yml``) blocks writes when off --- no prompt
-appears. It is set per control target, so a deployment can arm writes on its
-simulator and refuse them on the machine that has beam; a session is answered by
-the posture of whichever target it is pointed at. The **limits system**
+Two automated checks run behind the scenes. The **write verdict** blocks a
+write --- no prompt appears --- unless the login's tier allows writes
+(``control_system.writes``) and that login has turned writes on for the machine
+from the web terminal's chip. The switch is per machine, so an operator can
+write to the simulator while the machine that has beam stays off
+(:ref:`write-safety-config`). The **limits system**
 validates each value against per-channel safe ranges and read-only flags. If
 either check fails, the write is blocked before the operator is ever asked.
 

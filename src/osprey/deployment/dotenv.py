@@ -1,0 +1,449 @@
+"""Writing a deployment's ``.env`` files, and what compose makes of them.
+
+The env chain itself — which files it holds, in what order, and how it is read
+— belongs to the connector package (:mod:`osprey_connectors.dotenv`), because
+every OSPREY process loads it on start-up. Writing those files is the
+deployment's business: ``osprey up`` appends the secrets it mints, the
+web-terminal credential writers append theirs, the deploy collapses the chain
+into one file for the delivery paths that can take only one, and every one of
+them has to check what a compose ``env_file:`` would do to a value first. That
+half lives here.
+"""
+
+from __future__ import annotations
+
+import fcntl
+import threading
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+
+from osprey_connectors.dotenv import (
+    ENV_CHAIN_FILENAMES,
+    chain_files,
+    merge_chain,
+    parse_dotenv_file,
+    parse_dotenv_text,
+)
+from osprey_connectors.safety_file import atomic_replace
+
+__all__ = [
+    "DEPLOY_MINTED_BANNER",
+    "ENV_AUTH_BANNER",
+    "ENV_LOCAL_BANNER",
+    "ENV_MERGED_BANNER",
+    "ENV_USERS_BANNER",
+    "EnvConflict",
+    "ProfileEnvAppendResult",
+    "append_profile_env",
+    "atomic_write",
+    "compose_unsafe_vars",
+    "compose_unsafe_vars_in_chain",
+    "dotenv_line_var",
+    "env_file_lock",
+    "env_lock_path",
+    "format_env_line",
+    "write_env_merged",
+]
+
+
+def compose_unsafe_vars(values: Mapping[str, str]) -> list[str]:
+    """Names of vars whose value a compose ``env_file:`` would not deliver intact.
+
+    Compose implementations disagree about what they do to an ``env_file:``
+    value, and the deploy does not get to choose which one reads the file:
+
+    * Docker Compose (measured on v2.34) interpolates the *values*, not just
+      the compose document. A ``$`` followed by an identifier character is
+      replaced with the named variable's value — the empty string when that
+      name is unset — so the container receives a truncated secret while the
+      file on disk stays byte-perfect. Two forms carry no warning whatsoever:
+      ``$$`` collapses to a single ``$``, and a ``$`` followed by a name that
+      *is* set on the deploy host splices the host's value into the secret.
+    * podman-compose hands the file to python-dotenv, which resolves only the
+      braced ``${...}`` form — and resolves it against an earlier entry in the
+      SAME file ahead of the host environment, so the identical file can yield
+      a different secret than Docker Compose does.
+    * Older podman-compose passes ``--env-file`` to podman, whose parser
+      substitutes nothing at all.
+
+    The test is therefore "contains ``$``", not "contains an interpolating
+    ``$``". Escaping cannot bridge the set: ``$$`` yields ``$`` where values are
+    interpolated and a literal ``$$`` where they are not, so no single file is
+    correct everywhere. Which forms count as a reference is compose's business
+    and may widen. Refusing ``$`` outright is the only rule that stays true —
+    and the one the codebase already designs to
+    (``auth_sidecar.passwords.FIELD_SEP``, the minted alphabets in
+    :mod:`osprey.deployment.service_tokens`).
+
+    Returns variable *names*, sorted — deliberately never the values, so that no
+    caller can accidentally render a secret into an error message or a log line.
+
+    :param values: Parsed ``KEY=VALUE`` pairs bound for a compose ``env_file:``.
+    :return: Sorted names of the offending variables; empty when all are safe.
+    """
+    return sorted(name for name, value in values.items() if "$" in value)
+
+
+def dotenv_line_var(line: str) -> str | None:
+    """The variable a raw ``.env`` line assigns, or ``None`` for a non-assignment.
+
+    Comments, blank lines, and anything without an ``=`` yield ``None``; an
+    optional ``export`` prefix is stripped, matching :func:`parse_dotenv_file`.
+    Callers that need to rewrite a ``.env`` line-by-line (rather than parse it
+    into a dict) use this so they classify lines exactly the way the parser
+    does — a divergence would let a rewrite keep a line the parser still reads.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    candidate = stripped.removeprefix("export ")
+    return candidate.partition("=")[0].strip() or None
+
+
+#: Section header the deploy write-back groups its minted secrets under.
+DEPLOY_MINTED_BANNER = "# ── Minted by deploy ──"
+
+#: Permission bits a ``.env`` this module creates is born with (and tightened
+#: to on every rewrite): the profile ``.env`` holds facility secrets.
+_ENV_FILE_MODE = 0o600
+
+#: Header written at the top of a merged env file (:func:`write_env_merged`).
+#: The file is a machine artifact — regenerated from the chain on every write —
+#: so whoever opens it is told where the editable originals are.
+ENV_MERGED_BANNER = (
+    "# Generated by osprey — do not edit.\n"
+    f"# Merged from {' + '.join(ENV_CHAIN_FILENAMES)} (later file wins); edit those instead.\n"
+)
+
+# ---------------------------------------------------------------------------
+# Readme headers, one per generated env file. THE registry: every env file
+# OSPREY creates is stamped with its header at creation (and only then — the
+# writers are append-only, so an existing file's opening lines are the
+# operator's). Defined together so whoever opens any of these files gets the
+# same story about how they relate, and so a new env file cannot ship without
+# saying who reads it.
+# ---------------------------------------------------------------------------
+
+#: Header stamped when :func:`append_profile_env` CREATES the repo ``.env``.
+#: Existing files are never rewritten (the write is deliberately append-only),
+#: so a hand-authored ``.env`` keeps its own opening lines.
+ENV_LOCAL_BANNER = (
+    "# OSPREY deployment secrets (.env) — host-local, gitignored, mode 0600.\n"
+    "# Read by compose on every lifecycle verb (--env-file, after .env.shared,\n"
+    "# so on a key both files set this file wins) and appended to by `osprey up`\n"
+    "# when it mints a secret. Belongs here: provider API keys, service\n"
+    "# passwords/tokens, plaintext OSPREY_AUTH_PW_<USER> convenience passwords\n"
+    "# (hashed into .env.auth, never shipped), and per-host overrides of the\n"
+    "# committed defaults. Related files: .env.shared holds the committed,\n"
+    "# non-secret defaults; build/.env.merged is the generated single-file\n"
+    "# collapse handed to podman-compose; .env.example documents the variables.\n"
+)
+
+#: Header stamped at the top of every rendered ``.env.users`` — the deploy
+#: generator and ``osprey users env`` share one render helper carrying it
+#: (``osprey.deployment.web_terminals.env_production.render_env_users``).
+ENV_USERS_BANNER = (
+    "# OSPREY web-terminal runtime env (.env.users) — gitignored, mode 0600.\n"
+    "# Handed whole to every per-user web-terminal container via the\n"
+    "# `env_file: .env.users` entries in docker-compose.web.yml, baked in when\n"
+    "# a container is created. Belongs here: the runtime subset the terminals\n"
+    "# need — LLM provider credentials and module runtime vars — never\n"
+    "# build/CI-only variables, and never auth secrets (.env.auth is the auth\n"
+    "# sidecar's file). Derived from .env.shared + .env (later file wins) by\n"
+    "# `osprey up` or `osprey users env`. `osprey up` re-renders a file that\n"
+    "# carries this header whenever the chain has changed; add a line of your\n"
+    "# own and it is yours from then on, never rewritten. .env.example\n"
+    "# documents the variables themselves.\n"
+)
+
+#: Header stamped when the auth-credential writer CREATES ``.env.auth``
+#: (``osprey.deployment.web_terminals.auth_credentials._append_entries``).
+ENV_AUTH_BANNER = (
+    "# OSPREY web-terminal auth secrets (.env.auth) — gitignored, mode 0600.\n"
+    "# Read ONLY by the auth sidecar, via its `env_file: .env.auth` entry in\n"
+    "# docker-compose.web.yml — baked in at container creation, so a change\n"
+    "# takes effect at the next sidecar recreate; no per-user terminal ever\n"
+    "# receives this file. Belongs here: the OSPREY_AUTH_* variables — per-user\n"
+    "# password hashes (OSPREY_AUTH_PW_HASH_<USER>), the cookie-signing\n"
+    "# secrets, and a hand-added OIDC client secret. A plaintext\n"
+    "# OSPREY_AUTH_PW_<USER> convenience password goes in .env instead and is\n"
+    "# hashed in from there; .env.example documents the variables.\n"
+)
+
+
+@dataclass(frozen=True)
+class EnvConflict:
+    """A supplied entry that disagrees with the value already on file."""
+
+    key: str
+    existing: str
+    supplied: str
+
+
+@dataclass(frozen=True)
+class ProfileEnvAppendResult:
+    """What :func:`append_profile_env` did, for the caller to report on."""
+
+    added: tuple[str, ...]
+    unchanged: tuple[str, ...]
+    conflicts: tuple[EnvConflict, ...]
+
+
+#: One ``threading.RLock`` per locked path, so two threads of one process
+#: serialize against each other as well: ``flock`` is held per open file
+#: DESCRIPTION and would let a second thread's independent ``open`` walk
+#: straight through the first's lock.
+_ENV_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_ENV_LOCK_REGISTRY_GUARD = threading.Lock()
+#: Paths this THREAD already holds the flock for, so a nested acquisition
+#: yields instead of blocking on itself (see :func:`env_file_lock`).
+_env_lock_state = threading.local()
+
+
+def env_lock_path(env_path: Path) -> Path:
+    """The sibling lock file that guards *env_path*, derived and nothing more.
+
+    THE one spelling of the ``<name>.lock`` suffix. It was written out by hand
+    at three sites, so a change to the naming would have had to be found in
+    three places -- one of them a test that would have kept passing against the
+    old spelling.
+
+    **The path is not resolved.** :func:`env_file_lock` resolves its own key
+    first, deliberately, because the flock must land on one inode however many
+    symlinks reach it; it then calls this on the path it already resolved. The
+    other callers want the opposite: they hold a directory by the name the user
+    gave them and list what is inside it, so resolving here would hand them a
+    name from somewhere else entirely.
+
+    :param env_path: The ``.env`` whose lock file is wanted.
+    :returns: ``env_path`` with ``.lock`` appended to its final component.
+    """
+    env_path = Path(env_path)
+    return env_path.with_name(env_path.name + ".lock")
+
+
+@contextmanager
+def env_file_lock(env_path: Path) -> Iterator[None]:
+    """Hold the exclusive lock guarding one ``.env``'s read-modify-write.
+
+    THE serialization point for these files, and the reason there is a public
+    one: every writer here rewrites the whole file through
+    :func:`atomic_write`, so a writer that reads, filters and replaces without
+    the lock silently DISCARDS anything a concurrent writer committed in
+    between. Several processes append to the same repo ``.env`` as a matter of
+    course -- ``osprey up`` persisting a minted service token, profile seeding
+    -- so this is a routine race, not a theoretical one.
+
+    The lock lives in a sibling ``<name>.lock`` rather than on the ``.env``
+    itself precisely because :func:`atomic_write`'s ``os.replace`` swaps the
+    inode out from under any lock held on the file. The lock file is created if
+    absent and is never removed: unlinking it would let two processes hold locks
+    on two different inodes and believe they were serialized.
+
+    **Re-entrant within one thread.** A caller that needs several operations to
+    be one critical section -- dropping a stale assignment and appending its
+    replacement, say -- wraps them in this and may still call
+    :func:`append_profile_env`, which takes the lock again and finds it already
+    held. Without that, the inner acquisition would open a SECOND file
+    description and ``flock`` would deadlock the process against itself.
+
+    :param env_path: The ``.env`` being guarded. Its parent directory must
+        exist and be writable, since the lock file is created beside it.
+    :raises OSError: If the lock file cannot be created or opened.
+    """
+    key = str(Path(env_path).resolve())
+    with _ENV_LOCK_REGISTRY_GUARD:
+        thread_lock = _ENV_THREAD_LOCKS.setdefault(key, threading.RLock())
+
+    held: set[str] = getattr(_env_lock_state, "held", None) or set()
+    _env_lock_state.held = held
+
+    with thread_lock:
+        if key in held:
+            # Already inside an outer `env_file_lock` on this path, in this
+            # thread. Re-locking would block forever on our own flock.
+            yield
+            return
+        lock_path = env_lock_path(Path(key))
+        with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            held.add(key)
+            try:
+                yield
+            finally:
+                held.discard(key)
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def append_profile_env(
+    profile_env_path: Path,
+    entries: Mapping[str, str],
+    section_banner: str = DEPLOY_MINTED_BANNER,
+) -> ProfileEnvAppendResult:
+    """Append ``entries`` to a profile ``.env`` -- atomically, and append-only.
+
+    Used by ``osprey up`` to persist the secrets it minted back into the
+    profile that owns them. **A key already in the file is never rewritten**: a
+    minted password is pinned by the docker volume that was initialized with it
+    and by every container already trusting it, so the value on file always
+    wins. An entry whose value disagrees with the one on file is reported in
+    :attr:`ProfileEnvAppendResult.conflicts` for the caller to warn about --
+    the mismatch is real information (a shell export diverging from the volume's
+    password), but resolving it is an operator's decision, not this function's.
+
+    Concurrency: a sibling ``<name>.lock`` file serializes the whole
+    read-modify-write across processes (``flock``), and the new contents are
+    written to a temp file in the same directory and ``os.replace``d over the
+    target, so a concurrent reader sees either the complete old file or the
+    complete new one, never a partial write. The lock lives beside the ``.env``
+    rather than on it precisely because ``os.replace`` swaps the inode out from
+    under any lock held on the file itself.
+
+    New keys go at the end of the file, under ``section_banner`` -- emitted
+    only when that banner is not already present, so repeated appends grow one
+    section instead of stacking headers. A file created here (or one found
+    empty) is stamped with :data:`ENV_LOCAL_BANNER` first — creation is the
+    only moment the readme header can be added, since an existing file's
+    opening lines are the operator's. The file is created with mode
+    ``0600`` when absent, and rewrites tighten an existing file to the same.
+    The parent directory is *not* created: a missing profile directory raises,
+    which is the signal the caller's degraded path is looking for.
+    """
+    with env_file_lock(profile_env_path):
+        return _append_profile_env_locked(profile_env_path, entries, section_banner)
+
+
+def _append_profile_env_locked(
+    profile_env_path: Path,
+    entries: Mapping[str, str],
+    section_banner: str,
+) -> ProfileEnvAppendResult:
+    """The read-modify-write half of :func:`append_profile_env`, under lock."""
+    existing_text = (
+        profile_env_path.read_text(encoding="utf-8") if profile_env_path.is_file() else ""
+    )
+    on_file = parse_dotenv_text(existing_text)
+
+    added: list[str] = []
+    unchanged: list[str] = []
+    conflicts: list[EnvConflict] = []
+    new_lines: list[str] = []
+    for key, value in entries.items():
+        if key in on_file:
+            if on_file[key] == value:
+                unchanged.append(key)
+            else:
+                conflicts.append(EnvConflict(key=key, existing=on_file[key], supplied=value))
+            continue
+        added.append(key)
+        new_lines.append(format_env_line(key, value))
+
+    if new_lines:
+        lines = existing_text.splitlines()
+        if not lines:
+            # Born carrying the readme header: this write is creating the file
+            # (or filling an empty one), and the append-only contract means no
+            # later write may touch the top of it.
+            lines = ENV_LOCAL_BANNER.splitlines()
+        if section_banner and section_banner not in lines:
+            if lines:
+                lines.append("")
+            lines.append(section_banner)
+        lines.extend(new_lines)
+        atomic_write(profile_env_path, "\n".join(lines) + "\n")
+
+    return ProfileEnvAppendResult(
+        added=tuple(added), unchanged=tuple(unchanged), conflicts=tuple(conflicts)
+    )
+
+
+def atomic_write(path: Path, text: str) -> None:
+    """Replace ``path`` whole with ``text``, at :data:`_ENV_FILE_MODE`.
+
+    Every writer of a ``.env`` this package owns goes through here. These files
+    are rewritten whole, so a crash mid-write would truncate an operator's
+    secrets. The result is always :data:`_ENV_FILE_MODE` — a ``.env`` holds
+    facility secrets whether it is being created or refreshed.
+    """
+    atomic_replace(path, text.encode("utf-8"), mode=_ENV_FILE_MODE)
+
+
+def format_env_line(key: str, value: str) -> str:
+    """Render ``KEY=VALUE`` so :func:`parse_dotenv_text` reads back ``value``.
+
+    THE quoting helper: every writer of a ``.env``-shaped file in this package
+    renders its lines through here, so a value with leading whitespace, an
+    inline ``#``, or an embedded space survives the round-trip through
+    :func:`parse_dotenv_text` (and through the compose implementations that
+    read the same file) instead of being silently truncated.
+
+    :raises ValueError: when the value cannot be represented on one ``.env``
+        line — it contains a newline, or it needs quoting and already contains
+        both quote characters.
+    """
+    if "\n" in value or "\r" in value:
+        raise ValueError(f"cannot write {key} to a .env file: the value contains a newline")
+    needs_quoting = value != value.strip() or any(char in value for char in (" ", "\t", "#"))
+    if not needs_quoting:
+        return f"{key}={value}"
+    if '"' not in value:
+        return f'{key}="{value}"'
+    if "'" not in value:
+        return f"{key}='{value}'"
+    raise ValueError(
+        f"cannot write {key} to a .env file: the value needs quoting but contains "
+        "both single and double quotes"
+    )
+
+
+def write_env_merged(repo_root: Path, dest: Path) -> Path:
+    """Write the merged env chain under ``repo_root`` to ``dest`` as one file.
+
+    For the delivery mechanisms that can only be handed ONE env file: the
+    merge happens here, ahead of them, so they still see local-over-shared
+    precedence. Values are rendered through :func:`format_env_line` (so a
+    quoted or space-carrying value survives whatever parser reads the result)
+    and the file is written through :func:`atomic_write`, which lands it whole
+    and at :data:`_ENV_FILE_MODE` (``0600``) — the merged file inherits the
+    local half's secrets, so it inherits its permissions too.
+
+    The file is a machine artifact carrying :data:`ENV_MERGED_BANNER`, is
+    rewritten from the chain on every call, and is never a place to edit a
+    value. ``dest``'s parent directory is created when missing.
+
+    :param repo_root: Directory the chain lives in (the deployment repo root).
+    :param dest: Path to write the merged file to.
+    :return: ``dest``, for the caller to pass on.
+    :raises ValueError: when a value cannot be written to a ``.env`` line (see
+        :func:`format_env_line`).
+    """
+    merged = merge_chain(repo_root)
+    lines = [format_env_line(key, value) for key, value in merged.items()]
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(dest, ENV_MERGED_BANNER + "".join(f"{line}\n" for line in lines))
+    return dest
+
+
+def compose_unsafe_vars_in_chain(repo_root: Path) -> list[str]:
+    """:func:`compose_unsafe_vars` across every existing env-chain file.
+
+    Each chain member is scanned on its own rather than the merged result: a
+    compose ``env_file:`` list reads every file it is given, so a ``$`` in the
+    shared defaults is delivered through the same interpolating parsers as a
+    ``$`` in the local file, whether or not the local file happens to override
+    that key.
+
+    Returns variable *names*, sorted and de-duplicated across the chain —
+    deliberately never the values, so no caller can render a secret into an
+    error message or a log line.
+
+    :param repo_root: Directory the chain lives in (the deployment repo root).
+    :return: Sorted names of the offending variables; empty when all are safe.
+    """
+    offenders: set[str] = set()
+    for path in chain_files(repo_root):
+        offenders.update(compose_unsafe_vars(parse_dotenv_file(path)))
+    return sorted(offenders)

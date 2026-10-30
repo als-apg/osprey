@@ -1,12 +1,11 @@
-"""``claude_code.transcripts.retention_days`` renders Claude Code's ``cleanupPeriodDays``.
+"""Claude Code's ``cleanupPeriodDays`` renders as max(``agent_record.retention_days``, 30).
 
 Claude Code deletes every session transcript older than ``cleanupPeriodDays``
-at startup, 30 days when nothing sets it. The terminals and the dispatch worker
-load project settings only, so the rendered ``.claude/settings.json`` is the one
-place a deployment can state how long its transcripts are kept. Absent, the
-line is absent and Claude Code's own default applies; a value that cannot be a
-retention is refused at build rather than dropped, because a dropped value
-leaves the 30-day deletion in force.
+at startup. The terminals and the dispatch worker load project settings only,
+so the rendered ``.claude/settings.json`` is where a deployment states how long
+its transcripts are kept: never shorter than the record keeps them, never below
+Claude Code's own 30 days. There is no key of its own, and host settings are
+never written.
 """
 
 from __future__ import annotations
@@ -18,13 +17,12 @@ import yaml
 
 from osprey.cli.templates.claude_code import config_derived_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.errors import BuildProfileError
-from tests.cli.test_terminal_theme_render import _create_project
+from tests._preset_data import create_project_as_built
 
 
 def _regen_with_retention(tmp_path, days):
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="retention-test",
         output_dir=tmp_path,
@@ -32,29 +30,46 @@ def _regen_with_retention(tmp_path, days):
         context={"channel_finder_mode": "hierarchical"},
     )
     config = yaml.safe_load((project_dir / "config.yml").read_text())
-    transcripts = config.setdefault("claude_code", {}).setdefault("transcripts", {})
+    config.pop("agent_record.retention_days", None)
+    block = config.setdefault("agent_record", {})
     if days is None:
-        transcripts.pop("retention_days", None)
+        block.pop("retention_days", None)
     else:
-        transcripts["retention_days"] = days
+        block["retention_days"] = days
     (project_dir / "config.yml").write_text(yaml.dump(config))
     manager.regenerate_claude_code(project_dir)
     return (project_dir / ".claude" / "settings.json").read_text()
 
 
-def test_no_key_renders_no_cleanup_period(tmp_path):
+def test_no_record_retention_renders_the_thirty_day_floor(tmp_path):
     text = _regen_with_retention(tmp_path, None)
-    assert "cleanupPeriodDays" not in text
+    assert json.loads(text)["cleanupPeriodDays"] == 30
 
 
-def test_the_key_renders_cleanup_period_days(tmp_path):
+def test_a_record_retention_above_thirty_is_rendered(tmp_path):
     text = _regen_with_retention(tmp_path, 3650)
     assert '"cleanupPeriodDays": 3650' in text
     assert json.loads(text)["cleanupPeriodDays"] == 3650
 
 
-@pytest.mark.parametrize("value", [0, -1, True, "30", 1.5])
-def test_zero_negative_bool_and_string_are_refused(tmp_path, value):
-    config = {"claude_code": {"transcripts": {"retention_days": value}}}
-    with pytest.raises(BuildProfileError, match=r"claude_code\.transcripts\.retention_days"):
-        config_derived_context(config, tmp_path)
+def test_a_record_retention_below_thirty_is_floored(tmp_path):
+    text = _regen_with_retention(tmp_path, 7)
+    assert json.loads(text)["cleanupPeriodDays"] == 30
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({}, 30),
+        ({"agent_record": {"retention_days": 90}}, 90),
+        ({"agent_record.retention_days": 90}, 90),
+        ({"agent_record": {"retention_days": 29}}, 30),
+        ({"agent_record": {"retention_days": 30}}, 30),
+        ({"agent_record": {"retention_days": 0}}, 30),
+        ({"agent_record": {"retention_days": True}}, 30),
+        # ``claude_code.transcripts`` sets nothing.
+        ({"claude_code": {"transcripts": {"retention_days": 3650}}}, 30),
+    ],
+)
+def test_cleanup_period_is_the_larger_of_record_retention_and_thirty(config, expected, tmp_path):
+    assert config_derived_context(config, tmp_path)["cleanup_period_days"] == expected

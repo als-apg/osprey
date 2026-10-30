@@ -190,7 +190,10 @@ switches theme, the terminal posts to the panel's frame:
 A panel is always served from the terminal's own address, so the message is
 same-origin. Check that before acting on it — ``if (event.origin !==
 window.location.origin) return;`` — and repaint. The Expert/Simple toggle
-broadcasts the same way, as ``{ type: 'osprey-mode-change', mode }``.
+broadcasts the same way, as ``{ type: 'osprey-mode-change', mode }``. A panel
+that runs at an opaque origin (see `Panels you add run at an opaque origin`_)
+receives only the theme message, and checks ``event.source === window.parent``
+instead of the origin.
 
 **The tokens come from the terminal, not from your copy.** A page embedded as
 a panel can load OSPREY's design tokens with a plain root-absolute reference:
@@ -339,6 +342,30 @@ ones are skipped and logged, so one bad panel never breaks the others.
    authenticated like any other — unless the redirect points at a third site,
    which is refused with a ``502`` so that a terminal URL never forwards an
    operator somewhere the panel picked.
+
+Panels you add run at an opaque origin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A panel under ``panels/`` and a panel registered while the terminal runs are
+bytes an agent can write, so the terminal never runs them as itself. Which
+panels this covers is decided by where they come from, not by anything the
+panel declares; panels OSPREY ships, and URL-backed panels declared under
+``web.panels``, keep their usual frame.
+
+- **It cannot reach operator routes.** The panel is framed without
+  ``allow-same-origin`` or ``allow-forms`` and served with a sandboxing
+  ``Content-Security-Policy``, so it runs at an opaque origin and the
+  operator's cookie never rides its requests. A request to an operator route
+  is refused, and so is a form post.
+- **It uses relative URLs for its own files.** The terminal frames the panel at
+  a capability address bound to the operator's login, and only URLs relative to
+  the entry page (``./app.js``, ``data.json``) are sure to stay under it. A
+  root-absolute reference to the panel's own files can leave that address, and
+  is refused there.
+- **The terminal's own assets still load.** ``/design-system/…`` and
+  ``/static/fonts/…`` are served to an opaque panel, so it imports the theme
+  module and links the tokens exactly as above, and the theme still follows the
+  operator's.
 
 Panel layouts ("presets")
 -------------------------

@@ -22,6 +22,7 @@ from osprey.cli.build_profile_schema import (
 )
 from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build_in
 
 _READONLY = """\
 name: Read-Only
@@ -323,11 +324,7 @@ def _emitted_profile(preset: str) -> dict:
 @pytest.fixture(scope="module")
 def _built_exemplar(tmp_path_factory) -> Path:
     """The exemplar repo after one real ``osprey build`` (no venv, no hooks)."""
-    import os
 
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build as build_command
     from tests.fixtures.lifecycle_repo import (
         EXEMPLAR_DIRNAME,
         build_exemplar_repo,
@@ -336,13 +333,8 @@ def _built_exemplar(tmp_path_factory) -> Path:
 
     base = tmp_path_factory.mktemp("flagship-dispatch-tier")
     repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 
@@ -377,7 +369,7 @@ class TestFlagshipExemplar:
             assert service["image"].endswith(f"{EXEMPLAR_DIRNAME}-readonly:local}}")
             assert env["OSPREY_PROJECT_DIR"] == root
             assert env["CONFIG_FILE"] == f"{root}/build/config.yml"
-            assert env["OSPREY_AUDIT_DIR"] == f"{root}/var/audit/{key}"
+            assert env["OSPREY_SPOOL_DIR"] == f"{root}/var/spool/{key}"
             workspace = [
                 str(volume).split(":")[1]
                 for volume in service.get("volumes", [])

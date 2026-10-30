@@ -445,7 +445,7 @@ What executed code may not change
 
 Refusing control-system writes is one boundary; this is a different one. Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Three locations are protected:
+Four locations are protected:
 
 - **The render zone** (``build/``) --- rebuilt wholesale by every
   ``osprey build``, and the rendered ``config.yml`` inside it is where the next
@@ -458,8 +458,14 @@ Three locations are protected:
   directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
   ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
   ``services/``) and the ``project/`` mirror.
-- **The audit ledger** (``var/audit/``) --- the record of what was refused. A
-  run that could rewrite it could erase the evidence of its own refusal.
+- **The agent record's directories** (``var/spool/``, ``var/agent_record/``,
+  ``var/state/`` and ``var/archive/``) --- the spool the record is read from,
+  the record itself, the services' own state and the daily archive, which
+  together hold the record of what was refused. A run that could rewrite them
+  could erase or forge the evidence of its own refusal.
+- **The pre-upgrade audit files** --- the files a deployment kept before the
+  agent record. Nothing writes them, and they stay protected for the
+  same reason.
 
 A protected entry that does not exist yet is protected all the same: in a repo
 with no ``apps/`` directory, creating one is exactly the write to refuse.
@@ -557,31 +563,24 @@ account can read stay readable to it.
 Write posture
 -------------
 
-An operator can turn writes off on one control target from the control-target
-chip in the header (see :ref:`web-terminal-session-posture`). The setting is
-the deployment's, not one conversation's. This server reads it at the moment a
-run asks for writes --- not from the environment it was started with, so a
-change made mid-conversation applies to the next run --- and a ``readwrite``
-``execute`` on such a target is refused by the executor's own posture gate,
-whatever the deployment itself permits:
+A ``readwrite`` ``execute`` asks the write verdict (:ref:`write-safety-config`)
+when the run is requested --- the login's tier, then its switch for the run's
+control target, read fresh, so a flip made mid-conversation applies to the next
+run. A refused run gets the verdict's phrase and its trailer, for example::
 
-   Writes are off for the '<target>' control target --- turned off from the
-   control-target chip in the header; applies to every session of this login.
+   Writes are off; turn it on from the chip in the web terminal.
+   [osprey-refusal: switch_off]
 
-Where the run's target cannot be identified, the most restrictive state
-recorded for the deployment decides, and the message says so --- *"Writes are off
-for at least one control target (the run's target could not be identified, so
-the most restrictive decides) --- turned off from the control-target chip in
-the header."* --- rather than granting the run the most permissive answer.
-
-The agent is told to re-run as ``readonly`` --- reads are untouched --- or to
-turn writes back on from the chip. The deployment's ``config.yml`` is not the
-gate here and the message says so.
+A run whose target cannot be identified is refused ``target_unknown`` rather
+than granted the most permissive answer. The agent is told to re-run as
+``readonly`` --- reads are untouched --- or to ask the operator to turn writes
+on from the chip. The phrase names no config key: the deployment's
+``config.yml`` is not what the operator changes here.
 
 A run that has already started cannot be *widened*: it keeps the launch pin it
-started under, so a script cannot gain write access to a machine the operator
-took away from it while it was running. A narrowing that lands mid-run is
-honoured by the reference monitor inside the sandbox at the moment of the write.
+started under, and a write it attempts on a machine it was launched with writes
+held off for is refused ``launch_pinned``. A switch turned off mid-run is
+honoured by the connector inside the sandbox at the moment of the write.
 
 A run is also refused outright while a control-target switch has not yet
 reached every control-system server. The sandbox is stamped with the target and
@@ -597,15 +596,14 @@ Three things happen, at whichever layer catches it:
 1. The agent gets an error naming the mode and what to do instead.
 2. The operator is alerted --- the Web Terminal reports that a write was
    attempted and blocked, not merely that a script failed.
-3. The attempt is recorded in the audit trail, at
-   ``var/audit/<identity>/executor.jsonl`` --- one JSON object per line, with a
-   timestamp, who was acting, the write posture in force, the layer that refused
-   (the record's ``reason``), and the offending source kept verbatim. That
-   directory is durable: builds never touch it, and ``osprey reset`` keeps
-   it unless you pass ``--purge-audit``.
+3. The attempt is recorded in the audit trail, as one ``audit`` entry in the
+   agent record --- with a timestamp, who was acting, the write posture in
+   force, the layer that refused (the entry's ``reason``), and the offending
+   source kept verbatim. Builds never touch the record, and ``osprey reset``
+   keeps it unless you pass ``--purge-audit``.
 
-The record is filed under the identity that was acting, so on a multi-user
-deployment each person's refusals sit in their own file. The pre-run pass
+The entry is filed under the identity that was acting, so on a multi-user
+deployment each person's refusals are their own. The pre-run pass
 records in both execution modes --- the path policy refuses a write into the
 protected set whether the run asked for ``readonly`` or ``readwrite``, and the
 record's ``detail`` says which mode the run was submitted under, so a readwrite
@@ -620,12 +618,12 @@ and the operator alert are what is missing.
 
 .. note::
 
-   **This is the one ledger that holds a payload.** Everywhere else OSPREY
+   **This is the one audit surface that holds a payload.** Everywhere else OSPREY
    records identifiers and config keys only --- never a value, a prompt or an
    agent message. Here the refused code *is* what the record is about, so it is
    kept whole (up to 8000 characters, flagged as truncated beyond that). Give
-   ``executor.jsonl`` the same care you would give the code itself, and expect
-   it to be the file that grows. See :ref:`the audit trail <reference-audit-trail>`
+   the ``executor`` entries the same care you would give the code itself, and
+   expect them to be what grows. See :ref:`the audit trail <reference-audit-trail>`
    for what the rest of it contains.
 
 .. admonition:: Control system operations in user code

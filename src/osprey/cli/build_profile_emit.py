@@ -38,8 +38,8 @@ from osprey import __version__
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
+from osprey.utils.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
@@ -102,6 +102,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "bluesky",
         "virtual_accelerator",
         "va_archiver",
+        "agent_record",
         "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -405,6 +406,39 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   pva_port: {PVA_DEFAULT_PORT}
 #   live_standin: true
 """,
+    "agent_record": """
+# --- Agent record ------------------------------------------------------------
+# Every session fact the deployment's agents produce — prompts, answers,
+# thinking, tool calls, decisions, runs — kept once, in one record, and read
+# through one service. Every deployment has one; this block only changes
+# where it is kept and who may read it. Leave it out for the defaults: the
+# embedded backend, which keeps the record in the agent-record service itself
+# with no store container, and 14 days of retention.
+#
+# The block is the deployment's, so a tier file may not spell it. The service
+# takes the agent_record slot of this deployment's port block; `port` below
+# pins it outside that block instead of moving the block with
+# `config: deployment.port_base`.
+#
+# A named reader reads only the kinds it lists (every kind when `kinds` is
+# left out), over at most `days_back` days (retention_days when left out).
+# `oidc_subject` lets someone who is not on the roster open the history page
+# under OIDC sign-on.
+#
+# agent_record:
+#   backend: embedded           # embedded | clickhouse
+#   retention_days: 14          # days an entry is kept after it arrives
+#   memory: 1g                  # the agent-record container's memory limit
+#   port: <host port>
+#   readers:
+#     - name: ops
+#       kinds: [prompt, answer, decision]
+#       days_back: 7
+#       oidc_subject: <subject>
+#   clickhouse:                 # read only with backend: clickhouse
+#     image: clickhouse/clickhouse-server:26.8.18.2
+#     memory: 2g
+""",
     "va_archiver": """
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
@@ -532,6 +566,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "bluesky",
     "virtual_accelerator",
     "va_archiver",
+    "agent_record",
     "bluesky_web",
     "nextcloud_bridge",
     "gchat_bridge",
@@ -886,10 +921,7 @@ def _extract_visual(
 
 def _set_pre_comment(cm: CommentedMap, key: Any, lines: list[str], indent: int) -> None:
     """Attach comment ``lines`` above ``key``, indented to the key's depth."""
-    tokens = [
-        CommentToken((line.strip() if line.strip() else "") + "\n", CommentMark(indent), None)
-        for line in lines
-    ]
+    tokens = [CommentToken(line.strip() + "\n", CommentMark(indent), None) for line in lines]
     entry = cm.ca.items.setdefault(key, [None, None, None, None])
     entry[1] = (entry[1] or []) + tokens
 
@@ -1032,7 +1064,7 @@ def _sync_to_resolved(doc: CommentedMap, resolved: dict[str, Any]) -> None:
     old last key held, which introduces whatever follows the map, so the new
     key renders inside its own section.
     """
-    for key in [k for k in doc.keys() if k not in resolved]:
+    for key in [k for k in doc if k not in resolved]:
         # The block a key holds introduces the key AFTER it (a collapsed
         # `config` entry is typically the last one in its section, holding the
         # next section's header), so it survives on the preceding key rather
@@ -1082,7 +1114,8 @@ def _layer_header(
     The two kinds say different things about the host because they ARE
     different things: a tier is a delta that only adds to the host, while an
     app is a whole agent definition that brings its own lists and borrows only
-    the host's services, data, provider and config.
+    the host's services, data, provider and config — and the host's model,
+    unless it names its own.
     """
     if kind == TIERS_DIRNAME:
         lead = (
@@ -1098,7 +1131,8 @@ def _layer_header(
             f"#\n"
             f"# A complete agent definition of its own: the lists below are its whole\n"
             f"# selection, and nothing is inherited from {host}'s lists or subtracted\n"
-            f"# from them. Services, data, provider and model are {host}'s, and its\n"
+            f"# from them. Services, data and provider are {host}'s, and so is the model\n"
+            f"# unless a top-level `model:` here names one the provider serves. Its\n"
             f"# config: keys are laid over {host}'s. To see the combined result:\n"
         )
     word = LAYER_DIR_KINDS[kind]

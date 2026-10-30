@@ -27,6 +27,7 @@ import json
 
 import pytest
 from tests.deployment.test_container_ownership import HOST_ROWS, PROJECT
+from tests.health._fakes import FakeProc
 
 from osprey.deployment.compose_generator import PROJECT_LABEL
 from osprey.deployment.container_ownership import (
@@ -47,31 +48,10 @@ def _ctx() -> ProbeContext:
     return ProbeContext(runtime=HealthRuntime({}), config={"project_name": "proj"})
 
 
-class _FakeProc:
-    """Minimal stand-in for an ``asyncio`` subprocess used by the probe."""
-
-    def __init__(self, stdout: bytes = b"", returncode: int = 0, hang: bool = False) -> None:
-        self._stdout = stdout
-        self.returncode: int | None = returncode
-        self._hang = hang
-        self.killed = False
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        if self._hang:
-            await asyncio.sleep(10)
-        return self._stdout, b""
-
-    def kill(self) -> None:
-        self.killed = True
-
-    async def wait(self) -> int:
-        return self.returncode or 0
-
-
 def _patch_runtime(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    proc: _FakeProc | None = None,
+    proc: FakeProc | None = None,
     ps_error: Exception | None = None,
 ) -> None:
     """Patch ``get_ps_command`` and ``create_subprocess_exec`` for one test."""
@@ -89,7 +69,7 @@ def _patch_runtime(
         lambda *_a, **_k: ["docker", "ps", "-a", "--format", "json"],
     )
 
-    async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
+    async def _fake_exec(*_a: object, **_k: object) -> FakeProc:
         assert proc is not None
         return proc
 
@@ -102,25 +82,25 @@ def _ndjson(*containers: dict) -> bytes:
 
 
 async def test_running_container_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=json.dumps(
-            [{"Names": ["telemetry_store"], "State": "running", "Status": "Up 2 hours (healthy)"}]
+            [{"Names": ["graphdb"], "State": "running", "Status": "Up 2 hours (healthy)"}]
         ).encode()
     )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.OK
     assert result.value == "running"
     assert "healthy" in result.message
     assert result.latency_ms > 0
-    assert result.name == "container.telemetry_store"
+    assert result.name == "container.graphdb"
     assert result.category == "containers"
 
 
 async def test_running_but_unhealthy_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=json.dumps(
             [{"Names": ["web"], "State": "running", "Status": "Up 5 minutes (unhealthy)"}]
         ).encode()
@@ -135,12 +115,10 @@ async def test_running_but_unhealthy_is_warning(monkeypatch: pytest.MonkeyPatch)
 
 
 async def test_stopped_container_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
-        stdout=json.dumps([{"Names": ["telemetry_store"], "State": "exited"}]).encode()
-    )
+    proc = FakeProc(stdout=json.dumps([{"Names": ["graphdb"], "State": "exited"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.WARNING
     assert result.value == "exited"
@@ -150,12 +128,10 @@ async def test_stopped_container_is_warning(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_missing_container_is_warning_not_deployed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    proc = _FakeProc(
-        stdout=json.dumps([{"Names": ["something-else"], "State": "running"}]).encode()
-    )
+    proc = FakeProc(stdout=json.dumps([{"Names": ["something-else"], "State": "running"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.WARNING
     assert result.value == "not found"
@@ -165,7 +141,7 @@ async def test_missing_container_is_warning_not_deployed(
 async def test_no_runtime_runtimeerror_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_runtime(monkeypatch, ps_error=RuntimeError("No container runtime found"))
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.SKIP
     assert result.message == "no container runtime available"
@@ -174,7 +150,7 @@ async def test_no_runtime_runtimeerror_is_skip(monkeypatch: pytest.MonkeyPatch) 
 async def test_no_runtime_filenotfound_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_runtime(monkeypatch, ps_error=FileNotFoundError("docker"))
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.SKIP
     assert result.message == "no container runtime available"
@@ -182,15 +158,15 @@ async def test_no_runtime_filenotfound_is_skip(monkeypatch: pytest.MonkeyPatch) 
 
 async def test_docker_ndjson_output_parses(monkeypatch: pytest.MonkeyPatch) -> None:
     # Docker emits one JSON object per line (not a JSON array). Names is a string.
-    proc = _FakeProc(
+    proc = FakeProc(
         stdout=_ndjson(
             {"Names": "proj-postgres-1", "State": "exited"},
-            {"Names": "proj-telemetry_store-1", "State": "running", "Status": "Up (healthy)"},
+            {"Names": "proj-graphdb-1", "State": "running", "Status": "Up (healthy)"},
         )
     )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.OK
     assert result.value == "running"
@@ -198,7 +174,7 @@ async def test_docker_ndjson_output_parses(monkeypatch: pytest.MonkeyPatch) -> N
 
 async def test_fuzzy_underscore_hyphen_match(monkeypatch: pytest.MonkeyPatch) -> None:
     # Dotted service name, hyphen in target, underscore in the container name.
-    proc = _FakeProc(stdout=_ndjson({"Names": "myproj_python_executor_1", "State": "running"}))
+    proc = FakeProc(stdout=_ndjson({"Names": "myproj_python_executor_1", "State": "running"}))
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "osprey.python-executor"}, _ctx())
@@ -208,20 +184,20 @@ async def test_fuzzy_underscore_hyphen_match(monkeypatch: pytest.MonkeyPatch) ->
 
 
 async def test_ps_nonzero_exit_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout=b"", returncode=1)
+    proc = FakeProc(stdout=b"", returncode=1)
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
 
     assert result.status is Status.WARNING
     assert "failed" in result.message
 
 
 async def test_query_timeout_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(hang=True)
+    proc = FakeProc(hang=True)
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "telemetry_store", "timeout_s": 0.05}, _ctx())
+    result = await run({"container": "graphdb", "timeout_s": 0.05}, _ctx())
 
     assert result.status is Status.WARNING
     assert "timed out" in result.message
@@ -229,7 +205,7 @@ async def test_query_timeout_is_warning(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 async def test_custom_name_and_category_flow_through(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout=json.dumps([{"Names": ["foo"], "State": "running"}]).encode())
+    proc = FakeProc(stdout=json.dumps([{"Names": ["foo"], "State": "running"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
     result = await run({"container": "foo", "name": "infra.foo", "category": "infra"}, _ctx())
@@ -239,12 +215,10 @@ async def test_custom_name_and_category_flow_through(monkeypatch: pytest.MonkeyP
 
 
 async def test_service_alias_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(
-        stdout=json.dumps([{"Names": ["telemetry_store"], "State": "running"}]).encode()
-    )
+    proc = FakeProc(stdout=json.dumps([{"Names": ["graphdb"], "State": "running"}]).encode())
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"service": "telemetry_store"}, _ctx())
+    result = await run({"service": "graphdb"}, _ctx())
 
     assert result.status is Status.OK
 
@@ -267,7 +241,7 @@ def _row(name: str, state: str = "running", status: str = "", **labels: str) -> 
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, *rows: dict) -> None:
-    _patch_runtime(monkeypatch, proc=_FakeProc(stdout=json.dumps(list(rows)).encode()))
+    _patch_runtime(monkeypatch, proc=FakeProc(stdout=json.dumps(list(rows)).encode()))
 
 
 async def test_another_deployments_container_is_never_graded(
@@ -275,25 +249,25 @@ async def test_another_deployments_container_is_never_graded(
 ) -> None:
     _serve(
         monkeypatch,
-        _row("other-telemetry_store", **{PROJECT_LABEL: "other"}),
-        _row("proj-telemetry_store", "exited", **{PROJECT_LABEL: "proj"}),
+        _row("other-graphdb", **{PROJECT_LABEL: "other"}),
+        _row("proj-graphdb", "exited", **{PROJECT_LABEL: "proj"}),
     )
-    result = await run({"container": "telemetry_store"}, _ctx())
+    result = await run({"container": "graphdb"}, _ctx())
     assert result.status is Status.WARNING
     assert result.value == "exited"
 
-    _serve(monkeypatch, _row("other-telemetry_store", **{PROJECT_LABEL: "other"}))
-    result = await run({"container": "telemetry_store"}, _ctx())
+    _serve(monkeypatch, _row("other-graphdb", **{PROJECT_LABEL: "other"}))
+    result = await run({"container": "graphdb"}, _ctx())
     assert result.status is Status.WARNING
-    assert result.message == "telemetry_store: not deployed"
+    assert result.message == "graphdb: not deployed"
 
 
 async def test_a_row_of_another_compose_project_is_never_graded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _serve(monkeypatch, _row("stack-telemetry_store", **{COMPOSE_PROJECT_LABEL: "stack"}))
-    result = await run({"container": "telemetry_store"}, _ctx())
-    assert result.message == "telemetry_store: not deployed"
+    _serve(monkeypatch, _row("stack-graphdb", **{COMPOSE_PROJECT_LABEL: "stack"}))
+    result = await run({"container": "graphdb"}, _ctx())
+    assert result.message == "graphdb: not deployed"
 
 
 async def test_the_compose_service_label_names_the_service(
@@ -382,10 +356,10 @@ async def test_the_global_config_is_read_when_the_context_has_none(
     monkeypatch.setattr(container_mod, "get_full_configuration", lambda: {"project_name": "proj"})
     _serve(
         monkeypatch,
-        _row("other-telemetry_store", **{PROJECT_LABEL: "other"}),
-        _row("proj-telemetry_store", "exited", **{PROJECT_LABEL: "proj"}),
+        _row("other-graphdb", **{PROJECT_LABEL: "other"}),
+        _row("proj-graphdb", "exited", **{PROJECT_LABEL: "proj"}),
     )
-    result = await run({"container": "telemetry_store"}, ProbeContext(runtime=HealthRuntime({})))
+    result = await run({"container": "graphdb"}, ProbeContext(runtime=HealthRuntime({})))
     assert result.status is Status.WARNING
     assert result.value == "exited"
 
@@ -395,14 +369,14 @@ async def test_no_config_anywhere_is_skip(monkeypatch: pytest.MonkeyPatch) -> No
         raise FileNotFoundError("No config.yml found in current directory")
 
     monkeypatch.setattr(container_mod, "get_full_configuration", _missing)
-    _serve(monkeypatch, _row("telemetry_store"))
-    result = await run({"container": "telemetry_store"}, ProbeContext(runtime=HealthRuntime({})))
+    _serve(monkeypatch, _row("graphdb"))
+    result = await run({"container": "graphdb"}, ProbeContext(runtime=HealthRuntime({})))
     assert result.status is Status.SKIP
     assert result.message == "config unavailable"
     assert result.details == "cannot tell this deployment's containers from another's"
 
 
-@pytest.mark.parametrize("service", ["telemetry_store", "postgresql", "archive"])
+@pytest.mark.parametrize("service", ["graphdb", "postgresql", "archive"])
 async def test_the_probe_grades_exactly_the_rows_the_rule_claims(
     monkeypatch: pytest.MonkeyPatch, service: str
 ) -> None:

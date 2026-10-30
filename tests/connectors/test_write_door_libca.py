@@ -28,6 +28,11 @@ import pytest
 import yaml
 
 import osprey_connectors
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    VERDICT_ENV_VARS,
+    pin_identity,
+    write_control_context,
+)
 from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
 # Decided by lookup, never by import: importing either would load libca here.
@@ -72,6 +77,7 @@ async def main():
 
     in_flight = threading.Event()
     first = asyncio.Event()
+    landed = asyncio.Event()
     seen = []
 
     async def on_update(value):
@@ -85,10 +91,24 @@ async def main():
         entry["in_flight"] = in_flight.is_set()
         seen.append(entry)
         first.set()
+        if float(value) == 3.0:
+            landed.set()
 
     sub = aioca.camonitor(setpoint, on_update)
     await asyncio.wait_for(first.wait(), timeout=30)
     seen.clear()
+
+    # The update the put causes is dispatched to this loop by libca's thread,
+    # on no schedule tied to the write, and the confirming read can return
+    # before it does. Holding that read until the update's callback has run
+    # puts the callback inside the write every time.
+    confirming_read = connector._confirming_read
+
+    async def confirming_read_after_the_update(*args, **kwargs):
+        await asyncio.wait_for(landed.wait(), timeout=30)
+        return await confirming_read(*args, **kwargs)
+
+    connector._confirming_read = confirming_read_after_the_update
 
     in_flight.set()
     try:
@@ -111,7 +131,7 @@ asyncio.run(main())
 
 
 def _control_system(port: int) -> dict:
-    """An ``epics`` section with writes on and both gateways at the soft IOC.
+    """An ``epics`` section whose tier allows writes, both gateways at the soft IOC.
 
     No limits file: in the optional mode a channel with no record is written
     with no limits.
@@ -119,7 +139,7 @@ def _control_system(port: int) -> dict:
     endpoint = {"address": "127.0.0.1", "port": port, "use_name_server": False}
     return {
         "type": "epics",
-        "writes_enabled": True,
+        "writes": "allowed",
         "connector": {
             "epics": {
                 "timeout_s": CA_TIMEOUT_S,
@@ -129,8 +149,19 @@ def _control_system(port: int) -> dict:
     }
 
 
-def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(tmp_path, ioc_prefix):
+#: Variables that would change the child's write verdict behind the test's back.
+_VERDICT_ENV = (*VERDICT_ENV_VARS, "OSPREY_AGENT_DATA_ROOT")
+
+
+def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(
+    tmp_path, ioc_prefix, monkeypatch
+):
     setpoint = f"{ioc_prefix}:SP"
+    # The login's switch on for the live machine the child's connector is
+    # built for, under a scratch root the child is pointed at.
+    pin_identity(monkeypatch)
+    data_root = tmp_path / "data"
+    write_control_context(data_root, target="live", owned_by=None, switch={"live": "on"})
     ioc = SoftIOC(tmp_path, "machine", ioc_prefix, 1.0)
     try:
         config_file = tmp_path / "config.yml"
@@ -138,11 +169,11 @@ def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(tmp
         env = {
             k: v
             for k, v in os.environ.items()
-            if not k.startswith(("EPICS_CA", "EPICS_PVA"))
-            and k not in ("OSPREY_EXECUTION_MODE", "OSPREY_AGENT_DATA_ROOT")
+            if not k.startswith(("EPICS_CA", "EPICS_PVA")) and k not in _VERDICT_ENV
         }
         env.update(
             {
+                "OSPREY_AGENT_DATA_ROOT": str(data_root),
                 "PYTHONPATH": PYTHONPATH,
                 "CONFIG_FILE": str(config_file),
                 "EPICS_CA_ADDR_LIST": "127.0.0.1",
@@ -168,10 +199,9 @@ def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(tmp
 
     assert seen["outcome"] == "confirmed", seen
     assert seen["error"] is None, seen
-    callbacks = seen["callbacks"]
-    assert callbacks, f"no monitor update arrived during the write: {seen}"
-    for entry in callbacks:
-        assert entry["name"] == "ChannelWriteBlockedError", seen
-        assert entry["reason"] == "RAW_CLIENT_WRITE", seen
-    assert any(entry["in_flight"] for entry in callbacks), seen
+    # The confirming read is held until the put's own update has been handled,
+    # so exactly that one callback runs, inside the write, and is refused.
+    assert seen["callbacks"] == [
+        {"name": "ChannelWriteBlockedError", "reason": "RAW_CLIENT_WRITE", "in_flight": True}
+    ], seen
     assert seen["final"] == pytest.approx(3.0), seen

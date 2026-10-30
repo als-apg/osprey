@@ -27,7 +27,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -35,8 +34,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import osprey.interfaces.design_system as design_system_pkg
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -142,32 +141,10 @@ def _hub_live_server(
     Yields:
         The hub's base URL.
     """
-    if custom_panels is None:
-        custom_panels = []
-
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled_panels, custom_panels, None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-
-    # Patches stay live across create_app() AND the server lifespan (nested
-    # _run_app_server), so the join happens while patched — see _run_app_server.
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(
+        workspace_dir, enabled_panels=enabled_panels, custom_panels=custom_panels or ()
+    ) as (base_url, _app):
+        yield base_url
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +354,7 @@ def test_broadcast_reaches_embedded_iframe(tmp_path, chromium_browser):
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _run_app_server(_create_follower_app()) as follower_url:
+    with run_app_server(_create_follower_app()) as follower_url:
         follower_panel = {
             "id": "follower",
             "label": "FOLLOWER",
@@ -429,7 +406,7 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _run_app_server(_create_follower_app()) as follower_url:
+    with run_app_server(_create_follower_app()) as follower_url:
         follower_panel = {
             "id": "follower",
             "label": "FOLLOWER",

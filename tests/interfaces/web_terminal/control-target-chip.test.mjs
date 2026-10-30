@@ -26,11 +26,12 @@
  * - a switch is done when every live controls server reports the generation
  *   the POST answered with — not when the record's terminus turns up;
  * - the full state matrix reaches the DOM as data attributes and words: three
- *   kinds (live / stand-in / virtual accelerator) × three states
- *   (writes / sandbox / read-only). Not one colour is decided here — the
- *   stylesheet owns the map, so the attributes ARE the contract;
- * - `sandbox` and `read-only` stay separate words: one is the operator's own
- *   narrowing and one click undoes it, the other is the deployment's ceiling;
+ *   kinds (real / rehearsal / simulator, GET's `machine_kind`) × three states
+ *   (on / off / locked, derived from `switch` and `write_allowed`). Not one
+ *   colour is decided here — the stylesheet owns the map, so the attributes
+ *   ARE the contract;
+ * - `off` and `locked` stay separate words: one click undoes off, while a
+ *   locked switch is on and still refused (or cannot be read);
  * - an `agent_activity` frame naming `control_target_set` triggers a REFETCH
  *   and nothing else — the frame's prose is the agent's narration of a switch
  *   that may belong to any client on the stream, and the chip never reads it;
@@ -53,6 +54,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
+
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js')} */
@@ -61,57 +64,79 @@ let chipModule;
 /* ---- roster fixtures ---------------------------------------------------- */
 
 /**
- * The three machine kinds, in the shape the route publishes them. `kind` is the
- * PLAIN-LANGUAGE word the route mints from `real_machine` and the label's
- * shape; the chip maps it onto the CSS value, which is what these tests read.
+ * The three machine kinds, in the shape the route publishes them. `machine_kind`
+ * is the write verdict's kind (C-KIND), which is also the CSS value these
+ * tests read.
  */
 const KINDS = {
   live: {
     target: 'live',
-    label: 'LIVE MACHINE',
+    label: 'Real machine — writes move hardware',
     short_label: 'LIVE',
-    kind: 'live machine',
+    machine_kind: 'real',
     endpoint: 'gw.example.org:5064',
     real_machine: true,
   },
   standin: {
     target: 'standin',
-    label: 'LIVE MACHINE (stand-in)',
+    label: 'Rehearsal — nothing moves',
     short_label: 'STAND-IN',
-    kind: 'stand-in',
+    machine_kind: 'rehearsal',
     endpoint: '127.0.0.1:10090',
     real_machine: true,
   },
   va: {
     target: 'va',
-    label: 'virtual accelerator (simulation)',
+    label: 'Simulator — nothing moves',
     short_label: 'VIRTUAL',
-    kind: 'virtual accelerator',
+    machine_kind: 'simulator',
     endpoint: '127.0.0.1:10064',
     real_machine: false,
   },
 };
 
 /**
- * The three effective states as the route's three columns express them.
- * `read-only` and `sandbox` differ only in `posture`: the effective answer is
- * the same "no", and which "no" it is decides whether a toggle can undo it.
+ * The three states as C-GET's columns express them. `off` and `locked` are
+ * both "no", and which "no" it is decides whether a toggle can undo it.
+ * Each carries a legacy `posture` that DISAGREES with it, so a derivation
+ * that still read `posture` would fail here.
  */
 const STATES = {
-  writes: { effective: true, posture: 'writes' },
-  sandbox: { effective: false, posture: 'sandbox' },
-  'read-only': { effective: false, posture: 'writes' },
+  on: {
+    switch: 'on',
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
+  off: {
+    switch: 'off',
+    write_allowed: false,
+    write_reason: 'switch_off',
+    write_phrase: 'Writes are off; turn it on from the chip in the web terminal.',
+    posture: 'writes',
+    effective: true,
+  },
+  locked: {
+    switch: 'on',
+    write_allowed: false,
+    write_reason: 'readonly_run',
+    write_phrase:
+      'Writes are refused because the deployment is running read-only; the chip cannot lift this — ask the deployment admin.',
+    posture: 'writes',
+    effective: true,
+  },
 };
 
 /** @param {object} [o] */
 const rowOf = (o = {}) => ({
   ...KINDS.standin,
-  ...STATES.writes,
+  ...STATES.on,
   active: false,
   is_baseline: false,
   available_now: true,
   reason: null,
-  ceiling_writes: true,
+  reason_detail: null,
   reachability: {
     state: 'reached',
     role: 'write_access',
@@ -150,6 +175,9 @@ const viewOf = (o = {}) => ({
   servers: [serverOf()],
   store_available: true,
   readonly_run: false,
+  switch_epoch: '1',
+  any_on: true,
+  locks: { readonly_run: false, tier: 'allowed' },
   execution_in_flight: [],
   last_switch: null,
   last_posture_realign: null,
@@ -241,29 +269,6 @@ function mountFixtureWithoutShell() {
   document.querySelector('[data-bar-item="control-target"]')?.remove();
 }
 
-/**
- * happy-dom ships no EventSource. A class stub keeps api.js's shared-stream
- * path real: frames are delivered as the browser would, as `onmessage` with a
- * string payload api.js parses, and the socket closes when the last
- * subscriber stops.
- */
-class FakeEventSource {
-  /** @type {FakeEventSource[]} */
-  static opened = [];
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-    this.closed = false;
-    /** @type {((e: {data: string}) => void)|null} */
-    this.onmessage = null;
-    FakeEventSource.opened.push(this);
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
@@ -293,8 +298,7 @@ function pushFrame(/** @type {any} */ frame) {
 }
 
 beforeEach(async () => {
-  FakeEventSource.opened = [];
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource({ open: true });
   vi.resetModules();
   served = viewOf();
   stubFetch();
@@ -437,12 +441,12 @@ describe('mount', () => {
 
 describe('state matrix', () => {
   /** @type {Record<string, string>} */
-  const KIND_ATTR = { live: 'live', standin: 'standin', va: 'va' };
+  const KIND_ATTR = { live: 'real', standin: 'rehearsal', va: 'simulator' };
   /** The consequence word each kind renders when no display_name is configured. */
   /** @type {Record<string, string>} */
   const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator' };
   /** @type {Record<string, string>} */
-  const PHRASES = { writes: 'writes on', sandbox: 'writes off', 'read-only': 'writes locked' };
+  const PHRASES = { on: 'writes on', off: 'writes off', locked: 'writes locked' };
 
   for (const [kindName, kind] of Object.entries(KINDS)) {
     for (const [stateName, state] of Object.entries(STATES)) {
@@ -465,56 +469,79 @@ describe('state matrix', () => {
     }
   }
 
-  test('kind falls back to real_machine + the label shape when the route sends none', async () => {
+  test('a standin GET calls the real machine reads as the real machine', async () => {
+    // C-KIND: a stand-in no live server vouched for is `real`. Neither the
+    // target name nor the "(stand-in)" label may turn it back into the
+    // rehearsal.
     await boot(
       viewOf({
-        targets: [
-          rowOf({
-            ...KINDS.standin,
-            kind: undefined,
-            active: true,
-          }),
-        ],
+        targets: [rowOf({ ...KINDS.standin, machine_kind: 'real', active: true })],
       })
     );
-    expect(chipEl()?.dataset.targetKind).toBe('standin');
+    expect(chipEl()?.dataset.targetKind).toBe('real');
+    expect(shortText()).toBe('Real machine');
   });
 
-  test('an unrecognised real machine falls back to the loud answer', async () => {
-    await boot(
-      viewOf({
-        targets: [
-          rowOf({
-            target: 'other',
-            label: 'some machine nobody named',
-            short_label: 'LIVE',
-            kind: undefined,
-            real_machine: true,
-            active: true,
-          }),
-        ],
-      })
-    );
-    expect(chipEl()?.dataset.targetKind).toBe('live');
+  test('a row with no machine_kind falls back to the loud answer, whatever its label', async () => {
+    for (const shape of [
+      { ...KINDS.standin, machine_kind: undefined },
+      { ...KINDS.va, machine_kind: undefined },
+      { ...KINDS.live, machine_kind: 'live' },
+    ]) {
+      served = viewOf({ targets: [rowOf({ ...shape, active: true })] });
+      if (chipModule.getState()) await chipModule.refetch();
+      else await boot(served);
+      expect(chipEl()?.dataset.targetKind).toBe('real');
+      expect(shortText()).toBe('Real machine');
+    }
   });
 
-  test('a machine that is not real is the simulator whatever its label', async () => {
+  test('the state reads switch and write_allowed, never posture or effective', async () => {
     await boot(
       viewOf({
         targets: [
           rowOf({
-            target: 'other',
-            label: 'some machine nobody named',
-            short_label: 'VIRTUAL',
-            kind: undefined,
-            real_machine: false,
+            switch: 'on',
+            write_allowed: false,
+            posture: 'writes',
+            effective: true,
             active: true,
           }),
         ],
       })
     );
-    expect(chipEl()?.dataset.targetKind).toBe('va');
-    expect(shortText()).toBe('Simulator');
+    expect(chipEl()?.dataset.state).toBe('locked');
+    // An unreadable switch is locked, never off.
+    served = viewOf({
+      targets: [
+        rowOf({
+          switch: null,
+          write_allowed: false,
+          write_reason: 'record_unavailable',
+          active: true,
+        }),
+      ],
+    });
+    await chipModule.refetch();
+    expect(chipEl()?.dataset.state).toBe('locked');
+    expect(stateText()).toBe('writes locked');
+  });
+
+  test('stateWord answers on | off | locked and never "sandbox"', () => {
+    /** @param {object} o */
+    const wordOf = (o) => chipModule.stateWord(/** @type {any} */ (rowOf(o)));
+    expect(wordOf(STATES.on)).toBe('on');
+    expect(wordOf(STATES.off)).toBe('off');
+    expect(wordOf(STATES.locked)).toBe('locked');
+    expect(wordOf({ switch: null, write_allowed: false })).toBe('locked');
+    // Not even a row whose legacy mirror still says sandbox.
+    for (const o of [
+      { posture: 'sandbox', effective: false },
+      { switch: 'off', posture: 'sandbox' },
+      { switch: undefined, posture: 'sandbox' },
+    ]) {
+      expect(wordOf(o)).not.toBe('sandbox');
+    }
   });
 
   test("the deployment's configured display_name wins over the kind default", async () => {
@@ -524,7 +551,7 @@ describe('state matrix', () => {
       })
     );
     expect(shortText()).toBe('Example storage ring');
-    expect(chipEl()?.dataset.targetKind).toBe('live');
+    expect(chipEl()?.dataset.targetKind).toBe('real');
   });
 
   test('data-enforceable answers whether a change here would be written', async () => {
@@ -565,7 +592,7 @@ describe('active row', () => {
       })
     );
     expect(shortText()).toBe('Simulator');
-    expect(chipEl()?.dataset.targetKind).toBe('va');
+    expect(chipEl()?.dataset.targetKind).toBe('simulator');
   });
 
   test('falls back to the baseline row when no row is marked active', async () => {
@@ -642,7 +669,7 @@ describe('refetch hints', () => {
     });
     await flush();
     expect(shortText()).toBe('Rehearsal');
-    expect(chipEl()?.dataset.targetKind).toBe('standin');
+    expect(chipEl()?.dataset.targetKind).toBe('rehearsal');
   });
 
   test('ignores other tools, other frame types and unparsed frames', async () => {
@@ -679,7 +706,7 @@ describe('polling', () => {
     expect(stateText()).toBe('switching…');
     // `data-state` still describes the machine the deployment is ON — the switch
     // has not landed, and the dot must not go quiet before it does.
-    expect(chipEl()?.dataset.state).toBe('writes');
+    expect(chipEl()?.dataset.state).toBe('on');
 
     const before = getCount();
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS * 3);
@@ -980,7 +1007,7 @@ describe('read ordering', () => {
     await slow;
     await flush();
     expect(shortText()).toBe('Real machine');
-    expect(chipEl()?.dataset.targetKind).toBe('live');
+    expect(chipEl()?.dataset.targetKind).toBe('real');
   });
 
   test('a failed read says nothing rather than naming a machine nobody confirmed', async () => {
@@ -1090,6 +1117,130 @@ describe('popover API', () => {
       'Could not read the control target (HTTP 503).'
     );
   });
+
+  test('a posture refusal carries its phrase, status and detail (C-POST)', async () => {
+    const detail = { reason: 'not_taken', taken: false, phrase: 'The stop did not take effect.' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ detail }) }))
+    );
+    const err = await chipModule
+      .targetRequest('/api/terminal/posture', { method: 'POST', json: {} })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(chipModule.TargetRequestError);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('The stop did not take effect.');
+    expect(err.status).toBe(503);
+    expect(err.detail).toEqual(detail);
+  });
+
+  test('a stamped 409 keeps the epoch it returned', async () => {
+    const detail = { reason: 'stopped_since', epoch: '12', stamped: true };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ detail }) }))
+    );
+    const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(err.detail).toEqual(detail);
+    // No phrase and no message: the status is all the sentence can say.
+    expect(err.message).toBe('Could not read the control target (HTTP 409).');
+  });
+
+  test('a validation failure’s list detail reads as the generic failure', async () => {
+    const detail = [{ loc: ['body', 'state'], msg: 'bad', type: 'literal_error' }];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 422, json: async () => ({ detail }) }))
+    );
+    const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
+    expect(err.message).toBe('Could not read the control target (HTTP 422).');
+    expect(err.detail).toEqual(detail);
+  });
+
+  test('a switch refusal says what the operator must not miss', () => {
+    const { TargetRequestError, switchRefusal, STOPPED_SINCE_SENTENCE } = chipModule;
+    /** @param {number} status @param {any} detail */
+    const refused = (status, detail) => new TargetRequestError('x', status, detail);
+    // The route's phrase wins, and leaves the confirm up.
+    expect(switchRefusal(refused(403, { reason: 'tier_never', phrase: 'P.' }), 'on')).toEqual({
+      message: 'P.',
+      close: false,
+    });
+    // A stop that overtook the gesture closes the dialog it asked from.
+    expect(switchRefusal(refused(409, { reason: 'stopped_since', epoch: '3' }), 'on')).toEqual({
+      message: STOPPED_SINCE_SENTENCE,
+      close: true,
+    });
+    // A stop that was not taken is the stop sentence even with no phrase.
+    expect(switchRefusal(refused(503, null), 'off').message).toMatch(/writes are still on/);
+    // A bare code reads as its phrase; anything else as the message.
+    expect(switchRefusal(refused(400, { reason: 'bulk_on_refused' }), 'on').message).toBe(
+      'bulk_on_refused'
+    );
+    expect(switchRefusal(new Error('network down'), 'off').message).toBe('network down');
+  });
+
+  test('a body with no detail carries a null one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new SyntaxError('x');
+        },
+      }))
+    );
+    const err = await chipModule.targetRequest('/api/terminal/posture').catch((e) => e);
+    expect(err.status).toBe(500);
+    expect(err.detail).toBeNull();
+  });
+});
+
+/* ---- the switch epoch on the wire ------------------------------------- */
+
+describe('postSwitch epoch', () => {
+  /**
+   * A nanosecond epoch with non-zero low digits: above 2**53, so as a JSON
+   * number it would come back rounded (…148000 or …148128), and the route
+   * would answer every turn-on 409 `stopped_since`.
+   */
+  const NS_EPOCH = '1793181592449148123';
+  const STAMPED_EPOCH = '1793181592449148987';
+
+  /** Answer each POST with the next `[status, bodyText]`, recording the raw request bodies. */
+  function stubPosts(/** @type {[number, string][]} */ answers) {
+    const sent = /** @type {string[]} */ ([]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ _url, /** @type {RequestInit} */ init) => {
+        sent.push(String(init.body));
+        const [status, text] = /** @type {[number, string]} */ (answers.shift());
+        return { ok: status < 400, status, json: async () => JSON.parse(text) };
+      })
+    );
+    return sent;
+  }
+
+  test('posts back the exact string it read', async () => {
+    const sent = stubPosts([[200, `{"target":"live","state":"on","switch_epoch":"${NS_EPOCH}"}`]]);
+    const answer = await chipModule.postSwitch(null, 'live', 'on', NS_EPOCH);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(`"epoch":"${NS_EPOCH}"`);
+    expect(answer.switch_epoch).toBe(NS_EPOCH);
+  });
+
+  test('a stamped 409 is retried with the exact string it carried', async () => {
+    const sent = stubPosts([
+      [409, `{"detail":{"reason":"stopped_since","epoch":"${STAMPED_EPOCH}","stamped":true}}`],
+      [200, `{"target":"live","state":"on","switch_epoch":"${STAMPED_EPOCH}"}`],
+    ]);
+    await chipModule.postSwitch(null, 'live', 'on', null);
+    expect(sent).toHaveLength(2);
+    expect(JSON.parse(sent[0]).epoch).toBeNull();
+    expect(sent[1]).toContain(`"epoch":"${STAMPED_EPOCH}"`);
+  });
 });
 
 /* ---- the active kind ---------------------------------------------------- */
@@ -1097,7 +1248,7 @@ describe('popover API', () => {
 describe('activeKind', () => {
   /** The CSS values the chip keys on, one per machine kind. */
   /** @type {Record<string, string>} */
-  const ATTR = { live: 'live', standin: 'standin', va: 'va' };
+  const ATTR = { live: 'real', standin: 'rehearsal', va: 'simulator' };
 
   test('answers null before anything has been read', () => {
     expect(chipModule.activeKind()).toBeNull();
@@ -1125,7 +1276,7 @@ describe('activeKind', () => {
 
   test('subscribers see the new kind once a switch has landed', async () => {
     await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true })] }));
-    expect(chipModule.activeKind()).toBe('standin');
+    expect(chipModule.activeKind()).toBe('rehearsal');
 
     const seen = /** @type {(string|null)[]} */ ([]);
     const off = chipModule.subscribe(() => seen.push(chipModule.activeKind()));
@@ -1134,8 +1285,8 @@ describe('activeKind', () => {
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
-    expect(seen).toEqual(['live']);
-    expect(chipModule.activeKind()).toBe('live');
+    expect(seen).toEqual(['real']);
+    expect(chipModule.activeKind()).toBe('real');
     off();
   });
 });

@@ -528,9 +528,9 @@ def test_a_same_value_mark_on_a_divergent_key_goes_red():
     assert "control-assistant" in text
 
 
-@pytest.mark.parametrize("key", ["web.theme", "services.telemetry_store.port"])
+@pytest.mark.parametrize("key", ["web.theme", "services.qmd.port"])
 def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
-    # web.theme is live only in control-assistant; services.telemetry_store.port
+    # web.theme is live only in control-assistant; services.qmd.port
     # reaches the union only through the layout fill, which no preset writes.
     guard = make_guard(mark_same_value(key))
     guard.check_parity()
@@ -1302,7 +1302,8 @@ def test_an_app_renders_as_the_host_with_the_app_over_it():
     # A host fact survives; the app's switch wins; the write boundary is pinned.
     assert cfg["approval"]["enabled"] is True
     assert cfg["claude_code"]["servers"]["python"]["enabled"] is False
-    assert cfg["control_system"]["writes_enabled"] is False
+    assert cfg["control_system"]["writes"] == "never"
+    assert "writes_enabled" not in cfg["control_system"]
 
 
 def test_parity_expects_the_root_presets_alone():

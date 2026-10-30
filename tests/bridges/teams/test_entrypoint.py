@@ -66,7 +66,8 @@ from osprey.bridges.teams.config import TeamsBridgeConfig
 from osprey.bridges.teams.graph import GraphFiles
 from osprey.bridges.teams.ops import ack_text
 from osprey.bridges.teams.receiver import QueueReceiver, make_receiver
-from tests.bridges.teams.test_posting import (
+from tests.bridges.conftest import recording_client
+from tests.bridges.teams._posting import (
     APP_ID,
     TENANT,
     VERSION,
@@ -165,7 +166,6 @@ def cfg(tmp_path: Any) -> TeamsBridgeConfig:
             event_dispatcher_token="disp-token",
             dispatch_worker_token="work-token",
             dedup_path=str(tmp_path / "dedup.json"),
-            history_path=str(tmp_path / "history.json"),
         ),
     )
 
@@ -230,23 +230,6 @@ class FakeRuntime:
 
     def handle_event(self, _event: Any) -> str:
         return "ignored"
-
-
-def recording_client(
-    handler: Any,
-) -> tuple[httpx.Client, list[httpx.Request]]:
-    """A client over ``handler``, plus the requests it was asked to make.
-
-    The request list is the assertion that matters: an injected client that the wiring
-    dropped on the floor records nothing, whatever the call happens to return.
-    """
-    seen: list[httpx.Request] = []
-
-    def record(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return handler(request)
-
-    return httpx.Client(transport=httpx.MockTransport(record)), seen
 
 
 def token_leg() -> tuple[httpx.Client, list[httpx.Request]]:

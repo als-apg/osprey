@@ -36,7 +36,8 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
-from osprey_connectors.config import get_facility_timezone, to_facility_iso
+from osprey.utils.facility import to_facility_iso
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -1274,17 +1275,16 @@ async def _store_and_link_attachments(
     """
     from osprey.services.ariel_search.attachments import store_native_attachment
 
-    attachment_infos: list[AttachmentInfo] = []
-    for attachment in staged:
-        attachment_infos.append(
-            await store_native_attachment(
-                service.repository,
-                entry_id,
-                filename=attachment.filename,
-                declared_mime=attachment.mime_type,
-                data=attachment.data,
-            )
+    attachment_infos: list[AttachmentInfo] = [
+        await store_native_attachment(
+            service.repository,
+            entry_id,
+            filename=attachment.filename,
+            declared_mime=attachment.mime_type,
+            data=attachment.data,
         )
+        for attachment in staged
+    ]
 
     if attachment_infos:
         entry = await service.repository.get_entry(entry_id)

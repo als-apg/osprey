@@ -12,7 +12,7 @@ the CLI the project pins:
 
 (a) the prompt the agent receives carries the block, with the stored path in it;
 (b) the Read of the stored PNG succeeds, and the operator is shown no card for it;
-(c) no hook refuses the call; each hook's decision is read from the render's hook log;
+(c) no hook refuses the call; each hook's decision is read from the record's hook debug lines;
 (d) the rule is no wider than the uploads directory: a file beside it, under the same
     agent-data root, still raises the CLI's own path card, and a decline refuses it.
 
@@ -20,7 +20,7 @@ The workspace is trusted before the child starts, as the container entrypoint tr
 deployed render, so the project's allow rules apply. The run does not widen any rule.
 
 The scripted model spends no tokens. The child's launch, the recorded requests and the
-hook log are the scripted chat proofs' shared harness (``_chat_turn``).
+hook debug read are the scripted chat proofs' shared harness (``_chat_turn``).
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ async def test_the_prompt_carries_the_block_and_the_agent_reads_the_stored_png(
     assert call["input"]["file_path"] == stored_path
     assert not result.get("is_error"), f"the Read of the stored PNG failed: {result}"
 
-    # (c) No hook refused the call. The hook log records every decision, denials included.
+    # (c) No hook refused the call. The hook debug lines record every decision, denials included.
     statuses = facts["gates"].get(call["tool_use_id"], [])
     print(f"attachment read: gates={statuses}")
     assert not [status for _hook, status in statuses if status == "deny"], statuses

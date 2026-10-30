@@ -27,12 +27,10 @@ worker thread drains the queue and does the POSTs.
 and a ``code_output`` record alongside whatever the code deliberately produced.
 Emitting for those would turn one agent action into three strip entries, so
 they are filtered out here; the run's own channel emit is that action's signal.
-Deliberate saves — figures, ``save_artifact()``, the ``create_*`` tools,
-``archiver_read`` / ``phoebus_snapshot`` persists — emit one frame per entry.
-Accepted edge: a notebook the agent saves ON PURPOSE from inside an ``execute``
-run is indistinguishable from the auto-save (same type, same ``tool_source``)
-and is silently dropped. A missed frame for a rare case beats three frames for
-every run; the run's own emit still shows the activity.
+The executor marks both with ``metadata[RUN_RECORD_KEY]``, so a notebook the
+code saves on purpose from inside the run still emits. Deliberate saves —
+figures, ``save_artifact()``, the ``create_*`` tools, ``archiver_read`` /
+``phoebus_snapshot`` persists — emit one frame per entry.
 
 **Bulk deletes report a summary, not a flood.** ``artifact_delete_all`` over a
 gallery bigger than the browser-side history buffer (50 frames) would evict the
@@ -59,7 +57,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from osprey.mcp_server.http import notify_agent_activity
-from osprey.stores.artifact_store import AUDIT_ORIGIN, current_artifact_mutation_actor
+from osprey.stores.artifact_store import RUN_RECORD_KEY, current_artifact_mutation_actor
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry
@@ -74,9 +72,6 @@ _KIND = "artifact"
 #: Tool names reported for the two mutation types.
 _SAVE_TOOL = "artifact_save"
 _DELETE_TOOL = "artifact_delete"
-
-#: ``tool_source`` values whose notebook artifacts are auto-saved bookkeeping.
-_NOTEBOOK_BOOKKEEPING_SOURCES = frozenset({"execute", "execute_file"})
 
 #: Category of the per-execution result record the python executor writes.
 _BOOKKEEPING_CATEGORY = "code_output"
@@ -140,11 +135,9 @@ def notify_bulk_delete(scope: str, count: int) -> None:
 
 def _is_bookkeeping(entry: ArtifactEntry) -> bool:
     """Return True when *entry* is a by-product of a run rather than an action."""
-    if entry.origin == AUDIT_ORIGIN:
-        return True
     if entry.category == _BOOKKEEPING_CATEGORY:
         return True
-    return entry.artifact_type == "notebook" and entry.tool_source in _NOTEBOOK_BOOKKEEPING_SOURCES
+    return entry.metadata.get(RUN_RECORD_KEY) is True
 
 
 def _detail_for(entry: ArtifactEntry) -> str:

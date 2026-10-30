@@ -85,7 +85,7 @@ import textwrap
 import time
 import uuid
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from importlib.metadata import requires as distribution_requires
 from pathlib import Path
@@ -96,6 +96,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
+from osprey.agent_record.credentials import ensure_agent_record_credentials
 from osprey.deployment.web_terminals.artifacts import (
     proxy_env_names_with_a_value,
     web_artifacts_dir,
@@ -108,8 +109,12 @@ from osprey.deployment.web_terminals.auth_credentials import (
     set_auth_password,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES, render_web_terminals
-from osprey.interfaces._serving import free_port
+from osprey.deployment.web_terminals.render import (
+    PROXY_ENV_NAMES,
+    TERMINAL_SECRET_HEADER,
+    render_web_terminals,
+)
+from osprey.interfaces.common_middleware import PANEL_CAP_SEGMENT
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_ID_ENV,
     DEFAULT_OIDC_CLIENT_SECRET_ENV,
@@ -123,6 +128,7 @@ from osprey_connectors.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
@@ -701,6 +707,15 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     # treats a missing include as a hard startup failure, so the container never
     # becomes ready until these exist and are handed to it (below).
     ensure_terminal_secrets(deployment_root, _USERS)
+    # The history page's gate secret, which a signed-in deployment serves and
+    # nginx reads from its own env file: minted by the preflight function too.
+    # Every config this module renders signs people in, so one call covers all.
+    # The grants follow the roster and the sign-in method; the config only
+    # needs some nginx port, reserved for the call and never bound.
+    with reserved_port() as unbound_port:
+        ensure_agent_record_credentials(
+            deployment_root, _config(unbound_port, oidc_issuer=None), reader_keys=False
+        )
     env_local = parse_dotenv_file(deployment_root / ENV_LOCAL_FILENAME)
     terminal_secrets = {user: env_local[terminal_secret_var(user)] for user in _USERS}
 
@@ -742,15 +757,16 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     idp_port: int | None = None
     idp_issuer: str | None = None
 
+    held = ExitStack()
     try:
-        # A port free a moment ago can be taken before docker binds it (the
-        # window is real: rendering and three container starts sit inside it),
-        # and the daemon reports that as an opaque failure. Re-render on a
-        # fresh port rather than turning a lost race into a red test.
+        # Docker binds each published port itself, so each port is reserved and
+        # held until the containers are gone. A service outside the test suite
+        # can still hold a port in the reserved band, which the daemon reports
+        # as an opaque failure, so a failed start re-renders on fresh ports.
         for attempt in range(3):
-            nginx_port = free_port()
+            nginx_port = held.enter_context(reserved_port())
             if oidc:
-                idp_port = free_port()
+                idp_port = held.enter_context(reserved_port())
                 idp_issuer = f"http://127.0.0.1:{idp_port}"
             artifacts = render_web_terminals(
                 _config(nginx_port, oidc_issuer=idp_issuer),
@@ -893,6 +909,10 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # does it here (the minted secrets are in that chain), so the
         # entrypoint envsubsts each snippet with the real secret.
         nginx_env = _resolved_env_flags(nginx_service, chain_env)
+        # And its `env_file:` entries, read from the deployment root they are
+        # relative to, as compose reads them: the history page's gate secret.
+        for env_file in nginx_service.get("env_file") or []:
+            nginx_env += ["--env-file", str(deployment_root / env_file)]
 
         # The envsubst output directory (NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/osprey)
         # must exist and be writable before the base image's entrypoint runs, or
@@ -962,6 +982,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # would collide with its name.
         for name in names:
             subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
+        held.close()
 
 
 @pytest.fixture(scope="module")
@@ -1653,3 +1674,111 @@ def test_no_argument_handed_to_docker_run_survives_as_an_interpolation(stack: St
     # Assert
     unresolved = [argument for argument in stack.auth_run_argv if "${" in argument]
     assert not unresolved, unresolved
+
+
+# ---------------------------------------------------------------------------
+# 9. Capability paths: exempt from the login, stripped of every credential
+# ---------------------------------------------------------------------------
+#
+# nginx's share of C-CAP is only the exemption: a `…/panel(-static)/<id>/~c/<cap>/`
+# path skips the `auth_request`, because an opaque panel's own requests carry
+# `Origin: null` and no cookie. Whether the cap is any good is the app's call
+# (tests/interfaces/web_terminal/test_panel_cap_routes.py); the stub upstream
+# here accepts anything, which is what lets these probes see exactly what nginx
+# let through and what it took away on the way.
+
+#: A cap-shaped segment. nginx never validates it, so any token the location's
+#: character class admits is a cap as far as the perimeter is concerned.
+_CAP = "6a1b2c3d.tag.signature"
+
+#: Every credential a browser or a hostile page could put on a cap request.
+_CREDENTIAL_HEADERS = {
+    "Authorization": "Bearer stolen-token",
+    "X-Osprey-Auth-Account": "mallory",
+    "X-Osprey-Auth-Subject": "mallory",
+    "X-Osprey-Auth-Role": "operator",
+    "X-Osprey-Auth-Role-Source": "client",
+    TERMINAL_SECRET_HEADER: "client-supplied-secret",
+}
+
+
+@pytest.mark.parametrize(
+    "tree",
+    ["panel", "panel-static"],
+    ids=["runtime-panel", "discovered-bundle"],
+)
+def test_a_cap_path_is_served_without_a_login(stack: Stack, tree: str) -> None:
+    """No session at all, and the cap path still reaches alice's app.
+
+    The control beside it is the same panel without the cap segment: that one is
+    refused, so the pass is the exemption and not an ungated location.
+    """
+    # Act
+    with stack.client() as client:
+        assert SESSION_COOKIE_NAME not in client.cookies
+        capped = client.get(
+            f"/u/alice/{tree}/demo/{PANEL_CAP_SEGMENT}/{_CAP}/data.json",
+            headers={"Accept": "application/json", "Origin": "null"},
+        )
+        uncapped = client.get(
+            f"/u/alice/{tree}/demo/data.json", headers={"Accept": "application/json"}
+        )
+
+    # Assert
+    assert capped.status_code == 200, capped.text
+    echoed = capped.json()
+    assert echoed["port"] == stack.upstream_ports["alice"]
+    # The user prefix is stripped exactly as on the gated path; the cap stays,
+    # because it is the app that reads and verifies it.
+    assert echoed["path"] == f"/{tree}/demo/{PANEL_CAP_SEGMENT}/{_CAP}/data.json"
+    assert uncapped.status_code == 401
+
+
+def test_a_bare_cap_segment_without_its_slash_stays_behind_the_login(stack: Stack) -> None:
+    """``…/~c/<cap>`` with nothing after it is not a cap path, so it is gated."""
+    # Act
+    with stack.client() as client:
+        response = client.get(
+            f"/u/alice/panel/demo/{PANEL_CAP_SEGMENT}/{_CAP}",
+            headers={"Accept": "application/json"},
+        )
+
+    # Assert
+    assert response.status_code == 401
+
+
+def test_a_cap_path_strips_the_cookie_and_every_auth_header(stack: Stack) -> None:
+    """A signed-in browser's cap request arrives at the app carrying no credential.
+
+    The browser holds a live session for alice and sends it, plus every identity
+    and secret header a page could forge. The location forwards headers by name
+    only, so none of them may arrive — not the session cookie (it would unlock
+    every user this operator has open), not ``Authorization``, not the identity
+    names, and not the operator-secret header, which a cap location never
+    injects. ``Accept`` is one of the forwarded names, so a distinctive value
+    arriving proves the request went through rather than vanished.
+    """
+    # Arrange
+    with stack.client() as client:
+        landed = _login(stack, client, "alice")
+        assert landed.status_code == 303, landed.text
+        assert SESSION_COOKIE_NAME in client.cookies
+
+        # Act
+        response = client.get(
+            f"/u/alice/panel/demo/{PANEL_CAP_SEGMENT}/{_CAP}/api/state",
+            headers={**_CREDENTIAL_HEADERS, "Accept": "application/x-cap-probe"},
+        )
+        # The control: the same session on alice's gated path is stamped with
+        # the operator secret, so its absence above is the cap location's doing.
+        gated = client.get("/u/alice/api/state", headers={"Accept": "application/json"})
+
+    # Assert
+    assert response.status_code == 200, response.text
+    received = response.json()["headers"]
+    assert received.get("accept") == "application/x-cap-probe", received
+    assert "cookie" not in received, received
+    for name in _CREDENTIAL_HEADERS:
+        assert name.lower() not in received, (name, received)
+    assert gated.status_code == 200, gated.text
+    assert TERMINAL_SECRET_HEADER.lower() in gated.json()["headers"]

@@ -175,7 +175,7 @@ def test_every_hot_cold_key_setup_mode_lists_has_a_manifest_entry() -> None:
 
 def test_hot_cold_key_parser_still_finds_the_table() -> None:
     keys = hot_cold_keys()
-    assert "control_system.writes_enabled" in keys
+    assert "control_system.writes" in keys
     assert "archiver.*" in keys
     assert not any(key.startswith(".") for key in keys)
     assert _key_pattern("control_system.connector.<type>.writes_enabled").match(

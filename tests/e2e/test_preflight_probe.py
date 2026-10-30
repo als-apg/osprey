@@ -90,9 +90,12 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.e2e,
@@ -281,10 +284,7 @@ def _host_read(repo: Path, address: str) -> float:
         timeout=HOST_CA_OP_TIMEOUT_SEC,
     )
     if proc.returncode != 0:
-        raise AssertionError(
-            f"host CA read of {address} failed (rc={proc.returncode}):\n"
-            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
-        )
+        raise AssertionError(format_failure(f"host CA read of {address}", proc))
     for line in proc.stdout.splitlines():
         if line.startswith(HOST_CA_RESULT_MARKER):
             return float(json.loads(line[len(HOST_CA_RESULT_MARKER) :])["read_value"])
@@ -355,6 +355,9 @@ def preflight_stack(
     # The repo root's `.env` -- the deployment's whole secret store, and the
     # file `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -372,11 +375,8 @@ def preflight_stack(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up -d --dev", up))
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace the
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See
@@ -477,6 +477,7 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
             ],
         },
         token=token,
+        owner=posture_store.current_owner(),
         client_id=_QUEUE_CLIENT_ID,
         timeout=SCAN_TIMEOUT_SEC,
     )
@@ -551,6 +552,7 @@ def test_a_fully_reachable_plan_still_runs_to_completion(
             ],
         },
         token=token,
+        owner=posture_store.current_owner(),
         client_id=_QUEUE_CLIENT_ID,
         timeout=SCAN_TIMEOUT_SEC,
     )

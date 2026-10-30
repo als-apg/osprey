@@ -25,15 +25,19 @@ per preset, so no marker deselection and no lane-level sweep reaches it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
 import subprocess
-import sys
+import tempfile
+import time
 from pathlib import Path
 
+import psutil
 import pytest
 
+from tests.e2e._deploy_support import find_osprey_console_script
 from tests.integration._mcp_handshake import (
     MCPHandshakeError,
     assert_tools_superset,
@@ -107,7 +111,7 @@ def build_outputs(
     """
     outputs: dict[str, Path] = {}
     base = tmp_path_factory.mktemp("preset_builds")
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
 
     def _drop_project_venvs() -> None:
         for preset in PRESETS:
@@ -150,22 +154,101 @@ def build_outputs(
     return outputs
 
 
-def _find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for the active interpreter.
+#: How long a child may go without consuming any CPU before the wait calls it
+#: hung. The steps waited on this way are CPU-bound renders and imports, so a
+#: child that is still working accrues CPU however loaded the host is; one that
+#: accrues none for this long is blocked on something that will not answer.
+_STALL_SECONDS = 60.0
 
-    Prefers a sibling of ``sys.executable`` (works inside both venvs and
-    CI's ``setup-uv``). Falls back to ``shutil.which("osprey")``.
+#: Backstop on a child that keeps burning CPU and never finishes. The same bound
+#: the module fixture gives a full build, install step included.
+_CEILING_SECONDS = 1200.0
+
+#: How often the wait looks at the child.
+_POLL_SECONDS = 0.5
+
+
+def _tree_cpu_seconds(proc: psutil.Process) -> float | None:
+    """CPU consumed so far by ``proc``, its reaped children and its live ones.
+
+    Returns None once the process has gone, which the caller reads as "about to
+    report its exit", not as a stall.
     """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError(
-        "Could not locate the 'osprey' console script. "
-        f"Tried {Path(sys.executable).parent / 'osprey'} and PATH."
-    )
+    try:
+        times = proc.cpu_times()
+        total = times.user + times.system + times.children_user + times.children_system
+        for child in proc.children(recursive=True):
+            try:
+                child_times = child.cpu_times()
+            except psutil.Error:
+                continue
+            total += child_times.user + child_times.system
+    except psutil.Error:
+        return None
+    return total
+
+
+def _kill_tree(popen: subprocess.Popen[bytes]) -> None:
+    try:
+        root = psutil.Process(popen.pid)
+        victims = [*root.children(recursive=True), root]
+    except psutil.Error:
+        victims = []
+    for victim in victims:
+        with contextlib.suppress(psutil.Error):
+            victim.kill()
+    popen.wait()
+
+
+def _run_to_completion(
+    cmd: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    stall_seconds: float = _STALL_SECONDS,
+    ceiling_seconds: float = _CEILING_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd`` until it exits, failing the test only when it is hung.
+
+    A wall-clock deadline cannot tell a hung child from a slow one: on a host
+    already running a parallel suite the same CPU-bound build takes several times
+    as long, and a fixed bound sized for an idle host kills a healthy build. The
+    wait instead watches the child's CPU and calls it hung when it stops making
+    progress, so host load stretches the wait instead of failing it.
+
+    Output goes to files, not pipes, so a chatty child can never block on a full
+    pipe while the wait is not reading it.
+    """
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        popen = subprocess.Popen(cmd, stdout=out, stderr=err, env=env)
+        watched = psutil.Process(popen.pid)
+        started = last_progress = time.monotonic()
+        last_cpu = -1.0
+        hung: str | None = None
+        while popen.poll() is None:
+            now = time.monotonic()
+            cpu = _tree_cpu_seconds(watched)
+            if cpu is None or cpu > last_cpu:
+                last_progress = now
+                if cpu is not None:
+                    last_cpu = cpu
+            if now - last_progress > stall_seconds:
+                hung = f"no CPU progress for {stall_seconds:.0f} s"
+            elif now - started > ceiling_seconds:
+                hung = f"still running after {ceiling_seconds:.0f} s"
+            if hung:
+                _kill_tree(popen)
+                break
+            time.sleep(_POLL_SECONDS)
+        out.seek(0)
+        err.seek(0)
+        stdout = out.read().decode(errors="replace")
+        stderr = err.read().decode(errors="replace")
+    if hung:
+        pytest.fail(
+            f"{cmd!r} hung ({hung}) and was killed\n"
+            f"--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+        )
+    return subprocess.CompletedProcess(cmd, popen.returncode, stdout, stderr)
 
 
 def _init_repo(osprey_bin: Path, repo: Path, preset: str) -> None:
@@ -175,11 +258,8 @@ def _init_repo(osprey_bin: Path, repo: Path, preset: str) -> None:
     real console script an operator runs, so the materialization half has to go
     through it too. ``--no-git`` because nothing here reads the history.
     """
-    proc = subprocess.run(
+    proc = _run_to_completion(
         [str(osprey_bin), "init", str(repo), "--preset", preset, "--no-git"],
-        capture_output=True,
-        text=True,
-        timeout=120,
         env={**os.environ, "CLAUDECODE": ""},
     )
     assert proc.returncode == 0, (
@@ -350,9 +430,9 @@ def test_skip_deps_command_resolves_importable_python(
     base = tmp_path_factory.mktemp(f"skipdeps_{preset}")
     repo = base / preset
     project_dir = repo / "build"
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     _init_repo(osprey_bin, repo, preset)
-    proc = subprocess.run(
+    proc = _run_to_completion(
         [
             str(osprey_bin),
             "build",
@@ -361,9 +441,6 @@ def test_skip_deps_command_resolves_importable_python(
             "--skip-deps",
             "--skip-lifecycle",
         ],
-        capture_output=True,
-        text=True,
-        timeout=120,
         env={**os.environ, "CLAUDECODE": ""},
     )
     if proc.returncode != 0:
@@ -387,12 +464,7 @@ def test_skip_deps_command_resolves_importable_python(
                 f"(--skip-deps must pin to sys.executable, not gamble on PATH)"
             )
             continue
-        probe = subprocess.run(
-            [cmd, "-c", "import osprey"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
+        probe = _run_to_completion([cmd, "-c", "import osprey"])
         if probe.returncode != 0:
             failures.append(
                 f"{name}: command {cmd!r} cannot import osprey:\n  stderr: {probe.stderr.strip()}"

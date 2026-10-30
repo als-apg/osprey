@@ -8,7 +8,6 @@ backend's ``post-release`` / ``node-and-date`` schemes.
 
 from __future__ import annotations
 
-import importlib.util
 import shlex
 import tomllib
 from datetime import UTC, datetime
@@ -16,13 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from tests._by_path import load_module
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_spec = importlib.util.spec_from_file_location(
-    "connectors_version", REPO_ROOT / "scripts" / "va" / "connectors_version.py"
-)
-assert _spec and _spec.loader
-cv = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cv)
+cv = load_module("connectors_version", REPO_ROOT / "scripts" / "va" / "connectors_version.py")
 
 NODE = "0123456789abcdef0123456789abcdef01234567"
 

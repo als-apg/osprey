@@ -198,10 +198,12 @@ def get_project_dir(hook_input=None):
 
 
 #: The marker that makes a directory a deployment repo root, and the name of the
-#: render zone inside it. Kept in step with ``osprey.cli.repo_resolver`` and
-#: ``osprey_connectors.workspace``; spelled out here rather than imported because a
-#: hook can be executed by a bare system ``python3`` with no ``osprey`` on its
-#: path, and the derivation below has to work under exactly that interpreter.
+#: render zone inside it. Kept in step with ``osprey.cli.repo_resolver``,
+#: ``osprey.utils.workspace`` and ``osprey_connectors.workspace``'s private
+#: copy; spelled out
+#: here rather than imported because a hook can be executed by a bare system
+#: ``python3`` with no ``osprey`` on its path, and the derivation below has to
+#: work under exactly that interpreter.
 PROFILE_MARKER = "profile.yml"
 BUILD_DIR_NAME = "build"
 
@@ -291,7 +293,7 @@ def get_repo_root(hook_input=None):
        a deployed service reads a config STAGED on the host, whose
        ``project_root`` is a host path naming nothing inside the container, and
        anchoring on it would put every store this resolver anchors — the
-       control-context record, the audit ledger, the feedback store — outside
+       control-context record, the spool, the pending-review store — outside
        every mount, where the writer that shares those files never looks.
        Qualified the same way, and for the same reason, as
        ``osprey_connectors.workspace.resolve_project_root``.
@@ -500,83 +502,118 @@ def _is_debug_enabled(hook_input):
 
 
 def log_hook(hook_name, hook_input, status="ok", detail=""):
-    """Log one debug line to stderr AND a JSONL file when hook debug is enabled.
+    """Record one debug line when hook debug is enabled; do nothing otherwise.
 
     Enabled by the ``OSPREY_HOOK_DEBUG`` env var or, failing that, ``hooks.debug``
     in the project's ``config.yml`` (see ``_is_debug_enabled``).
 
-    Dual output makes debugging possible even when stderr is swallowed by
-    the PTY layer.  The JSONL file lands at ``<project>/.claude/hooks/hook_debug.jsonl``
-    and is append-only — nothing rotates or truncates it — and it also backs the
-    web terminal's Safety-panel hook-activity feed.
+    The line goes to stderr (the terminal that launched Claude Code) and, as a
+    ``debug`` entry whose body names ``source: "hook"``, onto the agent record
+    through the same sealing spool emitter :func:`emit_audit` uses. The web
+    terminal's Safety-panel hook-activity feed reads those entries back. Never
+    raises: a hook decision never depends on its debug line.
     """
     if not _is_debug_enabled(hook_input):
         return
     ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-    tool = hook_input.get("tool_name", "-")
+    tool = hook_input.get("tool_name", "-") if isinstance(hook_input, dict) else "-"
 
-    # stderr (visible in the terminal that launched Claude Code)
     line = f"{ts} [{hook_name}] tool={tool} status={status}"
     if detail:
         line += f" {detail}"
     print(line, file=sys.stderr)  # noqa: T201 -- stderr carries the hook log line
 
-    # JSONL file (always available for tail -f)
-    project_dir = get_project_dir(hook_input)
-    if project_dir:
-        try:
-            from pathlib import Path
-
-            log_path = Path(project_dir) / ".claude" / "hooks" / "hook_debug.jsonl"
-            record = {"ts": ts, "hook": hook_name, "tool": tool, "status": status}
-            tool_use_id = hook_input.get("tool_use_id")
-            if tool_use_id:
-                record["tool_use_id"] = tool_use_id
-            if detail:
-                record["detail"] = detail
-            with open(log_path, "a") as f:
-                f.write(json.dumps(record) + "\n")
-        except Exception:
-            pass  # never break a hook for logging
+    emit_debug(hook_name, hook_input, tool, status, detail)
 
 
 # ---------------------------------------------------------------------------
-# Audit emission — the hook half of the unified ledger
+# Audit emission — the hook half of the agent record
 # ---------------------------------------------------------------------------
 #
 # `log_hook` above is a DEBUG facility: it is off unless someone turned it on,
-# it files under the render (`build/.claude/hooks/hook_debug.jsonl`, wiped by
-# the next `osprey build`), and it records allows and denies alike. None of
-# that is an audit trail. `emit_audit` below is the sibling that is one: always
-# on, anchored on the REPO through `get_repo_root`, and emitted only where the
-# hook layer actually decides something — a deny or an ask.
+# its entries are ``debug`` entries marked ``source: "hook"``, and it records
+# allows and denies alike. None of that is an audit trail. `emit_audit` below
+# is the sibling that is one: always on (but for the record off switch), and
+# emitted only where the hook layer actually decides something — a deny, an
+# ask, or an ask's answer. Both write through the one spool emitter here.
 #
-# It writes the same record `osprey.audit.writer` writes, into the same
-# `var/audit/<identity>/<surface>.jsonl` layout, and it may not import a line
-# of it: a hook is a fresh process launched by whatever `python3` is on PATH,
+# It writes the entry `osprey.audit.writer` writes — an ``audit`` entry whose
+# body is the envelope — as one line of agent-record's spool, in the exact
+# line format of `osprey.agent_record.writer`, and it may not import a line of
+# either: a hook is a fresh process launched by whatever `python3` is on PATH,
 # with no `osprey` importable and no third-party package guaranteed. So the
 # minimal subset is restated here in the standard library, and
 # `tests/hooks/test_hook_audit_emitter.py` pins every constant below against
-# `osprey.audit.envelope`, `osprey.audit.writer` and `osprey.audit.posture` so
-# the two cannot drift into two formats sharing one directory — the timestamp
-# format and the tool-use id shape (`_AUDIT_TOOL_USE_ID`, pinned against
-# `osprey.audit.call`) included.
+# `osprey.agent_record.contract`, `osprey.agent_record.writer`,
+# `osprey.audit.envelope`, `osprey.audit.writer`, `osprey.audit.posture` and
+# `osprey.audit.call`, and consumes what the hook writes through the spool
+# consumer, so the hook cannot drift into a format the record refuses.
+#
+# The spool protocol is the writer's, cut to a process that lives for one
+# decision: every call creates a segment of its own with ``O_CREAT|O_EXCL``,
+# writes its one line, and renames the segment to ``.sealed`` before it
+# returns. A hook therefore never leaves an ``.open`` segment behind for the
+# consumer to report as an abandoned writer, and needs no exit handler.
 #
 # Nothing here may cost a decision. Hooks fail OPEN — an uncaught exception
 # exits non-zero with no JSON and the tool proceeds — so `emit_audit` swallows
 # everything and answers `None`, and every call site puts it BEFORE the
 # `sys.exit(0)` that carries the decision, never after.
 
-#: The durable audit zone, relative to the repo root. Mirrors
-#: ``osprey_connectors.workspace.AUDIT_DIR_RELPATH``; the hook cannot import it.
-AUDIT_DIR_RELPATH = "var/audit"
+#: The spool zone, relative to the repo root. Mirrors
+#: ``osprey.utils.workspace.SPOOL_DIR_RELPATH``; the hook cannot import it.
+SPOOL_DIR_RELPATH = "var/spool"
 
-#: Every hook surface starts with this. The MCP middleware records under the
-#: server's own name and the HTTP layer under its route family, so the prefix
-#: is what keeps the hook subprocess's ledger disjoint from theirs without any
-#: cross-process coordination — which is the reason the hook needs no dedup
-#: marker: nothing else writes these files.
-AUDIT_SURFACE_PREFIX = "hook_"
+#: The acting identity's own spool directory, when the launcher names it. A
+#: container binds only its own directory, so there is nothing above it to
+#: resolve. Mirrors ``osprey.agent_record.contract.SPOOL_DIR_ENV``.
+SPOOL_DIR_ENV = "OSPREY_SPOOL_DIR"
+
+#: The record off switch, restated from the contract. Exactly this value turns
+#: every writer of the record off: nothing is resolved, created or appended.
+RECORD_OFF_ENV = "OSPREY_AGENT_RECORD_OFF"
+RECORD_OFF_VALUE = "1"
+
+#: Segment suffixes and the writer's failure log, restated from the contract.
+SPOOL_OPEN_SUFFIX = ".open"
+SPOOL_SEALED_SUFFIX = ".sealed"
+SPOOL_ERRORS_FILE = ".errors"
+
+#: Modes the spool writer uses, restated. A segment is readable by the spool
+#: directory's group (the consumer); a directory the hook has to create itself
+#: is setgid group-writable so the consumer can remove sealed segments.
+SPOOL_SEGMENT_MODE = 0o640
+SPOOL_DIR_MODE = 0o2770
+
+#: A segment is created, never reopened: ``O_EXCL`` refuses a name that is
+#: already taken, so no other process's segment can be appended to.
+_SPOOL_CREATE_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_EXCL
+
+#: Name collisions retried before a record is given up. A collision needs the
+#: same host, pid and nanosecond, so one retry is already generous.
+_SPOOL_CREATE_ATTEMPTS = 3
+
+#: The entry kinds hook lines carry, restated from the contract: a decision
+#: is an ``audit`` entry, a hook debug line a ``debug`` entry.
+KIND_AUDIT = "audit"
+KIND_DEBUG = "debug"
+
+#: The body field naming the writer of an entry (the reader's ``source``
+#: filter), and the value every hook debug line carries in it. The transcript
+#: also produces ``debug`` entries; this marker is what keeps them apart.
+SOURCE_FIELD = "source"
+DEBUG_SOURCE_HOOK = "hook"
+
+#: The optional id fields of a spool line, in the order the writer writes them
+#: between ``ts`` and ``body``. ``key`` heads the list in the contract but is
+#: honoured only in a receiver-owned directory, so a hook never writes it.
+SPOOL_LINE_ID_FIELDS = ("session_id", "terminal_session", "run_id", "tool_use_id", "on_behalf_of")
+
+#: The conversation id env names, restated from ``osprey.audit.call``: the id
+#: Osprey forces first, then the one the harness stamps on its children. Read
+#: only when the hook input carries no ``session_id`` of its own.
+CONVERSATION_ENV = "OSPREY_TELEMETRY_SESSION_ID"
+HARNESS_CONVERSATION_ENV = "CLAUDE_CODE_SESSION_ID"
 
 #: The identity ladder, restated from ``osprey_connectors.identity``: the
 #: multi-user deployment's per-container user, then the identity of a container
@@ -588,6 +625,11 @@ TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
 IDENTITY_ENV_LADDER = (TERMINAL_USER_ENV, AUDIT_IDENTITY_ENV)
 UNKNOWN_IDENTITY = "unknown"
+
+#: Every hook surface starts with this. The MCP middleware records under the
+#: server's own name and the HTTP layer under its route family, so the prefix
+#: is what keeps the hook's surfaces disjoint from theirs.
+AUDIT_SURFACE_PREFIX = "hook_"
 
 #: The spawn-time posture markers a session child inherits. Absent means this
 #: process was not launched by a posture-carrying spawn site at all.
@@ -646,16 +688,13 @@ AUDIT_REQUIRED_FIELDS = (
 
 #: Bounds, matching the envelope's. Identifier-shaped fields are generous
 #: enough for any real name and bounded so a caller-supplied one cannot inflate
-#: the ledger; ``detail`` gets the larger free-form bound.
+#: the record; ``detail`` gets the larger free-form bound.
 AUDIT_MAX_FIELD_CHARS = 256
 AUDIT_MAX_DETAIL_CHARS = 1024
 
-#: The size one append stays inside, restated from ``osprey.audit.writer``.
-#: POSIX makes an ``O_APPEND`` write atomic with respect to other appenders at
-#: this scale, and hooks share the ``var/audit/<identity>/`` directory with the
-#: MCP middleware and the HTTP layers — so a hook record that ignored the bound
-#: would be the one line another emitter could land inside of. The per-field
-#: bounds above do NOT imply it: six 256-character identifiers plus a
+#: The size an envelope body stays inside, restated from ``osprey.audit.writer``,
+#: so a hook entry is bounded exactly like every other audit entry. The
+#: per-field bounds above do NOT imply it: six 256-character identifiers plus a
 #: 1024-character ``detail`` encode to roughly 2.4 KB.
 AUDIT_MAX_RECORD_BYTES = 2048
 
@@ -667,18 +706,12 @@ AUDIT_MAX_RECORD_BYTES = 2048
 #: wrong thing, so an identifier-only record over budget is written whole.
 AUDIT_DETAIL_DROPPED = "<dropped: record over the append bound>"
 
-#: Modes the writer uses, restated. Owner writes and group reads the ledger;
-#: the per-identity directory is setgid group-writable so the deploy-path
-#: provisioning and this fallback agree.
-AUDIT_FILE_MODE = 0o640
-AUDIT_DIR_MODE = 0o2770
-
-#: Append-only by construction: the descriptor cannot seek backwards.
-_AUDIT_OPEN_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_CREAT
-
 # What disqualifies a string from being one path component.
 _AUDIT_UNSAFE = ("/", "\\", "\0")
 _AUDIT_RESERVED = (".", "..")
+# What else disqualifies a string from naming a source identity — the
+# contract's ``check_identity``, restated: its forbidden characters and space.
+_SPOOL_IDENTITY_FORBIDDEN = "/\\:$\0"
 
 
 def _audit_component(value):
@@ -696,11 +729,11 @@ def _audit_component(value):
 def acting_identity():
     """Who a record names — the ladder of ``osprey_connectors.identity``, restated.
 
-    The answer is used twice, as the record's ``actor`` and as the
-    ``var/audit/<identity>/`` directory, so a rung only counts when its value
-    can serve as both: that is what keeps the two from drifting apart. Reads
-    the environment on every call, because the markers are set per process by
-    compose and by the entrypoint.
+    The answer is used twice, as the record's ``actor`` and, when the launcher
+    names no spool directory, as the ``var/spool/<identity>/`` directory, so a
+    rung only counts when its value can serve as both: that is what keeps the
+    two from drifting apart. Reads the environment on every call, because the
+    markers are set per process by compose and by the entrypoint.
 
     Never raises. :func:`getpass.getuser` fails for a uid with no passwd entry,
     which is ordinary in a slim image rather than exceptional.
@@ -729,16 +762,30 @@ def audit_posture_source():
     return marker if marker in AUDIT_POSTURE_SOURCES else POSTURE_SOURCE_PROCESS
 
 
-def audit_ledger_path(hook_name, hook_input=None, identity=None):
-    """Where records from *hook_name* land: ``<repo>/var/audit/<identity>/<surface>.jsonl``.
+def record_off():
+    """Whether the record off switch is set for this call; read on every call."""
+    return os.environ.get(RECORD_OFF_ENV) == RECORD_OFF_VALUE
 
-    Anchored on :func:`get_repo_root`, never on :func:`get_project_dir`: the
-    render is re-created wholesale by every ``osprey build`` and an audit trail
-    that a rebuild erases is not one.
+
+def audit_spool_dir(hook_input=None, identity=None):
+    """The spool directory records from this process land in.
+
+    ``$OSPREY_SPOOL_DIR`` when it is set and non-empty — the launcher's answer,
+    exactly as the record writer takes it. Otherwise
+    ``<repo>/var/spool/<identity>``, anchored on :func:`get_repo_root` and never
+    on :func:`get_project_dir`: the render is re-created wholesale by every
+    ``osprey build``, and the consumer never looks there.
+
+    Raises ``ValueError`` when the identity cannot name a spool directory; the
+    caller swallows it.
     """
+    configured = os.environ.get(SPOOL_DIR_ENV, "").strip()
+    if configured:
+        return Path(configured)
     who = identity or acting_identity()
-    root = Path(get_repo_root(hook_input))
-    return root / AUDIT_DIR_RELPATH / who / (audit_surface(hook_name) + ".jsonl")
+    if any(ch in who for ch in _SPOOL_IDENTITY_FORBIDDEN) or any(ch.isspace() for ch in who):
+        raise ValueError(f"{who!r} cannot be a source identity")
+    return Path(get_repo_root(hook_input)) / SPOOL_DIR_RELPATH / who
 
 
 def audit_surface(hook_name):
@@ -746,7 +793,7 @@ def audit_surface(hook_name):
 
     Derived from the same string the hook passes to :func:`log_hook`, so a hook
     has exactly one name and the debug line and the audit record cannot come to
-    disagree about it. Underscores because the surface is also a file stem.
+    disagree about it.
     """
     return AUDIT_SURFACE_PREFIX + str(hook_name).replace("-", "_")
 
@@ -757,29 +804,29 @@ def _audit_field(value, limit):
 
 
 def _audit_encode(record):
-    """Serialize *record* to the bytes of one JSONL line.
+    """The bytes the audit writer measures a body by, restated.
 
-    Compact separators because the byte budget is the point, and the default
-    ``ensure_ascii`` because a ledger of pure ASCII lines is readable by every
-    consumer that will ever tail it. The writer's ``_encode``, restated.
+    Compact separators and the default ``ensure_ascii``, exactly as
+    ``osprey.audit.writer`` encodes a body to hold it to
+    :data:`AUDIT_MAX_RECORD_BYTES`. Only the bound is measured this way; the
+    line itself is encoded by :func:`_spool_line`.
     """
-    return (json.dumps(record, separators=(",", ":")) + "\n").encode("utf-8", "replace")
+    return (json.dumps(record, separators=(",", ":"), allow_nan=False) + "\n").encode(
+        "utf-8", "replace"
+    )
 
 
-def _audit_line(record):
-    """The bytes to append for *record*, degraded to fit the append bound.
+def _audit_body(record):
+    """*record*, degraded to fit the body bound the way the audit writer does.
 
-    The writer's degrade order, minus the exception a hook cannot reach (the
-    executor's ``source``, which no hook record carries): supplementary context
-    gives way first, identifiers never give way. An identifier-only record that
-    is still over budget is written whole — one large line is better than a
-    record that names the wrong thing, and the reader tolerates it.
+    Supplementary context gives way first, identifiers never give way. An
+    identifier-only record that is still over budget is written whole — one
+    large entry is better than a record that names the wrong thing.
     """
-    line = _audit_encode(record)
-    if len(line) <= AUDIT_MAX_RECORD_BYTES or record.get("detail") is None:
-        return line
+    if len(_audit_encode(record)) <= AUDIT_MAX_RECORD_BYTES or record.get("detail") is None:
+        return record
     record["detail"] = AUDIT_DETAIL_DROPPED
-    return _audit_encode(record)
+    return record
 
 
 def _audit_tool_use_id(value):
@@ -789,30 +836,183 @@ def _audit_tool_use_id(value):
     return None
 
 
+def _audit_conversation(hook_input):
+    """The conversation the entry belongs to: the hook input's, else the process's."""
+    if isinstance(hook_input, dict):
+        given = hook_input.get("session_id")
+        if isinstance(given, str) and given:
+            return given
+    return os.environ.get(CONVERSATION_ENV) or os.environ.get(HARNESS_CONVERSATION_ENV) or None
+
+
+def _terminal_session():
+    """``osprey.audit.envelope.terminal_session``, restated: stripped, bounded, or ``None``."""
+    value = (os.environ.get(TERMINAL_SESSION_ENV) or "").strip()
+    return value[:AUDIT_MAX_FIELD_CHARS] if value else None
+
+
+def _spool_line(entry_id, ts, body, ids, kind):
+    """One spool line, byte for byte as ``SpoolLine.to_json`` writes it, plus its newline."""
+    line = {"entry_id": entry_id, "kind": kind, "ts": ts}
+    for name in SPOOL_LINE_ID_FIELDS:
+        value = ids.get(name)
+        if value is not None:
+            line[name] = value
+    line["body"] = dict(body)
+    return (json.dumps(line, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _spool_host():
+    """This host's name, made safe as the first part of a segment file name."""
+    import socket
+
+    try:
+        name = socket.gethostname()
+    except OSError:
+        name = ""
+    for ch in _AUDIT_UNSAFE:
+        name = name.replace(ch, "_")
+    return name if name not in ("", *_AUDIT_RESERVED) else "host"
+
+
+def _spool_ensure_dir(directory):
+    """Create *directory*; the mode is best-effort, exactly as the writer's."""
+    directory.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        # mkdir's mode is umask-masked and the setgid bit does not survive it
+        # at all, so the chmod is what actually sets the provisioned mode. A
+        # narrower directory still beats a dropped record.
+        os.chmod(directory, SPOOL_DIR_MODE)
+
+
+def _spool_create(directory):
+    """Create a fresh ``.open`` segment in *directory*; ``(path, fd)``."""
+    import time
+
+    host, pid = _spool_host(), os.getpid()
+    last = _SPOOL_CREATE_ATTEMPTS - 1
+    for attempt in range(_SPOOL_CREATE_ATTEMPTS):
+        path = directory / f"{host}-{pid}-{time.time_ns()}{SPOOL_OPEN_SUFFIX}"
+        try:
+            return path, os.open(path, _SPOOL_CREATE_FLAGS, SPOOL_SEGMENT_MODE)
+        except FileNotFoundError:
+            # The directory is created only after an open fails for want of
+            # it, so the ordinary record is one open, one write, one rename.
+            if attempt == last:
+                raise
+            _spool_ensure_dir(directory)
+        except FileExistsError:
+            if attempt == last:
+                raise
+    raise AssertionError("unreachable")
+
+
+def _spool_write_sealed(directory, data):
+    """Write *data* as one segment of its own and seal it; raise on any failure.
+
+    The segment is removed again when anything goes wrong before the seal, so a
+    failed record leaves nothing behind for the consumer to half-read.
+    """
+    path, fd = _spool_create(directory)
+    try:
+        try:
+            written = os.write(fd, data)
+        finally:
+            os.close(fd)
+        if written != len(data):
+            raise OSError(f"short append to {path}: {written} of {len(data)} bytes")
+        os.rename(path, path.with_name(path.name[: -len(SPOOL_OPEN_SUFFIX)] + SPOOL_SEALED_SUFFIX))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+        raise
+
+
+def _spool_record_failure(directory, entry_id, exc, kind):
+    """Append *exc* to *directory*'s ``.errors`` in the writer's shape; best-effort."""
+    if directory is None:
+        return
+    with contextlib.suppress(Exception):
+        record = {
+            "ts": datetime.now(UTC).isoformat(),
+            "kind": kind,
+            "entry_id": entry_id if isinstance(entry_id, str) else repr(entry_id),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        data = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+        fd = os.open(
+            directory / SPOOL_ERRORS_FILE,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+            SPOOL_SEGMENT_MODE,
+        )
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+
+
+def _emit(kind, hook_input, make_body):
+    """Write one spool line of *kind*; its ``entry_id``, or ``None`` when nothing was stored.
+
+    *make_body* is called with the line's ``ts`` and answers ``(body,
+    tool_use_id, identity)``; *identity* (``None`` to resolve it) picks the
+    spool directory. The line names the conversation, the terminal session
+    and the tool call. Never raises: off switch on, nothing is written; any
+    failure, the body's own included, is noted in the spool directory's
+    ``.errors``.
+    """
+    if record_off():
+        return None
+    directory = None
+    entry_id = None
+    try:
+        import uuid
+
+        entry_id = uuid.uuid4().hex
+        ts = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        body, tool_use_id, identity = make_body(ts)
+        ids = {
+            "session_id": _audit_conversation(hook_input),
+            "terminal_session": _terminal_session(),
+            "tool_use_id": tool_use_id,
+        }
+        data = _spool_line(entry_id, ts, body, ids, kind)
+        directory = audit_spool_dir(hook_input, identity=identity)
+        _spool_write_sealed(directory, data)
+        return entry_id
+    except Exception as exc:
+        _spool_record_failure(directory, entry_id, exc, kind)
+        return None
+
+
 def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, tool_use_id=None):
-    """Record one hook decision in the deployment's audit ledger.
+    """Record one hook decision on the agent record, through the spool.
 
     Call this at a deny or an ask, before the ``sys.exit(0)`` that carries the
     decision. Allows are not recorded here: the hook layer refuses and defers,
     and the MCP middleware already records the calls it admits.
 
     :param hook_name: The hook's own name, exactly as given to :func:`log_hook`.
-    :param hook_input: The parsed stdin payload, used only to anchor the repo.
-    :param decision: :data:`AUDIT_DECISION_REFUSED` or :data:`AUDIT_DECISION_ASK`.
+    :param hook_input: The parsed stdin payload: it anchors the repo and names
+        the conversation (``session_id``) and the tool call (``tool_use_id``).
+    :param decision: :data:`AUDIT_DECISION_REFUSED` or :data:`AUDIT_DECISION_ASK`
+        (or an ask's answer).
     :param subject: What was acted on — a tool name, a path. An identifier.
     :param reason: Short machine-ish reason (``posture``, ``writes_disabled``).
     :param detail: Optional supplementary context. Identifiers and config keys
         only: never a config value, a channel value, a prompt or agent text.
     :param tool_use_id: The tool call this record is about; defaults to the
         hook input's ``tool_use_id``. A malformed id is left off the record.
-    :returns: The ledger path as a string, or ``None`` when nothing was stored.
+    :returns: The entry's ``entry_id``, or ``None`` when nothing was stored —
+        the record off switch, an unwritable spool, anything at all.
 
-    Never raises, and never blocks a decision on the audit trail: an unwritable
-    zone, an unresolvable repo root or a malformed field costs the record and
-    nothing else.
+    Never raises, and never blocks a decision on the record: a failure costs
+    the entry and is noted in the spool directory's ``.errors`` for the
+    consumer's health report, and nothing else.
     """
-    try:
-        record = {"ts": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+
+    def audit_body(ts):
+        record = {"ts": ts}
         identity = acting_identity()
         session = _audit_component(os.environ.get(POSTURE_SESSION_ENV)) or _audit_component(
             os.environ.get(TERMINAL_SESSION_ENV)
@@ -828,42 +1028,46 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
         record["reason"] = _audit_field(reason or UNKNOWN_IDENTITY, AUDIT_MAX_FIELD_CHARS)
         if detail:
             record["detail"] = _audit_field(detail, AUDIT_MAX_DETAIL_CHARS)
-        if tool_use_id is None and isinstance(hook_input, dict):
-            tool_use_id = hook_input.get("tool_use_id")
-        tool_use_id = _audit_tool_use_id(tool_use_id)
+        raw = tool_use_id
+        if raw is None and isinstance(hook_input, dict):
+            raw = hook_input.get("tool_use_id")
+        use_id = _audit_tool_use_id(raw)
+        if use_id:
+            record["tool_use_id"] = _audit_field(use_id, AUDIT_MAX_FIELD_CHARS)
+        return _audit_body(record), use_id, identity
+
+    return _emit(KIND_AUDIT, hook_input, audit_body)
+
+
+def emit_debug(hook_name, hook_input, tool, status, detail=""):
+    """Record one hook debug line on the agent record, through the spool.
+
+    The body carries what the hook-activity feed shows —
+    ``{source, ts, hook, tool, status, tool_use_id?, detail?}`` — with
+    ``source`` always :data:`DEBUG_SOURCE_HOOK`. The line names the
+    conversation, the terminal session and the tool call the way an audit
+    line does, so a reader can narrow to one turn.
+
+    :returns: The entry's ``entry_id``, or ``None`` when nothing was stored.
+
+    Never raises; a failure is noted in the spool directory's ``.errors``,
+    exactly as :func:`emit_audit` notes one.
+    """
+
+    def debug_body(ts):
+        body = {
+            SOURCE_FIELD: DEBUG_SOURCE_HOOK,
+            "ts": ts,
+            "hook": str(hook_name),
+            "tool": str(tool),
+            "status": str(status),
+        }
+        raw_tool_use_id = hook_input.get("tool_use_id") if isinstance(hook_input, dict) else None
+        tool_use_id = _audit_tool_use_id(raw_tool_use_id)
         if tool_use_id:
-            record["tool_use_id"] = _audit_field(tool_use_id, AUDIT_MAX_FIELD_CHARS)
+            body["tool_use_id"] = tool_use_id
+        if detail:
+            body["detail"] = str(detail)
+        return body, tool_use_id, None
 
-        path = audit_ledger_path(hook_name, hook_input, identity=identity)
-        line = _audit_line(record)
-
-        try:
-            fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
-        except FileNotFoundError:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with contextlib.suppress(OSError):
-                # mkdir's mode is umask-masked and the setgid bit does not
-                # survive it at all, so the chmod is what actually sets the
-                # mode the deploy path provisions host-side. Best-effort: a
-                # narrower directory still beats a dropped record.
-                os.chmod(path.parent, AUDIT_DIR_MODE)
-            fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
-
-        try:
-            written = os.write(fd, line)
-            if written != len(line) and written > 0 and not line[:written].endswith(b"\n"):
-                # Terminate the fragment while the descriptor is still open, so
-                # the NEXT record starts on a line of its own instead of being
-                # appended onto a half-record and lost with it. One torn write
-                # must cost one record, not every record after it. The writer
-                # does exactly this, for exactly this reason.
-                with contextlib.suppress(OSError):
-                    os.write(fd, b"\n")
-        finally:
-            os.close(fd)
-
-        # A short write leaves a torn line, so the record is not stored — say
-        # so rather than hand back a path that suggests it is.
-        return str(path) if written == len(line) else None
-    except Exception:
-        return None
+    return _emit(KIND_DEBUG, hook_input, debug_body)

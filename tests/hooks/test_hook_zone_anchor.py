@@ -487,9 +487,10 @@ class TestTheAuditLedgerFollowsTheAnchor:
         monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
         module = hook_module("osprey_hook_log")
 
-        ledger = module.audit_ledger_path("writes-check", {"cwd": str(build)}, identity="alice")
+        monkeypatch.delenv("OSPREY_SPOOL_DIR", raising=False)
+        spool = module.audit_spool_dir({"cwd": str(build)}, identity="alice")
 
-        assert ledger == repo / module.AUDIT_DIR_RELPATH / "alice" / "hook_writes_check.jsonl"
+        assert spool == repo / module.SPOOL_DIR_RELPATH / "alice"
 
 
 # -- 6b. The framework takes the same ladder -----------------------------------
@@ -655,8 +656,8 @@ def test_hook_constants_match_the_framework(hook_module):
     would let them drift silently, so the drift is asserted here instead.
     """
     from osprey.cli.repo_resolver import PROFILE_FILENAME
+    from osprey.utils.workspace import PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME
     from osprey_connectors.workspace import BUILD_DIR_NAME
-    from osprey_connectors.workspace import PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME
 
     hook_log = hook_module("osprey_hook_log")
 

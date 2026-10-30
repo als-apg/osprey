@@ -1,188 +1,78 @@
-"""The opt-in full tool-call record: its settings, its payload bound, its shape."""
+"""The ``tool_call`` record: what a call ran against, and nothing it said."""
 
 from __future__ import annotations
 
-import hashlib
 import json
-from types import SimpleNamespace
 
 import pytest
 
 from osprey.audit import tool_call, writer
 
 
-def test_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    assert tool_call.settings() == (False, tool_call.DEFAULT_MAX_INLINE_BYTES)
-
-    monkeypatch.setenv("OSPREY_CONFIG", "relative/config.yml")
-    assert tool_call.settings() == (False, tool_call.DEFAULT_MAX_INLINE_BYTES)
-
-
-def test_the_documented_keys_and_default() -> None:
-    assert tool_call.ENABLED_KEY == "audit.tool_call.enabled"
-    assert tool_call.MAX_INLINE_KEY == "audit.tool_call.max_inline_bytes"
-    assert tool_call.DEFAULT_MAX_INLINE_BYTES == 262144
+def test_the_surface_name() -> None:
     assert tool_call.SURFACE_TOOL_CALL == "tool_call"
 
 
-def test_settings_read_from_osprey_config(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = tmp_path / "build" / "config.yml"
-    config.parent.mkdir()
-    config.write_text("audit:\n  tool_call:\n    enabled: true\n    max_inline_bytes: 1000\n")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config))
-
-    assert tool_call.settings() == (True, 1000)
-
-
-def test_an_unusable_max_falls_back_to_the_default(tmp_path, monkeypatch) -> None:
-    config = tmp_path / "config.yml"
-    config.write_text("audit:\n  tool_call:\n    enabled: true\n    max_inline_bytes: -5\n")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config))
-
-    assert tool_call.settings() == (True, tool_call.DEFAULT_MAX_INLINE_BYTES)
+def test_the_retired_surface_machinery_is_gone() -> None:
+    """No setting, no payload bound, no artifact spill: nothing reads ``audit.tool_call.*``."""
+    for name in (
+        "settings",
+        "capped",
+        "serialize_result",
+        "ENABLED_KEY",
+        "MAX_INLINE_KEY",
+        "DEFAULT_MAX_INLINE_BYTES",
+        "ARTIFACT_ORIGIN",
+        "IMAGE_SPILL_BYTES",
+    ):
+        assert not hasattr(tool_call, name), name
 
 
-def test_a_small_payload_stays_inline() -> None:
-    value = {"channel": "A:1", "value": 3}
-    assert tool_call.capped(
-        value, label="arguments", subject="s", tool_use_id="toolu_1", max_inline=1000
-    ) == (value, None)
+def test_append_record_is_one_entry(recorded_entries) -> None:
+    body = _record(ts="2026-10-25T12:00:00+00:00")
+
+    entry_id = writer.append_record(tool_call.SURFACE_TOOL_CALL, body)
+
+    assert isinstance(entry_id, str) and entry_id
+    (entry,) = recorded_entries("audit")
+    assert entry.identity == "alice"
+    assert entry.tool_use_id == "u"
+    assert entry.body["surface"] == tool_call.SURFACE_TOOL_CALL
+    assert dict(entry.body) == body
 
 
-class _Store:
-    def __init__(self, fail: bool = False) -> None:
-        self.saved: list[dict] = []
-        self.fail = fail
-
-    def save_file(self, **kwargs):
-        if self.fail:
-            raise OSError("disk full")
-        self.saved.append(kwargs)
-        return SimpleNamespace(id="art-42")
-
-
-@pytest.fixture
-def store(monkeypatch: pytest.MonkeyPatch) -> _Store:
-    fake = _Store()
-    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", lambda: fake)
-    return fake
-
-
-@pytest.mark.usefixtures("store")
-def test_a_large_payload_becomes_a_reference_with_its_sha256() -> None:
-    value = {"data": "x" * 500}
-    encoded = json.dumps(value, separators=(",", ":")).encode()
-
-    inline, reference = tool_call.capped(
-        value,
-        label="result",
-        subject="mcp__controls__channel_read",
-        tool_use_id="toolu_1",
-        max_inline=100,
-    )
-
-    assert inline is None
-    assert reference == {
-        "size": len(encoded),
-        "sha256": hashlib.sha256(encoded).hexdigest(),
-        "artifact_id": "art-42",
-    }
-
-
-def test_the_reference_names_the_saved_artifact(store: _Store) -> None:
-    tool_call.capped(
-        "y" * 300, label="arguments", subject="mcp__x__t", tool_use_id="toolu_9", max_inline=10
-    )
-
-    (saved,) = store.saved
-    assert saved["filename"] == "toolu_9-arguments.json"
-    assert saved["origin"] == tool_call.ARTIFACT_ORIGIN
-    assert saved["tool_source"] == "audit.tool_call"
-    assert saved["mime_type"] == "application/json"
-    assert saved["metadata"]["tool_use_id"] == "toolu_9"
-    assert json.loads(saved["file_content"]) == "y" * 300
-
-
-def test_a_failed_save_keeps_size_and_hash(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.get_artifact_store", lambda: _Store(fail=True)
-    )
-    _inline, reference = tool_call.capped(
-        "z" * 300, label="result", subject="s", tool_use_id=None, max_inline=10
-    )
-
-    assert reference is not None
-    assert reference["artifact_id"] is None
-    assert reference["artifact_error"] == "OSError"
-    assert reference["size"] == len(json.dumps("z" * 300).encode())
-    assert len(reference["sha256"]) == 64
-
-
-def test_a_tool_result_serializes_its_blocks() -> None:
-    from fastmcp.tools.base import ToolResult
-    from mcp.types import TextContent
-
-    result = ToolResult(
-        content=[TextContent(type="text", text="hello")], structured_content={"a": 1}
-    )
-
-    assert tool_call.serialize_result(result) == {
-        "content": [{"type": "text", "text": "hello"}],
-        "structured_content": {"a": 1},
-    }
-    assert tool_call.serialize_result({"plain": [1, 2]}) == {"plain": [1, 2]}
-
-
-def test_append_record_is_one_line(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
-    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "alice")
-    monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-    monkeypatch.delenv(writer.AUDIT_WRITER_ENV, raising=False)
-    big = {"surface": "tool_call", "result": "r" * (writer.MAX_RECORD_BYTES * 4)}
-
-    path = writer.append_record(tool_call.SURFACE_TOOL_CALL, big)
-
-    assert path == tmp_path / "var" / "audit" / "alice" / "tool_call.jsonl"
-    lines = path.read_text().splitlines()
-    assert len(lines) == 1
-    assert json.loads(lines[0]) == big
-
-
-def test_append_record_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken():
+def test_append_record_never_raises(monkeypatch: pytest.MonkeyPatch, recorded_entries) -> None:
+    def broken(*_args, **_kwargs):
         raise OSError("gone")
 
-    monkeypatch.setattr(writer, "audit_dir", broken)
+    monkeypatch.setattr(writer.record_writer, "_append", broken)
     assert writer.append_record("tool_call", {"a": 1}) is None
+    assert recorded_entries("audit") == []
+
+
+def _record(**overrides):
+    fields = {
+        "ts": "t",
+        "actor": "a",
+        "posture": "writes",
+        "posture_source": "process",
+        "session": None,
+        "session_id": "c",
+        "tool_use_id": "u",
+        "server": "controls",
+        "subject": "s",
+        "approval": None,
+        "target": "va",
+        "generation": 3,
+        "facts": {},
+        "duration_ms": 12.5,
+    }
+    fields.update(overrides)
+    return tool_call.build_record(**fields)
 
 
 def test_the_record_keeps_its_documented_order() -> None:
-    record = tool_call.build_record(
-        ts="t",
-        actor="a",
-        posture="writes",
-        posture_source="process",
-        session=None,
-        session_id="c",
-        tool_use_id="u",
-        server="controls",
-        subject="s",
-        decision="allowed",
-        reason="tool_call",
-        approval=None,
-        target="va",
-        generation=3,
-        arguments={"x": 1},
-        arguments_ref=None,
-        result=None,
-        result_ref={"size": 1},
-        error=None,
-        is_error=False,
-        facts={},
-        duration_ms=1.0,
-    )
-    assert list(record) == [
+    assert list(_record()) == [
         "ts",
         "surface",
         "actor",
@@ -194,228 +84,56 @@ def test_the_record_keeps_its_documented_order() -> None:
         "duration_ms",
         "server",
         "subject",
-        "decision",
-        "reason",
         "approval",
         "target",
         "generation",
-        "arguments",
-        "result_ref",
-        "error",
-        "is_error",
         "facts",
     ]
 
 
-def _full_record(**overrides):
-    fields = {
-        "ts": "t",
-        "actor": "a",
-        "posture": "writes",
-        "posture_source": "process",
-        "session": None,
-        "session_id": "c",
-        "tool_use_id": "u",
-        "server": "controls",
-        "subject": "s",
-        "decision": "allowed",
-        "reason": "tool_call",
-        "approval": None,
-        "target": "va",
-        "generation": 3,
-        "arguments": {"x": 1},
-        "arguments_ref": None,
-        "result": "r",
-        "result_ref": None,
-        "error": None,
-        "is_error": False,
-        "facts": {},
-        "duration_ms": 12.5,
-    }
-    fields.update(overrides)
-    return tool_call.build_record(**fields)
+@pytest.mark.parametrize(
+    "dropped", ["arguments", "arguments_ref", "result", "result_ref", "decision", "reason"]
+)
+def test_the_record_carries_no_payload_and_no_decision(dropped: str) -> None:
+    assert dropped not in _record()
+    with pytest.raises(TypeError):
+        _record(**{dropped: "x"})
+
+
+def test_the_duration_comes_before_the_facts() -> None:
+    """A line cut short inside its facts still says how long the call took."""
+    record = _record(facts={"old_values": {"A:1": {"value": 1}}})
+    keys = list(record)
+    assert keys.index("duration_ms") == keys.index("tool_use_id") + 1
+
+    line = json.dumps(record, separators=(",", ":"))
+    assert '"duration_ms":12.5' in line[: line.index('"facts"')]
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("fields", "expected"),
     [
-        {"arguments": {"x": 1}, "arguments_ref": None},
-        {"arguments": None, "arguments_ref": {"size": 1}},
+        ({"approval": None, "target": None, "generation": None, "facts": {}}, False),
+        (
+            {"approval": {"outcome": "approved"}, "target": None, "generation": None, "facts": {}},
+            True,
+        ),
+        ({"approval": None, "target": "va", "generation": None, "facts": {}}, True),
+        ({"approval": None, "target": None, "generation": 0, "facts": {}}, True),
+        ({"approval": None, "target": None, "generation": None, "facts": {"ca_user": "x"}}, True),
     ],
 )
-def test_the_duration_comes_before_either_payload(payload: dict) -> None:
-    """A line cut short inside its payload still says how long the call took."""
-    keys = list(_full_record(**payload))
-    payload_key = "arguments_ref" if payload["arguments_ref"] else "arguments"
-    assert keys.index("duration_ms") == keys.index("tool_use_id") + 1
-    assert keys.index("duration_ms") < keys.index(payload_key)
-
-    line = json.dumps(_full_record(**payload), separators=(",", ":"))
-    assert '"duration_ms":12.5' in line[: line.index(f'"{payload_key}"')]
+def test_a_call_with_any_fact_is_recorded(fields: dict, expected: bool) -> None:
+    assert tool_call.has_facts(**fields) is expected
 
 
 def test_an_unset_session_takes_the_terminal_session(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "dispatch-42")
-    assert _full_record(session=None)["session"] == "dispatch-42"
-    assert _full_record(session="pty-3")["session"] == "pty-3"
+    assert _record(session=None)["session"] == "dispatch-42"
+    assert _record(session="pty-3")["session"] == "pty-3"
 
 
 def test_no_session_anywhere_stays_null(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
     monkeypatch.setenv("OSPREY_TERMINAL_SESSION_LIFETIME", "43200")
-    assert _full_record(session=None)["session"] is None
-
-
-# ---- image blocks -----------------------------------------------------------
-
-
-class _SpillStore:
-    """Fake store recording ``save_or_touch_by_sha256`` calls; dedups on sha256."""
-
-    def __init__(self, fail: bool = False) -> None:
-        self.calls: list[dict] = []
-        self.ids: dict[str, str] = {}
-        self.fail = fail
-
-    def save_or_touch_by_sha256(self, sha256, *, origin, save_kwargs):
-        if self.fail:
-            raise OSError("disk full")
-        self.calls.append({"sha256": sha256, "origin": origin, **save_kwargs})
-        art = self.ids.setdefault(sha256, f"art-{len(self.ids)}")
-        return SimpleNamespace(id=art)
-
-    def list_entries(self, *_a, **_kw):  # pragma: no cover - must never be used
-        raise AssertionError("serialize_result must not list entries")
-
-
-@pytest.fixture
-def spill_store(monkeypatch: pytest.MonkeyPatch) -> _SpillStore:
-    fake = _SpillStore()
-    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", lambda: fake)
-    return fake
-
-
-def _image_result(raw: bytes, *, text: str = "caption"):
-    import base64
-
-    from fastmcp.tools.base import ToolResult
-    from mcp.types import ImageContent, TextContent
-
-    return ToolResult(
-        content=[
-            TextContent(type="text", text=text),
-            ImageContent(type="image", data=base64.b64encode(raw).decode(), mimeType="image/png"),
-        ],
-        structured_content=None,
-    )
-
-
-def test_a_large_image_block_becomes_a_reference(spill_store: _SpillStore) -> None:
-    raw = bytes(range(256)) * 40  # 10 KiB
-    out = tool_call.serialize_result(
-        _image_result(raw), subject="mcp__x__screenshot", tool_use_id="toolu_7"
-    )
-
-    text, image = out["content"]
-    assert text == {"type": "text", "text": "caption"}
-    digest = hashlib.sha256(raw).hexdigest()
-    assert image == {
-        "type": "image",
-        "mimeType": "image/png",
-        "size": len(raw),
-        "sha256": digest,
-        "artifact_id": "art-0",
-    }
-    (call,) = spill_store.calls
-    assert call["sha256"] == digest
-    assert call["origin"] == tool_call.ARTIFACT_ORIGIN
-    assert call["file_content"] == raw
-    assert call["artifact_type"] == "image"
-    assert call["mime_type"] == "image/png"
-    assert call["filename"].startswith("toolu_7-")
-    assert "mcp__x__screenshot" in call["title"]
-    assert call["metadata"] == {"tool_use_id": "toolu_7", "sha256": digest}
-
-
-def test_a_small_image_block_stays_inline(spill_store: _SpillStore) -> None:
-    import base64
-
-    raw = b"\x89PNG tiny"
-    out = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t")
-    assert out["content"][1] == {
-        "type": "image",
-        "data": base64.b64encode(raw).decode(),
-        "mimeType": "image/png",
-    }
-    assert spill_store.calls == []
-
-
-def test_the_threshold_is_four_kilobytes(spill_store: _SpillStore) -> None:
-    assert tool_call.IMAGE_SPILL_BYTES == 4096
-    tool_call.serialize_result(_image_result(b"a" * 4096), subject="s", tool_use_id="t")
-    assert spill_store.calls == []
-    tool_call.serialize_result(_image_result(b"a" * 4097), subject="s", tool_use_id="t")
-    assert len(spill_store.calls) == 1
-
-
-@pytest.mark.usefixtures("spill_store")
-def test_two_views_of_one_picture_name_one_artifact() -> None:
-    raw = b"z" * 9000
-    one = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="a")
-    two = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="b")
-    assert one["content"][1]["artifact_id"] == two["content"][1]["artifact_id"]
-
-
-@pytest.mark.usefixtures("spill_store")
-def test_the_original_result_is_never_modified() -> None:
-    result = _image_result(b"q" * 9000)
-    before = result.content[1].data
-
-    tool_call.serialize_result(result, subject="s", tool_use_id="t")
-
-    assert result.content[1].data == before
-    assert result.content[1].mimeType == "image/png"
-
-
-def test_a_failed_image_save_keeps_the_record_without_the_data(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def broken():
-        raise RuntimeError("no store")
-
-    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", broken)
-    raw = b"w" * 9000
-
-    out = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t")
-
-    image = out["content"][1]
-    assert image["artifact_id"] is None
-    assert image["artifact_error"] == "RuntimeError"
-    assert image["size"] == len(raw)
-    assert image["sha256"] == hashlib.sha256(raw).hexdigest()
-    assert "data" not in image
-
-
-def test_a_raising_save_names_its_error_type(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.get_artifact_store", lambda: _SpillStore(fail=True)
-    )
-    out = tool_call.serialize_result(_image_result(b"w" * 9000), subject="s", tool_use_id="t")
-    assert out["content"][1]["artifact_error"] == "OSError"
-
-
-def test_a_real_store_spill_round_trips(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from osprey.stores.artifact_store import ArtifactStore
-
-    real = ArtifactStore(workspace_root=tmp_path, auto_launch=False)
-    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", lambda: real)
-    raw = b"r" * 9000
-
-    first = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t1")
-    second = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t2")
-
-    art_id = first["content"][1]["artifact_id"]
-    assert art_id and art_id == second["content"][1]["artifact_id"]
-    assert real.get_file_path(art_id).read_bytes() == raw
-    assert real.list_entries() == []
-    assert len(real.list_entries(include_audit=True)) == 1
+    assert _record(session=None)["session"] is None

@@ -23,6 +23,7 @@ import time
 
 import pytest
 
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 #: A writable texture setpoint and the readback its writes echo into. Its seed
@@ -101,10 +102,11 @@ async def _assert_session_write_dropped(connector, switch: str) -> None:
 
 class TestScenarioReload:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("va_switch_on")
     async def test_scenario_switch_reloads_overrides_and_drops_session_writes(self, va_container):
         project = va_container
 
-        with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
+        with e2e_conftest.patched_config(**{"control_system.writes": "allowed"}):
             connector = await e2e_conftest.connect_va()
 
             # Baseline: the session starts in nominal plus the suite scenario, and
@@ -165,10 +167,4 @@ class TestScenarioReload:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_scenario_reload.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

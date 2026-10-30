@@ -341,7 +341,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
 
     `alice` runs a read-write render that also runs the bluesky server, so its
     project satisfies both halves of the launch-token predicate. `bob` runs a
-    read-only render — `writes_enabled: false` — which can never satisfy it.
+    read-only render — `writes: never` — which can never satisfy it.
     Both spell out `claude_code.servers.bluesky.enabled`: the server is opt-in in
     the registry, so a project that omits the key runs no server and would sit
     outside the predicate for the wrong reason. Both ship the shell deny by
@@ -363,7 +363,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
                 tmp_path,
                 "rw",
                 {
-                    "control_system": {"writes_enabled": True},
+                    "control_system": {"writes": "allowed"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 },
                 denies_bash=rw_denies_bash,
@@ -376,7 +376,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
                 tmp_path,
                 "ro",
                 {
-                    "control_system": {"writes_enabled": False},
+                    "control_system": {"writes": "never"},
                     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                 },
                 denies_bash=ro_denies_bash,
@@ -426,8 +426,8 @@ def test_launch_token_is_granted_per_user_and_never_through_the_shared_env_file(
     compose_text = (tmp_path / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
     assert compose_text.count(_LAUNCH_TOKEN_LINE) == 1
     services = _rendered_services(tmp_path / "build")
-    assert services["web-alice"]["env_file"] == ".env.users"
-    assert services["web-bob"]["env_file"] == services["web-alice"]["env_file"]
+    assert services["web-alice"]["env_file"] == [".env.users", ".env.agent-record.login.alice"]
+    assert services["web-bob"]["env_file"] == [".env.users", ".env.agent-record.login.bob"]
     assert not (tmp_path / ".env.users").exists()
 
 
@@ -485,7 +485,7 @@ def _graphdb_roster_config(tmp_path):
             project_path=_write_render_project(
                 tmp_path,
                 "ro-graph",
-                {"control_system": {"writes_enabled": False}, "services": {"graphdb": {}}},
+                {"control_system": {"writes": "never"}, "services": {"graphdb": {}}},
             ),
         ),
         "graph_vetoed": tier_render(
@@ -655,7 +655,7 @@ def test_the_refusal_states_both_conditions_and_the_remedy(tmp_path):
         )
 
     message = str(excinfo.value)
-    assert "writes_enabled" in message
+    assert "control_system.writes" in message
     assert "bluesky" in message
     assert "permissions.deny" in message
     assert "REBUILD" in message
@@ -695,7 +695,7 @@ def test_a_role_only_roster_is_covered_by_the_render_check(tmp_path):
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0, "role": "operator"}
     ]
-    config["control_system"] = {"writes_enabled": True}
+    config["control_system"] = {"writes": "allowed"}
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
@@ -730,7 +730,7 @@ def test_every_offending_render_is_named_not_just_the_first(tmp_path):
             tmp_path,
             "bad2",
             {
-                "control_system": {"writes_enabled": True},
+                "control_system": {"writes": "allowed"},
                 "claude_code": {"servers": {"bluesky": {"enabled": True}}},
             },
             denies_bash=False,
@@ -770,29 +770,29 @@ def test_the_guard_follows_the_shipped_artifact_not_the_config_intent(tmp_path):
 # ---------------------------------------------------------------------------
 # The guard is per LANE
 #
-# Each plan lane carries its own launch token, armed by the write posture of
-# the control target that lane drives. A render can therefore hold the VA
-# lane's token on a deployment whose baseline is a live machine — and a shell
-# in that container reaches the VA hardware just as directly, so the conflict
-# is refused on any lane, not only on lane 1.
+# Each plan lane carries its own launch token, granted on the render's login
+# tier — target-blind, so a tier that allows writes entitles every lane the
+# render carries. A shell in that container reaches the VA hardware just as
+# directly as the live one, so the conflict is refused on any lane, not only on
+# lane 1.
 # ---------------------------------------------------------------------------
 
-#: A render project whose baseline is a live machine with writes disarmed, that
-#: arms the VA connector alone and renders the VA second lane. Lane 1 declares no
-#: target and so drives `live`, which this config leaves unarmed.
+#: A render project whose baseline is a live machine, that renders the VA second
+#: lane beside lane 1 and whose tier allows writes. Lane 1 declares no target
+#: and so drives `live`.
 _VA_ARMED_PROJECT: dict = {
     "control_system": {
         "type": "epics",
-        "writes_enabled": False,
-        "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
+        "writes": "allowed",
+        "connector": {"epics": {}, "virtual_accelerator": {}},
     },
     "services": {"bluesky_va": {"target": "va", "port": 10081}},
     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
 }
 
 
-def _va_lane_roster_config(tmp_path, *, denies_bash: bool = True):
-    """A one-user roster whose render is entitled on the VA lane only."""
+def _va_lane_roster_config(tmp_path, *, denies_bash: bool = True, project: dict | None = None):
+    """A one-user roster whose render carries lane 1 and the VA lane."""
     config = _config([{"name": "alice", "index": 0, "tier": "va_operator"}])
     config["modules"]["web_terminals"]["default_tier"] = "va_operator"
     config["modules"]["web_terminals"]["renders"] = {
@@ -800,7 +800,10 @@ def _va_lane_roster_config(tmp_path, *, denies_bash: bool = True):
             "va_operator",
             "va",
             project_path=_write_render_project(
-                tmp_path, "va", _VA_ARMED_PROJECT, denies_bash=denies_bash
+                tmp_path,
+                "va",
+                _VA_ARMED_PROJECT if project is None else project,
+                denies_bash=denies_bash,
             ),
         )
     }
@@ -816,24 +819,25 @@ def test_the_guard_returns_the_entitlement_map_keyed_by_lane(tmp_path):
     assert result == {"bluesky": {"readwrite"}}
 
 
-def test_a_render_entitled_on_the_va_lane_alone_is_still_a_conflict(tmp_path):
-    """The refusal is not about lane 1. A render holding only the VA lane's token
-    can read it out of its environment and arm the virtual accelerator's queue with
-    no approval, which is the same bypass on a different machine."""
+def test_a_render_entitled_on_the_va_lane_is_refused_on_that_lane_too(tmp_path):
+    """The refusal is not about lane 1. A render holding the VA lane's token can
+    read it out of its environment and arm the virtual accelerator's queue with no
+    approval, which is the same bypass on a different machine."""
     config = _va_lane_roster_config(tmp_path, denies_bash=False)
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
     assert excinfo.value.tiers == ["va_operator"]
-    assert excinfo.value.renders_by_lane == {"bluesky_va": ["va_operator"]}
+    assert excinfo.value.renders_by_lane == {
+        "bluesky": ["va_operator"],
+        "bluesky_va": ["va_operator"],
+    }
 
 
 def test_the_refusal_names_the_lane_and_the_key_that_disarms_it(tmp_path):
-    """The remedy has to name the key an operator actually edits. Sending them to
-    the deployment-wide key would have them disarm every target at once — and on
-    this deployment that key is already false, so it would read as no remedy at
-    all."""
+    """The remedy names the key an operator actually edits: the render's tier,
+    `control_system.writes`, which decides every lane at once."""
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         check_bash_launch_token_conflict(
             _va_lane_roster_config(tmp_path, denies_bash=False), tmp_path
@@ -842,7 +846,8 @@ def test_the_refusal_names_the_lane_and_the_key_that_disarms_it(tmp_path):
     message = str(excinfo.value)
     assert "bluesky_va" in message
     assert "BLUESKY_VA_LAUNCH_TOKEN" in message
-    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    assert "control_system.writes: never" in message
+    assert "writes_enabled" not in message
     assert "claude_code.servers.bluesky.enabled" in message
 
 
@@ -856,22 +861,29 @@ def test_the_offender_set_is_the_union_over_every_lane(tmp_path):
     ) == {"va_operator"}
 
 
-def test_a_lane_nobody_may_arm_is_absent_from_the_entitlement_map(tmp_path):
-    """Lane 1 drives the live machine here and is disarmed, so it is missing from
-    the map rather than present with an empty set — the deployment renders no
-    lane-1 grant at all."""
-    result = check_bash_launch_token_conflict(_va_lane_roster_config(tmp_path), tmp_path)
+def test_a_never_tier_is_absent_from_the_entitlement_map(tmp_path):
+    """A render whose tier is `never` is missing from the map on every lane it
+    carries, rather than present with an empty set."""
+    project = {
+        **_VA_ARMED_PROJECT,
+        "control_system": {**_VA_ARMED_PROJECT["control_system"], "writes": "never"},
+    }
+    result = check_bash_launch_token_conflict(
+        _va_lane_roster_config(tmp_path, project=project), tmp_path
+    )
 
-    assert result == {"bluesky_va": {"va_operator"}}
+    assert result == {}
 
 
-def test_the_va_lane_grant_reaches_no_lane_one_token(tmp_path):
-    """The tier boundary, per target: a render armed only for the virtual
-    accelerator must never be handed lane 1's token, which arms the live machine."""
+def test_an_allowed_tier_reaches_every_lane_token(tmp_path):
+    """The tier is target-blind (PR-3): a render whose tier allows writes holds
+    both lanes' tokens. Which machine a queued write reaches is decided per
+    write, by the owner's switch."""
     write_web_terminal_artifacts(_va_lane_roster_config(tmp_path), tmp_path)
 
     alice_env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
-    assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in alice_env)
+    assert any("BLUESKY_LAUNCH_TOKEN" in value for value in alice_env)
+    assert any("BLUESKY_VA_LAUNCH_TOKEN" in value for value in alice_env)
 
 
 # ---------------------------------------------------------------------------
@@ -893,7 +905,10 @@ def test_dangerously_allow_bash_waives_the_refusal_and_still_grants_the_token(tm
     config = _dangerous_va_config(tmp_path)
 
     assert bash_launch_token_offenders(config, tmp_path) == set()
-    assert check_bash_launch_token_conflict(config, tmp_path) == {"bluesky_va": {"va_operator"}}
+    assert check_bash_launch_token_conflict(config, tmp_path) == {
+        "bluesky": {"va_operator"},
+        "bluesky_va": {"va_operator"},
+    }
     write_web_terminal_artifacts(config, tmp_path)
 
     alice_env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
@@ -950,7 +965,7 @@ def test_dangerously_allow_bash_accepts_only_the_boolean_true(tmp_path, value):
 #: A render project that is entitled to no launch token at all — writes off and
 #: no bluesky server — so these tests exercise the open-mode gate alone and a
 #: failure here can never be the Bash/launch-token guard firing instead.
-_UNARMED_PROJECT: dict = {"control_system": {"writes_enabled": False}}
+_UNARMED_PROJECT: dict = {"control_system": {"writes": "never"}}
 
 
 def _open_roster_config(tmp_path, *, method: str = "none", deny: list[str] | None = None):

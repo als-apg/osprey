@@ -28,7 +28,7 @@ Covers:
     bar -- proving the direct-import wiring actually renders them (a
     grep-level check that no window bridge exists can't show that)
 
-Unlike test_load_smokes.py's `_launch_artifacts` (an empty tmp_path -- fine
+Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
 on-disk artifacts: ArtifactStore.list_entries() reflects whatever the
 `artifacts.json` index says, and the gallery has nothing to filter/select
@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -141,7 +141,7 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
     from osprey.interfaces.artifacts.app import create_app
 
     app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 
@@ -176,7 +176,7 @@ def _launch_many_artifacts(
     from osprey.interfaces.artifacts.app import create_app
 
     app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 
@@ -584,11 +584,11 @@ def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_b
         # Load-time half: the src carries the theme in force, and the page
         # inside painted in it (not the OS-dark it would resolve on its own).
         assert "theme=retro-light" in (iframe.get_attribute("src") or "")
-        page.wait_for_function(
-            "() => document.querySelector('.preview-viewport iframe')"
-            "  ?.contentDocument?.documentElement.getAttribute('data-theme') === 'retro-light'",
-            timeout=10_000,
-        )
+        # The preview frame is opaque-origin (sandboxed, no same-origin), so
+        # the gallery cannot read its contentDocument; Playwright's frame
+        # handle reaches into it the way the user's eyes do.
+        frame_html = page.frame_locator(".preview-viewport iframe").locator("html")
+        expect(frame_html).to_have_attribute("data-theme", "retro-light", timeout=10_000)
         link = page.locator(".preview-header a[data-theme-link]")
         assert "theme=retro-light" in (link.get_attribute("href") or "")
 
@@ -599,12 +599,7 @@ def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_b
             " theme: 'high-contrast-light'}, window.location.origin)"
         )
         expect(page.locator("html")).to_have_attribute("data-theme", "high-contrast-light")
-        page.wait_for_function(
-            "() => document.querySelector('.preview-viewport iframe')"
-            "  ?.contentDocument?.documentElement.getAttribute('data-theme')"
-            "  === 'high-contrast-light'",
-            timeout=10_000,
-        )
+        expect(frame_html).to_have_attribute("data-theme", "high-contrast-light", timeout=10_000)
         expect(link).to_have_attribute("href", re.compile(r"theme=high-contrast-light"))
         page.close()
 

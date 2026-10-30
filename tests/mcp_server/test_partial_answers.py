@@ -8,13 +8,11 @@ shared cause's own error when every item failed alike and as
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from osprey.mcp_server.control_system.error_handling import (
-    ToolError,
     connector_error_handler,
     shared_typed_cause,
 )
@@ -26,12 +24,8 @@ from osprey.mcp_server.errors import (
 )
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc._proxy import ChildUnresponsiveError
+from tests.mcp_server.conftest import assert_raises_error
 from tests.mcp_server.test_channel_read_size_rule import _read
-
-
-def _envelope(excinfo: pytest.ExceptionInfo[ToolError]) -> dict:
-    return json.loads(str(excinfo.value))
-
 
 # ---------------------------------------------------------------------------
 # The envelope
@@ -44,10 +38,10 @@ def test_the_contract_names():
 
 
 def test_nothing_answered_carries_the_map():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         refuse_nothing_answered("a_tool", "things", {"x": "Gone: no x", "y": None})
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "nothing_answered",
         "error_message": "a_tool: none of the 2 requested things answered",
@@ -57,10 +51,10 @@ def test_nothing_answered_carries_the_map():
 
 
 def test_nothing_answered_keeps_further_details():
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         refuse_nothing_answered("a_tool", "things", {"x": None}, details={"model": "m"})
 
-    assert _envelope(excinfo)["details"] == {"model": "m", "missing": {"x": None}}
+    assert raised["envelope"]["details"] == {"model": "m", "missing": {"x": None}}
 
 
 # ---------------------------------------------------------------------------
@@ -103,11 +97,11 @@ def test_no_shared_cause(errors):
 
 async def test_a_shared_cause_keeps_its_own_envelope_with_the_map():
     missing = {"A": "TimeoutError: a", "B": "TimeoutError: b"}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(TimeoutError("a"), missing=missing)
 
-    assert _envelope(excinfo) == {
+    assert raised["envelope"] == {
         "error": True,
         "error_type": "timeout_error",
         "error_message": "channel_read timed out: a",
@@ -118,11 +112,11 @@ async def test_a_shared_cause_keeps_its_own_envelope_with_the_map():
 
 async def test_no_cause_is_nothing_answered_with_the_map():
     missing = {"A": "RuntimeError: a", "B": "RuntimeError: b"}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(None, missing=missing)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["error_message"] == "channel_read: none of the 2 requested channels answered"
     assert envelope["details"] == {"missing": missing}
@@ -135,14 +129,14 @@ async def test_a_shared_connection_error_drops_the_connector_once():
             "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
             invalidate,
         ),
-        pytest.raises(ToolError) as excinfo,
+        assert_raises_error() as raised,
     ):
         async with connector_error_handler("channel_read", "archiver"):
             raise NothingAnsweredError(
                 ConnectionError("down"), missing={"A": "x", "B": "y", "C": "z"}
             )
 
-    assert _envelope(excinfo)["error_type"] == "connection_error"
+    assert raised["envelope"]["error_type"] == "connection_error"
     invalidate.assert_awaited_once_with("archiver")
 
 
@@ -153,14 +147,14 @@ async def test_a_wedged_child_is_pinged_once():
             "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
             ping,
         ),
-        pytest.raises(ToolError) as excinfo,
+        assert_raises_error() as raised,
     ):
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(
                 ChildUnresponsiveError("deadline"), missing={"A": "x", "B": "y"}
             )
 
-    assert _envelope(excinfo)["error_type"] == "timeout_error"
+    assert raised["envelope"]["error_type"] == "timeout_error"
     ping.assert_awaited_once()
 
 
@@ -183,14 +177,14 @@ async def test_mixed_causes_still_recover_what_failed():
             "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
             ping,
         ),
-        pytest.raises(ToolError) as excinfo,
+        assert_raises_error() as raised,
     ):
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(
                 None, missing={str(i): str(e) for i, e in enumerate(errors)}, errors=errors
             )
 
-    assert _envelope(excinfo)["error_type"] == "nothing_answered"
+    assert raised["envelope"]["error_type"] == "nothing_answered"
     invalidate.assert_awaited_once_with("control_system")
     ping.assert_awaited_once_with("control_system")
 
@@ -208,12 +202,12 @@ async def test_mixed_causes_without_a_dropped_link_recover_nothing():
             "osprey.mcp_server.control_system.error_handling._answer_unresponsive_child",
             ping,
         ),
-        pytest.raises(ToolError) as excinfo,
+        assert_raises_error() as raised,
     ):
         async with connector_error_handler("channel_read"):
             raise NothingAnsweredError(None, missing={"A": "x", "B": "y"}, errors=errors)
 
-    assert _envelope(excinfo)["error_type"] == "nothing_answered"
+    assert raised["envelope"]["error_type"] == "nothing_answered"
     invalidate.assert_not_awaited()
     ping.assert_not_awaited()
 
@@ -225,10 +219,10 @@ async def test_mixed_causes_without_a_dropped_link_recover_nothing():
 
 async def test_a_read_nothing_answered_for_one_cause_is_that_cause(tmp_path, monkeypatch):
     values = {"SR:A": TimeoutError("late"), "SR:B": TimeoutError("later")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "timeout_error"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",
@@ -238,10 +232,10 @@ async def test_a_read_nothing_answered_for_one_cause_is_that_cause(tmp_path, mon
 
 async def test_a_read_nothing_answered_for_mixed_causes_is_nothing_answered(tmp_path, monkeypatch):
     values = {"SR:A": TimeoutError("late"), "SR:B": ChannelNotFoundError("SR:B")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",
@@ -253,10 +247,10 @@ async def test_a_read_nothing_answered_for_an_untyped_cause_is_nothing_answered(
     tmp_path, monkeypatch
 ):
     values = {"SR:A": RuntimeError("odd"), "SR:B": RuntimeError("odder")}
-    with pytest.raises(ToolError) as excinfo:
+    with assert_raises_error() as raised:
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "RuntimeError: odd",
@@ -272,11 +266,11 @@ async def test_a_read_that_timed_out_and_lost_its_link_drops_the_connector(tmp_p
             "osprey.mcp_server.control_system.error_handling.invalidate_active_connector",
             invalidate,
         ),
-        pytest.raises(ToolError) as excinfo,
+        assert_raises_error() as raised,
     ):
         await _read(tmp_path, monkeypatch, values)
 
-    envelope = _envelope(excinfo)
+    envelope = raised["envelope"]
     assert envelope["error_type"] == "nothing_answered"
     assert envelope["details"]["missing"] == {
         "SR:A": "TimeoutError: late",

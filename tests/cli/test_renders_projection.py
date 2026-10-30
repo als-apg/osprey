@@ -15,9 +15,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import build_lint_view
 from osprey.cli.build_profile_emit import effective_web_terminals, emits_layer_profiles
 from osprey.cli.build_profile_model import render_key_errors
@@ -27,8 +25,9 @@ from osprey.deployment.web_terminals.render_naming import (
     render_projection,
 )
 from osprey.deployment.web_terminals.roster import resolve_cards, served_renders
+from osprey.utils.workspace import RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import RETIRED_LAYER_DIRS
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -54,7 +53,7 @@ def _with_readwrite_knobs(repo: Path) -> Path:
 
 
 def _rendered_web_terminals(repo: Path) -> dict:
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
     return config["modules"]["web_terminals"]
 
 
@@ -81,7 +80,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, list[dic
     with pytest.MonkeyPatch.context() as patch, preserved_environ():
         patch.setattr(lint, "profile_config_errors", record)
         patch.chdir(outside)
-        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     return repo, judged
 
@@ -146,7 +145,7 @@ def test_the_lint_judges_the_projection_the_build_writes(built_repo):
 
 def test_rendered_projection_feeds_the_deploy_readers(built_repo):
     repo, _judged = built_repo
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
 
     assert set(effective_web_terminals(config)["renders"]) == {*TIERS, *APPS}
     assert emits_layer_profiles(config)
@@ -349,7 +348,7 @@ def test_a_tier_file_carrying_its_top_level_knobs_builds(tmp_path: Path):
     keys a tier file takes, so the build accepts them."""
     repo = _with_readwrite_knobs(build_exemplar_repo(tmp_path / PROJECT))
     with preserved_environ():
-        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     assert (
         render_projection(repo, PROJECT)["readwrite"]["extra_mounts"]

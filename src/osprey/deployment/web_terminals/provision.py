@@ -31,9 +31,11 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     control_target_tree_dir,
-    ensure_audit_dir,
+    derived_compose_dirs,
     ensure_control_target_dir,
     ensure_shared_corpus_dir,
+    ensure_spool_dir,
+    ensure_state_dir,
     resolve_ariel_mirror_dir,
     resolve_facility_bundle_dir,
     resolve_project_name,
@@ -222,8 +224,7 @@ def render_problem(config: dict, repo_root: Path | str) -> str | None:
     :func:`verify_renders` asked as a question. It walks the same set
     :func:`preflight_web_terminals` walks, in the same mode gate, and reports
     what that call would have raised — a render with no render, a partial one,
-    a model its provider cannot serve, or a telemetry block naming an
-    observability credential this deployment cannot resolve.
+    or a model its provider cannot serve.
 
     Pure: every step reads. ``resolve_cards`` parses the catalog,
     ``verify_renders`` stats rendered directories and parses their
@@ -1049,7 +1050,7 @@ def _roster_identities(config: dict) -> list[str]:
 def _ensure_control_target_dirs(config: dict, repo_root: Path | str) -> None:
     """Provision the control-context tree and one directory per roster user.
 
-    The same act, and the same failure, as the audit loop beside this call: a
+    The same act, and the same failure, as the spool loop beside this call: a
     bind source the deploy does not create is created by the container runtime
     instead — root-owned under a rootful daemon — after which the terminal's
     dropped ``osprey`` process writes no record at all, every lane and the
@@ -1398,6 +1399,24 @@ def _force_recreate_services(
     _report_step(f"recreated {', '.join(services)}")
 
 
+def _services_stack_has_services(config: dict, compose_files: list[str]) -> bool:
+    """Whether the backend-services compose files name at least one service.
+
+    A listed service (``deployed_services``) always has a rendered file. A
+    derived service (:func:`~osprey.deployment.compose_generator.derived_compose_dirs`)
+    is not listed, so it counts when its own ``<dir>/docker-compose.yml`` is
+    among *compose_files*. The top-level network-only file names none.
+
+    :param config: Raw deploy config.
+    :param compose_files: Compose files ``prepare_compose_files`` resolved.
+    :return: ``True`` when ``compose up`` on *compose_files* has a service to start.
+    """
+    if config.get("deployed_services"):
+        return True
+    derived = set(derived_compose_dirs(config))
+    return any(Path(path).parent.name in derived for path in compose_files)
+
+
 def deploy_up_web_terminals(
     config: dict,
     compose_files: list[str],
@@ -1418,8 +1437,8 @@ def deploy_up_web_terminals(
     ``-f`` list:
 
     1. The backend-services stack (``compose_files``, possibly just the
-       network-only top-level file when no service is actually deployed —
-       see the ``deployed_services`` guard below), exactly as the plain
+       network-only top-level file when no service is rendered — see the
+       services guard below), exactly as the plain
        non-web path would run it (``up`` (``--build`` under ``dev_mode``)
        ``-d``, no ``pull``).
     2. The web-terminal stack (``docker-compose.web.yml`` alone): ``up -d``,
@@ -1471,14 +1490,16 @@ def deploy_up_web_terminals(
     ``network_mode: host`` (see ``docker-compose.web.yml.j2``), so it never
     needed to join ``osprey-network`` from the services file anyway.
 
-    The services sub-invocation only runs when a real service is deployed
-    (``config["deployed_services"]`` non-empty): ``compose_files`` always
-    includes the top-level ``build/services/docker-compose.yml`` (a bare
-    network declaration, no ``services:`` key) even for a web-terminals-only
-    deploy, and ``compose up`` on a file with zero services fails outright
-    with ``no service selected`` — this is exactly why the *plain* non-web
-    path's own early-return guards on ``deployed_services`` before ever
-    reaching ``up``. It also never runs ``pull``: unlike the web stack's
+    The services sub-invocation runs whenever ``compose_files`` names a
+    service (see :func:`_services_stack_has_services`): a listed service
+    (``config["deployed_services"]`` non-empty) or a derived service whose
+    compose file the build rendered — agent-record is rendered for every
+    deployment, so a web-terminals-only deploy starts it before the terminals.
+    Only a stack of nothing but the top-level
+    ``build/services/docker-compose.yml`` (a bare network declaration, no
+    ``services:`` key) skips it, because ``compose up`` on a file with zero
+    services fails outright with ``no service selected``. It also never runs
+    ``pull``: unlike the web stack's
     images (always registry-hosted — ``nginx:*-alpine`` and
     ``<registry>/web-terminal:latest``), a deployed service like
     ``event_dispatcher`` may declare only a ``build:`` block with no
@@ -1513,8 +1534,8 @@ def deploy_up_web_terminals(
     :param config: Raw deploy config.
     :param compose_files: Compose files ``prepare_compose_files`` already
         resolved — always at least the top-level network-only file, even for
-        a web-terminals-only deploy (see the ``deployed_services`` guard
-        above for why that alone doesn't get an ``up`` invocation).
+        a web-terminals-only deploy (see the services guard above for why
+        that alone doesn't get an ``up`` invocation).
     :param dev_mode: Whether ``--dev`` was passed; appends ``--build`` to the
         services stack's ``up -d`` invocation when set, and is threaded into
         :func:`build_render_images` (local mode) for its own dev-wheel
@@ -1590,8 +1611,8 @@ def deploy_up_web_terminals(
                 "(every entitled web terminal writes it; the sidecar indexes it read-only)."
             )
 
-    # Every audit subdirectory this stack is about to bind: one per roster user,
-    # plus the sidecar's fixed one whenever a sidecar is rendered. Provisioned
+    # Every spool and state subdirectory this stack is about to bind: one per
+    # roster user, plus the sidecar's fixed one whenever a sidecar is rendered. Provisioned
     # BEFORE the render for the same ordering reason the bundle above is, minus
     # one: no gid is read back here, because the group membership that survives
     # the privilege drop is granted inside the container by the entrypoint,
@@ -1605,12 +1626,13 @@ def deploy_up_web_terminals(
     # error (raised below, with its own explanation) to a place that cannot
     # explain it.
     for identity in _audit_identities(config):
-        ensure_audit_dir(repo_root, identity, relative_to=repo_root)
+        ensure_spool_dir(repo_root, identity, relative_to=repo_root)
+        ensure_state_dir(repo_root, identity, relative_to=repo_root)
 
     # The control-context tree, and one directory in it per roster user: the
     # other per-identity bind this stack is about to declare, provisioned here
-    # for the same reason and at the same point as the audit subdirectories
-    # above. The build path writes the tree's framework-owned contents (marker,
+    # for the same reason and at the same point as the spool and state
+    # subdirectories above. The build path writes the tree's framework-owned contents (marker,
     # worker and service identities); the roster is this path's to add, because
     # only a web-terminal deploy has one.
     _ensure_control_target_dirs(config, repo_root)
@@ -1664,9 +1686,9 @@ def deploy_up_web_terminals(
     )
 
     # ---- backend services (own compose project directory: build/services/) --
-    # Skipped when no real service is deployed -- see docstring for why
+    # Skipped when the files name no service at all -- see docstring for why
     # `up` on the network-only top-level file alone would fail outright.
-    if config.get("deployed_services"):
+    if _services_stack_has_services(config, compose_files):
         services_base = compose_base_cmd(
             with_plain_progress(get_runtime_command(config), provider=provider),
             compose_files,

@@ -52,7 +52,7 @@ from osprey.services.python_executor.execution.wrapper import (
     READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
 )
-from osprey_connectors.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH, RETIRED_LAYER_DIRS, TIERS_DIRNAME
 
 _GUARD_BANNER = "OSPREY filesystem guard"
 
@@ -129,7 +129,7 @@ def project(tmp_path: Path) -> _Project:
     root = tmp / "repo"
     build = root / "build"
     agent_data = root / "var" / "agent_data"
-    audit = root / "var" / "audit"
+    audit = root / PRE_UPGRADE_AUDIT_RELPATH
     renders = root / TIERS_DIRNAME
     execution_folder = agent_data / "data" / "python_executions" / "run_0001"
 
@@ -244,10 +244,16 @@ def test_render_write_is_refused(project: _Project):
     assert out.startswith("REFUSED:"), out
 
 
-def test_audit_ledger_write_is_refused(project: _Project):
-    """The refusal ledger is not the agent's to edit, state zone or not."""
-    out = project.probe(f"os.remove({str(project.audit / 'victim.txt')!r})")
+@pytest.mark.parametrize("form", _WRITE_FORMS, ids=lambda f: f.name)
+def test_pre_upgrade_audit_tree_writes_are_refused(project: _Project, form: _WriteForm):
+    """The audit files a deployment kept before the agent record stay on disk
+    unchanged: executed code may not delete, rewrite or add to them, in any
+    write form."""
+    before = sorted(path.name for path in project.audit.iterdir())
+    out = project.probe(_statement(form, project.audit, project))
     assert out.startswith("REFUSED:"), out
+    assert sorted(path.name for path in project.audit.iterdir()) == before
+    assert (project.audit / "victim.txt").read_text(encoding="utf-8") == "original\n"
 
 
 def test_readonly_refusal_carries_the_audit_marker(project: _Project):
@@ -516,7 +522,7 @@ def test_protected_roots_cover_render_zone_sources_and_ledger(project: _Project)
     protected = resolve_protected_roots(project.root)
     for expected in (
         project.root / "build",
-        project.root / "var" / "audit",
+        project.root / PRE_UPGRADE_AUDIT_RELPATH,
         project.root / "profile.yml",
         project.root / TIERS_DIRNAME,
         *(project.root / retired for retired in RETIRED_LAYER_DIRS),

@@ -37,24 +37,22 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-import osprey.interfaces.design_system as design_system_pkg
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._hub import hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
-    _apply_all,
-    _run_app_server,
     launch_graph_channel_finder,
     use_process_web_credentials,
 )
+from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -77,7 +75,6 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # Constants
 # ---------------------------------------------------------------------------
 
-DESIGN_SYSTEM_STATIC_DIR = Path(design_system_pkg.__file__).parent / "static"
 BASELINES_DIR = Path(__file__).parent / "baselines"
 VIEWPORT = {"width": 1280, "height": 800}
 THEMES = ("dark", "light")
@@ -111,54 +108,15 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
     (not the dead fake URL some other suites use), so the captured screenshot
     shows real embedded content instead of a proxy error page.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(artifact_server_url),
-        ),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(workspace_dir, launch=publish_artifact_url(artifact_server_url)) as (
+        base_url,
+        _app,
+    ):
+        yield base_url
 
 
 # ---------------------------------------------------------------------------
-# The dispatch dashboard has no standalone FastAPI app of its own in
-# production (it's rendered HTML mounted into the event-dispatcher server) —
-# stand one up the same way test_behavioral.py's follower stand-in does: a
-# minimal real app that mounts the real design-system static dir and serves
-# the real ``render_dashboard_html()`` output.
-# ---------------------------------------------------------------------------
-
-
-def _create_dispatch_dashboard_app() -> FastAPI:
-    from osprey.dispatch.dashboard import render_dashboard_html
-
-    app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root() -> str:
-        return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
-
-    return app
-
-
-# ---------------------------------------------------------------------------
-# The multi-user grouped landing page has no standalone FastAPI app either:
+# The multi-user grouped landing page has no standalone FastAPI app of its own:
 # in production it's a static file (nginx/landing.html) produced by
 # render_web_terminals() and served by nginx, with no app route behind it.
 # Stand one up the same way the dispatch dashboard does — a minimal real app
@@ -265,7 +223,7 @@ class VisualTarget:
 def _artifacts_server(tmp_path: Path):
     from osprey.interfaces.artifacts.app import create_app
 
-    return _run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
+    return run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
 
 
 def _ariel_server(_tmp_path: Path):
@@ -273,13 +231,13 @@ def _ariel_server(_tmp_path: Path):
 
     # No config.yml passed: the app gracefully degrades to a DB-less mode
     # (search/browse disabled, UI still renders) rather than failing to boot.
-    return _run_app_server(create_app())
+    return run_app_server(create_app())
 
 
 def _channel_finder_server(tmp_path: Path):
     from osprey.interfaces.channel_finder.app import create_app
 
-    return _run_app_server(create_app(project_cwd=str(tmp_path / "cf_ws")))
+    return run_app_server(create_app(project_cwd=str(tmp_path / "cf_ws")))
 
 
 def _channel_finder_graph_server(tmp_path: Path):
@@ -301,15 +259,15 @@ def _channel_finder_graph_server(tmp_path: Path):
 def _lattice_dashboard_server(tmp_path: Path):
     from osprey.interfaces.lattice_dashboard.app import create_app
 
-    return _run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
+    return run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
 
 
 def _dispatch_dashboard_server(_tmp_path: Path):
-    return _run_app_server(_create_dispatch_dashboard_app())
+    return run_app_server(create_dispatch_dashboard_app())
 
 
 def _multi_user_landing_server(_tmp_path: Path):
-    return _run_app_server(_create_multi_user_landing_app())
+    return run_app_server(_create_multi_user_landing_app())
 
 
 def _okf_panel_server(_tmp_path: Path):
@@ -318,7 +276,7 @@ def _okf_panel_server(_tmp_path: Path):
     # Reuse the okf_panel suite's on-disk fixture bundle so the baseline shows
     # a populated tree + document instead of the guarded not-configured shell.
     bundle = Path(__file__).parents[1] / "okf_panel" / "fixtures" / "bundle"
-    return _run_app_server(create_app(str(bundle)))
+    return run_app_server(create_app(str(bundle)))
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +285,7 @@ def _okf_panel_server(_tmp_path: Path):
 # FastAPI singleton (see ``osprey.interfaces.bluesky_web.app``) that mounts both
 # panel bundles (plan/results) plus the shared design-system
 # assets in one process. Import the app object directly and hand it to
-# ``_run_app_server`` the same way the other targets hand it a freshly
+# ``run_app_server`` the same way the other targets hand it a freshly
 # constructed app. No bridge is running behind it here, so each panel renders
 # its genuine no-bridge shell/empty state — a legitimate, stable baseline
 # (mirrors the dispatch-dashboard no-data rationale above).
@@ -342,7 +300,7 @@ def _bluesky_web_server(_tmp_path: Path):
     # every test after that one, so the session cookie the browser fixture mints
     # is refused. Re-point it at this test's holder before serving.
     use_process_web_credentials(bluesky_web_app)
-    return _run_app_server(bluesky_web_app)
+    return run_app_server(bluesky_web_app)
 
 
 @contextmanager
@@ -352,7 +310,7 @@ def _web_terminal_hub_server(tmp_path: Path) -> Iterator[str]:
 
     workspace = tmp_path / "hub_ws"
     workspace.mkdir(exist_ok=True)
-    with _run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
+    with run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
         with _hub_live_server(workspace, artifact_url) as base_url:
             yield base_url
 

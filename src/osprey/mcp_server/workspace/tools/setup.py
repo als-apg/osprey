@@ -76,14 +76,14 @@ _PROTECTED_KEY_REASON = "protected_key"
 _UNKNOWN_CHANNEL = "the build profile this project was rendered from"
 
 # Cold keys whose generic "restart the MCP server" note leaves out something the
-# operator needs. `writes_enabled` is enforced at three layers and only the hook
+# operator needs. `control_system.writes` is enforced at three layers and only the hook
 # layer re-reads config per call, so a patch alone leaves writes denied. The
 # `target_switch.*` keys and `control_system.type` are cold for the same reason:
 # the controls server reads them through a config it caches at launch. Their
 # notes also point at the run-time switch, so nobody rebuilds to change target.
 _COLD_CHANGE_NOTES = {
     "config.yml": {
-        "control_system.writes_enabled": (
+        "control_system.writes": (
             "cold — the PreToolUse hook re-reads this immediately, but the connector "
             "caches it at launch and the enforced `permissions.deny` list is not "
             "regenerated. Run `osprey build` and restart the agent, or writes "
@@ -336,11 +336,7 @@ async def setup_inspect() -> str:
         skills = _list_dirs_in(skills_dir)
 
         # Environment (OSPREY-related vars only, masked)
-        osprey_env = {
-            k: v
-            for k, v in os.environ.items()
-            if k.startswith("OSPREY_") or k.startswith("CLAUDE_")
-        }
+        osprey_env = {k: v for k, v in os.environ.items() if k.startswith(("OSPREY_", "CLAUDE_"))}
         masked_env = _mask_env(osprey_env)
 
         # Workspace. The agent-data root is durable state and lives under the
@@ -386,7 +382,7 @@ def _validate_key_path(key_path: str) -> str | None:
         return "key_path must not be empty"
     if ".." in key_path:
         return "key_path must not contain '..'"
-    if key_path.startswith("/") or key_path.startswith("~"):
+    if key_path.startswith(("/", "~")):
         return "key_path must not be an absolute path"
     # Only allow alphanumeric, dots, underscores, hyphens
     if not re.match(r"^[a-zA-Z0-9_.][a-zA-Z0-9_.\-]*$", key_path):
@@ -543,7 +539,7 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
 
     Args:
         file: Target file — must be "config.yml" or ".mcp.json".
-        key_path: Dot-notation path to the key (e.g., "control_system.writes_enabled").
+        key_path: Dot-notation path to the key (e.g., "claude_code.effort").
         value: New value as a string (YAML-parsed for type conversion).
 
     Returns:
@@ -564,7 +560,7 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
             return make_error(
                 "validation_error",
                 f"Invalid key_path: {key_error}",
-                ["Use dot-notation like 'control_system.writes_enabled'."],
+                ["Use dot-notation like 'claude_code.effort'."],
             )
 
         # The protected set is consulted here — after the key path is known to be

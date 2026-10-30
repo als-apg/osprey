@@ -21,6 +21,7 @@ from osprey.interfaces.web_terminal import operator_session, process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry, OperatorSession
 from osprey.interfaces.web_terminal.session_handoff import HandoffRefused
+from tests._live import async_wait_until
 from tests.interfaces.web_terminal._chat_child import (
     ChildClient,
     child_factory,
@@ -235,10 +236,10 @@ async def test_stop_of_a_child_that_already_exited_looks_for_nothing(monkeypatch
         return ChildClient([sys.executable, "-c", "pass"])
 
     session = await start_chat(factory)
-    deadline = time.monotonic() + CHILD_HANG_CEILING
-    while not session.process_exited:
-        assert time.monotonic() < deadline
-        await asyncio.sleep(0.05)
+    await async_wait_until(
+        lambda: session.process_exited, timeout=CHILD_HANG_CEILING, what="the child to exit"
+    )
+
     looks: list[None] = []
 
     def spy():

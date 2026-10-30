@@ -44,6 +44,13 @@ _INNER_PLUGINS = (
     "no:cacheprovider",
 )
 
+#: Under ``--cov`` coverage's subprocess patch hands every child process a key
+#: with this prefix, and each inner process then saves its coverage data at
+#: exit, inside the 0.5 s exit bound the inner modules set and, on a busy
+#: runner, past it. The inner run executes only pytest and test code, which
+#: coverage does not measure.
+_COVERAGE_HANDOFF_PREFIX = "COVERAGE_PROCESS_"
+
 
 def _hold(release: threading.Event) -> None:
     release.wait(30)
@@ -61,7 +68,7 @@ def _already_running() -> int:
 def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
-    env = with_harness_path(outer_run_free_env())
+    env = with_harness_path(outer_run_free_env(also_drop=(_COVERAGE_HANDOFF_PREFIX,)))
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
     return run_nested_pytest(

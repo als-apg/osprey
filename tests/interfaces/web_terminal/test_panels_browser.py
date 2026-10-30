@@ -72,13 +72,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import requests
 
+from osprey.interfaces._serving import run_app_server
+
 # Aliased to the historical private names: the shared helpers are the same
 # two waits this module used to spell itself, and the alias keeps its fifty
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
-from tests.interfaces.conftest import _free_port, _run_app_server
+from tests.interfaces._hub import hub_app
+from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -146,7 +148,7 @@ def _stub_backend(hits: list[str] | None = None, *, down: threading.Event | None
         def log_message(self, *args):  # silence per-request stderr logging
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -165,7 +167,7 @@ def _live_server(
     allow_runtime: bool = False,
     # The shared unserved address — never the artifact slot at the default
     # base, which a real deployment on this host serves for real.
-    artifact_url: str | None = DEFAULT_ARTIFACT_URL,
+    artifact_url: str | None | Unserved = UNSERVED,
     artifact_config_delay: float = 0.0,
     project_cwd: str | None = None,
     ui_mode: str | None = None,
@@ -198,27 +200,12 @@ def _live_server(
         (base_url: str, app: FastAPI) — live server address and the FastAPI app
         object for post-startup state manipulation.
     """
-    if custom_panels is None:
-        custom_panels = []
-
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled_panels, custom_panels, None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(artifact_url),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-
+    with hub_app(
+        workspace_dir,
+        enabled_panels=enabled_panels,
+        custom_panels=custom_panels or [],
+        launch=publish_artifact_url(artifact_url),
+    ) as app:
         if artifact_config_delay:
 
             @app.middleware("http")
@@ -227,10 +214,10 @@ def _live_server(
                     await asyncio.sleep(artifact_config_delay)
                 return await call_next(request)
 
-        # _run_app_server yields only after the port accepts connections (lifespan
+        # run_app_server yields only after the port accepts connections (lifespan
         # done), so app.state is safe to mutate here; and it joins the server
         # thread while the patches above are still live, avoiding timing races.
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             # These are set AFTER the server is up: lifespan startup assigns both
             # project_cwd and web_ui_mode from config, so a pre-startup value would
             # be clobbered. root() re-reads them per request, so setting them here
@@ -2397,6 +2384,24 @@ _CONTRIB_PANEL_HTML = b"""<!doctype html>
 </script></body></html>"""
 
 
+def _contributing_panel(panel_id: str, label: str, url: str) -> dict:
+    """A custom panel entry for a page that posts a header contribution.
+
+    Config-declared, as the real loader stamps it: a first-party panel is
+    framed same-origin, so its page can post the header contribution to the
+    hub. A runtime registration would be opaque-origin and its contribution is
+    a separate contract.
+    """
+    return {
+        "id": panel_id,
+        "label": label,
+        "url": url,
+        "healthEndpoint": None,
+        "path": "/",
+        "configDefined": True,
+    }
+
+
 @contextmanager
 def _contrib_panel_backend():
     """Serve a page that contributes to the tile bar and records actions."""
@@ -2411,7 +2416,7 @@ def _contrib_panel_backend():
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -2422,7 +2427,7 @@ def _contrib_panel_backend():
         thread.join(timeout=5)
 
 
-def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser):
+def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chromium_browser):
     """A panel's contribution renders in ITS tile bar and actions round-trip.
 
     The custom panel's page (reverse-proxied same-origin) posts a nav + button
@@ -2434,13 +2439,7 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
     workspace.mkdir()
 
     with _contrib_panel_backend() as stub_url:
-        custom = {
-            "id": "contrib-demo",
-            "label": "CONTRIB",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("contrib-demo", "CONTRIB", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -2450,9 +2449,9 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
             # URL is the artifacts server's standard port, so a real artifacts
             # server running on this host (a live web terminal, a demo stack)
             # would load for real and contribute its own nav items — turning
-            # that assertion into a report about the machine. A free port keeps
-            # the panel dead by construction.
-            artifact_url=f"http://127.0.0.1:{_free_port()}",
+            # that assertion into a report about the machine. A reserved port
+            # keeps the panel dead by construction.
+            artifact_url=f"http://127.0.0.1:{reserve_port()}",
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
             _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
@@ -2483,7 +2482,9 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
             page.close()
 
 
-def test_header_contribution_reaches_the_fallback_bar_without_dockview(tmp_path, chromium_browser):
+def test_header_contribution_reaches_the_fallback_bar_without_dockview(
+    reserve_port, tmp_path, chromium_browser
+):
     """With no dockview, a panel's contributed controls still have a bar.
 
     A panel on embed contract v2 hides its in-body copies of what it
@@ -2498,18 +2499,12 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(tmp_path,
     workspace.mkdir()
 
     with _contrib_panel_backend() as stub_url:
-        custom = {
-            "id": "contrib-demo",
-            "label": "CONTRIB",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("contrib-demo", "CONTRIB", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
             custom_panels=[custom],
-            artifact_url=f"http://127.0.0.1:{_free_port()}",
+            artifact_url=f"http://127.0.0.1:{reserve_port()}",
         ) as (base_url, _app):
             page = chromium_browser.new_page()
             errors: list[str] = []
@@ -2601,7 +2596,7 @@ def _search_menu_panel_backend():
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -2637,13 +2632,7 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
     workspace.mkdir()
 
     with _search_menu_panel_backend() as stub_url:
-        custom = {
-            "id": "search-demo",
-            "label": "SEARCHY",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -2767,13 +2756,7 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
     workspace.mkdir()
 
     with _search_menu_panel_backend() as stub_url:
-        custom = {
-            "id": "search-demo",
-            "label": "SEARCHY",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},
@@ -3223,13 +3206,7 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
     workspace.mkdir()
 
     with _search_menu_panel_backend() as stub_url:
-        custom = {
-            "id": "search-demo",
-            "label": "SEARCHY",
-            "url": stub_url,
-            "healthEndpoint": None,
-            "path": "/",
-        }
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
         with _live_server(
             workspace,
             enabled_panels={"artifacts"},

@@ -16,7 +16,7 @@ import pytest
 
 from osprey.agent_runner import ToolResultEvent
 from osprey.interfaces.web_terminal.operator_session import _ASYNC_LAUNCH_MARK, _event_to_wire
-from osprey.interfaces.web_terminal.routes.session import _chat_timeline
+from osprey.interfaces.web_terminal.routes.session import _chat_turns, _transcript_nodes
 from osprey.interfaces.web_terminal.tool_preview import (
     MAX_DEPTH,
     MAX_ITEMS,
@@ -184,6 +184,33 @@ class TestPlainText:
         assert tool_result_preview(text) == (text[:PLAIN_TEXT_CHARS], True)
 
 
+class TestSystemReminders:
+    """The CLI's notes to the model are not part of what a tool returned."""
+
+    _NOTE = (
+        "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>"
+    )
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param(_NOTE, "", id="only-a-note"),
+            pytest.param(f"line one\n{_NOTE}\n", "line one", id="text-then-a-note"),
+            pytest.param(
+                f"<system-reminder>a\nmultiline\nnote</system-reminder>{_NOTE}rest",
+                "rest",
+                id="several-notes-across-lines",
+            ),
+        ],
+    )
+    def test_notes_are_left_out_of_the_preview(self, text, expected):
+        assert tool_result_preview(text) == (expected, False)
+
+    def test_a_note_after_a_json_result_does_not_keep_it_from_reading_as_json(self):
+        preview, _ = tool_result_preview(f'{{"status": "ok", "count": 3}}\n{self._NOTE}')
+        assert json.loads(preview) == {"status": "ok", "count": 3}
+
+
 class TestNonFiniteNumbers:
     """JSON cannot send NaN or infinity, so they reach the page as text."""
 
@@ -277,7 +304,7 @@ class TestReplayMatchesLive:
         transcript = tmp_path / "session.jsonl"
         _write_transcript(transcript, content)
 
-        turns = _chat_timeline(transcript)
+        turns = _chat_turns(_transcript_nodes(transcript))
         (replayed,) = [
             event
             for turn in turns
@@ -308,7 +335,7 @@ class TestReplayMatchesLive:
 
         (replayed,) = [
             event
-            for turn in _chat_timeline(transcript)
+            for turn in _chat_turns(_transcript_nodes(transcript))
             for event in turn.get("events", [])
             if event["type"] == "tool_result"
         ]

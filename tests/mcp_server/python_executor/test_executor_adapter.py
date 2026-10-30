@@ -8,10 +8,9 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
@@ -27,7 +26,9 @@ from osprey.mcp_server.python_executor.executor import (
     execute_code,
     resolve_agent_interpreter,
 )
-from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, ConfigBuilder
+from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
+from osprey_connectors.config import ConfigBuilder
+from tests.mcp_server._zones import zone_away_from_host
 
 
 @pytest.fixture(autouse=True)
@@ -36,33 +37,7 @@ def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
 
 
-@pytest.fixture(autouse=True)
-def _reset_all_config_caches(monkeypatch):
-    """Reset ALL config caches before each test.
-
-    Prior test modules set the ConfigBuilder singleton via
-    get_config_builder(set_as_default=True).  We must clear
-    _default_config, _default_configurable, and _config_cache
-    before each test so the adapter reads from the test's own
-    config.yml via monkeypatch.chdir(tmp_path).
-    """
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    # Save and clear the cache dict; monkeypatch restores it on teardown
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
+pytestmark = pytest.mark.usefixtures("reset_config_caches")
 
 
 # ---------------------------------------------------------------------------
@@ -260,23 +235,11 @@ def test_execution_folder_created(tmp_path, monkeypatch):
     assert (folder / "figures").exists()
 
 
-def _zone_away_from_host() -> ZoneInfo:
-    """Return a zone whose wall-clock differs from the host clock by hours.
-
-    The folder stamp must be shown to follow the facility zone and not the host clock, so the
-    two must differ by more than the test tolerance on any host (the closest real host offset
-    to +14 h is +13:45, fifteen minutes away).
-    """
-    if datetime.now().astimezone().utcoffset() == timedelta(hours=14):
-        return ZoneInfo("Etc/GMT+12")
-    return ZoneInfo("Etc/GMT-14")
-
-
 def test_execution_folder_is_stamped_in_the_facility_zone(tmp_path, monkeypatch):
     """The folder name carries the start time in the facility zone, not the host clock."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
-    zone = _zone_away_from_host()
+    zone = zone_away_from_host()
     monkeypatch.setattr(
         "osprey.mcp_server.python_executor.executor.get_facility_timezone", lambda: zone
     )
@@ -429,9 +392,9 @@ async def test_deprecated_container_method_still_executes(tmp_path, monkeypatch,
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"execution": {"execution_method": "container"}})
 
-    import osprey_connectors.config as _cfg
+    import osprey.utils.execution_method as _execution_method
 
-    monkeypatch.setattr(_cfg, "_container_method_warned", False)
+    monkeypatch.setattr(_execution_method, "_container_method_warned", False)
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"ok\n", b""))

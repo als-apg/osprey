@@ -29,14 +29,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from jinja2 import Environment, FileSystemLoader
 from ruamel.yaml import YAML
 
-from osprey.cli.build_cmd import _inject_teams_bridge, build
+from osprey.cli.build_cmd import _inject_teams_bridge
 from osprey.cli.build_injectors import _refresh_service_dir
 from osprey.cli.build_profile import TeamsBridgeProfileConfig
 from osprey.deployment.compose_generator import _inject_project_metadata
+from tests.cli._lifecycle_build import invoke_build
 
 _TRIGGERS_YAML = """\
 dispatcher:
@@ -74,11 +74,6 @@ _TEAMS_CREDENTIALS = (
     "TEAMS_SERVICEBUS_CONNECTION_STRING",
     "TEAMS_SERVICEBUS_QUEUE",
 )
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 def _write_config(project_path: Path, *, deployed: list[str] | None = None) -> None:
@@ -127,7 +122,7 @@ def _walk_scalars(node: object, path: str = "") -> list[tuple[str, object]]:
 
 
 def _build_bridge_project(
-    runner: CliRunner, tmp_path: Path, *, teams_bridge: str = "teams_bridge: {}"
+    tmp_path: Path, *, teams_bridge: str = "teams_bridge: {}"
 ) -> tuple[Path, object]:
     """Run a full ``osprey build`` from a bridge-declaring profile.
 
@@ -141,10 +136,7 @@ def _build_bridge_project(
     (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(teams_bridge=teams_bridge), encoding="utf-8"
     )
-    result = runner.invoke(
-        build,
-        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(repo_dir)
     return repo_dir / "build", result
 
 
@@ -392,10 +384,10 @@ def test_inject_teams_bridge_renders_without_dispatch_pair_deployed(tmp_path: Pa
 # ── full `osprey build` ──────────────────────────────────────────────────────
 
 
-def test_full_build_with_bridge_renders_service_dir(runner: CliRunner, tmp_path: Path) -> None:
+def test_full_build_with_bridge_renders_service_dir(tmp_path: Path) -> None:
     """A full build from a bridge-declaring profile scaffolds the service dir and
     registers the bridge in the project's config.yml."""
-    project_path, result = _build_bridge_project(runner, tmp_path)
+    project_path, result = _build_bridge_project(tmp_path)
 
     assert result.exit_code == 0, result.output
 
@@ -418,9 +410,7 @@ def test_full_build_with_bridge_renders_service_dir(runner: CliRunner, tmp_path:
     assert "dispatch_worker" in deployed
 
 
-def test_full_build_compose_renders_with_no_unrendered_jinja(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_full_build_compose_renders_with_no_unrendered_jinja(tmp_path: Path) -> None:
     """The built project's bridge compose renders clean: no leftover Jinja, and
     every template-substituted value is non-empty.
 
@@ -429,7 +419,7 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     it renders an empty value (or, for `services.teams_bridge`, an undefined
     attribute error at deploy time), so exit code 0 proves nothing on its own.
     """
-    project_path, result = _build_bridge_project(runner, tmp_path)
+    project_path, result = _build_bridge_project(tmp_path)
     assert result.exit_code == 0, result.output
 
     rendered = _render_bridge_compose(project_path)
@@ -495,15 +485,19 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # The state volume stands alone. Unlike the Google Chat bridge there is no
     # credential FILE to bind-mount: every Azure secret is a variable, so the
     # only host-side object this service needs is its own named volume.
-    assert svc["volumes"] == ["teams_bridge_data:/data"]
+    # Beside it, the bridge's own spool (its agent-record entries) and its own
+    # per-container state directory, both bind-mounted under its identity.
+    assert svc["volumes"] == [
+        "teams_bridge_data:/data",
+        "./var/spool/teams-bridge:/app/var/spool/teams-bridge",
+        "./var/state/teams-bridge:/app/var/state/teams-bridge",
+    ]
 
 
-def test_full_build_custom_trigger_reaches_rendered_compose(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_full_build_custom_trigger_reaches_rendered_compose(tmp_path: Path) -> None:
     """A profile-declared trigger flows profile → config.yml → DISPATCH_TRIGGER."""
     project_path, result = _build_bridge_project(
-        runner, tmp_path, teams_bridge="teams_bridge:\n  trigger: other-trigger"
+        tmp_path, teams_bridge="teams_bridge:\n  trigger: other-trigger"
     )
     assert result.exit_code == 0, result.output
 
@@ -511,11 +505,9 @@ def test_full_build_custom_trigger_reaches_rendered_compose(
     assert svc["environment"]["DISPATCH_TRIGGER"] == "other-trigger"
 
 
-def test_full_build_without_bridge_scaffolds_no_bridge_service(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_full_build_without_bridge_scaffolds_no_bridge_service(tmp_path: Path) -> None:
     """The block is opt-in: a profile without it deploys no bridge (the step is skipped)."""
-    project_path, result = _build_bridge_project(runner, tmp_path, teams_bridge="")
+    project_path, result = _build_bridge_project(tmp_path, teams_bridge="")
     assert result.exit_code == 0, result.output
 
     config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
@@ -524,7 +516,7 @@ def test_full_build_without_bridge_scaffolds_no_bridge_service(
     assert not (project_path / "services" / "teams_bridge").exists()
 
 
-def test_full_build_all_three_bridges_coexist(runner: CliRunner, tmp_path: Path) -> None:
+def test_full_build_all_three_bridges_coexist(tmp_path: Path) -> None:
     """Declaring all three chat bridges deploys all three, each with its own trigger.
 
     The channels are independent injectors writing disjoint config keys, so a
@@ -547,10 +539,7 @@ def test_full_build_all_three_bridges_coexist(runner: CliRunner, tmp_path: Path)
         + "nextcloud_bridge: {}\ngchat_bridge: {}\n",
         encoding="utf-8",
     )
-    result = runner.invoke(
-        build,
-        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(repo_dir)
     assert result.exit_code == 0, result.output
 
     project_path = repo_dir / "build"
@@ -579,7 +568,7 @@ def _build_errors(caplog: pytest.LogCaptureFixture) -> str:
 
 
 def test_full_build_bridge_without_dispatch_block_aborts(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A bridge declared with no dispatch: block aborts the build with the fix named.
 
@@ -596,10 +585,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
         encoding="utf-8",
     )
     with caplog.at_level(logging.ERROR):
-        result = runner.invoke(
-            build,
-            ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-        )
+        result = invoke_build(repo_dir)
 
     assert result.exit_code != 0
     errors = _build_errors(caplog)
@@ -609,13 +595,13 @@ def test_full_build_bridge_without_dispatch_block_aborts(
 
 
 def test_full_build_unknown_trigger_aborts(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A trigger absent from the resolved triggers file aborts the build, listing
     the names that ARE declared."""
     with caplog.at_level(logging.ERROR):
         project_path, result = _build_bridge_project(
-            runner, tmp_path, teams_bridge="teams_bridge:\n  trigger: ghost"
+            tmp_path, teams_bridge="teams_bridge:\n  trigger: ghost"
         )
 
     assert result.exit_code != 0

@@ -14,7 +14,7 @@ repository that is the deployment: one directory, four zones.
     │  ═ OUTPUT — ignored, disposable ════════════════
     ├── build/                     (absent until the first `osprey build`)
     │  ═ STATE — ignored, durable ════════════════════
-    └── var/agent_data/  var/audit/
+    └── var/agent_data/
 
 The source zone is materialized by the same machinery every other
 materialization path uses (:func:`~.profile_cmd._materialize_profile_directory`,
@@ -39,11 +39,11 @@ from typing import TYPE_CHECKING
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
+from osprey.utils.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
-from osprey_connectors.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
 
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR, convention_for
@@ -228,7 +228,7 @@ in `profile.yml`, not the folder name.
 | Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
-| The agent's memory and audit log | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/audit/` | no | yes |
+| The agent's memory and record | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/agent_record/` | no | yes |
 
 In full, the first row is: {_source_zone_prose(seeded, facility_rule)}.
 
@@ -307,8 +307,8 @@ which nothing ever overwrites.
 osprey reset          # stops everything, then deletes containers, agent data and {BUILD_OUTPUT_DIR}/
 ```
 
-`reset` keeps `{STATE_DIR}/audit/` and your API keys. `osprey reset --purge-audit`
-deletes the audit log as well; that plus deleting this folder removes it all.
+`reset` keeps the agent record and your API keys. `osprey reset --purge-audit`
+deletes the record as well; that plus deleting this folder removes it all.
 
 ## Backups
 
@@ -833,7 +833,7 @@ def _reinstate_held_source_zone(target: Path) -> None:
     way instead of silently left to fail that rename. Failing to put a source
     zone back is the one outcome this function must never reach quietly.
     """
-    from osprey_connectors.workspace import STATE_DIR_NAME
+    from osprey.utils.workspace import STATE_DIR_NAME
 
     from .build_cmd import _clear_leftover
     from .profile_cmd import MATERIALIZED_SOURCE_ENTRIES
@@ -1187,7 +1187,7 @@ def _point_at_set(ctx: click.Context, param: click.Parameter, value: str | None)
         click.UsageError: Whenever the flag was given at all.
     """
     if value is None or ctx.resilient_parsing:
-        return None
+        return
     raise click.UsageError(
         f"There is no --{param.name.replace('_', '-')} option. {param.name} is a "
         f"profile setting, so it is baked in with --set: --set {param.name}={value}"
@@ -1477,6 +1477,7 @@ def init(
             # and `reset` pulls in the whole deployment stack.
             from osprey.deployment.reset import (
                 ForeignCheckoutError,
+                HostRecordRunningError,
                 ResetOutcome,
                 reset_for_reinit,
             )
@@ -1501,6 +1502,18 @@ def init(
                 # is the opposite of what happened: nothing was touched, on
                 # purpose, and the operator has two ways forward.
                 _abort_foreign_reset(target, e, render_foreign_refusal)
+            except HostRecordRunningError as e:
+                # A host-local record still holds the store `--reset` would
+                # remove. Refused before the first removal, in the refusal
+                # shape `osprey reset` uses for the same guard; exit 1 says
+                # nothing was touched. Unmarked: the phase it left through
+                # has printed its own ✗.
+                output.fail(e.SUMMARY, e.cause, e.REMEDY, mark=False)
+                output.report("")
+                output.report(
+                    f"{target.name}/ was created. Nothing was built and nothing was started."
+                )
+                raise click.exceptions.Exit(1) from None
 
             # `reset` removes only what carries this checkout's repo-id label,
             # so a deployment predating that label survives it — correctly, since

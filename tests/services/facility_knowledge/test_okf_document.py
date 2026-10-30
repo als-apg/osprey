@@ -67,22 +67,24 @@ class TestOKFDocumentParse:
         assert doc.frontmatter == {}
         assert doc.body == ""
 
-    def test_parse_unterminated_frontmatter_raises(self):
-        bad = "---\ntype: facility_overview\ntitle: Missing close delimiter\n"
-
-        with pytest.raises(OKFDocumentError, match="Unterminated"):
-            OKFDocument.parse(bad)
-
-    def test_parse_non_mapping_frontmatter_raises(self):
-        bad = "---\n- item1\n- item2\n---\n\nBody.\n"
-
-        with pytest.raises(OKFDocumentError, match="mapping"):
-            OKFDocument.parse(bad)
-
-    def test_parse_invalid_yaml_raises(self):
-        bad = "---\nkey: [\nunclosed bracket\n---\n\nBody.\n"
-
-        with pytest.raises(OKFDocumentError, match="Invalid YAML"):
+    @pytest.mark.parametrize(
+        ("bad", "match"),
+        [
+            pytest.param(
+                "---\ntype: facility_overview\ntitle: Missing close delimiter\n",
+                "Unterminated",
+                id="unterminated_frontmatter",
+            ),
+            pytest.param(
+                "---\n- item1\n- item2\n---\n\nBody.\n", "mapping", id="non_mapping_frontmatter"
+            ),
+            pytest.param(
+                "---\nkey: [\nunclosed bracket\n---\n\nBody.\n", "Invalid YAML", id="invalid_yaml"
+            ),
+        ],
+    )
+    def test_parse_raises(self, bad: str, match: str):
+        with pytest.raises(OKFDocumentError, match=match):
             OKFDocument.parse(bad)
 
 

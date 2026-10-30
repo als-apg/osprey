@@ -32,6 +32,7 @@ from osprey.agent_runner import (
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolStartEvent,
     ToolUseEvent,
     agent_session,
 )
@@ -50,7 +51,12 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.interfaces.web_terminal.tool_preview import tool_result_preview, tool_result_text
+from osprey.interfaces.web_terminal.slash_commands import operator_skill, operator_skill_frames
+from osprey.interfaces.web_terminal.tool_preview import (
+    tool_result_preview,
+    tool_result_refusal,
+    tool_result_text,
+)
 from osprey.utils.tool_rules import matches_denylist
 from osprey_connectors.config import get_facility_timezone
 
@@ -330,35 +336,127 @@ _EXPIRED_MESSAGES = {
 _AGENT_TOOLS = frozenset({"Task", "Agent"})
 _ASYNC_LAUNCH_MARK = "Async agent launched"
 
+#: What the chat's agent is told about drawing in its replies. Only this chat
+#: draws a fenced ``svg`` block (the terminal would show its source), so the
+#: guide rides on this session's system prompt, not on the shared rules.
+_SVG_CALLOUT_GUIDE = (
+    "Your replies are shown in the web terminal's Simple view, which renders markdown "
+    "and draws a fenced `svg` code block as a picture in a box. Use a drawing only as a "
+    "quick look at a result you saved as an artifact: the top few values, a handful of "
+    "key numbers, or a small schematic of where something is. Make at most one drawing "
+    "in a reply, and always name the artifact it comes from in your text as "
+    "`artifact_id: <id>`, so the operator can open the full result. Every value in a "
+    "drawing must come from a tool result or an artifact; never invent or estimate one. "
+    "Do not draw what a plot tool should make: the artifact is the result, the drawing "
+    "is a glance at it. Skip the drawing when the reply is one or two numbers. Decide "
+    "whether to draw before you start writing the reply, and put the drawing in that "
+    "reply: once a reply is sent it stands. Never call a tool you do not need, such as a "
+    "read of an empty file or a subagent with nothing to do, only to keep your turn "
+    "going.\n"
+    "What to draw: bars only for values that share one unit, each bar's length "
+    "proportional to its value and measured from a common zero, with the value written "
+    "at its end. Values in different units are never bars: show them as a small grid of "
+    "labelled numbers (a label, the value and its unit), one tile each. Give one colour to "
+    "each kind of thing (every cavity the same colour), use var(--color-accent) for the "
+    "item the reply is about and var(--text-muted) for the rest, and lay items out in one "
+    "column or one row so the eye reads them in order.\n"
+    "How to draw: one <svg> element with a viewBox no larger than 640 by 240; text at "
+    "font-size 12 to 14; colours only currentColor, var(--text-primary), "
+    "var(--text-secondary), var(--text-muted), var(--border-default), var(--bg-elevated), "
+    "var(--color-accent), var(--color-accent-secondary), var(--color-success), "
+    "var(--color-warning) and var(--color-error), set as fill and stroke attributes on "
+    "each element; no background fill. Style elements, style attributes and any other "
+    "colour are removed before the drawing is shown, and a part left with no colour draws "
+    "in the reply's text colour. Scripts, foreignObject, links, images, <use> and "
+    "animation are removed too."
+)
+
 #: Task statuses that end a background agent, across ``task_notification``'s
 #: and ``task_updated``'s vocabularies (the SDK's TERMINAL_TASK_STATUSES).
 _TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "stopped", "killed"})
 
 
-def _render_arms_writes(project_dir: str) -> bool:
-    """Whether the render the chat child runs in arms writes on any control target.
+#: The deny for an ask that is not a write on a render whose tier allows no writes:
+#: nobody can approve a tool call on it, and it is not a write to refuse by reason.
+_NOT_ARMED_MESSAGE = "This deployment does not arm writes, so the operator cannot approve it."
 
-    Read from ``<project_dir>/config.yml``, the file the child's own
-    ``OSPREY_CONFIG`` names (:func:`~osprey.agent_runner.clean_env.build_clean_env`),
-    not from whichever config the server process resolves. Fails closed: a render
-    that cannot be read or parsed, or that states no control section, arms nothing.
-    BLOCKING.
 
-    The chat offers tool approvals only on a write-enabled render (a readwrite
-    or admin tier); a readonly render keeps declining every ask, which is
-    what a chat without a permission callback already did.
+@dataclass(frozen=True)
+class _RenderFacts:
+    """What the chat reads from the render its child runs in, once at start.
+
+    ``config`` is ``<project_dir>/config.yml`` and ``hook_config`` the render's
+    ``.claude/hooks/hook_config.json``, each ``{}`` when it cannot be read.
+    ``tier_allows`` is the tier term of the write verdict
+    (:func:`osprey_connectors.types.tier_allows`) over the config's control
+    section; it fails closed with the config.
     """
+
+    config: dict[str, Any]
+    hook_config: dict[str, Any]
+    tier_allows: bool
+
+
+#: The facts of a render that could not be read: no writes, no placement.
+_NO_RENDER = _RenderFacts(config={}, hook_config={}, tier_allows=False)
+
+
+def _read_render(project_dir: str) -> _RenderFacts:
+    """The render facts of *project_dir*. BLOCKING; never raises.
+
+    Read from ``<project_dir>``, the files the child's own ``OSPREY_CONFIG`` and
+    hooks read (:func:`~osprey.agent_runner.clean_env.build_clean_env`), not
+    whichever config the server process resolves. A render whose config cannot
+    be read, or that states no control section, allows no writes; an unreadable
+    hook_config places writes from the hooks' fallback list.
+    """
+    import json
+
+    import yaml
+
+    from osprey_connectors.types import tier_allows
+
     try:
-        import yaml
-
-        from osprey_connectors.types import any_target_writes_enabled
-
         config = yaml.safe_load((Path(project_dir) / "config.yml").read_text(encoding="utf-8"))
-        section = config.get("control_system") if isinstance(config, dict) else None
-        return bool(any_target_writes_enabled(section))
     except Exception:
-        logger.warning("Could not read the write posture; chat approvals stay off", exc_info=True)
-        return False
+        logger.warning("Could not read the render's config; chat approvals stay off", exc_info=True)
+        return _NO_RENDER
+    if not isinstance(config, dict):
+        return _NO_RENDER
+    try:
+        hook_path = Path(project_dir) / ".claude" / "hooks" / "hook_config.json"
+        hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("No readable hook_config in %s", project_dir, exc_info=True)
+        hook_config = {}
+    return _RenderFacts(
+        config=config,
+        hook_config=hook_config if isinstance(hook_config, dict) else {},
+        tier_allows=tier_allows(config.get("control_system")),
+    )
+
+
+def _place_write(
+    render: _RenderFacts, tool_name: str, tool_input: dict[str, Any], stamped: bool | None
+) -> tuple[bool, dict[str, str] | None]:
+    """Whether a call writes, and C-FRAME's ``target`` for it. BLOCKING; never raises.
+
+    Placed as the hooks place it (:func:`osprey_connectors.write_target.write_target_for_tool`):
+    a call that writes nothing answers ``(False, None)``, a write nobody can place
+    ``(True, None)``.
+    """
+    from osprey_connectors.write_target import frame_target, write_target_for_tool
+
+    placed = write_target_for_tool(
+        render.config, tool_name, tool_input, hook_config=render.hook_config, stamped=stamped
+    )
+    if placed is None:
+        return False, None
+    try:
+        return True, frame_target(placed)
+    except Exception:
+        logger.debug("Could not name the machine of %s", tool_name, exc_info=True)
+        return True, None
 
 
 def _main_agent_active(event: AgentEvent) -> bool:
@@ -435,7 +533,9 @@ def _is_side_effect_tool(tool_name: str, side_effect_tools: Sequence[str]) -> bo
 
     The surface is :func:`~osprey.agent_runner.write_tools.read_only_disallowed_tools`,
     the list the headless read-only run refuses. An exact name, or a name ending in
-    ``*``, matches as in :func:`~osprey.utils.tool_rules.matches_denylist`. A
+    ``*``, matches as in :func:`~osprey.utils.tool_rules.matches_denylist`; a
+    facility server that declares ``writes:`` reaches the surface that way, one
+    exact name per write tool, so only those tools are covered, not its reads. A
     whole-server matcher ``mcp__<server>__.*`` covers that server's tools, as the
     writes-check hook reads it. A server-level entry ``mcp__<server>`` covers every
     tool of that server, as the disallow engine reads it. A non-string entry covers
@@ -571,19 +671,32 @@ def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
         frame.update(_notice_fields(event))
         return frame
     if isinstance(event, ToolResultEvent):
-        preview, truncated = tool_result_preview(tool_result_text(event.content))
+        # The refusal trailer ends the text, so it is read before the preview cut.
+        refusal, shown = tool_result_refusal(tool_result_text(event.content), event.is_error)
+        preview, truncated = tool_result_preview(shown)
         return {
             "type": "tool_result",
             "tool_use_id": event.tool_use_id,
             "is_error": event.is_error,
             "preview": preview,
             "truncated": truncated,
+            "refusal": refusal,
         }
     if isinstance(event, DeltaEvent):
         return {
             "type": "delta",
             "kind": event.kind,
             "content": event.text,
+            "parent_tool_use_id": event.parent_tool_use_id,
+        }
+    if isinstance(event, ToolStartEvent):
+        # The chat's status line names the call while its input is still
+        # being written; the row itself waits for the whole ``tool_use``.
+        return {
+            "type": "tool_start",
+            "tool_name": format_tool_name(event.name),
+            "tool_name_raw": event.name,
+            "tool_use_id": event.tool_use_id,
             "parent_tool_use_id": event.parent_tool_use_id,
         }
     # Any other record (rate-limit notices, …) stays off the stream.
@@ -685,9 +798,7 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     etype = event.get("type")
     if etype == "result":
         return True
-    if etype == "error" and event.get("error_type") != "AssistantMessageError":
-        return True
-    return False
+    return etype == "error" and event.get("error_type") != "AssistantMessageError"
 
 
 @dataclass(frozen=True)
@@ -829,6 +940,9 @@ class OperatorSession:
         # ends. ``_in_response``: the pump has read a record since the last
         # result. ``_turn_closed`` is set whenever no turn is open.
         self._pump_task: asyncio.Task | None = None
+        # Set when the pump stopped reading on its own (the child's stream
+        # ended, or the pump gave up on it): the session is dead from then on.
+        self._stream_ended = False
         self._turn_open = False
         self._pending_turn = False
         self._in_response = False
@@ -857,8 +971,9 @@ class OperatorSession:
         # ``_can_use_tool``; drained by ``resolve_permission`` or, on interrupt
         # and teardown, by ``_deny_pending``.
         self._permissions: dict[str, _PendingAsk] = {}
-        # Whether tool approvals are offered at all; read from the render at start.
-        self._approvals = False
+        # The render the child runs in, read at start: its config, hook_config and
+        # whether its tier allows writes at all.
+        self._render = _NO_RENDER
         # The side-effect surface this render refuses headless, read at start. No session
         # allow is ever offered for one: its approval is per call.
         self._side_effect_tools: tuple[str, ...] = ()
@@ -993,7 +1108,7 @@ class OperatorSession:
         # turn cap or budget, and waits for no MCP server. Every ask the
         # project's settings and hooks raise reaches ``_can_use_tool``, which
         # puts it in front of the operator on a write-enabled render.
-        self._approvals = await asyncio.to_thread(_render_arms_writes, self._cwd)
+        self._render = await asyncio.to_thread(_read_render, self._cwd)
         # The side-effect surface, read from the render the child runs in, plus every
         # prefix the render's approval hook asks about: the hook asks on each call, so
         # a standing allow there would do nothing or skip its ask. If either cannot be
@@ -1018,7 +1133,7 @@ class OperatorSession:
                 max_budget_usd=None,
                 permission_mode=None,
                 setting_sources=["project"],
-                system_prompt=build_system_prompt(get_facility_timezone()),
+                system_prompt=build_system_prompt(get_facility_timezone(), _SVG_CALLOUT_GUIDE),
                 env=session_env if session_env is not None else {},
                 resume=resume_id,
                 session_id=session_id,
@@ -1030,6 +1145,7 @@ class OperatorSession:
         self._agent = agent
         self._agent_scope = scope
         self._started = True
+        self._stream_ended = False
         self._pump_task = asyncio.create_task(self._pump())
         logger.info("OperatorSession started (cwd=%s)", self._cwd)
 
@@ -1049,10 +1165,20 @@ class OperatorSession:
         An ``ExitPlanMode`` whose input carries no plan is refused here without a card.
         """
         kind = {_QUESTION_TOOL: "question", _PLAN_TOOL: "plan"}.get(tool_name, "tool")
-        if kind == "tool" and not self._approvals:
-            return PermissionResultDeny(
-                message="This deployment does not arm writes, so the operator cannot approve it."
+        target: dict[str, str] | None = None
+        if kind == "tool":
+            writes, target = await asyncio.to_thread(
+                _place_write, self._render, tool_name, tool_input, self._child_stamped()
             )
+            if not self._render.tier_allows:
+                if not writes:
+                    return PermissionResultDeny(message=_NOT_ARMED_MESSAGE)
+                # The tier verdict (C-FRAME): the refusal text carries the trailer,
+                # so the tool_result this deny becomes carries ``refusal``.
+                from osprey_connectors.refusals import refusal_text
+
+                machine = target["machine_kind"] if target else None
+                return PermissionResultDeny(message=refusal_text("tier_never", machine))
         plan = tool_input.get("plan")
         if kind == "plan" and not (isinstance(plan, str) and plan.strip()):
             return PermissionResultDeny(message=_NO_PLAN_MESSAGE)
@@ -1071,6 +1197,9 @@ class OperatorSession:
             "reason": getattr(context, "decision_reason", None),
             "title": getattr(context, "title", None),
             "description": getattr(context, "description", None),
+            # The machine a write lands on (C-FRAME); None for a call that writes
+            # nothing and for a write that cannot be placed.
+            "target": target,
             # Whether "Allow for this session" is offered (see _standing_rules).
             "can_allow_session": bool(standing),
         }
@@ -1084,6 +1213,16 @@ class OperatorSession:
                 return await self._expire(request_id, kind)
         finally:
             self._permissions.pop(request_id, None)
+
+    def _child_stamped(self) -> bool | None:
+        """Whether the child's agent-data root is stamped; ``None`` asks this process.
+
+        The hooks in the child decide "no record" by their own environment, so
+        the placement asks the env the child was handed.
+        """
+        if self._env is None:
+            return None
+        return bool(str(self._env.get(OSPREY_AGENT_DATA_ROOT) or "").strip())
 
     async def _expire(self, request_id: str, kind: str) -> Any:
         """Decline a request the operator never answered, and tell every tab so.
@@ -1162,14 +1301,15 @@ class OperatorSession:
         The snapshot (a ``hello`` frame) says whether a turn is running, what it
         was asked, which permission requests are waiting and the last reading of
         the context window, so a tab that opens mid-turn can show the turn and
-        answer its cards, and one that opens mid-session shows the meter.
+        answer its cards, and one that opens mid-session shows the meter. A
+        response the CLI started on its own (no prompt behind it) is in flight too.
         """
         feed: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_SUBSCRIBER_BUFFER)
         self._subscribers.add(feed)
         hello = {
             "type": "hello",
             "seq": self._seq,
-            "in_flight": self._turn_open or self._pending_turn,
+            "in_flight": self._turn_open or self._pending_turn or self._in_response,
             "prompt": self._turn_prompt,
             "pending": [pending.frame for pending in self._permissions.values()],
             "context": self._last_context,
@@ -1201,7 +1341,12 @@ class OperatorSession:
     # ---- Turn lifecycle ---- #
 
     async def _open_turn(self, prompt: str | None) -> None:
-        """Route the responses from here on to the turn's consumer, and announce the turn."""
+        """Route the responses from here on to the turn's consumer, and announce the turn.
+
+        A prompt that runs a project skill by its slash command is followed by that
+        skill's row: the CLI loads such a skill without a tool call, so the stream
+        itself never says one ran.
+        """
         self._turn_open = True
         self._turn_closed.clear()
         self._background.clear()
@@ -1209,6 +1354,10 @@ class OperatorSession:
         self._task_calls.clear()
         self._idle_wait = False
         await self._emit({"type": "turn_start", "prompt": prompt})
+        skill = operator_skill(prompt, Path(self._cwd)) if prompt else None
+        if skill is not None:
+            for frame in operator_skill_frames(*skill, f"operator-skill-{uuid.uuid4().hex[:12]}"):
+                await self._emit(frame)
 
     def _close_turn(self) -> None:
         """The open turn is over: stop routing to its consumer and free its guard if orphaned."""
@@ -1316,6 +1465,13 @@ class OperatorSession:
         feeds alone, announced by a ``turn_start`` with no prompt. A turn that
         hands work to a background agent stays open past that response's result
         until the agent reports, and the next response is read into it.
+
+        When the stream ends on its own (the child exited, or the stream
+        failed), the session stops reading as active, so the pool and the
+        hand-off door discard it and the next prompt starts a child that
+        resumes the transcript. Every feed is told with an error frame
+        (``AgentExited`` when the stream just closed), whether or not a turn is
+        open, and an open turn ends with it.
         """
         agent = self._agent
         ended: dict[str, Any] = {
@@ -1383,11 +1539,15 @@ class OperatorSession:
                 "message": f"Unexpected error: {exc}",
                 "error_type": type(exc).__name__,
             }
+        # Not active from here: a prompt that arrives now gets a new child.
+        self._stream_ended = True
         self._in_response = False
-        if self._turn_open or self._pending_turn:
+        in_turn = self._turn_open or self._pending_turn
+        if in_turn:
             self._pending_turn = False
             self._turn_open = True
-            await self._emit(ended)
+        await self._emit(ended)
+        if in_turn:
             self._close_turn()
 
     async def _emit_context(self, agent: AgentSession) -> None:
@@ -1717,7 +1877,7 @@ class OperatorSession:
 
     @property
     def is_active(self) -> bool:
-        return self._started and self._connected_agent is not None
+        return self._started and self._connected_agent is not None and not self._stream_ended
 
     @property
     def pid(self) -> int | None:

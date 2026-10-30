@@ -19,10 +19,14 @@ import asyncio
 import pytest
 import yaml
 
+from osprey_connectors import control_context
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.ipc._pool import ConnectorHostPool
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._paths import PACKAGE_SRC
+from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
 PYTHONPATH = str(PACKAGE_SRC)
@@ -54,18 +58,20 @@ def _gateways(address: str, port) -> dict:
     return {"read_only": dict(endpoint), "write_access": dict(endpoint)}
 
 
-def _control_system(machine_port: int, *, arm: str) -> dict:
+#: The switch each ``arm`` turns on: both machines, the live one alone, or none.
+_SWITCHED_ON = {"both": {"live": "on", "standin": "on"}, "live": {"live": "on"}, "none": None}
+
+
+def _control_system(machine_port: int) -> dict:
     """The section tuning_scripts ships: a live machine and a runtime-port stand-in.
 
-    ``arm`` is ``"both"`` (the deployment-wide key) or ``"epics"`` (the live
-    machine's block alone).
+    Its write tier allows writes; which machine may write is the login's switch.
     """
     return {
         "type": "epics",
-        "writes_enabled": arm == "both",
+        "writes": "allowed",
         "connector": {
             "epics": {
-                **({"writes_enabled": True} if arm == "epics" else {}),
                 "timeout_s": CA_TIMEOUT_S,
                 "gateways": _gateways("127.0.0.1", machine_port),
             },
@@ -89,11 +95,15 @@ def deployment(tmp_path, monkeypatch, iocs):
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("EPICS_TESTING_PORT", raising=False)
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+    root = tmp_path / "agent-data"
+    arm_switch(monkeypatch, root, None, stamp=False)
 
     # Each test closes its own pool in its own event loop; see the pool's
     # loop-affinity rule.
     def make(arm: str) -> ConnectorHostPool:
-        section = _control_system(machine.port, arm=arm)
+        """A pool over the deployment, with the switch on for the machines *arm* names."""
+        write_control_context(root, target="live", owned_by=None, switch=_SWITCHED_ON[arm])
+        section = _control_system(machine.port)
         config_file = tmp_path / f"config-{arm}.yml"
         config_file.write_text(yaml.safe_dump({"control_system": section}))
         pool = ConnectorHostPool(section, config_file=config_file)
@@ -140,10 +150,10 @@ async def test_two_targets_each_reach_only_their_own_ioc(deployment, ioc_prefix)
         await pool.close()
 
 
-async def test_only_the_armed_type_can_write(deployment, ioc_prefix):
+async def test_only_the_switched_on_target_can_write(deployment, ioc_prefix):
     setpoint = f"{ioc_prefix}:SP"
     make, _, _ = deployment
-    pool = make("epics")
+    pool = make("live")
     try:
         live = await pool.connector("live")
         live_ro = await pool.connector("live", execution_mode="readonly")
@@ -169,5 +179,34 @@ async def test_only_the_armed_type_can_write(deployment, ioc_prefix):
 
         assert (await sim.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_B
         assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == 5.0
+    finally:
+        await pool.close()
+
+
+async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment, ioc_prefix):
+    """The child does not follow the switch: its read gateway refuses, in software."""
+    setpoint = f"{ioc_prefix}:SP"
+    make, _, _ = deployment
+    pool = make("none")
+    try:
+        live = await pool.connector("live")
+        assert live.report["selected_role"] == "read_only"
+        assert live.report["writes_enabled"] is False
+
+        record = control_context.read_record()
+        control_context.set_switch(["live"], "on", epoch=record.switch_epoch)
+        control_context.invalidate_cache()
+        lagging = await live.write_channel(setpoint, 7.0, confirm=True, timeout=CA_TIMEOUT_S)
+
+        assert lagging.outcome is WriteOutcome.REFUSED
+        assert refusal_phrase("switching", "real") in lagging.error_message
+        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_A
+
+        # A fresh child for the key selects the write gateway and writes.
+        await live.disconnect()
+        fresh = await pool.connector("live")
+        assert fresh.report["selected_role"] == "write_access"
+        landed = await fresh.write_channel(setpoint, 8.0, confirm=True, timeout=CA_TIMEOUT_S)
+        assert landed.outcome is WriteOutcome.CONFIRMED
     finally:
         await pool.close()

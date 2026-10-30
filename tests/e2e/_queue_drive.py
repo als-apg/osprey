@@ -47,9 +47,11 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.error
-import urllib.request
 from typing import Any
+
+import httpx
+
+from osprey.utils.owner_header import OWNER_HEADER
 
 LAUNCH_TOKEN_HEADER = "X-Launch-Token"
 
@@ -72,38 +74,46 @@ def request(
     body: dict[str, Any] | None = None,
     *,
     token: str | None = None,
+    owner: str | None = None,
+    headers: dict[str, str] | None = None,
     timeout: float = 20.0,
 ) -> tuple[int, Any]:
     """One HTTP call, returning ``(status, parsed_body)`` for 2xx AND 4xx/5xx.
 
     Refusals carry the ``{"detail": {"code", "detail", ...}}`` body callers
-    assert on, so an ``HTTPError`` is a normal result here, never an exception
-    to propagate.
+    assert on, so an error status is a normal result here, never an exception
+    to propagate. A body that is not JSON comes back as text. *owner* is sent
+    as ``X-Osprey-Owner``, the header the bridge reads who queued an item from;
+    *headers* are any others the caller needs.
+
+    ``body=None`` on a non-GET sends a genuinely EMPTY body (``b""``, so the
+    request still carries ``Content-Length: 0``) with NO content-type -- which
+    is what the bodyless routes take, and what proves ``POST /queue/abort``
+    needs no parameters at all.
     """
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers: dict[str, str] = {}
-    if data is not None:
+    content = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = dict(headers or {})
+    if content is not None:
         headers["Content-Type"] = "application/json"
     elif method != "GET":
-        data = b""
+        content = b""
     if token:
         headers[LAUNCH_TOKEN_HEADER] = token
-    req = urllib.request.Request(  # localhost only
-        f"{base_url}{path}", data=data, method=method, headers=headers
+    if owner:
+        headers[OWNER_HEADER] = owner
+    resp = httpx.request(  # localhost only
+        method,
+        f"{base_url}{path}",
+        content=content,
+        headers=headers,
+        timeout=timeout,
+        trust_env=False,
+        follow_redirects=True,
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw.decode("utf-8"))
-            except ValueError:
-                return resp.status, raw.decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        try:
-            return exc.code, json.loads(raw.decode("utf-8"))
-        except ValueError:
-            return exc.code, raw.decode("utf-8", errors="replace")
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, resp.text
 
 
 def wait_for_worker_environment(
@@ -213,15 +223,27 @@ def stage_draft(base_url: str, plan_name: str, plan_args: dict[str, Any], *, cli
     return revision
 
 
-def enqueue(base_url: str, revision: int, *, token: str | None = None) -> str:
+def enqueue(
+    base_url: str, revision: int, *, token: str | None = None, owner: str | None = None
+) -> str:
     """Enqueue the plan staged at ``revision``; return its OSPREY run id.
 
     ``token`` is what an armed deployment requires of every add (the add runs
     the plan there), and what a stopped one ignores -- so a caller that means
     to run the plan always sends it.
+
+    ``owner`` is the login the plan runs for, sent as ``X-Osprey-Owner``. The
+    worker's writes follow that login's switch, so a plan that writes names
+    the owner ``sdk_helpers.arm_writes`` armed; an ownerless add has no switch
+    to follow and every write it makes is refused.
     """
     status, body = request(
-        base_url, "/queue/items", "POST", {"draft_revision": revision}, token=token
+        base_url,
+        "/queue/items",
+        "POST",
+        {"draft_revision": revision},
+        token=token,
+        owner=owner,
     )
     assert status == 200, f"POST /queue/items failed: {status} {body}"
     run_id = body.get("run_id")
@@ -267,7 +289,7 @@ def start_draining(base_url: str, token: str, run_id: str) -> None:
     if queue_is_armed(base_url):
         return
     status, body = request(base_url, "/queue/start", "POST", token=token, timeout=120.0)
-    if status == 409 and _refusal_code(body) == "manager_not_idle":
+    if status == 409 and refusal_code(body) == "manager_not_idle":
         record_status, record = run_record(base_url, run_id)
         assert record_status == 200 and record.get("status") in ("running", *TERMINAL_STATUSES), (
             f"POST /queue/start was refused manager_not_idle, but run {run_id} is not the "
@@ -278,7 +300,12 @@ def start_draining(base_url: str, token: str, run_id: str) -> None:
     assert body.get("started") is True, f"start did not report started: {body}"
 
 
-def _refusal_code(body: Any) -> str | None:
+def refusal_code(body: Any) -> str | None:
+    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
+
+    ``None`` for any other shape, so an assertion reports the drifted body
+    rather than a ``KeyError`` from inside this helper.
+    """
     detail = body.get("detail") if isinstance(body, dict) else None
     return detail.get("code") if isinstance(detail, dict) else None
 
@@ -290,11 +317,12 @@ def stage_and_enqueue(
     *,
     client_id: str,
     token: str | None = None,
+    owner: str | None = None,
 ) -> str:
-    """Drain leftovers, stage the plan, enqueue it. Returns the OSPREY run id."""
+    """Drain leftovers, stage the plan, enqueue it for ``owner``. Returns the OSPREY run id."""
     drain_pending_queue(base_url)
     revision = stage_draft(base_url, plan_name, plan_args, client_id=client_id)
-    return enqueue(base_url, revision, token=token)
+    return enqueue(base_url, revision, token=token, owner=owner)
 
 
 def run_record(base_url: str, run_id: str) -> tuple[int, Any]:
@@ -360,12 +388,15 @@ def run_plan(
     client_id: str,
     timeout: float,
     poll: float = 0.5,
+    owner: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """The whole flow: stage -> armed enqueue -> start where stopped -> poll.
 
     Returns ``(run_id, last_run_record)``. The record is returned rather than
     asserted on so each proof can say what a non-completion means in ITS terms.
     """
-    run_id = stage_and_enqueue(base_url, plan_name, plan_args, client_id=client_id, token=token)
+    run_id = stage_and_enqueue(
+        base_url, plan_name, plan_args, client_id=client_id, token=token, owner=owner
+    )
     start_draining(base_url, token, run_id)
     return run_id, wait_for_terminal_status(base_url, run_id, timeout=timeout, poll=poll)

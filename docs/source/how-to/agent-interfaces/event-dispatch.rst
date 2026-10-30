@@ -237,16 +237,17 @@ The job runs as you
 
 Approve, and the run is attributed to your account: the terminal's proxy stamps
 your name onto the call, and the worker starts the agent under it. Every
-control-system write that job makes then meets your :ref:`control-target chip
-<web-terminal-session-posture>` — narrow yourself to read-only and the job you
-fired refuses its first write, with the refusal you would have seen in the
-terminal. The name comes from the session the call left, never from a tool
+control-system write that job makes then follows your tier and your
+:ref:`write switch <web-terminal-session-posture>` — turn the machine off and
+the job you fired refuses its next write, with the refusal you would have seen
+in the terminal. The worker reads your tier from the login→tier map the build
+renders into its config (:ref:`write-safety-config`). The name comes from the session the call left, never from a tool
 argument or a header the agent can set, so there is no way to fire on someone
 else's behalf.
 
 The control system sees the job's writes under the worker's own service name,
 ``osprey-dispatch-<i>`` for worker *i*, not under yours: one worker runs jobs
-for everyone. Your name goes into the audit ledger instead, as ``owner=`` on
+for everyone. Your name goes into the audit trail instead, as ``owner=`` on
 the job's write records beside the worker name, which is how a line in the
 gateway's put-log is joined back to you. See :ref:`audit-trail-attribution`.
 
@@ -254,8 +255,12 @@ A job that a trigger source started — an interval or clock-time tick, a channe
 crossing or an inbound webhook — carries no name, and neither does one whose
 account name the dispatcher cannot read — a name that is not a plain account
 spelling is refused, and the only trace is a warning in the dispatcher's own
-log. No chip narrows a job with no name: it runs with whatever writes the
-deployment gives it.
+log. **A job with no name writes nothing**: no switch covers it, so each write
+is refused ``owner_unscheduled``. This is a breaking change from earlier
+releases, where such a job wrote at the deployment's own setting, and there is
+no route back yet: a schedule that names the login whose switch it follows is
+a later dispatch feature. Keep scheduled jobs to reads and reports, or fire the
+write from a terminal.
 
 Where the tools work
 --------------------

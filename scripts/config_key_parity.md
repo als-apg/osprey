@@ -101,15 +101,14 @@ holds this table and the marks to one set of keys.
 | `system.timezone` | `UTC` everywhere | pinned for reproducibility |
 | `approval.enabled` | `true` everywhere | |
 | `approval.default_policy` | `always` everywhere | fail-closed for hook-wired tools not listed |
-| `claude_code.telemetry.enabled` | diverges | `true` in both shipped presets, which each deploy a telemetry store; a deployment that runs none states `false`, since telemetry would have nowhere local to land. Presence is required because it is a posture-floor key |
 | `hooks.debug` | diverges | `false` in `hello-world`, `true` in `control-assistant`. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
 | `artifact_server.host` | `127.0.0.1` everywhere | |
 | `artifact_server.auto_launch` | `true` everywhere | |
 | `execution.execution_method` | `subprocess` everywhere | |
-| `deployed_services` | diverges | `[telemetry_store, telemetry_gateway]` (`hello-world`), `[postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]` (`control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
+| `deployed_services` | diverges | `[]` (`hello-world`), `[postgresql, qmd, graphdb]` (`control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
 
 Their parent blocks — `approval`, `artifact_server`, `claude_code`,
-`claude_code.servers`, `claude_code.telemetry`, `execution`, `hooks`, `system` —
+`claude_code.servers`, `execution`, `hooks`, `system` —
 carry `all-templates` too, because a path is in the union at every level and
 that mark is presence-only. They are not separate claims. No block carries
 `same-value`, which marks leaves.
@@ -127,20 +126,14 @@ agreement among the presets that state the key.
   `control-assistant` is the one root preset that states them (the `logbook`
   app states them too, and apps are not parity subjects), so the mark would
   compare nothing.
-- `claude_code.telemetry.log_{user_prompts,assistant_responses,tool_details,raw_api_bodies}`:
-  the capture posture of the bundled store. Both presets ship it and each
-  states every content gate on (each opens its gate block with "Content gates,
-  all on"), so the posture is one claim about one store.
 
 ### Considered and left unmarked
 
 | keys | reason |
 |---|---|
 | `services.<name>.*` sizes, intervals, images, paths | capacity or per-deployment layout; host ports come from the layout fill and no preset states them |
-| `claude_code.telemetry.{protocol,backend,endpoint}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
-| `web.feedback.max_store_bytes` | capacity |
 | `ariel.*` tuning | per-deployment, and `ariel.vocabulary.enabled` already diverges |
-| `control_system.*` | `type` and `writes_enabled` already diverge |
+| `control_system.*` | `type` and `writes` already diverge |
 | `facility.*`, `channel_finder.query_max_rows`, `claude_code.servers.<name>.enabled` | capability-scoped |
 
 ## Per-preset (deliberate divergence)
@@ -172,21 +165,22 @@ Present only where the deployment has the capability.
 
 | dotted key | values | rationale |
 |---|---|---|
-| `control_system.writes_enabled` | `true` in `control-assistant`; `false` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
+| `control_system.writes` | `allowed` in `control-assistant`; `never` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
 | `web.theme` | live `light` in `control-assistant`; commented in `hello-world` | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
 | `channel_finder.benchmark.dataset_path` | `control-assistant` only | see below |
 | `deployment.bind_address` (commented) | `hello-world`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
 
-`control_system.connector.<type>.writes_enabled` is a per-connector-type
-override of the global `control_system.writes_enabled` row above, and is
-deliberately **not** parity-required. It is written commented in the root
-presets that carry the matching connector block, so it is never in a root
-preset's resolved `config:`. The `epics` and `virtual_accelerator` switches
-reach the union through the apps context alone: every app render pins them
-`false`. Its semantics are tri-state: absent inherits the global key, literally
-`true` arms writes for that connector type, and any other value leaves them
-unarmed. Arming writes is a per-facility decision, so no preset may ship it
-live.
+`control_system.writes` is the tier's write ceiling, `allowed` or `never`, and
+is target-blind: which machine a session writes is the session's switch, not
+the tier's. The tiers state it (`allowed` in `readwrite` and `admin`, `never` in
+`readonly`), and an app render is pinned `never` by the composer.
+
+`control_system.writes_enabled` and every
+`control_system.connector.<type>.writes_enabled` are the retired spellings it
+replaced. Nothing ships them — no preset, tier or app — so each carries
+`rendered: false`. A profile that still states one is read once, at the single
+parse point in `build_profile_document`, which answers `control_system.writes`
+from them (`allowed` only when one is a literal `true`) and drops them.
 
 `control_system.connector.<type>.limits_checking` is the same story for the
 limits posture, and is likewise **not** parity-required. It overrides the

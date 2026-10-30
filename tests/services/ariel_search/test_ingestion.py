@@ -29,33 +29,15 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures" / "ariel"
 class TestRegisteredAdapters:
     """Tests for adapter registry discovery."""
 
-    def test_registry_has_als(self):
-        """ALS adapter is registered in the Osprey registry."""
+    @pytest.mark.parametrize(
+        "name", ["als_logbook", "jlab_logbook", "ornl_logbook", "generic_json"]
+    )
+    def test_registry_has_adapter(self, name):
+        """Each bundled adapter is registered in the Osprey registry."""
         from osprey.registry import get_registry
 
         registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("als_logbook") is not None
-
-    def test_registry_has_jlab(self):
-        """JLab adapter is registered in the Osprey registry."""
-        from osprey.registry import get_registry
-
-        registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("jlab_logbook") is not None
-
-    def test_registry_has_ornl(self):
-        """ORNL adapter is registered in the Osprey registry."""
-        from osprey.registry import get_registry
-
-        registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("ornl_logbook") is not None
-
-    def test_registry_has_generic(self):
-        """Generic adapter is registered in the Osprey registry."""
-        from osprey.registry import get_registry
-
-        registry = get_registry()
-        assert registry.get_ariel_ingestion_adapter("generic_json") is not None
+        assert registry.get_ariel_ingestion_adapter(name) is not None
 
     def test_list_adapters(self):
         """All four adapters are listed."""

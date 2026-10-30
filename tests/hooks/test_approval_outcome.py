@@ -19,7 +19,12 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors_tests._harness import pin_identity, state_dir_under
+from osprey_connectors_tests._harness import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+)
+from tests.hooks.conftest import hook_audit_records
 
 HOOK = "osprey_approval.py"
 CHANNEL_WRITE = "mcp__controls__channel_write"
@@ -37,7 +42,7 @@ APPROVAL_CONFIG = {
         "default_policy": "always",
         "tools": {"channel_write": "always", "channel_read": "skip"},
     },
-    "control_system": {"writes_enabled": True},
+    "control_system": {"writes": "allowed"},
 }
 
 CONVERSATION = "conv-1111"
@@ -63,6 +68,9 @@ def deployment(tmp_path, monkeypatch, make_config):
     state = state_dir_under(root)
     state.mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    # The write verdict asks for a switch-on record; without one every write
+    # defers as switch_off before the approval prompt this suite reads.
+    write_control_context(root, target="va", switch={"va": "on"})
     config = make_config(APPROVAL_CONFIG)
 
     class _Deployment:
@@ -73,13 +81,7 @@ def deployment(tmp_path, monkeypatch, make_config):
 
         @staticmethod
         def ledger() -> list[dict]:
-            paths = list(Path(tmp_path).rglob("hook_approval.jsonl"))
-            records: list[dict] = []
-            for path in paths:
-                records.extend(
-                    json.loads(line) for line in path.read_text().splitlines() if line.strip()
-                )
-            return records
+            return hook_audit_records(tmp_path, "hook_approval")
 
         @staticmethod
         def ask_stamps() -> list[Path]:
@@ -231,6 +233,8 @@ def test_the_branches_with_nothing_to_report_print_nothing(
 
 def test_a_dispatch_run_names_the_policy_as_approver(hook_runner, deployment, monkeypatch):
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    # A dispatch run with no owner is refused owner_unscheduled before it is asked.
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", deployment.who)
     _ask(hook_runner, deployment, "toolu_dispatch")
     (stamp_path,) = deployment.ask_stamps()
     assert json.loads(stamp_path.read_text())["approver"] == "dispatch_policy"

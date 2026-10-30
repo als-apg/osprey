@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import math
-import socket
 import threading
 import time
 from collections.abc import Callable
@@ -52,6 +51,7 @@ from osprey.services.ariel_search.enhancement.vision_errors import (
     error_signature,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
+from tests.services.ariel_search._image_doubles import FakeCursor, FakeGate
 
 MODEL = "qwen3-vl:4b"
 _DB = {"uri": "postgresql://localhost:5432/test"}
@@ -90,40 +90,21 @@ def _picture(n: int) -> dict[str, Any]:
     return {"url": f"https://logbook.example/files/{n}.png", "filename": f"p{n}.png"}
 
 
-class _Cursor:
-    def __init__(self, rows: list[tuple]) -> None:
-        self._rows = rows
-
-    async def fetchone(self) -> tuple | None:
-        return self._rows[0] if self._rows else None
-
-    async def fetchall(self) -> list[tuple]:
-        return list(self._rows)
-
-
-class _Tx:
-    async def __aenter__(self) -> None:
-        return None
-
-    async def __aexit__(self, *exc: object) -> None:
-        return None
-
-
 class _Conn:
     def __init__(self, repo: FakeRepo) -> None:
         self._repo = repo
 
-    def transaction(self) -> _Tx:
-        return _Tx()
+    def transaction(self) -> contextlib.nullcontext[None]:
+        return contextlib.nullcontext()
 
-    async def execute(self, sql: str, params: dict[str, Any]) -> _Cursor:
+    async def execute(self, sql: str, params: dict[str, Any]) -> FakeCursor:
         repo = self._repo
         repo.statements.append(sql)
         entry = repo.entries.get(params["entry_id"])
         if "FOR UPDATE" in sql:
             if entry is None:
-                return _Cursor([])
-            return _Cursor(
+                return FakeCursor([])
+            return FakeCursor(
                 [(entry["attachments"], entry["attachment_text"], entry["attachment_captions"])]
             )
         if "FROM attachment_files" in sql:
@@ -132,35 +113,24 @@ class _Conn:
                 for a, row in repo.files.items()
                 if row["entry_id"] == params["entry_id"] and row["copy_status"] == "copied"
             ]
-            return _Cursor([(a,) for a in ids])
+            return FakeCursor([(a,) for a in ids])
         if "SET attachment_text" in sql:
             entry["attachment_text"] = params["text"]
             entry["attachment_captions"] = json.loads(json.dumps(params["captions"].obj))
-            return _Cursor([])
+            return FakeCursor([])
         if "enhancement_status - " in sql:
             for key in params["keys"]:
                 entry["enhancement_status"].pop(key, None)
-            return _Cursor([])
+            return FakeCursor([])
         raise AssertionError(f"unexpected statement: {sql}")
-
-
-class _ConnCtx:
-    def __init__(self, repo: FakeRepo) -> None:
-        self._repo = repo
-
-    async def __aenter__(self) -> _Conn:
-        return _Conn(self._repo)
-
-    async def __aexit__(self, *exc: object) -> None:
-        return None
 
 
 class _Pool:
     def __init__(self, repo: FakeRepo) -> None:
         self._repo = repo
 
-    def connection(self) -> _ConnCtx:
-        return _ConnCtx(self._repo)
+    def connection(self) -> contextlib.nullcontext[_Conn]:
+        return contextlib.nullcontext(_Conn(self._repo))
 
 
 class FakeRepo:
@@ -293,32 +263,6 @@ class FakeRepo:
 
     def captions(self, entry_id: str) -> dict[str, Any]:
         return self.entries[entry_id]["attachment_captions"] or {}
-
-
-class FakeGate:
-    """A recording :class:`PictureGate`."""
-
-    def __init__(self, *, deterministic: bool = True, pictures: int | None = None) -> None:
-        self.allow_deterministic = deterministic
-        self.pictures_left = pictures
-        self.started = 0
-        self.successes = 0
-        self.signatures: list[str] = []
-
-    def may_start_picture(self) -> bool:
-        if self.pictures_left is not None:
-            if self.pictures_left <= 0:
-                return False
-            self.pictures_left -= 1
-        self.started += 1
-        return True
-
-    def succeeded(self) -> None:
-        self.successes += 1
-
-    def deterministic(self, signature: str) -> bool:
-        self.signatures.append(signature)
-        return self.allow_deterministic
 
 
 def _http_error(status: int) -> httpx.HTTPStatusError:
@@ -1101,12 +1045,6 @@ def test_cancelled_pass_lets_asyncio_run_return_within_one_second(provider_confi
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 class StubOllama:
     """An Ollama stand-in serving ``/api/tags``, ``/v1/models``, ``/api/show`` and ``/api/chat``."""
 
@@ -1211,8 +1149,8 @@ class TestOllama:
         result = await _ollama_module(provider_configs, stub.url).health_check()
         assert (result.reachable, result.reason) == (False, "model")
 
-    async def test_nothing_answering_is_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+    async def test_nothing_answering_is_unreachable(self, reserve_port, provider_configs):
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
         result = await module.health_check()
         assert (result.reachable, result.reason) == (False, "unreachable")
 
@@ -1231,11 +1169,11 @@ class TestOllama:
         assert stub.chats == []
 
     async def test_container_fallback_serves_health_and_the_call(
-        self, provider_configs, stubs, fallbacks
+        self, reserve_port, provider_configs, stubs, fallbacks
     ):
         stub = stubs({MODEL: ["completion", "vision"]})
         fallbacks.append(stub.url)
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
 
         result = await module.health_check()
         assert result.reachable is True
@@ -1274,8 +1212,10 @@ class TestOllama:
         assert repo.entries["e2"] == e2_before
         assert repo.failed == {}
 
-    async def test_the_adapter_failed_connect_classifies_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+    async def test_the_adapter_failed_connect_classifies_unreachable(
+        self, reserve_port, provider_configs
+    ):
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
         repo = FakeRepo()
         repo.add_entry("e1", 1)
 
@@ -1284,10 +1224,10 @@ class TestOllama:
         assert outcome == ImageEntryOutcome.unavailable("unreachable")
 
     async def test_fallback_gone_and_configured_back_recovers(
-        self, provider_configs, stubs, fallbacks, caplog
+        self, reserve_port, provider_configs, stubs, fallbacks, caplog
     ):
         caplog.set_level(logging.DEBUG)
-        configured_port = _free_port()
+        configured_port = reserve_port()
         fallback = stubs({MODEL: ["vision"]})
         fallbacks.append(fallback.url)
         module = _ollama_module(provider_configs, f"http://localhost:{configured_port}")

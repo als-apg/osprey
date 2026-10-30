@@ -159,8 +159,10 @@ from osprey import bluesky_tool_names
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
+from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._deploy_support import wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
@@ -168,6 +170,7 @@ from tests.e2e.sdk_helpers import (
     SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     HookEvent,
     _default_opus_model,
+    arm_deployed_queue_owner,
     dump_agent_transcript,
     is_claude_code_available,
     promote_ask_to_allow,
@@ -215,9 +218,9 @@ QUEUE_CONTROL = frozenset(
 # Ports + names for the live stack (the deploy scaffold at the end of this
 # module). Every published port is deliberately outside BOTH the thousand-port
 # block a deployment claims from ``deployment.port_base`` (10000-10999 at the
-# default base — bridge, tiled, panels and the telemetry gateway in the
-# services band, postgres, mongodb and the telemetry store in the stores band; the VA's Channel Access 5064 is the
-# one port the base does not move) and every sibling e2e module's pinned port,
+# default base — bridge, tiled and panels in the services band, postgres and
+# mongodb in the stores band; the VA's Channel Access 5064 is the one port the
+# base does not move) and every sibling e2e module's pinned port,
 # so this module can run on a shared dev machine beside an already-deployed
 # tutorial stack —
 # and beside any sibling suite — without touching, or being blocked by,
@@ -237,9 +240,6 @@ QUEUE_CONTROL = frozenset(
 #               (5064 is _orm_stack's default, which the tutorial holds)
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
 #               25434 test_bluesky_web_deploy
-#   telemetry   gateway 24318 / store 28123 test_bluesky_queue_e2e
-#               24319 / 28124 test_bluesky_deploy · 24320 / 28125 test_tiled_roundtrip
-#               24321 / 28126 test_bluesky_web_deploy
 #   mongodb     no sibling pins one — the archiver's Mongo published the
 #               service default, and a tutorial stack deployed on this host
 #               holds it. The preflight refuses to touch any container when a
@@ -254,8 +254,6 @@ PANELS_PORT = 18097
 TILED_PORT = 18193
 VA_CA_PORT = 15066
 POSTGRES_PORT = 25435
-TELEMETRY_GATEWAY_PORT = 24322
-TELEMETRY_STORE_PORT = 28127
 MONGODB_PORT = 27117
 
 #: Compose project this module deploys under. Container names and locally-built
@@ -3114,9 +3112,9 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
 #:
-#: - ``services.postgresql.port_host`` / ``services.telemetry_gateway.port`` /
-#:   ``services.telemetry_store.port`` are CONFIG keys — those services are in the preset's config template, so a
-#:   dotted key under ``config:`` edits them in place.
+#: - ``services.postgresql.port_host`` is a CONFIG key — that service is in the
+#:   preset's config template, so a dotted key under ``config:`` edits it in
+#:   place.
 #: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
 #:   (see ``profiles/presets/control-assistant.yml``). Their ``services.*``
@@ -3140,7 +3138,7 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: stack rather than fail loudly.
 #:
 #: The queue ``approval.tools`` keys disarm the approval hook for exactly the
-#: queue tools ``_REQUIRED_TOOLS`` already promotes, and only in this rendered
+#: queue tools the agent needs (``_REQUIRED_TOOLS``, ``_RENDERED_UNASKED``), and only in this rendered
 #: test project. They are a SECOND gate, independent of the ``settings.json``
 #: promotion below: ``promote_ask_to_allow`` moves a tool between
 #: ``permissions.ask`` and ``permissions.allow``, while
@@ -3161,8 +3159,6 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 _EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
-        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
         "approval.tools.queue_remove": "skip",
@@ -3201,16 +3197,60 @@ _EXTRA_CONFIG: dict[str, Any] = {
 #: start moves nothing), and the python executor is the sanctioned compute path
 #: — framework agents never get Bash, so without it there is no way to work
 #: over a response matrix at all.
+#:
+#: On an ``allowed`` render the arming pair and the python executor are no
+#: longer in ``ask`` to begin with: the render derives the kill switch from the
+#: tier, and a writes-checked tool that also carries the approval hook leaves
+#: ``ask`` there, so those hooks are its per-call gate (the executor's mixed
+#: policy unit is re-granted to ``allow``). ``_RENDERED_UNASKED`` asserts that
+#: render outcome instead of promoting; only removal still needs the promotion.
 _REQUIRED_TOOLS = (
-    bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD),
-    bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START),
     # Removal is the sole way past the interrupted-item start refusal: a first
     # attempt that errors on the machine leaves its item re-queued at the
     # front, and without this promotion a headless agent can only hand the
     # recovery back to an operator nobody is playing.
     bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_REMOVE),
+)
+#: Tools the agent needs that an ``allowed`` render already leaves out of
+#: ``ask`` and out of ``deny``: the arming pair (gated per call by the
+#: writes-check and approval hooks) and the python executor (in ``allow``).
+_RENDERED_UNASKED = (
+    bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD),
+    bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START),
     "mcp__python__execute",
 )
+#: Of those, the ones the render must list in ``allow`` outright.
+_RENDERED_ALLOWED = ("mcp__python__execute",)
+
+
+def _assert_rendered_unasked(repo: Path) -> None:
+    """The ``allowed`` render leaves ``_RENDERED_UNASKED`` reachable headless.
+
+    Each tool is in neither ``permissions.ask`` (a hard denial with no responder)
+    nor ``permissions.deny`` (the kill switch, which an ``allowed`` tier must not
+    render), and every arming tool still carries the writes-check hook, so
+    leaving ``ask`` hands its gate to that hook and never drops it.
+    """
+    settings_path = render_dir(repo) / ".claude" / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    permissions = settings.get("permissions", {})
+    ask, deny, allow = (permissions.get(k, []) for k in ("ask", "deny", "allow"))
+    for tool in _RENDERED_UNASKED:
+        assert tool not in ask, f"{tool} is still in permissions.ask of {settings_path}: {ask}"
+        assert tool not in deny, f"{tool} is denied on an allowed render ({settings_path}): {deny}"
+    for tool in _RENDERED_ALLOWED:
+        assert tool in allow, f"{tool} is not in permissions.allow of {settings_path}: {allow}"
+    pre = settings.get("hooks", {}).get("PreToolUse", [])
+    for tool in _RENDERED_UNASKED[:2]:
+        commands = [
+            h.get("command", "")
+            for rule in pre
+            if rule.get("matcher") == tool
+            for h in rule.get("hooks", [])
+        ]
+        assert any("osprey_writes_check.py" in c for c in commands), (
+            f"{tool} left ask without its writes-check hook in {settings_path}: {commands}"
+        )
 
 
 @dataclass
@@ -3374,6 +3414,9 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
+    # The plans write, and the worker's writes follow the add's owner's switch:
+    # this login's switch on in the deployment's record, before `up`.
+    arm_deployed_queue_owner(repo)
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
@@ -3413,7 +3456,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         # HTTP readiness is not enqueue readiness -- the worker namespace an
@@ -3429,6 +3472,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
 
         # AFTER `osprey up`, never before: the deploy path can re-render the Claude
         # Code artifacts and would discard an earlier edit to settings.json.
+        _assert_rendered_unasked(repo)
         promote_ask_to_allow(repo, *_REQUIRED_TOOLS)
 
         yield DeployedScanStack(
@@ -4412,6 +4456,16 @@ ABORT_PLAN_POINTS = 8000
 #: take at most half that budget; 300 points is ~200 s there.
 REARM_PLAN_POINTS = 300
 
+#: Rows the re-arm SETUP plan must have recorded before the test aborts it.
+#: The operator asks for "the plan I had emergency-stopped partway through",
+#: and the history also holds the abort twin's 8000-point run, stopped with
+#: rows recorded. An abort that lands before the setup plan's first row
+#: leaves a stopped run with no data, which no longer reads as "partway
+#: through": the agent then re-runs the 8000-point plan instead, which cannot
+#: finish inside REARM_RUN_TIMEOUT_SEC. Ten rows take under a second at the
+#: fastest measured pace, leaving ~16 s of the 300-point plan for the abort.
+REARM_SETUP_MIN_ROWS = 10
+
 #: How long a protocol-started plan may take to reach ``running`` — covers
 #: the manager handing the item to the worker, not the plan's own duration.
 RUNNING_WAIT_TIMEOUT_SEC = 180.0
@@ -4452,9 +4506,12 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     }
 
 
-def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> str:
+def _start_plan_and_wait_running(
+    stack: DeployedScanStack, num_points: int, *, min_rows: int = 0
+) -> str:
     """Stage, enqueue, and arm a ``num_points`` grid protocol-side; return its
-    run id once the bridge reports it RUNNING.
+    run id once the bridge reports it RUNNING with at least ``min_rows`` rows
+    recorded.
 
     A plan that reaches a terminal state before it is ever seen running fails
     loudly here — the setup was too short for the test that asked for it, and
@@ -4466,6 +4523,7 @@ def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> s
         _long_grid_args(stack, num_points),
         client_id=_PROTOCOL_CLIENT_ID,
         token=stack.token,
+        owner=posture_store.current_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, stack.token, run_id)
 
@@ -4475,7 +4533,8 @@ def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> s
         status, body = _queue_drive.run_record(BRIDGE_URL, run_id)
         if status == 200 and isinstance(body, dict):
             last = body
-            if body.get("status") == "running":
+            rows = (body.get("progress") or {}).get("rows_seen") or 0
+            if body.get("status") == "running" and rows >= min_rows:
                 return run_id
             if body.get("status") in _queue_drive.TERMINAL_STATUSES:
                 raise AssertionError(
@@ -4485,7 +4544,8 @@ def _start_plan_and_wait_running(stack: DeployedScanStack, num_points: int) -> s
                 )
         time.sleep(0.5)
     raise AssertionError(
-        f"run {run_id} never reported 'running' within {RUNNING_WAIT_TIMEOUT_SEC:.0f}s "
+        f"run {run_id} never reported 'running' with {min_rows} row(s) recorded "
+        f"within {RUNNING_WAIT_TIMEOUT_SEC:.0f}s "
         f"(last record: {last!r})"
     )
 
@@ -4663,7 +4723,9 @@ async def test_rearming_an_aborted_plan_costs_a_fresh_approval(
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
-    stopped_run_id = _start_plan_and_wait_running(deployed_scan_stack, REARM_PLAN_POINTS)
+    stopped_run_id = _start_plan_and_wait_running(
+        deployed_scan_stack, REARM_PLAN_POINTS, min_rows=REARM_SETUP_MIN_ROWS
+    )
 
     status, body = _queue_drive.request(BRIDGE_URL, "/queue/abort", "POST", timeout=180.0)
     assert status == 200, (

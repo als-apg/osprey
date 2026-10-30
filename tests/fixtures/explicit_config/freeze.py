@@ -38,6 +38,25 @@ cell whose extra documents do not each equal a captured one. If a future render
 grows a document that is genuinely its own, the freeze fails loudly with the
 path rather than quietly producing an incomplete fixture.
 
+The staged login map
+--------------------
+One key is the exception. The shared containers that run one render for every
+login (``LOGIN_TIERS_SERVICES``: the Bluesky bridge and the untiered dispatch
+worker) get their ``config.yml`` staged with ``control_system.login_tiers``, the
+login→tier map. No root, tier or app render carries it, so it is not a delta of
+any captured document. The completeness check compares each
+``build/services/*`` document with that key removed, and the map is frozen on
+its own, once per cell, as::
+
+    tests/fixtures/explicit_config/<preset>/<mode>/staged/login_tiers.yml
+
+It sits in a subdirectory because every reader of these fixtures takes
+``<cell>/*.yml`` to be the cell's renders. A cell whose build stages no shared
+container has no such file; every staged copy in one cell must carry the same
+map, or the freeze fails. The map names the build account, which is the host's
+login unless pinned, so the CLI runs with ``OSPREY_AUDIT_IDENTITY`` set to
+``FROZEN_BUILD_ACCOUNT`` and ``OSPREY_TERMINAL_USER`` removed.
+
 Masked and stripped keys
 ------------------------
 Whole documents are compared downstream, so only what is inherently
@@ -165,6 +184,27 @@ REPLACED_KEYS: Mapping[str, str] = {
 #: The deployment-repo directories whose files each render a project of their
 #: own, at ``build/<project_name>-<file stem>/``.
 LAYER_DIRS: tuple[str, ...] = ("tiers", "apps")
+
+#: The build account every CLI subprocess runs as. ``osprey build`` writes it
+#: into the staged login map (``control_system.login_tiers``), so an unpinned
+#: account would freeze the login of whoever ran the freeze.
+FROZEN_BUILD_ACCOUNT = "osprey-freeze-builder"
+
+#: Identity variables removed from the CLI environment: the first rung of the
+#: identity ladder, which would outrank the pinned account.
+DROPPED_IDENTITY_ENV: tuple[str, ...] = ("OSPREY_TERMINAL_USER",)
+
+#: The identity variable the pinned build account is passed in.
+AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
+
+#: The ``control_system`` key the shared containers' staged copies carry.
+LOGIN_TIERS_KEY = "login_tiers"
+
+#: Subdirectory of a cell holding what the build stages beyond the renders.
+STAGED_DIR = "staged"
+
+#: File, under :data:`STAGED_DIR`, holding the cell's staged login map.
+LOGIN_TIERS_FILE = "login_tiers.yml"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,7 +408,9 @@ def _cli_env(source_dirs: list[Path]) -> dict[str, str]:
     """Environment for the ``osprey`` subprocesses.
 
     Every ``*_API_KEY`` is dropped so which provider credentials happen to be
-    exported cannot reach a fixture, and *source_dirs* is prepended to
+    exported cannot reach a fixture, the build account is pinned to
+    :data:`FROZEN_BUILD_ACCOUNT` so the staged login map does not name the
+    host's login, and *source_dirs* is prepended to
     ``PYTHONPATH`` so a pristine source tree shadows the editable install — the
     ``.pth`` file an editable install drops appends its directory when
     ``site-packages`` is processed, which is after ``PYTHONPATH``.
@@ -379,7 +421,12 @@ def _cli_env(source_dirs: list[Path]) -> dict[str, str]:
     Returns:
         The environment mapping to hand to :func:`subprocess.run`.
     """
-    env = {key: value for key, value in os.environ.items() if not key.endswith("_API_KEY")}
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.endswith("_API_KEY") and key not in DROPPED_IDENTITY_ENV
+    }
+    env[AUDIT_IDENTITY_ENV] = FROZEN_BUILD_ACCOUNT
     entries = [str(path) for path in source_dirs]
     if entries:
         existing = env.get("PYTHONPATH")
@@ -480,6 +527,66 @@ def collect_rendered_configs(project: Path) -> dict[str, dict[str, Any]]:
     return captured
 
 
+def _is_service_copy(relative: Path) -> bool:
+    """Whether a build-relative path is a ``build/services/*`` staged copy."""
+    return bool(relative.parts) and relative.parts[0] == "services"
+
+
+def split_login_tiers(document: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:
+    """Separate the staged login map from a service's ``config.yml``.
+
+    Args:
+        document: A parsed staged ``config.yml``.
+
+    Returns:
+        ``(document without control_system.login_tiers, the map or None)``. A
+        ``control_system`` left empty by the removal is dropped with it, the
+        inverse of how the build adds the key. The input is not modified.
+    """
+    section = document.get("control_system")
+    if not isinstance(section, Mapping) or LOGIN_TIERS_KEY not in section:
+        return dict(document), None
+    stripped = dict(document)
+    remainder = {key: value for key, value in section.items() if key != LOGIN_TIERS_KEY}
+    if remainder:
+        stripped["control_system"] = remainder
+    else:
+        stripped.pop("control_system")
+    return stripped, section[LOGIN_TIERS_KEY]
+
+
+def collect_login_tiers(project: Path) -> dict[str, Any] | None:
+    """The login map the build staged into its shared containers.
+
+    Args:
+        project: The deployment repo, containing ``build/``.
+
+    Returns:
+        The map, or ``None`` when no ``build/services/*`` copy carries one.
+
+    Raises:
+        RuntimeError: If two staged copies carry different maps, or a map is
+            not a mapping.
+    """
+    build = project / "build"
+    found: dict[str, Any] = {}
+    services = build / "services"
+    if not services.is_dir():
+        return None
+    for path in sorted(services.rglob("config.yml")):
+        _, login_tiers = split_login_tiers(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+        if login_tiers is not None:
+            found[str(path.relative_to(build))] = login_tiers
+    if not found:
+        return None
+    maps = list(found.values())
+    if not isinstance(maps[0], Mapping):
+        raise RuntimeError(f"staged login map is not a mapping: {found}")
+    if any(other != maps[0] for other in maps[1:]):
+        raise RuntimeError(f"the staged copies carry different login maps: {found}")
+    return dict(maps[0])
+
+
 def verify_capture_is_complete(project: Path, masked: Mapping[str, dict[str, Any]]) -> list[str]:
     """Check that every ``config.yml`` in the build tree is one of the captured ones.
 
@@ -487,6 +594,9 @@ def verify_capture_is_complete(project: Path, masked: Mapping[str, dict[str, Any
     ``build/services/`` are re-serializations of the root or of a tier or app render.
     This asserts it rather than trusting it, so a render that grows a genuinely
     distinct document is caught here instead of leaving a hole in the fixture.
+    A ``build/services/*`` copy is compared with ``control_system.login_tiers``
+    removed: that map is staged into the shared containers only, and is frozen
+    on its own (:func:`collect_login_tiers`).
 
     Args:
         project: The deployment repo.
@@ -502,7 +612,10 @@ def verify_capture_is_complete(project: Path, masked: Mapping[str, dict[str, Any
     checked: list[str] = []
     unmatched: list[str] = []
     for path in sorted(build.rglob("config.yml")):
-        document = mask_document(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if _is_service_copy(path.relative_to(build)):
+            document, _ = split_login_tiers(document)
+        document = mask_document(document)
         relative = str(path.relative_to(build))
         if any(document == captured for captured in masked.values()):
             checked.append(relative)
@@ -564,6 +677,7 @@ def freeze_cell(
     for name, document in masked.items():
         assert_no_machine_paths(document, scratch, f"{preset}/{mode_dir}/{name}")
     checked = verify_capture_is_complete(project, masked)
+    login_tiers = collect_login_tiers(project)
 
     out_dir = FIXTURE_ROOT / preset / mode_dir
     if out_dir.exists():
@@ -574,6 +688,13 @@ def freeze_cell(
             yaml.safe_dump(document, sort_keys=True, default_flow_style=False),
             encoding="utf-8",
         )
+    if login_tiers is not None:
+        staged = out_dir / STAGED_DIR
+        staged.mkdir()
+        (staged / LOGIN_TIERS_FILE).write_text(
+            yaml.safe_dump(login_tiers, sort_keys=True, default_flow_style=False),
+            encoding="utf-8",
+        )
 
     renders = sorted(name for name in masked if name != "root")
     record.update(
@@ -581,6 +702,7 @@ def freeze_cell(
         renders=renders,
         documents=sorted(f"{name}.yml" for name in masked),
         build_configs_checked=checked,
+        login_tiers=login_tiers is not None,
     )
     return record
 
@@ -655,6 +777,11 @@ def main(argv: list[str] | None = None) -> int:
         tmp_path = Path(tmp)
         if args.osprey_src:
             source_dirs = [args.osprey_src.resolve()]
+            # A repo's src/ comes with the connectors package beside it; take
+            # that too, so the connectors are not the editable install's.
+            connectors = source_dirs[0].parent / BASELINE_SOURCE_DIRS[1]
+            if connectors.is_dir():
+                source_dirs.append(connectors)
         else:
             export = tmp_path / "baseline"
             export.mkdir()
@@ -683,15 +810,21 @@ def main(argv: list[str] | None = None) -> int:
                         "renders": record.pop("renders"),
                         "documents": record.pop("documents"),
                         "build_configs_checked": len(record.pop("build_configs_checked")),
+                        "login_tiers": record.pop("login_tiers"),
                     }
                 cells.append(record)
 
     (FIXTURE_ROOT / "cells.json").write_text(
         json.dumps(cells, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    baseline_commit = _resolved_baseline(baseline) if baseline else None
+    # A symbolic baseline (``HEAD``, a branch) is recorded as the commit it
+    # named, so the provenance survives the ref moving on.
+    if baseline_commit and not baseline_commit.startswith(baseline):
+        baseline = baseline_commit[:9]
     meta = {
         "baseline_sha": baseline,
-        "baseline_commit": _resolved_baseline(baseline) if baseline else None,
+        "baseline_commit": baseline_commit,
         "external_source": bool(args.osprey_src),
         "masked_keys": {
             "stripped": dict(STRIPPED_KEYS),
@@ -700,6 +833,7 @@ def main(argv: list[str] | None = None) -> int:
         "project_name": PROJECT_NAME,
         "unset_mode_directory": UNSET_MODE_DIR,
         "api_key_env_stripped": True,
+        "build_account": FROZEN_BUILD_ACCOUNT,
         "cells": [cell["directory"] for cell in cells],
         "completeness": completeness,
         "regenerate": "python tests/fixtures/explicit_config/freeze.py",

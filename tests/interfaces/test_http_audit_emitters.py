@@ -1,6 +1,6 @@
 """Contract tests for the two HTTP-layer audit emitters.
 
-Osprey's HTTP surface decides two things worth a ledger entry, at two different
+Osprey's HTTP surface decides two things worth an audit entry, at two different
 depths, and this module pins both:
 
 * :class:`~osprey.interfaces.common_middleware.WebAuthMiddleware` refuses an
@@ -8,7 +8,7 @@ depths, and this module pins both:
   exists only as a status code the caller sees and nobody else does.
 * :class:`~osprey.interfaces.common_middleware.HttpAuditMiddleware`, installed
   innermost by :func:`~osprey.interfaces._app_setup.configure_interface_app`,
-  records every *admitted* state-changing request, so the ledger says what got
+  records every *admitted* state-changing request, so the record says what got
   through the gate as well as what did not.
 
 Like ``test_auth_middleware.py``, most of these drive raw ASGI scopes: a
@@ -19,13 +19,12 @@ The emitters are asserted two ways on purpose. Most tests stub
 ``osprey.audit.writer.record`` and read the fields the emitter passed, because
 that is the only way to see a field that the envelope would happily accept but
 that nobody meant to send. One test per emitter goes through the *real* writer
-onto a redirected audit root, because a stub accepts a misspelled keyword
-forever and the ledger would be silently empty in production.
+into the test's own agent record, because a stub accepts a misspelled keyword
+forever and the record would be silently empty of audit entries in production.
 """
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import json
 from types import SimpleNamespace
@@ -70,120 +69,22 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
+from tests.interfaces._asgi import (
+    OPERATOR_SECRET,
+    PANEL_TOKEN,
+    RecordingApp,
+    drive,
+    http_scope,
+    status_of,
+    ws_scope,
+)
 
 MIDDLEWARE_LOGGER = common_middleware.logger.name
-
-OPERATOR_SECRET = "operator-secret-value"
-PANEL_TOKEN = "panel-token-value"
 
 
 # --------------------------------------------------------------------------- #
 # Harness
 # --------------------------------------------------------------------------- #
-
-
-class RecordingApp:
-    """A downstream ASGI app that answers ``status`` and records what it saw."""
-
-    def __init__(self, status: int = 200, *, explode: bool = False) -> None:
-        self.status = status
-        self.explode = explode
-        self.scopes: list[dict[str, Any]] = []
-        self.bodies: list[bytes] = []
-
-    async def __call__(self, scope, receive, send) -> None:
-        self.scopes.append(scope)
-        if self.explode:
-            raise RuntimeError("route blew up")
-        if scope["type"] == "http":
-            body = b""
-            while True:
-                message = await receive()
-                if message["type"] != "http.request":
-                    break
-                body += message.get("body") or b""
-                if not message.get("more_body", False):
-                    break
-            self.bodies.append(body)
-            await send({"type": "http.response.start", "status": self.status, "headers": []})
-            await send({"type": "http.response.body", "body": b"downstream"})
-        elif scope["type"] == "websocket":
-            await send({"type": "websocket.accept"})
-
-    @property
-    def called(self) -> bool:
-        return bool(self.scopes)
-
-
-def encode_headers(headers: dict[str, str] | None) -> list[tuple[bytes, bytes]]:
-    return [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in (headers or {}).items()]
-
-
-def http_scope(
-    path: str = "/api/config",
-    method: str = "GET",
-    headers: dict[str, str] | None = None,
-    *,
-    app: Any = None,
-) -> dict[str, Any]:
-    return {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "http_version": "1.1",
-        "method": method,
-        "path": path,
-        "raw_path": path.encode("utf-8"),
-        "query_string": b"",
-        "scheme": "http",
-        "headers": encode_headers(headers),
-        "client": ("127.0.0.1", 54321),
-        "server": ("127.0.0.1", 8080),
-        "app": app,
-    }
-
-
-def ws_scope(
-    path: str = "/ws",
-    headers: dict[str, str] | None = None,
-    *,
-    app: Any = None,
-) -> dict[str, Any]:
-    return {
-        "type": "websocket",
-        "asgi": {"version": "3.0"},
-        "path": path,
-        "raw_path": path.encode("utf-8"),
-        "query_string": b"",
-        "scheme": "ws",
-        "headers": encode_headers(headers),
-        "client": ("127.0.0.1", 54321),
-        "server": ("127.0.0.1", 8080),
-        "app": app,
-    }
-
-
-def drive(middleware, scope, incoming: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    """Run one connection through ``middleware`` and return everything it sent."""
-    pending = list(incoming if incoming is not None else [{"type": "http.request", "body": b""}])
-    sent: list[dict[str, Any]] = []
-
-    async def receive():
-        if pending:
-            return pending.pop(0)
-        return {"type": "http.disconnect"}
-
-    async def send(message):
-        sent.append(message)
-
-    asyncio.run(middleware(scope, receive, send))
-    return sent
-
-
-def status_of(sent: list[dict[str, Any]]) -> int | None:
-    for message in sent:
-        if message["type"] in ("http.response.start", "websocket.http.response.start"):
-            return message["status"]
-    return None
 
 
 @pytest.fixture
@@ -230,11 +131,14 @@ def records(audit_writer, monkeypatch) -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def audit_root(audit_writer, tmp_path, monkeypatch):
-    """Point the real writer at a scratch audit zone for the end-to-end tests."""
-    target = tmp_path / "audit"
-    monkeypatch.setattr(audit_writer, "audit_dir", lambda: target)
-    return target
+def audit_lines(recorded_entries):
+    """``audit_lines() -> list[dict]``: every audit body the real writer recorded, oldest first."""
+
+    def read() -> list[dict[str, Any]]:
+        entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+        return [dict(entry.body) for entry in entries]
+
+    return read
 
 
 @pytest.fixture(autouse=True)
@@ -384,7 +288,7 @@ class TestRefusalRecordProvenance:
 
     def test_the_actor_is_left_to_the_writer_not_taken_from_the_caller(self, app_stub, records):
         """The emitter names no ``actor``: the writer fills it from the same
-        identity ladder the ledger directory is keyed on, so a forwarded subject
+        container identity ladder (``acting_identity``), so a forwarded subject
         can never become the actor by any route through this layer. (That the
         writer's answer is the container identity is pinned end to end in
         :class:`TestThroughTheRealWriter`.)"""
@@ -698,7 +602,7 @@ class TestForwardedIdentity:
         assert MAX_FORWARDED_VALUE_CHARS < MAX_DETAIL_CHARS
 
     def test_an_over_long_account_cannot_truncate_the_mismatch_away(
-        self, app_stub, audit_root, monkeypatch
+        self, app_stub, audit_lines, monkeypatch
     ):
         """The one input a forger fully controls must not erase the signal.
 
@@ -712,7 +616,7 @@ class TestForwardedIdentity:
         """
         # No AUDIT_IDENTITY_ENV: TERMINAL_USER_ENV is the ladder's first rung,
         # so setting the container user to make the mismatch also makes "bob"
-        # the actor, and the ledger directory.
+        # the actor.
         monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
         drive(
             WebAuthMiddleware(RecordingApp()),
@@ -722,8 +626,8 @@ class TestForwardedIdentity:
             ),
         )
 
-        ledger = audit_root / "bob" / f"{WEB_AUTH_SURFACE}.jsonl"
-        record = json.loads(ledger.read_text().splitlines()[0])
+        record = only([line for line in audit_lines() if line["surface"] == WEB_AUTH_SURFACE])
+        assert record["actor"] == "bob"
         parts = detail_parts(record)
         assert parts[AUDIT_EXPECTED_ACCOUNT_KEY] == "bob"
         assert parts[AUDIT_ACCOUNT_KEY] == UNSAFE_FORWARDED_VALUE
@@ -760,9 +664,9 @@ class TestForwardedIdentity:
         assert parts[AUDIT_OIDC_SUBJECT_KEY] == "idp|8f21c0"
 
     def test_the_oidc_subject_key_is_not_the_writer_s_identity(self):
-        """The audit writer owns ``identity`` for the ledger's directory component.
+        """The agent record owns ``identity`` for the writer an entry is filed under.
 
-        A ``detail`` key of that name would put one word on the folder a record
+        A ``detail`` key of that name would put one word on the writer an entry
         is filed under and on a person named inside it.
         """
         assert AUDIT_OIDC_SUBJECT_KEY == "oidc_subject"
@@ -1146,29 +1050,28 @@ class TestThroughTheRealWriter:
     def test_the_two_surface_names_are_the_documented_literals(self):
         """Pinned as STRINGS, not as symbols imported from the module under test.
 
-        ``web_auth.jsonl`` and ``http_mutation.jsonl`` are file names an
-        operator is told to grep (``docs/source/how-to/protected-set.rst``), so
-        renaming either constant is a documentation break, not a refactor. The
-        separation test below compares against these literals for the same
-        reason: with both sides imported from the module, two constants that
-        came to hold the SAME string would collapse expected onto observed and
-        the suite would stay green while the two surfaces merged into one file.
+        ``web_auth`` and ``http_mutation`` are surface names an operator filters
+        audit entries on, so renaming either constant is an operator-facing
+        break, not a refactor. The separation test below compares against these
+        literals for the same reason: with both sides imported from the module,
+        two constants that came to hold the SAME string would collapse expected
+        onto observed and the suite would stay green while the two surfaces
+        merged into one.
         """
         assert WEB_AUTH_SURFACE == "web_auth"
         assert HTTP_MUTATION_SURFACE == "http_mutation"
         assert WEB_AUTH_SURFACE != HTTP_MUTATION_SURFACE
 
-    def test_a_gate_refusal_lands_as_one_ledger_line(self, app_stub, audit_root, monkeypatch):
+    def test_a_gate_refusal_lands_as_one_audit_entry(self, app_stub, audit_lines, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
         drive(
             WebAuthMiddleware(RecordingApp()),
             http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
         )
 
-        ledger = audit_root / "svc.terminal" / f"{WEB_AUTH_SURFACE}.jsonl"
-        lines = ledger.read_text().splitlines()
+        lines = audit_lines()
         assert len(lines) == 1
-        record = json.loads(lines[0])
+        record = lines[0]
         assert record["surface"] == WEB_AUTH_SURFACE
         assert record["actor"] == "svc.terminal"
         assert record["decision"] == DECISION_REFUSED
@@ -1177,20 +1080,21 @@ class TestThroughTheRealWriter:
         assert record["session"] is None
         assert "alice" in record["detail"]
 
-    def test_an_admitted_mutation_lands_as_one_ledger_line(self, audit_root, monkeypatch):
+    def test_an_admitted_mutation_lands_as_one_audit_entry(self, audit_lines, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
         drive(HttpAuditMiddleware(RecordingApp()), http_scope(method="POST", path="/api/panels"))
 
-        ledger = audit_root / "svc.terminal" / f"{HTTP_MUTATION_SURFACE}.jsonl"
-        lines = ledger.read_text().splitlines()
+        lines = audit_lines()
         assert len(lines) == 1
-        record = json.loads(lines[0])
+        record = lines[0]
+        assert record["surface"] == HTTP_MUTATION_SURFACE
+        assert record["actor"] == "svc.terminal"
         assert record["subject"] == "POST /api/panels"
         assert record["decision"] == DECISION_ALLOWED
         assert record["posture"] == HTTP_MUTATION_POSTURE
 
-    def test_the_two_emitters_file_under_different_surfaces(self, app_stub, audit_root):
-        """Two emitters, two files — asserted against literals, not symbols.
+    def test_the_two_emitters_file_under_different_surfaces(self, app_stub, audit_lines):
+        """Two emitters, two surfaces — asserted against literals, not symbols.
 
         Refused upgrades belong in ``web_auth`` and admitted mutations in
         ``http_mutation``; that separation is the whole reason
@@ -1199,8 +1103,8 @@ class TestThroughTheRealWriter:
         drive(WebAuthMiddleware(RecordingApp()), http_scope(app=app_stub))
         drive(HttpAuditMiddleware(RecordingApp()), http_scope(method="POST"))
 
-        stems = {path.stem for path in audit_root.rglob("*.jsonl")}
-        assert stems == {"web_auth", "http_mutation"}
+        surfaces = sorted(line["surface"] for line in audit_lines())
+        assert surfaces == ["http_mutation", "web_auth"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1211,7 +1115,7 @@ class TestThroughTheRealWriter:
 class TestTheRouteCanOwnTheDecision:
     """The dedup pairing, wired rather than described.
 
-    No route writes to the unified ledger today, so on the running path the
+    No route records an audit entry through the dedup seam, so on the running path the
     marker is always absent and these tests drive the seam with a route that
     records. They exist because the one plausible way to get the pairing wrong
     — reading the marker after :func:`~osprey.audit.dedup.decision_scope` has
@@ -1228,15 +1132,6 @@ class TestTheRouteCanOwnTheDecision:
         up patching a copy nobody runs.
         """
         return importlib.import_module("osprey.audit.dedup")
-
-    @staticmethod
-    def ledger_lines(audit_root) -> list[dict[str, Any]]:
-        return [
-            json.loads(line)
-            for path in sorted(audit_root.rglob("*.jsonl"))
-            for line in path.read_text().splitlines()
-            if line.strip()
-        ]
 
     @staticmethod
     def recording_route(dedup, *, status: int = 200, raises: bool = False):
@@ -1260,7 +1155,7 @@ class TestTheRouteCanOwnTheDecision:
         return route
 
     def test_a_route_that_recorded_a_refusal_is_not_recorded_again(
-        self, dedup, audit_root, monkeypatch
+        self, dedup, audit_lines, monkeypatch
     ):
         """The headline: one line, ``refused``, filed by the layer that decided.
 
@@ -1275,26 +1170,26 @@ class TestTheRouteCanOwnTheDecision:
             http_scope(method="POST", path="/api/config"),
         )
 
-        lines = self.ledger_lines(audit_root)
+        lines = audit_lines()
         assert len(lines) == 1
         assert lines[0]["decision"] == DECISION_REFUSED
         assert lines[0]["surface"] == "web_terminal"
 
     @pytest.mark.usefixtures("dedup")
     def test_a_route_that_recorded_nothing_is_recorded_here_as_before(
-        self, audit_root, monkeypatch
+        self, audit_lines, monkeypatch
     ):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
         drive(HttpAuditMiddleware(RecordingApp()), http_scope(method="POST", path="/api/config"))
 
-        lines = self.ledger_lines(audit_root)
+        lines = audit_lines()
         assert len(lines) == 1
         assert lines[0]["surface"] == HTTP_MUTATION_SURFACE
         assert lines[0]["reason"] == REASON_MUTATION
 
     def test_the_marker_does_not_survive_into_the_next_request(
-        self, dedup, audit_root, monkeypatch
+        self, dedup, audit_lines, monkeypatch
     ):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
         middleware = HttpAuditMiddleware(self.recording_route(dedup))
@@ -1305,11 +1200,11 @@ class TestTheRouteCanOwnTheDecision:
             http_scope(method="POST", path="/api/panels"),
         )
 
-        decisions = [(line["surface"], line["decision"]) for line in self.ledger_lines(audit_root)]
+        decisions = [(line["surface"], line["decision"]) for line in audit_lines()]
         assert decisions.count((HTTP_MUTATION_SURFACE, DECISION_ALLOWED)) == 1
         assert len(decisions) == 2
 
-    def test_a_recorder_on_a_worker_thread_is_not_seen(self, dedup, audit_root, monkeypatch):
+    def test_a_recorder_on_a_worker_thread_is_not_seen(self, dedup, audit_lines, monkeypatch):
         """The limitation, pinned: a ``def`` route cannot be an inner recorder.
 
         Starlette runs a synchronous route through ``run_in_threadpool``, which
@@ -1337,11 +1232,11 @@ class TestTheRouteCanOwnTheDecision:
 
         drive(HttpAuditMiddleware(route), http_scope(method="POST", path="/api/config"))
 
-        surfaces = [line["surface"] for line in self.ledger_lines(audit_root)]
+        surfaces = [line["surface"] for line in audit_lines()]
         assert sorted(surfaces) == ["http_mutation", "web_terminal"]
 
     def test_a_route_that_recorded_and_then_crashed_is_not_recorded_again(
-        self, dedup, audit_root, monkeypatch
+        self, dedup, audit_lines, monkeypatch
     ):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
@@ -1351,12 +1246,12 @@ class TestTheRouteCanOwnTheDecision:
                 http_scope(method="POST", path="/api/config"),
             )
 
-        lines = self.ledger_lines(audit_root)
+        lines = audit_lines()
         assert len(lines) == 1
         assert lines[0]["surface"] == "web_terminal"
 
     def test_an_unstored_inner_record_on_a_refusal_is_filed_by_this_layer(
-        self, dedup, audit_root, monkeypatch
+        self, dedup, audit_lines, monkeypatch
     ):
         """A record that never landed plus a 4xx would otherwise be total silence."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
@@ -1368,7 +1263,7 @@ class TestTheRouteCanOwnTheDecision:
 
         drive(HttpAuditMiddleware(route), http_scope(method="POST", path="/api/config"))
 
-        lines = self.ledger_lines(audit_root)
+        lines = audit_lines()
         assert len(lines) == 1
         assert (lines[0]["decision"], lines[0]["reason"]) == (
             DECISION_REFUSED,
@@ -1376,9 +1271,9 @@ class TestTheRouteCanOwnTheDecision:
         )
 
     def test_an_unstored_inner_record_on_a_success_is_still_deferred_to(
-        self, dedup, audit_root, monkeypatch
+        self, dedup, audit_lines, monkeypatch
     ):
-        """Never ``allowed`` over a refusal, even one that reached no ledger."""
+        """Never ``allowed`` over a refusal, even one that reached no record."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
         async def route(_scope, _receive, send):
@@ -1388,4 +1283,4 @@ class TestTheRouteCanOwnTheDecision:
 
         drive(HttpAuditMiddleware(route), http_scope(method="POST", path="/api/config"))
 
-        assert self.ledger_lines(audit_root) == []
+        assert audit_lines() == []

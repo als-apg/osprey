@@ -12,7 +12,7 @@ A served value is therefore the held value plus at most its envelope::
 
     |drift.amplitude|
       + sum |gain| x (1 + |gain_wander.amplitude|) x |drive.amplitude|
-      + MOTION_SIGMAS x noise sigma
+      + _MOTION_SIGMAS x noise sigma
 
 where a relative noise sigma is taken at the seed's own ``nominal``. A
 channel that declares no motion, or that an active scenario stills, has an
@@ -28,16 +28,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 __all__ = [
-    "MOTION_SIGMAS",
     "STILL_ALL",
     "active_envelopes",
     "declares_motion",
     "motion_envelope",
-    "noise_sigma",
 ]
 
 #: Gaussian headroom on a noise sigma: a per-draw miss rate near 1e-9.
-MOTION_SIGMAS = 6.0
+_MOTION_SIGMAS = 6.0
 
 _ABSOLUTE = "absolute"
 _RELATIVE = "relative"
@@ -53,7 +51,7 @@ def _number(value: Any) -> float | None:
     return float(value)
 
 
-def noise_sigma(noise: Mapping[str, Any] | None, nominal: Any = None) -> float:
+def _noise_sigma(noise: Mapping[str, Any] | None, nominal: Any = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:
@@ -114,7 +112,7 @@ def motion_envelope(
 
     Returns:
         ``|drift.amplitude| + sum |gain| x (1 + |gain_wander.amplitude|) x
-        |drive.amplitude| + MOTION_SIGMAS x noise sigma``; 0.0 for an absent
+        |drive.amplitude| + _MOTION_SIGMAS x noise sigma``; 0.0 for an absent
         seed with no couplings, and for a stilled channel.
     """
     if still:
@@ -131,7 +129,7 @@ def motion_envelope(
             * abs(float(drive.get("amplitude") or 0.0))
         )
     record = noise if noise is not None else seed.get("noise")
-    return envelope + MOTION_SIGMAS * noise_sigma(record, seed.get("nominal"))
+    return envelope + _MOTION_SIGMAS * _noise_sigma(record, seed.get("nominal"))
 
 
 def active_envelopes(

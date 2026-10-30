@@ -50,15 +50,9 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_r
 from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
-from osprey_connectors.workspace import (
-    APPS_DIRNAME,
-    BUILD_DIR_NAME,
-    IMAGE_DIR_NAME,
-    RENDERED_CONFIG_RELPATH,
-    STATE_DIR_NAME,
-    TIERS_DIRNAME,
-)
+from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
+from osprey_connectors.types import WRITES_KEY, tier_writes
+from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
 
 PROJECT_NAME = "layout-fixture"
 
@@ -382,16 +376,15 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 # Every test below renders the exemplar for real (seconds, not milliseconds), so
 # each one carries `@pytest.mark.slow`.
 
-#: The exemplar's renders and the write posture each delta pins for the
-#: simulator, the one target any shipped tier arms. Every tier pins the flat
-#: ``control_system.writes_enabled`` off while the deployment's own render
-#: arms it, and the simulator's posture differs between tiers, so together they
-#: prove an image context carries ITS OWN merged config rather than the
-#: deployment's — the defect that made layers invisible to their own
-#: MCP servers. ``admin`` carries readwrite's posture exactly: what makes it the
-#: admin tier is deployment editing, not a wider write surface. The apps
-#: (``channel-finder``, ``knowledge``, ``logbook``) are separate agents with no
-#: control surface at all.
+#: The exemplar's renders and whether each one's ``control_system.writes``
+#: resolves to ``allowed``. The deployment's own render is ``allowed``, and the
+#: ``readonly`` tier and every app pin ``never`` over it, so together they prove
+#: an image context carries ITS OWN merged config rather than the deployment's —
+#: the defect that made layers invisible to their own MCP servers. ``admin``
+#: carries readwrite's posture exactly: what makes it the admin tier is
+#: deployment editing, not a wider write surface. The apps (``channel-finder``,
+#: ``knowledge``, ``logbook``) are separate agents with no control surface at
+#: all, so the build pins them ``never``.
 RENDER_WRITES = {
     "admin": True,
     "channel-finder": False,
@@ -529,15 +522,30 @@ def test_a_render_context_carries_its_own_merged_config(
     Its ``.mcp.json`` names ``/app/<repo>-<render>/build/config.yml``, and only
     this context holds that file — so this is where the render's own write
     posture has to be, or the servers in its container read a config that never
-    heard of the delta. Read per target, the way every write surface reads it:
-    ``logbook`` writes no per-type block, and its simulator inherits the flat key.
+    heard of the delta. The posture is the one tier key, spelled in the render
+    itself and read the way every write surface reads it (``tier_writes``), with
+    no retired ``writes_enabled`` leaf — flat or per connector type — left in it.
     """
+    root_context = _contexts(built_repo)[built_repo.name]
+    root_config = yaml.safe_load(
+        (root_context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8")
+    )
+    assert root_config["control_system"]["writes"] == "allowed", (
+        "the deployment's own render must allow writes, or a never render proves nothing"
+    )
+
     context = _contexts(built_repo)[f"{built_repo.name}-{tier}"]
     config = yaml.safe_load((context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8"))
     section = config["control_system"]
-    assert section["writes_enabled"] is False
-    resolved = {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
-    assert resolved == {"live": False, "va": writes, "standin": False}
+    expected = "allowed" if writes else "never"
+    assert section[WRITES_KEY.split(".")[-1]] == expected
+    assert tier_writes(section) == expected
+    assert "writes_enabled" not in section
+    assert not [
+        connector_type
+        for connector_type, block in (section.get("connector") or {}).items()
+        if isinstance(block, dict) and "writes_enabled" in block
+    ]
 
 
 @pytest.mark.slow

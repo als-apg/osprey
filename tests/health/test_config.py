@@ -83,20 +83,18 @@ def test_explicit_interval_not_greater_than_suite_raises() -> None:
         parse_health_config({"suite_timeout_s": 30, "interval_s": 20})
 
 
-def test_suite_timeout_non_numeric_raises() -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("soon", id="non_numeric"),
+        # bool is an int subclass — must not be accepted as a numeric timeout.
+        pytest.param(True, id="bool"),
+        pytest.param(0, id="non_positive"),
+    ],
+)
+def test_suite_timeout_rejected(value) -> None:
     with pytest.raises(ConfigurationError):
-        parse_health_config({"suite_timeout_s": "soon"})
-
-
-def test_suite_timeout_bool_rejected() -> None:
-    # bool is an int subclass — must not be accepted as a numeric timeout.
-    with pytest.raises(ConfigurationError):
-        parse_health_config({"suite_timeout_s": True})
-
-
-def test_suite_timeout_non_positive_raises() -> None:
-    with pytest.raises(ConfigurationError):
-        parse_health_config({"suite_timeout_s": 0})
+        parse_health_config({"suite_timeout_s": value})
 
 
 def test_on_demand_timeout_explicit_value() -> None:
@@ -381,7 +379,8 @@ def test_empty_metadata_override_block() -> None:
 def test_core_category_names_content() -> None:
     assert "providers" in CORE_CATEGORY_NAMES
     assert "claude_cli_pinned" in CORE_CATEGORY_NAMES
-    assert len(CORE_CATEGORY_NAMES) == 19
+    assert "agent_record" in CORE_CATEGORY_NAMES
+    assert len(CORE_CATEGORY_NAMES) == 18
 
 
 # --- timeout resolution helpers ---------------------------------------------
@@ -400,28 +399,19 @@ def test_resolve_callable_timeout_override_wins() -> None:
     assert resolve_callable_timeout_s(Cost.ON_DEMAND, 8.0, 30.0) == 8.0
 
 
-def test_item_looping_default_product() -> None:
-    cat, per_item = resolve_item_looping_on_demand_timeout(3, None)
-    assert cat == 180.0  # 60 * 3
-    assert per_item == 60.0
-
-
-def test_item_looping_zero_items_uses_max_n_1() -> None:
-    cat, per_item = resolve_item_looping_on_demand_timeout(0, None)
-    assert cat == 60.0  # 60 * max(0, 1)
-    assert per_item == 60.0
-
-
-def test_item_looping_override_divides_per_item() -> None:
-    cat, per_item = resolve_item_looping_on_demand_timeout(4, 120.0)
-    assert cat == 120.0
-    assert per_item == 30.0  # 120 / 4
-
-
-def test_item_looping_override_zero_items_no_zero_division() -> None:
-    cat, per_item = resolve_item_looping_on_demand_timeout(0, 45.0)
-    assert cat == 45.0
-    assert per_item == 45.0  # 45 / max(0, 1)
+@pytest.mark.parametrize(
+    ("items", "override", "category", "per_item"),
+    [
+        pytest.param(3, None, 180.0, 60.0, id="default_product"),  # 60 * 3
+        pytest.param(0, None, 60.0, 60.0, id="zero_items_uses_max_n_1"),  # 60 * max(0, 1)
+        pytest.param(4, 120.0, 120.0, 30.0, id="override_divides_per_item"),  # 120 / 4
+        pytest.param(
+            0, 45.0, 45.0, 45.0, id="override_zero_items_no_zero_division"
+        ),  # 45 / max(0, 1)
+    ],
+)
+def test_item_looping(items, override, category, per_item) -> None:
+    assert resolve_item_looping_on_demand_timeout(items, override) == (category, per_item)
 
 
 # --- multiple categories ----------------------------------------------------

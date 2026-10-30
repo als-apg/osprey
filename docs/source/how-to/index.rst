@@ -67,7 +67,7 @@ Operate
       :link-type: doc
 
       Is it up, and what is it doing — facility health checks you can extend,
-      plus the agent's own logs and metrics over OTLP.
+      plus the agent record of what the agent was asked and did.
 
    .. grid-item-card:: Control Systems
       :link: control-systems/index

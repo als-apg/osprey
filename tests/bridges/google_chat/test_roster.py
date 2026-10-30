@@ -21,6 +21,7 @@ from osprey.bridges.google_chat.roster import (
     SEEN_MAX_PER_SPACE,
     SpaceRoster,
 )
+from tests.bridges.conftest import FakeClock, StubDispatcher
 
 APP_ID = "users/999"
 SPACE = "spaces/AAAA"
@@ -32,14 +33,6 @@ def human(ident: str, name: str | None = None, **over: Any) -> dict[str, Any]:
     if name is not None:
         member["displayName"] = name
     return {"member": member, "state": "JOINED", **over}
-
-
-class Clock:
-    def __init__(self) -> None:
-        self.t = 1000.0
-
-    def __call__(self) -> float:
-        return self.t
 
 
 class Lister:
@@ -104,14 +97,14 @@ def test_members_skips_bots_the_app_and_non_joined():
 
 
 def test_members_is_cached_within_the_ttl_and_refetched_after():
-    clock = Clock()
+    clock = FakeClock()
     lister = Lister([human("users/1", "Alice")])
     roster = SpaceRoster(lister, APP_ID, now=clock)
     roster.members(SPACE)
-    clock.t += ROSTER_TTL_SECONDS - 1
+    clock.advance(ROSTER_TTL_SECONDS - 1)
     roster.members(SPACE)
     assert len(lister.calls) == 1
-    clock.t += 2
+    clock.advance(2)
     roster.members(SPACE)
     assert len(lister.calls) == 2
 
@@ -234,16 +227,6 @@ def test_room_people_carries_the_mentions_setting():
     assert on.room_people({GC_SPACE: SPACE}).mentions is True
     assert off.room_people({GC_SPACE: SPACE}).mentions is False
     assert on.room_people({}) is None
-
-
-class StubDispatcher:
-    def __init__(self) -> None:
-        self.extras: list[Any] = []
-
-    def run(self, question: str, extra: Any = None, *, on_run_id: Any = None) -> dict[str, Any]:
-        del question, on_run_id
-        self.extras.append(extra)
-        return {"status": "completed", "text_output": "done", "run_id": "run-1"}
 
 
 def test_the_room_reaches_the_dispatch_payload(tmp_path):

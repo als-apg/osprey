@@ -22,7 +22,6 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
-    is_readonly_run,
     raise_for_write_result,
     values_match,
 )
@@ -30,7 +29,6 @@ from osprey_connectors.control_system._base import (
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import (
         LIMITS_DATABASE_CONFIG_KEY,
-        METADATA_FIELDS,
         ChannelLimitsConfig,
         LimitsValidator,
         mapping_config_lookup,
@@ -38,7 +36,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "LIMITS_DATABASE_CONFIG_KEY",
-    "METADATA_FIELDS",
     "ChannelLimitsConfig",
     "ChannelMetadata",
     "ChannelValue",
@@ -46,7 +43,6 @@ __all__ = [
     "ControlSystemConnector",
     "LimitsValidator",
     "WriteOutcome",
-    "is_readonly_run",
     "mapping_config_lookup",
     "raise_for_write_result",
     "values_match",
@@ -55,7 +51,6 @@ __all__ = [
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
     "LIMITS_DATABASE_CONFIG_KEY": "osprey_connectors.control_system._limits_validator",
-    "METADATA_FIELDS": "osprey_connectors.control_system._limits_validator",
     "ChannelLimitsConfig": "osprey_connectors.control_system._limits_validator",
     "LimitsValidator": "osprey_connectors.control_system._limits_validator",
     "mapping_config_lookup": "osprey_connectors.control_system._limits_validator",

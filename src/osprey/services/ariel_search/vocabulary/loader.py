@@ -298,11 +298,11 @@ def _stopword_warnings(
             warnings.append(f'canonical "{concept.canonical}" {_STOPWORD_SUFFIX}')
         if not enabled_by_kind[concept.kind]:
             continue
-        for form in concept.forms:
-            if _is_all_stopwords(form):
-                warnings.append(
-                    f'form "{form}" of concept "{concept.canonical}" {_STOPWORD_SUFFIX}'
-                )
+        warnings.extend(
+            f'form "{form}" of concept "{concept.canonical}" {_STOPWORD_SUFFIX}'
+            for form in concept.forms
+            if _is_all_stopwords(form)
+        )
     return warnings
 
 

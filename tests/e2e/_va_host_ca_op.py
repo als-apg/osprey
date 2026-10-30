@@ -32,7 +32,10 @@ Protocol -- ``argv[1]`` is a JSON spec::
      "write": {"address": "<addr>", "value": <float>} | null,
      "settle_read": <bool>,              # poll the read until it is within
                                          # settle_tolerance of write.value
-     "settle_tolerance": <float>}        # required when settle_read is true
+     "settle_tolerance": <float>,        # required when settle_read is true
+     "arm_target": "<target>" | null}    # optional: the control target this
+                                         # connector writes to, armed (see
+                                         # _arm_switch) before it is built
 
 On success, emits exactly one stdout line::
 
@@ -86,6 +89,56 @@ def _settle_tolerance(spec: dict[str, Any]) -> float:
     return float(spec["settle_tolerance"])
 
 
+#: The environment that would point the write verdict at a record, an owner or a
+#: launch pin other than this process's own (posture_store's verdict variables).
+#: An armed op is the operator's own put from the host, so none of them applies.
+_FOREIGN_VERDICT_ENV = (
+    "OSPREY_CONTROL_OWNER",
+    "OSPREY_DISPATCH_RUN",
+    "OSPREY_CONTROL_CONTEXT_TREE",
+    "OSPREY_CONTROL_CONTEXT_DIR",
+    "OSPREY_LAUNCH_POSTURE",
+    "OSPREY_EXECUTION_MODE",
+)
+
+
+def _arm_switch(target: str) -> None:
+    """Turn this login's switch on for *target* in a record of this process's own.
+
+    A connector write is allowed only when the login's tier allows writes (the
+    caller's ``control_system.writes`` override), the connector is stamped with
+    the machine it writes to (passed to the factory as ``control_target``) and
+    the login's control-context record has that machine switched on. The record
+    lives under a fresh agent-data root that only this process reads, so arming
+    one op never reaches a deployment's record or another op's. Written through
+    the production writers, the way the chip does: the record first, then the
+    person's gesture against the epoch it was stamped with.
+    """
+    import tempfile
+
+    from osprey_connectors import control_context, posture_store
+
+    for name in _FOREIGN_VERDICT_ENV:
+        os.environ.pop(name, None)
+    os.environ[posture_store.AGENT_DATA_ROOT_ENV_VAR] = tempfile.mkdtemp(prefix="osprey-ca-op-")
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+    path = control_context.record_path()
+    if path is None:
+        raise RuntimeError("the control-context record path did not resolve")
+    control_context.write_record(control_context.ControlContext(target=target, generation=1))
+    control_context.invalidate_cache()
+    current = control_context.read_record(path=path)
+    epoch = (current.switch_epoch if current is not None else None) or 0
+    try:
+        control_context.set_switch([target], "on", epoch=epoch, path=path)
+    except control_context.StoppedSince as refused:
+        if not refused.stamped or refused.epoch is None:
+            raise
+        control_context.set_switch([target], "on", epoch=refused.epoch, path=path)
+    control_context.invalidate_cache()
+
+
 async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     """Connect, optionally write (confirmed), read, and emit -- then force-exit.
 
@@ -121,8 +174,14 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
             node[leaf] = value
         return section or default
 
+    arm_target = spec.get("arm_target")
+    if arm_target is not None:
+        _arm_switch(arm_target)
+
     with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
-        connector = await ConnectorFactory.create_control_system_connector(spec["connector_config"])
+        connector = await ConnectorFactory.create_control_system_connector(
+            spec["connector_config"], control_target=arm_target
+        )
         result: dict[str, Any] = {"write_outcome": None, "write_error_message": None}
 
         write = spec.get("write")

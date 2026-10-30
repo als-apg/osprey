@@ -97,7 +97,7 @@ def test_with_writes_off_the_measurement_is_denied(tmp_path, monkeypatch, view: 
 
     monkeypatch.setattr(claude_code, "config_derived_context", with_view)
 
-    permissions = _rendered_permissions(_build_project(tmp_path, writes_enabled=False))
+    permissions = _rendered_permissions(_build_project(tmp_path, writes="never"))
 
     assert MEASURE in permissions["deny"]
     assert MEASURE not in permissions["allow"]

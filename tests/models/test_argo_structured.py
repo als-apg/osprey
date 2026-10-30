@@ -26,20 +26,45 @@ class SampleOutput(BaseModel):
 class TestCleanJsonResponse:
     """Tests for the _clean_json_response helper."""
 
-    def test_plain_json_unchanged(self):
-        """Plain JSON passes through unchanged."""
-        raw = '{"name": "test", "value": 42}'
-        assert _clean_json_response(raw) == raw
-
-    def test_strips_json_code_fence(self):
-        """Strips ```json ... ``` fences."""
-        raw = '```json\n{"name": "test"}\n```'
-        assert _clean_json_response(raw) == '{"name": "test"}'
-
-    def test_strips_plain_code_fence(self):
-        """Strips ``` ... ``` fences without language tag."""
-        raw = '```\n{"name": "test"}\n```'
-        assert _clean_json_response(raw) == '{"name": "test"}'
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param(
+                '{"name": "test", "value": 42}',
+                '{"name": "test", "value": 42}',
+                id="plain_json_unchanged",
+            ),
+            pytest.param(
+                '```json\n{"name": "test"}\n```', '{"name": "test"}', id="strips_json_code_fence"
+            ),
+            # A fence without a language tag.
+            pytest.param(
+                '```\n{"name": "test"}\n```', '{"name": "test"}', id="strips_plain_code_fence"
+            ),
+            # An object preceded by explanation text is extracted.
+            pytest.param(
+                'Here is the result:\n{"name": "test", "value": 1}',
+                '{"name": "test", "value": 1}',
+                id="extracts_json_from_surrounding_text",
+            ),
+            pytest.param(
+                '   \n  {"name": "test"}  \n  ', '{"name": "test"}', id="strips_whitespace"
+            ),
+            # Already a JSON array: it starts with '[' so no object extraction is attempted.
+            pytest.param("[1, 2, 3]", "[1, 2, 3]", id="top_level_array_passes_through"),
+            # A known asymmetry: the extraction regex only matches JSON objects
+            # (r'\{.*\}'), so an array preceded by prose is NOT unwrapped the way an
+            # object would be. Pinning this guards against silent changes to the
+            # (arguably buggy) behavior — see argo._clean_json_response.
+            pytest.param(
+                "Here you go: [1, 2]",
+                "Here you go: [1, 2]",
+                id="array_with_leading_text_is_not_extracted",
+            ),
+        ],
+    )
+    def test_cleans(self, raw, expected):
+        assert _clean_json_response(raw) == expected
 
     def test_fixes_python_true(self):
         """Converts Python True → JSON true."""
@@ -60,38 +85,12 @@ class TestCleanJsonResponse:
         assert '"a": true' in result
         assert '"b": false' in result
 
-    def test_extracts_json_from_surrounding_text(self):
-        """Extracts JSON object when preceded by explanation text."""
-        raw = 'Here is the result:\n{"name": "test", "value": 1}'
-        result = _clean_json_response(raw)
-        assert result == '{"name": "test", "value": 1}'
-
-    def test_strips_whitespace(self):
-        """Strips leading/trailing whitespace."""
-        raw = '   \n  {"name": "test"}  \n  '
-        assert _clean_json_response(raw) == '{"name": "test"}'
-
     def test_combined_fence_and_booleans(self):
         """Handles code fence + Python booleans together."""
         raw = '```json\n{"active": True, "deleted": False}\n```'
         result = _clean_json_response(raw)
         assert '"active": true' in result
         assert '"deleted": false' in result
-
-    def test_top_level_array_passes_through(self):
-        """A response that is already a JSON array is returned unchanged (it
-        starts with '[' so no object extraction is attempted)."""
-        raw = "[1, 2, 3]"
-        assert _clean_json_response(raw) == "[1, 2, 3]"
-
-    def test_array_with_leading_text_is_not_extracted(self):
-        """Documents a known asymmetry: the extraction regex only matches JSON
-        objects (r'\\{.*\\}'), so an array preceded by prose is NOT unwrapped the
-        way an object would be. Pinning this guards against silent changes to the
-        (arguably buggy) behavior — see argo._clean_json_response.
-        """
-        raw = "Here you go: [1, 2]"
-        assert _clean_json_response(raw) == "Here you go: [1, 2]"
 
 
 # --- Tests for _execute_argo_structured_output ---

@@ -14,7 +14,7 @@ from osprey.mcp_server.dispatch_worker import counters, dispatch_api, failure_cl
 
 
 @pytest.fixture(autouse=True)
-def _wired_counters():
+def _wired_counters(worker_record):  # noqa: ARG001 - /health reads the worker's record
     """Install the counter hook and isolate counter + run state per test."""
     counters.reset()
     counters.install()  # register_counter_hook(increment)
@@ -81,8 +81,12 @@ async def test_health_exposes_lifetime_counters():
 
 
 async def test_health_preserves_existing_fields():
-    dispatch_api._runs["a"] = {"status": "completed"}
-    dispatch_api._runs["b"] = {"status": "error"}
+    import time
+
+    now = time.time()
+    for run_id, outcome in (("a", "completed"), ("b", "error")):
+        dispatch_api._write_run_accept(run_id, {"created_at": now, "session_id": f"s-{run_id}"})
+        dispatch_api._write_run_terminal(run_id, {"status": outcome, "completed_at": now})
     dispatch_api._runs["c"] = {"status": "pending"}
     payload = await dispatch_api.health()
     assert payload["status"] == "ok"
@@ -100,12 +104,13 @@ async def test_counters_survive_runs_eviction():
     before = await dispatch_api.health()
     assert (before["provider_errors"], before["infrastructure_errors"]) == (5, 4)
 
-    # Simulate eviction / lexical persisted-run reload wiping the run store.
+    # Simulate a restart wiping the in-memory run store.
     dispatch_api._runs.clear()
 
     after = await dispatch_api.health()
     assert (after["provider_errors"], after["infrastructure_errors"]) == (5, 4)
-    # The _runs-derived counts collapse, but the lifetime counters do not.
+    # The run counts are the record's (none recorded here); the lifetime
+    # counters are the process's, and survive.
     assert after["error_runs"] == 0
 
 

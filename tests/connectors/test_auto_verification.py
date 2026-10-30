@@ -11,9 +11,15 @@ would.
 import json
 from unittest.mock import patch
 
+import pytest
+
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors_tests._write_fakes import writes_enabled_config
+from osprey_connectors_tests._write_fakes import (
+    ARMED_SECTION,
+    arm_switch,
+    writes_enabled_config,
+)
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: Every address this module writes.
@@ -28,6 +34,17 @@ WRITTEN = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
+
+
 def _write_limits_db(tmp_path, limits_db):
     limits_file = tmp_path / "limits.json"
     limits_file.write_text(json.dumps(limits_db, indent=2))
@@ -37,9 +54,10 @@ def _write_limits_db(tmp_path, limits_db):
 def _limits_config(limits_file, **extra):
     """Config map that enables limits checking against ``limits_file``.
 
-    The connector resolves its posture from the nested ``control_system``
-    section while the database path is still read by its dotted key, so the map
-    answers both spellings of one deployment. The section is derived from the
+    The write verdict reads its tier from the nested ``control_system`` section
+    (:data:`ARMED_SECTION`, which allows writes) while the database path is
+    still read by its dotted key, so the map answers both spellings of one
+    deployment. The section's ``limits_checking`` block is derived from the
     dotted entries — including any an ``extra`` overrode — rather than written
     twice, so the two spellings cannot drift apart.
     """
@@ -48,11 +66,10 @@ def _limits_config(limits_file, **extra):
         "control_system.limits_checking.database_path": str(limits_file),
         "control_system.limits_checking.mode": "exclusive",
         "control_system.limits_checking.on_violation": "skip",
-        "control_system.writes_enabled": True,
     }
     config_map.update(extra)
     config_map["control_system"] = {
-        "writes_enabled": config_map["control_system.writes_enabled"],
+        **ARMED_SECTION,
         "limits_checking": {
             key.split(".")[-1]: value
             for key, value in config_map.items()
@@ -343,7 +360,7 @@ class TestBatchConfirmResolution:
 
 
 class TestWritesDisabledOutranksConfirmation:
-    """The ``writes_enabled`` gate refuses before any policy is resolved."""
+    """The write verdict refuses before any policy is resolved."""
 
     async def test_a_disabled_write_is_refused_not_unrequested(self, tmp_path):
         view = served_tree(tmp_path, ["TEST:CHANNEL"])
