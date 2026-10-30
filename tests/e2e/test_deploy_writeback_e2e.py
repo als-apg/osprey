@@ -67,10 +67,9 @@ Every teardown call names one exact resource or uses ``compose -p <project>
 down`` (project-label-scoped, containers/networks only, never ``-v``), and runs
 from a ``finally`` so a failed assertion mid-sequence still cleans up.
 
-Only a public upstream image is pulled (``pgvector/pgvector:pg16``) — no
-image is built here, which is
-what keeps a full run to minutes rather than the tens of minutes a render or
-project image would cost.
+One public upstream store is pulled (``pgvector/pgvector:pg16``), and the
+project image is built from this checkout (``--dev``) because the agent record
+every deployment runs is served from it. No render image is built.
 
 Gating: needs a container runtime (daemon actually running, not just the CLI
 installed). Runtime is ``docker`` by default; set ``OSPREY_E2E_RUNTIME=podman``
@@ -171,18 +170,14 @@ def _child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """The environment every ``osprey`` subprocess in this file runs under.
 
     ``CONTAINER_RUNTIME`` structurally couples the deploy-side runtime to the
-    assert-side :func:`runtime_cli` runtime. ``OSPREY_PIP_SPEC`` is the
-    documented operator escape from the unreleased-version pin refusal; no image
-    is built here, so its value is inert — but it stays a loud failure so that a
-    future change which *does* reach an image build cannot silently install a
-    real release. Every var in ``_AMBIENT_SECRET_VARS`` is dropped: they are
-    read from the ambient environment by the very code under test.
+    assert-side :func:`runtime_cli` runtime. Every var in
+    ``_AMBIENT_SECRET_VARS`` is dropped: they are read from the ambient
+    environment by the very code under test.
     """
     env = {
         **os.environ,
         "CLAUDECODE": "",
         "CONTAINER_RUNTIME": RUNTIME,
-        "OSPREY_PIP_SPEC": "osprey-framework==0.0.0+e2e-stub",
         # Rich hard-wraps its log lines to the reported terminal width; a wide
         # value keeps failure output readable. Assertions never rely on it —
         # see _squash.
@@ -237,10 +232,10 @@ def _services_edits(ports: dict[str, int]) -> dict[str, Any]:
     """Profile edits making Postgres the one service the deployment runs.
 
     Postgres is a ``_SERVICE_TOKEN_VARS`` entry whose secret initializes a
-    docker volume, which is the property under test. The preset's telemetry
-    pair is left out, and telemetry switched off with it: its credentials live
-    in files of their own rather than in ``.env``, so it has nothing to say
-    about a minted ``.env`` secret and would only add images to pull.
+    docker volume, which is the property under test. The agent record runs
+    beside it in every deployment; its credentials live in files of their own
+    rather than in ``.env``, so it has nothing to say about a minted ``.env``
+    secret.
 
     Dotted leaf keys under ``config:``, the one spelling the profile's config
     block accepts — each names one leaf of the rendered config, leaving the
@@ -252,7 +247,6 @@ def _services_edits(ports: dict[str, int]) -> dict[str, Any]:
             "services.postgresql.database_name": "ariel",
             "services.postgresql.username": "ariel",
             "services.postgresql.port_host": ports["postgres"],
-            "claude_code.telemetry.enabled": False,
             "deployed_services": ["postgresql"],
         }
     }
@@ -268,6 +262,7 @@ def _init_and_build(base_dir: Path, name: str, preset: str, edits: dict[str, Any
 
     ``--skip-deps``/``--skip-lifecycle`` keep the render network-free and quick:
     nothing here runs the deployment's own venv, only its compose stack.
+    ``--dev`` stages this checkout into the project image the agent record runs.
     ``--no-git`` because no test reads the history.
 
     Returns the repo root.
@@ -289,7 +284,7 @@ def _init_and_build(base_dir: Path, name: str, preset: str, edits: dict[str, Any
     assert init.returncode == 0, format_failure(f"osprey init {name}", init)
 
     build = _run_osprey(
-        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base_dir,
         timeout=BUILD_TIMEOUT_SEC,
     )
@@ -468,7 +463,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             )
 
         # -- 2. first deploy: mint -> .env -> containers ----------------------
-        up1 = _run_osprey(["up", "-d"], repo)
+        up1 = _run_osprey(["up", "-d", "--dev"], repo)
         assert up1.returncode == 0, format_failure("osprey up (first)", up1)
 
         assert env_path.stat().st_mode & 0o777 == 0o600, (
@@ -506,7 +501,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
         # to leave the file alone.
         shutil.rmtree(repo / "build")
         rebuild = _run_osprey(
-            ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+            ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
             cwd=tmp_path,
             timeout=BUILD_TIMEOUT_SEC,
         )
@@ -548,7 +543,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             )
 
         # -- 6. redeploy: same volumes, new containers, same secrets ----------
-        up2 = _run_osprey(["up", "-d"], repo)
+        up2 = _run_osprey(["up", "-d", "--dev"], repo)
         assert up2.returncode == 0, format_failure("osprey up (after rebuild)", up2)
         assert all(volume_exists(volume) for volume in volumes), (
             "the redeploy did not run against the volumes the first deploy created"
@@ -600,7 +595,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         repo = _init_and_build(tmp_path, project_name, "hello-world", _services_edits(ports))
         env_path = repo / ".env"
 
-        up1 = _run_osprey(["up", "-d"], repo)
+        up1 = _run_osprey(["up", "-d", "--dev"], repo)
         assert up1.returncode == 0, format_failure("osprey up (baseline)", up1)
         minted = _env_of(env_path)
         pinned = minted[DB_PASSWORD_VAR]
@@ -612,7 +607,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         # than about a store that was never initialized in the first place.
         _assert_store_authenticates(project_name, minted)
 
-        up2 = _run_osprey(["up", "-d"], repo, extra_env={DB_PASSWORD_VAR: divergent})
+        up2 = _run_osprey(["up", "-d", "--dev"], repo, extra_env={DB_PASSWORD_VAR: divergent})
         assert up2.returncode == 0, format_failure("osprey up (divergent export)", up2)
 
         output = _squash(up2)

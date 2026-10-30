@@ -254,6 +254,7 @@ class PubSubEmulator:
         died without teardown does not block this one.
         """
         _remove_container(PUBSUB_CONTAINER)
+        # The published port is held as a reservation until the runtime binds it.
         with reserved_port() as port:
             _runtime(
                 "run",
@@ -271,7 +272,7 @@ class PubSubEmulator:
                 f"--host-port=0.0.0.0:{EMULATOR_CONTAINER_PORT}",
                 f"--project={project}",
             )
-            emulator = cls(port=port, project=project)
+        emulator = cls(port=port, project=project)
         try:
             emulator._wait_until_ready()
         except BaseException:

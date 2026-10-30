@@ -1,7 +1,8 @@
 """Tests for the ``osprey theme-lab`` CLI command.
 
-Hermetic: no browser is ever opened and no server is ever bound — ``uvicorn.run``
-and the browser-opening helper are patched out.
+Hermetic: no browser is ever opened and no server ever serves — the uvicorn
+server and the browser-opening helper are patched out. The command still binds
+its listening socket, so an explicit port comes from ``reserve_port``.
 """
 
 from __future__ import annotations
@@ -11,8 +12,11 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import urlsplit
 
+import pytest
+
 from osprey.cli.main import LazyGroup, cli
 from osprey.cli.theme_lab_cmd import THEME_LAB_PATH, create_app, theme_lab
+from osprey_connectors_tests._harness._ports import bound_socket
 
 BROWSER_HELPER = "osprey.interfaces.web_terminal.app._open_browser_when_ready"
 
@@ -55,34 +59,70 @@ class TestRegistration:
 
 
 class TestServing:
-    """Flag handling around the uvicorn call."""
+    """Flag handling around the server the command starts."""
 
-    def test_no_browser_serves_without_opening_one(self, runner):
-        with (
-            mock.patch("uvicorn.run") as mock_run,
-            mock.patch(BROWSER_HELPER) as mock_browser,
-        ):
+    @pytest.fixture
+    def served(self, monkeypatch) -> dict:
+        """What the stubbed uvicorn server was handed: its port and its sockets."""
+        import uvicorn
+
+        seen: dict = {}
+
+        class _Server:
+            def __init__(self, config):
+                seen["config"] = config
+
+            def run(self, sockets=None):
+                seen["sockets"] = sockets
+                seen["listening_port"] = sockets[0].getsockname()[1]
+
+        monkeypatch.setattr(uvicorn, "Server", _Server)
+        return seen
+
+    def test_no_browser_serves_without_opening_one(self, runner, served):
+        with mock.patch(BROWSER_HELPER) as mock_browser:
             result = runner.invoke(theme_lab, ["--no-browser"])
 
         assert result.exit_code == 0
         assert not mock_browser.called
-        _, kwargs = mock_run.call_args
-        assert kwargs["host"] == "127.0.0.1"
-        assert isinstance(kwargs["port"], int)
-        assert f":{kwargs['port']}{THEME_LAB_PATH}" in result.output
+        port = served["listening_port"]
+        assert port != 0
+        assert served["config"].host == "127.0.0.1"
+        assert served["config"].port == port
+        assert f"http://127.0.0.1:{port}{THEME_LAB_PATH}" in result.output
 
-    def test_port_flag_is_honoured(self, runner):
-        with (
-            mock.patch("uvicorn.run") as mock_run,
-            mock.patch(BROWSER_HELPER),
-        ):
-            result = runner.invoke(theme_lab, ["--port", "9123", "--no-browser"])
+    def test_published_port_is_the_bound_socket_s(self, runner, served):
+        from osprey.interfaces.common_middleware import WEB_PORT_ENV
+
+        with mock.patch(BROWSER_HELPER):
+            result = runner.invoke(theme_lab, ["--no-browser"])
 
         assert result.exit_code == 0
-        assert mock_run.call_args.kwargs["port"] == 9123
-        assert f"http://127.0.0.1:9123{THEME_LAB_PATH}" in result.output
+        assert os.environ.get(WEB_PORT_ENV) == str(served["listening_port"])
 
-    def test_browser_opened_at_the_root_token_url_not_the_theme_lab_page(self, runner):
+    def test_port_flag_is_honoured(self, runner, served, reserve_port):
+        port = reserve_port()
+        with mock.patch(BROWSER_HELPER):
+            result = runner.invoke(theme_lab, ["--port", str(port), "--no-browser"])
+
+        assert result.exit_code == 0
+        assert served["listening_port"] == port
+        assert f"http://127.0.0.1:{port}{THEME_LAB_PATH}" in result.output
+
+    def test_a_held_port_is_refused(self, runner, served):
+        with bound_socket("127.0.0.1") as held:
+            held.listen(1)
+            port = held.getsockname()[1]
+            result = runner.invoke(theme_lab, ["--port", str(port), "--no-browser"])
+
+        assert result.exit_code == 1
+        assert f"Cannot serve on port {port}" in result.output
+        assert "sockets" not in served
+
+    @pytest.mark.usefixtures("served")
+    def test_browser_opened_at_the_root_token_url_not_the_theme_lab_page(
+        self, runner, reserve_port
+    ):
         """The login URL must land on ``/``, the one path the gate inspects.
 
         ``THEME_LAB_PATH`` sits under the ``/design-system`` mount, which
@@ -92,35 +132,32 @@ class TestServing:
         performs the exchange and then the app's own root route forwards the
         now-authenticated browser to the Theme Lab.
         """
-        with (
-            mock.patch("uvicorn.run"),
-            mock.patch(BROWSER_HELPER) as mock_browser,
-        ):
-            result = runner.invoke(theme_lab, ["--port", "9124"])
+        port = reserve_port()
+        with mock.patch(BROWSER_HELPER) as mock_browser:
+            result = runner.invoke(theme_lab, ["--port", str(port)])
 
         assert result.exit_code == 0
         mock_browser.assert_called_once()
         opened = mock_browser.call_args.args[0]
         # The token is a freshly minted secret, so assert the shape, not a value.
-        assert opened.startswith("http://127.0.0.1:9124/?token=")
+        assert opened.startswith(f"http://127.0.0.1:{port}/?token=")
         assert THEME_LAB_PATH not in opened
 
+    @pytest.mark.usefixtures("served")
     def test_announced_login_url_lands_on_a_gated_path(self, runner):
         """The printed URL is exchangeable — its path is not an exempt one."""
         from osprey.interfaces.common_middleware import TOKEN_EXCHANGE_PATHS, is_exempt_path
 
-        with (
-            mock.patch("uvicorn.run"),
-            mock.patch(BROWSER_HELPER) as mock_browser,
-        ):
-            runner.invoke(theme_lab, ["--port", "9126"])
+        with mock.patch(BROWSER_HELPER) as mock_browser:
+            runner.invoke(theme_lab, [])
 
         opened = mock_browser.call_args.args[0]
         path = urlsplit(opened).path
         assert path in TOKEN_EXCHANGE_PATHS
         assert not is_exempt_path(path)
 
-    def test_settled_port_is_published_for_the_cookie_name(self, runner):
+    @pytest.mark.usefixtures("served")
+    def test_settled_port_is_published_for_the_cookie_name(self, runner, reserve_port):
         """``OSPREY_WEB_PORT`` is set before the app is built.
 
         The session cookie's name carries the port, because cookies ignore
@@ -130,26 +167,21 @@ class TestServing:
         """
         from osprey.interfaces.common_middleware import WEB_PORT_ENV, session_cookie_name
 
-        with (
-            mock.patch("uvicorn.run"),
-            mock.patch(BROWSER_HELPER),
-        ):
-            runner.invoke(theme_lab, ["--port", "9127", "--no-browser"])
+        port = reserve_port()
+        with mock.patch(BROWSER_HELPER):
+            runner.invoke(theme_lab, ["--port", str(port), "--no-browser"])
 
-        assert os.environ.get(WEB_PORT_ENV) == "9127"
-        assert session_cookie_name() == session_cookie_name(9127)
+        assert os.environ.get(WEB_PORT_ENV) == str(port)
+        assert session_cookie_name() == session_cookie_name(port)
 
-    def test_browser_failure_still_serves_and_prints_url(self, runner):
+    def test_browser_failure_still_serves_and_prints_url(self, runner, served):
         """A headless host must get a usable URL, not a dead command."""
-        with (
-            mock.patch("uvicorn.run") as mock_run,
-            mock.patch(BROWSER_HELPER, side_effect=RuntimeError("no display")),
-        ):
-            result = runner.invoke(theme_lab, ["--port", "9125"])
+        with mock.patch(BROWSER_HELPER, side_effect=RuntimeError("no display")):
+            result = runner.invoke(theme_lab, [])
 
         assert result.exit_code == 0
-        assert mock_run.called
-        assert f"http://127.0.0.1:9125{THEME_LAB_PATH}" in result.output
+        port = served["listening_port"]
+        assert f"http://127.0.0.1:{port}{THEME_LAB_PATH}" in result.output
 
 
 # -- app factory -----------------------------------------------------------

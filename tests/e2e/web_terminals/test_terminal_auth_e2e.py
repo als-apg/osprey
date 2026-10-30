@@ -72,7 +72,9 @@ import pytest
 import websockets
 from websockets.sync.client import connect as ws_connect
 
-from osprey_connectors_tests._harness._ports import reserved_port
+from osprey.cli.web_cmd import _STARTUP_LINE
+from tests.e2e._server_port import bound_port
+from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
@@ -329,169 +331,168 @@ def _run_executor_sandbox(tmp_path: Path, base_url: str, operator_secret: str) -
     return json.loads(sandbox_line[len("SANDBOX_RESULT ") :])
 
 
-def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
+def test_escalation_chain_is_broken_end_to_end(tmp_path: Path, record_port: int) -> None:
     """Boot a real single-user ``osprey web`` and prove the chain is broken.
 
     Asserts, against one live process reached over real sockets, all five
     properties enumerated in the module docstring.
     """
-    with reserved_port() as port:
-        # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
-        # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,
-        # so the run directory must be a real (if minimal) repo — same as
-        # test_loopback_chokepoint.py. The served config carries a patchable
-        # safety field so the operator PATCH below has something real to write.
-        repo = tmp_path / "terminal-auth-e2e"
-        (repo / "build").mkdir(parents=True)
-        (repo / "profile.yml").write_text("name: terminal-auth-e2e\n", encoding="utf-8")
-        (repo / "build" / "config.yml").write_text(
-            "system:\n"
-            "  name: terminal-auth-e2e\n"
-            "control_system:\n"
-            "  type: virtual_accelerator\n"
-            "  connector:\n"
-            "    virtual_accelerator:\n"
-            "      serving: in_process\n"
-            "  writes: never\n",
-            encoding="utf-8",
+    # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
+    # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,
+    # so the run directory must be a real (if minimal) repo — same as
+    # test_loopback_chokepoint.py. The served config carries a patchable
+    # safety field so the operator PATCH below has something real to write.
+    repo = write_minimal_repo(
+        tmp_path / "terminal-auth-e2e",
+        {
+            "system": {"name": "terminal-auth-e2e"},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes": "never",
+            },
+        },
+        record_port,
+    )
+    log_path = tmp_path / "server.log"
+
+    cmd = [
+        sys.executable,  # never bare "python": it resolves to the MAIN checkout here
+        "-m",
+        "osprey.cli.main",
+        "web",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "0",  # the server binds a port the system chooses and names it
+        "--shell",
+        "true",  # never spawn `claude`; the PTY just runs /usr/bin/true
+        "--skip-preflight",  # skip provider / companion-port pre-flight probes
+    ]
+
+    env = dict(os.environ)
+    # Pin the panel token so the sandbox and this test can present a known value.
+    env["OSPREY_PANEL_TOKEN"] = _PANEL_TOKEN
+    # Single-user shape: no declared secret (the launcher mints and announces
+    # one) and no declared bind host (which would make it demand a supplied
+    # secret). A shell-exported OSPREY_CONFIG/CONFIG_FILE would point the run at
+    # another deployment, so both are dropped and `cwd=repo` decides.
+    env.pop("OSPREY_TERMINAL_SECRET", None)
+    env.pop("OSPREY_TERMINAL_BIND_HOST", None)
+    env.pop("OSPREY_CONFIG", None)
+    env.pop("CONFIG_FILE", None)
+    # Neutralize the browser-open side effect (webbrowser.open); /usr/bin/true
+    # is registered preferred and silently no-ops.
+    env["BROWSER"] = "/usr/bin/true"
+
+    with open(log_path, "w") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(repo),
+            env=env,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
         )
-        log_path = tmp_path / "server.log"
 
-        cmd = [
-            sys.executable,  # never bare "python": it resolves to the MAIN checkout here
-            "-m",
-            "osprey.cli.main",
-            "web",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--shell",
-            "true",  # never spawn `claude`; the PTY just runs /usr/bin/true
-            "--skip-preflight",  # skip provider / companion-port pre-flight probes
-        ]
-
-        env = dict(os.environ)
-        # Pin the panel token so the sandbox and this test can present a known value.
-        env["OSPREY_PANEL_TOKEN"] = _PANEL_TOKEN
-        # Single-user shape: no declared secret (the launcher mints and announces
-        # one) and no declared bind host (which would make it demand a supplied
-        # secret). A shell-exported OSPREY_CONFIG/CONFIG_FILE would point the run at
-        # another deployment, so both are dropped and `cwd=repo` decides.
-        env.pop("OSPREY_TERMINAL_SECRET", None)
-        env.pop("OSPREY_TERMINAL_BIND_HOST", None)
-        env.pop("OSPREY_CONFIG", None)
-        env.pop("CONFIG_FILE", None)
-        # Neutralize the browser-open side effect (webbrowser.open); /usr/bin/true
-        # is registered preferred and silently no-ops.
-        env["BROWSER"] = "/usr/bin/true"
-
-        with open(log_path, "w") as log_fh:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(repo),
-                env=env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
+    try:
+        port = bound_port(log_path, _STARTUP_LINE, child=proc, timeout=_READY_TIMEOUT)
+        if not _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT):
+            pytest.fail(
+                f"server never became reachable on 127.0.0.1:{port} within "
+                f"{_READY_TIMEOUT}s (proc exit code: {proc.poll()}).\n"
+                f"--- server log ---\n{log_path.read_text(encoding='utf-8', errors='replace')}"
             )
 
+        base_url = f"http://127.0.0.1:{port}"
+        login_url = _read_login_url(log_path, proc, timeout=_LOGIN_URL_TIMEOUT)
+        operator_secret = _operator_secret_from_url(login_url)
+
+        # -- 1 & 2. The real Python-executor sandbox: config write refused, panel
+        #    coordination admitted, both credentials proven scrubbed. --------
+        sandbox = _run_executor_sandbox(tmp_path, base_url, operator_secret)
+        assert sandbox["inherited_secret_present"] is False, (
+            "OSPREY_TERMINAL_SECRET survived the executor scrub into the sandbox — "
+            "the escalation chain is OPEN"
+        )
+        assert sandbox["inherited_panel_present"] is False, (
+            "OSPREY_PANEL_TOKEN survived the executor scrub into the sandbox"
+        )
+        assert sandbox["config_status"] == 401, (
+            "sandbox PATCH /api/config was not refused 401 (got "
+            f"{sandbox['config_status']}) — agent-spawned code can rewrite safety config"
+        )
+        assert sandbox["panel_status"] == 200, (
+            "sandbox POST /api/panel-focus with the panel token was not admitted 200 "
+            f"(got {sandbox['panel_status']}) — panel coordination is broken"
+        )
+
+        # -- 3. The operator exchanges the login URL for a session cookie and
+        #    configures with it (matching Origin). ---------------------------
+        with httpx.Client(follow_redirects=False, timeout=_HTTP_TIMEOUT) as client:
+            exchange = client.get(login_url)
+            assert exchange.status_code == 303, (
+                f"token exchange did not 303 (got {exchange.status_code})"
+            )
+            assert "set-cookie" in {k.lower() for k in exchange.headers}, (
+                "token exchange returned no Set-Cookie"
+            )
+
+            # `hooks.debug`, not `control_system.writes`: the latter is
+            # a protected key now, refused for every caller whatever credential
+            # it carries. Written here it would refuse the admitted operator in
+            # step 3 and refuse the forged Origin in step 4 for the same reason,
+            # leaving the CSRF assertion passing without ever exercising the
+            # Origin check. `hooks.debug` is the Hook Debug switch the Web
+            # Terminal ships, reached by exactly this call, and exempt from the
+            # protected set — so a refusal below can only come from the credential.
+            configured = client.patch(
+                f"{base_url}/api/config",
+                json={"updates": {"hooks.debug": True}},
+                headers={"Origin": base_url},
+            )
+            assert configured.status_code == 200, (
+                "cookie-bearing PATCH /api/config with a matching Origin was not "
+                f"admitted 200 (got {configured.status_code}): {configured.text[:200]}"
+            )
+
+            # -- 3b. Authentication is not authorisation. The same admitted
+            #    operator may not rewrite the safety surface itself. ----------
+            protected = client.patch(
+                f"{base_url}/api/config",
+                json={"updates": {"control_system.writes": "allowed"}},
+                headers={"Origin": base_url},
+            )
+            assert protected.status_code == 403, (
+                "a fully authenticated operator with a matching Origin was allowed "
+                f"to PATCH a protected key (got {protected.status_code}): "
+                f"{protected.text[:200]}"
+            )
+
+            # -- 4. CSRF defence: the same cookie with a foreign Origin is refused. --
+            forged = client.patch(
+                f"{base_url}/api/config",
+                json={"updates": {"hooks.debug": False}},
+                headers={"Origin": "http://evil.example.com"},
+            )
+            assert forged.status_code == 403, (
+                "cookie-bearing PATCH with a foreign Origin was not refused 403 "
+                f"(got {forged.status_code}) — CSRF defence is open"
+            )
+
+        # -- 5. WebSocket handshake with no credential is refused pre-accept, 401,
+        #    proven against a real websockets client. ------------------------
+        with pytest.raises(websockets.InvalidStatus) as excinfo:
+            with ws_connect(f"ws://127.0.0.1:{port}/ws/terminal", open_timeout=_WS_TIMEOUT):
+                pass  # pragma: no cover - a successful open IS the regression
+        assert excinfo.value.response.status_code == 401, (
+            "credential-less /ws/terminal handshake was not refused 401 (got "
+            f"{excinfo.value.response.status_code})"
+        )
+    finally:
+        proc.terminate()
         try:
-            if not _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT):
-                pytest.fail(
-                    f"server never became reachable on 127.0.0.1:{port} within "
-                    f"{_READY_TIMEOUT}s (proc exit code: {proc.poll()}).\n"
-                    f"--- server log ---\n{log_path.read_text(encoding='utf-8', errors='replace')}"
-                )
-
-            base_url = f"http://127.0.0.1:{port}"
-            login_url = _read_login_url(log_path, proc, timeout=_LOGIN_URL_TIMEOUT)
-            operator_secret = _operator_secret_from_url(login_url)
-
-            # -- 1 & 2. The real Python-executor sandbox: config write refused, panel
-            #    coordination admitted, both credentials proven scrubbed. --------
-            sandbox = _run_executor_sandbox(tmp_path, base_url, operator_secret)
-            assert sandbox["inherited_secret_present"] is False, (
-                "OSPREY_TERMINAL_SECRET survived the executor scrub into the sandbox — "
-                "the escalation chain is OPEN"
-            )
-            assert sandbox["inherited_panel_present"] is False, (
-                "OSPREY_PANEL_TOKEN survived the executor scrub into the sandbox"
-            )
-            assert sandbox["config_status"] == 401, (
-                "sandbox PATCH /api/config was not refused 401 (got "
-                f"{sandbox['config_status']}) — agent-spawned code can rewrite safety config"
-            )
-            assert sandbox["panel_status"] == 200, (
-                "sandbox POST /api/panel-focus with the panel token was not admitted 200 "
-                f"(got {sandbox['panel_status']}) — panel coordination is broken"
-            )
-
-            # -- 3. The operator exchanges the login URL for a session cookie and
-            #    configures with it (matching Origin). ---------------------------
-            with httpx.Client(follow_redirects=False, timeout=_HTTP_TIMEOUT) as client:
-                exchange = client.get(login_url)
-                assert exchange.status_code == 303, (
-                    f"token exchange did not 303 (got {exchange.status_code})"
-                )
-                assert "set-cookie" in {k.lower() for k in exchange.headers}, (
-                    "token exchange returned no Set-Cookie"
-                )
-
-                # `hooks.debug`, not `control_system.writes`: the latter is
-                # a protected key now, refused for every caller whatever credential
-                # it carries. Written here it would refuse the admitted operator in
-                # step 3 and refuse the forged Origin in step 4 for the same reason,
-                # leaving the CSRF assertion passing without ever exercising the
-                # Origin check. `hooks.debug` is the Hook Debug switch the Web
-                # Terminal ships, reached by exactly this call, and exempt from the
-                # protected set — so a refusal below can only come from the credential.
-                configured = client.patch(
-                    f"{base_url}/api/config",
-                    json={"updates": {"hooks.debug": True}},
-                    headers={"Origin": base_url},
-                )
-                assert configured.status_code == 200, (
-                    "cookie-bearing PATCH /api/config with a matching Origin was not "
-                    f"admitted 200 (got {configured.status_code}): {configured.text[:200]}"
-                )
-
-                # -- 3b. Authentication is not authorisation. The same admitted
-                #    operator may not rewrite the safety surface itself. ----------
-                protected = client.patch(
-                    f"{base_url}/api/config",
-                    json={"updates": {"control_system.writes": "allowed"}},
-                    headers={"Origin": base_url},
-                )
-                assert protected.status_code == 403, (
-                    "a fully authenticated operator with a matching Origin was allowed "
-                    f"to PATCH a protected key (got {protected.status_code}): "
-                    f"{protected.text[:200]}"
-                )
-
-                # -- 4. CSRF defence: the same cookie with a foreign Origin is refused. --
-                forged = client.patch(
-                    f"{base_url}/api/config",
-                    json={"updates": {"hooks.debug": False}},
-                    headers={"Origin": "http://evil.example.com"},
-                )
-                assert forged.status_code == 403, (
-                    "cookie-bearing PATCH with a foreign Origin was not refused 403 "
-                    f"(got {forged.status_code}) — CSRF defence is open"
-                )
-
-            # -- 5. WebSocket handshake with no credential is refused pre-accept, 401,
-            #    proven against a real websockets client. ------------------------
-            with pytest.raises(websockets.InvalidStatus) as excinfo:
-                with ws_connect(f"ws://127.0.0.1:{port}/ws/terminal", open_timeout=_WS_TIMEOUT):
-                    pass  # pragma: no cover - a successful open IS the regression
-            assert excinfo.value.response.status_code == 401, (
-                "credential-less /ws/terminal handshake was not refused 401 (got "
-                f"{excinfo.value.response.status_code})"
-            )
-        finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=_TEARDOWN_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=_TEARDOWN_TIMEOUT)
+            proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        stop_host_record(repo)

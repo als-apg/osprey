@@ -366,7 +366,7 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
         Raises:
             ValueError: When this provider cannot use *url*.
         """
-        return None
+        return
 
     @classmethod
     def require_effective_base_url(cls, base_url: str | None) -> str:

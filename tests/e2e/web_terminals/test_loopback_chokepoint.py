@@ -49,9 +49,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
+from osprey.cli.web_cmd import _STARTUP_LINE, DECLARED_BIND_ENV, resolve_bind_host
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
-from osprey_connectors_tests._harness._ports import reserved_port
+from tests.e2e._server_port import bound_port
+from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
@@ -123,7 +124,9 @@ def _wait_for_port(host: str, port: int, proc: subprocess.Popen, timeout: float)
     return False
 
 
-def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path: Path) -> None:
+def test_declared_loopback_survives_hostile_host_flag_over_real_socket(
+    tmp_path: Path, record_port: int
+) -> None:
     """The C3 chokepoint, end to end, against a real listening socket.
 
     Setup mirrors the multi-user compose exactly: the deployment DECLARES
@@ -142,98 +145,98 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
         "meaningful left to probe if that assumption doesn't hold."
     )
 
-    with reserved_port() as port:
-        # `osprey web` serves a deployment repo's RENDER: it walks up from the
-        # working directory to the nearest `profile.yml` and refuses when that repo
-        # has no `build/config.yml` to serve. So the directory it runs in has to be
-        # a real (if minimal) repo — same as the deployment this test mirrors.
-        # Without it the server exits before binding and the bind assertions below
-        # never get to run.
-        repo = tmp_path / "loopback-chokepoint"
-        (repo / "build").mkdir(parents=True)
-        (repo / "profile.yml").write_text("name: loopback-chokepoint\n")
-        (repo / "build" / "config.yml").write_text("system:\n  name: loopback-chokepoint\n")
-        log_path = tmp_path / "server.log"
+    # `osprey web` serves a deployment repo's RENDER: it walks up from the
+    # working directory to the nearest `profile.yml` and refuses when that repo
+    # has no `build/config.yml` to serve, and it holds the deployment's agent
+    # record while it runs. So the directory it runs in has to be a real (if
+    # minimal) repo. Without it the server exits before binding and the bind
+    # assertions below never get to run.
+    repo = write_minimal_repo(
+        tmp_path / "loopback-chokepoint", {"system": {"name": "loopback-chokepoint"}}, record_port
+    )
+    log_path = tmp_path / "server.log"
 
-        # sys.executable, NEVER bare "python": in this shared worktree, bare
-        # `python` resolves to the MAIN repo's checkout, not this worktree's venv.
-        cmd = [
-            sys.executable,
-            "-m",
-            "osprey.cli.main",
-            "web",
-            "--host",
-            "0.0.0.0",  # the hostile flag; DECLARED_BIND_ENV below must win anyway
-            "--port",
-            str(port),
-            "--shell",
-            "true",  # avoid spawning `claude`; the PTY just runs /usr/bin/true
-            "--skip-preflight",  # avoid companion-port/provider pre-flight probes
-        ]
+    # sys.executable, NEVER bare "python": in this shared worktree, bare
+    # `python` resolves to the MAIN repo's checkout, not this worktree's venv.
+    cmd = [
+        sys.executable,
+        "-m",
+        "osprey.cli.main",
+        "web",
+        "--host",
+        "0.0.0.0",  # the hostile flag; DECLARED_BIND_ENV below must win anyway
+        "--port",
+        "0",  # the server binds a port the system chooses and names it
+        "--shell",
+        "true",  # avoid spawning `claude`; the PTY just runs /usr/bin/true
+        "--skip-preflight",  # avoid companion-port/provider pre-flight probes
+    ]
 
-        env = dict(os.environ)
-        env[DECLARED_BIND_ENV] = "127.0.0.1"
-        # Declaring the bind host declares the multi-user shape, where the
-        # deployment — not the app — owns the operator secret: an app that minted
-        # its own would refuse every request nginx forwards, so it refuses to start
-        # instead. The compose this setup mirrors supplies the per-user secret
-        # alongside the bind host, so supplying one here keeps the pair honest.
-        # Without it the server exits before binding and the bind assertions below
-        # never run.
-        env[OPERATOR_SECRET_ENV] = "loopback-chokepoint-operator-secret"
-        # `osprey web` publishes OSPREY_CONFIG for its children rather than reading
-        # it, but a CONFIG_FILE/OSPREY_CONFIG exported in the developer's shell is
-        # still read by everything downstream of the launch and would point this run
-        # at some other deployment's config. Dropped so `cwd=repo` is what decides.
-        env.pop("OSPREY_CONFIG", None)
-        env.pop("CONFIG_FILE", None)
-        # Neutralize the browser-open side effect (run_web -> _open_browser_when_ready
-        # -> webbrowser.open()). The BROWSER env var is read by the webbrowser
-        # module's standard-browser registration and, when set, is registered
-        # `preferred=True` ahead of the platform default — so it wins over macOS's
-        # own osascript-based browser opener. /usr/bin/true silently no-ops.
-        env["BROWSER"] = "/usr/bin/true"
+    env = dict(os.environ)
+    env[DECLARED_BIND_ENV] = "127.0.0.1"
+    # Declaring the bind host declares the multi-user shape, where the
+    # deployment — not the app — owns the operator secret: an app that minted
+    # its own would refuse every request nginx forwards, so it refuses to start
+    # instead. The compose this setup mirrors supplies the per-user secret
+    # alongside the bind host, so supplying one here keeps the pair honest.
+    # Without it the server exits before binding and the bind assertions below
+    # never run.
+    env[OPERATOR_SECRET_ENV] = "loopback-chokepoint-operator-secret"
+    # `osprey web` publishes OSPREY_CONFIG for its children rather than reading
+    # it, but a CONFIG_FILE/OSPREY_CONFIG exported in the developer's shell is
+    # still read by everything downstream of the launch and would point this run
+    # at some other deployment's config. Dropped so `cwd=repo` is what decides.
+    env.pop("OSPREY_CONFIG", None)
+    env.pop("CONFIG_FILE", None)
+    # Neutralize the browser-open side effect (run_web -> _open_browser_when_ready
+    # -> webbrowser.open()). The BROWSER env var is read by the webbrowser
+    # module's standard-browser registration and, when set, is registered
+    # `preferred=True` ahead of the platform default — so it wins over macOS's
+    # own osascript-based browser opener. /usr/bin/true silently no-ops.
+    env["BROWSER"] = "/usr/bin/true"
 
-        with open(log_path, "w") as log_fh:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(repo),
-                env=env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
+    with open(log_path, "w") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(repo),
+            env=env,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+        )
+
+    try:
+        port = bound_port(log_path, _STARTUP_LINE, child=proc, timeout=_READY_TIMEOUT)
+        ready = _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT)
+        if not ready:
+            exit_code = proc.poll()
+            log_contents = log_path.read_text(encoding="utf-8", errors="replace")
+            pytest.fail(
+                f"Server never became reachable on 127.0.0.1:{port} within "
+                f"{_READY_TIMEOUT}s (proc exit code: {exit_code}).\n"
+                f"--- server log ---\n{log_contents}"
             )
 
+        # -- 1. Loopback assertion: the server is up and loopback-reachable. --
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
+            pass  # connection succeeding is the assertion
+
+        # -- 2. Guarded off-host probe: the discriminating assertion. --------
+        # Refused, not merely unreachable: nothing is bound on that interface.
+        # A timeout would mean something dropped the packet, which says nothing
+        # about the bind.
+        lan_ips = _routable_ipv4_addresses()
+        if not lan_ips:
+            pytest.skip("no non-loopback interface available for off-host probe")
+
+        lan_ip = lan_ips[0]
+        with pytest.raises(ConnectionRefusedError):
+            with socket.create_connection((lan_ip, port), timeout=_OFFHOST_CONNECT_TIMEOUT):
+                pass  # pragma: no cover - reaching here IS the regression
+    finally:
+        proc.terminate()
         try:
-            ready = _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT)
-            if not ready:
-                exit_code = proc.poll()
-                log_contents = log_path.read_text(encoding="utf-8", errors="replace")
-                pytest.fail(
-                    f"Server never became reachable on 127.0.0.1:{port} within "
-                    f"{_READY_TIMEOUT}s (proc exit code: {exit_code}).\n"
-                    f"--- server log ---\n{log_contents}"
-                )
-
-            # -- 1. Loopback assertion: the server is up and loopback-reachable. --
-            with socket.create_connection(("127.0.0.1", port), timeout=2):
-                pass  # connection succeeding is the assertion
-
-            # -- 2. Guarded off-host probe: the discriminating assertion. --------
-            # Refused, not merely unreachable: nothing is bound on that interface.
-            # A timeout would mean something dropped the packet, which says nothing
-            # about the bind.
-            lan_ips = _routable_ipv4_addresses()
-            if not lan_ips:
-                pytest.skip("no non-loopback interface available for off-host probe")
-
-            lan_ip = lan_ips[0]
-            with pytest.raises(ConnectionRefusedError):
-                with socket.create_connection((lan_ip, port), timeout=_OFFHOST_CONNECT_TIMEOUT):
-                    pass  # pragma: no cover - reaching here IS the regression
-        finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=_TEARDOWN_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=_TEARDOWN_TIMEOUT)
+            proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=_TEARDOWN_TIMEOUT)
+        stop_host_record(repo)

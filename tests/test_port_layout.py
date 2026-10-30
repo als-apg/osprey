@@ -48,12 +48,11 @@ from tests._fresh_import import non_stdlib_added_by_import
 EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "nginx": 10000,
     "auth": 10001,
-    "reader": 10002,
+    "history_origin": 10002,
     "history": 10003,
     "dispatcher": 10010,
     "worker": 10011,
-    "telemetry_gateway": 10051,
-    "telemetry_metrics": 10052,
+    "agent_record": 10053,
     "qmd": 10060,
     "tiled": 10070,
     "bluesky_web": 10071,
@@ -71,7 +70,6 @@ EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "mongo": 10801,
     "graphdb_bolt": 10802,
     "graphdb_http": 10803,
-    "telemetry_store": 10804,
     "facility": 10900,
 }
 

@@ -20,6 +20,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.web_cmd import (
+    _STARTUP_LINE,
     DECLARED_BIND_ENV,
     DECLARED_WEB_PORT_ENV,
     LOG_FILE,
@@ -33,6 +34,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import default_port
+from osprey_connectors_tests._harness._ports import bound_socket
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
@@ -721,7 +723,7 @@ def _preflight_at(root: Path):
 class TestPreflightCompanionPortCollision:
     """Probe 1: held companion ports are reported; free/excluded ports are not."""
 
-    def test_held_artifact_port_reported(self, monkeypatch, tmp_path, reserve_port):
+    def test_held_artifact_port_reported(self, reserve_port, monkeypatch, tmp_path):
         """A companion port the lifespan WILL launch, already held, is a finding."""
         port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
@@ -738,14 +740,14 @@ class TestPreflightCompanionPortCollision:
         assert f"lsof -i :{port}" in failures[0]
         assert warnings == []
 
-    def test_free_ports_clean_pass(self, monkeypatch, tmp_path, reserve_port):
+    def test_free_ports_clean_pass(self, reserve_port, monkeypatch, tmp_path):
         """With no companion ports held, _preflight returns no findings."""
         port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
 
         assert _preflight_at(tmp_path) == ([], [])
 
-    def test_require_section_unmet_panel_excluded(self, monkeypatch, tmp_path, reserve_port):
+    def test_require_section_unmet_panel_excluded(self, reserve_port, monkeypatch, tmp_path):
         """Enabled-but-not-launched panel (require_section unmet) is not probed."""
         # "channel-finder" is enabled in web.panels, but the channel_finder
         # top-level section (which gates auto_launch/require_section) is
@@ -767,7 +769,7 @@ class TestPreflightCompanionPortCollision:
         assert warnings == []
         assert "channel_finder" not in probed_keys
 
-    def test_disabled_panel_excluded(self, monkeypatch, tmp_path, reserve_port):
+    def test_disabled_panel_excluded(self, reserve_port, monkeypatch, tmp_path):
         """A panel absent from web.panels is not probed even if its port is held."""
         artifact_port = reserve_port()
         _patch_config(
@@ -781,7 +783,7 @@ class TestPreflightCompanionPortCollision:
         assert warnings == []
         assert "ariel" not in probed_keys
 
-    def test_no_network_or_registry_calls(self, monkeypatch, tmp_path, reserve_port):
+    def test_no_network_or_registry_calls(self, reserve_port, monkeypatch, tmp_path):
         """Probe 1 never starts a companion server or hits its /health endpoint."""
         port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
@@ -831,7 +833,7 @@ class TestWebCommandPreflightWiring:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def test_held_companion_port_aborts_before_bind(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         artifact_port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
@@ -853,7 +855,7 @@ class TestWebCommandPreflightWiring:
         assert "artifact" in result.output
         assert f"lsof -i :{artifact_port}" in result.output
 
-    def test_free_ports_clean_launch(self, runner, monkeypatch, deployment, reserve_port):
+    def test_free_ports_clean_launch(self, reserve_port, runner, monkeypatch, deployment):
         artifact_port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
         self._stub_launch(monkeypatch)
@@ -867,7 +869,7 @@ class TestWebCommandPreflightWiring:
 
         assert result.exit_code == 0
 
-    def test_skip_preflight_bypasses_held_port(self, runner, monkeypatch, deployment, reserve_port):
+    def test_skip_preflight_bypasses_held_port(self, reserve_port, runner, monkeypatch, deployment):
         artifact_port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
         self._stub_launch(monkeypatch)
@@ -927,15 +929,15 @@ class TestPreflightAuthSecret:
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
-    def _stub_clean_ports(self, monkeypatch, reserve_port):
+    def _stub_clean_ports(self, reserve_port, monkeypatch):
         artifact_port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
 
     def test_proxy_provider_missing_secret_aborts(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
@@ -953,7 +955,7 @@ class TestPreflightAuthSecret:
         assert "als-apg" in result.output
 
     def test_proxy_provider_empty_secret_aborts(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """An exported-but-empty secret counts as absent, matching `osprey status`.
 
@@ -962,7 +964,7 @@ class TestPreflightAuthSecret:
         (`bool(os.environ.get(...))`) treats it as missing and hard-fails here.
         """
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
@@ -979,7 +981,7 @@ class TestPreflightAuthSecret:
         assert "ALS_APG_API_KEY" in result.output
 
     def test_proxy_provider_secret_in_dotenv_only_passes(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """Secret defined ONLY in .env (not os.environ) must still count as present.
 
@@ -988,7 +990,7 @@ class TestPreflightAuthSecret:
         check would false-fail a healthy proxy launch.
         """
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
@@ -1010,10 +1012,10 @@ class TestPreflightAuthSecret:
         assert "ALS_APG_API_KEY" not in result.output
 
     def test_direct_anthropic_missing_key_warns_no_abort(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         spec = _stub_spec(
             provider="anthropic",
             auth_env_var="ANTHROPIC_API_KEY",
@@ -1049,12 +1051,12 @@ class TestPreflightAuthSecret:
         [("cborg", "CBORG_API_KEY"), ("als-apg", "ALS_APG_API_KEY")],
     )
     def test_native_gateway_missing_secret_aborts(
-        self, runner, monkeypatch, deployment, provider, secret_env, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment, provider, secret_env
     ):
         """A gateway that speaks the Anthropic API natively offers no
         interactive login, so a missing key stops the launch."""
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         spec = _stub_spec(provider=provider, auth_secret_env=secret_env, needs_proxy=False)
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
@@ -1074,12 +1076,12 @@ class TestPreflightAuthSecret:
         assert "OAuth" not in result.output
 
     def test_unknown_native_provider_missing_secret_aborts(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """No adapter class describes the provider, so nothing declares a
         login for it: a native route without its secret stops the launch."""
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         spec = _stub_spec(
             provider="my-anthropic-gateway",
             auth_secret_env="MY_ANTHROPIC_GATEWAY_API_KEY",
@@ -1124,10 +1126,10 @@ class TestPreflightAuthSecret:
 
     @pytest.mark.parametrize("needs_proxy", [True, False])
     def test_declared_login_decides_not_the_route(
-        self, runner, monkeypatch, deployment, needs_proxy, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment, needs_proxy
     ):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         self._stub_site_gateway(
             monkeypatch,
             needs_proxy=needs_proxy,
@@ -1148,10 +1150,10 @@ class TestPreflightAuthSecret:
 
     @pytest.mark.parametrize("needs_proxy", [True, False])
     def test_declared_keyless_decides_not_the_route(
-        self, runner, monkeypatch, deployment, needs_proxy, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment, needs_proxy
     ):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         self._stub_site_gateway(
             monkeypatch,
             needs_proxy=needs_proxy,
@@ -1172,11 +1174,11 @@ class TestPreflightAuthSecret:
 
     @pytest.mark.parametrize("needs_proxy", [True, False])
     def test_present_secret_resolves_no_adapter(
-        self, runner, monkeypatch, deployment, needs_proxy, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment, needs_proxy
     ):
         """The healthy launch never resolves an adapter class."""
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
 
         def refuse(_self, _name):
             raise AssertionError("the healthy launch must not resolve an adapter")
@@ -1198,13 +1200,13 @@ class TestPreflightAuthSecret:
         assert result.exit_code == 0
 
     def test_keyless_proxy_provider_missing_secret_warns_no_abort(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """A proxy provider whose registry adapter declares requires_api_key =
         False (ollama) warns instead of aborting -- there is no upstream auth
         for the missing secret to fail."""
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         spec = _stub_spec(
             provider="ollama",
             auth_env_var="ANTHROPIC_AUTH_TOKEN",
@@ -1230,12 +1232,12 @@ class TestPreflightAuthSecret:
         assert "does not require" in result.stderr
 
     def test_unknown_proxy_provider_missing_secret_still_aborts(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """A custom proxy the adapter registry has never heard of keeps the
         strict behavior: no registry metadata licenses skipping its secret."""
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         spec = _stub_spec(
             provider="my-proxy",
             auth_env_var="ANTHROPIC_AUTH_TOKEN",
@@ -1257,9 +1259,9 @@ class TestPreflightAuthSecret:
         assert result.exit_code == 1
         assert "MY_PROXY_API_KEY" in result.output
 
-    def test_no_provider_configured_skipped(self, runner, monkeypatch, deployment, reserve_port):
+    def test_no_provider_configured_skipped(self, reserve_port, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: None
         )
@@ -1274,10 +1276,10 @@ class TestPreflightAuthSecret:
         assert result.exit_code == 0
         assert "auth secret" not in result.output
 
-    def test_no_provider_network_call(self, runner, monkeypatch, deployment, reserve_port):
+    def test_no_provider_network_call(self, reserve_port, runner, monkeypatch, deployment):
         """Probe 2 never calls a provider's check_health / completion path."""
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
@@ -1297,40 +1299,8 @@ class TestPreflightAuthSecret:
 
         assert result.exit_code == 0
 
-    def test_a_missing_telemetry_login_fails_preflight(
-        self, runner, monkeypatch, deployment, reserve_port
-    ):
-        """A launch without its gateway login is a server that refuses at startup.
-
-        `ObservabilityCredentialError` subclasses `ValueError`, so the broad
-        skip below would swallow it; pre-flight names the variable instead of
-        launching into the refusal.
-        """
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
-        self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
-
-        def _raise(*_a, **_kw):
-            raise ObservabilityCredentialError(
-                "OSPREY_TELEMETRY_LOGIN is unset or blank", ("OSPREY_TELEMETRY_LOGIN",)
-            )
-
-        monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
-        own_port = reserve_port()
-
-        result = runner.invoke(
-            web,
-            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 1
-        assert "OSPREY_TELEMETRY_LOGIN" in result.output
-        assert "provider auth check skipped" not in result.output + result.stderr
-
     def test_unrelated_value_error_still_skips_quietly(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """The narrow arm must not widen the catch it sits in front of.
 
@@ -1338,7 +1308,7 @@ class TestPreflightAuthSecret:
         diagnosis to make, so Probe 2 keeps saying nothing about it.
         """
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
 
         def _raise(*_a, **_kw):
             raise ValueError("unknown provider 'nowhere'")
@@ -1358,14 +1328,14 @@ class TestPreflightAuthSecret:
         assert "nowhere" not in result.output
 
     def test_missing_gateway_endpoint_is_reported_by_name(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """A provider with no endpoint is a server that exits during startup, so
         pre-flight names the variable instead of launching into the crash."""
         from osprey.agent_runner.provider_env import ProviderEndpointError
 
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
 
         def _raise(*_a, **_kw):
             raise ProviderEndpointError(
@@ -1400,13 +1370,13 @@ class TestPreflightConfigValidity:
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: None
         )
 
-    def _stub_clean_ports(self, monkeypatch, reserve_port):
+    def _stub_clean_ports(self, reserve_port, monkeypatch):
         artifact_port = reserve_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": artifact_port}})
 
-    def test_malformed_settings_json_aborts(self, runner, monkeypatch, deployment, reserve_port):
+    def test_malformed_settings_json_aborts(self, reserve_port, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         own_port = reserve_port()
 
         # `.claude/` is part of the RENDER — it is what the PTY's agent reads,
@@ -1425,9 +1395,9 @@ class TestPreflightConfigValidity:
         assert "settings.json" in result.output
         assert "invalid JSON" in result.output
 
-    def test_absent_settings_json_skipped(self, runner, monkeypatch, deployment, reserve_port):
+    def test_absent_settings_json_skipped(self, reserve_port, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         own_port = reserve_port()
 
         result = runner.invoke(
@@ -1439,9 +1409,9 @@ class TestPreflightConfigValidity:
         assert result.exit_code == 0
         assert "settings.json" not in result.output
 
-    def test_malformed_config_yml_aborts(self, runner, monkeypatch, deployment, reserve_port):
+    def test_malformed_config_yml_aborts(self, reserve_port, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)
-        self._stub_clean_ports(monkeypatch, reserve_port)
+        self._stub_clean_ports(reserve_port, monkeypatch)
         own_port = reserve_port()
 
         (deployment / "build" / "config.yml").write_text("key: [unclosed\n")
@@ -1526,7 +1496,7 @@ class TestRepoFlagIsAuthoritative:
     """--repo must win over the process cwd for every deployment-scoped lookup."""
 
     def _invoke_from_elsewhere(
-        self, tmp_path, repo, runner, monkeypatch, reserve_port, extra_args=()
+        self, reserve_port, tmp_path, repo, runner, monkeypatch, extra_args=()
     ):
         """Run `osprey web --repo <repo>` with cwd set to a directory outside it.
 
@@ -1568,7 +1538,7 @@ class TestRepoFlagIsAuthoritative:
         return result, observed, repo, port
 
     def test_repo_dotenv_is_loaded(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+        self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """The deployment's .env reaches os.environ before the server starts.
 
@@ -1578,14 +1548,14 @@ class TestRepoFlagIsAuthoritative:
         only passes if both zones resolved to the same deployment.
         """
         result, observed, _repo, _port = self._invoke_from_elsewhere(
-            tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+            reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
         )
 
         assert result.exit_code == 0
         assert observed["key"] == "sk-from-project-dotenv"
 
     def test_the_render_becomes_the_working_directory(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+        self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """The agent CLI treats its cwd as the project root, and the render is it.
 
@@ -1593,34 +1563,34 @@ class TestRepoFlagIsAuthoritative:
         else as the working directory hands the PTY a different project.
         """
         _result, observed, repo, _port = self._invoke_from_elsewhere(
-            tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+            reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
         )
 
         assert Path(observed["cwd"]).resolve() == (repo / "build").resolve()
 
     def test_render_web_terminal_port_is_honored(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+        self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """web_terminal.port from the *resolved* render, not the layout default."""
         _result, observed, _repo, port = self._invoke_from_elsewhere(
-            tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+            reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
         )
 
         assert observed["kwargs"]["port"] == port
 
     def test_osprey_config_points_at_the_render(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+        self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """Child processes (PTY shells, MCP servers) resolve config via OSPREY_CONFIG."""
         _result, observed, repo, _port = self._invoke_from_elsewhere(
-            tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+            reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
         )
 
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
 
     def test_explicit_flag_beats_stale_osprey_config_export(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+        self, reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """A stale OSPREY_CONFIG in the shell must not defeat an explicit --repo."""
         stale = tmp_path / "stale"
@@ -1629,7 +1599,7 @@ class TestRepoFlagIsAuthoritative:
         monkeypatch.setenv("OSPREY_CONFIG", str(stale / "config.yml"))
 
         _result, observed, repo, _port = self._invoke_from_elsewhere(
-            tmp_path, lifecycle_repo, runner, monkeypatch, reserve_port
+            reserve_port, tmp_path, lifecycle_repo, runner, monkeypatch
         )
 
         expected = (repo / "build" / "config.yml").resolve()
@@ -1661,7 +1631,7 @@ class TestOperatorLoginUrl:
         # rather than demanded from a deployment.
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
 
-    def test_foreground_prints_open_token_url(self, runner, monkeypatch, deployment, reserve_port):
+    def test_foreground_prints_open_token_url(self, reserve_port, runner, monkeypatch, deployment):
         """The foreground launch prints `Open: …?token=<secret>` for the settled port."""
         self._stub_launch(monkeypatch)
         own_port = reserve_port()
@@ -1687,7 +1657,7 @@ class TestOperatorLoginUrl:
         assert f"http://127.0.0.1:{own_port}/?token={secret}" in result.output
 
     def test_reload_opens_token_url_not_bare_url(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """The --reload branch hands the TOKEN url to the browser opener.
 
@@ -1727,15 +1697,15 @@ class TestOperatorLoginUrl:
         assert opened["url"] == f"http://127.0.0.1:{own_port}/?token={secret}"
 
     def test_foreground_opens_token_url_not_bare_url(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """The DEFAULT (non-reload) branch routes the token URL to the opener too.
 
         The foreground path delegates the auto-open to run_web; web() must thread
         the token URL through as browser_url, or the most common launch shape
         auto-opens the bare URL and lands on the login-required page. Drives the
-        REAL run_web (create_app / uvicorn.run / the opener are stubbed) so the
-        browser_url wiring is exercised, not mocked away.
+        REAL run_web (create_app / the uvicorn server / the opener are stubbed)
+        so the browser_url wiring is exercised, not mocked away.
         """
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
@@ -1748,7 +1718,17 @@ class TestOperatorLoginUrl:
         monkeypatch.setattr("osprey.interfaces.web_terminal.app.create_app", lambda **_k: object())
         import uvicorn
 
-        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+        class _Server:
+            started = True
+
+            def __init__(self, _config):
+                pass
+
+            def run(self, sockets=None):
+                pass
+
+        monkeypatch.setattr(uvicorn, "Config", lambda *a, **k: None)
+        monkeypatch.setattr(uvicorn, "Server", _Server)
         own_port = reserve_port()
 
         result = runner.invoke(
@@ -1770,7 +1750,7 @@ class TestOperatorLoginUrl:
         assert opened["url"] == f"http://127.0.0.1:{own_port}/?token={secret}"
 
     def test_inherited_secret_suppresses_the_open_line(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """A secret already in the environment is NOT re-announced.
 
@@ -1849,6 +1829,175 @@ class TestOperatorLoginUrl:
         assert not any(secret in str(arg) for arg in child_argv)
 
 
+class TestPortZero:
+    """`osprey web --port 0` serves on a port the system chooses and names it.
+
+    The listening socket is bound before anything announces a port, so the
+    startup line, the login URL and ``OSPREY_WEB_PORT`` all name the socket the
+    server holds.
+    """
+
+    def _stub_launch(self, monkeypatch, served: dict) -> None:
+        def _run(**kw):
+            sock = kw["sock"]
+            served.update(kw, bound=sock.getsockname()[1], listening=sock.fileno() != -1)
+            # The socket accepts a connection: it is listening, not just bound.
+            with socket.create_connection(("127.0.0.1", served["bound"]), timeout=2):
+                pass
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _run)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        monkeypatch.delenv(DECLARED_WEB_PORT_ENV, raising=False)
+        # Recorded for undo, then absent: the launch publishes the port here.
+        monkeypatch.setenv("OSPREY_WEB_PORT", "unset-by-test")
+        monkeypatch.delenv("OSPREY_WEB_PORT")
+
+    def test_port_zero_serves_on_the_announced_port(self, runner, monkeypatch, deployment):
+        served: dict = {}
+        self._stub_launch(monkeypatch, served)
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", "0", "--shell", "true", "--skip-preflight"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        bound = served["bound"]
+        assert bound != 0
+        assert served["port"] == bound
+        assert f"{_STARTUP_LINE} http://127.0.0.1:{bound}\n" in result.output
+        assert os.environ["OSPREY_WEB_PORT"] == str(bound)
+        secret = os.environ["OSPREY_TERMINAL_SECRET"]
+        assert f"http://127.0.0.1:{bound}/?token={secret}" in result.output
+
+    def test_a_busy_default_moves_without_releasing_the_socket(
+        self, runner, monkeypatch, deployment
+    ):
+        served: dict = {}
+        self._stub_launch(monkeypatch, served)
+        with bound_socket("127.0.0.1") as held:
+            held.listen(1)
+            busy = held.getsockname()[1]
+            wt = {"host": "127.0.0.1", "port": busy}
+            monkeypatch.setattr(
+                "osprey.cli.web_cmd.get_config_value",
+                lambda key, default=None: (
+                    wt if key == "web_terminal" else ({} if default is None else default)
+                ),
+            )
+            result = runner.invoke(
+                web,
+                ["--repo", str(deployment), "--shell", "true", "--skip-preflight"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert served["listening"]
+        assert served["bound"] not in (0, busy)
+        assert served["port"] == served["bound"]
+        assert f"Port {busy} is in use, so this is on port {served['bound']} instead" in (
+            result.output
+        )
+        assert f"{_STARTUP_LINE} http://127.0.0.1:{served['bound']}" in result.output
+
+    def test_reload_with_port_zero_is_refused(self, runner, monkeypatch, deployment):
+        served: dict = {}
+        self._stub_launch(monkeypatch, served)
+        import uvicorn
+
+        reload_runs: list = []
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: reload_runs.append(k))
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                "0",
+                "--reload",
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "--reload needs a fixed port, not --port 0" in result.output
+        assert reload_runs == [] and served == {}
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch_subprocess("osprey.cli.web_cmd", popen=True)
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_detach_port_zero_reads_the_child_s_startup_line(
+        self,
+        _mock_config,
+        fake_subprocess,
+        mock_wait,
+        _mock_preflight,
+        _mock_resolve,
+        monkeypatch,
+        runner,
+        deployment,
+    ):
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        child_port = 54321
+        proc = MagicMock(pid=12345)
+        proc.poll.return_value = None
+
+        def _spawn(_argv, **kwargs):
+            # The child writes its startup line into the log it was handed.
+            kwargs["stdout"].write(f"{_STARTUP_LINE} http://127.0.0.1:{child_port}\n")
+            kwargs["stdout"].flush()
+            return proc
+
+        fake_subprocess.Popen.side_effect = _spawn
+        monkeypatch.chdir(deployment)
+
+        result = runner.invoke(web, ["--detach", "--port", "0"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        argv = fake_subprocess.Popen.call_args.args[0]
+        assert argv[argv.index("--port") + 1] == "0"
+        assert mock_wait.call_args.args[:2] == ("127.0.0.1", child_port)
+        secret = os.environ["OSPREY_TERMINAL_SECRET"]
+        assert f"http://127.0.0.1:{child_port}/?token={secret}" in result.output
+        assert ":0/" not in result.output
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch_subprocess("osprey.cli.web_cmd", popen=True)
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_detach_port_zero_child_that_exits_first_is_reported(
+        self,
+        _mock_config,
+        fake_subprocess,
+        mock_wait,
+        _mock_preflight,
+        _mock_resolve,
+        monkeypatch,
+        runner,
+        deployment,
+    ):
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        proc = MagicMock(pid=12345)
+        proc.poll.return_value = 3
+        fake_subprocess.Popen.return_value = proc
+        monkeypatch.chdir(deployment)
+
+        result = runner.invoke(web, ["--detach", "--port", "0"], catch_exceptions=False)
+
+        assert "exited immediately with code 3" in result.output
+        assert "?token=" not in result.output
+        mock_wait.assert_not_called()
+        assert not (deployment / PID_FILE).exists()
+
+
 class TestOperatorSecretDoesNotOutliveTheLaunch:
     """The carrier a launcher publishes is closed again before any agent exists.
 
@@ -1862,7 +2011,7 @@ class TestOperatorSecretDoesNotOutliveTheLaunch:
     individual piece behaves correctly and the composition did not.
     """
 
-    def test_direct_serve_closes_the_carrier_at_app_construction(self, monkeypatch, reserve_port):
+    def test_direct_serve_closes_the_carrier_at_app_construction(self, reserve_port, monkeypatch):
         """Real order: mint in the launcher, build the app, inspect an SDK child env.
 
         claude-agent-sdk builds its child's environment as
@@ -1909,7 +2058,7 @@ class TestOperatorSecretDoesNotOutliveTheLaunch:
         )
 
     def test_a_second_app_in_the_same_process_keeps_the_carrier_shut(
-        self, monkeypatch, tmp_path, reserve_port
+        self, reserve_port, monkeypatch, tmp_path
     ):
         """An in-process companion built later does not reopen the window.
 
@@ -1969,7 +2118,7 @@ class TestContainerShapeWithoutASuppliedSecret:
         assert DECLARED_BIND_ENV in str(excinfo.value)
 
     def test_the_cli_exits_with_the_message_and_no_traceback(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """End to end: `osprey web` in that shape fails cleanly with the reason."""
         from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
@@ -2004,7 +2153,7 @@ class TestInheritedSecretIsExplained:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def test_shell_exported_secret_is_reported_without_echoing_it(
-        self, runner, monkeypatch, deployment, reserve_port
+        self, reserve_port, runner, monkeypatch, deployment
     ):
         """An operator who exported the variable learns why there is no URL.
 
@@ -2036,7 +2185,7 @@ class TestInheritedSecretIsExplained:
         # The value is never echoed, whatever else is said about it.
         assert "exported-in-my-shell" not in result.output
 
-    def test_the_container_shape_says_nothing(self, runner, monkeypatch, deployment, reserve_port):
+    def test_the_container_shape_says_nothing(self, reserve_port, runner, monkeypatch, deployment):
         """Behind nginx there is no login URL to be missing, so no note is owed."""
         monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "supplied-by-the-deployment")
         monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")

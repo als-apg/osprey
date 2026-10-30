@@ -994,9 +994,11 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
             "permission_mode": hook_input.get("permission_mode"),
             "asked_at": time.time(),
         }
-        for key, value in (approved or {}).items():
-            if key.startswith(APPROVED_FIELD_PREFIX):
-                payload[key] = value
+        payload.update(
+            (key, value)
+            for key, value in (approved or {}).items()
+            if key.startswith(APPROVED_FIELD_PREFIX)
+        )
         if review_id:
             payload[REVIEW_ARTIFACT_KEY] = review_id
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)

@@ -66,7 +66,7 @@ def acceptable_return_to(raw: object, *, history_origin: str = "") -> str | None
     Two shapes are admitted. A same-origin absolute path, as every login has
     always taken. And, when this deployment serves the history page, an
     absolute URL that starts with exactly ``history_origin + "/history/"`` and
-    whose path passes the same rules — the readers' origin is a second port on
+    whose path passes the same rules — the history page's origin is a second port on
     this host, so the page's sign-in has to come back across it. Nothing else
     off this origin is ever admitted: the prefix is compared verbatim, so a
     look-alike host, another scheme, a userinfo part or another port fails it.
@@ -74,7 +74,7 @@ def acceptable_return_to(raw: object, *, history_origin: str = "") -> str | None
     Args:
         raw: The requested return-to; ``object`` because a decoded cookie
             payload carries whatever was stored.
-        history_origin: The readers' origin, or ``""`` when there is none.
+        history_origin: The history page's origin, or ``""`` when there is none.
 
     Returns:
         The stripped return-to, or ``None`` when it is absent or refused.
@@ -115,7 +115,7 @@ def safe_return_to(raw: object, user: str, *, flow: str = "login", history_origi
             shape is whatever was stored rather than whatever was declared.
         user: The roster user being logged in, for the default target.
         flow: Which login the request came in on, for the rejection log line.
-        history_origin: The readers' origin, or ``""`` when this deployment
+        history_origin: The history page's origin, or ``""`` when this deployment
             serves no history page.
 
     Returns:

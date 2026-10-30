@@ -487,9 +487,10 @@ class TestTheAuditLedgerFollowsTheAnchor:
         monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
         module = hook_module("osprey_hook_log")
 
-        ledger = module.audit_ledger_path("writes-check", {"cwd": str(build)}, identity="alice")
+        monkeypatch.delenv("OSPREY_SPOOL_DIR", raising=False)
+        spool = module.audit_spool_dir({"cwd": str(build)}, identity="alice")
 
-        assert ledger == repo / module.AUDIT_DIR_RELPATH / "alice" / "hook_writes_check.jsonl"
+        assert spool == repo / module.SPOOL_DIR_RELPATH / "alice"
 
 
 # -- 6b. The framework takes the same ladder -----------------------------------

@@ -52,15 +52,9 @@ def _serve_health(family: socket.AddressFamily, host: str) -> ThreadingHTTPServe
     return server
 
 
-def _dead_port() -> int:
-    """A loopback port nothing listens on: a proxy there refuses every request."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str):
-    proxy = f"http://127.0.0.1:{_dead_port()}"
+def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str, proxy_port: int):
+    """Start the daemon with every proxy pointed at *proxy_port*, where nothing listens."""
+    proxy = f"http://127.0.0.1:{proxy_port}"
     env = {
         "OSPREY_QMD_INTERNAL_PORT": str(internal_port),
         "OSPREY_QMD_HEALTH_TIMEOUT": "2",
@@ -87,11 +81,11 @@ def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str):
     ],
 )
 def test_the_health_probe_reaches_the_daemon_whatever_the_proxy_env_says(
-    tmp_path, family, host, target, no_proxy
+    tmp_path, family, host, target, no_proxy, reserve_port
 ):
     server = _serve_health(family, host)
     try:
-        result = _run_start_daemon(tmp_path, server.server_address[1], no_proxy)
+        result = _run_start_daemon(tmp_path, server.server_address[1], no_proxy, reserve_port())
     finally:
         server.shutdown()
         server.server_close()

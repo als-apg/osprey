@@ -703,7 +703,7 @@ def record_writes() -> "Iterator[list[tuple[str, str]]]":
 
 def _notify_write(address: str, phase: str) -> None:
     """Tell every registered observer about one channel's phase."""
-    for observer in list(_write_observers):
+    for observer in _write_observers:
         try:
             observer(address, phase)
         except Exception:

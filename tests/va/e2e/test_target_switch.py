@@ -69,7 +69,6 @@ import pytest
 import yaml
 
 from osprey.audit.posture import posture_session
-from osprey.interfaces._serving import free_port
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -631,9 +630,9 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
     """
 
     @pytest.fixture
-    def wrong_port_deployment(self, endpoints):
-        """The ``va`` block pointed at a port no server holds."""
-        return raw_config(va_port=free_port(), live_port=endpoints.live)
+    def wrong_port_deployment(self, endpoints, reserve_port):
+        """The ``va`` block pointed at a port no server holds, reserved for the test."""
+        return raw_config(va_port=reserve_port(), live_port=endpoints.live)
 
     async def test_the_switch_fails_at_the_probe(self, make_manager, wrong_port_deployment):
         manager = await started_on(make_manager, "live", raw=wrong_port_deployment)

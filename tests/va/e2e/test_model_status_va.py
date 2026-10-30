@@ -30,7 +30,7 @@ import pytest
 import yaml
 
 from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
-from osprey_connectors_tests._harness._ports import reserved_port
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -68,7 +68,7 @@ MIN_COLLECTED_TESTS = 2
 @contextlib.contextmanager
 def _serving(prefix: str, *, instance: str):
     """Boot one virtual accelerator container as *instance*; yield its CA port."""
-    with reserved_port() as port, reserved_port() as pva_port:
+    with reserved_ports(2) as (port, pva_port):
         with e2e_conftest.serving_container(
             f"{prefix}-{port}",
             port,

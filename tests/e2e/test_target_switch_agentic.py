@@ -303,7 +303,7 @@ def _require_va_image() -> None:
         pytest.fail(
             f"image {VA_IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
             f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default — and "
-            f"this module needs it on an ephemeral one. Rebuild it with:\n"
+            f"this module needs it on a reserved one. Rebuild it with:\n"
             f"    {VA_BUILD_COMMAND}\n"
             f"Its entry point is: {command}"
         )
@@ -419,7 +419,7 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         One real Channel Access endpoint per target. ``use_name_server: true``
         on every gateway is mandatory here — without it the connector takes the
         process-global ``EPICS_CA_ADDR_LIST`` branch, which is a genuine hazard
-        with two targets on two ephemeral ports. Both gateway roles name the
+        with two targets on two reserved ports. Both gateway roles name the
         same endpoint per target: there is one server behind each.
     ``probe_channel``
         Mandatory in BOTH directions (a switch probes its destination), and
@@ -655,18 +655,22 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
     _require_va_image()
 
     workspace = tmp_path_factory.mktemp("target_switch_agentic")
-    with reserved_port() as va_port:
-        with bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench:
-            corrector_start = caget(bench.port, CORRECTOR_SP)
-            repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
-            with _virtual_accelerator(va_port, repo) as va_name:
-                yield SwitchDeployment(
-                    repo=repo,
-                    bench=bench,
-                    va_port=va_port,
-                    va_container=va_name,
-                    corrector_start=corrector_start,
-                )
+    # The VA's port is rendered into the deployment before the container binds
+    # it, so it is a reservation held for the deployment's life.
+    with (
+        reserved_port() as va_port,
+        bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench,
+    ):
+        corrector_start = caget(bench.port, CORRECTOR_SP)
+        repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
+        with _virtual_accelerator(va_port, repo) as va_name:
+            yield SwitchDeployment(
+                repo=repo,
+                bench=bench,
+                va_port=va_port,
+                va_container=va_name,
+                corrector_start=corrector_start,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -865,8 +869,8 @@ def approval_prompts(result: HookObservedResult, render: Path) -> list[ApprovalP
     (``_internal/query.py:447``). The Claude Code CLI does not put it on the
     wire for a FILESYSTEM hook: verified 2026-08-24 against CLI 2.1.241, where a
     ``channel_write`` whose approval hook demonstrably returned
-    ``permissionDecision: "ask"`` (the render's own ``hook_debug.jsonl`` records
-    ``status=ask`` against that exact ``tool_use_id``) reached ``can_use_tool``
+    ``permissionDecision: "ask"`` (the hook's own debug line on the agent record
+    reads ``status=ask`` against that exact ``tool_use_id``) reached ``can_use_tool``
     with ``decision_reason=None``. Asserting on prompt wording through that
     field today is asserting against ``None`` — which is precisely the vacuous
     green this module's FR-7 smoke was placed first to catch.

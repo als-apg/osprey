@@ -103,6 +103,33 @@ def _git_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "osprey@example.org")
 
 
+@pytest.fixture(autouse=True)
+def _no_repository_above_the_base_temp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Keep the checkout that hosts the run's base temp from enclosing every target.
+
+    ``init`` leaves git alone when a repository already covers the target, and
+    finds one by walking up for ``.git`` itself, which ``GIT_CEILING_DIRECTORIES``
+    does not reach. A base temp inside a checkout would turn every test here
+    into the enclosing-repository case. The real walk still runs; only a
+    repository above the base temp is ignored, so one a test makes under
+    ``tmp_path`` is still found.
+    """
+    import osprey.cli.init_cmd as init_cmd
+
+    base = tmp_path_factory.getbasetemp().resolve()
+    walk = init_cmd._enclosing_git_dir
+
+    def within_the_base_temp(target: Path) -> Path | None:
+        found = walk(target)
+        if found is None or not found.resolve().is_relative_to(base):
+            return None
+        return found
+
+    monkeypatch.setattr(init_cmd, "_enclosing_git_dir", within_the_base_temp)
+
+
 def run_init(runner: CliRunner, *args: str):
     """Invoke ``osprey init`` and return the result, with tracebacks preserved."""
     return runner.invoke(init, list(args), catch_exceptions=False)
@@ -311,7 +338,8 @@ def test_state_zone_is_created_empty(exemplar_repo: Path) -> None:
     A marker file would be git-ignored along with the directory, and would be
     the one thing ``osprey reset``'s wipe had to work around.
     """
-    for relative in ("var/agent_data", "var/audit"):
+    assert not (exemplar_repo / "var" / "audit").exists()
+    for relative in ("var/agent_data",):
         state_dir = exemplar_repo / relative
         assert state_dir.is_dir()
         assert list(state_dir.iterdir()) == []

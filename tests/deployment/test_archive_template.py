@@ -1,14 +1,15 @@
 """Render tests for the bundled ``archive`` compose template.
 
-The archive copies the deployment's agent record into ``var/archive``. What is
-load-bearing about its shape:
+The archive copies the deployment's artifact stores and plan-queue history into
+``var/archive``. What is load-bearing about its shape:
 
 **It runs the watch loop as container root, with the image entrypoint
 bypassed.** Container root is the invoking user under rootless podman and the
 only identity that can read every source volume; the image entrypoint would drop
 to the unprivileged user first.
 
-**Every source is read-only; the archive root is the one writable mount.**
+**Every source is read-only; the archive root is the one writable mount.** No
+transcripts volume, claude-config volume or audit tree is mounted.
 
 **It reads other services' volumes by their owners' own declarations.** A
 worker or lane volume is declared by its owner in the same compose invocation
@@ -116,7 +117,7 @@ def test_no_ports_and_no_healthcheck() -> None:
 # ── Mounts ──────────────────────────────────────────────────────────────────
 
 
-def test_dest_and_audit_are_mounted_and_every_source_is_read_only() -> None:
+def test_dest_is_mounted_and_every_source_is_read_only() -> None:
     config = _config(
         users=("alice",),
         deployed=("archive", "dispatch_worker", "bluesky"),
@@ -125,7 +126,7 @@ def test_dest_and_audit_are_mounted_and_every_source_is_read_only() -> None:
     mounts = _mounts(_render(config))
 
     assert mounts[0] == "./var/archive:/archive/dest"
-    assert mounts[1] == "./var/audit:/archive/sources/audit:ro"
+    assert not [m for m in mounts if "audit" in m]
     for mount in mounts[1:]:
         assert mount.endswith(":ro"), mount
         assert ":/archive/sources/" in mount, mount
@@ -138,10 +139,8 @@ def test_one_mount_per_roster_user_worker_and_lane() -> None:
         services={"dispatch_worker": {"worker_count": 2}},
     )
 
-    assert _mounts(_render(config))[2:] == [
-        "alice-claude-config:/archive/sources/terminals/alice:ro",
+    assert _mounts(_render(config))[1:] == [
         "alice-agent-data:/archive/sources/terminal_agent_data/alice:ro",
-        "bob-claude-config:/archive/sources/terminals/bob:ro",
         "bob-agent-data:/archive/sources/terminal_agent_data/bob:ro",
         "dispatch_workspace_1:/archive/sources/dispatch/dispatch-worker-1:ro",
         "dispatch_workspace_2:/archive/sources/dispatch/dispatch-worker-2:ro",
@@ -156,8 +155,8 @@ def test_shared_workspace_mode_mounts_one_worker_volume() -> None:
         services={"dispatch_worker": {"worker_count": 3, "workspace_mode": "shared"}},
     )
 
-    assert _mounts(_render(config))[2:] == [
-        "dispatch_workspace:/archive/sources/dispatch/shared:ro"
+    assert _mounts(_render(config))[1:] == [
+        "dispatch_workspace:/archive/sources/dispatch/shared:ro",
     ]
     assert list(_service(_render(config))["depends_on"]) == ["dispatch-worker-1"]
 
@@ -168,7 +167,7 @@ def test_an_external_lane_is_not_mounted() -> None:
         services={"bluesky_va": {"external": True}},
     )
 
-    assert _mounts(_render(config))[2:] == [
+    assert _mounts(_render(config))[1:] == [
         "bluesky_queueserver_redis:/archive/sources/bluesky/bluesky:ro"
     ]
 
@@ -201,7 +200,7 @@ def test_a_worker_count_below_one_names_no_worker_volume() -> None:
         services={"dispatch_worker": {"worker_count": 0}},
     )
 
-    assert _mounts(_render(config))[2:] == []
+    assert _mounts(_render(config))[1:] == []
 
 
 def test_the_roster_is_mounted_only_when_the_archive_is_deployed() -> None:
@@ -210,35 +209,20 @@ def test_the_roster_is_mounted_only_when_the_archive_is_deployed() -> None:
     )
 
 
-# ── The telemetry store ─────────────────────────────────────────────────────
+# ── Environment ─────────────────────────────────────────────────────────────
 
 
-def test_store_address_follows_the_network_axis() -> None:
-    bridge = _config(deployed=("archive", "telemetry_store"))
-    on_host = _config(
-        deployed=("archive", "telemetry_store"),
-        services={
-            "archive": {"network": "host"},
-            "telemetry_store": {"port": 15123, "retention_days": 30},
-        },
-    )
-
-    bridge_env = _service(_render(bridge))["environment"]
-    host_env = _service(_render(on_host))["environment"]
-
-    assert bridge_env["OSPREY_ARCHIVE_STORE_URL"] == "http://telemetry_store:8123"
-    assert host_env["OSPREY_ARCHIVE_STORE_URL"] == "http://127.0.0.1:15123"
-    assert bridge_env["OSPREY_ARCHIVE_STORE_BACKFILL_DAYS"] == "14"
-    assert host_env["OSPREY_ARCHIVE_STORE_BACKFILL_DAYS"] == "30"
-
-
-def test_no_store_variables_without_the_store() -> None:
-    env = _service(_render())["environment"]
+@pytest.mark.parametrize("deployed", [("archive",), ("archive", "postgresql")])
+def test_the_archive_reads_no_store_whatever_else_is_deployed(deployed) -> None:
+    service = _service(_render(_config(deployed=deployed)))
+    env = service["environment"]
 
     assert not [key for key in env if key.startswith("OSPREY_ARCHIVE_STORE")]
     assert env["OSPREY_ARCHIVE_SOURCES"] == "/archive/sources"
     assert env["OSPREY_ARCHIVE_DEST"] == "/archive/dest"
     assert env["OSPREY_ARCHIVE_INTERVAL_SECONDS"] == "86400"
+    assert not [label for label in service["labels"] if "telemetry" in label]
+    assert not [name for name in service.get("env_file", []) if "telemetry" in name]
 
 
 def test_the_interval_follows_its_key() -> None:
@@ -279,19 +263,14 @@ def _source_volume(mount: str) -> str:
 
 
 def test_declared_volumes_match_their_owner_templates_byte_for_byte(tmp_path: Path) -> None:
-    """The terminals' volumes live in the other slice, so the archive declares them
-    exactly as the web-terminal template does."""
+    """The terminals' agent-data volumes live in the other slice, so the archive
+    declares them exactly as the web-terminal template does."""
     config, context = _owner_context(tmp_path)
 
     archive = _render_with(context, TEMPLATE)["volumes"]
     web = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])["volumes"]
 
-    assert set(archive) == {
-        "alice-claude-config",
-        "alice-agent-data",
-        "bob-claude-config",
-        "bob-agent-data",
-    }
+    assert set(archive) == {"alice-agent-data", "bob-agent-data"}
     for key, declaration in archive.items():
         assert declaration == web[key], key
 
@@ -317,3 +296,18 @@ def test_worker_and_lane_volumes_are_their_owners_declarations_alone(
     assert mounted
     assert mounted <= owners
     assert not set(archive["volumes"]) & owners
+
+
+def test_the_archive_mounts_no_transcripts_or_claude_config_volume(tmp_path: Path) -> None:
+    """The archive copies no transcript: neither the transcripts volumes nor the
+    claude-config volumes beside them are mounted."""
+    _config_unused, context = _owner_context(tmp_path)
+
+    archive = _render_with(context, TEMPLATE)
+    mounts = archive["services"][SERVICE_KEY]["volumes"]
+
+    assert not [m for m in mounts if "claude-config" in _source_volume(m)]
+    assert not [key for key in archive["volumes"] if "claude-config" in key]
+    assert not [m for m in mounts if "claude-projects" in _source_volume(m)]
+    assert not [m for m in mounts if "claude_projects" in _source_volume(m)]
+    assert not [key for key in archive["volumes"] if "claude-projects" in key]

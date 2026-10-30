@@ -62,12 +62,17 @@ def _git(*args: str) -> str:
 
 
 def _tracked_modes() -> dict[str, str]:
-    """Map every tracked path to its git file mode."""
+    """Map every tracked path present in the working tree to its git file mode.
+
+    A tracked path deleted from the working tree is linted by nothing, so it is
+    not part of either selection.
+    """
     modes: dict[str, str] = {}
     for line in _git("ls-files", "-s", "-z").split("\0"):
         if line:
             meta, path = line.split("\t", 1)
-            modes[path] = meta.split()[0]
+            if (REPO_ROOT / path).exists():
+                modes[path] = meta.split()[0]
     return modes
 
 

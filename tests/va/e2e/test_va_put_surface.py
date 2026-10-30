@@ -47,7 +47,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors_tests._harness._ports import reserved_port
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -186,7 +186,7 @@ def _serving() -> Iterator[Served]:
     a search reply carries the server's own port; the Channel Access port also
     names the container.
     """
-    with reserved_port() as port, reserved_port() as pva_port:
+    with reserved_ports(2) as (port, pva_port):
         with e2e_conftest.serving_container(
             f"{CONTAINER_PREFIX}-{port}",
             port,

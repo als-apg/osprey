@@ -19,8 +19,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from osprey.interfaces._serving import free_port
-
 HOOK = "osprey_panels_context.py"
 
 PANELS_PAYLOAD = {
@@ -89,8 +87,8 @@ def test_expert_surface_with_inventory(hook_runner, monkeypatch, panels_server):
     assert "WORKSPACE (id=artifacts, on rail)" in context
 
 
-def test_simple_surface_survives_down_web_terminal(hook_runner, monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+def test_simple_surface_survives_down_web_terminal(reserve_port, hook_runner, monkeypatch):
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     monkeypatch.setenv("OSPREY_WEB_UX", "simple")
 
     context = _context(hook_runner(HOOK, "", {}))
@@ -98,8 +96,8 @@ def test_simple_surface_survives_down_web_terminal(hook_runner, monkeypatch):
     assert "id=artifacts" not in context  # no inventory available
 
 
-def test_no_marker_and_down_web_terminal_is_silent(hook_runner, monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+def test_no_marker_and_down_web_terminal_is_silent(reserve_port, hook_runner, monkeypatch):
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     monkeypatch.delenv("OSPREY_WEB_UX", raising=False)
 
     assert hook_runner(HOOK, "", {}) is None
@@ -114,8 +112,8 @@ def test_no_marker_keeps_inventory_only_behavior(hook_runner, monkeypatch, panel
     assert "WORKSPACE (id=artifacts, on rail)" in context
 
 
-def test_unknown_marker_is_ignored(hook_runner, monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+def test_unknown_marker_is_ignored(reserve_port, hook_runner, monkeypatch):
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     monkeypatch.setenv("OSPREY_WEB_UX", "bogus")
 
     assert hook_runner(HOOK, "", {}) is None

@@ -352,30 +352,27 @@ def _build_dev_wheel_cached(osprey_source_root):
                 f"building a wheel from the local osprey checkout at {osprey_source_root} failed",
                 f"Fix the build error below, then re-run:\n\n{result.stderr.strip()}",
             )
-        else:
-            # Find the built wheel and move it to the memo-owned cache dir
-            # (tmpdir is deleted on exit; the cache must outlive it so later
-            # staging calls can copy the same build instead of rebuilding).
-            wheel_files = list(Path(tmpdir).glob("*.whl"))
-            if not wheel_files:
-                raise DevModeUnavailableError(
-                    "the wheel build reported success but produced no .whl file",
-                    f"Check the build backend configured in "
-                    f"{osprey_source_root / 'pyproject.toml'}.",
-                )
-            else:
-                if _wheel_cache_dir is None:
-                    _wheel_cache_dir = tempfile.mkdtemp(prefix="osprey-dev-wheel-cache-")
-                    if not _wheel_cache_cleanup_registered:
-                        atexit.register(_reset_wheel_build_cache)
-                        _wheel_cache_cleanup_registered = True
-                cached_wheel = Path(_wheel_cache_dir) / wheel_files[0].name
-                shutil.copy2(wheel_files[0], cached_wheel)
-                # Named per distribution: this builds the framework wheel and
-                # every workspace member wheel in one deploy, and several steps
-                # wearing one label read as a stutter.
-                distribution = cached_wheel.name.split("-", 1)[0].replace("_", "-")
-                report_step(f"built the {distribution} wheel from the local checkout")
+        # Find the built wheel and move it to the memo-owned cache dir
+        # (tmpdir is deleted on exit; the cache must outlive it so later
+        # staging calls can copy the same build instead of rebuilding).
+        wheel_files = list(Path(tmpdir).glob("*.whl"))
+        if not wheel_files:
+            raise DevModeUnavailableError(
+                "the wheel build reported success but produced no .whl file",
+                f"Check the build backend configured in {osprey_source_root / 'pyproject.toml'}.",
+            )
+        if _wheel_cache_dir is None:
+            _wheel_cache_dir = tempfile.mkdtemp(prefix="osprey-dev-wheel-cache-")
+            if not _wheel_cache_cleanup_registered:
+                atexit.register(_reset_wheel_build_cache)
+                _wheel_cache_cleanup_registered = True
+        cached_wheel = Path(_wheel_cache_dir) / wheel_files[0].name
+        shutil.copy2(wheel_files[0], cached_wheel)
+        # Named per distribution: this builds the framework wheel and
+        # every workspace member wheel in one deploy, and several steps
+        # wearing one label read as a stutter.
+        distribution = cached_wheel.name.split("-", 1)[0].replace("_", "-")
+        report_step(f"built the {distribution} wheel from the local checkout")
 
     _wheel_build_cache[key] = cached_wheel
     return cached_wheel

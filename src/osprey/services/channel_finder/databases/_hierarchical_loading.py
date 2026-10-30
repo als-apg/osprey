@@ -260,26 +260,25 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
             next_level = self.hierarchy_levels[level_idx + 1]
             next_config = self.hierarchy_config["levels"][next_level]
 
-            if next_config["type"] == "instances":
-                # Next level is also instance - verify it's nested
-                if next_level.upper() not in container:
-                    raise ValueError(
-                        f"Consecutive instance levels '{level_name}' and '{next_level}' detected.\n\n"
-                        f"'{next_level.upper()}' container must be nested inside '{level_name.upper()}' container.\n\n"
-                        f"Current structure (incorrect):\n"
-                        f"  tree['{level_name.upper()}'] = {{...}}\n"
-                        f"  tree['{next_level.upper()}'] = {{...}}  ← siblings (wrong)\n\n"
-                        f"Expected structure (correct):\n"
-                        f"  tree['{level_name.upper()}'] = {{\n"
-                        f'    "_expansion": {{...}},\n'
-                        f'    "{next_level.upper()}": {{  ← nested inside {level_name.upper()}\n'
-                        f'      "_expansion": {{...}},\n'
-                        f"      ...\n"
-                        f"    }}\n"
-                        f"  }}\n\n"
-                        f"Why: Consecutive instance levels stay at the same tree position,\n"
-                        f"so they must be nested to maintain proper navigation."
-                    )
+            # Next level is also instance - verify it's nested
+            if next_config["type"] == "instances" and next_level.upper() not in container:
+                raise ValueError(
+                    f"Consecutive instance levels '{level_name}' and '{next_level}' detected.\n\n"
+                    f"'{next_level.upper()}' container must be nested inside '{level_name.upper()}' container.\n\n"
+                    f"Current structure (incorrect):\n"
+                    f"  tree['{level_name.upper()}'] = {{...}}\n"
+                    f"  tree['{next_level.upper()}'] = {{...}}  ← siblings (wrong)\n\n"
+                    f"Expected structure (correct):\n"
+                    f"  tree['{level_name.upper()}'] = {{\n"
+                    f'    "_expansion": {{...}},\n'
+                    f'    "{next_level.upper()}": {{  ← nested inside {level_name.upper()}\n'
+                    f'      "_expansion": {{...}},\n'
+                    f"      ...\n"
+                    f"    }}\n"
+                    f"  }}\n\n"
+                    f"Why: Consecutive instance levels stay at the same tree position,\n"
+                    f"so they must be nested to maintain proper navigation."
+                )
 
     def _validate_expansion_definition(self, expansion: dict, level_name: str):
         """Validate expansion definition has required fields and valid values."""

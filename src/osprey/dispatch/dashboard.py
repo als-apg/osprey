@@ -24,7 +24,7 @@ def render_dashboard_html(
         channel_strip_prefix: Leading prefix trimmed off a channel address before the
             dashboard renders it. Applied to the sources that carry one; a trigger
             whose source renders an interval or a bare name is unaffected.
-        history_url: The history page's URL (``<readers' origin>/history/``), which
+        history_url: The history page's URL (``<history page's origin>/history/``), which
             a run's detail links its session to; empty renders no link.
 
     Returns:

@@ -143,7 +143,7 @@ from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
-from osprey_connectors_tests._harness._ports import reserved_port
+from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -274,7 +274,7 @@ def _serving(prefix: str, *, instance: str, log_dir: Path | None = None):
     *log_dir* given it is mounted at ``/var/simulator``, where the container
     appends its model logs.
     """
-    with reserved_port() as port, reserved_port() as pva_port:
+    with reserved_ports(2) as (port, pva_port):
         logs = () if log_dir is None else ("-v", f"{log_dir}:/var/simulator")
         # The port is this run's alone, so the name can be nothing a concurrent run
         # is using -- which is the point of the suffix.

@@ -523,7 +523,7 @@ class TestSessionsClearRefusesALiveServer:
     """A running server would undo the delete, so the verb declines to pretend."""
 
     def test_a_listener_on_the_resolved_port_refuses_and_names_the_stop_verb(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         """A FOREGROUND server writes no PID file, so the socket is the probe."""
         port = reserve_port()
@@ -542,7 +542,7 @@ class TestSessionsClearRefusesALiveServer:
         assert store.is_file(), "a refused clear must leave the store untouched"
 
     def test_force_clears_anyway_and_says_what_force_does_not_do(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         port = reserve_port()
         _render_on_port(lifecycle_repo, port)
@@ -565,7 +565,7 @@ class TestSessionsClearRefusesALiveServer:
         assert "only stops them surviving the NEXT restart" in caveat
 
     def test_a_detached_servers_pid_file_refuses_with_nothing_listening(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         """The other half of the liveness read, on its own.
 
@@ -585,7 +585,7 @@ class TestSessionsClearRefusesALiveServer:
         assert store.is_file(), "a refused clear must leave the store untouched"
 
     def test_force_clears_past_a_pid_file_with_the_same_caveat(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         port = reserve_port()
         _render_on_port(lifecycle_repo, port)
@@ -606,7 +606,7 @@ class TestSessionsClearWithNoServer:
     """With nothing serving, the delete means what it says."""
 
     def test_it_reports_the_digests_it_dropped_and_removes_the_file(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         port = reserve_port()
         _render_on_port(lifecycle_repo, port)
@@ -619,7 +619,7 @@ class TestSessionsClearWithNoServer:
         assert not store.exists()
 
     def test_every_port_keyed_store_goes_not_only_this_one(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         """One deployment can have served on several ports; all of them clear."""
         port = reserve_port()
@@ -635,7 +635,7 @@ class TestSessionsClearWithNoServer:
         assert not mine.exists() and not other.exists() and not bare.exists()
 
     def test_an_unreadable_store_counts_nothing_but_is_still_deleted(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         port = reserve_port()
         _render_on_port(lifecycle_repo, port)
@@ -650,7 +650,7 @@ class TestSessionsClearWithNoServer:
         assert not store.exists()
 
     def test_a_deployment_that_never_persisted_anything_is_not_an_error(
-        self, runner, lifecycle_repo, reserve_port
+        self, reserve_port, runner, lifecycle_repo
     ):
         port = reserve_port()
         _render_on_port(lifecycle_repo, port)
@@ -662,7 +662,7 @@ class TestSessionsClearWithNoServer:
         assert "Dropped 0 persisted session(s)." in flat(result.output)
 
     def test_the_group_position_of_repo_reaches_the_subcommand(
-        self, runner, lifecycle_repo, tmp_path, reserve_port
+        self, reserve_port, runner, lifecycle_repo, tmp_path
     ):
         """``osprey web --repo X sessions clear`` is the same request as the tail form."""
         port = reserve_port()
