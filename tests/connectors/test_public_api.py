@@ -233,7 +233,13 @@ def _annotation_names(module: object, annotation: object) -> set[object]:
     }
 
 
+@functools.cache
 def _type_checking_names(module: object) -> dict[str, object]:
+    """The names *module* imports under ``if TYPE_CHECKING:``, resolved.
+
+    Every string annotation of the module asks for them, and parsing its source
+    again for each one was most of what the signature test spent.
+    """
     names: dict[str, object] = {}
     source = inspect.getsourcefile(module)  # type: ignore[arg-type]
     if source is None:
