@@ -6,8 +6,8 @@ session id is dead", and the verify endpoint consults that record on every
 ``auth_request`` subrequest.
 
 **The file.** One owner-only JSON file, :data:`REVOCATION_FILE_NAME`, in the
-directory :data:`~osprey.services.auth_sidecar.audit.AUDIT_DIR_ENV` names — the
-subdirectory compose binds for this service and for nobody else. Its shape is
+directory :data:`STATE_DIR_ENV` names — this service's own ``var/state/sidecar``
+subdirectory, which compose binds for it and for nobody else. Its shape is
 ``{"v": 1, "revoked": {<sha256 hex of the session id>: <expiry epoch>}}``. It is
 loaded when the store is built, with every entry at or past its expiry dropped,
 and rewritten whole on every logout. A container recreate (``osprey users
@@ -37,8 +37,7 @@ to write, so a disk that frees up starts persisting again.
 
 **The directory is never created.** One created inside the container would sit
 in its writable layer and vanish on the next recreate — the trap
-:func:`~osprey.services.auth_sidecar.audit.audit_directory` refuses a relative
-value over. A missing directory is a broken bind, and it degrades like any other
+:func:`state_directory` refuses a relative value over. A missing directory is a broken bind, and it degrades like any other
 failed write.
 
 Password rotation does **not** rely on this store. Invalidation there rests on
@@ -59,9 +58,10 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -69,13 +69,15 @@ from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["REVOCATION_FILE_NAME", "RevocationStore"]
+__all__ = ["REVOCATION_FILE_NAME", "STATE_DIR_ENV", "RevocationStore", "state_directory"]
+
+STATE_DIR_ENV = "OSPREY_STATE_DIR"
+"""The variable naming this service's state directory, the file's home."""
 
 REVOCATION_FILE_NAME = ".revoked-sessions.json"
-"""The revoked-session file's name inside the audit directory.
+"""The revoked-session file's name inside the state directory.
 
-Dot-named so the archive leaves it alone and nobody reads it as a ledger: a
-ledger ends ``.jsonl``, and the archive skips dot-named ``.json`` files there.
+Dot-named: an owner-only working file of the sidecar, not part of the record.
 """
 
 REVOCATION_FILE_VERSION = 1
@@ -105,6 +107,30 @@ def _warn(reason: str) -> None:
     )
 
 
+def state_directory(env: Mapping[str, str] | None = None) -> Path | None:
+    """The directory :data:`STATE_DIR_ENV` names, or ``None``.
+
+    Read from *env*, or from :data:`os.environ` when *env* is ``None``. ``None``
+    means the variable is missing or blank, or names a relative path, which is
+    refused like a blank one: resolved against the working directory it names a
+    path the host binds nothing at, so the file would vanish with the container
+    while this function kept returning a path that says it was durably stored.
+    """
+    source = os.environ if env is None else env
+    raw = source.get(STATE_DIR_ENV)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    directory = Path(raw.strip())
+    if not directory.is_absolute():
+        logger.warning(
+            "%s is not an absolute path; this service keeps no state under it until it names "
+            "the directory compose binds for it",
+            STATE_DIR_ENV,
+        )
+        return None
+    return directory
+
+
 def _is_expiry(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
 
@@ -126,7 +152,9 @@ class RevocationStore:
     """
 
     def __init__(
-        self, directory: Path | None = None, clock: Callable[[], float] = time.time
+        self,
+        directory: Path | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         """Create a store, loading the file in *directory* when one is named.
 
@@ -210,7 +238,7 @@ class RevocationStore:
         return len(self._revoked)
 
     def _load(self) -> dict[str, float]:
-        """The unexpired, well-formed entries of the file; ``{}`` when there are none."""
+        """The unexpired, well-formed entries of the store's file; ``{}`` when there are none."""
         if self._path is None:
             return {}
         try:

@@ -311,7 +311,7 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
         return None
     if "refused" in value:
         return value if value.get("cause") in CAUSES else None
-    if _SOLVED_KEYS <= value.keys():
+    if value.keys() >= _SOLVED_KEYS:
         return value
     return None
 

@@ -713,12 +713,10 @@ class ControlSystemConnector(ABC):
         Raises:
             ConnectorUnavailableError: If connection cannot be established
         """
-        pass
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Close connection to control system and cleanup resources."""
-        pass
 
     @abstractmethod
     async def read_channel(
@@ -743,7 +741,6 @@ class ControlSystemConnector(ABC):
             ChannelNotFoundError: The address is not a channel of the facility
                 (a connector that holds the facility's address set)
         """
-        pass
 
     @abstractmethod
     async def write_channel(
@@ -822,7 +819,6 @@ class ControlSystemConnector(ABC):
             out of a mechanical refusal, and the approval layer cannot substitute for
             that refusal.
         """
-        pass
 
     async def write_channel_checked(
         self, channel_address: str, value: Any, **kwargs: Any
@@ -888,7 +884,6 @@ class ControlSystemConnector(ABC):
             Dictionary mapping channel address to ChannelValue
             (May exclude channels that failed to read)
         """
-        pass
 
     async def write_multiple_channels(
         self,
@@ -947,7 +942,6 @@ class ControlSystemConnector(ABC):
         Returns:
             Subscription ID for later unsubscribe
         """
-        pass
 
     @abstractmethod
     async def unsubscribe(self, subscription_id: str) -> None:
@@ -957,7 +951,6 @@ class ControlSystemConnector(ABC):
         Args:
             subscription_id: Subscription ID returned by subscribe()
         """
-        pass
 
     @abstractmethod
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
@@ -976,7 +969,6 @@ class ControlSystemConnector(ABC):
                 connector stays in place
             ConnectorUnavailableError: The connector's own transport is gone
         """
-        pass
 
     @abstractmethod
     async def validate_channel(self, channel_address: str) -> bool:
@@ -989,4 +981,3 @@ class ControlSystemConnector(ABC):
         Returns:
             True if channel is valid and accessible
         """
-        pass

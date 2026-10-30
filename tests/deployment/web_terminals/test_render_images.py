@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.web_terminals import render_images
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
@@ -586,16 +585,11 @@ def _render(repo: Path, name: str = "ops-app", *, complete: bool = True) -> Path
     return project
 
 
-def _render_config(
-    repo: Path, deployed_services=("telemetry_store", "telemetry_gateway"), **render_overrides
-):
+def _render_config(repo: Path, **render_overrides):
     """A local-mode config whose single tier 'ops' renders to build/ops-app.
 
     The ``renders`` entry is the one ``osprey build`` projects for
     ``tiers/ops.yml``; pass a keyword to override one of its fields.
-
-    Deploys the telemetry store and its gateway by default — the shipped
-    shape. Pass an empty ``deployed_services`` for a config that runs neither.
     """
     render = {
         "kind": "tier",
@@ -604,7 +598,7 @@ def _render_config(
     }
     render.update(render_overrides)
     return {
-        "deployed_services": list(deployed_services),
+        "deployed_services": [],
         "modules": {
             "web_terminals": {
                 "image_source": "local",
@@ -788,73 +782,6 @@ def test_a_render_placeholder_resolves_from_the_repo_env(tmp_path, calls, monkey
     assert calls == []
 
 
-def _telemetry_render(repo: Path, telemetry_lines: str) -> Path:
-    """A complete render whose model is fine and whose telemetry block varies.
-
-    The model is deliberately servable in every one of these: the point is what
-    the refusal says when the ONLY thing wrong is an observability credential.
-    """
-    project_path = _render(repo)
-    (project_path / "config.yml").write_text(
-        "project_name: ops-app\n"
-        "claude_code:\n"
-        "  provider: anthropic\n"
-        "  default_model: claude-sonnet-5\n"
-        "  telemetry:\n"
-        "    enabled: true\n" + telemetry_lines,
-        encoding="utf-8",
-    )
-    return project_path
-
-
-def test_unresolved_observability_credential_is_not_a_model_problem(tmp_path, calls, monkeypatch):
-    """A collector token nothing on the host resolves is reported as a
-    credential, with the file it belongs in.
-
-    Both failures come out of the same resolve and the credential one is a
-    ValueError too, so the general frame would otherwise tell an operator whose
-    collector token is unset to go and fix their model — an edit to a profile
-    that was never wrong, leaving the actual gap in place.
-    """
-    monkeypatch.delenv("OBSERVABILITY_TOKEN", raising=False)
-    repo = _repo(tmp_path, "ops")
-    project_path = _telemetry_render(
-        repo,
-        "    endpoint: https://collector.example.org:4318\n"
-        "    auth:\n"
-        "      token_env: OBSERVABILITY_TOKEN\n",
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        render_images.verify_renders(_render_config(repo), _RENDER_USERS, repo_root=repo)
-
-    message = str(excinfo.value)
-    assert "observability credentials this deployment cannot resolve" in message
-    assert str(project_path) in message
-    # The variable to set, and the one file that will be read for it -- a name,
-    # never a value, since an unset variable has none to print.
-    assert "OBSERVABILITY_TOKEN" in message
-    assert f'echo "OBSERVABILITY_TOKEN=<value>" >> {repo / ".env"}' in message
-    # And emphatically not the other remedy.
-    assert "Fix the model in this deployment's profile" not in message
-    assert isinstance(excinfo.value.__cause__, ObservabilityCredentialError)
-    assert calls == []
-
-
-def test_a_gateway_render_without_a_login_on_this_host_is_accepted(tmp_path, calls, monkeypatch):
-    """The render's gateway login reaches its container through that
-    container's own ``env_file``, never this host's environment, so its
-    absence here says nothing about the launch."""
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-    monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
-    repo = _repo(tmp_path, "ops")
-    _telemetry_render(repo, "    backend: gateway\n")
-
-    render_images.verify_renders(_render_config(repo), _RENDER_USERS, repo_root=repo)
-
-    assert calls == []
-
-
 def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
     """The converse, and the reason arm order matters: the credential arm sits
     ahead of the general one and must not swallow a genuine model failure.
@@ -870,10 +797,7 @@ def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
         "    my-gateway:\n"
         "      base_url: https://gw.example.org/v1\n"
         "claude_code:\n"
-        "  provider: my-gateway\n"
-        "  telemetry:\n"
-        "    enabled: true\n"
-        "    endpoint: https://collector.example.org:4318\n",
+        "  provider: my-gateway\n",
         encoding="utf-8",
     )
 

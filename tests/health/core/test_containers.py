@@ -110,10 +110,10 @@ async def test_full_mode_emits_available_and_per_service(
 ) -> None:
     _record(repo)
     _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
-    results = await containers(_config(repo, ["telemetry_store", "web"]), probe=_echo_probe())()
+    results = await containers(_config(repo, ["postgresql", "web"]), probe=_echo_probe())()
 
     names = [r.name for r in results]
-    assert names == ["docker_available", "container_telemetry_store", "container_web"]
+    assert names == ["docker_available", "container_postgresql", "container_web"]
     assert results[0].status is Status.OK
     assert "Docker version 27.0.0" in results[0].message
     assert all(r.category == "containers" for r in results)
@@ -124,12 +124,12 @@ async def test_probe_receives_expected_spec(repo: Path, monkeypatch: pytest.Monk
     _record(repo)
     _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
     captured: list[dict] = []
-    await containers(_config(repo, ["telemetry_store"]), probe=_echo_probe(captured))()
+    await containers(_config(repo, ["postgresql"]), probe=_echo_probe(captured))()
 
     assert captured == [
         {
-            "container": "telemetry_store",
-            "name": "container_telemetry_store",
+            "container": "postgresql",
+            "name": "container_postgresql",
             "category": "containers",
         }
     ]

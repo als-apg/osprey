@@ -137,15 +137,40 @@ Shortened answers
 
 An answer longer than the bridge's ``HISTORY_ANSWER_LIMIT`` (3000 characters by
 default) is sent as its opening and a note naming its run. The agent reads the
-whole answer with ``prior_answer_read``. The bridge's own copy keeps every
-answer in full. Against a dispatcher or worker that does not advertise
-``prior_answers``, every answer is sent in full.
+whole answer with ``prior_answer_read``. The agent record keeps every answer
+in full, once, in the run that gave it. Against a dispatcher or worker that
+does not advertise ``prior_answers``, every answer is sent in full.
 
 ``prior_answer_runs``
 =====================
 
 Present only when an answer was shortened: the run ids of those turns. The
 worker lets ``prior_answer_read`` read those runs and no others.
+
+``conversation_record``
+=======================
+
+Present only when this conversation's history is missing from the payload, and
+says why. The bridge reads ``conversation_so_far`` back from the agent record;
+when that read does not come back whole, the bridge sends no history at all
+rather than part of it, and sets this key:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Value
+     - Meaning
+   * - ``"unavailable"``
+     - The record did not answer the read: it was unreachable or refused it.
+   * - ``"incomplete"``
+     - The record answered, but marked its answer incomplete.
+
+Absent when the history read was complete, including a conversation that has
+no earlier turns. The key tells the agent that earlier turns may exist but
+were not sent, so a question that refers back ("that plot", "the same
+channel") may have a referent it cannot see. How far back a conversation can
+be replayed at all is ``agent_record.retention_days``.
 
 ``reply_to``
 ============

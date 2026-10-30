@@ -46,6 +46,24 @@ const TRANSPORT_NOTICES = {
 /** Fallback copy for a transport failure with no recognised slug or status. */
 const TRANSPORT_FALLBACK = 'The connection to the agent failed.';
 
+/** The commands that sign the CLI in or out; the notice for them says who does that. */
+const SIGN_IN_COMMANDS = new Set(['login', 'logout']);
+
+/**
+ * The notice for a slash command the chat does not offer (`command_not_available`).
+ * The server names the command in `detail.command`; the notice repeats it as
+ * plain text, and says less when the name did not come back.
+ * @param {unknown} command
+ * @returns {string}
+ */
+function commandNotice(command) {
+  if (typeof command !== 'string' || !command) {
+    return 'This command is not available in this chat.';
+  }
+  const notice = `/${command} is not available in this chat.`;
+  return SIGN_IN_COMMANDS.has(command) ? `${notice} Your administrator sets sign-in.` : notice;
+}
+
 /**
  * What the operator may do about a refused hand-off, keyed on the endpoint's
  * `detail.error` slug. A refusal is not a transport failure: it is the other
@@ -129,7 +147,8 @@ function statusFromError(err) {
  * @returns {string}
  */
 export function transportNotice(err) {
-  const slug = /** @type {{ slug?: unknown }} */ (err ?? {}).slug;
+  const { slug, command } = /** @type {{ slug?: unknown, command?: unknown }} */ (err ?? {});
+  if (slug === 'command_not_available') return commandNotice(command);
   if (typeof slug === 'string' && slug in TRANSPORT_NOTICES_BY_SLUG) {
     return TRANSPORT_NOTICES_BY_SLUG[slug];
   }

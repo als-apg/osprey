@@ -34,6 +34,14 @@ services:
     container_name: golden-project-gchat-bridge
     command: ["python", "-m", "osprey.bridges.google_chat"]
     restart: unless-stopped
+    labels:
+      # Recreates the container when its agent-record login file changes:
+      # the file is read once, at start.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_GCHAT_BRIDGE:-}"
+    # Its agent-record login and nothing else, written by `osprey build`: the
+    # one file this service reads whole, never the bulk .env below.
+    env_file:
+      - .env.agent-record.login.gchat-bridge
     # Deliberately NO bulk .env passthrough. The project .env carries the
     # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
     # service — the one component that talks to Google's Chat and Pub/Sub APIs —
@@ -163,7 +171,16 @@ services:
       # test_gchat_bridge_state_paths_match_their_code_defaults binds the two
       # sides so neither can drift alone.
       DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
-      HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
+      # ── Agent record ────────────────────────────────────────────────────
+      # Where the record's API answers from this container's network: the
+      # compose service on the bridge network, its loopback publish from the
+      # host namespace.
+      OSPREY_AGENT_RECORD_URL: http://agent-record:8000
+      # This bridge's own spool and state directories, bound below. The image
+      # runs from /app with no project of its own and no entrypoint, so both
+      # are absolute and plain config the writer reads.
+      OSPREY_SPOOL_DIR: /app/var/spool/gchat-bridge
+      OSPREY_STATE_DIR: /app/var/state/gchat-bridge
       TZ: UTC
     volumes:
       # The service-account key, read-only. Mounted at the SAME path it carries
@@ -177,9 +194,9 @@ services:
       # enough for require_startup() to name the missing variable itself.
       - ${GCHAT_SA_KEY:-/dev/null}:${GCHAT_SA_KEY:-/dev/null}:ro
       # Bridge state, and the ONLY stateful thing this service owns: the dedup
-      # store (message_id -> run, the crash-safety ledger) and the
-      # per-conversation history store, whose DEDUP_PATH/HISTORY_PATH defaults
-      # above both sit under /data, making it the single state root. Without a
+      # store (message_id -> run, the crash-safety ledger), whose DEDUP_PATH
+      # default above sits under /data, making it the single state root.
+      # Conversation history lives in the agent record, not here. Without a
       # persisted volume every restart would lose the in-flight ledger,
       # re-answering or dropping questions that were mid-run. (There are no poll
       # offsets to persist: ingestion is a Pub/Sub subscription, and the
@@ -187,6 +204,11 @@ services:
       # bind mount) so it is namespaced per compose project and survives
       # `osprey down`.
       - gchat_bridge_data:/data
+      # Its spool and state directories, and only its own: binds the host
+      # provisions group-shared before the container starts, so agent-record
+      # can ingest and delete what this bridge appends.
+      - ./var/spool/gchat-bridge:/app/var/spool/gchat-bridge
+      - ./var/state/gchat-bridge:/app/var/state/gchat-bridge
     networks:
       - osprey-network
 

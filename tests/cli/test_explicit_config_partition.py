@@ -35,7 +35,8 @@ preset admits), the keys of the frozen root render are partitioned into:
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
     ``virtual_accelerator:`` soft IOC and its stand-in, the ``dispatch:``
-    services and panel, an ``mcp_servers:`` entry, the ``web_panels:``
+    services and panel, the ``agent_record:`` block every deployment renders
+    (defaulted when absent), an ``mcp_servers:`` entry, the ``web_panels:``
     selection, and the conventions the build registers as user-owned.
 
 The sets are pairwise disjoint and their union is the render. A key in
@@ -205,6 +206,9 @@ def _block_derived_prefixes(document: Mapping[str, Any]) -> dict[str, str]:
             prefixes[prefix] = "dispatch:"
     for name in document.get("mcp_servers") or {}:
         prefixes[f"claude_code.servers.{name}"] = "mcp_servers:"
+    # Every deployment renders its agent record from the `agent_record:`
+    # section, defaulted when the profile leaves it out.
+    prefixes["agent_record"] = "agent_record:"
     # The build names the limits database it writes in every render whose
     # config states a limits block.
     if any(".limits_checking." in f".{key}" for key in _config_leaves(document)):

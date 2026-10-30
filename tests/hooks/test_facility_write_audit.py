@@ -22,7 +22,7 @@ import yaml
 
 from osprey_connectors_tests._harness import pin_identity, write_control_context
 
-from .conftest import HOOKS_DIR
+from .conftest import HOOKS_DIR, hook_audit_records
 
 #: Two declared writes and two plain reads on one facility server. The reads
 #: are allowed, absent from ``permissions.ask`` and carry no destructive
@@ -136,10 +136,12 @@ def _decision(result):
 
 
 def _records(repo, surface):
-    path = repo / "var" / "audit" / "alice" / f"{surface}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    """Alice's hook audit entries on *surface*, from the repo's own spool.
+
+    The child is given no ``OSPREY_SPOOL_DIR``, so a hook files into
+    ``<repo>/var/spool/<identity>``, the directory a deployment's hooks use.
+    """
+    return hook_audit_records(repo / "var" / "spool" / "alice", surface)
 
 
 def _switch_on(repo, monkeypatch):

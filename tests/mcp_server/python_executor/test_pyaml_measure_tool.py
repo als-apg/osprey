@@ -176,7 +176,7 @@ def test_a_switched_off_machine_is_refused_by_the_real_clamp(tmp_path, monkeypat
     is on the simulator, whose switch is off, so the write verdict refuses before
     the render is read or the gate sequence is reached.
     """
-    from osprey.audit import posture, writer
+    from osprey.audit import posture
     from osprey.mcp_server.python_executor.tools import _execution_gates
     from osprey_connectors.refusals import refusal_text
     from osprey_connectors_tests._write_fakes import (
@@ -186,7 +186,6 @@ def test_a_switched_off_machine_is_refused_by_the_real_clamp(tmp_path, monkeypat
         turn_switch,
     )
 
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "audit")
     monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
     arm_switch(monkeypatch, tmp_path / "agent_data", ARMED_TARGET, stamp=False)
     turn_switch(ARMED_TARGET, "off")

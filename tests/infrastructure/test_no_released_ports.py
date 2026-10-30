@@ -41,7 +41,7 @@ RELEASING_HELPERS = frozenset({"free_port", "find_free_port"})
 #: sorted, each with its number of sites.
 REMAINING_SITES: dict[str, int] = {
     "src/osprey/interfaces/_serving.py": 1,
-    "tests/cli/test_web_cmd.py": 43,
+    "tests/cli/test_web_cmd.py": 42,
     "tests/cli/test_web_session_lifetime.py": 9,
     "tests/connectors/test_epics_ca_softioc.py": 1,
     "tests/e2e/_dispatch_harness.py": 2,

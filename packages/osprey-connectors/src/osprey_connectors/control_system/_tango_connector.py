@@ -587,7 +587,7 @@ class TangoConnector(ControlSystemConnector):
             unit = ""
         metadata.units = unit
         metadata.description = getattr(info, "description", None) or None
-        if metadata.description in ("No description",):
+        if metadata.description == "No description":
             metadata.description = None
         raw = metadata.raw_metadata or {}
         raw.update(

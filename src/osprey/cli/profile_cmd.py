@@ -1382,7 +1382,6 @@ def _layer_profile_texts(
     dispatch_tier = resolved.dispatch.tier if resolved.dispatch is not None else None
     tiers, apps = _roster_layers(resolved.config, dispatch_tier)
     texts: dict[str, str] = {}
-    problems: list[str] = []
     # What each layer can edit, recorded BOTH ways, because the two rules in
     # `_privileged_tier_problems` read two different answers: relative to
     # the host for the inherited `default_tier`, absolute for a shared card.
@@ -1390,11 +1389,11 @@ def _layer_profile_texts(
     host_privileges = tier_privileges(resolved.config)
     privileges: dict[str, tuple[str, ...]] = {}
     absolute: dict[str, tuple[str, ...]] = {}
-    for name in sorted(set(tiers) & set(apps)):
-        problems.append(
-            f"{name!r} is both a tier the roster names and an app in shared:, but a "
-            f"card renders from one file — rename one of them"
-        )
+    problems: list[str] = [
+        f"{name!r} is both a tier the roster names and an app in shared:, but a "
+        f"card renders from one file — rename one of them"
+        for name in sorted(set(tiers) & set(apps))
+    ]
     for dirname, word, names, bundled in (
         (TIERS_DIRNAME, LAYER_DIR_KINDS[TIERS_DIRNAME], tiers, list_tiers()),
         (APPS_DIRNAME, LAYER_DIR_KINDS[APPS_DIRNAME], apps, list_apps()),

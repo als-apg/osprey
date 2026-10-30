@@ -312,7 +312,7 @@ class ExecutionWrapper:
         cleanup_and_export = self._get_cleanup_and_export()
 
         # Assemble complete wrapper
-        wrapped_code = "\n".join(
+        return "\n".join(
             [
                 imports,
                 environment_setup,
@@ -330,8 +330,6 @@ class ExecutionWrapper:
                 cleanup_and_export,
             ]
         )
-
-        return wrapped_code
 
     def _get_imports(self) -> str:
         """Get standard imports."""

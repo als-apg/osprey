@@ -373,6 +373,33 @@ class HermeticHub(NamedTuple):
     session_dir: Path
 
 
+class _TranscriptRecord:
+    """The hub's agent record, served from the session transcripts in one directory.
+
+    The hub reads a session's conversation from the agent record. This record
+    answers a session's timeline with what the agent record's own transcript
+    parser and timeline builder make of ``<session_dir>/<session_id>.jsonl``,
+    so the Simple chat replays the seeded session exactly as a deployed record
+    would serve it, without a record service.
+    """
+
+    def __init__(self, session_dir: Path) -> None:
+        self._session_dir = session_dir
+
+    def timeline(self, session_id: str, **_kwargs):
+        from osprey.agent_record.client import ClientAnswer
+        from osprey.interfaces.web_terminal.routes.session import _transcript_nodes
+
+        path = self._session_dir / f"{session_id}.jsonl"
+        nodes = _transcript_nodes(path) if path.is_file() else []
+        return ClientAnswer(data=nodes, complete=True)
+
+    def agent_timeline(self, *_args, **_kwargs):
+        from osprey.agent_record.client import ClientAnswer
+
+        return ClientAnswer(data=[], complete=True)
+
+
 def _replay_shell_command(transcript_path: Path) -> list[str]:
     """Shell argv that paints the canned transcript into the PTY, then idles.
 
@@ -404,8 +431,10 @@ def hermetic_hub() -> Iterator[HermeticHub]:
     the visual-regression harness uses (``_load_web_config`` → the seeded
     watch_dir, ``_load_panel_config`` → artifacts-only, ``_launch_panel_server``
     → the already-running backend URL), so no extra server is spawned and no live
-    agent is involved. On exit both servers stop and both the project directory
-    and its ``~/.claude/projects/<encoded>/`` session directory are removed.
+    agent is involved. Its session reads go to a :class:`_TranscriptRecord` over
+    the session directory, so no record service runs either. On exit both
+    servers stop and both the project directory and its
+    ``~/.claude/projects/<encoded>/`` session directory are removed.
     """
     from osprey.cli.project_utils import encode_claude_project_path
     from osprey.interfaces._serving import run_app_server
@@ -454,6 +483,13 @@ def hermetic_hub() -> Iterator[HermeticHub]:
                     side_effect=lambda a, key: setattr(
                         a.state, panel_url_state_attr(key), artifact_url
                     ),
+                )
+            )
+
+            stack.enter_context(
+                mock.patch(
+                    "osprey.interfaces.web_terminal.routes.session.record_client",
+                    new=lambda record=_TranscriptRecord(session_dir): record,
                 )
             )
 
@@ -936,12 +972,14 @@ def _accent_override_css(theme: str, accent: str) -> str:
         f"  --color-on-accent: {spec['on']};",
         f"  --border-accent: rgba({r}, {g}, {b}, {_THEME_BORDER_ALPHA[theme]});",
     ]
-    for suffix in _ACCENT_TINT_SUFFIXES:
-        lines.append(f"  --accent-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});")
-    for suffix in _ACCENT_SYSTEM_TINT_SUFFIXES:
-        lines.append(
-            f"  --wt-accent-system-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
-        )
+    lines.extend(
+        f"  --accent-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
+        for suffix in _ACCENT_TINT_SUFFIXES
+    )
+    lines.extend(
+        f"  --wt-accent-system-tint-{suffix}: rgba({r}, {g}, {b}, {int(suffix) / 100:.2f});"
+        for suffix in _ACCENT_SYSTEM_TINT_SUFFIXES
+    )
     body = "\n".join(lines)
     return f':root[data-theme="{theme}"] {{\n{body}\n}}'
 

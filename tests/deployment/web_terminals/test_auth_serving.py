@@ -96,6 +96,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
+from osprey.agent_record.credentials import ensure_agent_record_credentials
 from osprey.deployment.web_terminals.artifacts import (
     proxy_env_names_with_a_value,
     web_artifacts_dir,
@@ -706,6 +707,15 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     # treats a missing include as a hard startup failure, so the container never
     # becomes ready until these exist and are handed to it (below).
     ensure_terminal_secrets(deployment_root, _USERS)
+    # The history page's gate secret, which a signed-in deployment serves and
+    # nginx reads from its own env file: minted by the preflight function too.
+    # Every config this module renders signs people in, so one call covers all.
+    # The grants follow the roster and the sign-in method; the config only
+    # needs some nginx port, reserved for the call and never bound.
+    with reserved_port() as unbound_port:
+        ensure_agent_record_credentials(
+            deployment_root, _config(unbound_port, oidc_issuer=None), reader_keys=False
+        )
     env_local = parse_dotenv_file(deployment_root / ENV_LOCAL_FILENAME)
     terminal_secrets = {user: env_local[terminal_secret_var(user)] for user in _USERS}
 
@@ -892,6 +902,10 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
         # does it here (the minted secrets are in that chain), so the
         # entrypoint envsubsts each snippet with the real secret.
         nginx_env = _resolved_env_flags(nginx_service, chain_env)
+        # And its `env_file:` entries, read from the deployment root they are
+        # relative to, as compose reads them: the history page's gate secret.
+        for env_file in nginx_service.get("env_file") or []:
+            nginx_env += ["--env-file", str(deployment_root / env_file)]
 
         # The envsubst output directory (NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/osprey)
         # must exist and be writable before the base image's entrypoint runs, or

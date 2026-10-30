@@ -45,6 +45,7 @@ import yaml
 
 from tests.e2e._deploy_support import drain_output
 from tests.e2e._dispatch_harness import build_repo, running_dispatch_stack
+from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
@@ -110,7 +111,14 @@ def _write_local_triggers(dst: Path, worker_port: int) -> None:
 
 
 @pytest.fixture
-def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
+def agent_record(built_repo: Path, tmp_path: Path) -> Iterator[WorkerRecord]:
+    """The record the worker records its runs in and reads them back from."""
+    with worker_record(tmp_path / "agent_record", built_repo) as record:
+        yield record
+
+
+@pytest.fixture
+def dispatch_stack(built_repo: Path, agent_record: WorkerRecord, tmp_path: Path) -> Iterator[dict]:
     """Start a real worker + dispatcher as subprocesses; tear them down after."""
     with running_dispatch_stack(
         built_repo,
@@ -118,6 +126,9 @@ def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
         _write_local_triggers,
         token=TOKEN,
         health_timeout=HEALTH_TIMEOUT_SEC,
+        # A run that is no longer in flight is read back from the record, as
+        # the deployed worker reads it from the stack's.
+        worker_env=agent_record.worker_env(),
     ) as stack:
         yield stack
 

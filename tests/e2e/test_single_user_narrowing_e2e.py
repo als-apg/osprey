@@ -79,7 +79,6 @@ from osprey.deployment.compose_generator import (
     control_target_identity_dir,
     resolve_project_name,
 )
-from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
@@ -132,8 +131,6 @@ WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 #: that may write. A tiered worker runs that tier's image, rooted at
 #: ``/app/<project_name>-<tier>`` — with no web terminal beside it.
 WORKER_TIER = "readwrite"
-WORKER_PROJECT, _ = render_project(PROJECT_NAME, WORKER_TIER)
-WORKER_AGENT_DATA = f"/app/{WORKER_PROJECT}/var/agent_data"
 
 # The single-user shape, stated as one leaf: no roster, so no nginx, no
 # per-user container, and no identity but the build account's own. Dotted LEAF
@@ -710,25 +707,71 @@ def _wait_for_terminal_run(trigger: str, timeout: float = RUN_TIMEOUT_SEC) -> di
     )
 
 
-def _persisted_run_record(run_id: str) -> dict:
-    """The worker's own record of a run — the one artifact carrying tool results.
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED
-    lives only in ``<agent_data>/dispatch/<run_id>.json``. These rows assert on
-    the tool's answer, so they read it there rather than trusting the agent's
-    prose summary of it.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _persisted_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    These rows assert on the tool's answer, so they read it there rather than
+    trusting the agent's prose summary of it.
     """
-    record = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json"],
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    assert record.returncode == 0, (
-        f"could not read the persisted record for run {run_id}: "
-        f"{(record.stderr or record.stdout).strip()}"
+    assert proc.returncode == 0, (
+        f"could not read run {run_id} from the agent record: {(proc.stderr or proc.stdout).strip()}"
     )
-    return json.loads(record.stdout)
+    recorded = json.loads(proc.stdout)
+    assert recorded["complete"], (
+        f"the record's timeline of run {run_id} is not complete: {recorded}"
+    )
+    return recorded
 
 
 def _tool_answers(record: dict, tool_suffix: str) -> list[str]:
@@ -749,7 +792,7 @@ def _run_evidence(trigger: str, run: dict, record: dict | None = None) -> str:
         lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
     if record is not None:
         lines.append(
-            f"persisted tool_calls:\n{json.dumps(record.get('tool_calls'), indent=2)[:_EVIDENCE_CAP]}"
+            f"recorded tool_calls:\n{json.dumps(record.get('tool_calls'), indent=2)[:_EVIDENCE_CAP]}"
         )
     lines.append(
         f"--- {WORKER_CONTAINER} (last 200 log lines) ---\n"

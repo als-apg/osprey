@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_record.credentials import ensure_agent_record_credentials
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.deployment import compose_generator, reset, status_display
 from osprey.deployment.compose_generator import (
@@ -128,7 +129,8 @@ def test_every_rendered_service_gets_the_four_generated_labels(
 
     services = _override(tmp_path)["services"]
 
-    assert list(services) == ["postgresql", "site-probe"]
+    # agent-record is rendered for every deployment, after the named services.
+    assert list(services) == ["postgresql", "site-probe", "agent-record"]
     for entry in services.values():
         assert entry == {"labels": _expected_labels(tmp_path)}
 
@@ -161,15 +163,18 @@ def test_two_renders_write_identical_bytes(tmp_path: Path, monkeypatch: pytest.M
     assert (tmp_path / "build" / LABELS_OVERRIDE_FILENAME).read_bytes() == first
 
 
-def test_a_render_with_no_services_removes_the_previous_override(
+def test_a_render_with_no_services_rewrites_the_override_for_agent_record_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """There is no empty stack: agent-record is rendered for every deployment."""
     _render(tmp_path, monkeypatch)
     assert (tmp_path / "build" / LABELS_OVERRIDE_FILENAME).is_file()
 
     _render(tmp_path, monkeypatch, deployed_services=[])
 
-    assert not (tmp_path / "build" / LABELS_OVERRIDE_FILENAME).exists()
+    services = _override(tmp_path)["services"]
+    assert list(services) == ["agent-record"]
+    assert services["agent-record"] == {"labels": _expected_labels(tmp_path)}
 
 
 def test_a_container_labelled_only_by_the_override_is_this_checkouts(
@@ -213,7 +218,8 @@ def test_the_docker_argv_passes_the_override_after_the_rendered_files(
         "--env-file",
         str(tmp_path / COMPOSE_ENV_FILENAME),
     ]
-    assert files[-1].endswith("site-probe/docker-compose.yml")
+    assert files[-1].endswith("agent_record/docker-compose.yml")
+    assert any(f.endswith("site-probe/docker-compose.yml") for f in files)
     assert _f_entries(argv) == [*files, override]
 
 
@@ -317,6 +323,8 @@ def test_docker_compose_config_shows_the_four_labels_on_every_service(
         pytest.skip(f"{missing}: docker compose config cannot run")
     files = _render(tmp_path, monkeypatch)
     config = yaml.safe_load((tmp_path / "config.yml").read_text(encoding="utf-8"))
+    # agent-record's compose service names its credential file; a build mints it.
+    ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
     env = runtime_env(config, dict(os.environ))
 
     argv = compose_base_cmd(["docker", "compose"], files, tmp_path)
@@ -332,7 +340,7 @@ def test_docker_compose_config_shows_the_four_labels_on_every_service(
     assert result.returncode == 0, result.stderr
     services = json.loads(result.stdout)["services"]
     expected = {**_expected_labels(tmp_path), CONFIG_DIGEST_LABEL: env[CONFIG_DIGEST_VAR]}
-    assert set(services) == {"postgresql", "site-probe"}
+    assert set(services) == {"postgresql", "site-probe", "agent-record"}
     for name, service in services.items():
         for key, value in expected.items():
             assert service["labels"][key] == value, (name, key)

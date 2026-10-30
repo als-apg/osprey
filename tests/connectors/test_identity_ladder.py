@@ -7,7 +7,7 @@ Restating is the only option available to them, so the cost of restating has to
 be paid somewhere, and it is paid here.
 
 What drift would cost is worth being concrete about. The identity chooses a
-directory: ``var/audit/<identity>/`` for the ledger, and the per-identity
+directory: ``var/spool/<identity>/`` for the record's spool, and the per-identity
 control-state directory for the narrowing a write is checked against. A hook
 that resolved one rung differently from the writer would read a narrowing
 somebody else published, or read none where one applies, and would do it

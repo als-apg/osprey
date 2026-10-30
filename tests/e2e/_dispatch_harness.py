@@ -106,6 +106,7 @@ def start_worker(
     token: str,
     health_timeout: float,
     run_cap_sec: int | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.Popen:
     """Start the dispatch worker on ``port`` and wait for its ``/health``.
 
@@ -113,9 +114,11 @@ def start_worker(
     dispatch_worker compose template wires the deployed worker. ``run_cap_sec`` is
     the worker's own per-run wall-clock cap (``DISPATCH_TIMEOUT_SEC``); a bridge
     lane sets it from the same constant it gives the bridge, so the bridge's
-    poll-budget floor is validated against the right number.
+    poll-budget floor is validated against the right number. ``env`` adds to the
+    worker's environment: the agent record it records its runs in
+    (:meth:`tests.e2e._worker_record.WorkerRecord.worker_env`).
     """
-    env = {
+    worker_env = {
         **os.environ,
         "DISPATCH_WORKER_PORT": str(port),
         "DISPATCH_WORKER_TOKEN": token,
@@ -124,11 +127,12 @@ def start_worker(
         "CLAUDECODE": "",
     }
     if run_cap_sec is not None:
-        env["DISPATCH_TIMEOUT_SEC"] = str(run_cap_sec)
+        worker_env["DISPATCH_TIMEOUT_SEC"] = str(run_cap_sec)
+    worker_env.update(env or {})
     proc = subprocess.Popen(  # fixed argv, no shell
         [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
         cwd=str(repo),
-        env=env,
+        env=worker_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
@@ -149,12 +153,14 @@ def running_dispatch_stack(
     token: str,
     health_timeout: float,
     run_cap_sec: int | None = None,
+    worker_env: Mapping[str, str] | None = None,
 ) -> Iterator[dict]:
     """A real worker + dispatcher pair on free ports, torn down on the way out.
 
     ``write_triggers(triggers_path, worker_port)`` writes the triggers document the
-    dispatcher runs, once the worker's port is known. Yields the two base URLs, the
-    repo and the worker process (whose output a failure message may want).
+    dispatcher runs, once the worker's port is known. ``worker_env`` adds to the
+    worker's environment, as :func:`start_worker`'s ``env``. Yields the two base
+    URLs, the repo and the worker process (whose output a failure message may want).
     """
     worker_port = free_port()
     dispatcher_port = free_port()
@@ -169,6 +175,7 @@ def running_dispatch_stack(
             token=token,
             health_timeout=health_timeout,
             run_cap_sec=run_cap_sec,
+            env=worker_env,
         )
         dispatcher_env = {
             **os.environ,

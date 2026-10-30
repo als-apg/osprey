@@ -125,6 +125,11 @@
   "conclusion": "success"
  },
  {
+  "name": "Host Record E2E (host sessions record without a container; the stack takes the record over)",
+  "status": "completed",
+  "conclusion": "success"
+ },
+ {
   "name": "Tier 1 — Build + MCP boot (hello-world)",
   "status": "completed",
   "conclusion": "success"

@@ -1,8 +1,8 @@
 # hello-world.yml
 # The onboarding preset: the smallest agent that still shows the whole
 # write-safety chain. The simulator, served in this process, eleven hooks, and
-# two containers (the telemetry store and its gateway), so `osprey init` → `osprey build` →
-# `osprey web` is the entire first session.
+# no containers, so `osprey init` → `osprey build` → `osprey web` is the entire
+# first session.
 #
 # `osprey init my-agent --preset hello-world` writes this out as
 # my-agent/profile.yml, at the root of a repo you own. Edit it there; the
@@ -108,6 +108,12 @@ mcp_servers:
   #     permissions:
   #       allow: [get_twiss]
 
+# ── Agent record ─────────────────────────────────────────────────────────────
+# Every prompt, answer, tool call and decision, kept once, for 14 days.
+# `embedded` keeps it in a local process beside the agent: no container.
+agent_record:
+  backend: embedded
+
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
 # replace the whole subtree and silently drop the keys beside it.
@@ -194,9 +200,9 @@ config:
   approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # Off here. On, every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # Off here. On, every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on; the Safety panel's toggle writes it back.
   hooks.debug: false
 
@@ -212,53 +218,12 @@ config:
   claude_code.agents.logbook-search.enabled: false
   claude_code.agents.logbook-deep-research.enabled: false
 
-  # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs and metrics to the telemetry gateway this
-  # deployment runs, which stamps each record with its sender and writes it to
-  # the telemetry store (see `services.telemetry_store.*` below). On by default: the
-  # harness already records every prompt and API body to disk, so this adds no
-  # exposure, only a queryable local store you own.
-  claude_code.telemetry.enabled: true
-  # gateway | generic
-  claude_code.telemetry.backend: gateway
-  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
-  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
-  claude_code.telemetry.protocol: http/protobuf
-  # No endpoint key: with backend gateway it is derived per network context.
-  # No credential key either: every sender logs in to the gateway with a
-  # login `osprey build` mints into a file of its own, outside the .env chain.
-  # Content gates, all on: the store is local and loopback-bound. Set any to
-  # false to keep that category out of the emitted telemetry.
-  claude_code.telemetry.log_user_prompts: true
-  claude_code.telemetry.log_assistant_responses: true
-  claude_code.telemetry.log_tool_details: true
-  # Raw provider request and response bodies.
-  claude_code.telemetry.log_raw_api_bodies: true
-
   # ── Services ───────────────────────────────────────────────────────────────
-  # Containerized companion services, the one part of this project that needs
-  # Docker or podman. Everything else runs container-free. This preset deploys
-  # exactly two: the telemetry store and the gateway that feeds it.
-  #
-  # Compose directories the build writes for the two, under build/.
-  services.telemetry_store.path: ./services/telemetry_store
-  services.telemetry_gateway.path: ./services/telemetry_gateway
-  # Growth bound: the store drops rows older than N days. A named volume has no
-  # size cap, so age is the size knob.
-  services.telemetry_store.retention_days: 14
-  # Who may query the store with SQL: this preset has no roster, so the reader is the operator.
-  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
-  # (0600) and prints the file and the query page, never the key. Delete the
-  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
-  services.telemetry_store.readers:
-    - name: operator
-  # Which declared services `osprey up` launches. No host ports are written
-  # here: each service publishes on its fixed slot above `deployment.port_base`
-  # (set that key to move the whole block). Add `services.telemetry_gateway.port: <n>`
-  # only to pin one outside it.
-  deployed_services:
-    - telemetry_store
-    - telemetry_gateway
+  # Containerized companion services, the one part of a project that needs
+  # Docker or podman. This preset deploys none, so it runs container-free.
+  # Declare one as `services.<name>.*` and name it here to launch it with
+  # `osprey up`. Each publishes on its fixed slot above `deployment.port_base`.
+  deployed_services: []
   # Host interface the services publish on. 127.0.0.1 keeps every port
   # loopback-only, the safe state; 0.0.0.0 exposes them to the network.
   # deployment.bind_address: 127.0.0.1

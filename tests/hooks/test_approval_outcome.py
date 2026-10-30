@@ -24,6 +24,7 @@ from osprey_connectors_tests._harness import (
     state_dir_under,
     write_control_context,
 )
+from tests.hooks.conftest import hook_audit_records
 
 HOOK = "osprey_approval.py"
 CHANNEL_WRITE = "mcp__controls__channel_write"
@@ -80,13 +81,7 @@ def deployment(tmp_path, monkeypatch, make_config):
 
         @staticmethod
         def ledger() -> list[dict]:
-            paths = list(Path(tmp_path).rglob("hook_approval.jsonl"))
-            records: list[dict] = []
-            for path in paths:
-                records.extend(
-                    json.loads(line) for line in path.read_text().splitlines() if line.strip()
-                )
-            return records
+            return hook_audit_records(tmp_path, "hook_approval")
 
         @staticmethod
         def ask_stamps() -> list[Path]:

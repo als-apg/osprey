@@ -10,6 +10,7 @@ import logging
 import os
 import socket
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -29,6 +30,7 @@ from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_terminal import panel_cap
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
+from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -262,6 +264,33 @@ def _workspace_has_artifacts(base: Path | None) -> bool:
     return False
 
 
+def _loopback_backend_ports(request: Request, panel_ids: Iterable[str]) -> dict[str, int]:
+    """The port of each panel whose backend is this host's loopback, served at its root.
+
+    The agent's tools name a backend by its loopback address (the artifact
+    gallery's ``gallery_url``), and an agent answer may repeat it. That address
+    is dead in a browser on another machine, so the Simple view maps a loopback
+    link on one of these ports to the panel instead. Only the port leaves the
+    server: a backend that is not a loopback literal, or that serves under a
+    path or query (so a link path would not map 1:1 onto ``/panel/<id>/...``),
+    is left out, and its links keep opening in a new tab.
+    """
+    ports: dict[str, int] = {}
+    for panel_id in panel_ids:
+        url = _resolve_panel_url(request, panel_id)
+        if not url or not _backend_is_loopback(url):
+            continue
+        parsed = urlparse(url)
+        if parsed.path not in ("", "/") or parsed.query:
+            continue
+        try:
+            port = parsed.port
+        except ValueError:
+            continue
+        ports[panel_id] = port or (443 if parsed.scheme == "https" else 80)
+    return ports
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -293,6 +322,7 @@ async def get_panels(request: Request):
             "feedback_email": str,      # recipient of the prefilled mailto: draft
             "feedback_deployment": {...},  # identity lines for a report's metadata
             "feedback_escalation_url": str,  # prefilled upstream issue; "" upstream
+            "loopback_ports": {id: int},  # backend port of each loopback-hosted panel
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -368,9 +398,11 @@ async def get_panels(request: Request):
     the outbound channels the feedback dialog offers (one prefilled new-issue
     link per configured tracker — ``web.feedback.trackers`` plus the
     ``web.feedback.github_repo`` sugar, already merged server-side — and a
-    prefilled ``mailto:`` draft). The store ceiling
-    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
-    server-side pruning and nothing in the browser acts on it.
+    prefilled ``mailto:`` draft).
+
+    ``loopback_ports`` maps a panel id to its backend's port, for each panel
+    whose backend is a loopback literal served at its root (see
+    :func:`_loopback_backend_ports`). Nothing else about a backend is exposed.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -495,6 +527,9 @@ async def get_panels(request: Request):
             str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
         ),
         "tour": tour,
+        "loopback_ports": _loopback_backend_ports(
+            request, [*enabled, *(cp["id"] for cp in custom if cp.get("id"))]
+        ),
     }
 
 
@@ -1653,8 +1688,7 @@ async def get_mcp_servers(request: Request):
         return []
 
     try:
-        servers = await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
-        return servers
+        return await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
     except Exception:
         logger.warning("mcp-servers: introspection failed", exc_info=True)
         return []

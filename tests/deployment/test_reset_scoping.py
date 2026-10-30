@@ -843,10 +843,14 @@ def test_purge_audit_is_gated_by_the_same_typed_confirmation(repo, monkeypatch):
 
 def test_purge_audit_does_not_claim_the_audit_log_is_kept(repo):
     """The kept section must not still advertise something now on the removal list."""
+    plain = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    plain_kept = "\n".join(plain.render()).split("WILL BE KEPT", 1)[1]
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()), purge_audit=True)
     kept = "\n".join(plan.render()).split("WILL BE KEPT", 1)[1]
 
-    assert "the safety audit log — what the agent was asked" not in kept
+    line = "the audit files written before the agent record"
+    assert line in plain_kept
+    assert line not in kept
 
 
 # ---------------------------------------------------------------------------

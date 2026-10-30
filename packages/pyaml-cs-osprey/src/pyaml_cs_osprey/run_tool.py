@@ -250,19 +250,22 @@ def run_tool(
         outermost = not state.levels
         state.levels.append(level)
         try:
-            with lock(None, join=True) as directory, _run.opened(directory.name):
-                with _sigint_installed(state, outermost):
-                    try:
-                        return _run_level(tool_method, args, kwargs, callback, level)
-                    except BaseException as exc:
-                        aborted = _run.abort_requested()
-                        moved = _run.moved()
-                        if isinstance(exc, KeyboardInterrupt) and level.stopped and not aborted:
-                            return ToolRun(completed=False, moved=moved)
-                        # Bypasses a class __setattr__: every BaseException has a
-                        # __dict__, so the record always rides the escape.
-                        object.__setattr__(exc, "moved_setpoints", moved)
-                        raise
+            with (
+                lock(None, join=True) as directory,
+                _run.opened(directory.name),
+                _sigint_installed(state, outermost),
+            ):
+                try:
+                    return _run_level(tool_method, args, kwargs, callback, level)
+                except BaseException as exc:
+                    aborted = _run.abort_requested()
+                    moved = _run.moved()
+                    if isinstance(exc, KeyboardInterrupt) and level.stopped and not aborted:
+                        return ToolRun(completed=False, moved=moved)
+                    # Bypasses a class __setattr__: every BaseException has a
+                    # __dict__, so the record always rides the escape.
+                    object.__setattr__(exc, "moved_setpoints", moved)
+                    raise
         finally:
             state.levels.remove(level)
 

@@ -209,8 +209,11 @@ class TestPollLeavesCaptionsToTheCatchup:
         elapsed = time.monotonic() - started
 
         assert result.entries_added == 1
-        assert elapsed < 1.0
+        # The model was never called, and a poll that waited on it would take
+        # its full ten seconds. The bound only has to tell those apart: the poll
+        # does real work against Postgres, which took 1.6 s on a loaded runner.
         assert fake.calls == 0
+        assert elapsed < 5.0
         rows = (await repo.get_attachment_rows(["poll-1"]))["poll-1"]
         assert [r["copy_status"] for r in rows] == ["copied"]
         assert _captioned(scratch_database, "poll-1") == set()
