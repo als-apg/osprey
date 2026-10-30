@@ -1022,7 +1022,7 @@ def _is_thread_id(pid: int) -> bool:
                 if line.startswith(b"Tgid:"):
                     return int(line.split()[1]) != pid
     except (OSError, ValueError, IndexError):
-        pass
+        return False  # no /proc, or one that does not read like Linux's: no claim either way
     return False
 
 
@@ -1054,7 +1054,7 @@ def is_process_alive(pid: object) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
-        pass
+        pass  # another user's process still exists; the thread check below applies to it too
     except OSError:  # pragma: no cover - platform oddity; assume alive
         return True
     return not _is_thread_id(pid)
