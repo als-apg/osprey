@@ -1,15 +1,14 @@
 /* OSPREY Web Terminal — the Undo notice (js/undo-notice.js)
 
-   One line at the foot of the page, centred above the status bar (whose
-   height bars.css zeroes while the bar is hidden), that says
-   what a one-click removal did and offers it back. Above every dropdown and
+   One line centred at the foot of the page that says what a one-click
+   removal did and offers it back. Above every dropdown and
    modal (--z-toast): the removal that produced it usually closed a menu on the
    way, and the notice must not land under whatever opened next. */
 
 .undo-notice {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--wt-status-bar-height, 0px) + 12px);
+  bottom: 12px;
   z-index: var(--z-toast);
   display: flex;
   align-items: center;

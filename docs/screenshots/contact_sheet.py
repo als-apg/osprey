@@ -24,8 +24,7 @@ trace and an orbit-response summary — not a generic demo.
 artifacts backend serving the seeded store, and the real web-terminal hub wired
 to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
-entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards and
-the :data:`STAGED_VARIANTS` cards, each driven into a named UI state first),
+entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards),
 then boots every supported subpanel's real app
 (:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
 Bluesky scan panel) and captures each in the full dark/light ×
@@ -544,16 +543,12 @@ _FULL_MATRIX_ORDERED: list[tuple[str, str]] = [
     ("light", "simple"),
 ]
 
-#: Transition-showcase captures beyond the base matrix, as (theme, mode, rail)
-#: rows: the horizontal (pre-redesign-arrangement) rail, and the retro theme
-#: family — the flat shell wearing the old palette, and the full retro look
-#: (palette + top rail). Hub-only; the base 2×2 and the per-panel sections are
-#: untouched.
-EXTRA_VARIANTS: list[tuple[str, str | None, str | None]] = [
-    ("dark", "expert", "top"),
-    ("retro-dark", "expert", None),
-    ("retro-dark", "expert", "top"),
-    ("retro-light", "expert", None),
+#: Transition-showcase captures beyond the base matrix, as (theme, mode) rows:
+#: the retro theme family, the sidebar shell wearing the old palette. Hub-only;
+#: the base 2×2 and the per-panel sections are untouched.
+EXTRA_VARIANTS: list[tuple[str, str | None]] = [
+    ("retro-dark", "expert"),
+    ("retro-light", "expert"),
 ]
 
 
@@ -564,44 +559,10 @@ class Stage(NamedTuple):
     run: Callable[[Page], None]
 
 
-def open_customize_sheet(page: Page) -> None:
-    """Open the bars' Customize sheet the way an operator does.
-
-    Right-clicking the header bar is the entry point with no prerequisites: the
-    display-menu row needs its popover open and the palette action needs the
-    palette open. The wait is for a hydrated shell first, because the bar
-    modules arm the right-click only once they have booted.
-
-    The sheet focuses its first tile on open so a keyboard lands in it. The
-    docs show the sheet as a pointer user sees it, so the focus is dropped
-    before the shot.
-    """
-    page.wait_for_selector(
-        '[data-bar-host="header"] .bar-item[data-bar-key]', timeout=_NAV_TIMEOUT_MS
-    )
-    page.locator('[data-bar-host="header"]').click(button="right", position={"x": 4, "y": 4})
-    page.locator('.bar-context-menu [data-bar-action="customize"]').click(timeout=_NAV_TIMEOUT_MS)
-    page.locator(".bar-sheet.is-open").wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
-    page.evaluate("() => document.activeElement?.blur()")
-    page.wait_for_function(
-        "() => !document.querySelector('.bar-sheet :focus')", timeout=_NAV_TIMEOUT_MS
-    )
-
-
 #: A named UI state a capture drives the page into after boot and before the
 #: shot. The doc-screenshot registry (``docs/screenshots/recipes.py``) names
 #: these keys.
-STAGES: dict[str, Stage] = {
-    "customize_sheet": Stage("Customize bars open", open_customize_sheet),
-}
-
-#: Hub cards captured with a stage applied, as (theme, mode, stage) rows. They
-#: follow :data:`EXTRA_VARIANTS` and sit outside :data:`_FULL_MATRIX`, so the
-#: base 2×2 completeness check is untouched.
-STAGED_VARIANTS: list[tuple[str, str, str]] = [
-    ("dark", "expert", "customize_sheet"),
-    ("light", "expert", "customize_sheet"),
-]
+STAGES: dict[str, Stage] = {}
 
 
 class CapturedVariant(NamedTuple):
@@ -615,12 +576,6 @@ class CapturedVariant(NamedTuple):
     #: shell (the original sheet), or a :data:`PANEL_SURFACES` id for one of
     #: the per-subpanel 2×2 sections.
     surface: str = "hub"
-    #: Rail position for the :data:`EXTRA_VARIANTS` showcase cards (``"top"``),
-    #: or ``None`` for the default left rail.
-    rail: str | None = None
-    #: The :data:`STAGES` key the page was driven into before the shot, or
-    #: ``None`` for the shell as it boots.
-    stage: str | None = None
 
 
 _TERMINAL_VIEWPORT = {"width": 1280, "height": 800}
@@ -639,33 +594,21 @@ _PLOT_DRAWN_MS = 30_000  # Plotly.js draws in the preview frame; the shot requir
 _PLOT_DRAWN_SELECTOR = ".js-plotly-plot .scatterlayer .trace path.js-line"
 
 
-def _variant_filename(
-    theme: str,
-    mode: str | None,
-    accent: str | None = None,
-    rail: str | None = None,
-    stage: str | None = None,
-) -> str:
-    """Output PNG name for one variant (mode/accent/rail/stage suffixes only when set)."""
+def _variant_filename(theme: str, mode: str | None, accent: str | None = None) -> str:
+    """Output PNG name for one variant (mode/accent suffixes only when set)."""
     stem = f"web_terminal_{theme}"
     if mode is not None:
         stem += f"_{mode}"
     if accent is not None:
         stem += f"_{accent}"
-    if rail is not None:
-        stem += f"_rail-{rail}"
-    if stage is not None:
-        stem += f"_{stage}"
     return f"{stem}.png"
 
 
-def _variant_url(base_url: str, theme: str, mode: str | None, rail: str | None = None) -> str:
-    """Hub URL carrying ``?theme=`` and, when set, ``&mode=`` / ``&rail=``."""
+def _variant_url(base_url: str, theme: str, mode: str | None) -> str:
+    """Hub URL carrying ``?theme=`` and, when set, ``&mode=``."""
     url = f"{base_url}/?theme={theme}"
     if mode is not None:
         url += f"&mode={mode}"
-    if rail is not None:
-        url += f"&rail={rail}"
     return url
 
 
@@ -759,36 +702,22 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
         ) from exc
 
 
-def _plot_row_selector(mode: str | None) -> str:
-    """CSS for the demo plot's list row in the artifacts panel, scoped by mode.
+#: The demo plot's row in the hub sidebar's artifact list. The shell owns the
+#: list in both views, and a row click shows that artifact in the artifacts
+#: tile (opening the tile when it is not on screen).
+_PLOT_ROW_SELECTOR = (
+    f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+)
 
-    Expert and Simple both render a ``[data-id]`` row for every artifact, but
-    into different (and mutually hidden) containers: Expert's ``#sidebar-body``
-    and Simple's ``#simple-list-body``. Both containers exist in the DOM in
-    either mode — only one is visible — so the selector must name the *active*
-    view's container, or the click would target a hidden row and time out.
-    """
-    container = "#simple-list-body" if mode == "simple" else "#sidebar-body"
-    return f'{container} [data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
-
-
-def _plot_frame_selector(mode: str | None) -> str:
-    """CSS for the preview iframe that renders the selected plot, scoped by mode.
-
-    Each view renders the selected artifact into its own container: Expert into
-    ``#preview-content``, Simple into the latest-result card's
-    ``#simple-result-preview``. Both go through ``artifactViewportHtml``, which
-    renders a ``plot_html`` artifact as ``iframe.preview-iframe-light``. The frame
-    is therefore named by the active view's container, as the row is, so a
-    preview frame in the other view's container can never answer for it.
-    """
-    if mode == "simple":
-        return "#simple-result-preview iframe"
-    return "#preview-content iframe.preview-iframe-light"
+#: The preview iframe the embedded artifacts viewer renders the shown plot
+#: into. Embedded, the gallery is a viewer of one artifact in both views, and
+#: ``artifactViewportHtml`` renders a ``plot_html`` artifact as
+#: ``iframe.preview-iframe-light`` inside ``#preview-content``.
+_PLOT_FRAME_SELECTOR = "#preview-content iframe.preview-iframe-light"
 
 
-def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -> None:
-    """Block until the beam-current plot is drawn and revealed in the active preview.
+def _wait_for_plot_drawn(page, *, variant: str, moment: str) -> None:
+    """Block until the beam-current plot is drawn and revealed in the viewer.
 
     This is a precondition for the shot, not a best-effort pause. The wait is for
     the ``visible`` state because ``attached`` is already true for markup that
@@ -797,7 +726,6 @@ def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -
 
     Args:
         page: The Playwright page showing the hub.
-        mode: The UI mode, which names the active preview frame.
         variant: The variant being captured, named in the error.
         moment: When the check runs, named in the error.
 
@@ -808,9 +736,9 @@ def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -
 
     panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
     try:
-        panel.frame_locator(_plot_frame_selector(mode)).locator(
-            _PLOT_DRAWN_SELECTOR
-        ).first.wait_for(state="visible", timeout=_PLOT_DRAWN_MS)
+        panel.frame_locator(_PLOT_FRAME_SELECTOR).locator(_PLOT_DRAWN_SELECTOR).first.wait_for(
+            state="visible", timeout=_PLOT_DRAWN_MS
+        )
     except PlaywrightTimeoutError as exc:
         raise RuntimeError(
             f"hub {variant}: the beam-current plot did not draw {moment} within "
@@ -1078,15 +1006,11 @@ def _capture_variant(
     mode: str | None,
     out_dir: Path,
     accent: str | None = None,
-    rail: str | None = None,
-    stage: str | None = None,
 ) -> CapturedVariant:
     """Drive one theme/mode variant to a viewport PNG; return its metadata."""
-    dest = out_dir / _variant_filename(theme, mode, accent, rail, stage)
-    capture_hub_view(browser, hub, theme, mode, dest, accent=accent, rail=rail, stage=stage)
-    return CapturedVariant(
-        theme=theme, mode=mode, accent=accent, filename=dest.name, rail=rail, stage=stage
-    )
+    dest = out_dir / _variant_filename(theme, mode, accent)
+    capture_hub_view(browser, hub, theme, mode, dest, accent=accent)
+    return CapturedVariant(theme=theme, mode=mode, accent=accent, filename=dest.name)
 
 
 def capture_hub_view(
@@ -1097,7 +1021,6 @@ def capture_hub_view(
     dest: Path,
     *,
     accent: str | None = None,
-    rail: str | None = None,
     stage: str | None = None,
 ) -> None:
     """Drive the hermetic hub to one theme/mode view and write its PNG to *dest*.
@@ -1109,7 +1032,6 @@ def capture_hub_view(
         mode: The UI mode, passed as ``&mode=``; ``None`` leaves it to the page.
         dest: Where the viewport PNG is written.
         accent: An accent candidate to recolour the chrome with, or ``None``.
-        rail: A rail position (``"top"``), or ``None`` for the default rail.
         stage: A :data:`STAGES` key the page is driven into before the shot.
 
     The view is shot only with its plot drawn; a plot that never draws raises
@@ -1131,7 +1053,6 @@ def capture_hub_view(
             ("theme", theme),
             ("mode", mode),
             ("accent", accent),
-            ("rail", rail),
             ("stage", stage),
         )
         if value is not None
@@ -1152,7 +1073,7 @@ def capture_hub_view(
         #   * the PTY session id, so initTerminal() connects mode=resume on
         #     DEMO_SESSION_ID instead of letting the hub mint a random one.
         page.add_init_script(
-            "try { localStorage.setItem('osprey-tour-dismissed-v1', '1');"
+            "try { localStorage.setItem('osprey-tour-dismissed-v2', '1');"
             f" localStorage.setItem('osprey-pty-session', '{DEMO_SESSION_ID}') }} catch (e) {{}}"
         )
         # Every capture resumes the same session id, so they share one pool
@@ -1171,7 +1092,7 @@ def capture_hub_view(
                 f"(HTTP {response.status}); no image was written."
             )
         page.goto(
-            _variant_url(hub.base_url, theme, mode, rail),
+            _variant_url(hub.base_url, theme, mode),
             wait_until="domcontentloaded",
             timeout=_NAV_TIMEOUT_MS,
         )
@@ -1184,22 +1105,20 @@ def capture_hub_view(
             _assert_fits_columns(fitted_cols)
 
         # Reveal the beam-current plot so every variant shows a real Plotly
-        # figure: Expert clicks it into the preview pane, Simple promotes it to
-        # the latest-result card. The workspace panel is a same-origin iframe and
-        # each row carries ``data-id``; select the plot by its stable id, scoped
-        # to the active view so a hidden twin row can't swallow the click.
+        # figure: a click on its row in the hub sidebar's artifact list shows
+        # it in the artifacts tile, in either view. The row carries the
+        # artifact's stable ``data-id``.
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-        panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
         try:
-            panel.locator(_plot_row_selector(mode)).first.click(timeout=_NAV_TIMEOUT_MS)
+            page.locator(_PLOT_ROW_SELECTOR).first.click(timeout=_NAV_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise RuntimeError(
                 f"hub {variant}: the plot row was not clickable within "
                 f"{_NAV_TIMEOUT_MS // 1000} s; no image was written."
             ) from exc
 
-        _wait_for_plot_drawn(page, mode, variant=variant, moment="after its row was clicked")
+        _wait_for_plot_drawn(page, variant=variant, moment="after its row was clicked")
 
         # Recolour the chrome for this accent candidate (all frames now exist).
         if accent is not None:
@@ -1211,7 +1130,7 @@ def capture_hub_view(
         page.wait_for_timeout(_SETTLE_MS)
         # The accent, the stage and the settle may re-lay-out the page, so the
         # plot is checked again where the shot is taken.
-        _wait_for_plot_drawn(page, mode, variant=variant, moment="before the shot")
+        _wait_for_plot_drawn(page, variant=variant, moment="before the shot")
 
         png = page.screenshot()
         dest.write_bytes(png)
@@ -1438,13 +1357,11 @@ def capture_contact_sheet(out_dir: Path, *, accents: bool = False) -> Path:
         with hermetic_hub() as hub:
             for theme, mode, accent in _effective_variants(accents):
                 captured.append(_capture_variant(browser, hub, theme, mode, out_dir, accent))
-            # Transition-showcase extras (top rail, retro family) — appended
-            # after the base matrix so the completeness assertion below stays a
-            # pure statement about the required 2×2.
-            for theme, mode, rail in EXTRA_VARIANTS:
-                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, rail=rail))
-            for theme, mode, stage in STAGED_VARIANTS:
-                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, stage=stage))
+            # Transition-showcase extras (retro family) — appended after the
+            # base matrix so the completeness assertion below stays a pure
+            # statement about the required 2×2.
+            for theme, mode in EXTRA_VARIANTS:
+                captured.append(_capture_variant(browser, hub, theme, mode, out_dir))
         _assert_all_variants_captured(captured, accents)
         # Per-subpanel 2×2 sections (accent A/B stays a hub-only concern).
         captured.extend(capture_panel_sections(out_dir, browser))
@@ -1474,14 +1391,10 @@ def _git_rev() -> str:
 
 
 def _variant_label(cv: CapturedVariant) -> str:
-    """Human variant name, e.g. ``"Dark · Simple · teal"`` (accent/mode/rail optional)."""
+    """Human variant name, e.g. ``"Dark · Simple · teal"`` (accent optional)."""
     parts = [cv.theme.capitalize(), (cv.mode or "default").capitalize()]
     if cv.accent:
         parts.append(cv.accent)
-    if cv.rail:
-        parts.append(f"rail-{cv.rail}")
-    if cv.stage:
-        parts.append(STAGES[cv.stage].label)
     return " · ".join(parts)
 
 

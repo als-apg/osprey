@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 from docs.screenshots.contact_sheet import (
     _PLOT_DRAWN_SELECTOR,
+    _PLOT_FRAME_SELECTOR,
+    _PLOT_ROW_SELECTOR,
     ACCENT_EXCLUSIONS,
     CONTACT_SHEET_NAME,
     DEMO_OPENING_PROMPT,
@@ -24,8 +26,6 @@ from docs.screenshots.contact_sheet import (
     DEMO_TRANSCRIPT_PATH,
     EXTRA_VARIANTS,
     MAX_CARD_LINE_WIDTH,
-    STAGED_VARIANTS,
-    STAGES,
     TERMINAL_DIMS_SEAM,
     TRANSCRIPT_SENTINEL,
     VARIANTS,
@@ -39,7 +39,6 @@ from docs.screenshots.contact_sheet import (
     _beam_current_plot_html,
     _effective_variants,
     _fake_session_line,
-    _plot_frame_selector,
     _read_fitted_cols,
     _replay_shell_command,
     _variant_filename,
@@ -265,46 +264,25 @@ def test_capture_variants_cover_dark_and_light() -> None:
 
 
 def test_capture_variant_filename_and_url() -> None:
-    """Mode/rail are absent from both filename and URL until one is set."""
+    """Mode is absent from both filename and URL until one is set."""
     assert _variant_filename("dark", None) == "web_terminal_dark.png"
     assert _variant_filename("light", "simple") == "web_terminal_light_simple.png"
-    assert (
-        _variant_filename("dark", "expert", rail="top") == "web_terminal_dark_expert_rail-top.png"
-    )
+    assert _variant_filename("dark", "expert", "teal") == "web_terminal_dark_expert_teal.png"
 
     assert _variant_url("http://h", "dark", None) == "http://h/?theme=dark"
     assert _variant_url("http://h", "light", "simple") == "http://h/?theme=light&mode=simple"
-    assert _variant_url("http://h", "dark", "expert", rail="top").endswith("&rail=top")
-
-
-def test_staged_variants_are_expert_and_named() -> None:
-    """Every staged card is an Expert hub card naming a known stage, and its
-    filename collides with no base or showcase card."""
-    assert STAGED_VARIANTS
-    for _theme, mode, stage in STAGED_VARIANTS:
-        assert mode == "expert"
-        assert stage in STAGES
-    base = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
-    extra = [_variant_filename(theme, mode, rail=rail) for theme, mode, rail in EXTRA_VARIANTS]
-    staged = [_variant_filename(theme, mode, stage=stage) for theme, mode, stage in STAGED_VARIANTS]
-    names = base + extra + staged
-    assert len(names) == len(set(names))
-    assert (
-        _variant_filename("dark", "expert", stage="customize_sheet")
-        == "web_terminal_dark_expert_customize_sheet.png"
-    )
 
 
 def test_extra_variants_unique_filenames() -> None:
     """The showcase extras never collide with the base matrix or each other."""
     base = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
-    extra = [_variant_filename(theme, mode, rail=rail) for theme, mode, rail in EXTRA_VARIANTS]
+    extra = [_variant_filename(theme, mode) for theme, mode in EXTRA_VARIANTS]
     names = base + extra
     assert len(names) == len(set(names))
-    # Every extra is either a retro theme or a top-rail card — the showcase
-    # never silently duplicates a base 2×2 cell.
-    for theme, _mode, rail in EXTRA_VARIANTS:
-        assert theme.startswith("retro") or rail is not None
+    # Every extra is a retro theme — the showcase never silently duplicates a
+    # base 2×2 cell.
+    for theme, _mode in EXTRA_VARIANTS:
+        assert theme.startswith("retro")
 
 
 def test_capture_fake_session_is_discoverable(tmp_path: Path, monkeypatch) -> None:
@@ -370,6 +348,7 @@ class _FakeLocator:
 
     def click(self, timeout: int | None = None) -> None:  # noqa: ARG002
         self.page.events.append("click")
+        self.page.clicks.append((self.frames, self.selector))
         if self.page.click_error is not None:
             raise self.page.click_error
 
@@ -421,7 +400,8 @@ class _FakeHubPage:
     """A stand-in Playwright page for :func:`capture_hub_view`, recording its steps in order.
 
     ``drawn`` holds one answer per plot wait: ``False`` makes that wait time out.
-    ``click_error`` is raised by the plot-row click.
+    ``click_error`` is raised by the plot-row click; ``clicks`` records each
+    click as (iframe chain, selector).
     """
 
     def __init__(
@@ -436,6 +416,7 @@ class _FakeHubPage:
     ) -> None:
         self.events: list[str] = []
         self.waits: list[tuple[tuple[str, ...], str, str]] = []
+        self.clicks: list[tuple[tuple[str, ...], str]] = []
         self.functions: list[tuple[str, object]] = []
         self.drawn = list(drawn)
         self.wait_error = wait_error
@@ -467,6 +448,9 @@ class _FakeHubPage:
 
     def frame_locator(self, selector: str) -> _FakeFrame:
         return _FakeFrame(self, (selector,))
+
+    def locator(self, selector: str) -> _FakeLocator:
+        return _FakeLocator(self, (), selector)
 
 
 class _FakeBrowser:
@@ -530,13 +514,12 @@ def test_fitted_cols_reader_distinguishes_none_from_a_number() -> None:
     assert _read_fitted_cols(_FakePage(dims={"cols": 0, "rows": 24})) is None
 
 
-def test_fitted_cols_reader_asks_the_window_seam_not_the_status_bar() -> None:
-    """The size comes from ``terminal.js``, not from a status-bar readout.
+def test_fitted_cols_reader_asks_the_window_seam_not_a_dom_readout() -> None:
+    """The size comes from ``terminal.js``, not from a readout in the DOM.
 
-    ``#term-dims`` is gone: the terminal size is a bar ITEM now, so it can be
-    moved, folded into the overflow menu, or removed. Scraping the bar would make
-    the wrap guard depend on a layout choice and go quiet the first time an
-    operator's saved layout dropped the item.
+    ``#term-dims`` is gone, and no shell element shows the terminal size any
+    more. Scraping the page would make the wrap guard depend on a layout choice
+    and go quiet the first time the readout moved; the window seam does not.
     """
     page = _FakePage(dims={"cols": 96, "rows": 24})
     assert _read_fitted_cols(page) == 96
@@ -608,8 +591,6 @@ def test_compose_variant_label_omits_empty_axes() -> None:
         _variant_label(CapturedVariant("light", "simple", "blue", "x.png"))
         == "Light · Simple · blue"
     )
-    staged = CapturedVariant("dark", "expert", None, "x.png", stage="customize_sheet")
-    assert _variant_label(staged).endswith("· Customize bars open")
 
 
 # ---------------------------------------------------------------------------
@@ -678,11 +659,12 @@ def test_accent_effective_variants_double_and_are_paired() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_plot_frame_selector_is_scoped_to_the_active_view() -> None:
-    """Each view's preview frame is named by that view's own container."""
-    assert _plot_frame_selector("simple") == "#simple-result-preview iframe"
-    assert _plot_frame_selector("expert") == "#preview-content iframe.preview-iframe-light"
-    assert _plot_frame_selector(None) == "#preview-content iframe.preview-iframe-light"
+def test_plot_row_and_frame_selectors_name_the_hub_list_and_the_viewer() -> None:
+    """The row is the hub sidebar's list row; the frame is the embedded viewer's."""
+    assert _PLOT_ROW_SELECTOR == (
+        f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+    )
+    assert _PLOT_FRAME_SELECTOR == "#preview-content iframe.preview-iframe-light"
 
 
 def test_drawn_plot_selector_needs_a_drawn_trace() -> None:
@@ -696,13 +678,12 @@ def test_drawn_plot_selector_needs_a_drawn_trace() -> None:
     assert "js-line" not in served
 
 
-@pytest.mark.parametrize("mode", ["expert", "simple"])
-def test_plot_wait_asks_the_active_preview_for_a_visible_trace(mode: str) -> None:
-    """One wait, for a visible drawn trace, inside the active view's preview frame."""
+def test_plot_wait_asks_the_viewer_for_a_visible_trace() -> None:
+    """One wait, for a visible drawn trace, inside the artifacts viewer's preview frame."""
     page = _FakeHubPage(drawn=[True])
-    _wait_for_plot_drawn(page, mode, variant=f"theme=light, mode={mode}", moment="before the shot")
+    _wait_for_plot_drawn(page, variant="theme=light, mode=expert", moment="before the shot")
     assert page.waits == [
-        ((_ARTIFACTS_PANEL, _plot_frame_selector(mode)), _PLOT_DRAWN_SELECTOR, "visible")
+        ((_ARTIFACTS_PANEL, _PLOT_FRAME_SELECTOR), _PLOT_DRAWN_SELECTOR, "visible")
     ]
 
 
@@ -710,9 +691,7 @@ def test_plot_wait_names_the_variant_when_the_plot_never_draws() -> None:
     """A timeout becomes a RuntimeError naming the variant and the moment."""
     page = _FakeHubPage(drawn=[False])
     with pytest.raises(RuntimeError) as info:
-        _wait_for_plot_drawn(
-            page, "expert", variant="theme=dark, mode=expert", moment="before the shot"
-        )
+        _wait_for_plot_drawn(page, variant="theme=dark, mode=expert", moment="before the shot")
     message = str(info.value)
     assert "theme=dark, mode=expert" in message
     assert "before the shot" in message
@@ -724,7 +703,7 @@ def test_plot_wait_does_not_swallow_other_errors() -> None:
     """A Playwright error other than a timeout propagates unchanged."""
     page = _FakeHubPage(drawn=[True], wait_error=PlaywrightError("frame detached"))
     with pytest.raises(PlaywrightError, match="frame detached") as info:
-        _wait_for_plot_drawn(page, "expert", variant="theme=light", moment="before the shot")
+        _wait_for_plot_drawn(page, variant="theme=light", moment="before the shot")
     assert not isinstance(info.value, RuntimeError)
 
 
@@ -769,6 +748,8 @@ def test_hub_capture_shoots_after_both_plot_checks(
     assert (tmp_path / "shot.png").read_bytes() == b"png"
     steps = [e for e in page.events if e not in ("restart", "goto", "close")]
     assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible", "shot"]
+    # The plot is picked in the hub's own sidebar list, never inside an iframe.
+    assert page.clicks == [((), _PLOT_ROW_SELECTOR)]
 
 
 # ---------------------------------------------------------------------------

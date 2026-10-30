@@ -1002,7 +1002,7 @@ def test_a_module_in_an_interface_without_tests_widens_to_every_test() -> None:
         "tests/vitest.setup.mjs",
         "package.json",
         "package-lock.json",
-        TW + "js/bar-customize-fixture.mjs",
+        TW + "panel-labels-fixture.mjs",
         "src/osprey/interfaces/design_system/static/js/tokens.js",
         WT + "vendor/xterm.js",
     ],
