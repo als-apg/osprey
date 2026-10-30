@@ -817,6 +817,8 @@ class TestConfigBackupLocation:
         assert backup.is_file()
         # It is the *pre-write* config, which is the only thing a backup is for.
         assert backup.read_bytes() == before
+        assert not (built_project / "config.yml.bak").exists()
+        assert [p.name for p in built_project.iterdir() if p.suffix == ".bak"] == []
 
     def test_patch_writes_its_backup_into_the_state_zone(self, client, built_project):
         before = (built_project / "config.yml").read_bytes()
@@ -828,35 +830,8 @@ class TestConfigBackupLocation:
         backup = _backup_path(built_project)
         assert backup.is_file()
         assert backup.read_bytes() == before
-
-    @pytest.mark.parametrize(
-        "save",
-        [
-            pytest.param(
-                lambda client, project: client.patch(
-                    "/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}}
-                ),
-                id="patch",
-            ),
-            pytest.param(
-                lambda client, project: client.put(
-                    "/api/config", json={"raw": _put_raw(project, _switch_pipeline)}
-                ),
-                id="put",
-            ),
-        ],
-    )
-    def test_config_backup_is_never_written_beside_the_render(self, client, built_project, save):
-        """The whole point: no backup file is created next to config.yml.
-
-        Stated as "no ``.bak`` lands directly in the project directory" rather
-        than "the directory is unchanged", because in the default flat layout the
-        state zone is itself *inside* the project (``var/agent_data``) and gets
-        created on first use. That is fine and is not the thing the split breaks:
-        what breaks is creating a new file in the *render*, beside the config.
-        """
-        assert save(client, built_project).status_code == 200
-
+        # Never beside the render: no ``.bak`` lands directly in the project
+        # directory (the flat layout's state zone is inside it, which is fine).
         assert not (built_project / "config.yml.bak").exists()
         assert [p.name for p in built_project.iterdir() if p.suffix == ".bak"] == []
 
