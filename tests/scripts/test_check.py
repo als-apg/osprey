@@ -759,6 +759,7 @@ MACOS_KEEPS = {
     "tests/agent_runner/test_unrendered_mcp_servers.py": "the native claude binary",
     "tests/scripts/test_run_bounded.py": "killpg and signal forwarding",
     "tests/cli/test_web_cmd.py": "real socket binds",
+    "tests/cli/test_build_swap.py": "os.replace directory swap, SIGKILL mid-render",
 }
 
 
@@ -837,8 +838,6 @@ MACOS_TRIM_VETTED = {
     # connector-host child is detected by tests/connectors/ipc/test_pool.py,
     # kept on macOS.
     "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec", "os.kill"),
-    # Binds and closes a socket to get a port that refuses.
-    "tests/services/ariel_search/test_image_lane.py": ("socket.socket",),
 }
 
 

@@ -464,7 +464,7 @@ async def get_dispatch_result(request: Request) -> JSONResponse:
             }
         )
 
-    # Do NOT echo the internal worker URL (_dispatch_target) back to callers — it
+    # Do NOT echo the internal worker URL (dispatch_target) back to callers — it
     # is an internal topology detail and the poll response should carry only the
     # dispatch's own status/run_id.
     return JSONResponse({**result})
@@ -623,7 +623,6 @@ def create_server() -> FastMCP:
     # Stash on mcp instance for use in routes and the lifespan.
     mcp._dispatcher_registry = registry  # type: ignore[attr-defined]
     mcp._dispatcher_pool = pool  # type: ignore[attr-defined]
-    mcp._dispatch_target = dispatch_target  # type: ignore[attr-defined]
     mcp._trigger_list = trigger_list  # type: ignore[attr-defined]
     mcp._source_registry = source_reg  # type: ignore[attr-defined]
     mcp._fire_callback = fire_callback  # type: ignore[attr-defined]

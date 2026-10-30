@@ -615,7 +615,7 @@ def test_a_render_leaves_out_the_copy_of_a_file_no_entry_attaches_any_more(
 ) -> None:
     """Once nominal's entries attach nothing, its copy is not written; the others still are.
 
-    A rebuild replaces ``build/`` wholesale (``tests/cli/test_build_zero_arg.py``,
+    A rebuild replaces ``build/`` wholesale (``tests/cli/test_build_swap.py``,
     ``test_the_second_build_replaces_the_first_wholesale``), so the render decides.
     """
     facility = copy.deepcopy(built_control_assistant.facility)
