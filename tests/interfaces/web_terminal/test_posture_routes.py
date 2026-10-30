@@ -1,23 +1,24 @@
 """Tests for ``POST /api/terminal/posture`` — the person's write switch (C-POST).
 
-The switch is the **login's**: one ``on``/``off`` per machine in the ``switch``
-field of that login's control-context record, written only by
+The switch is the **login's**: one position (``off``, ``asked``, ``allowed``) per
+machine in the ``switch`` field of that login's control-context record, written only by
 :func:`~osprey_connectors.control_context.set_switch` and read at write time by
 every write path through the write verdict.
 
 What the tests below pin:
 
-* **On is locked only by what no chip can lift.** A turn-on is refused 403 for
-  a ``never`` tier (an app render is one) or a read-only run; a stop is never
-  refused for those, for a follower terminal, or for a run in flight.
-* **The epoch is a compare-and-swap.** A chip that read no epoch sends null;
-  an epoch-less record is stamped and answers 409 ``stamped``, the retry lands;
-  a turn-on that raced a stop stays off.
+* **A widening is locked only by what no chip can lift.** It is refused 403 for
+  a ``never`` tier (an app render is one), a read-only run, or a position above
+  the login's ceiling; a narrowing or a stop is never refused for those, for a
+  follower terminal, or for a run in flight.
+* **The epoch is a compare-and-swap on widenings.** A chip that read no epoch
+  sends null; an epoch-less record is stamped and answers 409 ``stamped``, the
+  retry lands; a widening that raced a stop stays off. A narrowing ignores it.
 * **No usable record is a 503, never a 409 loop or a 200** — and a stop that
   did not take says writes are still on, never that they are refused.
 * **One envelope, one audit line.** Every non-200 is exactly
-  ``{detail: {reason, phrase?, epoch?, stamped?, taken?}}``, and every outcome
-  files one ledger line.
+  ``{detail: {reason, phrase?, epoch?, stamped?, taken?, ceiling?}}``, and every
+  outcome files one ledger line.
 * **Runs keep what they started with; off reaches them.** A turn-on lands
   while a sandbox run is going and that run's next write stays pinned; the
   next run writes; a stop refuses the running sandbox's next write.
@@ -79,7 +80,7 @@ STOP_SENTENCE = (
 )
 
 #: Every key a C-POST refusal may carry.
-ENVELOPE_KEYS = {"reason", "phrase", "epoch", "stamped", "taken"}
+ENVELOPE_KEYS = {"reason", "phrase", "epoch", "stamped", "taken", "ceiling"}
 
 
 # -- render shapes ----------------------------------------------------------
@@ -217,20 +218,24 @@ def make_epochless():
     control_context.invalidate_cache()
 
 
-def post_switch(client, *, session_id=SESSION_A, target="standin", state="on", epoch="read"):
+def post_switch(
+    client, *, session_id=SESSION_A, target="standin", state="asked", epoch="read", waived=None
+):
     """POST C-POST's body. ``epoch="read"`` sends the record's epoch, as the chip does."""
     body = {"target": target, "state": state, "epoch": wire_now() if epoch == "read" else epoch}
+    if waived is not None:
+        body["waived"] = waived
     if session_id is not None:
         body["session_id"] = session_id
     return client.post("/api/terminal/posture", json=body)
 
 
-def turn_on(client, target="standin", **kwargs):
-    """The chip's turn-on: send the epoch read, retry once when the 409 stamped."""
-    response = post_switch(client, target=target, state="on", **kwargs)
+def turn_on(client, target="standin", state="asked", **kwargs):
+    """The chip's widening: send the epoch read, retry once when the 409 stamped."""
+    response = post_switch(client, target=target, state=state, **kwargs)
     if response.status_code == 409 and response.json()["detail"]["stamped"]:
         response = post_switch(
-            client, target=target, state="on", epoch=response.json()["detail"]["epoch"]
+            client, target=target, state=state, epoch=response.json()["detail"]["epoch"]
         )
     return response
 
@@ -278,8 +283,8 @@ class TestGrammar:
         assert_envelope(post_switch(client, session_id=bad_id), 400, reason="invalid_session_id")
         assert switch_now() == {}
 
-    @pytest.mark.parametrize("bad", ["sandbox", "writes", "ON", "", "true"])
-    def test_only_on_and_off_are_states(self, client, bad):
+    @pytest.mark.parametrize("bad", ["sandbox", "writes", "on", "ASKED", "", "true"])
+    def test_only_the_three_positions_are_states(self, client, bad):
         response = post_switch(client, state=bad)
         assert response.status_code == 422
         assert isinstance(response.json()["detail"], list)
@@ -294,6 +299,13 @@ class TestGrammar:
         assert websocket_routes.EPOCH_FORMAT_PHRASE in response.text
         assert switch_now() == {}
 
+    @pytest.mark.parametrize("bad", ["true", 1, 0, "yes"])
+    def test_waived_is_a_strict_bool(self, client, bad):
+        """Never coerced: the audit line records it as sent."""
+        response = post_switch(client, target="va", waived=bad)
+        assert response.status_code == 422, response.text
+        assert switch_now() == {}
+
     def test_the_old_posture_body_is_422(self, client):
         response = client.post(
             "/api/terminal/posture",
@@ -302,13 +314,16 @@ class TestGrammar:
         assert response.status_code == 422
         assert switch_now() == {}
 
-    def test_all_with_on_is_400_bulk_on_refused(self, client):
-        """A machine is turned on one at a time; the route refuses before the record."""
+    @pytest.mark.parametrize("state", ["asked", "allowed"])
+    def test_all_with_an_arming_word_is_400_bulk_on_refused(self, client, state):
+        """A machine is armed one at a time; the route refuses before the record."""
         with patch.object(control_context, "set_switch") as setter:
-            assert_envelope(post_switch(client, target="all"), 400, reason="bulk_on_refused")
+            assert_envelope(
+                post_switch(client, target="all", state=state), 400, reason="bulk_on_refused"
+            )
         setter.assert_not_called()
 
-    @pytest.mark.parametrize("state", ["on", "off"])
+    @pytest.mark.parametrize("state", ["asked", "allowed", "off"])
     def test_a_target_this_render_does_not_configure_is_400(self, client, state):
         assert_envelope(
             post_switch(client, target="banana", state=state), 400, reason="unknown_target"
@@ -320,25 +335,33 @@ class TestGrammar:
 
     def test_route_outcomes_are_not_verdict_reasons(self):
         """The closed set stays closed: these answer the request, not a write."""
-        for reason in ("bulk_on_refused", "unknown_target", "not_taken", "invalid_session_id"):
+        for reason in (
+            "bulk_on_refused",
+            "unknown_target",
+            "not_taken",
+            "invalid_session_id",
+            "tier_caps",
+            "waiver_not_allowed",
+        ):
             assert reason not in REASONS
 
 
-# -- on, off, all off -------------------------------------------------------
+# -- moves, stops, all off --------------------------------------------------
 
 
 class TestTheGesture:
-    def test_on_arms_that_machine_and_answers_exactly_c_post(self, client):
-        response = turn_on(client, "standin")
+    @pytest.mark.parametrize("state", ["asked", "allowed"])
+    def test_a_widening_arms_that_machine_and_answers_exactly_c_post(self, client, state):
+        response = turn_on(client, "standin", state)
 
         assert response.status_code == 200, response.text
         assert response.json() == {
             "target": "standin",
-            "state": "on",
+            "state": state,
             "switch_epoch": wire_now(),
         }
         assert isinstance(response.json()["switch_epoch"], str)
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": state}
 
     def test_off_disarms_only_that_machine(self, client):
         assert turn_on(client, "standin").status_code == 200
@@ -348,7 +371,7 @@ class TestTheGesture:
 
         assert response.status_code == 200, response.text
         assert response.json() == {"target": "standin", "state": "off", "switch_epoch": wire_now()}
-        assert switch_now() == {"va": "on"}
+        assert switch_now() == {"va": "asked"}
 
     def test_all_off_clears_every_machine_and_moves_the_epoch(self, client):
         assert turn_on(client, "standin").status_code == 200
@@ -365,8 +388,10 @@ class TestTheGesture:
     def test_all_off_clears_machines_this_render_does_not_configure(
         self, client, tmp_path, agent_data_root
     ):
-        """``any_on`` counts every machine in the record; "Turn all off" must reach them."""
-        write_control_context(agent_data_root, target="live", generation=1, switch={"live": "on"})
+        """``any_armed`` counts every machine in the record; "Turn all off" must reach them."""
+        write_control_context(
+            agent_data_root, target="live", generation=1, switch={"live": "asked"}
+        )
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(writes="allowed", with_live=False), name="two.yml"
         )
@@ -378,7 +403,7 @@ class TestTheGesture:
         assert switch_now() == {}
 
     def test_all_off_needs_no_readable_render(self, client, agent_data_root):
-        write_control_context(agent_data_root, target="live", generation=1, switch={"va": "on"})
+        write_control_context(agent_data_root, target="live", generation=1, switch={"va": "asked"})
         client.app.state.config_path = None
         assert post_switch(client, target="all", state="off").status_code == 200
         assert switch_now() == {}
@@ -386,7 +411,7 @@ class TestTheGesture:
     def test_a_session_less_gesture_is_accepted(self, client):
         """The Lab page's bar posts with no session; the switch is the login's."""
         assert turn_on(client, "standin", session_id=None).status_code == 200
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_the_gesture_moves_neither_target_nor_generation(self, client):
         before = read_record()
@@ -431,7 +456,11 @@ class TestOffIsNeverRefused:
         """The switch is the login's, so a follower acts exactly like the holder."""
         holder = owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT)
         write_control_context(
-            agent_data_root, target="live", generation=1, owned_by=holder, switch={"standin": "on"}
+            agent_data_root,
+            target="live",
+            generation=1,
+            owned_by=holder,
+            switch={"standin": "asked"},
         )
         on.app.state.control_context_follows = holder
 
@@ -445,7 +474,7 @@ class TestOffIsNeverRefused:
         client.app.state.control_context_follows = holder
 
         assert turn_on(client, "va").status_code == 200
-        assert switch_now() == {"va": "on"}
+        assert switch_now() == {"va": "asked"}
         assert read_record().owner == holder
 
     def test_neither_gesture_needs_the_owner_primitive(self, client):
@@ -454,17 +483,267 @@ class TestOffIsNeverRefused:
         assert turn_on(client, "standin").status_code == 200
         assert post_switch(client, target="standin", state="off").status_code == 200
 
-    @pytest.mark.parametrize("state", ["on", "off"])
-    def test_a_run_in_flight_refuses_neither(self, client, agent_data_root, state):
+    @pytest.mark.parametrize("state", ["asked", "allowed", "off"])
+    def test_a_run_in_flight_refuses_none(self, client, agent_data_root, state):
         write_inflight_marker(agent_data_root, pid=4242, target="standin")
         with only_alive(4242, os.getpid()):
             response = (
-                turn_on(client, "standin") if state == "on" else post_switch(client, state="off")
+                post_switch(client, state="off")
+                if state == "off"
+                else turn_on(client, "standin", state)
             )
         assert response.status_code == 200, response.text
 
 
-class TestTurnOnLocks:
+class TestNarrowingIsNeverRefused:
+    """Less is always allowed: the locks and the epoch stand only before a widening."""
+
+    @pytest.fixture
+    def at_allowed(self, client):
+        assert turn_on(client, "standin", "allowed").status_code == 200
+        return client
+
+    def test_it_lands_with_a_stale_epoch(self, at_allowed):
+        epoch = epoch_now()
+        response = post_switch(at_allowed, state="asked", epoch=str(epoch - 1))
+        assert response.status_code == 200, response.text
+        assert switch_now() == {"standin": "asked"}
+        assert epoch_now() == epoch
+
+    def test_it_lands_with_a_null_epoch(self, at_allowed):
+        assert post_switch(at_allowed, state="asked", epoch=None).status_code == 200
+        assert switch_now() == {"standin": "asked"}
+
+    def test_it_lands_on_a_never_tier(self, at_allowed, tmp_path):
+        at_allowed.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="never"), name="n.yml"
+        )
+        assert post_switch(at_allowed, state="asked").status_code == 200
+        assert switch_now() == {"standin": "asked"}
+
+    def test_it_lands_on_a_readonly_run(self, at_allowed, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert post_switch(at_allowed, state="asked").status_code == 200
+        assert switch_now() == {"standin": "asked"}
+
+    def test_it_lands_under_an_asked_ceiling(self, at_allowed, tmp_path):
+        """The way down from a stored ``allowed`` the ceiling has since capped."""
+        at_allowed.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="asked"), name="a.yml"
+        )
+        assert post_switch(at_allowed, state="asked").status_code == 200
+        assert switch_now() == {"standin": "asked"}
+
+    def test_a_no_op_at_the_same_position_meets_no_lock(self, at_allowed, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        response = post_switch(at_allowed, state="allowed", epoch="1")
+        assert response.status_code == 200, response.text
+        assert switch_now() == {"standin": "allowed"}
+
+    def test_the_lock_verdict_is_not_read_for_a_narrowing(self, at_allowed, monkeypatch):
+        seen = []
+        monkeypatch.setattr(posture_store, "write_verdict", lambda *a, **k: seen.append(a))
+        assert post_switch(at_allowed, state="asked").status_code == 200
+        assert seen == []
+
+
+class TestWidenings:
+    """Up one step or two, from the record the route read."""
+
+    def test_asked_to_allowed_widens_and_needs_the_epoch(self, client):
+        assert turn_on(client, "standin", "asked").status_code == 200
+        epoch = epoch_now()
+        assert_envelope(
+            post_switch(client, state="allowed", epoch=str(epoch - 1)),
+            409,
+            reason="stopped_since",
+            epoch=str(epoch),
+            stamped=False,
+        )
+        assert switch_now() == {"standin": "asked"}
+        assert post_switch(client, state="allowed").status_code == 200
+        assert switch_now() == {"standin": "allowed"}
+
+    def test_a_widening_meets_the_lock_from_an_armed_position(self, client, monkeypatch):
+        assert turn_on(client, "standin", "asked").status_code == 200
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert_envelope(
+            post_switch(client, state="allowed"),
+            403,
+            reason="readonly_run",
+            phrase=refusal_phrase("readonly_run", "real"),
+        )
+        assert switch_now() == {"standin": "asked"}
+
+    def test_a_legacy_on_stands_at_asked(self, client):
+        """A record from before the three words: ``on`` is ``asked``, and a move rewrites it."""
+        path = control_context.record_path()
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["switch"] = {"standin": "on"}
+        write_payload(path, payload)
+        control_context.invalidate_cache()
+
+        assert post_switch(client, state="asked", epoch="1").status_code == 200
+        assert switch_now() == {"standin": "asked"}
+        assert json.loads(path.read_text(encoding="utf-8"))["switch"] == {"standin": "asked"}
+
+
+class TestPostFacts:
+    """What the route decides on, read directly."""
+
+    @pytest.mark.usefixtures("client")
+    def test_before_is_the_stored_position(self, tmp_path):
+        config = write_config(tmp_path, name="f.yml")
+        login = acting_identity()
+        facts = websocket_routes._posture_post_facts(config, "standin", "asked", login)
+        assert facts.before == "off"
+        control_context.set_switch(["standin"], "allowed", epoch=epoch_now())
+        facts = websocket_routes._posture_post_facts(config, "standin", "off", login)
+        assert facts.before == "allowed"
+
+    @pytest.mark.usefixtures("client")
+    def test_before_is_none_for_all_off_and_for_an_unreadable_record(self, tmp_path):
+        config = write_config(tmp_path, name="f.yml")
+        login = acting_identity()
+        assert websocket_routes._posture_post_facts(config, "all", "off", login).before is None
+        control_context.record_path().write_text("{not json", encoding="utf-8")
+        control_context.invalidate_cache()
+        facts = websocket_routes._posture_post_facts(config, "standin", "asked", login)
+        assert facts.before is None
+        assert facts.record_status == "unreadable"
+
+    @pytest.mark.parametrize(
+        ("state", "before", "widens"),
+        [
+            ("asked", "off", True),
+            ("allowed", "off", True),
+            ("allowed", "asked", True),
+            ("asked", None, True),
+            ("allowed", None, True),
+            ("asked", "asked", False),
+            ("allowed", "allowed", False),
+            ("asked", "allowed", False),
+            ("off", "asked", False),
+            ("off", "off", False),
+            ("off", None, False),
+        ],
+    )
+    def test_a_widening_is_a_move_up_the_ranks(self, state, before, widens):
+        assert websocket_routes._widens(state, before) is widens
+
+
+class TestTheCeiling:
+    """403 ``tier_caps {reason, ceiling}``: a position above the login's ceiling."""
+
+    @pytest.fixture
+    def capped(self, client, tmp_path):
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="asked"), name="asked.yml"
+        )
+        return client
+
+    def test_allowed_above_an_asked_ceiling_is_tier_caps_with_no_phrase(self, capped):
+        assert_envelope(
+            post_switch(capped, target="va", state="allowed"),
+            403,
+            reason="tier_caps",
+            ceiling="asked",
+        )
+        assert switch_now() == {}
+
+    def test_asked_lands_under_an_asked_ceiling(self, capped):
+        assert turn_on(capped, "va", "asked").status_code == 200
+        assert switch_now() == {"va": "asked"}
+
+    def test_it_comes_before_the_locks(self, capped, monkeypatch):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert_envelope(
+            post_switch(capped, target="va", state="allowed"),
+            403,
+            reason="tier_caps",
+            ceiling="asked",
+        )
+
+    def test_a_never_ceiling_stays_the_lock_it_was(self, client, tmp_path):
+        """Below both arming words, so not a cap: the tier's own refusal, with its phrase."""
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="never"), name="never.yml"
+        )
+        assert_envelope(
+            post_switch(client, target="live", state="allowed"),
+            403,
+            reason="tier_never",
+            phrase=refusal_phrase("tier_never", "real"),
+        )
+
+    def test_a_ceiling_from_the_logins_own_rung_caps(self, client, tmp_path):
+        section = control_system_section(writes="allowed")
+        section["login_tiers"] = {acting_identity(): "asked"}
+        client.app.state.config_path = write_config(tmp_path, section, name="rung.yml")
+        assert_envelope(
+            post_switch(client, target="va", state="allowed"),
+            403,
+            reason="tier_caps",
+            ceiling="asked",
+        )
+
+    def test_an_unknown_ceiling_is_not_a_cap(self, client, tmp_path):
+        """Nothing at the route locks it today; the write verdict refuses it at the write."""
+        section = control_system_section(writes="allowed")
+        section["login_tiers"] = {"someone-else": "allowed"}
+        client.app.state.config_path = write_config(tmp_path, section, name="unknown.yml")
+        assert turn_on(client, "va", "allowed").status_code == 200
+        assert switch_now() == {"va": "allowed"}
+
+
+class TestTheWaiver:
+    """400 ``waiver_not_allowed``: only a move to ``asked`` off the real machine may skip."""
+
+    def test_a_move_to_asked_on_the_simulator_may_be_waived(self, client):
+        assert turn_on(client, "va", "asked", waived=True).status_code == 200
+        assert switch_now() == {"va": "asked"}
+
+    def test_a_move_to_allowed_may_not(self, client):
+        assert_envelope(
+            post_switch(client, target="va", state="allowed", waived=True),
+            400,
+            reason="waiver_not_allowed",
+        )
+        assert switch_now() == {}
+
+    def test_a_real_machine_may_not(self, client):
+        assert_envelope(
+            post_switch(client, target="live", state="asked", waived=True),
+            400,
+            reason="waiver_not_allowed",
+        )
+        assert switch_now() == {}
+
+    def test_a_false_waiver_on_a_real_machine_is_no_waiver(self, client):
+        assert turn_on(client, "live", "allowed", waived=False).status_code == 200
+
+    def test_it_comes_after_unknown_target_and_before_the_cap(self, client, tmp_path):
+        assert_envelope(
+            post_switch(client, target="banana", waived=True), 400, reason="unknown_target"
+        )
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="asked"), name="asked.yml"
+        )
+        assert_envelope(
+            post_switch(client, target="va", state="allowed", waived=True),
+            400,
+            reason="waiver_not_allowed",
+        )
+
+    @pytest.mark.parametrize("target", ["live", "all"])
+    def test_a_stop_is_not_refused_for_one(self, client, target):
+        """A stop always lands; a stray flag on one is recorded, not judged."""
+        assert turn_on(client, "live").status_code == 200
+        assert post_switch(client, target=target, state="off", waived=True).status_code == 200
+        assert switch_now() == {}
+
+
+class TestWideningLocks:
     """403 ``{reason, phrase}`` for the two locks no chip gesture can lift."""
 
     def test_a_never_tier_refuses_on(self, client, tmp_path):
@@ -491,6 +770,17 @@ class TestTurnOnLocks:
             403,
             reason="tier_never",
             phrase=refusal_phrase("tier_never", verdict.kind),
+        )
+        assert switch_now() == {}
+
+    @pytest.mark.parametrize("state", ["asked", "allowed"])
+    def test_a_readonly_run_refuses_both_words(self, client, monkeypatch, state):
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+        assert_envelope(
+            post_switch(client, target="va", state=state),
+            403,
+            reason="readonly_run",
+            phrase=refusal_phrase("readonly_run", "simulator"),
         )
         assert switch_now() == {}
 
@@ -562,16 +852,46 @@ class TestTheLoginsOwnTierLock:
         assert websocket_routes._login_tier(section, "bob") == "never"
         assert websocket_routes._login_tier(section, "carol") == websocket_routes.TIER_UNKNOWN
 
+    @pytest.mark.usefixtures("agent_data_root")
+    @pytest.mark.parametrize(
+        ("deployment", "rung", "ceiling"),
+        [
+            ("allowed", "allowed", "allowed"),
+            ("allowed", "asked", "asked"),
+            ("asked", "allowed", "asked"),
+            ("asked", "asked", "asked"),
+            ("asked", "never", "never"),
+            ("never", "allowed", "never"),
+        ],
+    )
+    def test_the_ceiling_is_the_lower_of_tier_and_rung(self, deployment, rung, ceiling):
+        """The one home of the ceiling, so the lower of the two wherever a map applies."""
+        section = {**control_system_section(writes=deployment), "login_tiers": {"alice": rung}}
+        assert websocket_routes._login_tier(section, "alice") == ceiling
+
+    @pytest.mark.usefixtures("agent_data_root")
+    @pytest.mark.parametrize("deployment", ["never", "asked", "allowed"])
+    def test_a_map_free_render_answers_its_own_word(self, deployment):
+        section = control_system_section(writes=deployment)
+        assert websocket_routes._login_tier(section, "alice") == deployment
+
+    def test_an_asked_render_locks_its_own_login_asked(self, client, tmp_path):
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="asked"), name="asked.yml"
+        )
+        assert self._locks(client)["tier"] == "asked"
+
 
 # -- the epoch --------------------------------------------------------------
 
 
 class TestEpoch:
-    def test_a_null_epoch_on_an_epochless_record_stamps_then_the_retry_lands(self, client):
+    @pytest.mark.parametrize("state", ["asked", "allowed"])
+    def test_a_null_epoch_on_an_epochless_record_stamps_then_the_retry_lands(self, client, state):
         make_epochless()
         assert epoch_now() is None
 
-        first = post_switch(client, epoch=None)
+        first = post_switch(client, state=state, epoch=None)
 
         assert first.status_code == 409, first.text
         detail = first.json()["detail"]
@@ -582,15 +902,16 @@ class TestEpoch:
         assert detail["epoch"] == wire_now()
         assert switch_now() == {}
 
-        second = post_switch(client, epoch=detail["epoch"])
+        second = post_switch(client, state=state, epoch=detail["epoch"])
         assert second.status_code == 200, second.text
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": state}
 
-    def test_a_stale_epoch_is_an_unstamped_409_carrying_the_records(self, client):
+    @pytest.mark.parametrize("state", ["asked", "allowed"])
+    def test_a_stale_epoch_is_an_unstamped_409_carrying_the_records(self, client, state):
         on_disk = epoch_now()
         assert on_disk is not None
         assert_envelope(
-            post_switch(client, epoch=str(on_disk - 1)),
+            post_switch(client, state=state, epoch=str(on_disk - 1)),
             409,
             reason="stopped_since",
             epoch=str(on_disk),
@@ -598,10 +919,11 @@ class TestEpoch:
         )
         assert switch_now() == {}
 
-    def test_a_null_epoch_on_a_record_with_one_is_unstamped(self, client):
+    @pytest.mark.parametrize("state", ["asked", "allowed"])
+    def test_a_null_epoch_on_a_record_with_one_is_unstamped(self, client, state):
         """The sentinel 0 never matches a real epoch: the chip re-reads."""
         assert_envelope(
-            post_switch(client, epoch=None),
+            post_switch(client, state=state, epoch=None),
             409,
             reason="stopped_since",
             epoch=wire_now(),
@@ -640,7 +962,7 @@ class TestEpoch:
 
         assert response.status_code == 200, response.text
         assert response.json()["switch_epoch"] == str(ns)
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_the_server_never_retries(self, client, monkeypatch):
         calls = []
@@ -702,7 +1024,7 @@ class TestNoUsableRecord:
         with patch.object(control_context, "_write_record_unlocked", side_effect=error):
             response = post_switch(client, target="standin", state="off")
         assert_envelope(response, 503, reason="not_taken", taken=False, phrase=STOP_SENTENCE)
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_a_failed_write_of_on_is_not_taken_with_the_record_phrase(self, client):
         with patch.object(
@@ -760,13 +1082,14 @@ class TestEnvelope:
 # -- audit ------------------------------------------------------------------
 
 
-def _assert_one_line(ledger, *, decision, reason, state, target="standin"):
+def _assert_one_line(ledger, *, decision, reason, state, target="standin", waived="false"):
     assert len(ledger) == 1, ledger
     line = ledger[0]
     assert line["subject"] == "session_posture_set"
     assert line["decision"] == decision
     assert line["reason"] == reason
-    for part in (f"login={acting_identity()}", f"target={target}", f"state={state}"):
+    machine = "targets=all" if target == "all" else f"target={target}"
+    for part in (f"login={acting_identity()}", machine, f"to={state}", f"waived={waived}"):
         assert part in line["detail"]
     assert f"outcome={reason}" in line["detail"]
     return line
@@ -777,25 +1100,44 @@ class TestAudit:
 
     def test_an_accepted_on_files_one_allowed_line(self, client, ledger):
         assert post_switch(client).status_code == 200
-        line = _assert_one_line(ledger, decision="allowed", reason="switch_set", state="on")
+        line = _assert_one_line(ledger, decision="allowed", reason="switch_set", state="asked")
         assert line["session"] == SESSION_A
-        assert "on=standin" in line["detail"]
+        assert line["detail"] == (
+            f"login={acting_identity()} target=standin from=off to=asked waived=false"
+            " outcome=switch_set"
+        )
+
+    def test_a_widening_names_where_it_came_from_and_the_waiver_as_sent(self, client, ledger):
+        assert turn_on(client, "va", "asked", waived=True).status_code == 200
+        assert post_switch(client, target="va", state="allowed").status_code == 200
+        assert [line["detail"] for line in ledger] == [
+            f"login={acting_identity()} target=va from=off to=asked waived=true outcome=switch_set",
+            f"login={acting_identity()} target=va from=asked to=allowed waived=false"
+            " outcome=switch_set",
+        ]
 
     def test_an_accepted_all_off_files_one_line(self, client, ledger):
+        assert turn_on(client, "standin").status_code == 200
+        assert turn_on(client, "va").status_code == 200
+        ledger.clear()
         assert post_switch(client, target="all", state="off").status_code == 200
-        _assert_one_line(ledger, decision="allowed", reason="switch_set", state="off", target="all")
+        line = _assert_one_line(
+            ledger, decision="allowed", reason="switch_set", state="off", target="all"
+        )
+        assert "to=off targets=all" in line["detail"]
+        assert " target=" not in line["detail"]
 
     def test_the_stamped_409_files_one_gesture_line(self, client, ledger):
         make_epochless()
         assert post_switch(client, epoch=None).status_code == 409
-        line = _assert_one_line(ledger, decision="refused", reason="stopped_since", state="on")
+        line = _assert_one_line(ledger, decision="refused", reason="stopped_since", state="asked")
         assert "stamped=true" in line["detail"]
 
     @pytest.mark.parametrize(
         ("kwargs", "status", "reason"),
         [
-            ({"target": "all", "state": "on"}, 400, "bulk_on_refused"),
-            ({"target": "banana", "state": "on"}, 400, "unknown_target"),
+            ({"target": "all", "state": "asked"}, 400, "bulk_on_refused"),
+            ({"target": "banana", "state": "asked"}, 400, "unknown_target"),
             ({"epoch": "1"}, 409, "stopped_since"),
         ],
     )
@@ -806,14 +1148,33 @@ class TestAudit:
             ledger,
             decision="refused",
             reason=reason,
-            state=kwargs.get("state", "on"),
+            state=kwargs.get("state", "asked"),
             target=kwargs.get("target", "standin"),
+        )
+
+    def test_the_two_new_refusals_each_file_one_line(self, client, ledger, tmp_path):
+        assert post_switch(client, target="live", waived=True).status_code == 400
+        _assert_one_line(
+            ledger,
+            decision="refused",
+            reason="waiver_not_allowed",
+            state="asked",
+            target="live",
+            waived="true",
+        )
+        ledger.clear()
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="asked"), name="asked.yml"
+        )
+        assert post_switch(client, target="va", state="allowed").status_code == 403
+        _assert_one_line(
+            ledger, decision="refused", reason="tier_caps", state="allowed", target="va"
         )
 
     def test_the_403_files_one_refused_line(self, client, ledger, monkeypatch):
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         assert post_switch(client).status_code == 403
-        _assert_one_line(ledger, decision="refused", reason="readonly_run", state="on")
+        _assert_one_line(ledger, decision="refused", reason="readonly_run", state="asked")
 
     def test_the_503_files_one_refused_line(self, client, ledger):
         control_context.record_path().unlink()
@@ -853,13 +1214,13 @@ class TestTheSwitchIsTheLogins:
         assert post_switch(client, target="all", state="off").status_code == 200
 
         pin_identity(monkeypatch, "alice")
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_on_survives_a_restart(self, make_client):
         with make_client() as first:
             assert turn_on(first, "standin").status_code == 200
         with make_client() as second:
-            assert switch_now() == {"standin": "on"}
+            assert switch_now() == {"standin": "asked"}
             assert post_switch(second, target="standin", state="off").status_code == 200
         assert switch_now() == {}
 
@@ -919,7 +1280,7 @@ class TestTheSwitchIsTheLogins:
         assert moved.status_code == 202, moved.text
         record = read_record()
         assert (record.target, record.generation) == ("va", before.generation + 1)
-        assert switch_now() == {"live": "on"}
+        assert switch_now() == {"live": "asked"}
         assert epoch_now() == epoch
 
 
