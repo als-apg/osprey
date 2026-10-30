@@ -281,6 +281,9 @@ class _StubService:
     async def health_check(self) -> tuple[bool, str]:
         return True, "OK"
 
+    async def verify_search_model_table(self) -> None:
+        return None
+
     async def search(self, **kwargs: Any) -> Any:
         return self._search_result
 

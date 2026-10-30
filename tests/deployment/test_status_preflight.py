@@ -26,6 +26,8 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 from osprey.deployment import status_display
+from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 
 _CONFIGS: dict[str, dict] = {}
 
@@ -108,9 +110,14 @@ def runtime_calls(monkeypatch):
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     class _Result:
         def __init__(self, stdout, returncode=0):
@@ -146,6 +153,9 @@ def _run_status(tmp_path, runtime_calls, containers, users=("alice",)):
     """
     config_path = str(tmp_path / "config.yml")
     _CONFIGS[config_path] = _base_config(list(users))
+    write_deployment_record(
+        tmp_path, DeploymentRecord("docker", resolve_project_name(_CONFIGS[config_path]))
+    )
     runtime_calls["ps_stdout"] = json.dumps(list(containers))
     status_display.show_status(config_path)
 

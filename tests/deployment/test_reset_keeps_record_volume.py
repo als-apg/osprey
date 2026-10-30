@@ -55,7 +55,7 @@ def _no_image_axes(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def no_down(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     calls: list[Path] = []
-    monkeypatch.setattr(reset_mod, "down_deployment", lambda root: calls.append(Path(root)))
+    monkeypatch.setattr(reset_mod, "down_deployment", lambda root, **_: calls.append(Path(root)))
     return calls
 
 

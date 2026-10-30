@@ -136,6 +136,9 @@ class _StatusService:
     async def health_check(self) -> tuple[bool, str]:
         return True, "connected"
 
+    async def verify_search_model_table(self) -> None:
+        return None
+
 
 def _status_repository() -> MagicMock:
     """A repository double answering every query ``get_status`` makes.
@@ -193,7 +196,7 @@ class TestNoServerListening:
         assert health["reason"] == "unreachable"
         assert out["attachments"]["picture_search_unavailable"] == "unreachable"
 
-    async def test_hybrid_search_answers_text_only(self, reserve_port, llama_stub):
+    async def test_hybrid_search_answers_text_only(self, reserve_port, llama_stub, search_calls):
         llama_stub
         config = lane_config(_nobody_listening(reserve_port()))
         hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
@@ -202,9 +205,16 @@ class TestNoServerListening:
             return LaneRepository([make_entry("a"), make_entry("b")])
 
         text_only = await hybrid_search(
-            "q", repo(), config, client=StubClient(hits), include_images=False
+            "q",
+            repo(),
+            config,
+            client=StubClient(hits),
+            include_images=False,
+            search_calls=search_calls,
         )
-        result = await hybrid_search("q", repo(), config, client=StubClient(hits))
+        result = await hybrid_search(
+            "q", repo(), config, client=StubClient(hits), search_calls=search_calls
+        )
 
         assert isinstance(result, ModuleOutput)
         assert list(result.entries) == list(text_only)

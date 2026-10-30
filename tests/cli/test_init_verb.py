@@ -14,6 +14,8 @@ different kinds of thing:
 * The ``data/`` tree is compared on SHAPE alone — ~2 MB of packaged bundle
   against the exemplar's ~20 hand-authored files, which exist to pin paths
   rather than content. Every path the exemplar names must be present.
+* ``data/README.md`` is the exception: it is copied from the package, the
+  exemplar reads that same file, and the two are compared byte for byte.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
   ``the retired layer directory*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
   That is the full TR-4 contract: the packaged prose is the exemplar's, down
@@ -324,6 +326,12 @@ def test_rendered_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path) ->
         if exemplar_repo.joinpath(name).read_text(encoding="utf-8") != expected[name]
     ]
     assert differing == []
+
+
+def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
+    """Init copies the preset's ``data/README.md`` through unchanged."""
+    emitted = exemplar_repo.joinpath("data/README.md").read_text(encoding="utf-8")
+    assert emitted == exemplar_source_files(with_ci=False)["data/README.md"]
 
 
 def test_source_lives_at_the_repo_root(exemplar_repo: Path) -> None:
@@ -1435,7 +1443,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
             "osprey.cli.init_cmd._surviving_project_resources",
-            lambda target, runtime: ["container old-thing", "volume old-thing_data"],
+            lambda runtime, project: ["container old-thing", "volume old-thing_data"],
         )
 
         result = runner.invoke(
@@ -1459,7 +1467,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
             "osprey.cli.init_cmd._surviving_project_resources",
-            lambda target, runtime: ["container old-thing"],
+            lambda runtime, project: ["container old-thing"],
         )
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.get_runtime_command",
@@ -1483,7 +1491,7 @@ class TestResetFlag:
     def test_it_proceeds_when_the_sweep_was_complete(self, runner, tmp_path, monkeypatch):
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
-            "osprey.cli.init_cmd._surviving_project_resources", lambda target, runtime: []
+            "osprey.cli.init_cmd._surviving_project_resources", lambda runtime, project: []
         )
 
         result = runner.invoke(
@@ -1524,6 +1532,59 @@ class TestResetFlag:
         assert stale_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
         assert not (exemplar_repo / "data" / "orphan.json").exists()
         assert "MY_PROVIDER_KEY=keepme" in env.read_text(encoding="utf-8")
+
+    def test_init_reset_sweeps_the_recorded_project_with_the_recorded_runtime(
+        self, exemplar_repo, runner, monkeypatch, caplog
+    ):
+        """The sweep reads the record before the reset deletes it.
+
+        The last start recorded which project it drove and on which runtime;
+        the survivor probe and its remedy act on those, not on what the shell
+        or the profile would decide now.
+        """
+        from osprey.deployment import reset as reset_mod
+        from osprey.deployment.deployment_record import (
+            DEPLOYMENT_RECORD_RELPATH,
+            DeploymentRecord,
+            read_deployment_record,
+            write_deployment_record,
+        )
+
+        monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+        record = DeploymentRecord("podman", "earlier-name")
+        write_deployment_record(exemplar_repo, record)
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_for_reinit",
+            lambda repo_root, **kw: (
+                (repo_root / DEPLOYMENT_RECORD_RELPATH).unlink(missing_ok=True),
+                _completed_reset(repo_root),
+            )[1],
+        )
+        swept: list[tuple[str, str]] = []
+
+        class _Probe:
+            def __init__(self, runtime, **_kw):
+                self.runtime = runtime
+
+            def containers_for_project(self, project):
+                swept.append((self.runtime, project))
+                return [reset_mod.Resource("container", f"{project}-old")]
+
+            def volumes_for_project(self, _project):
+                return []
+
+        monkeypatch.setattr(reset_mod, "RuntimeProbe", _Probe)
+
+        result = init_exemplar(runner, exemplar_repo, "--reset")
+
+        printed = " ".join(caplog.text.split())
+        assert read_deployment_record(exemplar_repo) is None
+        assert swept == [(record.runtime, record.compose_project)]
+        assert result.exit_code != 0
+        assert (
+            f"{record.runtime} ps -aq --filter "
+            f"label=com.docker.compose.project={record.compose_project}"
+        ) in printed
 
     def test_the_refusal_on_a_used_name_offers_the_flag(self, exemplar_repo, runner):
         """The wall an operator hits is where they must learn the way through it.
@@ -1576,7 +1637,7 @@ class TestContainerRuntimePreflight:
     def _runtime_down(monkeypatch, message="Docker Desktop is not running.\n\nTo fix this:\n1. x"):
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.verify_runtime_is_running",
-            lambda config=None: (False, message),
+            lambda config=None, **_: (False, message),
         )
 
     def test_reset_refuses_before_creating_anything(self, runner, tmp_path, monkeypatch):
@@ -1636,7 +1697,7 @@ class TestContainerRuntimePreflight:
         asked: list[object] = []
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.verify_runtime_is_running",
-            lambda config=None: (asked.append(config), (False, "should not be consulted"))[1],
+            lambda config=None, **_: (asked.append(config), (False, "should not be consulted"))[1],
         )
         target = tmp_path / "demo"
 

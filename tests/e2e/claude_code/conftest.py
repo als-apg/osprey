@@ -64,14 +64,23 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
+#: The safety world's channels, each named once by its role in it. The
+#: addresses are the world's own: the served tree holds them and
+#: :data:`SAFETY_LIMITS_DB` lists the first two, and no facility file need.
+#: The bounded writable setpoint :data:`SAFETY_LIMITS_DB` lists with a band.
+BOUNDED_SETPOINT = "SR:DIAG:TEMP:01:TEMPERATURE:SP"
+#: The readback :data:`SAFETY_LIMITS_DB` lists as read-only; served as a readback.
+READ_ONLY_READBACK = "SR:MAG:QF:01:CURRENT:RB"
+#: A reading :data:`SAFETY_LIMITS_DB` does not list.
+UNLISTED_READING = "SR:BEAM:CURRENT"
+#: A setpoint :data:`SAFETY_LIMITS_DB` does not list, written by the scripted gates.
+SCRIPTED_UNLISTED_SETPOINT = "MAG:HCM01:CURRENT:SP"
+#: A setpoint :data:`SAFETY_LIMITS_DB` does not list, written by the agent lane.
+AGENT_UNLISTED_SETPOINT = "SR:RANDOM:UNLISTED"
+
 #: The setpoints the safety scenarios write, and the channels they only read.
-#: The read-only readback in :data:`SAFETY_LIMITS_DB` is served as a readback.
-SAFETY_SETPOINTS = (
-    "MAG:HCM01:CURRENT:SP",
-    "SR:DIAG:TEMP:01:TEMPERATURE:SP",
-    "SR:RANDOM:UNLISTED",
-)
-SAFETY_READINGS = ("SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB")
+SAFETY_SETPOINTS = (SCRIPTED_UNLISTED_SETPOINT, BOUNDED_SETPOINT, AGENT_UNLISTED_SETPOINT)
+SAFETY_READINGS = (UNLISTED_READING, READ_ONLY_READBACK)
 
 
 def _serve_safety_channels(repo: Path, root: Path) -> None:

@@ -65,6 +65,16 @@ READONLY_REFUSAL = (
 #: either side without the other fails rather than silently stopping the alert.
 READONLY_REFUSAL_MARKER = "readonly execution mode"
 
+#: Message raised by every refused shared-library load in a readonly run,
+#: formatted with ``library``, the name the load asked for. It carries
+#: :data:`READONLY_REFUSAL_MARKER`, so the tool layer alerts and audits a
+#: refused load as it does a refused write, and it names the library, not a write.
+READONLY_LOAD_REFUSAL = (
+    f"{READONLY_REFUSAL_MARKER}: loading '{{library}}' refused — a readonly run "
+    "loads no shared library once user code starts; reach the machine through "
+    "osprey.runtime.read_channel(address)"
+)
+
 #: File in the execution folder where a readwrite run records every channel
 #: ``osprey.runtime`` attempted to write, one ``{"channel": <address>}`` JSON
 #: object per line. Appended per attempt, so a killed run leaves the list of
@@ -1060,7 +1070,12 @@ if not _execution_dir.exists():
                 "# user code, so an alias bound later resolves here.",
             ),
             "readonly",
-            {"eager_targets": eager, "deferred_targets": deferred, "refusal": READONLY_REFUSAL},
+            {
+                "eager_targets": eager,
+                "deferred_targets": deferred,
+                "refusal": READONLY_REFUSAL,
+                "load_refusal": READONLY_LOAD_REFUSAL,
+            },
         )
 
     def _get_armed_block(self) -> str:

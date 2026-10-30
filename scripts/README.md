@@ -39,12 +39,20 @@ check from there, so they cannot disagree about what a check is.
 
 `--changed BASE --worktree` judges the working tree instead of `HEAD`, for the
 runners and every range check alike, so staged, unstaged and untracked files
-count. Test files after `--` are added to what the range selects. `--base BASE`
-arms the checks that judge a range without scoping the tier, so
-`full --base origin/main` judges the whole tree and the range in one verdict.
+count. Test files, pytest node ids (`file.py::test`) and test directories after
+`--` are added to what the range selects. `--base BASE` arms the checks that
+judge a range without scoping the tier, so `full --base origin/main` judges the
+whole tree and the range in one verdict.
 
 **What it runs**: `uv run python scripts/check.py list` prints every check, its
 kind, its tiers and its command.
+
+**Provisioning**: before any check runs, two needs put the tree's pins in
+place. The `claude-pin` need of the test sweep runs `pinned_claude.py` and puts
+the directory whose `claude` reports the pinned version first on `PATH`; when
+none does, the sweep is refused with the install command. The `node` need runs
+the `js_deps_current.py` compare and runs `npm ci` only when `node_modules`
+differs from `package-lock.json`.
 
 **Requirements**:
 - `uv sync --extra dev --extra docs` and graphviz (`dot`) on PATH (the full
@@ -54,8 +62,8 @@ kind, its tiers and its command.
 - network access for the full tier's link check
 - `uv sync --extra virtual-accelerator` on Linux x86_64 (the full tier refuses
   there without it; elsewhere the live Channel Access gate does not run)
-- `npm ci` (the TypeScript, ESLint, Vitest and dock-engine checks refuse without
-  the Node toolchain)
+- Node and npm on PATH (the TypeScript, ESLint, Vitest and dock-engine checks
+  refuse without the Node toolchain)
 
 **Exit codes**:
 - `0`: Clean
@@ -261,7 +269,7 @@ uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
 ---
 
 **What it does**: Stages the project the live-container suite serves, applies
-the `still` scenario on its fresh state directory and asserts no captured
+the `still` scenario on top of the suite's scenarios and asserts no captured
 address moves, boots the VA image (`osprey-va-full:latest`, built by
 `scripts/va/build_and_boot_check.sh`, or the one `OSPREY_VA_E2E_IMAGE` names)
 and reads every served address over Channel Access until two snapshots agree.

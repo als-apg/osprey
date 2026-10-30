@@ -83,15 +83,62 @@ export async function runVerification() {
 }
 
 /**
+ * @typedef {object} StateUpdatedEvent
+ * @property {'state_updated'} type
+ */
+
+/**
+ * @typedef {object} FigureStatusEvent
+ * @property {'figure_status'} type
+ * @property {string} name
+ * @property {'computing'} status
+ */
+
+/**
+ * @typedef {object} FigureReadyEvent
+ * @property {'figure_ready'} type
+ * @property {string} name
+ */
+
+/**
+ * @typedef {object} FigureErrorEvent
+ * @property {'figure_error'} type
+ * @property {string} name
+ * @property {string} error
+ */
+
+/**
+ * @typedef {object} SettingsUpdatedEvent
+ * @property {'settings_updated'} type
+ * @property {object} settings
+ */
+
+/**
+ * @typedef {object} BaselineSetEvent
+ * @property {'baseline_set'} type
+ * @property {object} summary
+ */
+
+/**
+ * @typedef {object} BaselineClearedEvent
+ * @property {'baseline_cleared'} type
+ */
+
+/**
+ * One event on /api/events, told apart by its type.
+ * @typedef {StateUpdatedEvent|FigureStatusEvent|FigureReadyEvent|FigureErrorEvent|SettingsUpdatedEvent|BaselineSetEvent|BaselineClearedEvent} DashboardEvent
+ */
+
+/**
  * Route one parsed SSE payload to the matching handler. A pure dispatch
  * table with no network or DOM side effects of its own, so it can be unit
  * tested by calling it directly with a stub `handlers`.
- * @param {{type: string, name?: string, status?: string, error?: string, settings?: object, summary?: object}} data
+ * @param {DashboardEvent} data
  * @param {object} handlers
  * @param {() => void} handlers.onStateUpdated
  * @param {(name: string, status: string) => void} handlers.onFigureStatus
  * @param {(name: string) => void} handlers.onFigureReady
- * @param {(name: string, error: string | null) => void} handlers.onFigureError
+ * @param {(name: string, error: string) => void} handlers.onFigureError
  * @param {(settings: object) => void} handlers.onSettingsUpdated
  * @param {(summary: object) => void} handlers.onBaselineSet
  * @param {() => void} [handlers.onBaselineCleared]
@@ -106,26 +153,23 @@ export function handleSSEEvent(data, handlers) {
       break;
 
     case 'figure_status':
-      handlers.onFigureStatus(
-        /** @type {string} */ (data.name),
-        /** @type {string} */ (data.status)
-      );
+      handlers.onFigureStatus(data.name, data.status);
       break;
 
     case 'figure_ready':
-      handlers.onFigureReady(/** @type {string} */ (data.name));
+      handlers.onFigureReady(data.name);
       break;
 
     case 'figure_error':
-      handlers.onFigureError(/** @type {string} */ (data.name), data.error ?? null);
+      handlers.onFigureError(data.name, data.error);
       break;
 
     case 'settings_updated':
-      if (data.settings) handlers.onSettingsUpdated(data.settings);
+      handlers.onSettingsUpdated(data.settings);
       break;
 
     case 'baseline_set':
-      if (data.summary) handlers.onBaselineSet(data.summary);
+      handlers.onBaselineSet(data.summary);
       break;
 
     case 'baseline_cleared':
@@ -143,7 +187,7 @@ export function handleSSEEvent(data, handlers) {
  * @property {(name: string, detail: string) => void} onFigureUnavailable - fired with the refusal's detail when the selected model cannot draw the figure
  * @property {(name: string, status: string) => void} onFigureStatus - fired on a 'figure_status' SSE event, and with the status a figure route's 404 names
  * @property {(name: string) => void} onFigureReady - fired on a 'figure_ready' SSE event, before the figure itself is fetched
- * @property {(name: string, error: string | null) => void} onFigureError - fired on a 'figure_error' SSE event, with null when the server gave no reason
+ * @property {(name: string, error: string) => void} onFigureError - fired on a 'figure_error' SSE event
  * @property {(settings: object) => void} onSettingsUpdated - fired on a 'settings_updated' SSE event
  * @property {(summary: object) => void} onBaselineSet - fired on a 'baseline_set' SSE event
  */
@@ -287,7 +331,7 @@ export function createNetClient(callbacks) {
       callbacks.onFigureReady(name);
       fetchAndRenderFigure(name);
     },
-    /** @type {(name: string, error: string | null) => void} */
+    /** @type {(name: string, error: string) => void} */
     onFigureError: (name, error) => callbacks.onFigureError(name, error),
     /** @type {(settings: object) => void} */
     onSettingsUpdated: (settings) => callbacks.onSettingsUpdated(settings),

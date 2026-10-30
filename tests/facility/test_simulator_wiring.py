@@ -3,9 +3,10 @@
 ``simulator_wiring`` projects the wiring records of one model of the in-memory
 facility file onto the simulator's wiring entry shape: the authored keys
 (``id``, ``address``, ``element`` or ``slices``, ``engine``, ``calibration``)
-plus the slots the build fills from the channel and its limits record
-(``direction``, ``unit``, ``default``, ``value_range``). A key the record does
-not carry is absent from its entry; ``provenance`` never appears.
+plus the slots the build fills from the channel, its limits record and the
+model's engine (``direction``, ``unit``, ``default``, ``value_range``, ``role``,
+``plane``, ``refresh``). A key the record does not carry is absent from its
+entry; ``provenance`` never appears.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Any
 
 import pytest
 
+import osprey.facility.views.simulator as simulator
 from osprey.facility.build import FacilityDocument, build_facility
 from osprey.facility.views.simulator import simulator_wiring
 
@@ -136,3 +138,22 @@ def test_a_waveform_channel_s_entry_carries_its_value_type_and_shape(
         [3],
     )
     assert "value_type" not in entries["SR:DIAG:TUNE:Y"]
+
+
+def test_simulator_wiring_loads_no_engine(
+    demo: FacilityDocument, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from importlib import metadata
+
+    def no_registry(**_: Any) -> Any:
+        raise AssertionError("the simulator view read the engine registry")
+
+    monkeypatch.setattr(metadata, "entry_points", no_registry)
+    monkeypatch.setattr(simulator, "_wired", [])
+
+    entries = simulator_wiring(demo, "SR")
+
+    for entry, record in zip(entries, _records(demo, "SR"), strict=True):
+        assert {key: entry[key] for key in ("role", "plane", "refresh")} == {
+            key: record[key] for key in ("role", "plane", "refresh")
+        }, entry["id"]

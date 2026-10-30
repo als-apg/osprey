@@ -46,6 +46,8 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from osprey.audit import posture
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.mcp_server.python_executor import executor
+from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
@@ -171,18 +173,16 @@ def _launch_target(section: Any) -> str | None:
     target, which the verdict refuses as ``target_unknown``: the launch would
     pin such a run sandboxed everywhere, and the refusal says why.
 
-    Never raises; ``None`` (the verdict's ``target_unknown``) when not even the
-    baseline can be named.
+    ``None`` (the verdict's ``target_unknown``) when not even the baseline can
+    be named: a ``control_system`` section that names no serving the
+    deployment knows. The record's own reader never raises.
     """
+    record = executor._control_context_record()
+    if record is not None:
+        return str(record.target)
     try:
-        from osprey.mcp_server.python_executor.executor import _deployment_record
-        from osprey_connectors.types import baseline_target
-
-        record = _deployment_record()
-        if record is not None:
-            return str(record.target)
         return baseline_target(section)
-    except Exception:  # an unnameable target is refused by the verdict, never granted
+    except ValueError:  # an unnameable target is refused by the verdict, never granted
         logger.warning("Could not name the run's control target; refusing writes", exc_info=True)
         return None
 

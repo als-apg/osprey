@@ -31,7 +31,11 @@ from osprey.mcp_server.control_system.error_handling import (
     describe_active_target,
 )
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ConnectorInternalError,
+)
 from tests.mcp_server.conftest import assert_raises_error
 
 IDENTITY = {
@@ -157,11 +161,6 @@ def resolved_identity(monkeypatch):
     """Pin the resolver so each branch's wiring is tested in isolation."""
     monkeypatch.setattr(error_handling, "describe_active_target", lambda: dict(IDENTITY))
 
-    async def no_invalidate(connector_name: str) -> None:  # noqa: ARG001 - invalidate_active_connector fixes this stand-in's signature
-        return None
-
-    monkeypatch.setattr(error_handling, "invalidate_active_connector", no_invalidate)
-
 
 async def _envelope_for(exc: BaseException, connector_name: str = "control_system") -> dict:
     with assert_raises_error() as captured:
@@ -223,6 +222,18 @@ async def test_an_internal_error_names_the_machine():
     assert envelope["error_type"] == "internal_error"
     assert CLAUSE in envelope["error_message"]
     assert envelope["details"]["active_target"] == IDENTITY
+
+
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_contract_fault_is_an_internal_error_that_names_the_machine():
+    envelope = await _envelope_for(
+        ConnectorInternalError(
+            "connector host reported an unrecognised error: KeyError('X:Y')", class_tag="KeyError"
+        )
+    )
+    assert envelope["error_type"] == "internal_error"
+    assert CLAUSE in envelope["error_message"]
+    assert "recovery" not in envelope["details"]
 
 
 @pytest.mark.usefixtures("resolved_identity")

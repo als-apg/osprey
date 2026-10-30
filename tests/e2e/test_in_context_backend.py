@@ -170,8 +170,9 @@ async def test_in_context_backend_basic(tmp_path):
     render = _make_test_project(tmp_path)
     backend = InContextBackend(render, _BACKEND_MODEL)
 
+    probe = _TEST_CHANNELS[0]
     output = await backend.run_query(
-        "What is the PV address for the storage ring beam current?",
+        f"What is the PV address for the {probe['description']}?",
         "in_context",
     )
 
@@ -180,9 +181,9 @@ async def test_in_context_backend_basic(tmp_path):
     assert len(output.tool_traces) == 1
     assert output.tool_traces[0].name == "ask_channels"
 
-    # Content assertion — the model should identify the beam current channel
+    # Content assertion — the model should identify the channel it was asked about
     response = output.response_text
-    assert "SR:BEAM:CURRENT" in response or "StorageRing_Current" in response
+    assert probe["address"] in response or probe["channel"] in response
 
     # Inner provider + wire id are recorded in the trace from the model
     # string the backend was constructed with.

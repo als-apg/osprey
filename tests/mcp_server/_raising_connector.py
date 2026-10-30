@@ -23,7 +23,6 @@ and this connector's ``write_channel`` is never entered.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,13 +40,6 @@ LIMITS_CHANNEL = "TEST:RAISE:LIMITS:SP"
 
 #: Writing this channel raises a reference-monitor refusal.
 BLOCKED_CHANNEL = "TEST:RAISE:BLOCKED:SP"
-
-#: Reading this channel parks forever. The dead-child test kills the child
-#: while a call is in flight; a channel that answers races the kill, and on a
-#: loaded runner the answer can land first, so the call it needs to strand
-#: resolves with a value instead. A read that cannot complete makes "still in
-#: flight when the child dies" a property of the channel, not of scheduling.
-HANG_CHANNEL = "TEST:RAISE:HANG:RB"
 
 #: Every field ``ChannelLimitsViolationError`` carries, set to a distinct value
 #: so a field that crossed as another field's value is visible as a failure.
@@ -99,11 +91,9 @@ class RaisingConnector(ControlSystemConnector):
 
     async def read_channel(
         self,
-        channel_address: str,
+        channel_address: str,  # noqa: ARG002 - the connector interface fixes the signature
         timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelValue:
-        if channel_address == HANG_CHANNEL:
-            await asyncio.Event().wait()
         return ChannelValue(
             value=READ_VALUE,
             timestamp=datetime.now(UTC),

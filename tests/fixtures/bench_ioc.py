@@ -79,9 +79,24 @@ CONTAINER_PREFIX = "osprey-bench-ioc"
 # The seeded record set, named here so callers assert against one spelling.
 # Values are constants in docker/bench-ioc/bench.db and hold from the first
 # read: the IOC has no autosave and no persistence, so every boot starts again
-# from these and no run can inherit what an earlier run wrote.
+# from these and no run can inherit what an earlier run wrote. The names are
+# vouched against bench.db and the example facility by tests/va/test_suite_world.py.
+
+# -- readbacks --
 PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
 PROBE_VALUE = 7.25
+#: The one bench record carrying alarm limits (``HIHI``, ``HHSV MAJOR``): a
+#: readback, since no setpoint in bench.db sets any alarm field.
+ALARM_CHANNEL = "SR:MAG:VCM:02:CURRENT:RB"
+ALARM_SEEDED_VALUE = -3.5
+ALARM_HIHI_THRESHOLD = 11.0
+
+# -- monitors --
+#: A monitor reading the bench and the example facility both serve.
+SHARED_BPM_X = "SR:DIAG:BPM:01:POSITION:X"
+SHARED_BPM_X_VALUE = 0.412
+
+# -- setpoints --
 #: Writable setpoint -- accepts a caput and latches it (no readback echo: the
 #: bench IOC is constants, not a simulation, so read this channel back, not RB).
 WRITABLE_SP = "SR:MAG:HCM:01:CURRENT:SP"
@@ -89,6 +104,11 @@ WRITABLE_SP = "SR:MAG:HCM:01:CURRENT:SP"
 #: refused by the control system itself, not by any client-side check.
 PROTECTED_SP = "SR:MAG:VCM:02:CURRENT:SP"
 PROTECTED_VALUE = -3.5
+#: What a lane writes to a setpoint on the virtual accelerator: inside the
+#: band the example facility's limits give :data:`WRITABLE_SP`.
+VA_WRITE_VALUE = 1.25
+
+# -- records the example facility does not carry --
 #: An mbbi: the value is the state index, the label names the state it is in.
 MODE_STATE = "SR:DIAG:STRIPLINE:01:MODE:STATE"
 MODE_STATE_VALUE = 2
@@ -100,6 +120,13 @@ MODE_STATE_LABELS = ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
 #: from boot rather than only after its first scan.
 SCALED_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:SCALED"
 SCALED_AMPLITUDE_VALUE = 6.375
+#: An amplitude only the bench serves: the example facility has no such channel.
+BENCH_ONLY_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB"
+BENCH_ONLY_AMPLITUDE_VALUE = 12.75
+
+# -- absent from the bench --
+#: An example-facility reading bench.db deliberately omits.
+VA_ONLY_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 
 # ---------------------------------------------------------------------------
 # Bounds

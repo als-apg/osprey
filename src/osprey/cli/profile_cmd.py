@@ -20,7 +20,7 @@ prints.
 
 Usage:
     osprey profile presets
-    osprey profile validate ~/deployments/als-assistant
+    osprey profile validate ~/deployments/my-assistant
 """
 
 from __future__ import annotations
@@ -116,8 +116,8 @@ def validate(target: Path) -> None:
     Examples:
 
     \b
-      $ osprey profile validate ~/deployments/als-assistant
-      $ osprey profile validate ~/deployments/als-assistant/tiers/readonly.yml
+      $ osprey profile validate ~/deployments/my-assistant
+      $ osprey profile validate ~/deployments/my-assistant/tiers/readonly.yml
     """
     # The check itself belongs to the verb, not to either spelling of it: this
     # command differs from `osprey validate` only in requiring its TARGET, so
@@ -151,7 +151,7 @@ def card(as_json: bool, repo: Path | None) -> None:
 
     \b
       $ osprey profile card
-      $ osprey profile card --repo ~/deployments/als-assistant
+      $ osprey profile card --repo ~/deployments/my-assistant
       $ osprey profile card --json
     """
     import json

@@ -42,9 +42,8 @@ def _png(size: tuple[int, int] = (8, 8)) -> bytes:
 PNG = _png()
 SOURCE = _png((32, 24))
 
-# The clocks as shipped, for the cases where only the test may end a render.
+# The task clock as shipped, for the cases where only the test may end a render.
 _TASK_TIMEOUT_S = render.RENDER_TASK_TIMEOUT_S
-_READY_TIMEOUT_S = render.RENDER_READY_TIMEOUT_S
 
 # A stub worker: hand-shakes (unless told otherwise), then answers every frame
 # from ``behaviour(payload)``, which returns (header dict, body bytes) or acts.
@@ -137,7 +136,6 @@ async def test_default_argv_env_and_cwd(monkeypatch):
         "osprey.imaging.render_worker",
     )
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
     calls = []
     real = asyncio.create_subprocess_exec
 
@@ -165,7 +163,6 @@ async def test_default_argv_env_and_cwd(monkeypatch):
 
 async def test_real_worker_content_refusal_is_a_reply_not_a_failure(monkeypatch):
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
     outcome = await render.render_isolated(b"<html>login</html>")
     assert outcome.rendition is None
     assert outcome.reason == "not_an_image"
@@ -173,7 +170,6 @@ async def test_real_worker_content_refusal_is_a_reply_not_a_failure(monkeypatch)
 
 def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
 
     async def render_once() -> tuple[render.RenderOutcome, int | None]:
         outcome = await render.render_isolated(SOURCE)
@@ -227,13 +223,21 @@ async def test_sleeper_id_times_out_and_siblings_render(monkeypatch, tmp_path):
 
 
 async def test_the_task_clock_starts_after_the_lock(monkeypatch, tmp_path):
-    # Each task takes 0.6 s against a 1 s clock; five queued tasks take 3 s in
-    # all, so a clock started at submission would time the later ones out.
-    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, "time.sleep(0.6)\nok()"))
+    # Each task takes a tenth of the clock and the queue holds one and a half
+    # clocks of them, so a clock started at submission would time the later ones
+    # out while one started after the lock leaves each task most of its clock.
+    clock = render.RENDER_TASK_TIMEOUT_S
+    count = 15
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, f"time.sleep({clock / 10})\nok()"))
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     outcomes = await asyncio.gather(
-        *(render.render_isolated(bytes([i]), task_id=str(i)) for i in range(5))
+        *(render.render_isolated(bytes([i]), task_id=str(i)) for i in range(count))
     )
+    elapsed = loop.time() - started
     assert all(o.rendition is not None for o in outcomes)
+    # The queue really outlasted one clock.
+    assert elapsed > clock
 
 
 async def test_crash_on_one_id_leaves_siblings_and_next_call_rendered(monkeypatch, tmp_path):
@@ -261,12 +265,12 @@ async def test_worker_exiting_at_import_is_unavailable(monkeypatch, tmp_path):
 
 
 async def test_no_ready_within_the_ready_wait_is_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 2.0)
     monkeypatch.setattr(
         render,
         "WORKER_ARGV",
         _stub(tmp_path, "ok()", handshake="time.sleep(10)\n" + _HANDSHAKE),
     )
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 2.0)
     loop = asyncio.get_running_loop()
     started = loop.time()
     with pytest.raises(render.RenderUnavailable):
@@ -583,7 +587,6 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
     # The reply width is the payload length, so each rendition names its picture.
     monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, held + "ok(w=len(payload))"))
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", _READY_TIMEOUT_S)
     slow = asyncio.create_task(render.render_isolated(b"1", task_id="one"))
     await _until_held(slow, started)
     first_pid = render.worker_pid()
@@ -611,7 +614,6 @@ async def test_a_cancel_is_not_counted_as_a_worker_death(monkeypatch, tmp_path):
         _stub(tmp_path, held + 'if payload == b"CRASH":\n    os._exit(139)\nok()'),
     )
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", _TASK_TIMEOUT_S)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", _READY_TIMEOUT_S)
     slow = asyncio.create_task(render.render_isolated(b"SLOW", task_id="slow"))
     await _until_held(slow, started)
     slow.cancel()

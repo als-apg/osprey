@@ -123,14 +123,19 @@ release, and CI enforces that in its `connectors-compat` and
 floor on this package, never a pin.
 
 The exception taxonomy in `osprey_connectors.errors` is public API: the class
-names `ChannelWriteBlockedError`, `ChannelWriteFailedError`,
+names `ChannelError`, `ChannelWriteBlockedError`, `ChannelWriteFailedError`,
 `ChannelLimitsViolationError` and `ChannelNotFoundError`, and their `reason`
 codes, are load-bearing for callers that branch on them.
 
+- `ChannelError` — the base of every failure about one channel; the classes
+  below and `ChannelUnreachableError` are one. `channel_address` names the
+  channel, in process and across the connector host.
 - `ChannelWriteBlockedError` — the write was refused and no value was written.
-  `reason` is one of `WRITES_DISABLED`, `LIMITS`, `VALIDATION_ERROR`,
-  `CONTROL_SYSTEM_REFUSED`, `RAW_CLIENT_WRITE`, or `CHANNEL_NOT_FOUND`. The
-  first three are refused before any `caput`; `CONTROL_SYSTEM_REFUSED` means
+  `reason` is a `RefusalReason`, one of `WRITES_DISABLED`, `LIMITS`,
+  `VALIDATION_ERROR`, `CONTROL_SYSTEM_REFUSED`, `RAW_CLIENT_WRITE`, or
+  `CHANNEL_NOT_FOUND`; each member names who refused (`refuser`) and what to
+  do about it (`remedy`). The first three are refused before any `caput`;
+  `CONTROL_SYSTEM_REFUSED` means
   the control system was asked and denied the write itself (EPICS access
   security, for instance); `RAW_CLIENT_WRITE` means user code called a client
   library's put directly instead of `osprey.runtime.write_channel`; and

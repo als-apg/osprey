@@ -2,18 +2,21 @@
 
 Reports container-runtime availability and per-service container state by
 composing the declarative :mod:`~osprey.health.probes.container` probe. The
-category emits:
+category reads the deployment record once, as ``verify.sh`` does, and reports
+on the runtime the last start recorded. It emits:
 
-* ``<runtime>_available`` — ``ok`` with the ``docker``/``podman`` ``--version``
+* ``<runtime>_available`` — ``ok`` with the recorded runtime's ``--version``
   banner, or ``error`` if that command fails (allowlisted to ``error``);
 * one ``container_<service>`` row per entry in ``deployed_services``, produced by
   the container probe (``running`` → ``ok``; other state or missing → ``warning``).
 
-Two whole-category shortcuts replace per-service rows:
+Three whole-category shortcuts replace those rows:
 
-* **No container runtime** (``get_runtime_command`` raises ``RuntimeError`` or
-  ``FileNotFoundError``) → a single ``skip`` row ``container_runtime`` "no
-  container runtime available" (exit 0, no per-service rows).
+* **No record** → a single ``warning`` row ``container_runtime`` carrying
+  :data:`~osprey.deployment.deployment_record.NOTHING_DEPLOYED`; no runtime is
+  asked.
+* **Unreadable record** → a single ``warning`` row ``container_runtime`` naming
+  the record unreadable, with the path in its details; no runtime is asked.
 * **Degraded mode** (``config is None`` — the project's ``config.yml`` did not
   load) → the runtime-availability row still runs, and the per-service portion
   collapses to a single ``skip`` row ``container_services`` "config unavailable",
@@ -22,19 +25,20 @@ Two whole-category shortcuts replace per-service rows:
 A broken runtime (``--version`` fails) yields only the ``error``
 ``<runtime>_available`` row; the container probe is not run.
 
-The config is threaded into runtime detection (here and, via
-:class:`~osprey.health.probes.ProbeContext`, into the container probe) so the
-category reports on the runtime the project's ``container_runtime`` actually
-selects rather than whatever auto-detection finds first.
+The repo whose record is read is the one the config locates
+(:func:`~osprey.deployment.compose_generator.resolve_repo_root`).
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from osprey.deployment.runtime_helper import get_runtime_command
+from osprey.deployment.compose_generator import resolve_repo_root
+from osprey.deployment.deployment_record import NOTHING_DEPLOYED, read_deployment_record
+from osprey.deployment.errors import DeploymentRecordError
 from osprey.health.models import CheckResult, Status
 from osprey.health.probes import ProbeContext
 from osprey.health.probes.container import run as container_probe
@@ -61,8 +65,8 @@ def containers(
 
     Args:
         config: Parsed config mapping, or ``None`` when config is unavailable
-            (degraded mode). Read for ``deployed_services`` and, via runtime
-            detection, ``container_runtime``.
+            (degraded mode). Read for ``deployed_services`` and to locate the
+            repo whose deployment record names the runtime.
         context: Health runtime; forwarded to the container probe, which ignores
             it (no control-system connector is needed).
         probe: Container probe callable to compose, for dependency injection in
@@ -76,19 +80,21 @@ def containers(
 
     async def _run() -> list[CheckResult]:
         try:
-            runtime_cmd = get_runtime_command(config)
-        except (RuntimeError, FileNotFoundError) as exc:
+            record = read_deployment_record(Path(resolve_repo_root(config)))
+        except DeploymentRecordError as exc:
             return [
                 CheckResult(
                     "container_runtime",
                     CATEGORY,
-                    Status.SKIP,
-                    "no container runtime available",
+                    Status.WARNING,
+                    "the deployment record is unreadable",
                     details=str(exc),
                 )
             ]
+        if record is None:
+            return [CheckResult("container_runtime", CATEGORY, Status.WARNING, NOTHING_DEPLOYED)]
 
-        runtime = runtime_cmd[0]
+        runtime = record.runtime
         available = await _check_runtime_available(runtime)
         rows = [available]
         if available.status is Status.ERROR:

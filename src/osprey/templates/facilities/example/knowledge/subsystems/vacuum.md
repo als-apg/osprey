@@ -9,26 +9,29 @@ tags: [vacuum, uhv, ion-pump, gate-valve, pressure]
 
 The Vacuum System maintains ultra-high vacuum (UHV) conditions throughout the
 Example Research Facility beamline.  Nominal operating pressure is
-`< 1e-8 Torr` in the photon beam path and `< 1e-9 Torr` in the storage ring.
+`< 1e-8 Torr` in the photon beam path and `< 1e-9 Torr` in SR.
 
 ## Pressure Channels
 
-Pressure readings follow the pattern `{SYS}:VAC:{Section}:Pressure`:
+Vacuum gauges read the pressure of their section, for example gauge
+[SR/GAUGESR01](facility:SR/GAUGESR01):
 
-```
-PS:VAC:INJ:Pressure     # Injection section pressure (Torr)
-TD:VAC:T01:Pressure     # Transport line section T01 pressure (Torr)
-ES3:VAC:End:Pressure    # Station 3 endstation pressure (Torr)
-```
+- [SR:VAC:GAUGE:SR01:PRESSURE:RB](facility:SR:VAC:GAUGE:SR01:PRESSURE:RB) — measured pressure
+- [SR:VAC:GAUGE:SR01:STATUS:VALID](facility:SR:VAC:GAUGE:SR01:STATUS:VALID) — the reading is valid
+
+Ion pumps also report a pressure calculated from their current, for example
+[SR:VAC:ION-PUMP:01:PRESSURE:RB](facility:SR:VAC:ION-PUMP:01:PRESSURE:RB).
+Ask the channel finder for the gauges of a section rather than composing
+addresses by hand.
 
 ## Gate Valves
 
-Gate valves isolate sections when a pressure excursion is detected:
+Gate valves isolate sections when a pressure excursion is detected, for
+example valve [SR/VALVE01](facility:SR/VALVE01):
 
-```
-TD:VAC:GV01:State      # Gate valve state: OPEN / CLOSED
-TD:VAC:GV01:Cmd        # Command: OPEN / CLOSE (interlocked)
-```
+- [SR:VAC:VALVE:01:POSITION:OPEN](facility:SR:VAC:VALVE:01:POSITION:OPEN) — the valve is fully open
+- [SR:VAC:VALVE:01:POSITION:CLOSED](facility:SR:VAC:VALVE:01:POSITION:CLOSED) — the valve is fully closed
+- [SR:VAC:VALVE:01:STATUS:READY](facility:SR:VAC:VALVE:01:STATUS:READY) — the valve is ready to move
 
 Gate valves are **interlock-controlled**: they close automatically when
 neighbouring section pressure exceeds `1e-6 Torr`.  Manual open commands
@@ -36,11 +39,11 @@ require both adjacent pressures to be `< 1e-7 Torr`.
 
 ## Pump Types
 
-| Device | Typical location | Channel prefix |
+| Device | Typical location | Example record |
 |--------|-----------------|----------------|
-| [Ion Pump](/devices/ion-pump.md) | All sections | `*:VAC:IP{N}:*` |
-| Turbomolecular Pump | Injection section | `PS:VAC:TMP01:*` |
-| Roughing Pump | Fore-vacuum stages | `PS:VAC:RP01:*` |
+| [Ion Pump](/devices/ion-pump.md) | All sections | [SR/ION-PUMP01](facility:SR/ION-PUMP01) |
+| Turbomolecular Pump | Injection section | none: a cart connected by hand |
+| Roughing Pump | Fore-vacuum stages | none: a cart connected by hand |
 
 ## Venting and Pumpdown
 

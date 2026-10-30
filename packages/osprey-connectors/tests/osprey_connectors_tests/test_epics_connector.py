@@ -32,6 +32,7 @@ from osprey_connectors.control_system._epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
 )
+from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors_tests._epics_fakes import (
     DBR_CHAR,
     DBR_DOUBLE,
@@ -292,26 +293,30 @@ class TestDisconnect:
 
 class TestReadChannel:
     @pytest.mark.asyncio
-    async def test_unconnected_pv_raises_connection_error(self):
-        """A channel that never connects surfaces as ConnectionError with the timeout."""
+    async def test_unconnected_pv_is_an_unreachable_channel(self):
+        """A channel that never connects is an unreachable channel, with the timeout."""
         connector = _connector(aioca=FakeAioca())
 
-        with pytest.raises(ConnectionError, match="Failed to connect to PV 'SR:NOPE'"):
+        with pytest.raises(
+            ChannelUnreachableError, match="Failed to connect to PV 'SR:NOPE'"
+        ) as raised:
             await connector.read_channel("SR:NOPE", timeout=0.5)
+        assert raised.value.channel_address == "SR:NOPE"
 
     @pytest.mark.asyncio
-    async def test_a_get_that_times_out_on_a_connected_channel_raises_timeout(self):
-        """Connected but unanswered is a timeout, never a reading of None."""
+    async def test_a_get_that_times_out_on_a_connected_channel_is_unreachable(self):
+        """Connected but unanswered is that channel timing out, never a reading of None."""
         connector = _channel_connector(aioca.CANothing("SR:CH", ECA_TIMEOUT))
 
-        with pytest.raises(TimeoutError, match="SR:CH"):
+        with pytest.raises(ChannelUnreachableError, match="SR:CH.*timed out") as raised:
             await connector.read_channel("SR:CH", timeout=0.5)
+        assert raised.value.channel_address == "SR:CH"
 
     @pytest.mark.asyncio
-    async def test_a_get_lost_to_a_disconnect_raises_connection_error(self):
+    async def test_a_get_lost_to_a_disconnect_is_an_unreachable_channel(self):
         connector = _channel_connector(aioca.CANothing("SR:CH", ECA_DISCONN))
 
-        with pytest.raises(ConnectionError, match="SR:CH"):
+        with pytest.raises(ChannelUnreachableError, match="SR:CH"):
             await connector.read_channel("SR:CH", timeout=0.5)
 
     @pytest.mark.asyncio
@@ -558,7 +563,7 @@ class TestWriteConfirmation:
         """A lost circuit mid-put leaves the outcome unknown; no outcome word claims it."""
         connector = _write_connector(put=ECA_DISCONN)
 
-        with pytest.raises(ConnectionError, match="SR:CH"):
+        with pytest.raises(ChannelUnreachableError, match="SR:CH"):
             await connector.write_channel("SR:CH", 5.0)
 
     @pytest.mark.asyncio

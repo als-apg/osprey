@@ -25,6 +25,7 @@ from osprey_connectors.control_system._tango_connector import (
     _quality_fields,
     _split_address,
 )
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
@@ -232,7 +233,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            with pytest.raises(ConnectionError, match="TANGO database"):
+            with pytest.raises(ConnectorUnavailableError, match="TANGO database"):
                 await conn.connect({})
 
     async def test_explicit_tango_host_reaches_that_database(self):
@@ -398,11 +399,12 @@ class TestReadChannel:
         await conn.read_channel("sr/power_supply/ps01/Voltage")
         assert list(conn._proxies) == ["sr/power_supply/ps01"]
 
-    async def test_a_device_failure_on_read_is_a_connection_error(self, connector):
+    async def test_a_device_failure_on_read_is_an_unreachable_channel(self, connector):
         conn, proxy = connector
         proxy.read_attribute.side_effect = RuntimeError("device down")
-        with pytest.raises(ConnectionError, match="device down") as raised:
+        with pytest.raises(ChannelUnreachableError, match="device down") as raised:
             await conn.read_channel(_ADDRESS)
+        assert raised.value.channel_address == _ADDRESS
         assert _ADDRESS in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -823,15 +825,15 @@ class TestUnreachableDevice:
 
     Creating a proxy is itself a database round trip, so a device that is
     down, or a name no database knows, fails there rather than at the read
-    or the write. A read reports that as a connection error naming the
+    or the write. A read reports that as an unreachable channel naming the
     attribute and keeps PyTango's own error as its cause; a write turns it
     into the word the write contract owns.
     """
 
-    async def test_a_proxy_that_cannot_be_built_is_a_connection_error(self, connector):
+    async def test_a_proxy_that_cannot_be_built_is_an_unreachable_channel(self, connector):
         conn, _ = connector
         conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
-        with pytest.raises(ConnectionError, match="not exported"):
+        with pytest.raises(ChannelUnreachableError, match="not exported"):
             await conn.read_channel(_ADDRESS)
 
     async def test_a_proxy_that_could_not_be_built_is_not_cached(self, connector):
@@ -839,7 +841,7 @@ class TestUnreachableDevice:
         conn, proxy = connector
         conn._tango.DeviceProxy.side_effect = [RuntimeError("device is not exported"), proxy]
 
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelUnreachableError):
             await conn.read_channel(_ADDRESS)
         assert not conn._proxies
 

@@ -23,10 +23,10 @@ used, for two different claims:
   holds for a violation nobody wrote by hand: config in, ``LimitsValidator``
   refusal out, envelope on this side.
 
-The last tests cover the other direction — the child dying rather than
-refusing — and pin that it routes through
-``error_handling.invalidate_active_connector``, the one seam the connector-host
-manager re-points so that a lost child means "respawn for the same target".
+The last tests cover the other direction — the child dying, wedging, or
+losing its connector rather than refusing — and pin that the supervisor in
+:mod:`osprey.mcp_server.control_system.server_context` recovers once per child,
+on the same target, while the envelope only reports what it did.
 """
 
 from __future__ import annotations
@@ -41,9 +41,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.mcp_server.control_system import error_handling
+from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey.mcp_server.errors import NothingAnsweredError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelUnreachableError,
+    ChannelWriteBlockedError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
@@ -52,7 +58,6 @@ from tests.mcp_server._raising_connector import (
     BLOCKED_CHANNEL,
     BLOCKED_MESSAGE,
     BLOCKED_REASON,
-    HANG_CHANNEL,
     LIMITS_CHANNEL,
     LIMITS_FIELDS,
     READ_VALUE,
@@ -261,16 +266,14 @@ async def test_a_limits_violation_arrives_as_the_real_class_with_every_field(rai
 
 
 async def test_the_envelopes_isinstance_branch_fires_on_the_reconstructed_class(raising_pair):
-    """``osprey_connectors.errors`` is an alias of the connectors module, and it has to stay one.
+    """The child's refusal arrives as the very class the handler's ``except`` names.
 
-    The handler's ``except`` clauses name the classes through ``osprey_connectors.errors``;
-    the child rebuilt this instance from ``osprey_connectors.errors``. If those
-    ever stopped being the same module object, every refusal would fall through
+    The handler's ``except`` clauses name the classes from ``osprey_connectors.errors``,
+    and the child's refusal frame is rebuilt into an instance of that same class. If
+    the rebuilt class were ever a different object, every refusal would fall through
     to ``internal_error`` — silently, and only across the process boundary.
     """
-    from osprey_connectors.errors import ChannelLimitsViolationError as ShimLimitsError
-
-    with pytest.raises(ShimLimitsError):
+    with pytest.raises(ChannelLimitsViolationError):
         await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
 
 
@@ -379,74 +382,13 @@ async def test_a_refusal_does_not_end_the_child(raising_pair):
     assert value.value == pytest.approx(READ_VALUE)
 
 
-# -------------------------------------------- the invalidate seam (CC-1 (c))
-
-
-async def test_a_dead_child_routes_through_the_invalidate_seam(tmp_path, monkeypatch):
-    """Child death reaches the envelope as a connection error, via the one seam.
-
-    The seam is what the connector-host manager re-points so that a lost child
-    means "respawn for the same target, no generation bump". Monkeypatching it
-    here is how this test proves the branch goes through exactly one call site
-    rather than reaching into the server context inline.
-    """
-    invalidated: list[str] = []
-
-    async def _record(connector_name: str) -> None:
-        invalidated.append(connector_name)
-
-    monkeypatch.setattr(error_handling, "invalidate_active_connector", _record)
-
-    control_system = _raising_control_system()
-    config_file = _write_config(tmp_path, control_system)
-    process, proxy = await _spawn(control_system, config_file, tmp_path)
-    try:
-        # A call already on the wire when the child is killed outright: no
-        # refusal frame, no goodbye — the failure mode a respawn has to answer
-        # for, rather than a clean disconnect. The channel is one whose read
-        # never completes: an answerable channel races the kill, and a reply
-        # that wins lands in the pipe buffer and resolves the call with a
-        # value, so the ConnectionError this test exists for never happens.
-        call = asyncio.ensure_future(proxy.read_channel(HANG_CHANNEL))
-        await asyncio.sleep(0)
-        process.kill()
-        await asyncio.wait_for(process.wait(), TIMEOUT_S)
-
-        with pytest.raises(ConnectionError) as exc_info:
-            await asyncio.wait_for(call, TIMEOUT_S)
-    finally:
-        await _stop(process, proxy)
-
-    with assert_raises_error(error_type="connection_error") as captured:
-        async with connector_error_handler("channel_read", "control_system"):
-            raise exc_info.value
-
-    assert invalidated == ["control_system"]
-    assert "connector-host child" in captured["envelope"]["error_message"]
-
-
-async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monkeypatch):
-    """The seam must actually do today what the branch did inline before it."""
-    from osprey.mcp_server.control_system import server_context as server_context_module
-
-    invalidated: list[str] = []
-
-    class _Context:
-        async def invalidate_connector(self, name):
-            invalidated.append(name)
-
-    monkeypatch.setattr(server_context_module, "get_server_context", _Context)
-
-    await error_handling.invalidate_active_connector("control_system")
-
-    assert invalidated == ["control_system"]
-
-
 # ------------------------------------------- a child that misses its deadline
 
 
 #: The pool tests' misbehaving mock, by dotted path: ``SLOW:`` reads hang in a
-#: child that still answers, ``WEDGE:`` reads block the child outright.
+#: child that still answers, ``WEDGE:`` reads block the child outright, ``BUG:``
+#: reads raise an exception outside the IPC contract, ``GONE:`` reads find their
+#: channel unreachable and ``LOST:`` reads find the connector unavailable.
 SLOW_TYPE = "osprey_connectors_tests.ipc._pool_connectors.SlowInProcessConnector"
 
 #: The deadline the manager's children are given here, lowered from the
@@ -459,7 +401,9 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
     """A server context serving ``live`` from a real connector-host child.
 
     The deadline is lowered through the name the manager module imported, so
-    the proxy the manager builds is the one under test.
+    the proxy the manager builds is the one under test. The context is the
+    registry the tools resolve, so a call through its handle is supervised
+    exactly as a tool's is.
     """
     from osprey.mcp_server.control_system import connector_host_manager
     from osprey.mcp_server.control_system import server_context as server_context_module
@@ -467,7 +411,9 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.setattr(connector_host_manager, "DEFAULT_CALL_DEADLINE_S", TEST_DEADLINE_S)
-    view = served_tree(tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "SR:A"))
+    view = served_tree(
+        tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "BUG:X", "GONE:X", "LOST:X", "SR:A")
+    )
     raw = {
         "control_system": {
             "type": SLOW_TYPE,
@@ -483,16 +429,27 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
     context = server_context_module.ControlSystemContext()
     context._config = manager._config
     context._connector_hosts = manager
+    context._switch_capable = True
+    context._connectors["control_system"] = server_context_module.ConnectorEntry(
+        config=raw["control_system"], connector_type="control_system"
+    )
     monkeypatch.setattr(server_context_module, "_registry", context)
     return manager
 
 
-async def _timed_out_read(manager, channel: str) -> dict:
+async def _read_through_the_handle(channel: str, *, timeout: float | None = None) -> None:
+    """One read as a tool makes it: through the supervised handle, inside the handler."""
+    from osprey.mcp_server.control_system.server_context import get_server_context
+
+    async with connector_error_handler("channel_read", "control_system"):
+        connector = await get_server_context().control_system()
+        await connector.read_channel(channel, timeout=timeout)
+
+
+async def _timed_out_read(channel: str) -> dict:
     """The envelope a read naming no timeout renders once it misses the deadline."""
-    proxy = manager.active_proxy()
     with assert_raises_error(error_type="timeout_error") as captured:
-        async with connector_error_handler("channel_read", "control_system"):
-            await proxy.read_channel(channel)
+        await _read_through_the_handle(channel)
     return captured["envelope"]
 
 
@@ -500,9 +457,10 @@ async def test_a_slow_child_that_still_answers_a_ping_is_kept(served_from_a_chil
     manager = served_from_a_child
     pid = manager.status()["child_pid"]
 
-    envelope = await _timed_out_read(manager, "SLOW:X")
+    envelope = await _timed_out_read("SLOW:X")
 
     assert "still answers a ping, so it was kept" in envelope["error_message"]
+    assert envelope["details"]["recovery"][0]["action"] == "child_kept"
     assert manager.status()["child_pid"] == pid
     value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
     assert value is not None
@@ -515,9 +473,10 @@ async def test_a_wedged_child_that_answers_no_ping_is_replaced_on_the_same_targe
     pid = manager.status()["child_pid"]
     generation = manager.active_generation()
 
-    envelope = await _timed_out_read(manager, "WEDGE:X")
+    envelope = await _timed_out_read("WEDGE:X")
 
-    assert "did not answer a ping and was replaced" in envelope["error_message"]
+    assert "did not answer a ping and has been replaced" in envelope["error_message"]
+    assert envelope["details"]["recovery"][0]["action"] == "child_replaced"
     assert manager.status()["child_pid"] != pid
     assert manager.active_generation() == generation
     assert manager.active_target() == "live"
@@ -539,3 +498,142 @@ async def test_an_unknown_read_in_a_child_is_not_found_and_keeps_the_child(serve
     assert manager.status()["child_pid"] == pid
     value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
     assert value is not None
+
+
+async def test_a_connector_bug_in_a_child_is_an_internal_error_and_keeps_the_child(
+    served_from_a_child,
+):
+    manager = served_from_a_child
+    proxy = manager.active_proxy()
+    pid = manager.status()["child_pid"]
+
+    with assert_raises_error(error_type="internal_error") as captured:
+        async with connector_error_handler("channel_read", "control_system"):
+            await proxy.read_channel("BUG:X", timeout=TIMEOUT_S)
+
+    envelope = captured["envelope"]
+    assert "KeyError" in envelope["error_message"]
+    assert "recovery" not in (envelope.get("details") or {})
+    assert manager.active_proxy() is proxy
+    assert manager.status()["child_pid"] == pid
+
+
+async def test_one_unreachable_channel_keeps_the_child(served_from_a_child):
+    """A dead IOC is that channel's failure: reported against it, nothing restarted."""
+    manager = served_from_a_child
+    pid = manager.status()["child_pid"]
+    spawned = len(manager.spawned)
+
+    with assert_raises_error(error_type="channel_unreachable") as captured:
+        await _read_through_the_handle("GONE:X", timeout=TIMEOUT_S)
+
+    envelope = captured["envelope"]
+    assert envelope["details"]["channel"] == "GONE:X"
+    assert "recovery" not in envelope["details"]
+    assert manager.status()["child_pid"] == pid
+    assert len(manager.spawned) == spawned
+    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    assert value is not None
+
+
+async def test_an_unavailable_connector_is_replaced_once_for_a_whole_batch(served_from_a_child):
+    """Twenty reads that find the connector gone replace its child once, and each says so."""
+    from osprey.mcp_server.control_system.server_context import get_server_context
+
+    manager = served_from_a_child
+    pid = manager.status()["child_pid"]
+    spawned = len(manager.spawned)
+    connector = await get_server_context().control_system()
+
+    failures = await asyncio.gather(
+        *(connector.read_channel("LOST:X", timeout=TIMEOUT_S) for _ in range(20)),
+        return_exceptions=True,
+    )
+
+    assert all(isinstance(failure, ConnectorUnavailableError) for failure in failures)
+    assert {failure.recovery[0]["action"] for failure in failures} == {"child_replaced"}
+    assert len(manager.spawned) == spawned + 1
+    assert manager.status()["child_pid"] != pid
+    assert manager.active_target() == "live"
+
+    with assert_raises_error(error_type="nothing_answered") as captured:
+        async with connector_error_handler("channel_read", "control_system"):
+            raise NothingAnsweredError(
+                None,
+                missing={f"LOST:{n}": str(failure) for n, failure in enumerate(failures[:2])},
+                errors=list(failures[:2]),
+            )
+    recovery = captured["envelope"]["details"]["recovery"]
+    assert [record["action"] for record in recovery] == ["child_replaced"]
+
+
+async def test_a_wedged_child_whose_respawn_is_refused_reports_respawn_refused(
+    served_from_a_child, monkeypatch
+):
+    """A ping that fails and a replacement the manager refuses: said so, tried once."""
+    manager = served_from_a_child
+    attempts: list[object] = []
+
+    async def refuse(proxy):
+        attempts.append(proxy)
+        raise SwitchError("live", "spawn", "spawn_failed", "the fresh child would not start")
+
+    monkeypatch.setattr(manager, "replace_child", refuse)
+
+    envelope = await _timed_out_read("WEDGE:X")
+
+    assert envelope["details"]["recovery"][0]["action"] == "respawn_refused"
+    assert "was refused" in envelope["error_message"]
+    assert len(attempts) == 1
+
+
+async def test_a_wedged_child_another_actor_already_replaced_is_reported_without_a_target(
+    served_from_a_child, monkeypatch
+):
+    """A child replaced elsewhere first: the record says it is replaced, not where or by whom."""
+    manager = served_from_a_child
+    attempts: list[object] = []
+
+    async def already_replaced(proxy):
+        attempts.append(proxy)
+        return False
+
+    monkeypatch.setattr(manager, "replace_child", already_replaced)
+
+    envelope = await _timed_out_read("WEDGE:X")
+
+    record = envelope["details"]["recovery"][0]
+    assert record["action"] == "child_replaced"
+    assert "has been replaced" in record["text"]
+    assert "same target" not in record["text"]
+    assert len(attempts) == 1
+
+
+async def test_a_dead_child_is_replaced_by_its_supervisor_and_the_envelope_reports_it(
+    served_from_a_child,
+):
+    """A call on the wire when the child dies fails once; the child is replaced once."""
+    from osprey.mcp_server.control_system.server_context import get_server_context
+
+    manager = served_from_a_child
+    pid = manager.status()["child_pid"]
+    connector = await get_server_context().control_system()
+
+    call = asyncio.ensure_future(connector.read_channel("SLOW:X", timeout=TIMEOUT_S))
+    await asyncio.sleep(0.3)
+    os.kill(pid, 9)
+
+    with pytest.raises(ConnectorUnavailableError) as raised:
+        await asyncio.wait_for(call, TIMEOUT_S)
+    assert [record["action"] for record in raised.value.recovery] == ["child_replaced"]
+
+    with assert_raises_error(error_type="connection_error") as captured:
+        async with connector_error_handler("channel_read", "control_system"):
+            raise raised.value
+
+    envelope = captured["envelope"]
+    assert "connector-host child" in envelope["error_message"]
+    assert [record["action"] for record in envelope["details"]["recovery"]] == ["child_replaced"]
+    assert manager.status()["child_pid"] != pid
+    assert manager.active_target() == "live"
+    assert not isinstance(raised.value, ChannelUnreachableError)

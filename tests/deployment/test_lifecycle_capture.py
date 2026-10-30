@@ -36,7 +36,7 @@ import logging
 import re
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -300,7 +300,7 @@ def archiver_stubs(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: SimpleNamespace(addresses=[]),
+        lambda config, project_dir: nullcontext(SimpleNamespace(addresses=[])),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)

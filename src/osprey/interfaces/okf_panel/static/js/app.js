@@ -37,7 +37,15 @@ import {
   isSimpleMode,
 } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
-import { el, hashChangeTarget, isFallback, readPanelParams, STRUCTURE_MARKER } from './helpers.js';
+import {
+  el,
+  FACILITY_SCHEME,
+  facilityLinkView,
+  hashChangeTarget,
+  isFallback,
+  readPanelParams,
+  STRUCTURE_MARKER,
+} from './helpers.js';
 import {
   initTree,
   renderTree,
@@ -114,6 +122,8 @@ initSidebarResize();
  * @property {string} [id]
  * @property {ConceptFrontmatter} [frontmatter]
  * @property {string} [body]
+ * @property {import("./helpers.js").FacilityReferenceView[]} [facility_references]
+ *   each facility link of the body with the records it names
  */
 
 /**
@@ -136,6 +146,8 @@ function requireEl(id) {
   const structureLink = document.getElementById('structure-link');
   /** @type {Set<string> | null} */
   let knownConceptIds = null;
+  /** @type {ConceptDoc["facility_references"] | null} */
+  let currentFacilityReferences = null;
 
   initTree({ treeEl, structureLink, onSelect: loadConcept });
   initSearchResults({ containerEl: searchResultsEl, onSelect: selectConcept });
@@ -153,10 +165,11 @@ function requireEl(id) {
    */
   function afterRender(container) {
     // Task 3.2: wire cross-link navigation for every anchor in the freshly
-    // rendered container. Three classes of href:
+    // rendered container. Four classes of href:
     //   1. in-bundle cross-links  (/^\/.+\.md$/) → intercept, loadConcept + pushState
     //   2. external links         (http:// or https://) → target=_blank rel=noopener
-    //   3. everything else        (#anchors, /dir/ directory links) → untouched
+    //   3. facility links         (facility:) → the linked record on hover, no navigation
+    //   4. everything else        (#anchors, /dir/ directory links) → untouched
     //
     // loadConcept re-renders, which re-invokes afterRender, so links inside the
     // newly-rendered concept get wired recursively on each navigation.
@@ -185,6 +198,14 @@ function requireEl(id) {
         a.dataset.okfWired = '1';
         a.setAttribute('target', '_blank');
         a.setAttribute('rel', 'noopener');
+      } else if (href.startsWith(FACILITY_SCHEME)) {
+        const view = facilityLinkView(href, currentFacilityReferences);
+        a.dataset.okfWired = '1';
+        a.classList.add(view.dangling ? 'okf-facility-link--dangling' : 'okf-facility-link');
+        a.setAttribute('title', view.title);
+        a.addEventListener('click', function (ev) {
+          ev.preventDefault();
+        });
       }
       // else: in-page #anchors or /dir/ directory links — leave default behavior.
     });
@@ -328,6 +349,7 @@ function requireEl(id) {
     }
     readerEl.appendChild(bodyEl);
 
+    currentFacilityReferences = doc.facility_references || null;
     afterRender(readerEl);
   }
 

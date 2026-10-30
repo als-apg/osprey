@@ -201,7 +201,7 @@ def fake_runtime(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls, listing
 
 

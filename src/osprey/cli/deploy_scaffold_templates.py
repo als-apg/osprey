@@ -30,6 +30,11 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 import osprey
+from osprey.deployment.deployment_record import (
+    COMPOSE_PROJECT_KEY,
+    DEPLOYMENT_RECORD_RELPATH,
+    RUNTIME_KEY,
+)
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.docs_links import DEPLOY_DOCS_URL
@@ -497,6 +502,9 @@ def render(
         users_env_name=USERS_ENV_NAME,
         unit_name=SYSTEMD_UNIT_NAME,
         docs_url=DEPLOY_DOCS_URL,
+        deployment_record=DEPLOYMENT_RECORD_RELPATH.as_posix(),
+        record_runtime_key=RUNTIME_KEY,
+        record_project_key=COMPOSE_PROJECT_KEY,
     )
 
 

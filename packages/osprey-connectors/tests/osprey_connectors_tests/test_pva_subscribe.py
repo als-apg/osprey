@@ -30,6 +30,7 @@ import pytest
 from osprey_connectors.control_system._epics_connector import (
     _ChannelSubscription,
 )
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     FakeAioca,
     FakeChannel,
@@ -149,10 +150,10 @@ class TestSubscribeRouting:
         assert connector._subscriptions[sub_id].handle is ca.monitors[0]
 
     @pytest.mark.asyncio
-    async def test_subscribe_without_a_context_is_a_connection_error(self):
+    async def test_subscribe_without_a_context_is_connector_unavailable(self):
         connector = _pva_connector(context=None)
 
-        with pytest.raises(ConnectionError) as excinfo:
+        with pytest.raises(ConnectorUnavailableError) as excinfo:
             await connector.subscribe(PVA_ADDRESS, lambda v: None)
 
         assert PVA_ADDRESS in str(excinfo.value)

@@ -8,6 +8,7 @@ Used by tests/integration/test_build_boot.py.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -16,6 +17,8 @@ import threading
 import time
 from collections.abc import Iterable
 from queue import Empty, Queue
+
+from osprey.deployment.subprocess_capture import observe_exit, stop_child
 
 #: One completed startup phase, as ``osprey.mcp_server.startup.run_mcp_server``
 #: reports it on stderr: ``[STARTUP-TIMING] <server> | <phase>: <n>ms``. The
@@ -31,6 +34,21 @@ _SERVING_PHASE = "total_startup"
 #: is not time the server was given to answer, and on a loaded machine the
 #: control-system import alone runs to tens of seconds.
 _STARTUP_BUDGET_S = 120.0
+
+#: How many trailing stderr lines a failure report carries. A dying server's
+#: stderr opens with startup-timing lines and ends with the traceback that
+#: explains the exit, so the report keeps the tail; this is sized to hold a
+#: deep Python traceback whole.
+_STDERR_TAIL_LINES = 80
+
+#: How long a drain thread, stdout or stderr, may take to reach end-of-file once
+#: the server has exited, and how long that exit is waited for after a broken
+#: pipe. The pipes close when the process exits, so this bounds only a pipe
+#: still held open by a descendant; it guards against a hang and decides nothing.
+_DRAIN_JOIN_S = 2.0
+
+#: How long the server's group gets to exit on SIGTERM before it is killed.
+_STOP_GRACE_S = 2.0
 
 
 class MCPHandshakeError(RuntimeError):
@@ -79,19 +97,33 @@ def list_mcp_tools(
             env=full_env,
             text=True,
             bufsize=1,
+            process_group=0,
         )
     except FileNotFoundError as exc:
         raise MCPHandshakeError(f"command not found: {command}") from exc
 
     stdout_q: Queue = Queue()
     stderr_q: Queue = Queue()
-    threading.Thread(target=_drain, args=(proc.stdout, stdout_q), daemon=True).start()
-    threading.Thread(target=_drain, args=(proc.stderr, stderr_q), daemon=True).start()
+    stdout_drain = threading.Thread(target=_drain, args=(proc.stdout, stdout_q), daemon=True)
+    stdout_drain.start()
+    stderr_drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_q), daemon=True)
+    stderr_drain.start()
 
     def _send(msg: dict) -> None:
         assert proc.stdin is not None
-        proc.stdin.write(json.dumps(msg) + "\n")
-        proc.stdin.flush()
+        try:
+            proc.stdin.write(json.dumps(msg) + "\n")
+            proc.stdin.flush()
+        except BrokenPipeError as exc:
+            stderr_drain.join(timeout=_DRAIN_JOIN_S)
+            rc = observe_exit(proc, within=_DRAIN_JOIN_S)
+            if rc is None:
+                raise MCPHandshakeError(
+                    f"server closed its stdin before reading id={msg.get('id')}{_stderr_suffix()}"
+                ) from exc
+            raise MCPHandshakeError(
+                f"server exited rc={rc} before reading id={msg.get('id')}{_stderr_suffix()}"
+            ) from exc
 
     stderr_seen: list[str] = []
     announced = False
@@ -112,9 +144,19 @@ def list_mcp_tools(
         except Empty:
             pass
 
-    def _stderr_text() -> str:
+    def _stderr_tail() -> str:
+        """The last lines the child wrote to stderr, marked when earlier ones are cut."""
         _read_stderr()
-        return "".join(stderr_seen)
+        omitted = len(stderr_seen) - _STDERR_TAIL_LINES
+        tail = "".join(stderr_seen[-_STDERR_TAIL_LINES:])
+        if omitted > 0:
+            return f"({omitted} earlier lines omitted)\n{tail}"
+        return tail
+
+    def _stderr_suffix() -> str:
+        """``; stderr: <tail>`` when the child wrote anything, else nothing."""
+        tail = _stderr_tail()
+        return f"; stderr: {tail}" if tail.strip() else ""
 
     def _deadline() -> float:
         """When the wait expires, given how far the child has got.
@@ -137,13 +179,12 @@ def list_mcp_tools(
             _read_stderr()
             remaining = _deadline() - time.monotonic()
             if remaining <= 0:
+                raise MCPHandshakeError(f"timeout waiting for id={target_id}{_stderr_suffix()}")
+            rc = observe_exit(proc)
+            if rc is not None:
+                stderr_drain.join(timeout=_DRAIN_JOIN_S)
                 raise MCPHandshakeError(
-                    f"timeout waiting for id={target_id}; stderr: {_stderr_text()[:600]}"
-                )
-            if proc.poll() is not None:
-                raise MCPHandshakeError(
-                    f"server exited rc={proc.returncode} before responding to id={target_id}; "
-                    f"stderr: {_stderr_text()[:600]}"
+                    f"server exited rc={rc} before responding to id={target_id}{_stderr_suffix()}"
                 )
             try:
                 line = stdout_q.get(timeout=min(0.25, remaining))
@@ -163,6 +204,8 @@ def list_mcp_tools(
 
     spawned_at = time.monotonic()
     spawn_deadline = spawned_at + timeout
+    failure: MCPHandshakeError | None = None
+    other: BaseException | None = None
 
     try:
         _send(
@@ -185,12 +228,26 @@ def list_mcp_tools(
         resp = _recv(2)
         tools = resp.get("result", {}).get("tools", [])
         return [t["name"] for t in tools if isinstance(t, dict) and "name" in t]
+    except MCPHandshakeError as exc:
+        failure = exc
+        raise
+    except BaseException as exc:
+        other = exc
+        raise
     finally:
-        try:
-            proc.terminate()
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        with contextlib.suppress(OSError):
+            proc.stdin.close()
+        outcome = stop_child(proc, grace=_STOP_GRACE_S)
+        stdout_drain.join(timeout=_DRAIN_JOIN_S)
+        stderr_drain.join(timeout=_DRAIN_JOIN_S)
+        if not outcome.gone:
+            left = f"server group {proc.pid}: {outcome.describe()}"
+            if failure is not None:
+                raise MCPHandshakeError(f"{failure}; {left}") from failure
+            if other is not None:
+                other.add_note(left)
+            else:
+                raise MCPHandshakeError(left)
 
 
 def assert_tools_superset(

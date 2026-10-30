@@ -13,6 +13,10 @@ None of them reaps anything: a probe that called ``waitpid`` would steal the
 exit status from the parent (an asyncio child watcher, a ``Popen``) that owns it.
 A pid owned by another user (``PermissionError`` on signal 0) exists, so every
 probe here treats it as present.
+
+The probes ask the kernel about one pid at a time (signal 0, then
+``psutil.Process``); none of them reads the product's process table, so they
+stay a fair witness in a test that faults that table.
 """
 
 from __future__ import annotations
@@ -100,3 +104,9 @@ def kill_quietly(pids: Iterable[int]) -> None:
     for pid in pids:
         with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
+
+
+def kill_group(pgid: int) -> None:
+    """SIGKILL the process group ``pgid``; a group that is gone already is not an error."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)

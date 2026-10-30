@@ -20,8 +20,9 @@ The lanes:
   by group, and the chromaticity monitor. The measurement file the import
   seeded names the kinds its groups and instruments allow from a first look;
   the lane lists all five in the deployment, as an operator does.
-* **The example's transport line.** ``LINE`` takes the orbit response alone;
-  a dispersion measurement on it is refused naming the instrument it lacks.
+* **The example's transport line.** The second model
+  (``conftest.SECOND_MODEL``) takes the orbit response alone; a dispersion
+  measurement on it is refused naming the instrument it lacks.
 
 Each deployment starts in the built-in ``still`` scenario, and before
 measuring, each lane asserts that every reading of the model carries no
@@ -51,6 +52,7 @@ from tests.fixtures.mml._trees import exports_taking
 from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm
+from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
@@ -73,8 +75,8 @@ MEASUREMENTS: dict[str, dict[str, Any]] = {
 }
 
 #: The example facility's transport line, and the channel its deployment probes.
-LINE = "LINE"
-EXAMPLE_PROBE = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
+SECOND_MODEL = e2e_conftest.SECOND_MODEL
+EXAMPLE_PROBE = e2e_conftest.READINESS_ADDRESS
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -140,7 +142,7 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
         prefix="osprey-va-e2e-check-b-example",
         probe=EXAMPLE_PROBE,
     ) as served:
-        yield Served(deployment=served, model=LINE)
+        yield Served(deployment=served, model=SECOND_MODEL)
 
 
 # ---------------------------------------------------------------------------
@@ -259,10 +261,12 @@ async def test_a_dispersion_on_the_line_is_refused_naming_its_instrument(
     example: Served, tmp_path: Path
 ) -> None:
     with gm.acting_in(example.deployment, tmp_path / "agent_data"):
-        answer = await gm.call("pyaml_measure", {"kind": "dispersion", "model": LINE})
+        answer = await gm.call("pyaml_measure", {"kind": "dispersion", "model": SECOND_MODEL})
 
     assert answer.error is not None and answer.error["error_type"] == "validation_error"
-    assert answer.error["error_message"] == f"dispersion needs rf, which {LINE} does not have"
+    assert (
+        answer.error["error_message"] == f"dispersion needs rf, which {SECOND_MODEL} does not have"
+    )
 
 
 # ---------------------------------------------------------------------------

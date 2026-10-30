@@ -1,8 +1,10 @@
-"""A knowledge page linked to a device the facility file does not hold warns.
+"""A knowledge page linking what the facility file does not hold warns.
 
-``device_id`` in a page's frontmatter is the link. The reader names every page
-under ``data/facility/knowledge`` whose id is no device id of the facility
-file; the facility build states each once, as a warning, and never stops on one.
+A page links the facility two ways: ``device_id`` in its frontmatter names a
+device, and a ``[label](facility:ADDRESS)`` link in its body names a channel or
+a device. The reader names every link under ``data/facility/knowledge`` that
+the facility file does not resolve; the facility build states each once, as a
+warning, and never stops on one.
 """
 
 from __future__ import annotations
@@ -21,23 +23,74 @@ from osprey.facility.knowledge_links import (
 from osprey.facility.validate import Validated
 from tests._builds import BuiltProject, run_build
 
-DOC = {"devices": [{"id": "SR/BPM01"}, {"id": "SR/QF1"}]}
+DOC = {
+    "channels": [{"id": "SR:DIAG:BPM:01:POSITION:X"}],
+    "devices": [{"id": "SR/BPM01"}, {"id": "SR/QF1"}],
+}
 
 
-def _page(facility_dir: Path, relative: str, frontmatter: str) -> None:
+def _page(facility_dir: Path, relative: str, frontmatter: str, body: str = "# Body\n") -> None:
     path = facility_dir / "knowledge" / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\n{frontmatter}---\n\n# Body\n", encoding="utf-8")
+    path.write_text(f"---\n{frontmatter}---\n\n{body}", encoding="utf-8")
 
 
 def test_a_page_linked_to_a_missing_device_is_named(tmp_path: Path) -> None:
     _page(tmp_path, "devices/gone.md", "type: device\ndevice_id: SR/BPM99\n")
 
-    assert dangling_links(tmp_path, DOC) == [DanglingLink("knowledge/devices/gone.md", "SR/BPM99")]
+    assert dangling_links(tmp_path, DOC) == [
+        DanglingLink("knowledge/devices/gone.md", "SR/BPM99", "frontmatter")
+    ]
 
 
 def test_a_page_linked_to_a_held_device_is_not_named(tmp_path: Path) -> None:
     _page(tmp_path, "devices/bpm.md", "type: device\ndevice_id: SR/BPM01\n")
+
+    assert dangling_links(tmp_path, DOC) == []
+
+
+def test_device_id_naming_a_channel_dangles(tmp_path: Path) -> None:
+    _page(tmp_path, "devices/x.md", "type: device\ndevice_id: SR:DIAG:BPM:01:POSITION:X\n")
+
+    assert dangling_links(tmp_path, DOC) == [
+        DanglingLink("knowledge/devices/x.md", "SR:DIAG:BPM:01:POSITION:X", "frontmatter")
+    ]
+
+
+def test_a_body_link_to_a_missing_channel_warns(tmp_path: Path) -> None:
+    _page(
+        tmp_path,
+        "devices/bpm.md",
+        "type: device\ndevice_id: SR/BPM99\n",
+        "Read [Y](facility:SR:DIAG:BPM:01:POSITION:Y), [X](facility:SR:DIAG:BPM:01:POSITION:X)"
+        " and [gauge](<facility:SR GAUGE 1>).\n",
+    )
+    validated = _validated(tmp_path)
+
+    assert dangling_links(tmp_path, DOC) == [
+        DanglingLink("knowledge/devices/bpm.md", "SR/BPM99", "frontmatter"),
+        DanglingLink("knowledge/devices/bpm.md", "SR:DIAG:BPM:01:POSITION:Y", "body"),
+        DanglingLink("knowledge/devices/bpm.md", "SR GAUGE 1", "body"),
+    ]
+    assert check_knowledge_links(validated) == []
+    assert [warning.line for warning in validated.warnings][1:] == [
+        "facility: link-dangling: page knowledge/devices/bpm.md — links "
+        "facility:SR:DIAG:BPM:01:POSITION:Y, which the facility file does not hold; fix: link "
+        "a channel id or a device id of the facility file, or remove the link",
+        "facility: link-dangling: page knowledge/devices/bpm.md — links "
+        "facility:SR GAUGE 1, which the facility file does not hold; fix: link "
+        "a channel id or a device id of the facility file, or remove the link",
+    ]
+
+
+def test_a_body_link_to_a_held_channel_or_device_is_quiet(tmp_path: Path) -> None:
+    _page(
+        tmp_path,
+        "notes.md",
+        "type: concept\n",
+        "[X](facility:SR:DIAG:BPM:01:POSITION:X) on [the monitor](facility:SR/BPM01);"
+        " `[code](facility:NO/SUCH)` and [a page](/devices/bpm.md) are not facility links.\n",
+    )
 
     assert dangling_links(tmp_path, DOC) == []
 
@@ -82,7 +135,7 @@ def test_a_tree_without_a_knowledge_directory_has_no_links(tmp_path: Path) -> No
 
 def _validated(facility_dir: Path) -> Validated:
     validated = Validated(facility_dir, "demo")
-    validated.document = {"devices": [dict(device) for device in DOC["devices"]]}
+    validated.document = {key: [dict(record) for record in DOC[key]] for key in DOC}
     return validated
 
 
@@ -206,3 +259,52 @@ def test_stubs_seeded_from_the_graph_view_link_held_devices(
     }
     assert linked and linked <= held
     assert dangling_links(tmp_path, built_control_assistant.facility) == []
+
+
+#: The example pages that name facility things, listed so the check below cannot
+#: pass on an empty scan.
+LINKING_PAGES: tuple[str, ...] = (
+    "devices/bpm.md",
+    "devices/ion-pump.md",
+    "physics/beam-current-calibration.md",
+    "physics/quadrupole-scan.md",
+    "procedures/orbit-correction.md",
+    "procedures/ps-startup.md",
+    "procedures/pss-reset.md",
+    "procedures/sample-scan.md",
+    "procedures/vacuum-recovery.md",
+    "references/epics-channel-access.md",
+    "references/safety-rules.md",
+    "subsystems/experimental-stations.md",
+    "subsystems/primary-source.md",
+    "subsystems/pss.md",
+    "subsystems/timing.md",
+    "subsystems/transport-delivery.md",
+    "subsystems/vacuum.md",
+)
+
+
+def test_the_example_pages_link_only_held_records(built_control_assistant: BuiltProject) -> None:
+    validated = Validated(built_control_assistant.facility_dir, "demo")
+    validated.document = built_control_assistant.facility
+
+    assert dangling_links(built_control_assistant.facility_dir, validated.document) == []
+    assert check_knowledge_links(validated) == []
+    assert [w for w in validated.warnings if w.kind == "link-dangling"] == []
+
+
+def test_every_linking_example_page_links_a_held_record(
+    built_control_assistant: BuiltProject,
+) -> None:
+    from osprey.facility.records import FacilityRecords
+    from osprey.facility.references import find_facility_links
+    from osprey.services.facility_knowledge.okf.document import OKFDocument
+
+    records = FacilityRecords(built_control_assistant.facility)
+    knowledge = built_control_assistant.facility_dir / "knowledge"
+    unlinked = []
+    for page in LINKING_PAGES:
+        body = OKFDocument.parse((knowledge / page).read_text(encoding="utf-8")).body
+        if not any(found.kinds for found in find_facility_links(body, records)):
+            unlinked.append(page)
+    assert unlinked == []
