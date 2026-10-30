@@ -960,15 +960,19 @@ def _capture_agentic(
                     secret=operator_secret,
                 )
 
-                # Reveal the artifacts panel and select the plot by its id. The
-                # embedded gallery defaults to the tree view (rows), not the card
-                # grid, and every row/card carries ``data-id`` — so a data-id
-                # selector reveals the plot's preview regardless of view mode,
-                # and (unlike relying on newest-auto-select) pins the preview to
-                # the plot even as the agent keeps emitting later artifacts.
-                page.locator('button[data-panel-id="artifacts"]').click(timeout=30_000)
+                # Select the plot by its row in the hub sidebar's artifact list:
+                # the row click shows the plot in the artifacts tile (opening
+                # the tile when it is not on screen), and the row's ``data-id``
+                # pins the viewer to the plot (unlike relying on
+                # newest-auto-select) even as the agent keeps emitting later
+                # artifacts.
+                page.locator(
+                    f'#sidebar-artifacts-list .osprey-list-row[data-id="{plot_id}"]'
+                ).first.click(timeout=30_000)
                 panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
-                panel.locator(f'[data-id="{plot_id}"]').first.click(timeout=30_000)
+                panel.locator("#preview-content .preview-viewport > *").first.wait_for(
+                    state="visible", timeout=30_000
+                )
 
                 # Let the plot preview render (Plotly draws async) before shooting.
                 page.wait_for_timeout(2_000)

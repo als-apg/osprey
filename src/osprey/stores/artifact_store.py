@@ -344,8 +344,33 @@ RUN_RECORD_KEY = "run_record"
 """``metadata`` key, set to True, on an artifact that records a script run rather
 than holding its result: the approval hook's Pre-Execution Review notebook, and the
 executor's notebook and result record. Plots and files the script saves carry no
-such key. The gallery's Simple layout keeps these out of its result card and lists
-them under "Script runs"."""
+such key. The web terminal's sidebar lists these under "Script runs" (it asks the
+gallery for them through ``GET /api/artifacts?run=true``) and keeps them out of its
+Artifacts list; :func:`is_run_record` is the verdict both listings share."""
+
+
+def is_run_record(entry: ArtifactEntry) -> bool:
+    """Whether ``entry`` records a script run rather than holding its result.
+
+    True when the entry carries :data:`RUN_RECORD_KEY` in its metadata, or — for
+    entries saved before that key existed — when it has what the writers always
+    gave a run record: the ``code_output`` category, the ``osprey_approval`` tool
+    source, or a notebook titled ``Notebook: …`` from ``execute`` or
+    ``execute_file``. The gallery sends this verdict to the browser as the
+    ``run_record`` field so no client re-derives it.
+    """
+    if entry.metadata.get(RUN_RECORD_KEY) is True:
+        return True
+    if entry.category == "code_output":
+        return True
+    if entry.tool_source == "osprey_approval":
+        return True
+    return (
+        entry.artifact_type == "notebook"
+        and entry.tool_source in ("execute", "execute_file")
+        and entry.title.startswith("Notebook: ")
+    )
+
 
 EXAMPLE_REMOVED_SENTINEL = ".example-removed"
 """File in the artifact directory written when an example is deleted, so no
@@ -833,6 +858,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         source_agent_filter: str | None = None,
         session_filter: str | None = None,
         run_filter: str | None = None,
+        run_record: bool | None = None,
         last_n: int | None = None,
         exclude_examples: bool = False,
     ) -> list[ArtifactEntry]:
@@ -841,6 +867,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         ``run_filter`` is the strict dispatch-run isolation boundary — see the
         note on its clause below. ``session_filter`` is deliberately NOT such a
         boundary (it also matches untagged artifacts).
+
+        ``run_record`` keeps run records (``True``) or everything else
+        (``False``) by :func:`is_run_record`; it has nothing to do with
+        ``run_filter``, which names a dispatch run.
 
         ``exclude_examples`` drops the shipped example (``origin ==
         EXAMPLE_ORIGIN``). Every listing the agent reads passes it: the
@@ -876,6 +906,8 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             if run_filter == "":
                 return []
             entries = [e for e in entries if e.run_id == run_filter]
+        if run_record is not None:
+            entries = [e for e in entries if is_run_record(e) == run_record]
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
@@ -908,6 +940,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         source_agent_filter: str | None = None,
         session_filter: str | None = None,
         run_filter: str | None = None,
+        run_record: bool | None = None,
         exclude_examples: bool = False,
     ) -> ArtifactPage:
         """Return one newest-first page of the entries the filters admit.
@@ -935,6 +968,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             source_agent_filter=source_agent_filter,
             session_filter=session_filter,
             run_filter=run_filter,
+            run_record=run_record,
             exclude_examples=exclude_examples,
         )
         ordered = sorted(entries, key=_page_key, reverse=True)

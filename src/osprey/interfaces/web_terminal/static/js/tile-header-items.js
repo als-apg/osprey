@@ -6,8 +6,24 @@
  * store and the reconcile pass; this module knows only how a single item of
  * each kind looks and behaves, plus the shared body-level popover both menu
  * kinds ride (a contributed ⋯ menu and the overflow ladder's fold target —
- * see toggleOverflowMenu). The item vocabulary itself is documented once,
+ * see toggleOverflowMenu). The panel vocabulary itself is documented once,
  * on the panel side: design_system/static/js/header-contrib.js.
+ *
+ * The hub adds to that vocabulary for headers it builds itself (the
+ * Artifacts tile, through contributeLocal in tile-header-contrib.js); the
+ * sanitizer accepts the additions on the message path too:
+ *
+ *   - `crumb` {root, leaf?}: the `root › leaf` breadcrumb of primitives.css
+ *     (`.osprey-crumb`). It stands in for the tile's own name, so an empty
+ *     leaf shows the root alone, and the leaf's full text is its tooltip
+ *     because a long one ellipsizes.
+ *   - `sep`: a `.osprey-head-sep` hairline between control groups.
+ *   - `icon` on a button: a name from ICON_NAMES in
+ *     /design-system/js/icons.js. Icon-only, the button is an
+ *     `.osprey-icon-btn` named by its `title`; with a label it is an
+ *     `.osprey-btn` holding the icon and an `.osprey-btn-label`, which a
+ *     narrow tile hides. A button without an icon keeps the `.contrib-btn`
+ *     look.
  *
  * Create vs. patch matters more than it looks. A contribution is a whole
  * replace, and a panel re-sends on every state change — including while an
@@ -21,18 +37,32 @@
  * All text reaches the DOM via textContent. Nothing here interpolates markup.
  */
 
+import { icon } from '/design-system/js/icons.js';
 import { svgIcon } from './svg-icons.js';
 
 /** Debounce before a search item reports its text back to the panel. */
 const SEARCH_DEBOUNCE_MS = 200;
 
 /**
- * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} HeaderItem
+ * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} PanelHeaderItem
+ * @typedef {Omit<PanelHeaderItem, 'kind'> & {
+ *   kind: PanelHeaderItem['kind'] | 'crumb' | 'sep',
+ *   icon?: string,
+ *   root?: string,
+ *   leaf?: string,
+ * }} HeaderItem  the panel vocabulary plus the hub-side kinds and fields
  * @typedef {(id: string, value?: string) => void} Dispatch
  */
 
 /** The item a live element currently represents (menus read it on open). */
 const itemState = new WeakMap();
+
+/**
+ * The child layout a live button was last built for: `''` for a plain
+ * `.contrib-btn`, else the icon name and whether a label sits beside it.
+ * @type {WeakMap<HTMLButtonElement, string>}
+ */
+const buttonShape = new WeakMap();
 
 /** The one open menu popover, if any. @type {null | {btn: HTMLElement, pop: HTMLElement, off: () => void}} */
 let openMenu = null;
@@ -61,6 +91,8 @@ export function patchItem(item, el) {
     setText(el, item.text ?? '');
   } else if (item.kind === 'button') {
     patchButton(item, /** @type {HTMLButtonElement} */ (el));
+  } else if (item.kind === 'crumb') {
+    patchCrumb(item, el);
   } else if (item.kind === 'nav') {
     patchNav(item, el);
   } else if (item.kind === 'search') {
@@ -113,14 +145,42 @@ function build(item, dispatch) {
   if (item.kind === 'button') {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'contrib-btn';
     btn.addEventListener('click', () => dispatch(item.id));
     patchButton(item, btn);
     return btn;
   }
+  if (item.kind === 'crumb') return buildCrumb(item);
+  if (item.kind === 'sep') {
+    const sep = document.createElement('span');
+    sep.className = 'osprey-head-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    return sep;
+  }
   if (item.kind === 'search') return buildSearch(item, dispatch);
   if (item.kind === 'menu') return buildMenu(item, dispatch);
   return buildNav(item, dispatch);
+}
+
+/**
+ * The `root › leaf` breadcrumb. All three parts always exist, so a leaf
+ * that comes and goes is a visibility patch, not a rebuild.
+ * @param {HeaderItem} item
+ * @returns {HTMLElement}
+ */
+function buildCrumb(item) {
+  const crumb = document.createElement('span');
+  crumb.className = 'osprey-crumb';
+  const root = document.createElement('span');
+  root.className = 'osprey-crumb-root';
+  const sep = document.createElement('span');
+  sep.className = 'osprey-crumb-sep';
+  sep.setAttribute('aria-hidden', 'true');
+  sep.appendChild(icon('chevron-right'));
+  const leaf = document.createElement('span');
+  leaf.className = 'osprey-crumb-leaf';
+  crumb.append(root, sep, leaf);
+  patchCrumb(item, crumb);
+  return crumb;
 }
 
 /**
@@ -223,15 +283,65 @@ function setText(el, text) {
 }
 
 /**
+ * Patch a button in place. Its children are rebuilt only when its layout
+ * changes (another icon, or a label that appears or goes); a new label or
+ * disabled state on the same layout is a text or property patch, so the
+ * button under the pointer is never replaced and its icon never wiped.
  * @param {HeaderItem} item
  * @param {HTMLButtonElement} btn
  */
 function patchButton(item, btn) {
-  setText(btn, item.label ?? '');
-  btn.classList.toggle('contrib-btn-accent', item.tone === 'accent');
+  const name = item.icon ?? '';
+  const label = item.label ?? '';
+  const iconOnly = name !== '' && label === '';
+  const iconLabel = name !== '' && label !== '';
+  const accent = item.tone === 'accent';
+  const shape = name ? `${name}:${iconLabel ? 'label' : 'bare'}` : '';
+  if (buttonShape.get(btn) !== shape) {
+    buttonShape.set(btn, shape);
+    btn.replaceChildren();
+    if (name) btn.appendChild(icon(name));
+    if (iconLabel) {
+      const span = document.createElement('span');
+      span.className = 'osprey-btn-label';
+      btn.appendChild(span);
+    }
+  }
+  btn.classList.toggle('contrib-btn', !name);
+  btn.classList.toggle('contrib-btn-accent', !name && accent);
+  btn.classList.toggle('osprey-icon-btn', iconOnly);
+  btn.classList.toggle('osprey-btn', iconLabel);
+  btn.classList.toggle('primary', iconLabel && accent);
   btn.disabled = item.disabled === true;
-  if (item.title) btn.title = item.title;
+
+  if (!name) {
+    setText(btn, label);
+  } else if (iconLabel) {
+    setText(/** @type {HTMLElement} */ (btn.querySelector('.osprey-btn-label')), label);
+  }
+
+  // An icon-only button has no text, so its title is its accessible name;
+  // a labelled one is named by its label and only borrows it as a tooltip.
+  const title = item.title || (iconLabel ? label : '');
+  if (title) btn.title = title;
   else btn.removeAttribute('title');
+  if (iconOnly) btn.setAttribute('aria-label', item.title ?? '');
+  else btn.removeAttribute('aria-label');
+}
+
+/**
+ * @param {HeaderItem} item
+ * @param {HTMLElement} crumb
+ */
+function patchCrumb(item, crumb) {
+  const [root, sep, leaf] = /** @type {HTMLElement[]} */ ([...crumb.children]);
+  setText(root, item.root ?? '');
+  const leafText = item.leaf ?? '';
+  setText(leaf, leafText);
+  if (leafText) leaf.title = leafText;
+  else leaf.removeAttribute('title');
+  sep.hidden = !leafText;
+  leaf.hidden = !leafText;
 }
 
 /**

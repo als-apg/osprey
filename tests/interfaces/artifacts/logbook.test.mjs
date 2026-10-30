@@ -15,6 +15,10 @@
  *     `.value` readback path (the Task 1.4 attribute-sink fix — ids are
  *     assigned as a DOM property, never interpolated into innerHTML).
  *
+ * And the compose entry point, openComposeModal: the preview header's
+ * Logbook button and the embedded viewer's `logbook` action both open the
+ * composer through it, for the artifact they name.
+ *
  * `escapeHtml` is the canonical design-system helper (tested in
  * tests/interfaces/design_system/dom.test.mjs and exercised end-to-end
  * against hostile artifact metadata in security_render.test.mjs) — it is
@@ -30,6 +34,7 @@ import {
   getContextValues,
   hideModal,
   loadArtifactPicker,
+  openComposeModal,
 } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
 import { setArtifacts } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import { qs, byId } from '../_support/dom.mjs';
@@ -312,5 +317,39 @@ describe('loadArtifactPicker', () => {
     loadArtifactPicker();
 
     expect(byId('logbook-artifact-picker-list').textContent).toBe('No artifacts available');
+  });
+});
+
+// =========================================================================
+// openComposeModal
+// =========================================================================
+
+describe('openComposeModal', () => {
+  afterEach(() => {
+    setArtifacts([]);
+    vi.unstubAllGlobals();
+  });
+
+  test('opens the composer on its first phase, about the artifact it names', async () => {
+    // The model list the composer asks for is not this test's concern: with
+    // no list served, the "Default model" option stays.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+    setArtifacts([
+      { id: 'art-1', title: 'First', artifact_type: 'json' },
+      { id: 'art-2', title: 'Second', artifact_type: 'markdown' },
+    ]);
+
+    await openComposeModal({ artifact_id: 'art-2' });
+
+    expect(qs(document, '.logbook-overlay').style.display).toBe('');
+    expect(byId('logbook-phase-steering').style.display).toBe('');
+    expect(byId('logbook-phase-review').style.display).toBe('none');
+
+    loadArtifactPicker();
+    const boxes = /** @type {NodeListOf<HTMLInputElement>} */ (
+      byId('logbook-artifact-picker-list').querySelectorAll('input[type=checkbox]')
+    );
+    const checked = Array.from(boxes).filter((b) => b.checked);
+    expect(checked.map((b) => b.value)).toEqual(['art-2']);
   });
 });

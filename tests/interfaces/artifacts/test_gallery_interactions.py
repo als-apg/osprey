@@ -22,11 +22,16 @@ Covers:
   - selecting an artifact of a given type renders that type's preview
     header (title, type badge) and viewport (markdown -> the marked/KaTeX
     container, html -> a sandboxed iframe)
-  - Simple mode's result card renders those same viewports, through the
-    same dispatch, for every seeded type
   - the logbook/print inject buttons are present in the preview's action
     bar -- proving the direct-import wiring actually renders them (a
     grep-level check that no window bridge exists can't show that)
+  - embedded (``?embedded=true``), the page is a viewer of one artifact:
+    no browser column and no preview header, the artifact the hub selects
+    (an ``osprey-artifact-select`` message) renders through the same
+    dispatch for every seeded type, and the hub's
+    ``osprey-artifact-action`` messages run the gallery's own pin, logbook
+    and delete paths
+  - standalone, a gallery opened in Simple mode is the browse gallery too
 
 Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
@@ -123,10 +128,7 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
         tool_source="test_fixture",
         category="visualization",
     )
-    # A json fixture: the shape a channel-finder result lands as, and one of
-    # the types Simple mode could not render while it had a viewport builder
-    # of its own. Seeded last, so it is the newest -- Simple's result card
-    # shows the newest artifact until the user picks another.
+    # A json fixture: the shape a channel-finder result lands as.
     seed_store.save_file(
         file_content=b'{"correctors": {"SR01C:HCM1:SP": 0.42}}',
         filename="correctors.json",
@@ -266,25 +268,18 @@ def test_a_sidebar_taller_than_one_page_fetches_the_next_one(
         page.close()
 
 
-def test_switching_to_expert_fills_a_sidebar_taller_than_one_page(
+def test_a_gallery_opened_in_simple_mode_is_the_browse_gallery(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """A gallery opened in Simple mode has no sidebar to fill; the hub's switch
-    to Expert shows it, and the gallery fetches on until the list reaches
-    past its end, without a scroll.
+    """Standalone, the gallery is the browse view in every UI mode: opened in
+    Simple, it shows the browser column and fetches on until a sidebar taller
+    than one page reaches past the list's end, without a scroll.
     """
     with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         page.goto(f"{base_url}?mode=simple", wait_until="domcontentloaded")
 
-        expect(_simple_row(page, "Paged Artifact 024").first).to_be_visible(timeout=10_000)
-        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(0)
-
-        page.evaluate(
-            "window.postMessage({ type: 'osprey-mode-change', mode: 'expert' },"
-            " window.location.origin)"
-        )
-
+        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
         expect(page.locator(".tree-item")).to_have_count(25, timeout=5_000)
         page.close()
@@ -325,38 +320,6 @@ def test_escape_in_the_filter_restores_the_unfiltered_list(tmp_path, monkeypatch
         expect(search).to_have_value("")
         expect(_card_for_title(page, "Paged Artifact 024")).to_have_count(1, timeout=5_000)
         expect(page.locator(".tree-item")).to_have_count(20, timeout=5_000)
-        page.close()
-
-
-def test_simple_mode_ignores_the_expert_filter_and_expert_keeps_it(
-    tmp_path, monkeypatch, chromium_browser
-):
-    """The filter box is Expert-only: Simple shows the latest artifact whatever
-    it holds, and the switch back to Expert narrows the list to it again.
-    """
-    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
-        page = chromium_browser.new_page(viewport=PAGING_VIEWPORT)
-        page.goto(base_url, wait_until="domcontentloaded")
-
-        expect(page.locator(".tree-item")).to_have_count(20, timeout=10_000)
-        page.locator("#search").fill("Paged Artifact 000")
-        expect(page.locator(".tree-item")).to_have_count(1, timeout=5_000)
-
-        page.evaluate(
-            "window.postMessage({ type: 'osprey-mode-change', mode: 'simple' },"
-            " window.location.origin)"
-        )
-        expect(page.locator("#simple-result-title")).to_have_text(
-            "Paged Artifact 024", timeout=10_000
-        )
-        expect(_simple_row(page, "Paged Artifact 024").first).to_be_visible(timeout=5_000)
-
-        page.evaluate(
-            "window.postMessage({ type: 'osprey-mode-change', mode: 'expert' },"
-            " window.location.origin)"
-        )
-        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
-        expect(page.locator(".tree-item")).to_have_count(1, timeout=5_000)
         page.close()
 
 
@@ -497,69 +460,149 @@ def test_logbook_and_print_buttons_present_after_bridge_kill(
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Simple mode renders the same viewports as Expert
+# Test 4: embedded, the page is the hub's viewer of one artifact
 # ---------------------------------------------------------------------------
 
 
-def _simple_row(page: Page, title: str):
-    """Locate a row in Simple mode's "Results from this session" list."""
-    return page.locator(".simple-list-item", has_text=title)
+def _select_in_viewer(page: Page, title: str) -> str:
+    """Show the artifact titled *title* in the embedded viewer, as the hub does.
+
+    The hub's sidebar owns the list, so the viewer is driven by the message
+    the hub posts on a row click. It is sent from the page itself (same
+    origin), with the id read from the listing, since ArtifactStore mints a
+    fresh id every run. Returns that id.
+    """
+    return page.evaluate(
+        """async (title) => {
+            const listing = await (await fetch('/api/artifacts')).json();
+            const entry = listing.artifacts.find((a) => a.title === title);
+            window.postMessage(
+                { type: 'osprey-artifact-select', artifact_id: entry.id },
+                window.location.origin
+            );
+            return entry.id;
+        }""",
+        title,
+    )
 
 
-def test_simple_mode_renders_the_same_viewports_as_expert(tmp_path, monkeypatch, chromium_browser):
-    """Every seeded type renders in Simple's result card, not just the
-    iframe/img ones.
+def _act_in_viewer(page: Page, artifact_id: str, action: str) -> None:
+    """Send the hub's ``osprey-artifact-action`` message for *action*."""
+    page.evaluate(
+        """([id, action]) => window.postMessage(
+            { type: 'osprey-artifact-action', artifact_id: id, action },
+            window.location.origin
+        )""",
+        [artifact_id, action],
+    )
 
-    Simple mode used to build its card preview from types.js's
-    `thumbnailHtml()` -- the sidebar *card* builder, which knows only the
-    <img>/<iframe> types and drops markdown, JSON, text, PDF and timeseries
-    to a summary dump or a type-icon placeholder. Both surfaces now share
-    artifact-viewport.js's single dispatch, so this asserts the two types
-    that shortfall actually swallowed (markdown, JSON) reach their real
-    renderers here, down to the rendered output rather than just the
-    container: an empty `.md-preview-container` would satisfy a
-    presence-only check while still showing the user nothing.
+
+def test_the_embedded_viewer_shows_what_the_hub_selects(tmp_path, monkeypatch, chromium_browser):
+    """Embedded, the page shows one artifact: no browser column and no
+    preview header (the hub renders both), and every seeded type the hub
+    selects renders through the shared viewport dispatch.
+
+    Markdown and JSON are asserted down to their rendered output rather than
+    their containers: an empty ``.md-preview-container`` would satisfy a
+    presence-only check while showing the operator nothing.
     """
     with _launch_artifacts(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
-        page.goto(f"{base_url}?mode=simple", wait_until="domcontentloaded")
+        page.goto(f"{base_url}?embedded=true", wait_until="domcontentloaded")
 
-        preview = page.locator("#simple-result-preview")
-        expect(_simple_row(page, MARKDOWN_TITLE)).to_be_visible(timeout=10_000)
+        expect(page.locator("#browse-sidebar")).to_be_hidden()
+        expect(page.locator("#resize-handle")).to_be_hidden()
+        expect(page.locator("#preview-empty")).to_be_visible()
+        preview = page.locator("#preview-content")
 
         # Markdown: the marked/KaTeX pipeline ran, producing real headings.
-        _simple_row(page, MARKDOWN_TITLE).click()
-        expect(page.locator("#simple-result-title")).to_have_text(MARKDOWN_TITLE, timeout=5_000)
+        _select_in_viewer(page, MARKDOWN_TITLE)
         expect(preview.locator(".osprey-md-rendered h1")).to_have_text(
-            "Beam Current", timeout=5_000
+            "Beam Current", timeout=10_000
         )
+        expect(preview.locator(".preview-desc")).to_have_text("A markdown fixture artifact")
+        expect(page.locator(".preview-header")).to_have_count(0)
 
         # JSON: the recursive viewer ran, producing keyed rows.
-        _simple_row(page, JSON_TITLE).click()
-        expect(page.locator("#simple-result-title")).to_have_text(JSON_TITLE, timeout=5_000)
+        _select_in_viewer(page, JSON_TITLE)
         expect(preview.locator(".json-viewer .json-key").first).to_have_text(
             '"correctors"', timeout=5_000
         )
 
-        # HTML: the type that already worked, still working.
-        _simple_row(page, HTML_TITLE).click()
-        expect(page.locator("#simple-result-title")).to_have_text(HTML_TITLE, timeout=5_000)
-        expect(preview.locator("iframe.preview-iframe-light")).to_be_visible(timeout=5_000)
+        # HTML: a sandboxed frame.
+        _select_in_viewer(page, HTML_TITLE)
+        expect(preview.locator(".preview-viewport iframe.preview-iframe-light")).to_be_visible(
+            timeout=5_000
+        )
 
-        # Nothing anywhere in the card fell back to the sidebar-thumbnail
-        # placeholder the old builder produced for unrenderable types.
-        expect(preview.locator(".thumb-placeholder, .thumb-summary")).to_have_count(0)
+        # A select of nothing returns the viewer to its empty state.
+        page.evaluate(
+            "window.postMessage({ type: 'osprey-artifact-select', artifact_id: null },"
+            " window.location.origin)"
+        )
+        expect(page.locator("#preview-empty")).to_be_visible(timeout=5_000)
+        expect(preview).to_be_hidden()
+
+        # Below 560 px the browse layout shows its y-axis splitter by id; the
+        # viewer's rule still keeps it hidden.
+        page.set_viewport_size({"width": 480, "height": 800})
+        expect(page.locator("#resize-handle-y")).to_be_hidden()
+        page.close()
+
+
+def test_the_embedded_viewer_runs_the_actions_the_hub_sends(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """The hub's tile menu reaches the gallery's own code paths through
+    ``osprey-artifact-action``: pin sets the flag on the stored entry, logbook
+    opens the composer, and delete, once confirmed, removes the artifact and
+    empties the viewer.
+    """
+    from osprey.stores.artifact_store import ArtifactStore
+
+    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(f"{base_url}?embedded=true", wait_until="domcontentloaded")
+        artifact_id = _select_in_viewer(page, HTML_TITLE)
+        expect(page.locator(".preview-viewport iframe")).to_be_visible(timeout=10_000)
+
+        with page.expect_response(
+            lambda r: r.url.endswith(f"/api/artifacts/{artifact_id}/pin")
+        ) as pinned:
+            _act_in_viewer(page, artifact_id, "pin")
+        assert pinned.value.ok
+        entry = ArtifactStore(workspace_root=tmp_path).get_entry(artifact_id)
+        assert entry is not None and entry.pinned is True
+
+        _act_in_viewer(page, artifact_id, "logbook")
+        expect(page.locator(".logbook-overlay")).to_be_visible(timeout=5_000)
+
+        messages: list[str] = []
+
+        def accept(dialog):
+            messages.append(dialog.message)
+            dialog.accept()
+
+        page.once("dialog", accept)
+        _act_in_viewer(page, artifact_id, "delete")
+
+        expect(page.locator("#preview-empty")).to_be_visible(timeout=5_000)
+        assert messages == [f'Delete "{HTML_TITLE}"? This cannot be undone.']
+        titles = [e.title for e in ArtifactStore(workspace_root=tmp_path).list_entries()]
+        assert HTML_TITLE not in titles
         page.close()
 
 
 # ---------------------------------------------------------------------------
-# Test 5: an embedded artifact page inherits the gallery's theme
+# Test 5: a mounted artifact page inherits the gallery's theme
 # ---------------------------------------------------------------------------
 
 
-def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_browser):
-    """A freshly mounted preview boots in the gallery's theme, follows a hub
-    theme change, and the "Open in new tab" link is re-stamped with it.
+def test_the_viewer_preview_boots_in_and_follows_the_hub_theme(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """A preview the hub selects boots in the gallery's theme and follows a
+    hub theme change.
 
     The served page resolves its own theme through theme-boot.js (whose top
     rung is ``?theme=``) rather than reading the parent gallery's
@@ -578,7 +621,7 @@ def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_b
         page.goto(f"{base_url}/?theme=retro-light&embedded=true", wait_until="domcontentloaded")
         expect(page.locator("html")).to_have_attribute("data-theme", "retro-light")
 
-        _card_for_title(page, HTML_TITLE).click()
+        _select_in_viewer(page, HTML_TITLE)
         iframe = page.locator(".preview-viewport iframe.preview-iframe-light")
         expect(iframe).to_be_visible(timeout=5_000)
         # Load-time half: the src carries the theme in force, and the page
@@ -589,17 +632,45 @@ def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_b
         # handle reaches into it the way the user's eyes do.
         frame_html = page.frame_locator(".preview-viewport iframe").locator("html")
         expect(frame_html).to_have_attribute("data-theme", "retro-light", timeout=10_000)
-        link = page.locator(".preview-header a[data-theme-link]")
-        assert "theme=retro-light" in (link.get_attribute("href") or "")
 
-        # Live half: a hub broadcast re-themes the gallery, the embedded page,
-        # and the new-tab link -- to an id outside the main family.
+        # Live half: a hub broadcast re-themes the gallery and the embedded
+        # page -- to an id outside the main family.
         page.evaluate(
             "() => window.postMessage({type: 'osprey-theme-change',"
             " theme: 'high-contrast-light'}, window.location.origin)"
         )
         expect(page.locator("html")).to_have_attribute("data-theme", "high-contrast-light")
         expect(frame_html).to_have_attribute("data-theme", "high-contrast-light", timeout=10_000)
+        page.close()
+
+
+def test_the_open_in_new_tab_link_carries_and_follows_the_theme(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """The standalone preview header's "Open in new tab" link carries the
+    theme in force, and a theme change re-stamps it in place.
+
+    ``?theme=`` is the top rung of theme-boot.js's ladder, so a link minted
+    before the change would otherwise open the new tab in the stale theme.
+    Standalone, the gallery runs theme-manager.js in the hub role, so the
+    change goes through the module instance the page runs, as a pick in its
+    own display menu does.
+    """
+    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+        ctx = chromium_browser.new_context(viewport=VIEWPORT, color_scheme="dark")
+        page = ctx.new_page()
+        page.goto(f"{base_url}/?theme=retro-light", wait_until="domcontentloaded")
+        expect(page.locator("html")).to_have_attribute("data-theme", "retro-light")
+
+        _card_for_title(page, HTML_TITLE).click()
+        link = page.locator(".preview-header a[data-theme-link]")
+        expect(link).to_have_attribute("href", re.compile(r"theme=retro-light"), timeout=10_000)
+
+        page.evaluate(
+            "async (theme) => (await import('/design-system/js/theme-manager.js')).setTheme(theme)",
+            "high-contrast-light",
+        )
+        expect(page.locator("html")).to_have_attribute("data-theme", "high-contrast-light")
         expect(link).to_have_attribute("href", re.compile(r"theme=high-contrast-light"))
         page.close()
 

@@ -110,10 +110,8 @@ const chevronSvg =
 
 // Session-start timestamp for the tree-mode "new" badge (isNewThisSession
 // compares each artifact's timestamp against this). Computed once at this
-// module's load time, same as simple-view.js's own `_sessionStart`
-// — both modules load within the same page load, so the sub-millisecond
-// skew between the two is immaterial to the "is this new since I opened the
-// gallery" feature this drives.
+// module's load time, which is page-load time: the moment the "is this new
+// since I opened the gallery" feature this drives counts from.
 const _sessionStart = new Date().toISOString();
 
 /**

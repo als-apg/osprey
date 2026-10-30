@@ -68,15 +68,6 @@ class FakeLocator:
         self.log.append(("click", self.selector))
 
 
-class FakeFrameLocator:
-    def __init__(self, log: list, selector: str) -> None:
-        self.log = log
-        self.selector = selector
-
-    def locator(self, selector: str) -> FakeLocator:
-        return FakeLocator(self.log, f"{self.selector} >> {selector}")
-
-
 class FakeKeyboard:
     def __init__(self, log: list, world=None) -> None:
         self.log = log
@@ -178,9 +169,6 @@ class FakePage:
 
     def locator(self, selector: str) -> FakeLocator:
         return FakeLocator(self.log, selector)
-
-    def frame_locator(self, selector: str) -> FakeFrameLocator:
-        return FakeFrameLocator(self.log, selector)
 
 
 class FakeCDP:
@@ -696,8 +684,8 @@ class World:
     (approval Enters needed before the draft appears; 0 = never),
     ``tool_result`` ("entry" | "block"), ``late_ask``, ``drag_deg``,
     ``arrivals`` (``(id, artifact_type, seconds_after_prompt)`` cards that
-    land in the gallery before the plot), ``no_card`` / ``no_preview`` (ids
-    whose card never shows / whose preview never renders),
+    land in the sidebar list before the plot), ``no_card`` / ``no_preview`` (ids
+    whose row never shows / whose preview never renders),
     ``dialog_at`` (``(seconds, screen)`` shown while the agent keeps working),
     ``empty_plot_card`` (the agent saves a plot with nothing drawn in it),
     ``no_attachment`` (the draft shows no attached image to scroll to),
@@ -1062,12 +1050,10 @@ def test_record_take_runs_the_fr1_beats_in_order(world_env) -> None:
     assert steps["close"].duration == pytest.approx(video_take.CLOSE_HOLD_MS / 1000)
     # The speed-up badge is burned in at encode time; the page is never asked.
     assert not [e for e in world_env.log if e[0] == "badge"]
-    # The artifact is opened from the artifacts panel before the drag.
+    # The artifact is opened from its row in the hub sidebar before the drag.
     click = _index(world_env.log, "click")
-    assert any(
-        e[0] == "click" and 'data-id="plot-0"' in e[1] and video_probes.ARTIFACTS_IFRAME in e[1]
-        for e in world_env.log
-    )
+    row = video_probes.artifact_row("plot-0")
+    assert any(e[0] == "click" and e[1] == row for e in world_env.log)
     assert click < _index(world_env.log, "mouse.down")
 
 

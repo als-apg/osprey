@@ -2,17 +2,19 @@
 /* OSPREY Web Terminal — Panel Iframe State Sync
  *
  * The per-iframe "push host state into a panel" seam: theme, active session,
- * and UI mode, each serialized to a panel iframe via postMessage. Extracted
- * from panel-manager so that module stays focused on panel lifecycle, rail
- * rendering, and health — these three helpers share one shape (take an
- * iframe, guard its contentWindow, swallow the cross-origin throw) and one
- * concern (host → follower messaging), and depend on none of panel-manager's
- * private panel state, so they live cleanly on their own.
+ * UI mode and header actions, plus the artifacts viewer's two messages (which
+ * artifact to show, and a tile-menu action on it), each serialized to a panel
+ * iframe via postMessage. Extracted from panel-manager so that module stays
+ * focused on panel lifecycle, rail rendering, and health — these helpers
+ * share one shape (take an iframe, guard its contentWindow, swallow the
+ * cross-origin throw) and one concern (host → follower messaging), and depend
+ * on none of panel-manager's private panel state, so they live cleanly on
+ * their own.
  *
  * The hub-role fan-outs that iterate every panel (theme-manager's own theme
  * broadcast; panel-manager's broadcastMode) stay with their owners — this
- * module is only the single-iframe trigger points (iframe creation and tab
- * activation) those fan-outs and panel-manager call into.
+ * module is only the single-iframe sends those fan-outs and their callers
+ * use.
  */
 
 import { getTheme } from '/design-system/js/theme-manager.js';
@@ -121,6 +123,29 @@ export function sendModeToIframe(iframe) {
  */
 export function sendHeaderActionToIframe(iframe, id, value) {
   postToIframe(iframe, { type: 'osprey-header-action', id, ...(value != null ? { value } : {}) });
+}
+
+/**
+ * Show one artifact in the artifacts panel's viewer. The hub's sidebar owns
+ * the artifact list (sidebar-artifacts.js) and the embedded gallery shows the
+ * one artifact named here (artifacts viewer.js). Showing is not focusing: the
+ * agent's focus is never touched by this message.
+ * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
+ * @param {string | null} artifactId  null shows the viewer's empty state
+ */
+export function sendArtifactSelectToIframe(iframe, artifactId) {
+  postToIframe(iframe, { type: 'osprey-artifact-select', artifact_id: artifactId });
+}
+
+/**
+ * Ask the artifacts viewer to run a tile-menu action on an artifact, through
+ * the gallery's own code path for it (its confirm, its request, its popup).
+ * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
+ * @param {string} artifactId
+ * @param {'pin' | 'unpin' | 'print' | 'logbook' | 'delete'} action
+ */
+export function sendArtifactActionToIframe(iframe, artifactId, action) {
+  postToIframe(iframe, { type: 'osprey-artifact-action', artifact_id: artifactId, action });
 }
 
 /**

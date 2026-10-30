@@ -345,8 +345,9 @@ APPROVAL_BUDGET_MS = 180_000
 DRAFT_RETRY_AFTER_MS = 15_000
 DRAFT_BUDGET_MS = 90_000
 OPEN_PLOT_BUDGET_MS = 30_000
-# Each card that lands while the agent works is opened in real time: the card
-# must show in the gallery, then its preview render, then it is held on screen.
+# Each card that lands while the agent works is opened in real time: its row
+# must show in the hub sidebar's artifact list, then its preview render in the
+# artifacts viewer, then it is held on screen.
 CARD_BUDGET_MS = 10_000
 PREVIEW_BUDGET_MS = 15_000
 OPEN_HOLD_MS = 1_500
@@ -709,12 +710,7 @@ class _Take:
         if video_probes.preview_shows(self.page, corr_id):
             self.page.wait_for_timeout(CORR_HOLD_MS)
             return
-        card = (
-            self.page.frame_locator(video_probes.ARTIFACTS_IFRAME)
-            .locator(f'[data-id="{corr_id}"]')
-            .first
-        )
-        self.click(card)
+        self.click(self.page.locator(video_probes.artifact_row(corr_id)).first)
         if not _poll(
             self.page,
             lambda: video_probes.preview_shows(self.page, corr_id),
@@ -756,10 +752,10 @@ class _Take:
             raise ProbeFailed("post", f"the entry attaches the 3D plot too: {ids}")
 
     def open_artifact(self, artifact: dict) -> None:
-        """Click a newly landed card and hold once its preview has rendered.
+        """Click a newly landed artifact's sidebar row and hold once it has rendered.
 
         Fails ``open-artifact`` with the preview pane's state and the terminal's
-        last lines when the card never shows or its preview never renders; the
+        last lines when the row never shows or its preview never renders; the
         stall watch and the dialog check keep running throughout.
         """
         artifact_id = artifact["id"]
@@ -782,13 +778,8 @@ class _Take:
                 f"{video_probes.terminal_tail(self.page)}",
             )
 
-        wait(lambda: video_probes.card_shown(self.page, artifact_id), CARD_BUDGET_MS, "no card")
-        card = (
-            self.page.frame_locator(video_probes.ARTIFACTS_IFRAME)
-            .locator(f'[data-id="{artifact_id}"]')
-            .first
-        )
-        self.click(card)
+        wait(lambda: video_probes.card_shown(self.page, artifact_id), CARD_BUDGET_MS, "no row")
+        self.click(self.page.locator(video_probes.artifact_row(artifact_id)).first)
         wait(
             lambda: video_probes.preview_shows(self.page, artifact_id),
             PREVIEW_BUDGET_MS,
@@ -797,12 +788,7 @@ class _Take:
         self.page.wait_for_timeout(OPEN_HOLD_MS)
 
     def open_plot(self, plot_id: str) -> Any:
-        item = (
-            self.page.frame_locator(video_probes.ARTIFACTS_IFRAME)
-            .locator(f'[data-id="{plot_id}"]')
-            .first
-        )
-        self.click(item)
+        self.click(self.page.locator(video_probes.artifact_row(plot_id)).first)
         frame: list[Any] = []
 
         def ready() -> bool:

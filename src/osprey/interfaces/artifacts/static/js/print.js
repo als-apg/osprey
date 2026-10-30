@@ -3,7 +3,9 @@
  * OSPREY Artifact Gallery — Print / Save as PDF
  *
  * Injects a print icon button into .preview-header-actions following
- * the same injection pattern as logbook.js.
+ * the same injection pattern as logbook.js. `printArtifact` is exported
+ * too: the embedded viewer, which renders no preview header, runs it for
+ * the hub's `print` action.
  *
  * Strategy: opens a dedicated print window for each artifact type so
  * the print output is clean (no gallery chrome) and WYSIWYG:
@@ -287,9 +289,10 @@ function printImage(a) {
 
 /** @param {any} a */
 function printTimeseries(a) {
-  // Scoped to the Expert preview pane deliberately: the print button is
-  // injected into that pane's action bar and exists nowhere else, so its
-  // chart is the one to capture even when Simple's card holds one too.
+  // Scoped to the preview pane, the one place the gallery mounts a chart: the
+  // artifact printed is the one shown there (standalone, the Print button sits
+  // in that pane's header; embedded, the hub's print action names the
+  // artifact its viewer shows).
   const chartEl = document.querySelector(
     '#preview-content .ts-viewport-container [data-ts-chart] .js-plotly-plot'
   );

@@ -190,8 +190,9 @@ class TestFocus:
         ids=["chosen", "automatic"],
     )
     def test_a_focus_event_says_whether_it_was_automatic(self, app_client, body, flag):
-        """The Simple layout keeps its selection through an automatic focus, so
-        the broadcast must carry the flag exactly when the sender set it."""
+        """A listener may treat a focus its sender made on its own (the approval
+        hook) unlike a chosen one, so the broadcast must carry the flag exactly
+        when the sender set it."""
         store = app_client.app.state.artifact_store
         entry = _save_text_artifact(store, title="Review")
         with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
@@ -260,6 +261,152 @@ class TestFocus:
             assert client.app.state.focused_artifact_id is None
             assert client.get("/api/focus").json() == {"focused": False, "artifact": None}
             assert (tmp_path / "focus_state.txt").read_text() == ""
+
+
+def _save_run_record(store, title="Run"):
+    """A run record the way the executor writes one: the metadata key, no category."""
+    return store.save_file(
+        file_content=b"# run",
+        filename=f"{title}.md",
+        artifact_type="markdown",
+        title=title,
+        mime_type="text/markdown",
+        tool_source="execute",
+        metadata={"run_record": True},
+    )
+
+
+class TestRunRecordVerdict:
+    """The server's run-record verdict: ``?run=`` on the listing, ``run_record`` everywhere.
+
+    The web terminal's sidebar sorts Script runs from Artifacts by what the
+    server says, never by re-deriving the rule, so every entry the gallery
+    sends to a browser has to carry the verdict.
+    """
+
+    @staticmethod
+    def _seed(store) -> tuple[set[str], set[str]]:
+        """Five run records and seven results, interleaved; return their id sets."""
+        runs: set[str] = set()
+        others: set[str] = set()
+        for i in range(12):
+            if i in (1, 3, 4, 8, 10):
+                runs.add(_save_run_record(store, title=f"Run {i}").id)
+            else:
+                others.add(_save_text_artifact(store, title=f"Result {i}").id)
+        assert (len(runs), len(others)) == (5, 7)
+        return runs, others
+
+    @staticmethod
+    def _walk(client, **params) -> tuple[list[dict], set[int]]:
+        """Follow ``next_cursor`` to the end; return every entry and the totals seen."""
+        entries: list[dict] = []
+        totals: set[int] = set()
+        cursor = None
+        while True:
+            query = dict(params, limit=3)
+            if cursor:
+                query["cursor"] = cursor
+            body = client.get("/api/artifacts", params=query).json()
+            entries.extend(body["artifacts"])
+            totals.add(body["total"])
+            cursor = body["next_cursor"]
+            if cursor is None:
+                return entries, totals
+
+    def test_run_true_lists_only_run_records(self, app_client):
+        runs, _ = self._seed(app_client.app.state.artifact_store)
+        entries, totals = self._walk(app_client, run="true")
+        assert {e["id"] for e in entries} == runs
+        assert len(entries) == 5
+        assert totals == {5}
+
+    def test_run_false_lists_everything_else(self, app_client):
+        _, others = self._seed(app_client.app.state.artifact_store)
+        entries, totals = self._walk(app_client, run="false")
+        assert {e["id"] for e in entries} == others
+        assert len(entries) == 7
+        assert totals == {7}
+
+    def test_no_run_param_lists_all_of_them(self, app_client):
+        runs, others = self._seed(app_client.app.state.artifact_store)
+        entries, totals = self._walk(app_client)
+        assert {e["id"] for e in entries} == runs | others
+        assert totals == {12}
+
+    def test_the_filtered_first_page_names_its_cursor_and_count(self, app_client):
+        self._seed(app_client.app.state.artifact_store)
+        body = app_client.get("/api/artifacts", params={"run": "true", "limit": 3}).json()
+        assert (body["count"], body["total"]) == (3, 5)
+        assert body["next_cursor"] is not None
+
+    def test_every_listed_entry_carries_the_boolean_verdict(self, app_client):
+        runs, others = self._seed(app_client.app.state.artifact_store)
+        body = app_client.get("/api/artifacts", params={"limit": 50}).json()
+        assert len(body["artifacts"]) == 12
+        for entry in body["artifacts"]:
+            assert entry["run_record"] is (entry["id"] in runs)
+
+    def test_a_legacy_run_record_is_known_by_what_its_writer_gave_it(self, app_client):
+        """Saved before the metadata key existed: the category alone marks it."""
+        store = app_client.app.state.artifact_store
+        legacy = store.save_file(
+            file_content=b"out",
+            filename="out.txt",
+            artifact_type="text",
+            title="Output",
+            mime_type="text/plain",
+            tool_source="execute",
+            category="code_output",
+        )
+        body = app_client.get("/api/artifacts", params={"run": "true"}).json()
+        assert [e["id"] for e in body["artifacts"]] == [legacy.id]
+
+    def test_get_artifact_carries_the_verdict(self, app_client):
+        store = app_client.app.state.artifact_store
+        run = _save_run_record(store)
+        result = _save_text_artifact(store)
+        assert app_client.get(f"/api/artifacts/{run.id}").json()["run_record"] is True
+        assert app_client.get(f"/api/artifacts/{result.id}").json()["run_record"] is False
+
+    def test_focus_carries_the_verdict_for_a_focused_and_a_fallback_artifact(self, app_client):
+        store = app_client.app.state.artifact_store
+        run = _save_run_record(store)
+        app_client.post("/api/focus", json={"artifact_id": run.id})
+        focus = app_client.get("/api/focus").json()
+        assert focus["focused"] is True
+        assert focus["artifact"]["run_record"] is True
+
+        result = _save_text_artifact(store, title="Newest")
+        store.delete_entry(run.id)
+        fallback = app_client.get("/api/focus").json()
+        assert fallback["focused"] is False
+        assert fallback["artifact"]["id"] == result.id
+        assert fallback["artifact"]["run_record"] is False
+
+    def test_the_pin_frame_carries_the_verdict(self, app_client):
+        run = _save_run_record(app_client.app.state.artifact_store)
+        with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
+            app_client.post(f"/api/artifacts/{run.id}/pin", json={"pinned": True})
+        (event,), _ = broadcast.call_args
+        assert event["type"] == "artifact_updated"
+        assert event["id"] == run.id
+        assert event["run_record"] is True
+
+    def test_the_saved_frame_carries_the_verdict(self, tmp_path):
+        """The lifespan registers the saved listener; a save then broadcasts its frame."""
+        with TestClient(create_app(workspace_root=tmp_path)) as client:
+            store = client.app.state.artifact_store
+            with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
+                run = _save_run_record(store)
+                result = _save_text_artifact(store)
+            frames = {
+                event["id"]: event
+                for (event,), _ in broadcast.call_args_list
+                if event["type"] == "artifact"
+            }
+        assert frames[run.id]["run_record"] is True
+        assert frames[result.id]["run_record"] is False
 
 
 class TestServeFileEndpoint:
