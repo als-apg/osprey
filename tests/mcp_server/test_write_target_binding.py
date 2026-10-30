@@ -125,9 +125,12 @@ _CONFIG = (
     "    epics:\n      prefix: 'RING:'\n"
 )
 
-#: Both machines' switches on: the write verdict lets every call here reach the
+#: Both machines' switches armed: the write verdict lets every call here reach the
 #: binding checks, whichever target its record names.
-_SWITCH_ON = {"va": "on", "live": "on"}
+_SWITCH_ARMED = {"va": "asked", "live": "asked"}
+
+#: Both machines at the no-prompt position, for the paths that never ask.
+_SWITCH_NO_PROMPT = {"va": "allowed", "live": "allowed"}
 
 
 #: An approval section whose policy lets ``channel_write`` run without asking.
@@ -190,7 +193,7 @@ def _write_record(target, generation, **fields):
 
     Both switches are on unless *fields* says otherwise.
     """
-    fields.setdefault("switch", _SWITCH_ON)
+    fields.setdefault("switch", _SWITCH_ARMED)
     return write_control_context(_root(), target, generation, **fields)
 
 
@@ -717,22 +720,25 @@ async def test_no_stamp_is_refused_where_approval_asks(tmp_path, monkeypatch):
     connector.write_channel.assert_not_awaited()
 
 
-async def test_no_stamp_is_not_compared_where_approval_does_not_ask(tmp_path, monkeypatch):
-    """A write the policy allows without asking has no stamp, and runs.
+async def test_no_stamp_is_refused_on_the_no_prompt_path_whatever_the_policy_says(
+    tmp_path, monkeypatch
+):
+    """``allowed`` skips the question, not the record, and no policy waives it.
 
-    The entry-to-write comparison still applies; the approval window has
-    nothing to compare and is not checked.
+    ``channel_write`` is governed: the switch's position decides it, so a
+    ``skip`` policy changes nothing, and the hook files the window stamp on the
+    no-prompt path too. A write arriving without one came round the hook.
     """
     _prepare(tmp_path, monkeypatch, config=_CONFIG + _APPROVAL_SKIPS)
-    _write_record("live", 4)
+    _write_record("live", 4, switch=_SWITCH_NO_PROMPT)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    data = extract_response_dict(await _run_single(connector, stamp=False))
+    with assert_raises_error(error_type="approval_missing"):
+        await _run_single(connector, stamp=False)
 
-    assert data["status"] == "success"
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_stamp_approved_for_a_different_confirmation_is_not_consulted(
@@ -867,19 +873,21 @@ async def test_a_miss_with_only_another_sessions_stamps_stays_quiet(tmp_path, mo
 
 
 async def test_a_miss_with_no_stamps_at_all_stays_quiet(tmp_path, monkeypatch, caplog):
-    """A deployment whose policy never asks has no stamps and needs no advice."""
-    _prepare(tmp_path, monkeypatch, config=_CONFIG + _APPROVAL_SKIPS)
+    """No stamps on disk prove nothing about the render, so the refusal gives no advice."""
+    _prepare(tmp_path, monkeypatch)
     _write_record("live", 4)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
-        data = extract_response_dict(await _run_single(connector, stamp=False))
+    with (
+        caplog.at_level("WARNING", logger=channel_write_module.logger.name),
+        assert_raises_error(error_type="approval_missing"),
+    ):
+        await _run_single(connector, stamp=False)
 
-    assert data["status"] == "success"
     assert _tool_warnings(caplog) == []
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

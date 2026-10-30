@@ -393,9 +393,9 @@ def _writes_armed() -> Iterator[None]:
             path=path,
         )
         try:
-            control_context.set_switch([_ARMED_TARGET], "on", epoch=0, path=path)
+            control_context.set_switch([_ARMED_TARGET], "asked", epoch=0, path=path)
         except control_context.StoppedSince as stamped:
-            control_context.set_switch([_ARMED_TARGET], "on", epoch=stamped.epoch, path=path)
+            control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         control_context.invalidate_cache()
         with (
             patch("osprey_connectors.config.get_config_value", _armed_config),

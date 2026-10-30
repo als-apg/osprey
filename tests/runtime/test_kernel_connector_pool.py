@@ -550,7 +550,7 @@ class TestTheSwitchRespawns:
 
         runtime.read_channel("SR:X")
         spawned_off = runtime._runtime_connector
-        turn_switch("va", "on")
+        turn_switch("va", "asked")
         runtime.write_channel("SR:SP", 1.0)
         on = runtime._runtime_connector
         turn_switch("va", "off")
@@ -570,7 +570,7 @@ class TestTheSwitchRespawns:
     def test_an_unchanged_switch_reuses_the_child_and_reads_no_record(self, monkeypatch, fake_pool):
         _serve(monkeypatch, SWITCHABLE_ALLOWED)
         runtime._route_connector_through_pool()
-        turn_switch("va", "on")
+        turn_switch("va", "asked")
         runtime.read_channel("SR:X")
         first = runtime._runtime_connector
         parses: list[Path] = []
@@ -597,7 +597,7 @@ class TestTheSwitchRespawns:
 
         runtime.read_channel("SR:X")
         first = runtime._runtime_connector
-        turn_switch("va", "on")
+        turn_switch("va", "asked")
         runtime.read_channel("SR:X")
 
         assert runtime._runtime_connector is first
@@ -611,7 +611,7 @@ class TestTheSwitchRespawns:
 
         runtime.read_channel("SR:X")
         first = runtime._runtime_connector
-        turn_switch("va", "on")
+        turn_switch("va", "asked")
         runtime.read_channel("SR:X")
 
         assert runtime._runtime_connector is first
@@ -788,7 +788,7 @@ class TestRealChildrenFollowTheSwitch:
                 inside_a_running_loop(lambda: runtime.write_channel("SR:SP", 1.0, confirm=False))
             off_pid = runtime._runtime_connector.pid
 
-            turn_switch("va", "on")
+            turn_switch("va", "asked")
             inside_a_running_loop(lambda: runtime.write_channel("SR:SP", 2.0, confirm=False))
             on_pid = runtime._runtime_connector.pid
             on_report = runtime._runtime_connector.report
