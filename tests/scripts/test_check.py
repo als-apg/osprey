@@ -65,11 +65,16 @@ def _replace(monkeypatch: pytest.MonkeyPatch, check_id: str, **changes: Any) -> 
 
 
 def _on_venue(monkeypatch: pytest.MonkeyPatch, here: bool) -> None:
-    """This machine is, or is not, the live Channel Access venue, for one test."""
-    venue = check.VENUES[fw.LIVE_CA_VENUE]
-    monkeypatch.setitem(
-        check.VENUES, fw.LIVE_CA_VENUE, dataclasses.replace(venue, probe=lambda: here)
-    )
+    """This machine is, or is not, the live Channel Access venue, for one test.
+
+    Every other declared venue answers yes, so the verdict names the live
+    Channel Access venue alone, whatever platform runs the test.
+    """
+    for name, venue in list(check.VENUES.items()):
+        answer = here if name == fw.LIVE_CA_VENUE else True
+        monkeypatch.setitem(
+            check.VENUES, name, dataclasses.replace(venue, probe=lambda answer=answer: answer)
+        )
 
 
 WT = "src/osprey/interfaces/web_terminal/static/js/"
