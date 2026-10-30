@@ -932,7 +932,8 @@ row reports it as an <code class="docutils literal notranslate"><span class="pre
 renders — not the terminal process itself, which has its own <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
 section. The keys below aim the rail’s two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, size the Simple-mode operator-chat pool, bound how
+the header and status bar, choose whether the Expert view is offered, size the
+Simple-mode operator-chat pool, bound how
 long a panel’s own server gets to start, and set how often the file watchers
 re-read the tree.</p>
 <section id="documentation-and-feedback-keys">
@@ -1192,6 +1193,29 @@ server and no JUPYTER panel. The bundled <code class="docutils literal notransla
 off, the <code class="docutils literal notranslate"><span class="pre">control-target</span></code> item is left out of every arrangement this terminal
 serves and is not offered in Customize. A value that is not a boolean is
 reported in the log and <code class="docutils literal notranslate"><span class="pre">true</span></code> is used.</p>
+</section>
+<section id="expert-and-simple-view">
+<span id="config-expert-view"></span><h3>Expert and Simple view<a class="headerlink" href="#expert-and-simple-view" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ui_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">simple</span><span class="w">      </span><span class="c1"># the view a terminal opens in: expert | simple</span>
+<span class="w">  </span><span class="nt">expert_view</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># offer no Expert view at all</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">web.ui_mode</span></code> picks the view a terminal opens in, <code class="docutils literal notranslate"><span class="pre">expert</span></code> (the default)
+or <code class="docutils literal notranslate"><span class="pre">simple</span></code>; anyone can flip to the other one from the display menu or the
+command palette. <code class="docutils literal notranslate"><span class="pre">web.expert_view:</span> <span class="pre">false</span></code> takes the Expert view away
+altogether, on every login the render serves. The terminal opens in Simple
+whatever <code class="docutils literal notranslate"><span class="pre">web.ui_mode</span></code> says, the display menu has no View row, the command
+palette offers no switch, and a <code class="docutils literal notranslate"><span class="pre">?mode=expert</span></code> link or a remembered pick is
+ignored. The server refuses the Expert view’s terminal session too:
+<code class="docutils literal notranslate"><span class="pre">/ws/terminal</span></code> answers with an error and closes (code <code class="docutils literal notranslate"><span class="pre">4403</span></code>) before any
+Claude Code process is started, so no client can open one.</p>
+<p>The default is <code class="docutils literal notranslate"><span class="pre">true</span></code>, the behaviour of a deployment that never sets the
+key. A value that is not a boolean is reported in the log and <code class="docutils literal notranslate"><span class="pre">true</span></code> is
+used; a config file that cannot be read closes the Expert view. <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> refuses a profile — or a tier or app laid over its deployment — that
+states <code class="docutils literal notranslate"><span class="pre">web.ui_mode:</span> <span class="pre">expert</span></code> beside <code class="docutils literal notranslate"><span class="pre">web.expert_view:</span> <span class="pre">false</span></code>; set
+<code class="docutils literal notranslate"><span class="pre">web.ui_mode:</span> <span class="pre">simple</span></code> there, or drop the line.</p>
 </section>
 <section id="how-often-the-file-watchers-re-read-the-tree">
 <span id="config-file-watch-reconcile"></span><h3>How often the file watchers re-read the tree<a class="headerlink" href="#how-often-the-file-watchers-re-read-the-tree" title="Link to this heading">#</a></h3>
@@ -1851,6 +1875,7 @@ the surface that refused it.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-onboarding-tour-invite">The onboarding tour invite</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header-and-status-bar">The header and status bar</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-picker">The control-target picker</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#expert-and-simple-view">Expert and Simple view</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-often-the-file-watchers-re-read-the-tree">How often the file watchers re-read the tree</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>

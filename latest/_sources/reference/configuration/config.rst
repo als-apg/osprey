@@ -462,7 +462,8 @@ The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the rail's two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, size the Simple-mode operator-chat pool, bound how
+the header and status bar, choose whether the Expert view is offered, size the
+Simple-mode operator-chat pool, bound how
 long a panel's own server gets to start, and set how often the file watchers
 re-read the tree.
 
@@ -723,6 +724,34 @@ The setting changes what the page shows, not what the agent may do. With it
 off, the ``control-target`` item is left out of every arrangement this terminal
 serves and is not offered in Customize. A value that is not a boolean is
 reported in the log and ``true`` is used.
+
+.. _config-expert-view:
+
+Expert and Simple view
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   web:
+     ui_mode: simple      # the view a terminal opens in: expert | simple
+     expert_view: false   # offer no Expert view at all
+
+``web.ui_mode`` picks the view a terminal opens in, ``expert`` (the default)
+or ``simple``; anyone can flip to the other one from the display menu or the
+command palette. ``web.expert_view: false`` takes the Expert view away
+altogether, on every login the render serves. The terminal opens in Simple
+whatever ``web.ui_mode`` says, the display menu has no View row, the command
+palette offers no switch, and a ``?mode=expert`` link or a remembered pick is
+ignored. The server refuses the Expert view's terminal session too:
+``/ws/terminal`` answers with an error and closes (code ``4403``) before any
+Claude Code process is started, so no client can open one.
+
+The default is ``true``, the behaviour of a deployment that never sets the
+key. A value that is not a boolean is reported in the log and ``true`` is
+used; a config file that cannot be read closes the Expert view. ``osprey
+build`` refuses a profile — or a tier or app laid over its deployment — that
+states ``web.ui_mode: expert`` beside ``web.expert_view: false``; set
+``web.ui_mode: simple`` there, or drop the line.
 
 .. _config-file-watch-reconcile:
 
