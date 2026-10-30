@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -1812,13 +1813,12 @@ def profile_triggers_material(
 def bundled_service_template(template: str) -> str | None:
     """The framework template a service ``template:`` selects, or ``None``.
 
-    ``osprey.<name>`` names the template the framework ships as ``<name>``;
-    every other spelling is a directory relative to the profile root.
+    ``osprey.<name>`` names the template the framework ships as ``<name>``,
+    which holds only letters, digits, underscores and hyphens; every other
+    spelling is a directory relative to the profile root.
     """
-    parts = template.split(".")
-    if parts[0] == "osprey" and len(parts) == 2:
-        return parts[1]
-    return None
+    match = re.fullmatch(r"osprey\.([A-Za-z0-9_-]+)", template)
+    return match.group(1) if match else None
 
 
 def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
