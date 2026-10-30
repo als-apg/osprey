@@ -190,8 +190,9 @@ class TestThePostureRefusalIsOneWord:
     executor's in-tool session clamp (inner, on the ``executor`` surface) and
     the ``osprey_writes_check.py`` PreToolUse hook (client-side, fail-open).
     An operator answering "what did the sandbox posture refuse for this user?"
-    runs one grep over ``var/audit/<identity>/*.jsonl``; two spellings means
-    that grep silently returns whichever layer happened to fire.
+    runs one query over that identity's ``audit`` entries in the agent record;
+    two spellings means that query silently returns whichever layer happened
+    to fire.
     """
 
     def test_the_middleware_and_the_executor_agree(self):

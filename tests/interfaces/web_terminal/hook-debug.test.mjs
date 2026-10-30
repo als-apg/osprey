@@ -212,6 +212,19 @@ describe('empty activity log', () => {
   });
 });
 
+describe('record unavailable', () => {
+  test('an unavailable record renders "record unavailable", never an empty feed', async () => {
+    stubFetch({ entries: [], record: 'unavailable', reason: 'connection refused' });
+    initHookDebug();
+    await expandLog();
+
+    const body = logBodyEl();
+    expect(body.querySelector('table.hook-debug-log-table')).toBeNull();
+    const placeholder = body.querySelector('.hook-debug-log-empty');
+    expect(placeholder?.textContent).toBe('record unavailable');
+  });
+});
+
 describe('hostile payload inertness', () => {
   const HOSTILE = '<img src=x onerror=alert(1)>';
 

@@ -360,19 +360,25 @@ describe('roles and labels', () => {
   });
 
   test.each([
-    ['a tool row', '.op-tool-head', '.op-tool-detail', () => {}],
+    ['a tool row', '.op-tool > .op-row-head', '.op-tool > .op-row-body', () => {}],
     [
-      'a collapsed group of tool rows',
-      '.op-tools-head',
-      '.op-tools-list',
-      () => r.handleEvent({ type: 'result' }),
+      'a thinking row',
+      '.op-thinking > .op-row-head',
+      '.op-thinking > .op-row-body',
+      () => r.handleEvent({ type: 'thinking', content: 'Let me see.' }),
+    ],
+    [
+      'a folded run of tool calls',
+      '.op-run > .op-row-head',
+      '.op-run > .op-row-body',
+      () => r.handleEvent(call('t2')),
     ],
   ])(
     '%s opens from the keyboard: its head is a button that reports whether it is open',
-    (_name, headSel, bodySel, finish) => {
+    (_name, headSel, bodySel, draw) => {
       r.beginTurn();
       r.handleEvent(call('t1'));
-      finish();
+      draw();
       const head = qs(container, headSel);
       expect(head.tagName).toBe('BUTTON');
       expect(head.getAttribute('aria-expanded')).toBe('false');

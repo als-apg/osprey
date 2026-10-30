@@ -201,8 +201,7 @@ class OllamaProviderAdapter(BaseProvider):
         try:
             if self._test_connection(probe_url):
                 return True, f"Accessible at {probe_url}"
-            else:
-                return False, f"Not accessible at {probe_url}"
+            return False, f"Not accessible at {probe_url}"
         except Exception as e:
             return False, f"Connection test failed: {str(e)[:50]}"
 

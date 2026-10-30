@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from osprey.audit import writer
-from osprey.services.auth_sidecar import audit
+from osprey.agent_record.contract import KIND_AUDIT
+from tests.conftest import SpoolZone
 
 #: The signing secrets and session lifetime every suite configures the sidecar with.
 SESSION_SECRET = "session-secret-value"
@@ -37,12 +37,26 @@ class FakeClock:
         self.now += seconds
 
 
-def ledger_records(zone: Path) -> list[dict[str, Any]]:
-    """Every record the sidecar filed in ``zone`` so far, in append order."""
-    path = zone / f"{audit.SURFACE}{writer.LEDGER_SUFFIX}"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
+#: The identity the sidecar's container is given, and therefore the name of the
+#: spool directory its entries are written in.
+SIDECAR_IDENTITY = "sidecar"
+
+
+@dataclass(frozen=True)
+class SidecarZone:
+    """The sidecar's own spool and state directories, and the record they feed."""
+
+    spool: Path
+    state: Path
+    spool_zone: SpoolZone
+
+    def entries(self) -> list[Any]:
+        """Every ``audit`` entry the record holds so far, in the order it was written."""
+        return list(self.spool_zone.recorded_entries(KIND_AUDIT))
+
+    def records(self) -> list[dict[str, Any]]:
+        """The body of every ``audit`` entry the record holds so far, in write order."""
+        return [dict(entry.body) for entry in self.entries()]
 
 
 def set_cookie_header(response: httpx.Response, name: str) -> str:

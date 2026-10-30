@@ -57,7 +57,7 @@ from .drain import DrainCallbacks, DrainDeps, drain_once, ensure_alive, run_drai
 from .errors import UndeliverableError
 from .filenames import DELIVERED_EXTENSIONS, unique_stems, upload_name, upload_stem
 from .health_gate import gate_open
-from .history import HistoryStore
+from .history import ConversationHistory
 from .people import MENTION_PLACEHOLDER_RE, MENTION_RULE, MENTIONS_OFF_NOTE, asker_of
 from .pipeline import PipelineDeps, handle_event
 from .ports import (
@@ -86,9 +86,9 @@ from .store import JsonFileStore
 __all__ = [
     # config + persistence substrate
     "TERMINAL_STATUSES",
+    "ConversationHistory",
     "CoreConfig",
     "DedupStore",
-    "HistoryStore",
     "JsonFileStore",
     # retry policy
     "coalesce_key",

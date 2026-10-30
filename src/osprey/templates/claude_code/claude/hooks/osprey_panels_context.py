@@ -36,9 +36,10 @@ Injects three independent pieces of session context as ``additionalContext``:
    UI surface launched this session (the operator chat sets ``simple``, the PTY
    terminal ``expert`` — see the web terminal's session launchers). In the
    simple UX the workspace starts hidden until an artifact exists, so the
-   simple line instructs the agent to ``open_panel("artifacts")`` whenever it
-   produces something the operator should see. Emitted even when the panel
-   inventory is unavailable — the surface is known from the env alone.
+   simple line instructs the agent to ``open_panel("artifacts")`` once, when it
+   produces something the operator should see and the workspace is not
+   already on screen. Emitted even when the panel inventory is unavailable —
+   the surface is known from the env alone.
 2. **Panel inventory** — fetched from the web terminal so the agent knows which
    panels exist, their labels, rail membership, and the active tab — without a
    ``list_panels`` tool round-trip.
@@ -221,10 +222,7 @@ def _workspace_state(data):
         Every field is defended against a payload of the wrong shape.
     """
     tiles = data.get("open_tiles")
-    if _occupancy_is_known(data):
-        tiles = [t for t in tiles if isinstance(t, str)]
-    else:
-        tiles = None
+    tiles = [t for t in tiles if isinstance(t, str)] if _occupancy_is_known(data) else None
 
     visible = data.get("visible")
     visible = [v for v in visible if isinstance(v, str)] if isinstance(visible, list) else []
@@ -282,11 +280,12 @@ def _build_ux_context(ux):
     if ux == "simple":
         return (
             "This session serves the web UI's SIMPLE surface: the operator sees "
-            "only the chat, and the WORKSPACE panel stays hidden until there is "
-            "something in it. Whenever you produce an artifact the operator "
-            "should see (a plot, report, page, or other file), call "
-            'open_panel("artifacts") to bring up the WORKSPACE panel so it '
-            "appears next to the chat."
+            "the chat, and the WORKSPACE panel beside it once there is something "
+            "in it. When you produce an artifact the operator should see (a plot, "
+            "report, page, or other file) and the WORKSPACE panel (artifacts) is not "
+            'among the open tiles, call open_panel("artifacts") once to bring it up '
+            "next to the chat. When it is already on screen, do not call it: the "
+            "workspace shows the artifact you focus."
         )
     if ux == "expert":
         return "This session serves the web UI's EXPERT surface (full terminal + workspace layout)."

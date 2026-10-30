@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import ast
 import functools
-import socket
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -750,11 +749,9 @@ def test_the_store_probe_asks_the_test_database_with_no_driver_retry(
     assert built.closed
 
 
-def test_the_store_probe_fails_fast_on_a_port_nothing_answers() -> None:
+def test_the_store_probe_fails_fast_on_a_port_nothing_answers(reserve_port) -> None:
     """On the real driver the probe raises at once: it hides no retry loop."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
+    port = reserve_port()
 
     started = time.monotonic()
     with pytest.raises(ServiceUnavailable):

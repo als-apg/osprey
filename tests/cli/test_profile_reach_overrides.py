@@ -37,7 +37,6 @@ HOST = {
         "qmd": {"port": 18180, "interval": 30},
         "graphdb": {"port_host": 17687, "heap_max_size": "1G"},
         "postgresql": {"port_host": 15432, "username": "ariel", "database_name": "ariel"},
-        "telemetry_gateway": {"port": 18151, "memory": "512m"},
         "bluesky": {"port": 18090, "tiled_port": 18091},
         "virtual_accelerator": {"port": 15064},
     },
@@ -71,7 +70,6 @@ ALL_ON = {
     "ariel": {"database": {}, "search_modules": {"hybrid": {"enabled": True}}},
     "claude_code": {
         "servers": {"bluesky": {"enabled": True}},
-        "telemetry": {"enabled": True, "backend": "gateway"},
     },
     "control_system": {
         "type": "virtual_accelerator",
@@ -93,7 +91,6 @@ def test_every_live_consumer_is_told_its_hosts_fact():
         "services.postgresql.port_host": 15432,
         "services.postgresql.username": "ariel",
         "services.postgresql.database_name": "ariel",
-        "services.telemetry_gateway.port": 18151,
         "services.bluesky.port": 18090,
         "web.panels.bluesky.url": "${BLUESKY_WEB_URL:-http://localhost:18095}",
         "web.panels.bluesky.path": "/bluesky/",
@@ -165,7 +162,6 @@ def test_a_consumer_switched_off_is_told_nothing():
         "ariel": {"database": {}, "search_modules": {"hybrid": {"enabled": False}}},
         "claude_code": {
             "servers": {"graph": {"enabled": False}, "bluesky": {"enabled": False}},
-            "telemetry": {"enabled": False},
         },
         "control_system": {
             "type": "virtual_accelerator",
@@ -229,10 +225,9 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "bluesky-web",
             "event-dispatcher",
             "mongodb",
-            "telemetry_store",
             "history",
         ):
-            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a store only host-side services query, a page only nginx dials
+            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a page only nginx dials
         assert key in projected, (
             f"{compose_name}: {key} is a published port no attached render is told"
         )

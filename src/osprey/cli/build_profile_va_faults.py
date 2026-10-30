@@ -105,12 +105,12 @@ def live_standin_errors(
         # endpoint, so "collides with" would be a second complaint about one
         # fault. Sorted so the report is stable whatever order the blocks
         # were read in.
-        for key in sorted(claimed_ports):
-            if claimed_ports[key] == live_standin:
-                errors.append(
-                    f"virtual_accelerator.live_standin ({live_standin}) "
-                    f"collides with {key} ({claimed_ports[key]})"
-                )
+        errors.extend(
+            f"virtual_accelerator.live_standin ({live_standin}) "
+            f"collides with {key} ({claimed_ports[key]})"
+            for key in sorted(claimed_ports)
+            if claimed_ports[key] == live_standin
+        )
         errors.extend(_gateway_collision_errors(live_standin, config))
     return errors
 
@@ -160,12 +160,11 @@ def pva_port_errors(va: VAConfig, claimed_ports: Mapping[str, int], config: Any)
             f"virtual_accelerator.pva_port must differ from "
             f"virtual_accelerator.live_standin (both {pva_port})"
         )
-    for key in sorted(claimed_ports):
-        if claimed_ports[key] == pva_port:
-            errors.append(
-                f"virtual_accelerator.pva_port ({pva_port}) "
-                f"collides with {key} ({claimed_ports[key]})"
-            )
+    errors.extend(
+        f"virtual_accelerator.pva_port ({pva_port}) collides with {key} ({claimed_ports[key]})"
+        for key in sorted(claimed_ports)
+        if claimed_ports[key] == pva_port
+    )
     return errors
 
 

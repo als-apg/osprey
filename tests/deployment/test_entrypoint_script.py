@@ -1,4 +1,4 @@
-"""The entrypoint's root phase: mounted-group membership and the writer marker.
+"""The entrypoint's root phase: mounted-group membership.
 
 ``entrypoint.sh`` runs as root and drops to ``osprey`` with ``gosu``. Two
 properties of that root phase are load-bearing for the audit trail and are
@@ -7,11 +7,11 @@ asserted here:
 **The group join.** ``gosu`` re-derives the dropped process's supplementary
 groups from the image's ``/etc/group``, so a group granted at runtime (compose
 ``group_add:``) reaches the container's initial process and is discarded at the
-drop. The bind-mounted audit subdir and facility bundle are owned by a HOST
+drop. The bind-mounted spool subdir and facility bundle are owned by a HOST
 group, and the dropped process reaches them through membership rather than
 ownership — so the group has to be in ``/etc/group`` and ``osprey`` has to be
 in it before ``exec gosu``. The set of directories is named by the render
-(``OSPREY_AUDIT_DIR``, ``OSPREY_CONTROL_CONTEXT_DIR``,
+(``OSPREY_SPOOL_DIR``, ``OSPREY_CONTROL_CONTEXT_DIR``,
 ``OSPREY_CONTROL_CONTEXT_TREE``, ``OSPREY_FACILITY_BUNDLE_DIR``,
 ``OSPREY_ARIEL_MIRROR_DIR``, ``OSPREY_SIMULATOR_LOG_DIR``,
 ``OSPREY_GUARDED_RUN_DIR``)
@@ -23,11 +23,6 @@ access the render named it for is a separate question, asked per VARIABLE by
 return cannot swallow the second bind of a pair carved out of one host tree —
 and answered by access rather than membership: ``-w`` and ``-x`` for the
 written binds, ``-r`` and ``-x`` for the read-only tree.
-
-**The writer marker.** ``OSPREY_AUDIT_WRITER=maintenance`` is a per-command
-prefix on the maintenance interpreter, never a shell ``export`` — an export
-would survive ``exec gosu`` (which preserves the environment) and stamp every
-app-side record with the root phase's writer.
 
 Everything here is script logic, so nothing is Linux-gated and nothing needs a
 container: the run happens against stub ``stat``/``getent``/``groupadd``/
@@ -65,7 +60,6 @@ TEMPLATE = (
 MAIN_INVOCATION = 'main "$@"'
 
 #: The variables the render names, and the only ones the join may read.
-AUDIT_VAR = "OSPREY_AUDIT_DIR"
 BUNDLE_VAR = "OSPREY_FACILITY_BUNDLE_DIR"
 MIRROR_VAR = "OSPREY_ARIEL_MIRROR_DIR"
 #: The simulator's model logs, appended to by every container serving the
@@ -80,20 +74,32 @@ CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
 #: The control-target bind this container only READS: the whole tree, bound
 #: read-only, out of which lanes and the dispatch worker resolve owners.
 CONTROL_TREE_VAR = "OSPREY_CONTROL_CONTEXT_TREE"
+#: The agent record's spool, appended to by every source under its own uid,
+#: and the embedded record directory beside it.
+AGENT_RECORD_SPOOL_VAR = "OSPREY_AGENT_RECORD_SPOOL_ROOT"
+AGENT_RECORD_DIR_VAR = "OSPREY_AGENT_RECORD_DIR"
+#: The archive root, the lasting half of the audit trail: agent-record exports
+#: into it and the archive service copies into it, each under its own uid.
+AGENT_RECORD_ARCHIVE_VAR = "OSPREY_AGENT_RECORD_ARCHIVE_DIR"
+#: This container's own spool directory (``var/spool/<identity>``) and state
+#: directory (``var/state/<identity>``).
+SPOOL_VAR = "OSPREY_SPOOL_DIR"
+STATE_VAR = "OSPREY_STATE_DIR"
 RENDER_NAMED_VARS = frozenset(
     {
-        AUDIT_VAR,
         CONTROL_DIR_VAR,
         CONTROL_TREE_VAR,
         BUNDLE_VAR,
         MIRROR_VAR,
         SIMULATOR_LOG_VAR,
         GUARDED_RUN_VAR,
+        AGENT_RECORD_SPOOL_VAR,
+        AGENT_RECORD_DIR_VAR,
+        AGENT_RECORD_ARCHIVE_VAR,
+        SPOOL_VAR,
+        STATE_VAR,
     }
 )
-
-#: The marker that routes the root phase's records to their own file.
-WRITER_VAR = "OSPREY_AUDIT_WRITER"
 
 #: Who this container acts as, and the staged module that makes uid 1000 say so.
 IDENTITY_VAR = "OSPREY_CONTROL_IDENTITY"
@@ -168,32 +174,9 @@ class TestScriptShape:
         for bashism in ("[[", "declare ", "local ", "function ", "+=("):
             assert bashism not in code, f"bashism in a POSIX sh script: {bashism!r}"
 
-    def test_the_marker_is_a_per_command_prefix(self, text: str):
-        """On the interpreter invocation itself, so only that command carries
-        it. This is the spelling the whole one-uid-per-file invariant rests on."""
-        assert re.search(
-            r"^\s*" + WRITER_VAR + r"=maintenance \"\$PYTHON\" - \"\$RENDER_DIR\" <<'PY'$",
-            text,
-            flags=re.MULTILINE,
-        ), "the maintenance heredoc does not carry the writer marker as a per-command prefix"
-
-    def test_the_marker_is_never_exported(self, text: str):
-        """An ``export`` sets it for the whole shell, ``run_maintenance`` runs
-        in that same shell, and ``gosu`` preserves the environment across the
-        drop — so an exported marker would stamp every record the app writes
-        afterwards with the root phase's writer."""
-        assert f"export {WRITER_VAR}" not in text
-        assert not re.search(r"^\s*export\b.*" + WRITER_VAR, text, flags=re.MULTILINE)
-        assert len(re.findall(WRITER_VAR + "=", text)) == 1, (
-            "more than one assignment of the writer marker"
-        )
-
-    def test_the_marker_is_unset_before_the_drop(self, text: str):
-        """Belt to the prefix's brace, and it has to come first in the file to
-        come first in the run — after ``exec gosu`` nothing runs at all."""
-        unset = text.index(f"unset {WRITER_VAR}")
-        drop = text.index('exec gosu osprey "$@"')
-        assert unset < drop, "the marker is unset after the privilege drop, i.e. never"
+    def test_no_writer_marker_is_named(self, text: str):
+        """One store, one writer: the root phase has no marker of its own."""
+        assert "OSPREY_AUDIT_WRITER" not in text
 
     def test_the_join_precedes_the_drop(self, text: str):
         join = text.index("\n    join_mounted_groups")
@@ -288,11 +271,15 @@ class TestScriptShape:
         body = _hand_back_body(text)
         assert '-path "$_hb_dir" -prune -o' in body, body
         for var in (
-            AUDIT_VAR,
             CONTROL_DIR_VAR,
             CONTROL_TREE_VAR,
             SIMULATOR_LOG_VAR,
             GUARDED_RUN_VAR,
+            AGENT_RECORD_SPOOL_VAR,
+            AGENT_RECORD_DIR_VAR,
+            AGENT_RECORD_ARCHIVE_VAR,
+            SPOOL_VAR,
+            STATE_VAR,
         ):
             assert f'"${{{var}:-}}"' in body, var
 
@@ -310,11 +297,15 @@ class TestScriptShape:
         mode, so the comment names every pruned mount and the reason by name."""
         comment = "\n".join(line for line in text.splitlines() if line.lstrip().startswith("#"))
         for var in (
-            AUDIT_VAR,
             CONTROL_DIR_VAR,
             CONTROL_TREE_VAR,
             SIMULATOR_LOG_VAR,
             GUARDED_RUN_VAR,
+            AGENT_RECORD_SPOOL_VAR,
+            AGENT_RECORD_DIR_VAR,
+            AGENT_RECORD_ARCHIVE_VAR,
+            SPOOL_VAR,
+            STATE_VAR,
         ):
             assert var in comment, var
         assert "membership" in comment.lower()
@@ -336,8 +327,6 @@ class Run:
     #: re-run with ``-print`` in place of the ``-exec`` action: the prune as a
     #: traversal outcome rather than as argv spelling.
     visited: list[str]
-    maintenance_marker: str
-    drop_marker: str
     #: argv of every ``python <module> apply ...`` call, one per line.
     apply_calls: list[str]
     #: ``OSPREY_CONTROL_IDENTITY_SKIPPED`` as the command saw it.
@@ -355,11 +344,11 @@ class Sandbox:
 
     def __init__(self, tmp_path: Path):
         # Resolved, because the script derives STATE_DIR through `pwd -P`
-        # while OSPREY_AUDIT_DIR is passed in as given. On macOS pytest hands
+        # while OSPREY_SPOOL_DIR is passed in as given. On macOS pytest hands
         # out /var/folders/... (a symlink to /private/var/...), and an
         # unresolved sandbox would compare a prune pattern against a path that
         # spells the same directory differently — which is exactly the state
-        # in which the prune looks right and traverses the audit mount anyway.
+        # in which the prune looks right and traverses the spool mount anyway.
         self.tmp = tmp_path.resolve()
         tmp_path = self.tmp
         self.repo = tmp_path / "repo"
@@ -369,7 +358,7 @@ class Sandbox:
         self.script.write_text(TEMPLATE.read_text())
         self.script.chmod(0o755)
         self.state = self.repo / "var"
-        (self.state / "audit").mkdir(parents=True)
+        (self.state / "spool").mkdir(parents=True)
 
         self.gid_map = tmp_path / "gid-map"
         self.gid_map.write_text("")
@@ -378,10 +367,10 @@ class Sandbox:
 
     # ── mounts ──────────────────────────────────────────────────────────────
 
-    def audit_mount(self, gid: int, identity: str = "alice") -> Path:
-        """The per-identity audit subdir, where compose binds it: under the
+    def spool_mount(self, gid: int, identity: str = "alice") -> Path:
+        """The per-identity spool subdir, where compose binds it: under the
         state zone, so the hand-back sweep would reach it but for the prune."""
-        return self._mount(self.state / "audit" / identity, gid)
+        return self._mount(self.state / "spool" / identity, gid)
 
     def bundle_mount(self, gid: int, name: str = "bundle") -> Path:
         """The facility bundle. Its host path is ordinary operator config
@@ -398,7 +387,7 @@ class Sandbox:
 
     def control_dir_mount(self, gid: int, user: str = "alice") -> Path:
         """The per-owner control-target directory this container writes, where
-        compose binds it: under the state zone, beside the audit subdir and
+        compose binds it: under the state zone, beside the spool subdir and
         provisioned the same way (setgid 2770, the host's shared group)."""
         return self._mount(self.state / "agent_data" / "control_target" / user, gid)
 
@@ -407,6 +396,11 @@ class Sandbox:
         ``var/`` — never over this container's own state dir, because the
         hand-back sweep would chown across a read-only bind and fail."""
         return self._mount(self.tmp / name, gid)
+
+    def archive_mount(self, gid: int) -> Path:
+        """The archive root, where compose binds it: ``var/archive`` under the
+        state zone, setgid and group-shared like the record directory."""
+        return self._mount(self.state / "archive", gid)
 
     def _mount(self, path: Path, gid: int) -> Path:
         path.mkdir(parents=True, exist_ok=True)
@@ -424,11 +418,12 @@ class Sandbox:
         self,
         *,
         uid: int = 0,
-        audit_dir: Path | str | None = None,
+        spool_dir: Path | str | None = None,
         control_dir: Path | str | None = None,
         control_tree: Path | str | None = None,
         bundle_dir: Path | str | None = None,
         mirror_dir: Path | str | None = None,
+        archive_dir: Path | str | None = None,
         groupadd_rc: int = 0,
         usermod_rc: int = 0,
         stat_rc: int | None = None,
@@ -473,8 +468,6 @@ class Sandbox:
         group_log = self.tmp / "group.log"
         find_args = self.tmp / "find.args"
         find_visited = self.tmp / "find.visited"
-        py_env = self.tmp / "py.env"
-        drop_env = self.tmp / "drop.env"
         apply_log = self.tmp / "apply.log"
         skipped_env = self.tmp / "skipped.env"
         for path in (
@@ -482,8 +475,6 @@ class Sandbox:
             group_log,
             find_args,
             find_visited,
-            py_env,
-            drop_env,
             apply_log,
             skipped_env,
         ):
@@ -496,8 +487,6 @@ class Sandbox:
             "FIND_ARGS": str(find_args),
             "FIND_VISITED": str(find_visited),
             "REAL_FIND": REAL_FIND,
-            "PY_ENV": str(py_env),
-            "DROP_ENV": str(drop_env),
             "GID_MAP": str(self.gid_map),
             "GROUP_DB": str(self.group_db),
             "APPLY_LOG": str(apply_log),
@@ -506,8 +495,8 @@ class Sandbox:
             env[IDENTITY_VAR] = identity
             if module is not None:
                 env[IDENTITY_MODULE_VAR] = str(self.identity_module(module))
-        if audit_dir is not None:
-            env[AUDIT_VAR] = str(audit_dir)
+        if spool_dir is not None:
+            env[SPOOL_VAR] = str(spool_dir)
         if control_dir is not None:
             env[CONTROL_DIR_VAR] = str(control_dir)
         if control_tree is not None:
@@ -516,6 +505,8 @@ class Sandbox:
             env[BUNDLE_VAR] = str(bundle_dir)
         if mirror_dir is not None:
             env[MIRROR_VAR] = str(mirror_dir)
+        if archive_dir is not None:
+            env[AGENT_RECORD_ARCHIVE_VAR] = str(archive_dir)
 
         command = [
             "/bin/sh",
@@ -537,8 +528,6 @@ class Sandbox:
             group_ops=group_log.read_text().splitlines(),
             find_args=find_args.read_text(),
             visited=find_visited.read_text().splitlines(),
-            maintenance_marker=py_env.read_text().strip() or UNSET,
-            drop_marker=drop_env.read_text().strip() or UNSET,
             apply_calls=apply_log.read_text().splitlines(),
             skipped=skipped_env.read_text().strip() or UNSET,
         )
@@ -639,7 +628,7 @@ class Sandbox:
         write("id", f'if [ "$1" = "-u" ]; then printf "{uid}\\n"; fi\nexit 0\n')
         # Two callers. `python <module> apply ...` is the identity step: it is
         # recorded under its own token and argv, answered from a knob, and
-        # must neither touch the writer-marker capture nor read stdin. Anything
+        # must not read stdin. Anything
         # else is the maintenance heredoc.
         write(
             "python",
@@ -649,16 +638,15 @@ class Sandbox:
             f"  exit {apply_rc}\n"
             "fi\n"
             'printf "python\\n" >> "$ORDER_LOG"\n'
-            f'printf "%s\\n" "${{{WRITER_VAR}-{UNSET}}}" > "$PY_ENV"\n'
             "while IFS= read -r line; do :; done\n"
             "exit 0\n",
         )
-        # `find <state> [-path <audit> -prune -o] ! -user osprey -exec chown ...`
+        # `find <state> [-path <spool> -prune -o] ! -user osprey -exec chown ...`
         # The argv is recorded, and then the SAME expression is re-run through
         # the host's real find with everything from the ownership predicate on
         # replaced by `-print`: the prune is evaluated, so a prune that is
         # spelled right and matches nothing (an unresolved path, a glob
-        # character in the audit path) shows up as a visited audit mount
+        # character in the spool path) shows up as a visited spool mount
         # rather than as a green test. The ownership predicate cannot come
         # along — `! -user osprey` needs an `osprey` account, which no test
         # host has.
@@ -712,7 +700,6 @@ class Sandbox:
             "  esac\n"
             "fi\n"
             'printf "gosu %s\\n" "$1" >> "$ORDER_LOG"\n'
-            f'printf "%s\\n" "${{{WRITER_VAR}-{UNSET}}}" > "$DROP_ENV"\n'
             'shift\nexec "$@"\n',
         )
         if not with_python:
@@ -794,10 +781,10 @@ def _warnings(run: Run) -> list[str]:
 class TestTheGroupJoin:
     """``osprey`` gets the mount's group before ``gosu``, or not at all."""
 
-    def test_the_audit_mount_group_is_created_and_joined(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+    def test_the_spool_mount_group_is_created_and_joined(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
@@ -807,9 +794,9 @@ class TestTheGroupJoin:
         """After ``exec gosu`` nothing runs, and gosu has already read
         ``/etc/group`` — a join afterwards would grant the served process
         nothing at all."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert "usermod" in run.order, run.order
         assert run.order.index("usermod") < run.order.index("gosu"), run.order
@@ -817,10 +804,10 @@ class TestTheGroupJoin:
     def test_an_existing_group_entry_is_reused(self, sandbox: Sandbox):
         """The image may already know the gid — a second boot of the same
         container certainly does. Re-running must add membership, not fail."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         sandbox.existing_group("hostshared", 3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert _groupadds(run) == [], "a group was created for a gid that already had one"
@@ -828,29 +815,30 @@ class TestTheGroupJoin:
 
     def test_the_bundle_mount_is_joined_too(self, sandbox: Sandbox):
         """The step is generalized: the facility bundle is a host-group mount
-        for exactly the same reason the audit subdir is."""
-        audit = sandbox.audit_mount(gid=3000)
+        for exactly the same reason the spool subdir is."""
+        spool = sandbox.spool_mount(gid=3000)
         bundle = sandbox.bundle_mount(gid=4000)
 
-        run = sandbox.run(audit_dir=audit, bundle_dir=bundle)
+        run = sandbox.run(spool_dir=spool, bundle_dir=bundle)
 
         assert run.returncode == 0, run.stderr
+        # The spool is joined after the bundle and the mirror.
         assert _groupadds(run) == [
-            "groupadd 3000 osprey-mount-3000",
             "groupadd 4000 osprey-mount-4000",
+            "groupadd 3000 osprey-mount-3000",
         ]
         assert _usermods(run) == [
-            "usermod osprey-mount-3000 osprey",
             "usermod osprey-mount-4000 osprey",
+            "usermod osprey-mount-3000 osprey",
         ]
 
     def test_one_entry_per_distinct_gid(self, sandbox: Sandbox):
-        """The audit subdir and the bundle usually share the host group; the
+        """The spool subdir and the bundle usually share the host group; the
         second one must not be joined twice."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         bundle = sandbox.bundle_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, bundle_dir=bundle)
+        run = sandbox.run(spool_dir=spool, bundle_dir=bundle)
 
         assert run.returncode == 0, run.stderr
         assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
@@ -861,39 +849,41 @@ class TestTheGroupJoin:
         writes it runs as the DROPPED user, so a `group_add:` alone (which
         gosu discards) left every entry enhanced from a terminal unwritable
         or root-owned on the host."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         mirror = sandbox.mirror_mount(gid=5000)
 
-        run = sandbox.run(audit_dir=audit, mirror_dir=mirror)
+        run = sandbox.run(spool_dir=spool, mirror_dir=mirror)
 
         assert run.returncode == 0, run.stderr
+        # The spool is joined after the bundle and the mirror.
         assert _groupadds(run) == [
-            "groupadd 3000 osprey-mount-3000",
             "groupadd 5000 osprey-mount-5000",
+            "groupadd 3000 osprey-mount-3000",
         ]
         assert _usermods(run) == [
-            "usermod osprey-mount-3000 osprey",
             "usermod osprey-mount-5000 osprey",
+            "usermod osprey-mount-3000 osprey",
         ]
         assert f"for {MIRROR_VAR}={mirror}" in run.stderr, run.stderr
 
     def test_mirror_and_bundle_on_one_gid_join_once(self, sandbox: Sandbox):
         """The deploy provisions both shared directories as the same user, so
         they usually carry one group; the dedup covers the third mount too."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         bundle = sandbox.bundle_mount(gid=4000)
         mirror = sandbox.mirror_mount(gid=4000)
 
-        run = sandbox.run(audit_dir=audit, bundle_dir=bundle, mirror_dir=mirror)
+        run = sandbox.run(spool_dir=spool, bundle_dir=bundle, mirror_dir=mirror)
 
         assert run.returncode == 0, run.stderr
+        # The spool is joined after the bundle and the mirror.
         assert _groupadds(run) == [
-            "groupadd 3000 osprey-mount-3000",
             "groupadd 4000 osprey-mount-4000",
+            "groupadd 3000 osprey-mount-3000",
         ]
         assert _usermods(run) == [
-            "usermod osprey-mount-3000 osprey",
             "usermod osprey-mount-4000 osprey",
+            "usermod osprey-mount-3000 osprey",
         ]
 
 
@@ -911,32 +901,32 @@ class TestMembershipIsNotReportedAsAccess:
         a 2700 directory, a read-only bind and an id-mapped mount all accept
         the usermod and refuse the write. ``gosu`` re-reads ``/etc/group``, so
         the probe sees the membership just granted."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.group_ops == [
             "getent 3000",
             "groupadd 3000 osprey-mount-3000",
             "usermod osprey-mount-3000 osprey",
-            f"probe osprey -w {audit}",
-            f"probe osprey -x {audit}",
+            f"probe osprey -w {spool}",
+            f"probe osprey -x {spool}",
         ], run.group_ops
 
     def test_a_successful_join_says_joined(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert (
-            f"joined osprey to group osprey-mount-3000 (gid 3000) for {AUDIT_VAR}={audit}"
+            f"joined osprey to group osprey-mount-3000 (gid 3000) for {SPOOL_VAR}={spool}"
             in run.stderr
         ), run.stderr
         assert _warnings(run) == [], run.stderr
 
     def test_an_unwritable_mount_warns_beside_the_membership_line(self, sandbox: Sandbox):
         """The reachable steady state this catches: a container that logs a
-        success line at boot, serves normally, and writes no audit record at
+        success line at boot, serves normally, and writes no spool record at
         all — because every layer below this one (the join, the sweep, the
         envelope writer) also degrades to a log line.
 
@@ -944,15 +934,15 @@ class TestMembershipIsNotReportedAsAccess:
         and naming the group is how an operator finds the host directory to
         fix. What must not survive is a log that reads as if the write works.
         """
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, probe_rc=1)
+        run = sandbox.run(spool_dir=spool, probe_rc=1)
 
         assert run.returncode == 0, run.stderr
         warnings = _warnings(run)
         assert len(warnings) == 1, warnings
         assert "cannot write" in warnings[0]
-        assert str(audit) in run.stderr, "the warning does not name the directory"
+        assert str(spool) in run.stderr, "the warning does not name the directory"
         assert "gosu" in run.order, "a failed probe blocked the container's boot"
 
     def test_a_mount_that_cannot_be_entered_fails_the_write_probe_too(self, sandbox: Sandbox):
@@ -961,19 +951,19 @@ class TestMembershipIsNotReportedAsAccess:
         container writes there fails with EACCES while ``test -w`` says yes.
         A one-bit probe reports that directory as good — the silent success
         this helper exists to end."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, traverse_probe_rc=1)
+        run = sandbox.run(spool_dir=spool, traverse_probe_rc=1)
 
         assert run.returncode == 0, run.stderr
         assert _probes(run) == [
-            f"probe osprey -w {audit}",
-            f"probe osprey -x {audit}",
+            f"probe osprey -w {spool}",
+            f"probe osprey -x {spool}",
         ], _probes(run)
         warnings = _warnings(run)
         assert len(warnings) == 1, warnings
         assert "cannot write/enter" in warnings[0]
-        assert str(audit) in warnings[0], "the warning does not name the directory"
+        assert str(spool) in warnings[0], "the warning does not name the directory"
         assert "gosu" in run.order, "a failed probe blocked the container's boot"
 
     def test_the_write_warning_names_the_remap_in_both_its_shapes(self, sandbox: Sandbox):
@@ -986,9 +976,9 @@ class TestMembershipIsNotReportedAsAccess:
         at ``groupadd``. An operator told about one shape and stuck on the
         other reads the warning as not applying to them.
         """
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, probe_rc=1)
+        run = sandbox.run(spool_dir=spool, probe_rc=1)
 
         assert "Docker Desktop" in run.stderr
         assert "gid 0" in run.stderr
@@ -1000,33 +990,33 @@ class TestMembershipIsNotReportedAsAccess:
         wording that also asserted writability would be a claim the join is in
         no position to make — the probe that can make it runs afterwards, once
         per variable, and says so itself when the answer is no."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, probe_rc=1)
+        run = sandbox.run(spool_dir=spool, probe_rc=1)
 
         joined = [line for line in run.stderr.splitlines() if "joined osprey" in line]
         assert len(joined) == 1, run.stderr
-        assert f"group osprey-mount-3000 (gid 3000) for {AUDIT_VAR}={audit}" in joined[0]
+        assert f"group osprey-mount-3000 (gid 3000) for {SPOOL_VAR}={spool}" in joined[0]
         # The wording is judged, not the path: a temp root under a checkout whose
         # name holds "write" would otherwise fail the claim it does not make.
-        assert "write" not in joined[0].replace(str(audit), ""), joined[0]
+        assert "write" not in joined[0].replace(str(spool), ""), joined[0]
 
     def test_a_failed_join_does_not_silence_the_next_directory(self, sandbox: Sandbox):
-        """The audit subdir and the bundle usually share the host gid. The gid
+        """The spool subdir and the bundle usually share the host gid. The gid
         is recorded as joined only once a usermod has succeeded, so a failure
         on the first does not make the second look like a duplicate — each
         gets its own warning naming its own variable."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         bundle = sandbox.bundle_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, bundle_dir=bundle, usermod_rc=1)
+        run = sandbox.run(spool_dir=spool, bundle_dir=bundle, usermod_rc=1)
 
         assert _usermods(run) == [
             "usermod osprey-mount-3000 osprey",
             "usermod osprey-mount-3000 osprey",
         ], "the second directory was skipped as already joined"
         warnings = _warnings(run)
-        assert any(AUDIT_VAR in line for line in warnings), warnings
+        assert any(SPOOL_VAR in line for line in warnings), warnings
         assert any(BUNDLE_VAR in line for line in warnings), warnings
 
 
@@ -1141,24 +1131,24 @@ class TestTheControlContextProbes:
             f"probe osprey -x {tree}",
         ], _probes(run)
 
-    def test_the_tree_is_still_probed_when_the_audit_mount_took_the_gid(self, sandbox: Sandbox):
-        """The live shape: the audit subdir is joined first and records the
+    def test_the_tree_is_still_probed_when_the_owner_dir_took_the_gid(self, sandbox: Sandbox):
+        """The live shape: the owner directory is joined first and records the
         gid, so the tree's join returns before it reaches any group work."""
-        audit = sandbox.audit_mount(gid=3000)
+        control = sandbox.control_dir_mount(gid=3000)
         tree = sandbox.control_tree_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, control_tree=tree)
+        run = sandbox.run(control_dir=control, control_tree=tree)
 
         assert _usermods(run) == ["usermod osprey-mount-3000 osprey"]
         assert _probes(run) == [
-            f"probe osprey -w {audit}",
-            f"probe osprey -x {audit}",
+            f"probe osprey -w {control}",
+            f"probe osprey -x {control}",
             f"probe osprey -r {tree}",
             f"probe osprey -x {tree}",
         ], _probes(run)
         assert _warnings(run) == [], run.stderr
 
-        refused = sandbox.run(audit_dir=audit, control_tree=tree, read_probe_rc=1)
+        refused = sandbox.run(control_dir=control, control_tree=tree, read_probe_rc=1)
 
         assert "cannot read/traverse" in refused.stderr, refused.stderr
 
@@ -1181,13 +1171,13 @@ class TestTheControlContextProbes:
     def test_an_unset_control_bind_probes_nothing(self, sandbox: Sandbox):
         """A single-user deployment mounts neither, and a dispatch worker only
         the tree. Silence is the correct output, not a warning per absence."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert _probes(run) == [
-            f"probe osprey -w {audit}",
-            f"probe osprey -x {audit}",
+            f"probe osprey -w {spool}",
+            f"probe osprey -x {spool}",
         ], _probes(run)
 
     def test_a_control_bind_naming_a_missing_path_probes_nothing(self, sandbox: Sandbox):
@@ -1262,24 +1252,24 @@ class TestPathsAndNamesAreOneArgument:
 
     ``OSPREY_FACILITY_BUNDLE_DIR`` is the live case: it comes from
     ``facility_knowledge.bundle_path``, which is ordinary operator config and
-    passes through no charset normalizer, unlike the audit path. A lost pair of
+    passes through no charset normalizer, unlike the spool path. A lost pair of
     quotes turns one directory into two arguments and the whole join degrades
     to a warning about a directory that is right there.
     """
 
     def test_a_mount_path_with_a_space_is_joined(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000, identity="alice smith")
+        spool = sandbox.spool_mount(gid=3000, identity="alice smith")
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"], run.stderr
         assert _usermods(run) == ["usermod osprey-mount-3000 osprey"]
         assert _probes(run) == [
-            f"probe osprey -w {audit}",
-            f"probe osprey -x {audit}",
+            f"probe osprey -w {spool}",
+            f"probe osprey -x {spool}",
         ], "the probe saw a truncated path"
-        assert f"{AUDIT_VAR}={audit}" in run.stderr
+        assert f"{SPOOL_VAR}={spool}" in run.stderr
 
     def test_a_bundle_path_with_shell_metacharacters_is_joined(self, sandbox: Sandbox):
         """A space, a glob character and a ``$`` in one path. None of them may
@@ -1301,10 +1291,10 @@ class TestPathsAndNamesAreOneArgument:
         """The reuse branch takes the name out of ``/etc/group``, which this
         image does not write. Whatever the name column holds goes to
         ``usermod`` as exactly one argument."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         sandbox.existing_group("host shared", 3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert _usermods(run) == ["usermod host shared osprey"], run.stderr
@@ -1322,10 +1312,10 @@ class TestSkippedTopologies:
         assert "gosu" in run.order
 
     def test_a_dispatch_worker_without_a_bundle_needs_no_special_case(self, sandbox: Sandbox):
-        """Audit mount, no bundle mount: the unset skip covers it."""
-        audit = sandbox.audit_mount(gid=3000)
+        """Spool mount, no bundle mount: the unset skip covers it."""
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
 
@@ -1335,19 +1325,19 @@ class TestSkippedTopologies:
         it is strictly worse than one that logs and starts."""
         missing = sandbox.tmp / "not-mounted"
 
-        run = sandbox.run(audit_dir=missing)
+        run = sandbox.run(spool_dir=missing)
 
         assert run.returncode == 0, run.stderr
         assert run.group_ops == []
-        assert f"{AUDIT_VAR}={missing} is not a directory" in run.stderr
+        assert f"{SPOOL_VAR}={missing} is not a directory" in run.stderr
         assert "gosu" in run.order
 
     def test_a_non_root_start_joins_nothing(self, sandbox: Sandbox):
         """Run with ``--user``: there is no privilege to edit ``/etc/group``
         and no drop to survive."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(uid=1000, audit_dir=audit)
+        run = sandbox.run(uid=1000, spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert run.group_ops == []
@@ -1363,40 +1353,40 @@ class TestTheGidFloor:
         the signature of an ownership remap (Docker Desktop's file sharing
         does exactly this), not of a group the deployment meant to share. The
         mount degrades to non-group access rather than growing privilege."""
-        audit = sandbox.audit_mount(gid=gid)
+        spool = sandbox.spool_mount(gid=gid)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert _joins(run) == [], f"osprey was added to gid {gid}"
         assert "gosu" in run.order, "the refusal blocked the container's boot"
 
     def test_the_refusal_is_one_warning_naming_variable_path_and_gid(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         warnings = [line for line in run.stderr.splitlines() if "WARNING:" in line]
         assert len(warnings) == 1, warnings
-        assert AUDIT_VAR in warnings[0]
-        assert str(audit) in warnings[0]
+        assert SPOOL_VAR in warnings[0]
+        assert str(spool) in warnings[0]
         assert "gid 0" in warnings[0]
 
     def test_the_floor_is_a_floor_not_a_blocklist(self, sandbox: Sandbox):
         """100 is the first gid a distribution hands to a real group, and a
         host group is what these mounts carry."""
-        audit = sandbox.audit_mount(gid=100)
+        spool = sandbox.spool_mount(gid=100)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert _usermods(run) == ["usermod osprey-mount-100 osprey"]
 
-    def test_a_refused_audit_gid_does_not_block_the_bundle(self, sandbox: Sandbox):
+    def test_a_refused_spool_gid_does_not_block_the_bundle(self, sandbox: Sandbox):
         """Each directory is judged on its own gid."""
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
         bundle = sandbox.bundle_mount(gid=4000)
 
-        run = sandbox.run(audit_dir=audit, bundle_dir=bundle)
+        run = sandbox.run(spool_dir=spool, bundle_dir=bundle)
 
         assert _usermods(run) == ["usermod osprey-mount-4000 osprey"]
 
@@ -1405,7 +1395,7 @@ class TestTheFloorInARootlessContainer:
     """gid 0 is joinable exactly when container root is the host user.
 
     Under rootless podman the invoking host user maps to uid/gid 0 inside, so
-    the audit subdir and the bundle that user provisioned (setgid, the user's
+    the spool subdir and the bundle that user provisioned (setgid, the user's
     own group) present as gid 0 — the floor's signature for a remap, for a
     reason that does not hold there. The script tells the two apart by the
     kernel's uid map, which is fabricated here: no test host is a rootless
@@ -1413,9 +1403,9 @@ class TestTheFloorInARootlessContainer:
     """
 
     def test_gid_0_is_joined_when_the_uid_map_is_not_the_identity(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+        run = sandbox.run(spool_dir=spool, uid_map=ROOTLESS_UID_MAP)
 
         assert run.returncode == 0, run.stderr
         assert _groupadds(run) == [], "gid 0 is `root` in every image's /etc/group"
@@ -1425,32 +1415,32 @@ class TestTheFloorInARootlessContainer:
     def test_a_gid_0_join_is_probed_like_any_other(self, sandbox: Sandbox):
         """Membership in gid 0 is the mechanism; the probe still asks whether
         the write the audit trail depends on actually works."""
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+        run = sandbox.run(spool_dir=spool, uid_map=ROOTLESS_UID_MAP)
 
         assert _probes(run) == [
-            f"probe osprey -w {audit}",
-            f"probe osprey -x {audit}",
+            f"probe osprey -w {spool}",
+            f"probe osprey -x {spool}",
         ]
         assert "joined osprey to group root (gid 0)" in run.stderr
 
     def test_the_log_says_why_the_floor_was_lifted(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+        run = sandbox.run(spool_dir=spool, uid_map=ROOTLESS_UID_MAP)
 
         lifted = [line for line in run.stderr.splitlines() if "rootless container" in line]
         assert len(lifted) == 1, run.stderr
-        assert AUDIT_VAR in lifted[0]
-        assert str(audit) in lifted[0]
+        assert SPOOL_VAR in lifted[0]
+        assert str(spool) in lifted[0]
 
     def test_gid_0_stays_refused_under_the_identity_map(self, sandbox: Sandbox):
         """A rootful daemon — Docker Desktop's remap included — runs under the
         identity map, and there gid 0 still means the host's root group."""
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit, uid_map=IDENTITY_UID_MAP)
+        run = sandbox.run(spool_dir=spool, uid_map=IDENTITY_UID_MAP)
 
         assert _joins(run) == [], "osprey was added to gid 0 under the identity map"
         assert len(_warnings(run)) == 1, run.stderr
@@ -1459,17 +1449,17 @@ class TestTheFloorInARootlessContainer:
     def test_gid_0_stays_refused_with_no_readable_map(self, sandbox: Sandbox):
         """No map, no evidence: the default is the answer that grants nothing.
         (This is also what every test above this class runs under.)"""
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit, uid_map=None)
+        run = sandbox.run(spool_dir=spool, uid_map=None)
 
         assert _joins(run) == []
         assert len(_warnings(run)) == 1, run.stderr
 
     def test_an_empty_map_is_not_evidence_either(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
 
-        run = sandbox.run(audit_dir=audit, uid_map="")
+        run = sandbox.run(spool_dir=spool, uid_map="")
 
         assert _joins(run) == []
 
@@ -1479,30 +1469,30 @@ class TestTheFloorInARootlessContainer:
     ):
         """Only gid 0 is the host user in a rootless container; a mount that
         presents `daemon` or `dialout` is still not a group the render meant."""
-        audit = sandbox.audit_mount(gid=gid)
+        spool = sandbox.spool_mount(gid=gid)
 
-        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+        run = sandbox.run(spool_dir=spool, uid_map=ROOTLESS_UID_MAP)
 
         assert _joins(run) == [], f"osprey was added to gid {gid}"
         assert len(_warnings(run)) == 1, run.stderr
 
     def test_a_host_group_joins_the_same_way_in_a_rootless_container(self, sandbox: Sandbox):
         """The map changes nothing above the floor."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+        run = sandbox.run(spool_dir=spool, uid_map=ROOTLESS_UID_MAP)
 
         assert _usermods(run) == ["usermod osprey-mount-3000 osprey"]
 
     def test_gid_0_and_a_host_gid_are_each_joined_once(self, sandbox: Sandbox):
-        """The audit subdir at gid 0 and a bundle at a host gid — the mixed
+        """The spool subdir at gid 0 and a bundle at a host gid — the mixed
         shape a rootless host with one shared bundle group produces."""
-        audit = sandbox.audit_mount(gid=0)
+        spool = sandbox.spool_mount(gid=0)
         bundle = sandbox.bundle_mount(gid=0)
         mirror = sandbox.mirror_mount(gid=3000)
 
         run = sandbox.run(
-            audit_dir=audit, bundle_dir=bundle, mirror_dir=mirror, uid_map=ROOTLESS_UID_MAP
+            spool_dir=spool, bundle_dir=bundle, mirror_dir=mirror, uid_map=ROOTLESS_UID_MAP
         )
 
         assert _usermods(run) == ["usermod root osprey", "usermod osprey-mount-3000 osprey"]
@@ -1512,9 +1502,9 @@ class TestTheJoinFailsOpen:
     """Every failure mode logs and continues to the drop."""
 
     def test_an_unreadable_gid_warns_and_boots(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, stat_rc=1)
+        run = sandbox.run(spool_dir=spool, stat_rc=1)
 
         assert run.returncode == 0, run.stderr
         assert "WARNING" in run.stderr
@@ -1525,9 +1515,9 @@ class TestTheJoinFailsOpen:
         """The digits-only whitelist is what keeps a stat result that is not a
         number out of ``-lt``, out of ``groupadd --gid`` and out of the group
         name. An unreadable gid and an unparseable one are the same refusal."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, stat_out="? (unknown)")
+        run = sandbox.run(spool_dir=spool, stat_out="? (unknown)")
 
         assert run.returncode == 0, run.stderr
         assert _joins(run) == [], "a non-numeric gid reached the group tools"
@@ -1538,10 +1528,10 @@ class TestTheJoinFailsOpen:
         """``usermod --append --groups "" osprey`` would fail, and its warning
         would read as a usermod bug rather than as the corrupt ``/etc/group``
         it is. The reuse branch says which it is."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         sandbox.existing_group("", 3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         assert _usermods(run) == [], "an empty group name reached usermod"
@@ -1550,9 +1540,9 @@ class TestTheJoinFailsOpen:
         assert "gosu" in run.order
 
     def test_a_failing_groupadd_warns_and_boots(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, groupadd_rc=1)
+        run = sandbox.run(spool_dir=spool, groupadd_rc=1)
 
         assert run.returncode == 0, run.stderr
         assert "WARNING" in run.stderr
@@ -1560,44 +1550,24 @@ class TestTheJoinFailsOpen:
         assert "gosu" in run.order
 
     def test_a_failing_usermod_warns_and_boots(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, usermod_rc=1)
+        run = sandbox.run(spool_dir=spool, usermod_rc=1)
 
         assert run.returncode == 0, run.stderr
         assert "WARNING" in run.stderr
         assert "gosu" in run.order
 
 
-class TestTheWriterMarker:
-    """One uid per audit file, enforced by where the marker is and is not."""
-
-    def test_the_maintenance_step_carries_it(self, sandbox: Sandbox):
-        run = sandbox.run()
-
-        assert run.maintenance_marker == "maintenance", run.stderr
-
-    def test_the_dropped_command_does_not(self, sandbox: Sandbox):
-        """``gosu`` preserves the environment across the drop, so anything set
-        here reaches the app. A leaked marker would file every record the app
-        writes under the root phase's writer — the exact inversion of the
-        invariant it exists to enforce."""
-        run = sandbox.run()
-
-        assert run.drop_marker == UNSET, (
-            f"the writer marker survived the privilege drop as {run.drop_marker!r}"
-        )
-
-
 class TestTheOwnershipSweep:
     """The hand-back skips the one directory group membership already covers."""
 
-    def test_the_audit_mount_is_pruned(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+    def test_the_spool_mount_is_pruned(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
-        assert f"-path {audit} -prune -o" in run.find_args, run.find_args
+        assert f"-path {spool} -prune -o" in run.find_args, run.find_args
         assert "! -user osprey" in run.find_args, run.find_args
         assert "-exec chown osprey:osprey" in run.find_args, run.find_args
 
@@ -1605,9 +1575,9 @@ class TestTheOwnershipSweep:
         """The prune is one directory, not an abandonment of the sweep: root
         writes elsewhere under ``var/`` on the way through and must not keep
         it."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert run.find_args.split()[0] == str(sandbox.state)
         assert "chown" in run.order, run.order
@@ -1619,30 +1589,68 @@ class TestTheOwnershipSweep:
         perfect and match nothing — which leaves root chowning the operator's
         host directory on every start, the exact harm the prune exists to
         prevent."""
-        audit = sandbox.audit_mount(gid=3000)
-        record = audit / "record.jsonl"
+        spool = sandbox.spool_mount(gid=3000)
+        record = spool / "record.jsonl"
         record.write_text("{}\n")
         elsewhere = sandbox.state / "state.json"
         elsewhere.write_text("{}")
 
-        run = sandbox.run(audit_dir=audit)
+        run = sandbox.run(spool_dir=spool)
 
         assert str(elsewhere) in run.visited, run.visited
-        assert str(audit) not in run.visited, run.visited
-        assert str(record) not in run.visited, "the sweep walked into the audit mount"
+        assert str(spool) not in run.visited, run.visited
+        assert str(record) not in run.visited, "the sweep walked into the spool mount"
 
     def test_without_the_prune_the_sweep_would_reach_it(self, sandbox: Sandbox):
         """Non-vacuity for the test above: the same tree, the same sweep, and
         the only difference is that no variable named the mount."""
-        audit = sandbox.audit_mount(gid=3000)
-        record = audit / "record.jsonl"
+        spool = sandbox.spool_mount(gid=3000)
+        record = spool / "record.jsonl"
         record.write_text("{}\n")
 
         run = sandbox.run()
 
         assert str(record) in run.visited, run.visited
 
-    def test_no_prune_when_no_audit_mount(self, sandbox: Sandbox):
+    def test_the_archive_is_pruned_and_its_files_keep_group_and_mode(self, sandbox: Sandbox):
+        """The archive's files belong to two writers under two uids and reach
+        the host through the root's group: the hand-back must never walk into
+        it, so a copy keeps the group and the mode its writer gave it."""
+        archive = sandbox.archive_mount(gid=3000)
+        day = archive / "2026-10-25" / "agent_record"
+        day.mkdir(parents=True)
+        copy = day / "records.parquet"
+        copy.write_bytes(b"PAR1")
+        os.chmod(copy, 0o660)
+        manifest = archive / "2026-10-25" / "MANIFEST.jsonl"
+        manifest.write_text("{}\n")
+        os.chmod(manifest, 0o640)
+        before = {path: (path.stat().st_gid, path.stat().st_mode) for path in (copy, manifest)}
+        elsewhere = sandbox.state / "state.json"
+        elsewhere.write_text("{}")
+
+        run = sandbox.run(archive_dir=archive)
+
+        assert f"-path {archive} -prune -o" in run.find_args, run.find_args
+        assert str(elsewhere) in run.visited, run.visited
+        for path in (archive, day, copy, manifest):
+            assert str(path) not in run.visited, f"the sweep walked into {path}"
+        after = {path: (path.stat().st_gid, path.stat().st_mode) for path in before}
+        assert after == before
+
+    def test_without_the_archive_prune_the_sweep_would_reach_it(self, sandbox: Sandbox):
+        """Non-vacuity for the test above: the same tree with no variable
+        naming the archive is swept."""
+        archive = sandbox.archive_mount(gid=3000)
+        copy = archive / "2026-10-25" / "records.parquet"
+        copy.parent.mkdir(parents=True)
+        copy.write_bytes(b"PAR1")
+
+        run = sandbox.run()
+
+        assert str(copy) in run.visited, run.visited
+
+    def test_no_prune_when_no_spool_mount(self, sandbox: Sandbox):
         """Nothing to exclude, so the sweep is exactly what it was before."""
         run = sandbox.run()
 
@@ -1652,21 +1660,21 @@ class TestTheOwnershipSweep:
     def test_no_prune_for_a_variable_naming_a_missing_path(self, sandbox: Sandbox):
         """A prune expression built from a path that is not there would be
         dead weight in the predicate and would hide the misconfiguration."""
-        run = sandbox.run(audit_dir=sandbox.tmp / "not-mounted")
+        run = sandbox.run(spool_dir=sandbox.tmp / "not-mounted")
 
         assert "-prune" not in run.find_args, run.find_args
 
     def test_every_group_shared_bind_gets_its_own_prune(self, sandbox: Sandbox):
-        """The owner directory is provisioned exactly as the audit subdir is —
+        """The owner directory is provisioned exactly as the spool subdir is —
         a host directory at setgid 2770 the container reaches through the group
         — so it earns the same exclusion, and so does the read-only tree."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         control = sandbox.control_dir_mount(gid=3000)
         tree = sandbox.control_tree_mount(gid=3000)
 
-        run = sandbox.run(audit_dir=audit, control_dir=control, control_tree=tree)
+        run = sandbox.run(spool_dir=spool, control_dir=control, control_tree=tree)
 
-        for path in (audit, control, tree):
+        for path in (spool, control, tree):
             assert f"-path {path} -prune -o" in run.find_args, run.find_args
         assert "! -user osprey" in run.find_args, run.find_args
         assert "-exec chown osprey:osprey" in run.find_args, run.find_args
@@ -1700,7 +1708,7 @@ class TestTheOwnershipSweep:
         assert str(record) in run.visited, run.visited
 
     def test_no_prune_for_a_control_variable_naming_a_missing_path(self, sandbox: Sandbox):
-        """Every pruned variable is guarded the same way, not just the audit
+        """Every pruned variable is guarded the same way, not just the spool
         subdir: a bind the compose file names but the runtime never made is a
         misconfiguration the predicate must not paper over."""
         run = sandbox.run(
@@ -1714,16 +1722,16 @@ class TestTheOwnershipSweep:
         """The prunes are independent clauses. A deployment with no tree bind
         (a web terminal writes its owner directory and reads no tree) still
         excludes the two binds it does have."""
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
         control = sandbox.control_dir_mount(gid=3000)
 
         run = sandbox.run(
-            audit_dir=audit,
+            spool_dir=spool,
             control_dir=control,
             control_tree=sandbox.tmp / "no-tree",
         )
 
-        assert f"-path {audit} -prune -o" in run.find_args, run.find_args
+        assert f"-path {spool} -prune -o" in run.find_args, run.find_args
         assert f"-path {control} -prune -o" in run.find_args, run.find_args
         assert "no-tree" not in run.find_args, run.find_args
 
@@ -1850,23 +1858,15 @@ class TestTheIdentityOnARootStart:
         assert run.skipped == UNSET
 
     def test_the_rewrite_follows_the_join_and_precedes_the_hand_back(self, sandbox: Sandbox):
-        audit = sandbox.audit_mount(gid=3000)
+        spool = sandbox.spool_mount(gid=3000)
 
-        run = sandbox.run(identity="alice", audit_dir=audit)
+        run = sandbox.run(identity="alice", spool_dir=spool)
 
         assert run.returncode == 0, run.stderr
         order = run.order
         assert order.index("python") < order.index("usermod") < order.index("apply"), order
         assert order.index("apply") < order.index("chown") < order.index("gosu"), order
         assert order[-1] == "cmd", order
-
-    def test_the_rewrite_does_not_carry_the_writer_marker(self, sandbox: Sandbox):
-        """The apply call is a separate interpreter; the maintenance marker
-        stays on the maintenance heredoc and nowhere else."""
-        run = sandbox.run(identity="alice")
-
-        assert run.maintenance_marker == "maintenance"
-        assert run.drop_marker == UNSET
 
     @pytest.mark.parametrize("identity", ["alice"])
     def test_a_failed_rewrite_is_fatal_for_a_person(self, sandbox: Sandbox, identity: str):

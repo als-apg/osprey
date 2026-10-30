@@ -117,6 +117,26 @@ def docker_host_has_buildkit(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_transcripts_to_copy(monkeypatch):
+    """Answer "which transcripts need their own volume?" without asking the host.
+
+    A start copies transcripts that predate their volume through
+    ``container_lifecycle._copy_existing_transcripts``, which resolves the
+    runtime and inspects the project's volumes with its CLI. The reasons the fixtures above give
+    apply unchanged: a faked ``subprocess.run`` would hand the inspection an
+    answer meant for a compose invocation, and the real one makes the suite
+    depend on whether the machine running it has a runtime at all.
+
+    Stubbed at the lifecycle seam, so the copy itself stays real for
+    ``test_claude_projects_volume.py``, which calls it through
+    ``runtime_helper`` and puts the seam back where it tests the wiring.
+    """
+    from osprey.deployment import container_lifecycle
+
+    monkeypatch.setattr(container_lifecycle, "_copy_existing_transcripts", lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def no_prebuilt_switch_in_the_environment(monkeypatch):
     """Isolate every test from a prebuilt-images switch exported in the shell.
 

@@ -1118,3 +1118,116 @@ async def test_a_run_whose_pinned_claude_code_is_not_installed_is_refused_with_t
     assert any(e["type"] == "error" and "npm install -g" in e["message"] for e in events)
     refusals = [r for r in caplog.records if "2.1.146" in r.getMessage()]
     assert refusals and all(r.exc_info is None for r in refusals)
+
+
+# ---------------------------------------------------------------------------
+# The session the run was accepted under
+# ---------------------------------------------------------------------------
+
+_ACCEPTED_SESSION = "0b6f4c1e-2d3a-4e5f-8a9b-1c2d3e4f5a6b"
+
+
+async def _stream_ok(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+    yield _text("ok")
+    yield result_event()
+
+
+async def _stream_result_error(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+    yield result_event(is_error=True, subtype="error_max_turns", result="max turns")
+
+
+async def _stream_silent(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+    await asyncio.sleep(30)
+    yield  # pragma: no cover - never reached
+
+
+async def _stream_mcp_not_ready(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+    raise McpNotReadyError("not connected: controls", servers=[], missing=["controls"])
+    yield  # pragma: no cover - makes this an async generator
+
+
+async def _stream_raises(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+    raise RuntimeError("cli crashed")
+    yield  # pragma: no cover - makes this an async generator
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stream", "status"),
+    [
+        (_stream_ok, "completed"),
+        (_stream_result_error, "error"),
+        (_stream_silent, "error"),
+        (_stream_mcp_not_ready, "error"),
+        (_stream_raises, "error"),
+    ],
+    ids=["completed", "result-error", "inactivity", "mcp-not-ready", "exception"],
+)
+async def test_the_accepted_session_is_forced_onto_the_agent_and_every_outcome(
+    monkeypatch, stream, status
+):
+    """The session the run was accepted under is the SDK session option, the
+    session the agent's tools are told, and the outcome's ``session_id`` on
+    every path."""
+    captured: dict = {}
+    monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
+
+    def _capturing(project_dir, prompt, **kw):
+        captured.update(kw)
+        return stream(project_dir, prompt, **kw)
+
+    monkeypatch.setattr(sdk_runner, "stream_query", _capturing)
+    result = await asyncio.wait_for(
+        sdk_runner.run_dispatch(
+            "do it", ["Read"], event_queue=asyncio.Queue(), session_id=_ACCEPTED_SESSION
+        ),
+        timeout=5,
+    )
+
+    assert result["status"] == status
+    assert captured["session_id"] == _ACCEPTED_SESSION
+    assert captured["env"]["OSPREY_TELEMETRY_SESSION_ID"] == _ACCEPTED_SESSION
+    assert result["session_id"] == _ACCEPTED_SESSION
+
+
+@pytest.mark.asyncio
+async def test_a_run_with_no_accepted_session_gets_one_minted(monkeypatch):
+    captured: dict = {}
+
+    def _capturing(project_dir, prompt, **kw):
+        captured.update(kw)
+        return _stream_ok(project_dir, prompt, **kw)
+
+    monkeypatch.setattr(sdk_runner, "stream_query", _capturing)
+    first = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+    second = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert first["session_id"] and first["session_id"] != second["session_id"]
+    assert captured["session_id"] == second["session_id"]
+
+
+@pytest.mark.asyncio
+async def test_without_the_sdk_the_outcome_still_names_the_accepted_session(monkeypatch):
+    monkeypatch.setattr(sdk_runner, "HAS_SDK", False)
+    result = await sdk_runner.run_dispatch("do it", ["Read"], session_id=_ACCEPTED_SESSION)
+
+    assert result["status"] == "error"
+    assert result["session_id"] == _ACCEPTED_SESSION
+
+
+@pytest.mark.asyncio
+async def test_thinking_reaches_neither_the_outcome_nor_the_live_events(monkeypatch):
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield ThinkingEvent(text="private reasoning")
+        yield _text("answer")
+        yield result_event()
+
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+    queue: asyncio.Queue = asyncio.Queue()
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
+    events = await drain(queue)
+
+    assert result["text_output"] == "answer"
+    for shown in (result, *events):
+        assert not any("thinking" in str(k).lower() for k in shown)
+        assert "private reasoning" not in repr(shown)

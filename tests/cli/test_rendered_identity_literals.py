@@ -32,7 +32,10 @@ Two things in a render are allowed rather than fixed:
   command) and the repository's absolute path into its settings, compose,
   manifest and environment files. Those strings are facts about the host that
   ran the build, not text OSPREY ships, and on a developer machine they carry
-  the login. The scan replaces exactly those strings with a neutral token
+  the login. A deployment that records its host sessions also binds the
+  build directory's Claude Code project directory into agent-record, under
+  its own name; that path is the repository's path again, in Claude Code's
+  encoding. The scan replaces exactly those strings with a neutral token
   before matching; a self-test proves the redaction neither hides an identity
   elsewhere on the line nor reports one inside the path.
 
@@ -55,6 +58,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_presets import (
     _read_preset_document,
@@ -63,6 +67,7 @@ from osprey.cli.build_profile_presets import (
     list_tiers,
 )
 from osprey.cli.init_cmd import init
+from osprey.deployment.compose_generator import agent_record_host_projects_dir
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from tests.cli._lifecycle_build import rendered_config
 from tests.docs.test_shipped_identity_literals import DENIED, Denied
@@ -217,10 +222,28 @@ def rendered(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, Render]:
         with pytest.MonkeyPatch.context() as patch:
             for variable in _ACCOUNT_VARIABLES:
                 patch.setenv(variable, BUILD_ACCOUNT)
+            # The build creates the host session directory under Claude
+            # Code's state root; keep it out of the account running the suite.
+            patch.setenv(CLAUDE_CONFIG_DIR_ENV, str(tmp_path_factory.mktemp("claude")))
             _render(repo, preset)
-        hits, used = _scan(repo, (str(repo), str(repo.resolve()), sys.executable))
+            host_projects = _host_projects_dir(repo)
+        hosts = [str(repo), str(repo.resolve()), sys.executable]
+        if host_projects is not None:
+            hosts += [str(host_projects), host_projects.name]
+        hits, used = _scan(repo, hosts)
         renders[preset] = Render(repo=repo, hits=hits, used=used)
     return renders
+
+
+def _host_projects_dir(repo: Path) -> Path | None:
+    """The host session directory the build at ``repo`` binds into agent-record.
+
+    Its path is Claude Code's state root plus the build directory's absolute
+    path in Claude Code's encoding, so it is the same host fact as the
+    repository's path, spelled the way Claude Code names its project
+    directories. Read through the function the render uses, never re-derived.
+    """
+    return agent_record_host_projects_dir(rendered_config(repo), repo)
 
 
 def _report(hits: Sequence[Hit]) -> str:

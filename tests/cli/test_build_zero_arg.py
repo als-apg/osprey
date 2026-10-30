@@ -98,14 +98,14 @@ class TestRendersTheOutputZone:
     def test_state_zone_is_created_when_absent(self, runner, lifecycle_repo_factory, tmp_path):
         """A fresh clone carries no git-ignored directory; the build makes them."""
         repo = lifecycle_repo_factory(tmp_path / "clone")
-        for relative in ("var/agent_data", "var/audit"):
-            (repo / relative).rmdir()
+        (repo / "var" / "agent_data").rmdir()
         (repo / "var").rmdir()
 
         assert _build(runner, repo).exit_code == 0
 
         assert (repo / "var" / "agent_data").is_dir()
-        assert (repo / "var" / "audit").is_dir()
+        # The pre-upgrade audit tree is only ever read and purged, never made.
+        assert not (repo / "var" / "audit").exists()
 
     def test_state_zone_creation_keeps_what_is_already_there(self, runner, lifecycle_repo):
         keeper = lifecycle_repo / "var" / "agent_data" / "memory.json"

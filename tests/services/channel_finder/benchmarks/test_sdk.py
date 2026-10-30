@@ -20,11 +20,13 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from osprey.agent_record.contract import RECORD_OFF_ENV, RECORD_OFF_VALUE, SPOOL_DIR_ENV
 from osprey.services.channel_finder.benchmarks.sdk import (
     SDKWorkflowResult,
     ToolTrace,
     combined_text,
     run_sdk_query,
+    unrecorded_env,
 )
 from tests._agent_cli import STUB_AGENT_CLI
 
@@ -130,6 +132,13 @@ class TestCombinedText:
 # ---------------------------------------------------------------------------
 
 _RUN_QUERY = "osprey.services.channel_finder.benchmarks.sdk.run_query"
+_BUILD_OPTIONS = "osprey.services.channel_finder.benchmarks.sdk.build_agent_options"
+_ROUTED_ENV = {
+    "ANTHROPIC_BASE_URL": "https://gateway.example",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317",
+    SPOOL_DIR_ENV: "/spool",
+}
 _AGENT_BODY = "You find channels."
 _CF_ENTRY: dict[str, Any] = {"command": "osprey-channel-finder-mcp", "args": []}
 _CONTROLS_ENTRY: dict[str, Any] = {"command": "osprey-controls-mcp"}
@@ -151,6 +160,15 @@ def project(tmp_path: Path) -> Path:
     return _write_project(tmp_path, {"controls": _CONTROLS_ENTRY, "channel-finder": _CF_ENTRY})
 
 
+@pytest.fixture()
+def routing():
+    """The routing ``build_agent_options`` resolves for the project's provider."""
+    routed = MagicMock(env=dict(_ROUTED_ENV), model="routed-model")
+    with patch(_BUILD_OPTIONS, return_value=routed) as build:
+        yield build
+
+
+@pytest.mark.usefixtures("routing")
 class TestRunSdkQuery:
     """What ``run_sdk_query`` hands the shared runner and how it reports failure."""
 
@@ -177,8 +195,8 @@ class TestRunSdkQuery:
             "setting_sources": [],
             "max_turns": 7,
             "max_budget_usd": 0.5,
-            "model": "m",
-            "provider": "p",
+            "env": unrecorded_env(_ROUTED_ENV),
+            "model": "routed-model",
         }
 
     async def test_waits_only_for_the_channel_finder_server(self, project: Path):
@@ -202,14 +220,28 @@ class TestRunSdkQuery:
         assert kwargs["mcp_servers"] == project / ".mcp.json"
         assert kwargs["await_mcp_servers"] is None
 
-    async def test_model_and_provider_reach_the_runner_unresolved(self, project: Path):
+    async def test_model_and_provider_reach_the_routing_unresolved(
+        self, project: Path, routing: MagicMock
+    ):
         runner = AsyncMock(return_value=SDKWorkflowResult())
         with patch(_RUN_QUERY, new=runner):
             await run_sdk_query(project, "q", model=None, provider="cborg")
 
-        kwargs = runner.call_args.kwargs
+        kwargs = routing.call_args.kwargs
         assert kwargs["model"] is None
         assert kwargs["provider"] == "cborg"
+
+    async def test_the_run_records_nothing(self, project: Path):
+        runner = AsyncMock(return_value=SDKWorkflowResult())
+        with patch(_RUN_QUERY, new=runner):
+            await run_sdk_query(project, "q", model="m")
+
+        env = runner.call_args.kwargs["env"]
+        assert env[RECORD_OFF_ENV] == RECORD_OFF_VALUE
+        assert SPOOL_DIR_ENV not in env
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in env
+        assert not any(key.startswith("OTEL_") for key in env)
+        assert env["ANTHROPIC_BASE_URL"] == "https://gateway.example"
 
     async def test_a_failed_query_carries_the_cli_stderr(self, project: Path):
         cause = ValueError("boom")
@@ -325,7 +357,7 @@ class TestRunSdkQueryOnTheRunner:
             permission_mode="bypassPermissions",
             max_turns=7,
             max_budget_usd=0.5,
-            env={**_ENV, "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"},
+            env=unrecorded_env({**_ENV, "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}),
             system_prompt=_AGENT_BODY,
             mcp_servers={"channel-finder": _CF_ENTRY},
             allowed_tools=["mcp__channel-finder__*"],
@@ -333,6 +365,7 @@ class TestRunSdkQueryOnTheRunner:
             disallowed_tools=[],
             strict_mcp_config=True,
             cli_path=STUB_AGENT_CLI,
+            extra_args={"thinking-display": "summarized"},
         )
         harness.sdk_env.assert_called_once_with(project, provider="p")
 

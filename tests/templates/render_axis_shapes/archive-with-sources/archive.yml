@@ -1,10 +1,8 @@
 # The archive service keeps an append-only copy of this deployment's agent
 # record in the host directory var/archive/. It runs `osprey archive --watch`:
 # one pass at start, then one every `services.archive.interval_seconds`. A pass
-# copies what changed since the last one — web-terminal and dispatch
-# transcripts, dispatch run records, artifact stores, plan-queue history, the
-# audit ledger — and, when the deployment runs the telemetry store, every
-# completed day of its tables and query log as Parquet. Every source is mounted
+# copies what changed since the last one in the web-terminal and dispatch
+# artifact stores and the plan-queue history. Every source is mounted
 # read-only; the archive never deletes or rewrites a copy.
 #
 # It runs the PROJECT image (<project>:local) that `osprey up` builds from the
@@ -21,10 +19,11 @@ services:
     container_name: golden-project-archive
     # The image entrypoint always drops to the unprivileged `osprey` user
     # before it runs anything; this bypasses it on purpose. Container root is
-    # the invoking user under rootless podman, so a 0700 archive root that user
-    # owns is writable and every copy lands owned by that user; under rootful
-    # docker the command hands what it writes to the archive root's owner. It
-    # is also the only identity that can read every source volume — the Redis
+    # the invoking user under rootless podman, so every copy lands owned by
+    # that user; under rootful docker the command hands what it writes to the
+    # archive root's owner and group. The root is setgid and group-shared with
+    # agent-record, its other writer, so every copy is group-readable. It is
+    # also the only identity that can read every source volume — the Redis
     # files belong to the redis uid. The agent never runs in this container.
     entrypoint: ["osprey", "archive", "--watch"]
     user: "0:0"
@@ -38,8 +37,6 @@ services:
       # env_chain_digest, carried in by OSPREY_ENV_DIGEST). A changed chain
       # has to recreate this container.
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
-      # The same trigger for the archive's own store account file.
-      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_ARCHIVE:-}"
     restart: unless-stopped
     # No `ports:` and no `healthcheck:`: this service opens no socket. Its
     # liveness is the `archive_last_pass` health row reading the archive's own
@@ -65,27 +62,17 @@ services:
     # listed.
     env_file:
       - ./.env
-      # The archive's account on the telemetry store: its own file at the
-      # repo root, listed whenever the store is deployed — `osprey build`
-      # creates it before this file is rendered.
-      - .env.telemetry-archive
 
     environment:
       OSPREY_ARCHIVE_SOURCES: /archive/sources
       OSPREY_ARCHIVE_DEST: /archive/dest
       OSPREY_ARCHIVE_INTERVAL_SECONDS: "86400"
-      # The store's service name on the bridge; on the host namespace this
-      # container's loopback IS the host's, so the port the store publishes.
-      OSPREY_ARCHIVE_STORE_URL: "http://telemetry_store:8123"
-      OSPREY_ARCHIVE_STORE_BACKFILL_DAYS: "14"
       TZ: UTC
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT. Every source is read-only; the one
     # writable mount is the archive root.
     volumes:
       - ./var/archive:/archive/dest
-      - ./var/audit:/archive/sources/audit:ro
-      - alice-claude-config:/archive/sources/terminals/alice:ro
       - alice-agent-data:/archive/sources/terminal_agent_data/alice:ro
       - dispatch_workspace_1:/archive/sources/dispatch/dispatch-worker-1:ro
       - dispatch_workspace_2:/archive/sources/dispatch/dispatch-worker-2:ro
@@ -93,14 +80,13 @@ services:
     networks:
       - osprey-network
 
-# The web terminals' volumes, declared under the same bare keys and with the
-# same labels the web-terminal template declares. That template is rendered
+# The web terminals' agent-data volumes, declared under the same bare keys
+# and with the same labels the web-terminal template declares. That template is rendered
 # into the other slice of this compose project, so whichever slice creates a
 # volume first creates the same one. The worker and lane volumes are declared
 # once, by their owner, in this slice; the archive only references them. The
 # archive creates no volume of its own and renames none.
 volumes:
-  alice-claude-config:
   alice-agent-data:
 
 networks:

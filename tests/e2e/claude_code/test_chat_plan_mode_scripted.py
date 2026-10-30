@@ -17,7 +17,7 @@ calls, and prove:
     stays in plan mode. A file beside the plan file is refused, the revised plan is
     accepted, and the next ``ExitPlanMode`` puts a second card in front of the operator.
 
-Every hook decision is read from the render's ``hook_debug.jsonl``, and every card the
+Every hook decision is read from the agent record's hook debug lines, and every card the
 operator was shown is recorded, so a stray card or a landed write cannot pass unseen.
 """
 

@@ -464,6 +464,9 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
 class FocusRequest(BaseModel):
     artifact_id: str
     fullscreen: bool = False
+    #: Set by a sender acting on its own (the approval hook), not for a person or
+    #: an agent that chose the artifact; broadcast so a layout can tell them apart.
+    automatic: bool = False
 
 
 class PinRequest(BaseModel):
@@ -490,9 +493,8 @@ class _SSEBroadcaster:
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
-        with self._lock:
-            with suppress(ValueError):
-                self._queues.remove(q)
+        with self._lock, suppress(ValueError):
+            self._queues.remove(q)
 
     def broadcast(self, data: dict) -> None:
         """Push data to all connected SSE clients (called from sync context)."""
@@ -712,7 +714,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (
-        AUDIT_ORIGIN,
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
@@ -791,8 +792,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     )
 
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
-        if entry.origin == AUDIT_ORIGIN:
-            return
         broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
 
     def _on_artifact_deleted(entry: ArtifactEntry) -> None:
@@ -842,9 +841,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 lines.append(f'  artifact: "{entry.title}" (id={aid})')
         # List pinned artifacts
         pinned = store.list_entries(pinned=True)
-        for p in pinned:
-            if p.id != aid:
-                lines.append(f'  pinned:   "{p.title}" (id={p.id})')
+        lines.extend(f'  pinned:   "{p.title}" (id={p.id})' for p in pinned if p.id != aid)
         if lines:
             focus_file.write_text("[Gallery Focus]\n" + "\n".join(lines) + "\n")
         elif focus_file.exists():
@@ -1076,6 +1073,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
         if req.fullscreen:
             event["fullscreen"] = True
+        if req.automatic:
+            event["automatic"] = True
         broadcaster.broadcast(event)
         return {"status": "ok", "artifact_id": req.artifact_id}
 
@@ -1116,13 +1115,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # generated with include_plotlyjs='cdn' regardless of what OSPREY's
         # own code paths use, and the CDN is unreachable in offline deployments.
         content = _rewrite_plotly_cdn(content)
-        if entry.artifact_type == "plot_html":
-            # Inject the Plotly bundle unless the page already loads one, by
-            # script tag or inlined (include_plotlyjs=True). Avoid duplicates —
-            # the 4.8MB file takes ~1s through the reverse proxy per load.
-            if not html_has_plotly_bundle(content):
-                plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
-                snippet = f'<script src="{plotly_src}"></script>\n' + snippet
+        # Inject the Plotly bundle unless the page already loads one, by
+        # script tag or inlined (include_plotlyjs=True). Avoid duplicates —
+        # the 4.8MB file takes ~1s through the reverse proxy per load.
+        if entry.artifact_type == "plot_html" and not html_has_plotly_bundle(content):
+            plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
+            snippet = f'<script src="{plotly_src}"></script>\n' + snippet
         content = _inject_html_snippet(content, snippet)
         page = _stamp_data_theme(content.decode("utf-8", errors="replace"), web_theme_pin)
         return Response(

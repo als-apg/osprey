@@ -7,8 +7,8 @@ The agent harness sends an id with every MCP ``tools/call`` (the ``_meta`` key
 and opens a :func:`call_scope`; every audit record filed inside that scope —
 the middleware's own, an inner recorder's through
 :func:`osprey.audit.writer.record` — then names the call it belongs to without
-a call-site edit. That id is the key that joins a default ledger line to the
-full ``tool_call`` record and to the harness's own telemetry.
+a call-site edit. That id is the key that joins a default audit entry to the
+``tool_call`` record and to the harness's own transcript.
 
 **The carrier is a mutable holder set before the tool runs.** :func:`call_scope`
 sets a fresh :class:`CallFacts` object on a :class:`~contextvars.ContextVar`.
@@ -64,7 +64,7 @@ _TOOL_USE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
 #: The noted facts a value-free default record may carry in its ``detail``.
 #: Target names and the write's attribution stamps (the OS account and host the
 #: write went out from, and the dispatch owner) are identifiers, so they
-#: qualify; every other fact is a value and rides only the full ``tool_call``
+#: qualify; every other fact is a value and rides only the ``tool_call``
 #: record.
 DETAIL_FACTS: tuple[str, ...] = ("from_target", "to_target", "ca_user", "ca_host", "owner")
 
@@ -90,7 +90,7 @@ def harness_session_id() -> str | None:
     """The conversation id this process runs under, or ``None``.
 
     ``OSPREY_TELEMETRY_SESSION_ID`` first (the id Osprey forces, which is the
-    one the telemetry store is tagged with), then ``CLAUDE_CODE_SESSION_ID``
+    one the agent record is tagged with), then ``CLAUDE_CODE_SESSION_ID``
     (the one the harness stamps on its MCP children).
     """
     return (
