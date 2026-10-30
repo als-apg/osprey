@@ -798,7 +798,7 @@ class TestALSLogbookAdapterHTTPMocked:
                     "source_url": "https://logbook.example.com/olog/rpc.php",
                     "chunk_days": chunk_days,
                     "max_retries": 2,
-                    "retry_delay_seconds": 0,  # Fast retries for tests
+                    "retry_delay_seconds": 0.001,  # 0 would read as unset (5 s) in the adapter
                 },
             }
         )
