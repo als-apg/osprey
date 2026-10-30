@@ -2407,14 +2407,13 @@ describe('bundle wiring', () => {
     expect(details.slice(0, details.indexOf('>'))).not.toContain('open');
   });
 
-  test('the in-body view switcher and filter hide only when embedded AND Expert', () => {
-    // The single most important correctness point of the merge, checked as
-    // resolved style rather than as matching source text. `contributeHeader`
-    // is a no-op standalone, and the hub collapses a service tile's bar in
-    // Simple mode — in both of those cases the in-body strip is the ONLY way
-    // to navigate the panel, so a plain `body.embedded` rule would strand the
-    // operator on whichever view happened to be showing. Same rule, same
-    // reason, for the plan filter.
+  test('the in-body view switcher hides whenever embedded; the filter only in Expert', () => {
+    // Checked as resolved style rather than as matching source text. Embedded,
+    // the hub's tile bar carries the view switcher in Simple as well as Expert
+    // (SPEC §5.1: one header row per pane), so the in-body strip would be a
+    // second switcher under the first. Standalone, `contributeHeader` is a
+    // no-op and the in-body strip is the ONLY way to navigate. The plan filter
+    // is contributed in Expert only — Simple keeps its search box in the body.
     const style = document.createElement('style');
     style.textContent = readFileSync(`${BUNDLE}panel.css`, 'utf-8');
     document.head.appendChild(style);
@@ -2449,16 +2448,17 @@ describe('bundle wiring', () => {
         filter: true,
         strip: true,
       });
-      // The one case the hub really is drawing these for us.
+      // Embedded Expert: the hub draws both in the tile bar.
       expect(shown({ embedded: true, simple: false })).toEqual({
         tabs: false,
         filter: false,
         strip: true,
       });
-      // Simple: the tile bar is collapsed to zero height, so the body keeps
-      // both — and the safety strip is on screen in every single case.
+      // Embedded Simple: the tile bar still carries the switcher, so the body
+      // draws no second one; the filter stays in the body — and the safety
+      // strip is on screen in every single case.
       expect(shown({ embedded: true, simple: true })).toEqual({
-        tabs: true,
+        tabs: false,
         filter: true,
         strip: true,
       });
@@ -3632,14 +3632,14 @@ describe('the merged panel shell', () => {
     expect(lastContribution().map((entry) => entry.kind)).toEqual(['search', 'nav']);
   });
 
-  test('Simple mode contributes no search — the hub collapses the bar there', async () => {
-    // Simple deliberately ENLARGES a search box; the tile bar it would live in
-    // is zero-height. The in-body one is the one on screen.
+  test('Simple mode contributes the view switcher but no search', async () => {
+    // Simple keeps its search box in the body rather than in the bar; the
+    // in-body one is the one on screen.
     mount({ mode: 'simple' });
     await import(`${BUNDLE}panel.js`);
     expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(false);
-    // The nav still goes up — a collapsed bar renders nothing, it does not
-    // reject anything.
+    // The nav goes up in Simple too: the hub draws the tile bar in both
+    // modes, and the body hides its own strip whenever embedded.
     expect(lastContribution().some((entry) => entry.kind === 'nav')).toBe(true);
   });
 

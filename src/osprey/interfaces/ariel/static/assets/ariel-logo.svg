@@ -5,7 +5,7 @@
       <stop offset="100%" stop-color="#d4a574"/>
     </linearGradient>
   </defs>
-  <!-- Outer ring -->
+  <!-- Outer circle -->
   <circle cx="24" cy="24" r="22" stroke="url(#ariel-gradient)" stroke-width="2" fill="none"/>
   <!-- Inner clock-like element -->
   <circle cx="24" cy="24" r="16" stroke="#4fd1c5" stroke-width="1.5" fill="none" opacity="0.5"/>

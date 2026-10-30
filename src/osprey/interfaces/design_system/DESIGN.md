@@ -225,8 +225,9 @@ of a parallel local scale, and check (d) is switched on to keep it that way.
 ARIEL is the worked example throughout this section: it was the first follower
 after the two original interfaces, and every claim below is something its
 migration actually did. `channel_finder` followed it, retiring its type,
-radius and transition scales (check (e2) guards them) while keeping
-`--cf-space-*` as a legal local survivor. The remaining siblings — `artifacts`,
+radius, transition and spacing scales (check (e2) guards them); its spacing
+mapped by value with one off-scale step, 20px, rounded down to `--space-4`
+as ARIEL's did. The remaining siblings — `artifacts`,
 `okf_panel`, `lattice_dashboard` — still define their own local,
 interface-prefixed scales (`--art-*`, `--okf-*`, `--ld-*`) and are the next
 followers. A brand-new standalone service has no local scale to

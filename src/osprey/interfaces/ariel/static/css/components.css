@@ -862,7 +862,7 @@ textarea.input {
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--neutral-tint-10);
   background: var(--bg-elevated);
-  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+  border-radius: var(--radius-none) var(--radius-none) var(--radius-2xl) var(--radius-2xl);
 }
 
 /* === Loading Spinner === */
