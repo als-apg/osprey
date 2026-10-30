@@ -58,7 +58,7 @@ def _litellm_call_kwargs(model: str) -> dict[str, str]:
     ``ollama_chat`` translation which silently drops ``tool_calls`` on
     certain multi-turn responses (BerriAI/litellm #11104, #5245, #24091).
     """
-    if model.startswith("ollama/") or model.startswith("ollama_chat/"):
+    if model.startswith(("ollama/", "ollama_chat/")):
         name = model.split("/", 1)[1]
         return {
             "model": f"openai/{name}",
@@ -208,7 +208,7 @@ async def run_react_query(
                 litellm.acompletion(
                     **call_kwargs,
                     messages=messages,
-                    tools=openai_tools if openai_tools else None,
+                    tools=openai_tools or None,
                     tool_choice="auto" if openai_tools else None,
                     # Let LiteLLM handle stragglers if the throttle still misses.
                     num_retries=3,
@@ -350,7 +350,5 @@ def combined_text_from_react(result: ReactWorkflowResult) -> str:
     Mirrors :func:`sdk.combined_text` for result format compatibility.
     """
     parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
+    parts.extend(trace.result for trace in result.tool_traces if trace.result)
     return " ".join(parts).lower()

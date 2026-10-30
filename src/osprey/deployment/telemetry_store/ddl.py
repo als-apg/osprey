@@ -119,7 +119,7 @@ class TableSpec:
         for column in self.columns:
             if " MATERIALIZED " in f" {column.definition} ":
                 continue
-            nested = re.match(r"Nested\s*\((.*)\)\s*(CODEC.*)?$", column.definition, re.S)
+            nested = re.match(r"Nested\s*\((.*)\)\s*(CODEC.*)?$", column.definition, re.DOTALL)
             if nested:
                 names.extend(
                     f"{column.name}.{field_def.split()[0]}"
@@ -616,13 +616,12 @@ def _alter_statements(
             raise SchemaRefused(table.name, f"index {name} is not in this release's schema")
 
     target = f"`{DATABASE}`.`{table.name}`"
-    statements: list[str] = []
     rendered_columns = {column.name: column for column in table.columns}
-    for name in shape.columns:
-        if name not in live.columns and name in rendered_columns:
-            statements.append(
-                f"ALTER TABLE {target} ADD COLUMN IF NOT EXISTS {rendered_columns[name].render()}"
-            )
+    statements: list[str] = [
+        f"ALTER TABLE {target} ADD COLUMN IF NOT EXISTS {rendered_columns[name].render()}"
+        for name in shape.columns
+        if name not in live.columns and name in rendered_columns
+    ]
     for index in table.indexes:
         if index.name not in live.indexes:
             statements.append(f"ALTER TABLE {target} ADD INDEX IF NOT EXISTS {index.render()[6:]}")

@@ -698,17 +698,17 @@ def derive_host_network_bindings(config):
     if _on_host_network(qmd):
         # One sidecar per corpus, each on its own port of the qmd family: the
         # same derivation the compose fragment renders them from.
-        for corpus in _resolve_qmd_corpora(config, None):
-            bindings.append(
-                HostPortBinding(
-                    service=corpus["service"],
-                    host_ip=_HOST_NETWORK_BIND,
-                    host_port=corpus["port"],
-                    container_port=corpus["port"],
-                    compose_file=_DERIVED_SOURCE,
-                    host_network=True,
-                )
+        bindings.extend(
+            HostPortBinding(
+                service=corpus["service"],
+                host_ip=_HOST_NETWORK_BIND,
+                host_port=corpus["port"],
+                container_port=corpus["port"],
+                compose_file=_DERIVED_SOURCE,
+                host_network=True,
             )
+            for corpus in _resolve_qmd_corpora(config, None)
+        )
 
     services = config.get("services") if isinstance(config, dict) else None
     if isinstance(services, dict):

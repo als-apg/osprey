@@ -3950,7 +3950,7 @@ def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
         if not isinstance(value, str) or not value.strip():
             continue
         relative = posixpath.normpath(value.strip())
-        if relative.startswith("/") or relative in (".", "..") or relative.startswith("../"):
+        if relative.startswith(("/", "../")) or relative in (".", ".."):
             return ""
         # The path is written into a shell line; anything outside this set is
         # left to the operator's own image step.

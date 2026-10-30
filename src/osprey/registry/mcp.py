@@ -2006,7 +2006,7 @@ def write_window_tools(name: str, writes: tuple[str, ...], perms: dict) -> list[
     for entry in [*perms.get("ask", []), *perms.get("allow", [])]:
         if not isinstance(entry, str):
             continue
-        tool = entry[len(prefix) :] if entry.startswith(prefix) else entry
+        tool = entry.removeprefix(prefix)
         if not tool or tool in seen or _TOOL_PATTERN_CHARS & set(tool):
             continue
         asked = entry in perms.get("ask", [])

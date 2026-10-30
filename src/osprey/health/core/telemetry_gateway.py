@@ -265,9 +265,11 @@ def unfed_directories(audit_root: Path, collector_config: Mapping[str, Any]) -> 
     fed = fed_identities(collector_config)
     names: list[str] = []
     with contextlib.suppress(OSError), os.scandir(audit_root) as identities:
-        for identity in identities:
-            if identity.is_dir(follow_symlinks=False) and identity.name not in fed:
-                names.append(identity.name)
+        names.extend(
+            identity.name
+            for identity in identities
+            if identity.is_dir(follow_symlinks=False) and identity.name not in fed
+        )
     return sorted(names)
 
 

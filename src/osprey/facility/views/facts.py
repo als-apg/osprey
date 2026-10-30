@@ -352,7 +352,7 @@ def read_facts(render_root: Path, project_name: str) -> dict[str, Any]:
     if (
         isinstance(document, dict)
         and document.get("schema") == FACTS_SCHEMA
-        and FACTS_KEYS <= document.keys()
+        and document.keys() >= FACTS_KEYS
         and isinstance(document["identity"], dict)
         and "name" in document["identity"]
     ):

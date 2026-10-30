@@ -319,8 +319,7 @@ def _clean_llm_json(text: str) -> str:
         text = text[7:]
     elif text.startswith("```"):
         text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
     text = text.strip()
 
     if not text.startswith("{") and not text.startswith("["):

@@ -170,9 +170,12 @@ def assign_approvals(
             if tool_use_id in tool_ids:
                 by_tool.setdefault(tool_use_id, []).append(dict(row))
             continue
-        if terminal and str(row.get("TerminalSession") or "") == terminal:
-            if start <= parse_ts(row.get("Timestamp")) <= end:
-                loose.append(dict(row))
+        if (
+            terminal
+            and str(row.get("TerminalSession") or "") == terminal
+            and start <= parse_ts(row.get("Timestamp")) <= end
+        ):
+            loose.append(dict(row))
     return by_tool, loose
 
 

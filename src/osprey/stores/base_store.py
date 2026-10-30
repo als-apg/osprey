@@ -143,7 +143,7 @@ class BaseStore(Generic[T]):
         races on the shared index file.
         """
         self._ensure_dirs()
-        fd = open(self._lock_file, "w")
+        fd = open(self._lock_file, "w")  # noqa: SIM115
         # Hold the in-process lock across the whole critical section so a
         # concurrent reload can't rebind ``_entries`` between the caller's
         # mutation and its ``_save_index()``.

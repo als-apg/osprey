@@ -411,8 +411,7 @@ def build_tsquery(search_text: str, phrases: list[str]) -> str:
             tsquery_parts.append(PLAIN_TSQUERY_LEG)
 
     # Add phrase matches
-    for _phrase in phrases:
-        tsquery_parts.append(PHRASE_TSQUERY_LEG)
+    tsquery_parts.extend([PHRASE_TSQUERY_LEG] * len(phrases))
 
     if not tsquery_parts:
         return EMPTY_TSQUERY
@@ -663,8 +662,7 @@ async def keyword_search(
             if search_text.strip():
                 params.append(search_text)
 
-            for phrase in phrases:
-                params.append(phrase)
+            params.extend(phrases)
 
             where_clauses.append(f"{fts_expression} @@ ({build_tsquery(search_text, phrases)})")
 
@@ -686,10 +684,7 @@ async def keyword_search(
             filter_clauses.append("timestamp >= %s AND timestamp < %s")
             filter_params.append(f"{date_val}-01")
             year, month = int(date_val[:4]), int(date_val[5:7])
-            if month == 12:
-                next_month = f"{year + 1}-01-01"
-            else:
-                next_month = f"{year}-{month + 1:02d}-01"
+            next_month = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
             filter_params.append(next_month)
         else:
             filter_clauses.append("DATE(timestamp) = %s")

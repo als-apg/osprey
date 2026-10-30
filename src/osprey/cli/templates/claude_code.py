@@ -1535,19 +1535,17 @@ def _approval_outcome_rules(wired_servers: Iterable[dict]) -> list[dict]:
     for server in wired_servers:
         if not server.get("enabled"):
             continue
-        for rule in server.get("hooks_pre") or []:
+        rules.extend(
+            {
+                "matcher": rule["matcher"],
+                "hooks": [{"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}],
+            }
+            for rule in server.get("hooks_pre") or []
             if any(
                 _hook_name_of_command(hook.get("command", "")) == "approval"
                 for hook in rule.get("hooks") or []
-            ):
-                rules.append(
-                    {
-                        "matcher": rule["matcher"],
-                        "hooks": [
-                            {"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}
-                        ],
-                    }
-                )
+            )
+        )
     return rules
 
 

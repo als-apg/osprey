@@ -968,15 +968,15 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # the render would refuse is lint's to report, not this reader's to raise on.
     from osprey.deployment.web_terminals.roster import roster_entries
 
-    for entry in roster_entries(web, strict=False):
-        probes.append(
-            Probe(
-                kind="http",
-                label=f"terminal ({entry['name']})",
-                port=base + entry["index"],
-                path=TERMINAL_LIVENESS_PATH,
-            )
+    probes.extend(
+        Probe(
+            kind="http",
+            label=f"terminal ({entry['name']})",
+            port=base + entry["index"],
+            path=TERMINAL_LIVENESS_PATH,
         )
+        for entry in roster_entries(web, strict=False)
+    )
 
     return tuple(sorted(probes, key=lambda probe: probe.port))
 

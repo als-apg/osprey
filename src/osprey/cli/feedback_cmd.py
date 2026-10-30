@@ -473,7 +473,7 @@ def _read_volume_headers(
         # damage is the point, and it must not rest on how far a bulk extend
         # happens to get through an iterator that raises part-way.
         for document in iter_json_documents([result.stdout]):
-            headers.append(document)
+            headers.append(document)  # noqa: PERF402
     except FeedbackReadError as exc:
         parse_failure = (
             f"The feedback store on volume {target.volume!r} (user {target.user!r}) "
@@ -1443,6 +1443,8 @@ def export(repo: Path | None, output: Path | None) -> None:
     # No banner when stdout is the document, and machine mode with it, so a
     # line printed from anywhere in the stack lands on standard error rather
     # than in the middle of the JSON.
-    with _feedback_session(repo, announce=output_path is not None) as deployment:
-        with machine_mode() if output_path is None else nullcontext():
-            _export_store(deployment, output_path)
+    with (
+        _feedback_session(repo, announce=output_path is not None) as deployment,
+        machine_mode() if output_path is None else nullcontext(),
+    ):
+        _export_store(deployment, output_path)
