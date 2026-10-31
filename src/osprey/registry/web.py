@@ -111,12 +111,21 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         panel_id="artifacts",
         pass_workspace=True,
     ),
+    # The build renders an `ariel:` section only when the deployment's ARIEL
+    # server is on (`ariel_server_on` in the config template), so the section
+    # is the one fact that says this deployment runs a logbook. Without it the
+    # panel has no store to reach -- its DSN would fall back to a Postgres this
+    # deployment never declared -- and the only session it could ever hold is
+    # the degraded one, announced as pool errors on the operator's terminal.
+    # A hello-world chat used to open exactly that way. require_section keeps
+    # the panel dark until the build says there is a logbook behind it.
     "ariel": WebServerDefinition(
         name="ARIEL server",
         factory_path="osprey.interfaces.ariel.app:create_app",
         config_key="ariel",
         panel_id="ariel",
         config_web_subkey="web",
+        require_section=True,
     ),
     "channel_finder": WebServerDefinition(
         name="Channel Finder",
