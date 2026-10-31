@@ -1591,6 +1591,10 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
             f"Claim one with a `# {result.deviation_marker}: <why>` comment above its line, "
             f"or in the key's name. `osprey validate --drift=warn` reports them without refusing."
         )
+    if result.app_drift:
+        output.report("Applications that differ from what `osprey init` copied (left as they are):")
+        for line in result.app_drift:
+            output.note(line)
     if result.manual_steps:
         output.report("Left for you to do by hand:")
         for step in result.manual_steps:

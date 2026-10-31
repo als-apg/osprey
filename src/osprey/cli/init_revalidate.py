@@ -229,6 +229,9 @@ class RevalidateResult:
     """Differences from the preset ``osprey validate`` now refuses."""
     deviation_marker: str = ""
     """The tag a drift finding is claimed with."""
+    app_drift: list[str] = field(default_factory=list)
+    """Each copied application whose files differ from what ``osprey init`` copied,
+    unclaimed, and each whose preset has moved on since. Reported, never rewritten."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2931,7 +2934,26 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         result.drift_refusals = _drift_refusals(
             root, resolved, preset_hash, plan.content_hash, result.deviation_marker
         )
+    result.app_drift = _app_drift(root, result.deviation_marker)
     return result
+
+
+def _app_drift(root: Path, marker: str) -> list[str]:
+    """The application differences ``osprey validate`` reports, one line each.
+
+    An application's files are the operator's to edit, so a difference is said
+    and never rewritten: the copy stays as it is, and a marker in its
+    ``.provenance`` sidecar claims it. Never fatal: a sidecar that does not
+    parse reports nothing here and refuses where ``osprey validate`` reads it.
+    """
+    from .build_profile_drift import _compare_apps
+    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+
+    try:
+        findings, _stale, notes = _compare_apps(root, marker or DEFAULT_DEVIATION_MARKER)
+    except BuildProfileError:
+        return []
+    return [finding.render() for finding in findings if not finding.marked] + notes
 
 
 def _plan_providers(root: Path) -> Any:
