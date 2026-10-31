@@ -543,6 +543,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/app_runtime",
+            template_path="app_runtime",
+            output_path="services/app_runtime",
+            description="Application runtime compose template (runtime: osprey containers)",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/agent_record",
             template_path="agent_record",
             output_path="services/agent_record",

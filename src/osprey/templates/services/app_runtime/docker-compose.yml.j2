@@ -1,0 +1,120 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+-#}
+{%- import "services/_network_axis.j2" as net -%}
+{%- import "services/_env_axis.j2" as hostenv -%}
+# An application container (`runtime: osprey` in the application's app.yml):
+# the application's own code, run on the PROJECT image (<project>:local) that
+# `osprey up` builds from the project root. `osprey build` installs the
+# application's package into that image beside the framework, so the command
+# below runs it with nothing else to install. OSPREY_WORKER_IMAGE overrides
+# with a prebuilt/published image. There is deliberately NO `build:` block: the
+# project image is built once by `osprey up`, and a second `build:` for the
+# same tag would race it.
+#
+# One file renders every such container: the render names the container's
+# `services.<key>` block `service` and its key `service_key`, and the panel's
+# roster grant, when this container serves the panel, `panel_grant`.
+{%- set svc = service if service is defined and service else {} %}
+{%- set key = service_key if service_key is defined and service_key else 'app_runtime' %}
+{%- set grant = panel_grant if panel_grant is defined and panel_grant else {} %}
+{%- set on_host = (svc.network | default('bridge', true)) == 'host' %}
+{%- set config_file = svc.config_file | default('', true) %}
+{%- set state_mounts = svc.state_mounts | default([], true) %}
+{%- set identity = svc.audit_identity | default('', true) %}
+
+services:
+  {{ key }}:
+    image: ${OSPREY_WORKER_IMAGE:-{{ svc.image | default(osprey_images.worker) }}}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run the same application on one
+    # host.
+    container_name: {{ osprey_labels.project_name }}-{{ key | replace('_', '-') }}
+{%- if svc.command %}
+    command: {{ svc.command | list | tojson }}
+{%- endif %}
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    # No `env_file:`: the container is handed the variables named below and
+    # nothing else of the deployment's env chain, so no provider key or other
+    # service's secret reaches application code. Each is interpolated into
+    # this document, so a changed value recreates the container.
+    environment:
+{%- if svc.app %}
+      # WHICH application this container runs.
+      OSPREY_APP_NAME: "{{ svc.app }}"
+{%- endif %}
+{%- if config_file %}
+      # The application's rendered `apps.<name>.config`, bound read-only below.
+      OSPREY_APP_CONFIG: /osprey/app/config.yml
+{%- endif %}
+{%- if svc.port %}
+      # The port the application listens on, and the address it binds. On the
+      # compose bridge it binds every interface of its own namespace, which the
+      # loopback-only publish below is the one way into; on the host network
+      # its socket IS a host socket, so it binds loopback and nothing off this
+      # machine can reach it either way.
+      OSPREY_APP_PORT: "{{ svc.port }}"
+      OSPREY_APP_BIND: "{{ '127.0.0.1' if on_host else '0.0.0.0' }}"
+{%- endif %}
+{%- if state_mounts %}
+      # The state directories the application declared, bound below: one
+      # colon-separated list, which the image's entrypoint joins and probes
+      # entry by entry before it drops privileges.
+      OSPREY_APP_STATE_DIRS: "{{ state_mounts | map(attribute='target') | join(':') }}"
+{%- endif %}
+{%- if identity %}
+      # WHO this container's records are written as, and its own spool
+      # directory, bound below; the entrypoint joins its group before it drops
+      # privileges.
+      OSPREY_AUDIT_IDENTITY: {{ identity }}
+      OSPREY_SPOOL_DIR: {{ osprey_container_spool_dir }}/{{ identity }}
+{%- endif %}
+{%- if svc.launch_token_env %}
+      # The panel's launch token. No default: an unset token leaves the panel
+      # refusing every launch rather than accepting a guessable one.
+      {{ svc.launch_token_env }}: ${{ "{" }}{{ svc.launch_token_env }}{{ "}" }}
+{%- endif %}
+{%- if grant.secret_env_vars %}
+      # THE ROSTER GRANT. Every web-terminal user whose login shows this
+      # application's panel proxies it here with the operator secret their own
+      # container holds. Listing each of those variables lets this container's
+      # web gate accept any of them, so no user's container is handed another's
+      # secret; the flag is what makes the gate accept the roster variables.
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
+{%- for var in grant.secret_env_vars %}
+      {{ var }}: ${{ "{" }}{{ var }}:-}
+{%- endfor %}
+      # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs.
+      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ grant.roster_owners | default('') }}"
+{%- endif %}
+      TZ: {{ system.timezone }}
+{{- hostenv.passthrough(svc) }}
+{{- net.ports(svc, ['127.0.0.1:' ~ svc.port ~ ':' ~ svc.port] if svc.port else []) }}
+{%- if config_file or state_mounts or identity %}
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT.
+    volumes:
+{%- if config_file %}
+      - ./build/{{ config_file[2:] if config_file.startswith('./') else config_file }}:/osprey/app/config.yml:ro
+{%- endif %}
+{%- for mount in state_mounts %}
+      - {{ mount.source }}:{{ mount.target }}
+{%- endfor %}
+{%- if identity %}
+      - {{ osprey_spool_mount_source }}/{{ identity }}:{{ osprey_container_spool_dir }}/{{ identity }}
+{%- endif %}
+{%- endif %}
+{{- net.network(svc) }}
+{%- if svc.port and svc.health %}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ svc.port }}{{ svc.health }}').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+{%- endif %}
+{{ net.network_declaration(svc) }}

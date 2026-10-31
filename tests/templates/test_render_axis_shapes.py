@@ -1017,6 +1017,9 @@ def test_every_service_template_hands_the_axis_to_every_container_it_renders() -
             _raw_default_config(repo_root)
             | {"services": services, "deployed_services": list(services)}
         )
+        # The application runtime reads its block through the per-service name
+        # the render injects, never through `services.app_runtime`.
+        context |= {"service": services["app_runtime"], "service_key": "app_runtime"}
         renders = _render_templates(context, TEMPLATES)
 
     for filename, text in sorted(renders.items()):
