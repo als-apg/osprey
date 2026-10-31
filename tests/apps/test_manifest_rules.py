@@ -60,8 +60,8 @@ KNOB: dict[str, Any] = {
                     "input_digests": [{"field": "approved_digest", "over": ["value"]}],
                 },
                 "require": {
-                    "all_of": ["approved_target"],
-                    "one_of": [["approved_digest", "approved_readback"]],
+                    "all_of": ["approved_target", "approved_digest"],
+                    "one_of": [["approved_readback"]],
                 },
             }
         ],
@@ -308,13 +308,13 @@ def test_a_tool_that_binds_fetched_state_may_not_spell_deny_in_jobs_false() -> N
 def test_require_names_approved_target_or_a_bound_field() -> None:
     m = _manifest(
         tools__approval__0__require={
-            "all_of": ["approved_target", "approved_setpoint"],
-            "one_of": [["approved_digest", "approved_other"]],
+            "all_of": ["approved_target", "approved_digest", "approved_setpoint"],
+            "one_of": [["approved_readback", "approved_other"]],
         }
     )
     err = _refused([m])
     assert [v.field for v in err.violations] == [
-        "tools.approval.0.require.all_of.1",
+        "tools.approval.0.require.all_of.2",
         "tools.approval.0.require.one_of.0",
     ]
     assert set(_rules(err)) == {"approved_fields"}
@@ -339,13 +339,26 @@ def test_a_field_is_bound_once() -> None:
         [
             _manifest(
                 tools__approval__0__bind__input_digests__0__field="approved_readback",
-                tools__approval__0__require__one_of=[["approved_readback"]],
+                tools__approval__0__require={"all_of": ["approved_readback"]},
             )
         ]
     )
     assert _rules(err) == ["bound_twice"]
     assert err.field == "tools.approval.0.bind.input_digests.0.field"
     assert "bound_twice" in _rules(_refused([m]))
+
+
+def test_every_bound_digest_is_required() -> None:
+    m = _manifest(
+        tools__approval__0__require={
+            "all_of": ["approved_target"],
+            "one_of": [["approved_digest", "approved_readback"]],
+        }
+    )
+    err = _refused([m])
+    assert _rules(err) == ["digest_required"]
+    assert err.field == "tools.approval.0.bind.input_digests.0.field"
+    assert "approved_digest" in err.message
 
 
 def test_the_tool_server_declares_no_separate_field_list() -> None:

@@ -172,14 +172,22 @@ class Panel(_Strict):
 
 
 class StateField(_Strict):
-    """Copy the fetched state's ``key`` into the stamp field ``field``."""
+    """Copy the fetched state's ``key`` into the stamp field ``field``.
+
+    A ``key`` absent from the state leaves the field unbound.
+    """
 
     field: NonEmpty
     key: NonEmpty
 
 
 class InputDigest(_Strict):
-    """Bind ``field`` to the digest of the call's inputs named in ``over``."""
+    """Bind ``field`` to the digest of the call's inputs named in ``over``.
+
+    Every digest is required: ``require.all_of`` names it, and a call missing an
+    ``over`` key is refused (``approval_missing``) before the prompt. A tool that
+    takes two input shapes is two tools, each with its own digest.
+    """
 
     field: NonEmpty
     over: list[NonEmpty] = Field(min_length=1)

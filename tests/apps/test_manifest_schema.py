@@ -62,8 +62,8 @@ FULL: dict[str, Any] = {
                     "input_digests": [{"field": "approved_digest", "over": ["value"]}],
                 },
                 "require": {
-                    "all_of": ["approved_target"],
-                    "one_of": [["approved_digest", "approved_readback"]],
+                    "all_of": ["approved_target", "approved_digest"],
+                    "one_of": [["approved_readback"]],
                 },
             }
         ],
@@ -124,8 +124,8 @@ def test_full_manifest_parses() -> None:
     assert entry.bind.state_fields[0].field == "approved_readback"
     assert entry.bind.state_fields[0].key == "readback"
     assert entry.bind.input_digests[0].over == ["value"]
-    assert entry.require.all_of == ["approved_target"]
-    assert entry.require.one_of == [["approved_digest", "approved_readback"]]
+    assert entry.require.all_of == ["approved_target", "approved_digest"]
+    assert entry.require.one_of == [["approved_readback"]]
     assert m.containers["knob-demo"].env == ["KNOB_DEMO_MODE"]
     assert m.containers["knob-cache"].fragment == "compose/knob-cache/"
     assert m.panel is not None and m.panel.entry == "/ui/"
