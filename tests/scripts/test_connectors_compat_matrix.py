@@ -274,12 +274,17 @@ def test_the_pyaml_backend_declares_the_framework_floor() -> None:
     assert compat.connectors_floor(member) == compat.connectors_floor()
 
 
+def _today_with_the_floor_tag() -> list[str]:
+    """``TODAY`` plus the tag of the repository's real floor, which ``main`` reads."""
+    return [*TODAY, f"osprey-connectors-v{compat.connectors_floor()}"]
+
+
 def test_the_plan_job_output_names_every_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     output = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    monkeypatch.setattr(compat, "reachable_tags", lambda: TODAY)
+    monkeypatch.setattr(compat, "reachable_tags", _today_with_the_floor_tag)
     assert compat.main(["github-output"]) == 0
     pairs = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert set(pairs) == {"matrix", "floor", "floor-applicable"}
@@ -294,7 +299,7 @@ def test_a_dispatched_framework_is_the_one_cell(
 ) -> None:
     output = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    monkeypatch.setattr(compat, "reachable_tags", lambda: TODAY)
+    monkeypatch.setattr(compat, "reachable_tags", _today_with_the_floor_tag)
     assert compat.main(["github-output", "--framework", "2026.9.0b3"]) == 0
     pairs = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert json.loads(pairs["matrix"]) == {"include": [{"framework": "2026.9.0b3"}]}
