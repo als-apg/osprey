@@ -1,9 +1,10 @@
 /**
  * Logging out, from anywhere on the page.
  *
- * Log out is offered in two places — the More menu's Sign out row
- * (`#logout-btn`) and the command palette — and neither owns the flow. The
- * palette must be able to log out with no button in the DOM. What it
+ * Log out is offered in three places — the sidebar's Sign out row
+ * (`#logout-btn`), the OSPREY mark and the command palette — and every one of
+ * them asks first (sign-out.js) and then runs this flow; none owns it. The
+ * palette and the mark must be able to log out with no button. What the flow
  * needs is the landing URL, which the server stamps on `<html>` as
  * `data-landing-url` whenever it renders a logout at all (multi-user
  * deployments: a user to log out, somewhere to send them). Plain `osprey web`

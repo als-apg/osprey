@@ -206,20 +206,19 @@ export const CONTROL_CONTEXT_FRAME = 'control_context';
 export const TARGET_SWITCH_TOOL = 'control_target_set';
 
 /**
- * Dispatched on the chip element when the operator clicks it. The chip owns
- * `aria-expanded` and nothing else; the popover module listens for this and
- * opens or closes itself, then calls {@link setExpanded} for any dismissal it
- * drives on its own (outside click, Escape, a completed switch).
+ * Dispatched on the chip element when the operator clicks it. The chip flips
+ * its own `aria-expanded` and nothing else; the popover module listens for
+ * this and opens or closes itself, and the design system's popover.js keeps
+ * `aria-expanded` in step for every close it drives on its own (a press
+ * outside, Escape, a resize).
  *
  * `detail.expanded` carries the state the chip has just moved TO.
  */
 export const CHIP_TOGGLE_EVENT = 'osprey-control-target-toggle';
 
 /**
- * The chip and the popover travel together inside one positioning context —
- * the popover is `position: absolute` under its trigger and `.ctc-anchor` is
- * `position: relative` (terminal.css), so the pair keeps its own anchoring
- * wherever the layout parks the item's shell.
+ * The chip's wrapper inside its host: what hides while there is nothing to
+ * say, so an empty box never holds the host's layout open.
  * @type {HTMLElement|null}
  */
 let anchor = null;
@@ -303,9 +302,9 @@ export function initControlTargetChip({ host } = {}) {
     anchor.appendChild(chip);
     host.appendChild(anchor);
   } else if (anchor.parentElement !== host) {
-    // A different host. Move the whole positioning context rather than
-    // rebuilding it: the popover, the click listener and the chip's current
-    // paint all ride along, and a rebuild would leave the old chip orphaned.
+    // A different host. Move the wrapper rather than rebuilding it: the click
+    // listener and the chip's current paint ride along, and a rebuild would
+    // leave the old chip orphaned.
     host.appendChild(anchor);
   }
 
@@ -325,8 +324,7 @@ export function teardownControlTargetChip() {
     sse.stop();
     sse = null;
   }
-  // The anchor goes with it, popover and all: a positioning context with
-  // nothing to position is a stray box in its host.
+  // The wrapper goes with it: an empty one is a stray box in its host.
   if (anchor) anchor.remove();
   else chip?.remove();
   anchor = null;
@@ -346,7 +344,7 @@ function buildChip() {
   el.className = 'control-target-chip';
   el.id = 'control-target-chip';
   el.hidden = true;
-  el.setAttribute('aria-haspopup', 'true');
+  el.setAttribute('aria-haspopup', 'dialog');
   el.setAttribute('aria-expanded', 'false');
 
   const dot = span('ctc-dot');
@@ -853,28 +851,6 @@ export function isPending() {
 /** The chip element, for the popover to hang its listeners on. */
 export function getChipElement() {
   return chip;
-}
-
-/**
- * The positioning context the popover mounts into (`.ctc-anchor`, the chip's
- * own parent). Under a chip on a page bar the popover is `position:
- * absolute` and only `.ctc-anchor` is guaranteed `position: relative`;
- * beside the sidebar it is fixed and placed by the popover module. Either
- * way it belongs in the anchor, travelling with the chip.
- */
-export function getAnchorElement() {
-  return anchor;
-}
-
-/**
- * Mirror the popover's open state onto the chip. The popover dismisses itself
- * for reasons the chip never sees (an outside click, Escape); without this the
- * chip would keep claiming `aria-expanded=true` and the hover/open styling
- * would stay lit over a closed popover.
- * @param {boolean} expanded
- */
-export function setExpanded(expanded) {
-  chip?.setAttribute('aria-expanded', String(Boolean(expanded)));
 }
 
 /**

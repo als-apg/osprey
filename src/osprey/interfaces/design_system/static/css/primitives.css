@@ -518,19 +518,35 @@ button.osprey-search {
   transform: translateX(12px);
 }
 
-/* Tooltip: the one fixed tooltip layer that tooltip.js appends to body. */
+/* Tooltip: the one fixed tooltip layer that tooltip.js appends to body. It
+   wraps at 280px; the label is one line, the explanation sits under it. */
 .osprey-tooltip {
   position: fixed;
   z-index: var(--z-toast);
+  width: max-content;
+  max-width: 280px;
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-md);
-  white-space: nowrap;
+  white-space: normal;
   color: var(--text-primary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-dropdown);
   pointer-events: none;
+}
+
+.osprey-tooltip-label,
+.osprey-tooltip-detail {
+  display: block;
+}
+
+.osprey-tooltip-label {
+  font-weight: var(--weight-medium);
+}
+
+.osprey-tooltip-detail {
+  color: var(--text-secondary);
 }
 
 /* Keyboard hint, for example ⌘K. */

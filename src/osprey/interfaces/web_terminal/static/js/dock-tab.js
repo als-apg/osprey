@@ -8,7 +8,9 @@
  * learned once. There is no drag badge: the bar itself is the drag handle
  * (cursor: grab), a convention the workspace teaches by use:
  *
- *   service tiles — a visible `.tile-tab-title` + close. The close is
+ *   service tiles — a visible `.tile-tab-title`, pop out and close. Pop out
+ *     moves the panel into its own browser window (popout.js), which retires
+ *     the tile until that window closes. The close is
  *     a LOCAL tile close (the panel keeps its sidebar row; dock-sync routes
  *     the click to a vacate handler).
  *   the Agent tile — an adopted live bar + close. The Simple view adopts the
@@ -35,7 +37,11 @@ import { registerContribHost, unregisterContribHost } from './tile-header-contri
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeTerminalPanel } from './dock-workspace.js';
+import { popOutPanel, canPopOut } from './popout.js';
 import { icon } from '/design-system/js/icons.js';
+
+/** What the disabled Pop out button says about an opaque-origin panel. */
+const CANNOT_POP_OUT = 'This panel runs at an opaque origin and cannot be popped out.';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
@@ -178,6 +184,41 @@ function wireTileContextMenu(el, id) {
 }
 
 /**
+ * A service tile's Pop out button: moves the panel into its own window. It
+ * runs the pop-out inside the click, the gesture the browser needs to open a
+ * window at all. A panel with no first-party page to open (an opaque-origin
+ * panel) gets the button disabled, with the reason as its title. The gate
+ * cannot be read when the tile is built: the panel's URL and its frame kind
+ * resolve later, and a button disabled then would never receive the click
+ * that re-reads it. So the button starts enabled and reads the gate when the
+ * pointer or focus arrives and again at click time.
+ * @param {string} panelId  service panel id (the placeholder id minus its prefix)
+ * @returns {HTMLButtonElement}
+ */
+function buildPopoutButton(panelId) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-popout osprey-icon-btn';
+  btn.appendChild(icon('popout'));
+  btn.setAttribute('aria-label', 'Pop out');
+  btn.title = 'Pop out';
+  const paint = () => {
+    const allowed = canPopOut(panelId);
+    btn.disabled = !allowed;
+    btn.title = allowed ? 'Pop out' : CANNOT_POP_OUT;
+  };
+  btn.addEventListener('pointerenter', paint);
+  btn.addEventListener('focus', paint);
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    paint();
+    if (!btn.disabled) popOutPanel(panelId);
+  });
+  return btn;
+}
+
+/**
  * The tile-tab renderer (dockview ITabRenderer: element / init / dispose).
  */
 class TileTab {
@@ -250,6 +291,7 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
+    if (!terminal) actions.appendChild(buildPopoutButton(this._servicePanelId ?? id));
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close osprey-icon-btn';

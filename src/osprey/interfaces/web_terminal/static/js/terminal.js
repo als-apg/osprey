@@ -76,9 +76,9 @@ function storeSessionId(sessionId) {
 
 /**
  * Clear the tab's session pointer (e.g. once a resume attempt turns out to
- * target a dead/expired session, or on logout — see app.js's
- * initLogoutButton, which clears the client's pointer before navigating so
- * the next page load's initTerminal() has nothing to auto-resume).
+ * target a dead/expired session, or on logout — see logout.js, which clears
+ * the client's pointer before navigating so the next page load's
+ * initTerminal() has nothing to auto-resume).
  */
 export function clearStoredSessionId() {
   clearPointer();

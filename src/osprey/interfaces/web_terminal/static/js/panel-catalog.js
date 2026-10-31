@@ -68,6 +68,34 @@ export function panelIconName(id) {
 }
 
 /**
+ * One plain sentence per known panel, shown as the explanatory line of its
+ * sidebar tooltip. A panel not named here (a custom or runtime-registered one)
+ * has no description, and its tooltip stays a bare label.
+ * @type {Readonly<Record<string, string>>}
+ */
+export const PANEL_DESCRIPTIONS = Object.freeze({
+  terminal: 'Chat with the agent, approve its actions and run commands',
+  artifacts: 'Files, plots and notebooks the agent produced',
+  events: 'Event dispatcher dashboard',
+  ariel: 'Search the electronic logbook',
+  'channel-finder': 'Find control-system channels by name or property',
+  lattice: 'Optics of the lattice models the simulator serves',
+  okf: 'Browse the facility knowledge bundle',
+  'system-health': 'Health checks for the framework and its services',
+  jupyter: 'JupyterLab with kernels that follow the terminal session',
+  bluesky: 'Write plans, run the queue and watch live results',
+});
+
+/**
+ * The tooltip sentence for a panel's sidebar row.
+ * @param {string} id
+ * @returns {string | null} `null` when the panel has no description
+ */
+export function describePanel(id) {
+  return Object.hasOwn(PANEL_DESCRIPTIONS, id) ? PANEL_DESCRIPTIONS[id] : null;
+}
+
+/**
  * A panel label as the sidebar shows it. An all-capitals label (`ARIEL`,
  * `CHANNELS`, a custom panel named after its id) reads in title case:
  * every word, split at spaces and hyphens, keeps only its first letter
@@ -123,7 +151,7 @@ const PANEL_LABELS = panelLabels();
  */
 function labelOf(id) {
   const label = PANEL_LABELS[id];
-  return typeof label === 'string' && label ? label : id.toUpperCase();
+  return titleCase(typeof label === 'string' && label ? label : id.toUpperCase());
 }
 
 /** @type {Panel[]} */

@@ -296,7 +296,9 @@ def test_the_chip_names_the_recorded_target_and_lists_every_row(
 
             card = page.locator(CARD)
             expect(card).to_have_attribute("data-target", ACTIVE_TARGET)
-            expect(card.locator(".ctc-card-eyebrow")).to_have_text("The agent is on")
+            expect(page.locator(f"{POPOVER} > .osprey-popover-title").first).to_have_text(
+                "The agent is on"
+            )
             expect(card.locator(".ctc-name")).to_have_text(NAMES[ACTIVE_TARGET])
             expect(page.locator(f"{POPOVER} .ctc-row")).to_have_count(2, timeout=TIMEOUT)
             for target in (SWITCH_TARGET, POSTURE_TARGET):

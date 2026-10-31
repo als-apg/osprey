@@ -49,18 +49,22 @@ afterEach(() => {
 });
 
 describe('the built-in panel labels come from the page', () => {
-  test('with the stamp, every panel wears the label the server sent', async () => {
+  test('with the stamp, every panel wears the label the server sent, in title case', async () => {
     stampPanelLabels(document);
-    const { PANELS } = await freshCatalog();
+    const { PANELS, titleCase } = await freshCatalog();
 
-    expect(Object.fromEntries(PANELS.map((p) => [p.id, p.label]))).toEqual(BUILTIN_PANEL_LABELS);
+    expect(Object.fromEntries(PANELS.map((p) => [p.id, p.label]))).toEqual(
+      Object.fromEntries(
+        Object.entries(BUILTIN_PANEL_LABELS).map(([id, label]) => [id, titleCase(label)])
+      )
+    );
     expect(warnings).toEqual([]);
   });
 
-  test('without the stamp every panel wears its id, and one warning is logged', async () => {
-    const { PANELS } = await freshCatalog();
+  test('without the stamp every panel wears its id in title case, and one warning is logged', async () => {
+    const { PANELS, titleCase } = await freshCatalog();
 
-    expect(PANELS.map((p) => p.label)).toEqual(PANELS.map((p) => p.id.toUpperCase()));
+    expect(PANELS.map((p) => p.label)).toEqual(PANELS.map((p) => titleCase(p.id.toUpperCase())));
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('data-panel-labels');
   });
@@ -69,20 +73,22 @@ describe('the built-in panel labels come from the page', () => {
     document.documentElement.setAttribute('data-panel-labels', '{not json');
     const { PANELS } = await freshCatalog();
 
-    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('ARTIFACTS');
+    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('Artifacts');
     expect(warnings).toHaveLength(1);
   });
 
   test('a label follows the stamp, and a panel the stamp does not name falls back to its id', async () => {
-    // A renamed label proves no copy of the roster rides in the bundle.
+    // A renamed label proves no copy of the roster rides in the bundle. An
+    // all-caps stamp reads in title case; a mixed-case one is kept as spelled.
     document.documentElement.setAttribute(
       'data-panel-labels',
-      JSON.stringify({ artifacts: 'FILES' })
+      JSON.stringify({ artifacts: 'FILES', ariel: 'eLog' })
     );
     const { PANELS } = await freshCatalog();
 
-    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('FILES');
-    expect(PANELS.find((p) => p.id === 'okf')?.label).toBe('OKF');
+    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('Files');
+    expect(PANELS.find((p) => p.id === 'ariel')?.label).toBe('eLog');
+    expect(PANELS.find((p) => p.id === 'okf')?.label).toBe('Okf');
     expect(warnings).toEqual([]);
   });
 });
@@ -135,6 +141,24 @@ describe('how the sidebar names and draws a panel', () => {
     expect(panelIconName('my-custom-panel')).toBe(FALLBACK_PANEL_ICON);
     // An inherited Object property is not a panel's glyph.
     expect(panelIconName('constructor')).toBe(FALLBACK_PANEL_ICON);
+  });
+
+  test('every shipped panel, the Agent pane and Events have a description', async () => {
+    const { PANELS, PANEL_DESCRIPTIONS, TERMINAL_RAIL_ID } = await freshCatalog();
+
+    for (const id of [TERMINAL_RAIL_ID, 'events', ...PANELS.map((p) => p.id)]) {
+      expect(Object.hasOwn(PANEL_DESCRIPTIONS, id)).toBe(true);
+    }
+  });
+
+  test('describePanel answers the sentence of a known panel, else null', async () => {
+    const { describePanel, PANEL_DESCRIPTIONS } = await freshCatalog();
+
+    expect(describePanel('ariel')).toBe('Search the electronic logbook');
+    expect(describePanel('terminal')).toBe(PANEL_DESCRIPTIONS.terminal);
+    expect(describePanel('my-custom-panel')).toBeNull();
+    // An inherited Object property is not a panel's description.
+    expect(describePanel('constructor')).toBeNull();
   });
 
   test.each([

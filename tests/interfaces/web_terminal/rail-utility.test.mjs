@@ -120,12 +120,15 @@ describe('sidebar footer markup', () => {
     expect(footer.querySelector('.panel-rail-button')).toBeNull();
   });
 
-  test('holds exactly Docs, Feedback and More, in that order', () => {
+  test('holds Docs, Feedback, Sign out and More, in that order', () => {
     const footer = parseFooter();
 
+    // The raw template still carries the Jinja-gated Sign out row; a render
+    // without a signed-in user drops it and the other three keep their order.
     expect(Array.from(footer.children, (child) => child.id)).toEqual([
       'panel-docs-link',
       'panel-feedback-btn',
+      'logout-btn',
       'more-btn',
     ]);
   });

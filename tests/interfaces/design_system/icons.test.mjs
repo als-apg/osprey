@@ -40,6 +40,7 @@ const CONTRACT_NAMES = [
   'chart-line',
   'bash',
   'maximize',
+  'popout',
   'save',
   'x',
   'pen',

@@ -13,16 +13,17 @@
  *   - Appearance: follow the system, light or dark, and Theme family — the
  *     hub's theme preference through theme-manager.js, which owns it;
  *   - Settings (⌘, / Ctrl+,), Keyboard shortcuts, Take the tour, Activity log
- *     and About OSPREY;
- *   - Sign out, where the deployment has somewhere to send the operator.
+ *     and About OSPREY.
  *
- * The rows are server-rendered in index.html (`#more-menu`), so the ids other
+ * Sign out is not here: it is a row of the sidebar footer (index.html,
+ * app.js), so it is one click away rather than behind a menu.
+ *
+ * The rows are server-rendered in index.html (`#more-menu`), so the id other
  * modules and tests resolve — `#more-settings` with its `data-drawer-trigger`
- * (settings-warning-gate.js opens the drawer from it) and `#logout-btn`
- * (app.js binds logout.js's flow to it) — are in the page from the first
- * paint. Only the theme families, which theme-manager.js defines, are built
- * here. This module keeps every radio's `aria-checked` true to the state it
- * names, and runs the rows that have no owner of their own.
+ * (settings-warning-gate.js opens the drawer from it) — is in the page from
+ * the first paint. Only the theme families, which theme-manager.js defines,
+ * are built here. This module keeps every radio's `aria-checked` true to the
+ * state it names, and runs the rows that have no owner of their own.
  *
  * The menu is a body-level `.osprey-popover` opened by the design system's
  * popover.js beside the sidebar, bottom-aligned with ☰ More: an outside
@@ -220,8 +221,6 @@ export function initMoreMenu({ getSessionId }) {
       close();
       openActivityLog(getSessionId);
     }
-    // Sign out (#logout-btn) stays open: its handler navigates away and keeps
-    // the row busy while the logout is in flight.
   });
 
   subscribeTheme(() => syncMenu(menu));

@@ -21,10 +21,12 @@
  *   its application as `window.jupyterapp`, and the switch is
  *   `apputils:change-theme` from `@jupyterlab/apputils-extension:themes` — the
  *   command Lab's own *Settings → Theme* menu runs.
- * - **Only in the hub.** The gate is `embedded=true` on the page's address,
- *   which the hub's `buildEmbedSrc` stamps on every panel frame. A Lab page
- *   opened at its own address, or popped out of the hub, carries none and
- *   keeps the theme Lab chose for itself.
+ * - **Only under the hub.** The gate is `embedded=true` on the page's address,
+ *   which the hub's `buildEmbedSrc` stamps on every panel frame, or
+ *   `popout=true`, which `buildPopoutSrc` stamps on a panel popped out into
+ *   its own window — the hub keeps posting its theme to that window too. A
+ *   Lab page opened at its own address carries neither and keeps the theme
+ *   Lab chose for itself.
  *
  * The command stores what it switches to, exactly as Lab's menu does: the
  * theme setting, in Lab's settings on the shared root. So a Lab page opened on
@@ -123,8 +125,8 @@ export function labThemeFor(themeId) {
 }
 
 /**
- * Start following the hub's theme, when the hub framed this page; a no-op
- * anywhere else, and on a second call.
+ * Start following the hub's theme, when the hub framed or popped out this
+ * page; a no-op anywhere else, and on a second call.
  *
  * The address's `theme` is read here, before Lab boots: Lab's router rewrites
  * the address as documents open, and the query goes with it.
@@ -135,7 +137,7 @@ export function initLabThemeFollow() {
   if (following) return true;
   if (typeof document === 'undefined' || !document.body) return false;
   const params = new URLSearchParams(window.location.search);
-  if (params.get('embedded') !== 'true') return false;
+  if (params.get('embedded') !== 'true' && params.get('popout') !== 'true') return false;
 
   following = true;
   window.addEventListener('message', onMessage);

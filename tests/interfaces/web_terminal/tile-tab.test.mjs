@@ -2,9 +2,9 @@
  * Contract tests for the tile-tab renderer (dock-tab.js): the custom dockview
  * tab that IS each tile's header bar. Every tile gets the same bar — identity
  * on the left, actions right-anchored; the bar itself is the drag handle.
- * Service tiles carry a visible `.tile-tab-title`; the Agent tile adopts a
- * live bar instead — the chat console's `.op-session-bar` in Simple, the
- * `.terminal-header` in Expert. Run:
+ * Service tiles carry a visible `.tile-tab-title` and a Pop out button; the
+ * Agent tile adopts a live bar instead — the chat console's `.op-session-bar`
+ * in Simple, the `.terminal-header` in Expert. Run:
  *   npx vitest run tests/interfaces/web_terminal/tile-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -14,6 +14,17 @@ import { buildConsole } from '../../../src/osprey/interfaces/web_terminal/static
 const MOD = '../../../src/osprey/interfaces/web_terminal/static/js/dock-tab.js';
 
 const { closeTerminalPanel } = vi.hoisted(() => ({ closeTerminalPanel: vi.fn(() => true) }));
+const { popOutPanel, canPopOut } = vi.hoisted(() => ({
+  popOutPanel: vi.fn(() => true),
+  canPopOut: vi.fn(() => true),
+}));
+
+// The pop-out itself (window, handle, tile retirement) is popout.js's
+// contract; the bar only has to ask it the right things at the right times.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
+  popOutPanel,
+  canPopOut,
+}));
 
 // dock-tab closes the Agent pane through dock-workspace; the rest of that
 // module (dockview itself) is out of scope here. The doubles cover what the
@@ -89,6 +100,8 @@ describe('tile-tab renderer', () => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     closeTerminalPanel.mockClear();
+    popOutPanel.mockClear();
+    canPopOut.mockReset().mockReturnValue(true);
   });
 
   test('service tab renders visible title and close', async () => {
@@ -127,6 +140,87 @@ describe('tile-tab renderer', () => {
     close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(closeTerminalPanel).toHaveBeenCalledTimes(1);
     expect(api.close).not.toHaveBeenCalled();
+  });
+
+  test('a service tile has a Pop out button before its close, an icon button with the popout icon', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+
+    const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-popout'));
+    expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-popout osprey-icon-btn',
+      'tile-tab-close osprey-icon-btn',
+    ]);
+    expect(popout.title).toBe('Pop out');
+    expect(popout.getAttribute('aria-label')).toBe('Pop out');
+    expect(popout.disabled).toBe(false);
+    expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
+  });
+
+  test('Pop out pops the service panel out, inside the click', async () => {
+    const { createTileTab } = await import(MOD);
+    const api = fakeApi();
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api });
+
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+
+    expect(popOutPanel).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(api.close).not.toHaveBeenCalled();
+  });
+
+  test('the Agent tile has no Pop out button', async () => {
+    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+    setTerminalHeaderSource(detachedTerminalHeader());
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'Agent', params: {}, api: fakeApi() });
+
+    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+  });
+
+  test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
+    canPopOut.mockReturnValue(false);
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:notes');
+    tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+
+    // Built enabled: the URL and frame kind are not known yet, and a button
+    // disabled now would never get the pointer event that re-reads the gate.
+    expect(popout.disabled).toBe(false);
+    popout.dispatchEvent(new Event('pointerenter'));
+    expect(popout.disabled).toBe(true);
+    expect(popout.title).toBe('This panel runs at an opaque origin and cannot be popped out.');
+    popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(popOutPanel).not.toHaveBeenCalled();
+  });
+
+  test('the gate is read again at click time: a frame that resolved opaque after the bar was built', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:notes');
+    tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+    expect(popout.disabled).toBe(false);
+
+    canPopOut.mockReturnValue(false);
+    popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(popOutPanel).not.toHaveBeenCalled();
+    expect(popout.disabled).toBe(true);
+    expect(popout.title).toBe('This panel runs at an opaque origin and cannot be popped out.');
+  });
+
+  test('Pop out pointerdown is prevented so it cannot start a tile drag', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
   });
 
   test.each(CLOSE_BARS)('%s close is an icon button with the x icon', async (_kind, id) => {

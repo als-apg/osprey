@@ -189,9 +189,10 @@ def test_logout_ends_the_persistent_session_on_both_sides(tmp_path, monkeypatch,
 
             page = context.pages[0]
 
-            # --- Log out, from where an operator reaches for it ---
-            page.click("#more-btn")
-            page.click("#more-menu #logout-btn")
+            # --- Log out, from where an operator reaches for it: the sidebar
+            # footer's Sign out row, then the dialog's confirm ---
+            page.click("#logout-btn")
+            page.click(".posture-modal-overlay:not([data-closing]) .posture-modal-confirm")
             page.wait_for_url(lambda url: url.startswith(landing_url))
             page.wait_for_selector("#landing-marker", timeout=10_000)
 

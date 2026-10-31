@@ -381,8 +381,9 @@ lattice_dashboard — so a new interface copies any of them.
   the call needs no particular ordering against `applyEmbedded()`). That one
   expression is the only theme-related change an on-ramping page makes:
   persistence, OS auto-follow and `?theme=` handling all come with the hub
-  role, and broadcast is a structural no-op on a page with no iframes.
-  `theme-manager.js` itself is untouched.
+  role, and broadcast is a structural no-op on a page with no iframes. A page
+  popped out of the hub (`?popout=true`, §10) runs as a follower whatever
+  role it asks for; `theme-manager.js` decides that itself.
 - **Add no page CSS for the embedded case.** The component injects both its
   own skin and the `body.embedded osprey-display-menu { display: none; }`
   rule itself, once per page however many instances mount
@@ -503,7 +504,7 @@ high-contrast themes have no hue.
 | `.osprey-list-head`, `.osprey-list-empty` | Group caption and empty line inside a list |
 | `.osprey-popover` | Body-level, `position: fixed` popover on the card surface; children `.osprey-popover-title`, `.osprey-popover-item` (`.danger`, `[aria-checked]`), `.osprey-popover-aside`, `.osprey-popover-check` (an `icon('check')` shown while the item is checked), `.osprey-popover-sep`. Placed and dismissed by `popover.js` |
 | `.osprey-switch` | 28 × 16 track inside a `[role=switch]` item; the item's `aria-checked` moves the knob |
-| `.osprey-tooltip` | The one fixed tooltip layer (`tooltip.js` creates it) |
+| `.osprey-tooltip` (`.osprey-tooltip-label`, `.osprey-tooltip-detail`) | The one fixed tooltip layer (`tooltip.js` creates it): a bold label line over a muted explanation line, wrapping at 280 px |
 | `.osprey-kbd` | Keyboard hint, for example ⌘K |
 | `.osprey-dot` (`.ok`, `.err`, `.hollow`) | 8 px status dot; `.ok` has a halo, `.hollow` is an unfilled outline (closed) |
 | `.osprey-card` | Inset card: card surface, hairline border, `radius-xl`, clips its content |
@@ -517,7 +518,55 @@ The JS modules (ES modules unless noted; each has a `.test.mjs` in
 | Module | API | Behaviour |
 |---|---|---|
 | `icons.js` | `icon(name, {size})`, `ICON_NAMES` | Builds an `svg.osprey-ic` with `createElementNS`; throws on an unknown name. Lucide paths (ISC licence, text in `web_terminal/static/js/LUCIDE-LICENSE.txt`); `agent` and `bash` are OSPREY's. |
-| `popover.js` | `openPopover(pop, anchor, {place, edge})`, `closePopover(pop)`, `closeAllPopovers(except)`, `togglePopover(opener, pop, opts)` | `place`: `beside-right`, `beside-right-bottom` (8 px right of `edge` or the anchor, clamped inside the window) or `below-end` (4 px under, right-aligned). Sets the opener's `aria-expanded` and `aria-controls`, focuses the first item, and gives focus back to the opener when a close takes it away. In a `role=menu` popover ArrowUp/ArrowDown (wrapping), Home and End move between the enabled items. Closes on a press outside, Escape, resize and window blur. A popover opened from inside another keeps its parent open. |
-| `tooltip.js` | `initTooltips(root, {when})`, `hideTooltip()` | Shows `data-tip` beside a `[data-tip]` element in `root` on hover and focus, while `when()` is true and the element's `aria-controls` popover is closed. |
+| `popover.js` | `openPopover(pop, anchor, {place, edge, ignore})`, `closePopover(pop)`, `closeAllPopovers(except)`, `togglePopover(opener, pop, opts)` | `place`: `beside-right`, `beside-right-bottom` (8 px right of `edge` or the anchor, clamped inside the window) or `below-end` (4 px under, right-aligned). Sets the opener's `aria-expanded` and `aria-controls`, focuses the first item, and gives focus back to the opener when a close takes it away. In a `role=menu` popover ArrowUp/ArrowDown (wrapping), Home and End move between the enabled items. Closes on a press outside, Escape, resize and window blur. `ignore` is a selector: a press inside a matching element (for example a confirm overlay the popover raised) does not count as outside. A popover opened from inside another keeps its parent open. |
+| `tooltip.js` | `initTooltips(root = document.body, {mode})` → disposer, `hideTooltip()`, `readTitle(el)`, `writeTitle(el, text)` | One tip layer for a whole page. For the nearest element in `root` with `data-tip` (short label), a native `title` (read as the label when there is no `data-tip`) or `data-tip-detail` (one sentence saying what the control does), it shows a label line over a detail line. `mode(el)` returns `'label+detail'` (default) or `'detail'`; use `'detail'` where the control already shows its label, such as an expanded sidebar row. A mode with no text for the element shows no tip and leaves its `title` alone. The tip appears 450 ms after the pointer enters or keyboard focus arrives, and a tip that shows within 300 ms of the last hide skips the wait. `data-tip-place` is `right` (default), `below` or `above`; the tip sits 10 px away, flips to the opposite side at a window edge and stays 8 px inside the window. It hides on pointer leave, focus out, any press, Escape and when the element's `aria-controls` popover opens; after a press or Escape the element stays quiet until it is left. While shown, the element's `aria-describedby` names the layer. The native `title` is parked in `data-tip-title` while the tip shows; change a title through `writeTitle`. |
 | `collapsible.js` | `initCollapsible({attribute, storageKey, toggle, controls, shortcut})` → `{isCollapsed, toggle, set}` | State on `<html>[attribute]` (`collapsed` or `expanded`; absent = expanded). The toggle button carries `aria-expanded` (true while the labels show) and `aria-controls` (`controls`, default `sidebar`) with a label that flips between Hide and Show. The button, Cmd+\ (macOS) or Ctrl+\ and `set()` change the state; it is stored under `scopedStorageKey(storageKey)` and announced as `osprey-collapsible-change` `{attribute, state}` on `document`. |
 | `sidebar-boot.js` | none (non-module pre-paint script) | Stamps `data-sidebar="collapsed"` on `<html>` from the scoped `osprey-sidebar` key, so the sidebar never flashes the other width. Same inline scope rule as `mode-boot.js`; no fallback to the bare key on a scoped page. |
+| `popout-client.js` | `initPopoutClient()` → boolean, `popoutPanelId()` | The popup side of the pop-out protocol below. `applyEmbedded()` starts it on a `?popout=true` page. |
+
+## 10. Embedding and pop-out: how a panel page follows the hub
+
+A panel page runs in one of three places. The web terminal (the hub) frames
+it as a tile, pops it out into its own window, or the operator opens it at
+its own address. The address says which, and `frame-params.js` reads it:
+
+| Where | Address | What the page does |
+|---|---|---|
+| Tile | `?embedded=true&theme=<id>&mode=<view>` | `applyEmbedded()` adds `body.embedded`; the page hides its own chrome and contributes its header controls to the tile bar (`header-contrib.js`). `initTheme({role: 'follower'})`. |
+| Pop-out window | `?popout=true&theme=<id>&mode=<view>` | `applyEmbedded()` stamps `html[data-popout="true"]`, subscribes to the hub's view-mode messages and starts `popout-client.js`. The page keeps its own chrome. `initTheme` runs as a follower whatever role the page asks for. |
+| Own address | neither | A standalone page: `initTheme({role: 'hub'})`, its own preferences. |
+
+Never add `token` or a capability to either address: a framed or popped-out
+page runs under the operator's own session cookie.
+
+The hub pushes its state to a framed page and to a popped-out window with the
+same three messages, posted to the page's own origin on load (a hello, for a
+window; the iframe `load`, for a tile) and on every change:
+
+| Message | Payload | Receiver on the page |
+|---|---|---|
+| `osprey-theme-change` | `{theme}` | `theme-manager.js` in the follower role; takes a message from its own origin |
+| `osprey-mode-change` | `{mode}` | `onModeChange()` in `frame-params.js`; stamps `data-ui-mode` on `<html>`; takes a message from its own origin |
+| `osprey-session-change` | `{session_id}` | The page's own receiver, where it scopes to a session (the artifacts gallery, the session page); takes a message from its own origin |
+
+The pop-out protocol adds three messages of its own. The hub keeps a handle
+on every window it opens; the window reports to the hub so the hub can retire
+the panel's tile while the window is open and put it back when the window
+goes away:
+
+| Message | Direction | Transport | Check |
+|---|---|---|---|
+| `osprey-popout-hello {panelId}` | popup → hub | `window.opener.postMessage`, on load and in answer to a roll-call | The hub takes it from its own origin, from a window whose `opener` is the hub and whose `name` is `osprey-popout-<panelId>` (the name the hub opened it under). A hello is how a window is adopted, so nothing else may claim a panel. |
+| `osprey-popout-bye {panelId}` | popup → hub | `window.opener.postMessage`, on `pagehide` | The hub takes it from its own origin and only from the window it holds for that panel. A bye fires on close, reload and navigation alike, so the hub waits 1.5 s for a hello (a reload) before it treats the window as gone; a closed window is noticed by a 500 ms poll either way. |
+| `osprey-popout-roll-call` | hub → every popup | `BroadcastChannel`, named by `scopedStorageKey('osprey-popout')`, once per hub page load | The channel is origin-scoped and carries no source. The popup answers only its own `window.opener`, only while that opener is alive. A popup whose opener is gone, or whose address was pasted into a fresh tab, is a plain standalone page and reports to nobody. |
+
+The popup learns its panel id from `window.name`: the hub opens it as
+`osprey-popout-<panelId>`, and a window keeps its name across every
+navigation inside it. The hub's reload loses its handles; the popups'
+`window.opener` survives it, which is what the roll-call is for.
+
+JupyterLab is not a design-system page; its theme follower
+(`web_terminal/static/js/lab-theme-follow.js`) reads the same two flags and
+follows the hub's theme in a tile and in a pop-out window, but it does not
+report to the hub, so after a hub reload a popped-out Lab window stays a
+standalone page.

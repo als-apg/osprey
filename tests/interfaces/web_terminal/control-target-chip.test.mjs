@@ -317,10 +317,9 @@ describe('mount', () => {
     expect(order).toEqual(['sidebar-head', 'sidebar-target', 'command-palette-btn']);
     expect(host.children).toHaveLength(1);
     expect(host.firstElementChild).toBe(anchorEl());
-    // The chip lives inside its own positioning context, and that context is
-    // what fills the block.
+    // The chip lives inside its own wrapper, and that wrapper is what fills
+    // the block.
     expect(chipEl()?.parentElement).toBe(anchorEl());
-    expect(chipModule.getAnchorElement()).toBe(anchorEl());
     expect(anchorEl()?.hidden).toBe(false);
   });
 
@@ -355,7 +354,7 @@ describe('mount', () => {
     await boot();
     const chip = /** @type {HTMLButtonElement} */ (chipEl());
     expect(chip.type).toBe('button');
-    expect(chip.getAttribute('aria-haspopup')).toBe('true');
+    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     for (const cls of ['.ctc-dot', '.ctc-short', '.ctc-sep', '.ctc-state', '.ctc-caret']) {
       expect(chip.querySelector(cls)).not.toBeNull();

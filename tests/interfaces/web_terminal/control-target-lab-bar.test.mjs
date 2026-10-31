@@ -300,9 +300,9 @@ describe('import closure', () => {
       'confirm-skip.js',
       'control-target-chip.js',
       'control-target-facts.js',
-      'control-target-popover-chrome.js',
       'control-target-popover-switch.js',
       'control-target-popover.js',
+      'control-target-rows.js',
       'lab-theme-follow.js',
       'modal-overlay.js',
       'posture-confirm.js',
@@ -326,14 +326,37 @@ describe('mount', () => {
     expect(main.contains(bar)).toBe(false);
   });
 
-  test('the chip mounts inside the bar, in its own positioning context', async () => {
+  test('the chip mounts inside the bar; its popover at <body> level', async () => {
     const bar = /** @type {HTMLElement} */ (barEl());
     const anchor = /** @type {HTMLElement} */ (anchorEl());
 
     expect(anchor.parentElement).toBe(bar);
     expect(anchor.contains(/** @type {Node} */ (chipEl()))).toBe(true);
-    // The popover is absolute against the anchor, so it travels with the chip.
-    expect(anchor.querySelector('.ctc-popover')).not.toBeNull();
+    // A design-system popover, placed by popover.js below the chip.
+    const pop = /** @type {HTMLElement} */ (document.getElementById('control-target-popover'));
+    expect(pop.parentElement).toBe(document.body);
+    expect(pop.classList.contains('osprey-popover')).toBe(true);
+  });
+
+  test('the popover opens below the chip, right-aligned with it', async () => {
+    const chip = /** @type {HTMLElement} */ (chipEl());
+    chip.getBoundingClientRect = () =>
+      /** @type {DOMRect} */ ({
+        left: 600,
+        right: 760,
+        top: 1,
+        bottom: 29,
+        width: 160,
+        height: 28,
+      });
+
+    chip.click();
+    await flush();
+
+    const pop = /** @type {HTMLElement} */ (document.getElementById('control-target-popover'));
+    expect(pop.hidden).toBe(false);
+    expect(pop.style.top).toBe('33px');
+    expect(pop.style.right).toBe(`${window.innerWidth - 760}px`);
   });
 
   test('paints the roster the deployment answered with', async () => {
@@ -352,7 +375,7 @@ describe('mount', () => {
     expect(barEl()).toBe(first);
     expect(document.querySelectorAll(`#osprey-control-target-bar`).length).toBe(1);
     expect(document.querySelectorAll('.control-target-chip').length).toBe(1);
-    expect(document.querySelectorAll('.ctc-popover').length).toBe(1);
+    expect(document.querySelectorAll('#control-target-popover').length).toBe(1);
   });
 
   test('teardown takes the bar, the chip and the styles back off the page', () => {
@@ -363,6 +386,8 @@ describe('mount', () => {
     expect(document.getElementById(barModule.STYLE_ID)).toBeNull();
     expect(document.getElementById(barModule.TERMINAL_CSS_ID)).toBeNull();
     expect(document.getElementById(barModule.TOKENS_CSS_ID)).toBeNull();
+    expect(document.getElementById(barModule.PRIMITIVES_CSS_ID)).toBeNull();
+    expect(document.getElementById('control-target-popover')).toBeNull();
     // Including the attribute it stamped on someone else's document.
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
@@ -441,23 +466,25 @@ describe('framed inside the hub', () => {
 /* ---- what the page has to load ------------------------------------------ */
 
 describe('stylesheets', () => {
-  test('loads the hub tokens and the hub stylesheet, each once', () => {
+  test('loads the hub tokens, the primitives and the hub stylesheet, each once', () => {
     barModule.initControlTargetLabBar();
 
     const links = [...document.head.querySelectorAll('link[rel="stylesheet"]')].map(
       (l) => /** @type {HTMLLinkElement} */ (l).href
     );
     expect(links.filter((h) => h.endsWith('/design-system/css/tokens.css')).length).toBe(1);
+    expect(links.filter((h) => h.endsWith('/design-system/css/primitives.css')).length).toBe(1);
     expect(links.filter((h) => h.endsWith('/css/terminal.css')).length).toBe(1);
   });
 
-  test('positions the bar itself, and anchors the popover before the sheet lands', () => {
+  test('positions the bar itself, and lifts the popover above the Lab chrome', () => {
     expect(document.getElementById(barModule.STYLE_ID)).not.toBeNull();
-    // Fixed, because the bar is not part of any layout on this page — and the
-    // anchor rule is a floor under terminal.css, which carries the same one.
-    // CSS file loading is off here, so the injected floor is all that applies.
+    // Fixed, because the bar is not part of any layout on this page. CSS file
+    // loading is off here, so the injected rules are all that applies.
     expect(getComputedStyle(/** @type {Element} */ (barEl())).position).toBe('fixed');
-    expect(getComputedStyle(/** @type {Element} */ (anchorEl())).position).toBe('relative');
+    expect(document.getElementById(barModule.STYLE_ID)?.textContent).toMatch(
+      /#control-target-popover\s*\{\s*z-index: var\(--z-overlay/
+    );
   });
 });
 

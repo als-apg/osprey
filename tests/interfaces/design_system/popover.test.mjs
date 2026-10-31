@@ -286,6 +286,44 @@ describe('dismissal', () => {
 
     expect($('menu').hidden).toBe(true);
   });
+
+  test('with `ignore`, a press inside a matching element does not close it', () => {
+    const overlay = document.createElement('div');
+    overlay.className = 'posture-modal-overlay';
+    overlay.innerHTML = '<div class="posture-modal"><button id="confirm">Turn on</button></div>';
+    document.body.append(overlay);
+    openPopover($('menu'), $('opener'), { ignore: '.posture-modal-overlay' });
+
+    pointerDown($('confirm'));
+    expect($('menu').hidden).toBe(false);
+
+    pointerDown($('outside'));
+    expect($('menu').hidden).toBe(true);
+  });
+
+  test('without `ignore`, the same press closes it', () => {
+    const overlay = document.createElement('div');
+    overlay.className = 'posture-modal-overlay';
+    document.body.append(overlay);
+    openPopover($('menu'), $('opener'));
+
+    pointerDown(overlay);
+
+    expect($('menu').hidden).toBe(true);
+  });
+
+  test('`ignore` belongs to the open it was passed to', () => {
+    const overlay = document.createElement('div');
+    overlay.className = 'posture-modal-overlay';
+    document.body.append(overlay);
+    openPopover($('menu'), $('opener'), { ignore: '.posture-modal-overlay' });
+    closePopover($('menu'));
+    openPopover($('menu'), $('opener'));
+
+    pointerDown(overlay);
+
+    expect($('menu').hidden).toBe(true);
+  });
 });
 
 describe('menu keys', () => {

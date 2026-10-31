@@ -59,7 +59,7 @@ const {
   resetDockLayout,
   dockState,
 } = vi.hoisted(() => ({
-  dockState: { api: /** @type {any} */ (null) },
+  dockState: { api: /** @type {any} */ (null), redock: /** @type {(() => void) | null} */ (null) },
   getDockApi: vi.fn(() => /** @type {any} */ (null)),
   openTerminalPanel: vi.fn(),
   closeTerminalPanel: vi.fn(),
@@ -77,7 +77,11 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
   defaultServiceWidth: () => 600,
-  setServiceRedock: () => {},
+  // Captured, so a test can replay "a layout was applied" the way
+  // dock-workspace does after a stored-layout restore.
+  setServiceRedock: (/** @type {() => void} */ fn) => {
+    dockState.redock = fn;
+  },
   onDragGesture: () => [],
 }));
 
@@ -263,6 +267,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   getDockApi.mockImplementation(() => dockState.api);
   dockState.api = null;
+  // The pop-out seam (popout.js) rolls call on a BroadcastChannel at boot,
+  // which the test environment does not provide. Unstubbed with the rest.
+  vi.stubGlobal(
+    'BroadcastChannel',
+    class {
+      postMessage() {}
+      close() {}
+    }
+  );
 
   // Armed in the first hook and disarmed in the last, so the span it covers is
   // the test body AND the hooks either side of it — a stall in a hook is as
@@ -1146,7 +1159,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(entry('terminal')).not.toBeNull();
     expect(entry('artifacts')).not.toBeNull();
     expect(entry('ariel')).toBeNull();
-    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'ARIEL' }]);
+    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'Ariel' }]);
   });
 
   test('a panel_visibility show APPENDS the entry with its live health state', async () => {
@@ -2665,12 +2678,14 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
-      'Focus ARIEL',
+      'Focus Ariel',
       'Open in a new tile',
-      'Open in a new window',
+      'Pop out',
+      'Move to Workspace',
+      'Move to new group…',
       'Remove from rail',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('ARIEL actions');
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Ariel actions');
   });
 
   test('the entry is the menu’s anchor, so a panel scrolling its own content leaves it open', async () => {
@@ -2702,14 +2717,185 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(contextMenu()).toBeNull();
   });
 
-  test('"Open in a new window" opens the panel’s standalone url in a new tab', async () => {
-    const { mod } = await bootWorkspace();
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+  test('"Pop out" opens the panel’s pop-out page in a named popup and retires the tile', async () => {
+    const { api, mod, calls } = await bootWorkspace();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    calls.length = 0; // the new-tile reveal above reports its own focus
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new window')).click();
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
 
-    expect(open).toHaveBeenCalledWith(mod.getPanelStandaloneUrl('ariel'), '_blank', 'noopener');
+    // The standalone page, stamped like an embed but with `popout` — never
+    // `embedded`, never a token — under the protocol's window name, as a
+    // popup sized and placed in the features string.
+    const [url, name, features] = open.mock.calls[0];
+    const opened = new URL(String(url));
+    expect(opened.pathname).toBe(
+      new URL(String(mod.getPanelStandaloneUrl('ariel')), 'http://h').pathname
+    );
+    expect(opened.searchParams.get('popout')).toBe('true');
+    expect(opened.searchParams.has('embedded')).toBe(false);
+    expect(opened.searchParams.has('theme')).toBe(true);
+    expect(opened.searchParams.has('mode')).toBe(true);
+    expect(name).toBe('osprey-popout-ariel');
+    expect(features).toMatch(/^popup=yes,width=\d+,height=\d+,left=\d+,top=\d+$/);
+    // The tile is gone from the dock while the window is open: a layout
+    // report cannot list it, and a layout restore cannot bring it back. The
+    // rail row stays (membership is untouched, nothing is POSTed).
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    expect(entry('ariel')).not.toBeNull();
+    expect(posts(calls)).toEqual([]);
+    // The menu now offers the way back; the palette's pop-out rows skip it.
+    rightClick(entry('ariel'));
+    expect(menuLabels()).toContain('Bring back');
+    expect(menuLabels()).not.toContain('Open in a new tile');
+    expect(mod.getPopoutPanels().map((p) => p.id)).toEqual(['artifacts']);
+    open.mockRestore();
+  });
+
+  test('a focus of a popped-out panel brings its window forward instead of docking', async () => {
+    const { api, mod, emit, calls } = await bootWorkspace();
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+
+    // The rail click, the palette's Focus and the agent's open_panel all land
+    // on the window; none of them docks a tile or reports a focus.
+    entry('ariel').click();
+    mod.activateTab('ariel', { userInitiated: true });
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+    expect(popup.focus).toHaveBeenCalledTimes(3);
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    expect(posts(calls)).toEqual([]);
+    open.mockRestore();
+  });
+
+  test('"Bring back" closes the window, and the closed window re-docks the tile beside the active one', async () => {
+    const { api, calls } = await bootWorkspace();
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    const artifactsGroup = api.getPanel('iframe:artifacts').group;
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Bring back')).click();
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    // Closing is the window's own business: the tile returns once the poll
+    // (every 500 ms) sees the window closed.
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    popup.closed = true;
+    await settled(() => expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']));
+
+    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
+    // Nobody asked the server for this surfacing.
+    expect(posts(calls)).toEqual([]);
+    open.mockRestore();
+  });
+
+  test('a hub reload adopts the window that answers the roll-call and retires its tile', async () => {
+    /** @type {any[]} */
+    const channels = [];
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        /** @param {string} name */
+        constructor(name) {
+          this.name = name;
+          this.posted = /** @type {any[]} */ ([]);
+          channels.push(this);
+        }
+        /** @param {any} message */
+        postMessage(message) {
+          this.posted.push(message);
+        }
+        close() {}
+      }
+    );
+    const { api } = await bootWorkspace({ restored: ['ariel'] });
+    expect(channels.map((c) => [c.name, c.posted])).toEqual([
+      ['osprey-popout', [{ type: 'osprey-popout-roll-call' }]],
+    ]);
+
+    // The popup's hello: a same-origin window this hub opened under the
+    // protocol's name. Its tile goes, and it is told the hub's state.
+    const popup = {
+      closed: false,
+      opener: window,
+      name: 'osprey-popout-ariel',
+      focus: vi.fn(),
+      close: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'osprey-popout-hello', panelId: 'ariel' },
+        origin: window.location.origin,
+        source: /** @type {any} */ (popup),
+      })
+    );
+
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    // The window is shared across this file's module graphs, so the hub
+    // instances of earlier tests answer the hello too: each sends the same
+    // state (no session yet, so no session message).
+    expect(new Set(popup.postMessage.mock.calls.map((c) => c[0].type))).toEqual(
+      new Set(['osprey-theme-change', 'osprey-mode-change'])
+    );
+    expect(popup.postMessage.mock.calls.every((c) => c[1] === window.location.origin)).toBe(true);
+    rightClick(entry('ariel'));
+    expect(menuLabels()).toContain('Bring back');
+  });
+
+  test('a restored placeholder is filled with its panel’s iframe; the accent stays on the landing', async () => {
+    const { api, calls } = await bootWorkspace();
+    expect(document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')).toBeNull();
+
+    // The stored layout lands after the landing panel's activation, as
+    // dock-workspace restores it after its /api/panels round trip: a
+    // placeholder for every tile that was open, then the layout-applied seam.
+    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
+    dockState.redock?.();
+
+    const iframe = /** @type {HTMLElement | null} */ (
+      document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+    );
+    expect(iframe).not.toBeNull();
+    expect(iframe?.style.display).not.toBe('none');
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    // The landing panel keeps the accent and the stamp; filling the tile is
+    // not a surfacing anybody asked for, so nothing is reported.
+    expect(activeStamp()).toBe('artifacts');
+    expect(entry('artifacts').getAttribute('aria-current')).toBe('page');
+    expect(entry('ariel').getAttribute('aria-current')).toBeNull();
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('a popped-out panel’s restored placeholder is pruned, never filled', async () => {
+    const { api } = await bootWorkspace();
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    const iframe = /** @type {HTMLElement} */ (
+      document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+    );
+    expect(iframe.style.display).toBe('none');
+
+    // A layout apply brings the placeholder back (a layout stored before the
+    // pop-out); the adapter prunes it and the manager leaves the iframe hidden.
+    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
+    dockState.redock?.();
+
+    expect(api.getPanel('iframe:ariel')).toBeNull();
+    expect(iframe.style.display).toBe('none');
     open.mockRestore();
   });
 
@@ -2759,7 +2945,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const { api } = await bootWorkspace();
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Focus ARIEL')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus Ariel')).click();
 
     expect(dockedTiles(api)).toContain('ariel');
     expect(activeStamp()).toBe('ariel');
@@ -2771,9 +2957,11 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     rightClick(entry('ariel'));
 
     expect(menuLabels()).toEqual([
-      'Focus ARIEL',
+      'Focus Ariel',
       'Open in a new tile',
-      'Open in a new window',
+      'Pop out',
+      'Move to Workspace',
+      'Move to new group…',
       'Remove from rail',
     ]);
   });
@@ -2932,7 +3120,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
 
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
-    await settled(() => expect(notice()?.textContent).toContain('ARIEL removed from the rail'));
+    await settled(() => expect(notice()?.textContent).toContain('Ariel removed from the rail'));
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
 
@@ -2986,7 +3174,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
 
     await settled(() =>
-      expect(notice()?.textContent).toContain('Could not remove ARIEL from the rail')
+      expect(notice()?.textContent).toContain('Could not remove Ariel from the rail')
     );
     expect(undoButton()).toBeNull();
   });
@@ -3012,18 +3200,18 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 2 });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
 
-    // Past the end clamps to the foot of Tools.
+    // Past the end clamps to the foot of the row's group.
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 9 });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice', 'ariel']);
 
-    // An index naming a Workspace row lands at the head of Tools: the
-    // Workspace rows keep the sidebar's fixed order.
+    // An index naming a row of an earlier group lands at the head of the
+    // row's own group: a row moves within its group only.
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
 
-    // A Workspace panel comes back to its own place whatever the index.
+    // A Workspace panel comes back to its own group whatever the index.
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 9 });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
@@ -3077,6 +3265,69 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
 
     expect(notice()).toBeNull();
+  });
+});
+
+/**
+ * The row menu's "Move to" rows move a member's sidebar row between the
+ * operator's groups (sidebar-groups.js). The groups live in this browser's
+ * storage, which outlives a module reset, so every test starts and ends with
+ * it empty.
+ */
+describe('Move to — the row menu moves a row between the sidebar groups', () => {
+  const entry = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
+    );
+
+  /** @param {string} name @returns {HTMLElement} */
+  function sidebarGroup(name) {
+    return /** @type {HTMLElement} */ (
+      document.querySelector(`.sidebar-group[data-group="${name}"]`)
+    );
+  }
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    localStorage.clear();
+  });
+
+  test('"Move to Workspace" moves the row there, in this browser only', async () => {
+    const { calls } = await bootWorkspace();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Move to Workspace')).click();
+
+    expect(sidebarGroup('workspace').contains(entry('ariel'))).toBe(true);
+    const stored = JSON.parse(localStorage.getItem('osprey-sidebar-groups') ?? '{}');
+    expect(stored.placement).toEqual({ ariel: 'workspace' });
+    // The groups are the operator's own: nothing reaches the server.
+    expect(posts(calls)).toEqual([]);
+
+    // The moved row offers the way back.
+    rightClick(entry('ariel'));
+    expect(menuLabels()).toContain('Move to Tools');
+    expect(menuLabels()).not.toContain('Move to Workspace');
+  });
+
+  test('"Move to new group…" makes a group below the row’s own and opens its name', async () => {
+    await bootWorkspace();
+    rightClick(entry('artifacts'));
+    /** @type {HTMLElement} */ (menuRow('Move to new group…')).click();
+
+    const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
+    const ids = groups.map((g) => g.getAttribute('data-group'));
+    expect(ids).toEqual(['workspace', expect.stringMatching(/^g-[0-9a-f]{8}$/), 'tools']);
+    expect(groups[1].contains(entry('artifacts'))).toBe(true);
+    const field = groups[1].querySelector('.sidebar-group-rename');
+    expect(field).not.toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
+
+  test('the Agent row offers no move: it stays first', async () => {
+    await bootWorkspace();
+    rightClick(entry('terminal'));
+    expect(menuLabels().some((label) => label?.startsWith('Move to'))).toBe(false);
   });
 });
 

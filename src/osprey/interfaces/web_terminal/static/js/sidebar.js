@@ -10,8 +10,8 @@
  *     them from icons.js, the one source of the chrome's paths.
  *   - WIDTH. The labels toggle and Cmd/Ctrl+\ (collapsible.js), stored under
  *     `scopedStorageKey('osprey-sidebar')` — the key sidebar-boot.js reads
- *     before first paint — and the tooltip layer that names each row while
- *     only icons show (`data-tip`, tooltip.js).
+ *     before first paint. The rows' tips come from the page's one tooltip
+ *     layer (`data-tip`, `data-tip-detail`, tooltip.js; started in app.js).
  *   - DISCLOSURE. The Artifacts and Script runs rows open and close their
  *     lists (`aria-expanded` on the row, `hidden` on the list). Which lists are
  *     open is kept per user under `scopedStorageKey('osprey-sidebar-open')`, a
@@ -27,9 +27,11 @@
  *     step and shows how many cards wait on the operator (the chat bus's
  *     `attention` count) on its badge while the pane is closed — the one time
  *     the operator cannot see them.
- *   - FADES. The Workspace section and each list fade at an edge that has
- *     more to scroll to (`.fade`, `.fade-top`), so a cut-off row reads as
- *     scrolled rather than clipped.
+ *   - FADES. Each list, and the group that holds the lists (the one section
+ *     of the sidebar that gives up height), fade at an edge that has more to
+ *     scroll to (`.fade`, `.fade-top`), so a cut-off row reads as scrolled
+ *     rather than clipped. A group made later is watched from the render
+ *     that adds it.
  *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.
@@ -38,7 +40,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { initCollapsible } from '/design-system/js/collapsible.js';
 import { closeAllPopovers, togglePopover } from '/design-system/js/popover.js';
-import { hideTooltip, initTooltips } from '/design-system/js/tooltip.js';
+import { hideTooltip } from '/design-system/js/tooltip.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
@@ -280,9 +282,9 @@ function paintFade(el, top = false) {
 
 /**
  * Keep a scroller's fades current: on scroll, on a size change, and when its
- * rows change. The Workspace scroller watches its whole subtree: a row added
- * inside one of its lists, or a list opened, changes its scroll height
- * without changing its own children or size.
+ * rows change. A group watches its whole subtree: a row added inside one of
+ * its lists, or a list opened, changes its scroll height without changing
+ * its own children or size.
  * @param {HTMLElement} el
  * @param {boolean} top
  */
@@ -298,10 +300,26 @@ function watchFade(el, top) {
   paint();
 }
 
+/** The sidebar groups whose fades are watched. @type {WeakSet<Element>} */
+const fadingGroups = new WeakSet();
+
+/**
+ * Watch the fades of every sidebar group not watched yet. Only the group
+ * that holds the lists scrolls (terminal.css), and which group that is
+ * changes when the operator moves the Artifacts row, so every group is
+ * watched; a group that does not scroll never shows a fade.
+ */
+function watchGroupFades() {
+  for (const group of document.querySelectorAll('#panel-rail > .sidebar-group')) {
+    if (fadingGroups.has(group)) continue;
+    fadingGroups.add(group);
+    watchFade(/** @type {HTMLElement} */ (group), true);
+  }
+}
+
 /** @param {HTMLElement} sidebar */
 function initFades(sidebar) {
-  const workspace = document.getElementById('sidebar-workspace');
-  if (workspace) watchFade(workspace, true);
+  watchGroupFades();
   const lists = new Set([
     ...sidebar.querySelectorAll('.sidebar-kids-list'),
     ...(document.getElementById(FLYOUT_ID)?.querySelectorAll('.sidebar-kids-list') ?? []),
@@ -326,7 +344,6 @@ export function initSidebar() {
     storageKey: SIDEBAR_STORAGE_KEY,
     toggle: document.getElementById('sidebar-toggle'),
   });
-  initTooltips(sidebar, { when: collapsible.isCollapsed });
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
@@ -337,8 +354,12 @@ export function initSidebar() {
     hideTooltip();
     paintAllDisclosures();
   });
-  // panel-rail.js re-labels the Agent row on every render.
-  document.addEventListener(SIDEBAR_RENDERED_EVENT, paintAgentRow);
+  // panel-rail.js re-labels the Agent row on every render, and a render may
+  // add a group.
+  document.addEventListener(SIDEBAR_RENDERED_EVENT, () => {
+    paintAgentRow();
+    watchGroupFades();
+  });
 
   return { isCollapsed: collapsible.isCollapsed };
 }
