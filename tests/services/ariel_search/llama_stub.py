@@ -28,8 +28,8 @@ real server shows:
 ``malformed``       ``/v1/embeddings`` answers 200 with a body that is not JSON.
 ``short``           ``/v1/embeddings`` answers a vector of this length.
 ``zero_calls``      1-based numbers of embedding POSTs answered with a zero vector.
-``refuse_after``    After this many embedding answers the server closes its
-                    listening socket, so the next connection is refused.
+``refuse_after``    The server closes its listening socket before sending this
+                    many-th embedding answer, so the next connection is refused.
 ==================  ==========================================================
 
 ``models_gets`` and ``embeddings`` count what reached the server.
@@ -135,6 +135,11 @@ class LlamaStub:
                 if stub.hang:
                     self._stall()
                     return
+                # Close the listener before answering: a stop after the answer races the
+                # client's next request, which the serve loop can accept before stop()
+                # sets its shutdown flag.
+                if stub.refuse_after is not None and number >= stub.refuse_after:
+                    stub.stop()
                 if stub.status is not None:
                     self._send(stub.status, {"error": {"code": stub.status}})
                 elif stub.embed_status is not None:
@@ -146,8 +151,6 @@ class LlamaStub:
                     self._send(200, None, raw=b"{not json")
                 else:
                     self._send(200, stub._answer(request, number))
-                if stub.refuse_after is not None and number >= stub.refuse_after:
-                    stub.stop()
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
