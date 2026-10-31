@@ -1,0 +1,1 @@
+`osprey init` copies each application its preset lists into `apps/<name>/`, with a `.provenance` sidecar recording the preset and the files as copied; `--force` replaces the copy, and `osprey validate` and `osprey init --revalidate` report an edited application as drift. The deployment `.gitignore` ignores `/apps/*/panel/vendor/`, where `osprey build` fetches vendor files.

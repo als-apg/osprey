@@ -28,12 +28,14 @@ existing marker convention is the first consumer rather than a second one.
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import yaml
 from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 
 from osprey import __version__
@@ -45,9 +47,11 @@ from osprey.profiles.providers import (
 from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
+from .application_material import app_build_output, application_dirs
 from .build_profile_document import _parse_profile_document, _read_profile_document
 from .build_profile_emit import emit_layer_delta_yaml, materialized_profile
 from .build_profile_merge import (
+    _fold_source_tree,
     _resolve_extends,
     compute_preset_hash,
     resolve_profile_document,
@@ -132,6 +136,108 @@ def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list
         {"providers": shipped_entries},
     )
     return _apply_markers(comparison.findings, catalog.path, root_dir, tag)
+
+
+#: The sidecar ``osprey init`` writes inside each application directory it
+#: copies from a preset: the preset's name and hash and the digest of the tree
+#: as copied. A file of its own because ``app.yml`` refuses unknown keys.
+APP_PROVENANCE_FILENAME = ".provenance"
+
+
+def _app_source_skip(app_dir: Path) -> Callable[[str], bool]:
+    """Which files under *app_dir* are not the application's source.
+
+    The files the build writes into it
+    (:func:`~osprey.cli.application_material.app_build_output`), the byte-code a
+    source checkout leaves beside its Python — the copy drops it too — and the
+    sidecar itself.
+    """
+    build_output = app_build_output(app_dir)
+
+    def skip(rel: str) -> bool:
+        return (
+            build_output(rel)
+            or rel == APP_PROVENANCE_FILENAME
+            or "__pycache__" in rel.split("/")
+            or rel.endswith((".pyc", ".pyo"))
+        )
+
+    return skip
+
+
+def app_tree_digest(app_dir: Path) -> str:
+    """The digest of an application directory's source, as its sidecar records it."""
+    digest = hashlib.sha256()
+    _fold_source_tree(digest, "app", app_dir, skip=_app_source_skip(app_dir))
+    return f"sha256:{digest.hexdigest()}"
+
+
+def app_provenance_text(app_dir: Path, preset: str, preset_hash: str | None) -> str:
+    """The ``.provenance`` sidecar for *app_dir*, copied from *preset*."""
+    body = yaml.safe_dump(
+        {"preset": preset, "preset_hash": preset_hash, "tree_digest": app_tree_digest(app_dir)},
+        sort_keys=False,
+    )
+    return (
+        "# Written by `osprey init`: the preset this application was copied from, and\n"
+        "# the digest of the files as copied. `osprey validate` compares the digest\n"
+        "# with the files on disk; a deviation-marker comment here claims an edit.\n"
+        f"{body}"
+    )
+
+
+def _compare_apps(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[str], list[str]]:
+    """Each application ``osprey init`` copied against the tree it copied.
+
+    An application with a ``.provenance`` sidecar is compared by its source
+    digest (:func:`app_tree_digest`): a difference is a note, never a refusal —
+    the copy is the operator's to edit, as ``profile.yml`` is — and a
+    ``# <TAG>:`` comment in the sidecar claims it. A preset that has moved on
+    since the copy is said once per application. An application with no
+    sidecar is the operator's own and is not compared.
+
+    Returns:
+        ``(findings, stale markers, notes)``.
+    """
+    findings: list[DriftFinding] = []
+    stale: list[str] = []
+    notes: list[str] = []
+    for app_dir in application_dirs(root_dir):
+        sidecar = app_dir / APP_PROVENANCE_FILENAME
+        if not sidecar.is_file():
+            continue
+        relative = f"{app_dir.relative_to(root_dir).as_posix()}/"
+        recorded = _parse_profile_document(
+            sidecar.read_text(encoding="utf-8"), f"{relative}{APP_PROVENANCE_FILENAME}"
+        )
+        if not isinstance(recorded, Mapping):
+            raise BuildProfileError(f"{sidecar} must be a YAML mapping")
+        preset = str(recorded.get("preset") or "")
+        recorded_hash = str(recorded.get("preset_hash") or "")
+        installed = compute_preset_hash(preset) if preset else None
+        if installed is not None and recorded_hash and installed != recorded_hash:
+            notes.append(
+                f"{relative} was copied from preset {preset} at {_short_hash(recorded_hash)}; "
+                f"the preset bundled with OSPREY {__version__} is {_short_hash(installed)} — "
+                f"it has moved on since"
+            )
+        found: list[DriftFinding] = []
+        if app_tree_digest(app_dir) != recorded.get("tree_digest"):
+            found.append(
+                DriftFinding(
+                    subject=relative,
+                    detail=f"its files differ from the ones `osprey init` copied from {preset}",
+                    profile_ref=relative,
+                    preset_ref=f"preset {preset}",
+                    token=relative.rstrip("/"),
+                    line=None,
+                    kind="value",
+                )
+            )
+        claimed, unclaimed = _apply_markers(found, sidecar, root_dir, tag)
+        findings.extend(claimed)
+        stale.extend(unclaimed)
+    return findings, stale, notes
 
 
 # Top-level keys `osprey init` writes for the repo rather than copies from the
@@ -287,6 +393,13 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None
                 findings_root, stale_root = _compare_root(profile, preset, root_path, root_dir, tag)
                 findings.extend(findings_root)
                 stale.extend(stale_root)
+    if not is_delta:
+        # Each copied application carries its own provenance, so it is compared
+        # whether or not the root's preset is bundled here.
+        findings_apps, stale_apps, notes_apps = _compare_apps(root_dir, tag)
+        findings.extend(findings_apps)
+        stale.extend(stale_apps)
+        notes.extend(notes_apps)
 
     profile_name = str(profile.get("name", ""))
     for pair in _layer_pairs(

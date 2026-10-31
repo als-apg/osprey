@@ -2003,6 +2003,28 @@ def _materialize_profile_directory(
                 )
         if seeded:
             logger.debug("  Seeded: %s", ", ".join(f"{name}/" for name in seeded))
+        # The applications the preset lists, copied from beside the preset into
+        # `apps/<name>/` as deployment source, each with a `.provenance` sidecar
+        # the drift check reads. Unlike the seeds above they are source the repo
+        # owns: `apps/` is a materialized entry, so `--force` replaces it and a
+        # failed run's `_cleanup` removes it. Byte-code is dropped as for a seed.
+        if resolved.apps:
+            from .build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
+            from .build_profile_merge import compute_preset_hash
+
+            preset_hash = compute_preset_hash(normalized_preset)
+            for app_name in sorted(resolved.apps):
+                app_target = target / APPS_DIRNAME / app_name
+                shutil.copytree(
+                    preset_dir / APPS_DIRNAME / app_name,
+                    app_target,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+                )
+                (app_target / APP_PROVENANCE_FILENAME).write_text(
+                    app_provenance_text(app_target, normalized_preset, preset_hash),
+                    encoding="utf-8",
+                )
+            logger.debug("  Applications: %s", ", ".join(f"{name}/" for name in resolved.apps))
 
         # A profile or app that selects the library facility rule by its bare
         # name selects the copy seeded above instead, by its path.
