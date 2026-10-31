@@ -730,6 +730,37 @@ Each device carries the export’s <code class="docutils literal notranslate"><s
 the build stops (<code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>) when a wired device’s deck disagrees.</p>
 <p><code class="docutils literal notranslate"><span class="pre">imported/mml/rows.json</span></code> records which device each export <code class="docutils literal notranslate"><span class="pre">DeviceList</span></code> row
 became, and the response check reads it.</p>
+<section id="places-from-devicelist">
+<h3>Places from <code class="docutils literal notranslate"><span class="pre">DeviceList</span></code><a class="headerlink" href="#places-from-devicelist" title="Link to this heading">#</a></h3>
+<p>The import writes places only for a model whose mapping entry answers
+<code class="docutils literal notranslate"><span class="pre">places</span></code>; a mapping with no such answer writes no <code class="docutils literal notranslate"><span class="pre">places.yaml</span></code> and no
+device <code class="docutils literal notranslate"><span class="pre">place</span></code>. The model is a place, and each sector <code class="docutils literal notranslate"><span class="pre">sectors</span></code> lists is a
+place under it, named by <code class="docutils literal notranslate"><span class="pre">token</span></code> formatted with the sector number:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">models</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">SR</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR</span>
+<span class="w">    </span><span class="nt">places</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">sectors</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">count</span><span class="p">:</span><span class="w"> </span><span class="nv">12</span><span class="p p-Indicator">,</span><span class="nt"> token</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;SR{sector:02d}&quot;</span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># SR/SR01 ... SR/SR12</span>
+<span class="w">      </span><span class="nt">model_wide</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">RF</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">TUNE</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">DCCT</span><span class="p p-Indicator">]</span><span class="w">                    </span><span class="c1"># these sit on SR</span>
+<span class="w">      </span><span class="nt">sector_override</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">ExtractionKicker</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">}</span><span class="w">          </span><span class="c1"># this sits in SR/SR02</span>
+</pre></div>
+</div>
+<p>The sector list is stated, never read off the rows, so a place exists whether
+or not a device sits there. Each device of the model takes the first of: its
+family is in <code class="docutils literal notranslate"><span class="pre">model_wide</span></code> (the model); its family has a <code class="docutils literal notranslate"><span class="pre">sector_override</span></code>
+(that sector); its <code class="docutils literal notranslate"><span class="pre">DeviceList</span></code> rows name several sectors (the model); its
+rows name one sector (that sector); it has no row (the model). Both answers
+are this model’s, so a family shared by two models can be sectored on one and
+model-wide on the other. A device’s address is never where its place comes
+from: a series supply’s one address feeds many magnets, each placed by its own
+row.</p>
+<p>Two placements stop the import before anything is written: a row naming a
+sector beyond the list, and a device placed by its row and bound alone to an
+address that begins with another sector’s token. Answer either with
+<code class="docutils literal notranslate"><span class="pre">sector_override</span></code> or <code class="docutils literal notranslate"><span class="pre">model_wide</span></code>. The build records these places as
+<code class="docutils literal notranslate"><span class="pre">place_from:</span> <span class="pre">imported</span></code>. A span that is the device’s sector or lies inside
+it takes precedence, a span of the model above the sectors leaves the sector
+standing, and a span of another sector stops the build <code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>.</p>
 <p>A setpoint takes its <code class="docutils literal notranslate"><span class="pre">tolerance</span></code> from its write field’s
 <code class="docutils literal notranslate"><span class="pre">Setpoint.Tolerance</span></code>, one number per device or one for the family, written
 <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the field’s <code class="docutils literal notranslate"><span class="pre">HWUnits</span></code>. A setpoint gets none when the
@@ -766,6 +797,7 @@ hold, and name one it does. Set it to that channel:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.virtual_accelerator.probe_channel<span class="o">=</span>&lt;channel&gt;
 </pre></div>
 </div>
+</section>
 </section>
 <section id="check-the-result">
 <h2>Check the result<a class="headerlink" href="#check-the-result" title="Link to this heading">#</a></h2>
@@ -849,7 +881,10 @@ an issue.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-import">Run the import</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#review-the-mapping">Review the mapping</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-import-writes">What the import writes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-import-writes">What the import writes</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#places-from-devicelist">Places from <code class="docutils literal notranslate"><span class="pre">DeviceList</span></code></a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-result">Check the result</a></li>
 </ul>
   </nav></div>

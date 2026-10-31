@@ -597,7 +597,11 @@ a field left out is either filled by the build or stays absent.</p>
 A place with a <code class="docutils literal notranslate"><span class="pre">span</span></code> covers a stretch of one model’s deck, from the
 <code class="docutils literal notranslate"><span class="pre">from_marker</span></code> element up to the <code class="docutils literal notranslate"><span class="pre">to_marker</span></code> element, or to the deck’s end
 without one. A device the deck puts inside it belongs to the deepest such
-place, unless the device states its own <code class="docutils literal notranslate"><span class="pre">place</span></code>.</p>
+place, unless the device states its own <code class="docutils literal notranslate"><span class="pre">place</span></code> in an authored record or a
+fix. A place only an importing layer states (<code class="docutils literal notranslate"><span class="pre">place_from:</span> <span class="pre">imported</span></code>) yields
+to a span that is that place or lies inside it, and stands under a span that
+holds it or where none holds the device; any other span holding the device
+contradicts it, and the build stops <code class="docutils literal notranslate"><span class="pre">place-conflict</span></code>.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/SECT1</span>
 <span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sector</span>
 <span class="w">  </span><span class="nt">span</span><span class="p">:</span>
