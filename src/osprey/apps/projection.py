@@ -63,9 +63,8 @@ def project_deployment(
         ``{"services": {<key>: {"template": str, "config": dict}}}``.
 
     Raises:
-        AppManifestError: The profile names an application with no manifest, two
-            applications project the same service key, or the facility band has
-            no free port left.
+        AppManifestError: The profile names an application with no manifest, or
+            the facility band has no free port left.
     """
     by_name = {manifest.name: manifest for manifest in manifests}
     apps_block = config.get("apps") or {}
@@ -81,19 +80,6 @@ def project_deployment(
                 f"{_APPS_DIR}/{name}/app.yml exists",
             )
         selected.append((manifest, profile_app or {}))
-
-    owners: dict[str, str] = {}
-    for manifest, _ in selected:
-        for key in manifest.containers:
-            if key in owners:
-                raise AppManifestError(
-                    manifest.name,
-                    f"containers.{key}",
-                    "service_key_taken",
-                    f"service {key!r} is already projected by application {owners[key]!r}; "
-                    "rename the container",
-                )
-            owners[key] = manifest.name
 
     ports = _assign_ports(selected, resolve_port_base(config), claimed_ports)
 
