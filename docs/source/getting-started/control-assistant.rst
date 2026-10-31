@@ -55,10 +55,14 @@ source and whose ``build/`` is the render; provider keys go in the repository's
 ``.env``.
 
 No hardware is involved, so every example below is safe to run; hardware writes
-are still gated behind the human-approval prompt. Unlike ``hello-world``, the
-preset ships a **channel database**, a **seeded electronic logbook**, and an
-**archive of its own** — a real store this project deploys, seeds and records
-into — plus a set of sub-agents and operator skills.
+are still gated behind the human-approval prompt.
+
+Unlike ``hello-world``, the preset ships a **full facility description** under
+``data/facility/`` (places, devices, channels, groups, models and limits), from
+which ``osprey build`` writes the channel database and every other file a
+service reads (:doc:`/how-to/describe-your-facility`), a **seeded electronic
+logbook**, and an **archive of its own** — a real store this project deploys,
+seeds and records into — plus a set of sub-agents and operator skills.
 
 .. note::
 

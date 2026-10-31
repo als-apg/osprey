@@ -91,7 +91,7 @@ describes OSPREY's reference facility rather than yours is marked as such.
 
 **MAP** gives every element one verdict: carry it over, use what OSPREY has, replace a
 reference-facility placeholder with your own, drop it, or flag a gap OSPREY cannot
-express. Then it asks for the facility name, prefix, timezone and project name.
+express. Then it asks for the facility name, timezone and project name.
 
 **BUILD** creates the project from the hello-world preset and shows a feature
 checklist: every optional feature of the full reference example, recommended on
