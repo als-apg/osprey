@@ -3953,6 +3953,15 @@ jobs:
     timeout-minutes: 45
 
     steps:
+    # The qmd sidecar and the deployment's generated image are built side by
+    # side, which overruns the ~14 GB a hosted runner starts with free (the
+    # 2026-10-31 attempts died in `uv` with "No space left on device" during
+    # the image build); drop the preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -5453,6 +5462,15 @@ jobs:
     timeout-minutes: 75
 
     steps:
+    # The qmd sidecar and the deployment's generated image are built side by
+    # side, which overruns the ~14 GB a hosted runner starts with free (the
+    # 2026-10-31 attempts died in `uv` with "No space left on device" during
+    # the image build); drop the preinstalled SDKs this job never uses.
+    - name: Free runner disk
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
