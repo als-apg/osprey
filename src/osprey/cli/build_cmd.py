@@ -73,6 +73,7 @@ from osprey_connectors.workspace import BUILD_DIR_NAME
 
 from .build_environment import (
     _create_project_venv,
+    _merge_project_requirements,
     _plan_project_venv,
     _resolve_osprey_spec,
     deployment_dependencies,
@@ -3597,12 +3598,19 @@ def _build_repo(
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")
         else:
-            project_deps = deployment_dependencies(
-                list(build_profile.dependencies or []), deployment_packages
+            # One merge with the plan's, so a distribution is named once here too.
+            project_deps = _merge_project_requirements(
+                [],
+                deployment_dependencies(
+                    list(build_profile.dependencies or []), deployment_packages
+                ),
+                [],
             )
-            # The image installs the environment packages too, as the plan's
-            # merged list does.
-            refuse_unshipped_kinds([*project_deps, *(build_profile.environment.packages or [])])
+            # Judged over the list the image installs: a `--skip-deps` build
+            # carries the dependencies only (`TestSkipDeps` in
+            # tests/cli/test_image_deps_match_project_record.py), never
+            # `environment.packages`.
+            refuse_unshipped_kinds(project_deps)
 
         shared = _SharedRenderInputs(
             repo_root=repo_root,
