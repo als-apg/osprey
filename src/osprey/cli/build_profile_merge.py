@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -1755,7 +1755,12 @@ def resolve_profile_document(
 
 
 def _fold_source_tree(
-    digest: Any, label: str, source: Path, *, skip_runtime_output: bool = False
+    digest: Any,
+    label: str,
+    source: Path,
+    *,
+    skip_runtime_output: bool = False,
+    skip: Callable[[str], bool] | None = None,
 ) -> None:
     """Fold one file-or-directory build input into ``digest``, in place.
 
@@ -1772,6 +1777,10 @@ def _fold_source_tree(
     own build OUT OF DATE (#716). The subtree is skipped statically — by its
     reserved name, not by a manifest — so the fold and the writer cannot fall
     out of sync about which files a start is allowed to create.
+
+    ``skip`` is passed for an application directory: it is handed each file's
+    relative path and answers whether that file is build output rather than
+    build input (:func:`~osprey.cli.application_material.app_build_output`).
 
     A ``source`` that does not exist folds only its ``label``: the profile keys
     that name it are already in the canonical JSON, so a vanished tree still
@@ -1806,6 +1815,8 @@ def _fold_source_tree(
                 continue
             rel = path.relative_to(source).as_posix()
             if skip_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
+                continue
+            if skip is not None and skip(rel):
                 continue
             entries.append((rel, path))
         entries.sort(key=lambda entry: entry[0])
@@ -1885,6 +1896,9 @@ def _fold_profile_material(
     * the trigger file ``dispatch.triggers`` names, when it lives with the
       profile (a bundled trigger file is package content, not profile
       material);
+    * every application directory ``apps/<name>/``, under ``app:<name>``,
+      minus the vendor files the build fetches into it
+      (:func:`~osprey.cli.application_material.app_build_output`);
     * every layer file in ``tiers/``, ``apps/`` and the retired layer directory
       (:func:`~osprey.cli.profile_root.layer_files`, the same listing the build
       loop renders from) — the files a deployment's own per-layer projects are
@@ -1954,6 +1968,13 @@ def _fold_profile_material(
     # digest, so a rename moves the hash exactly as an edit does.
     for _kind, layer in layer_files(profile_dir):
         _fold_source_tree(digest, layer_fold_label(layer), layer)
+
+    # Each application directory is build input — its app.yml, fragments and
+    # config — minus the vendor files the build fetches into it.
+    from .application_material import app_build_output, application_dirs
+
+    for app_dir in application_dirs(profile_dir):
+        _fold_source_tree(digest, f"app:{app_dir.name}", app_dir, skip=app_build_output(app_dir))
 
 
 def layer_fold_label(layer: Path) -> str:
