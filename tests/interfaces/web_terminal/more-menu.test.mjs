@@ -105,7 +105,7 @@ const FIXTURE = `
       <span class="more-menu-avatar" aria-hidden="true">A</span>
       <span class="more-menu-user">alice</span>
       <span class="more-menu-role" title="Role for this session">operator</span>
-      <span class="more-menu-sub">ALS</span>
+      <span class="more-menu-sub">Example Research Facility</span>
     </div>
     <div class="osprey-popover-sep" role="separator"></div>
     <div role="group" aria-labelledby="more-view-label">
