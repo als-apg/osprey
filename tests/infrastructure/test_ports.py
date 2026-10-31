@@ -5,14 +5,17 @@ from __future__ import annotations
 import ast
 import fcntl
 import os
+import re
 import socket
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 
 from osprey.deployment.subprocess_capture import observe_exit, stop_child
+from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
     bound_socket,
@@ -24,6 +27,16 @@ from osprey_connectors_tests._harness._ports import (
     reserved_ports,
 )
 from tests._nested_pytest import with_harness_path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+#: The highest first port of an ephemeral range a test host is likely to run:
+#: IANA's dynamic range, macOS's default. Reservations are handed out below it.
+_HIGHEST_EPHEMERAL_START = 49152
+
+#: A pinned deployment block: ``port_base``, ``PORT_BASE`` or ``worker_port_base``
+#: set to a literal, in Python, YAML or an ``osprey set`` argument.
+_PINNED_BASE = re.compile(r"port_base\W{1,4}(\d{4,5})\b", re.IGNORECASE)
 
 #: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
 _HOLDER_GRACE_S = 1.0
@@ -49,6 +62,56 @@ def _end_holder(holder: subprocess.Popen[str]) -> None:
 def test_the_port_lies_below_the_ephemeral_range():
     with reserved_port() as port:
         assert _ports.PORT_FLOOR <= port < ephemeral_range_start()
+
+
+def _pinned(port: int) -> bool:
+    return any(low <= port < high for low, high in _ports.PINNED_BLOCKS)
+
+
+def test_no_candidate_lies_in_a_pinned_block():
+    candidates = _ports._candidates(_HIGHEST_EPHEMERAL_START)
+    assert candidates
+    assert not any(_pinned(port) for port in candidates)
+
+
+def _pinned_bases() -> dict[int, list[str]]:
+    """Every literal deployment base a test file pins, with the files that pin it."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "tests", "packages/osprey-connectors/tests"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    bases: dict[int, list[str]] = {}
+    for name in listed.stdout.decode("utf-8").split("\0"):
+        if not name.endswith((".py", ".yml", ".yaml")):
+            continue
+        path = REPO_ROOT / name
+        if not path.is_file():
+            continue
+        for match in _PINNED_BASE.finditer(path.read_text(encoding="utf-8")):
+            bases.setdefault(int(match.group(1)), []).append(name)
+    return bases
+
+
+def test_every_block_a_test_pins_is_skipped():
+    bases = _pinned_bases()
+    assert bases, "the scan found no pinned base at all; its pattern no longer matches"
+    uncovered = {
+        base: files
+        for base, files in sorted(bases.items())
+        if any(
+            not _pinned(port)
+            for port in range(
+                max(base, _ports.PORT_FLOOR), min(base + BLOCK_SIZE, _HIGHEST_EPHEMERAL_START)
+            )
+        )
+    }
+    assert not uncovered, (
+        "test(s) pin a deployment block that reservations may hand out; widen "
+        f"_ports.PINNED_BLOCKS to cover it: {uncovered}"
+    )
 
 
 def test_two_nested_reservations_never_share_a_port():
