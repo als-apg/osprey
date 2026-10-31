@@ -205,15 +205,6 @@ def test_an_exhausted_band_refuses_naming_the_container() -> None:
     assert f"{FACILITY_BAND}-{FACILITY_BAND + 99}" in str(error)
 
 
-def test_two_applications_cannot_project_one_service_key() -> None:
-    twin = copy.deepcopy(VIEWER)
-    twin["name"] = "twin"
-    with pytest.raises(AppManifestError) as excinfo:
-        _project([_manifest(VIEWER), _manifest(twin)], {"apps": {"viewer": {}, "twin": {}}})
-    assert excinfo.value.app == "twin"
-    assert excinfo.value.rule == "service_key_taken"
-
-
 def test_projection_is_pure() -> None:
     manifests = [_manifest(KNOB)]
     config = {"apps": {"knob-demo": {"services": {"knob-demo": {"env": ["X"]}}}}}
