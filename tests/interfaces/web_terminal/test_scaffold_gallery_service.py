@@ -79,11 +79,17 @@ def project_dir(_baked_repo, tmp_path):
     ``project_root`` in config.yml, ``build_args.profile_path_abs`` in the
     manifest — and a copy that kept them would resolve every path back to the
     shared bake and mutate it.
+
+    The render's ``data/`` (channel databases, graph, simulator; about half of
+    what would be copied) is left out as well: no gallery path reads it, and
+    copying it was most of each test's setup.
     """
     build_zone = _baked_repo / "build"
 
     def ignore(src: str, names: list[str]) -> set[str]:
-        return _role_renders(build_zone, names) if Path(src) == build_zone else set()
+        if Path(src) != build_zone:
+            return set()
+        return _role_renders(build_zone, names) | ({"data"} & set(names))
 
     return copy_build(_baked_repo, tmp_path, ignore=ignore) / "build"
 

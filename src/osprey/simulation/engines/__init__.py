@@ -35,7 +35,7 @@ class EnginePlugin(Protocol):
     ======================================  ============================================  ==========================================
     ``error_text(exc)``                     the one line a failed build reports           the exception's own text
     ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
-                                            declares
+                                            declares, by address or by element
     ``polynomial_kicks(deck, elements)``    a deck copy carrying named kicks as dipole    the pyAML view stops ``engine-invalid``
                                             polynomials; stand-in until pyAML reads a     when design correctors need it
                                             dipole kick held in ``KickAngle``

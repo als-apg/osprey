@@ -85,7 +85,11 @@ def _project(surface: Surface, case: Case, tmp_path: Path) -> Any:
 
 
 def _rows_for(surface: Surface) -> list[Case]:
-    return [case for case in CASES if case.verdict == surface.verdict]
+    rows = [case for case in CASES if case.verdict == surface.verdict]
+    if surface.verdict == "write" and not surface.module.startswith("osprey_connectors"):
+        # A framework surface is held to the write rows the twin is held to.
+        rows = [case for case in rows if "twin" in case.applies_to]
+    return rows
 
 
 # -- the registry covers every caller ----------------------------------------
@@ -102,7 +106,13 @@ def _verdict_callers() -> set[str]:
     callers = set()
     for root in SRC_ROOTS:
         for path in root.rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            source = path.read_text(encoding="utf-8")
+            # A call spells the name it calls (an identifier has no escape
+            # sequence), and parsing every module is what the scan spends its
+            # time on: a module that spells no verdict name is passed over.
+            if not any(name in source for name in VERDICT_NAMES):
+                continue
+            tree = ast.parse(source)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue

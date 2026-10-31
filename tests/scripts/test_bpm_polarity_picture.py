@@ -142,24 +142,20 @@ def _copy_example(tmp_path: Path) -> Path:
     return copy
 
 
-def test_a_rerun_writes_the_same_bytes_and_the_committed_picture_is_the_same_picture(tmp_path):
+def test_a_rerun_writes_the_same_bytes_and_the_committed_picture_is_the_same_picture(
+    view, tmp_path
+):
     copy = _copy_example(tmp_path)
     picture = copy / "scenarios" / plots.SCENARIO / plots.PICTURE
     assert plots.main([str(copy)]) == 0
     first = picture.read_bytes()
     assert plots.main([str(copy)]) == 0
     assert picture.read_bytes() == first
+    # The script reads a built simulator view as it reads its own render.
+    assert plots.main([str(copy), "--simulator", str(view.path)]) == 0
+    assert picture.read_bytes() == first
     # The facility holds what the script writes, as the same picture. The PNG
     # compressor's output and the last bit of an antialiased edge differ
     # between hosts, so the committed picture is compared decoded and within a
     # tolerance no data change stays under.
     _assert_same_picture(first, COMMITTED_PICTURE.read_bytes())
-
-
-def test_the_script_reads_a_built_simulator_view_as_it_reads_its_own_render(view, tmp_path):
-    copy = _copy_example(tmp_path)
-    picture = copy / "scenarios" / plots.SCENARIO / plots.PICTURE
-    assert plots.main([str(copy), "--simulator", str(view.path)]) == 0
-    from_view = picture.read_bytes()
-    assert plots.main([str(copy)]) == 0
-    assert picture.read_bytes() == from_view

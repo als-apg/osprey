@@ -480,8 +480,17 @@ def _production_python_files():
 def _verdict_calls(path):
     """``(lineno, call)`` for every call of a :data:`_TARGETED_RULES` name in *path*."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):  # pragma: no cover - an unreadable file is not a caller
+        source = path.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - an unreadable file is not a caller
+        return
+    # A call spells the name it calls (an identifier has no escape sequence),
+    # and parsing every module is what the scan spends its time on: a module
+    # that spells no rule is passed over.
+    if not any(rule in source for rule in _TARGETED_RULES):
+        return
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:  # pragma: no cover - an unparsable file is not a caller
         return
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):

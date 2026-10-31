@@ -2,15 +2,14 @@
 
 The dispatcher dashboard shows the identity's name like every other surface,
 so neither a config key nor a profile key can name the facility a second time.
-The resurrection guard lists each retired config key and proves no shipped
-surface spells it again.
+The manifest lists each retired config key as deleted, and
+``tests/scripts/test_config_key_guard.py`` proves no shipped surface spells it
+again.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -49,20 +48,6 @@ def test_each_retired_reader_has_an_orphan_site(key: str) -> None:
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
 
     assert manifest["orphan_sites"].get(key), f"{key} has no orphan site"
-
-
-def test_the_resurrection_guard_is_green() -> None:
-    """No preset, template, reader or reference page spells a retired key."""
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "check_config_keys.py")],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("preset", sorted(PRESETS.glob("*.yml")), ids=lambda p: p.stem)

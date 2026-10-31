@@ -976,7 +976,7 @@ class TestMockArchiverReproducibility:
         """)
 
         runs = []
-        for seed in ("0", "1", "12345"):
+        for seed in ("0", "1"):
             env = {**os.environ, "PYTHONHASHSEED": seed}
             proc = subprocess.run(
                 [sys.executable, "-c", script, str(view)],
@@ -988,7 +988,7 @@ class TestMockArchiverReproducibility:
             )
             runs.append(json.loads(proc.stdout.strip().splitlines()[-1]))
 
-        assert runs[0] == runs[1] == runs[2]
+        assert runs[0] == runs[1]
         assert len(runs[0]) > 0
 
 

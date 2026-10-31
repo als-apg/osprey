@@ -721,6 +721,10 @@ class PlaceFromEnum(str, Enum):
     """
     Set by a fix.
     """
+    imported = "imported"
+    """
+    Stated by an importing layer alone, where no span holds the device.
+    """
 
 
 class FixOpEnum(str, Enum):

@@ -980,7 +980,7 @@ def _widens(state: str, position: str) -> bool:
 
 def set_switch(
     targets: Sequence[str] | Literal["all"],
-    state: Literal["off", "asked", "allowed"],
+    state: Literal["off", "on", "asked", "allowed"],
     *,
     epoch: int | None = None,
     path: Path | None = None,

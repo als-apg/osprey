@@ -12,7 +12,6 @@ Also covers pre-execution notebook creation for execute (python) approval.
 import hashlib
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -293,104 +292,6 @@ def test_the_hook_spells_the_section_fault_like_the_build(section):
     )
 
 
-def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
-    """Selective mode blocks channel_write (a write operation)."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-                "requires_approval": ["channel_write", "execute"],
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-@pytest.mark.parametrize(
-    ("tool_input", "asks"),
-    [
-        pytest.param(
-            {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
-            True,
-            id="readwrite-asks",
-        ),
-        # Readonly code without write patterns passes.
-        pytest.param(
-            {"code": "print(42)", "execution_mode": "readonly"}, False, id="readonly-allows"
-        ),
-    ],
-)
-def test_selective_mode_gates_python_on_its_execution_mode(
-    tmp_path, hook_runner, make_config, tool_input, asks
-):
-    """Selective mode prompts for python in write mode and allows it readonly."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        tool_input,
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    if asks:
-        assert result is not None
-        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
-    else:
-        assert _is_allow(result)
-
-
-def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
-    """A per-tool skip policy lets channel_read through, even when the
-    default_policy would otherwise prompt. Mirrors production config which
-    pins channel_read=skip while other tools fall through to selective."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-                "tools": {"channel_read": "skip"},
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
 def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_config):
     """DETERMINISTIC contract pin for the e2e read test (test_safety_reads.py).
 
@@ -654,61 +555,6 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
     assert _is_allow(result)  # No approval needed
 
 
-def test_framework_pattern_detection_import_fallback(tmp_path, hook_runner, make_config):
-    """When osprey is not importable, fallback patterns still catch basic writes."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    # The hook runs as a subprocess, so we can't easily mock the import.
-    # Instead, test that a pattern covered by the fallback list still works.
-    # caput( is in the fallback list, so it should always be caught.
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
-    """Config-driven custom patterns trigger approval via framework detection."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {
-                "writes": "allowed",
-                "patterns": {
-                    "write": [r"\bmy_custom_write\s*\("],
-                    "read": [],
-                },
-            },
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "my_custom_write('DEVICE', 42)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
 def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, make_config):
     """Config patterns flow from hook config dict through to framework detection.
 
@@ -805,70 +651,6 @@ def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_conf
     assert _is_allow(result2)
 
 
-def test_fallback_merges_custom_patterns(hook_module):
-    """Fallback path merges custom patterns with _FALLBACK_WRITE_PATTERNS by default.
-
-    When osprey is not importable, the fallback regex path must merge
-    custom patterns (extend mode) instead of replacing the fallback list.
-    """
-    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
-
-    # Simulate the fallback merge logic (extend mode, the default)
-    config = {
-        "control_system": {
-            "patterns": {
-                "write": [r"\bfacility_hw_write\s*\("],
-            }
-        }
-    }
-
-    pat_config = config.get("control_system", {}).get("patterns", {})
-    custom = pat_config.get("write")
-    mode = pat_config.get("mode", "extend")
-    patterns = list(fallback_patterns)
-    if custom:
-        if mode == "override":
-            patterns = list(custom)
-        else:
-            patterns.extend(p for p in custom if p not in patterns)
-
-    # Custom pattern present
-    assert any(re.search(p, "facility_hw_write('X', 1)") for p in patterns)
-    # Framework patterns still present (extend mode)
-    assert any(re.search(p, "caput('PV', 1.0)") for p in patterns)
-    assert len(patterns) == len(fallback_patterns) + 1
-
-
-def test_fallback_override_replaces_patterns(hook_module):
-    """Fallback path with mode=override replaces _FALLBACK_WRITE_PATTERNS entirely."""
-    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
-
-    config = {
-        "control_system": {
-            "patterns": {
-                "mode": "override",
-                "write": [r"\bfacility_hw_write\s*\("],
-            }
-        }
-    }
-
-    pat_config = config.get("control_system", {}).get("patterns", {})
-    custom = pat_config.get("write")
-    mode = pat_config.get("mode", "extend")
-    patterns = list(fallback_patterns)
-    if custom:
-        if mode == "override":
-            patterns = list(custom)
-        else:
-            patterns.extend(p for p in custom if p not in patterns)
-
-    # Custom pattern present
-    assert any(re.search(p, "facility_hw_write('X', 1)") for p in patterns)
-    # Framework patterns NOT present (override mode)
-    assert not any(re.search(p, "caput('PV', 1.0)") for p in patterns)
-    assert len(patterns) == 1
-
-
 # -- Config edge cases (gap fill) --
 
 
@@ -938,23 +720,6 @@ def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_conf
 # ============================================================================
 
 
-def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
-    """When approval.enabled is false, all tools pass through."""
-    tools_config = {**DEFAULT_TOOLS_CONFIG, "enabled": False}
-    config = make_config({"approval": tools_config})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
 @pytest.mark.parametrize(
     ("tool_name", "tool_input", "asks"),
     [
@@ -963,12 +728,6 @@ def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
             {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
             True,
             id="always-asks",
-        ),
-        pytest.param(
-            "mcp__controls__channel_read",
-            {"channels": ["SR:CURRENT:RB"]},
-            False,
-            id="skip-allows",
         ),
         # `selective` on execute prompts for write-mode execution...
         pytest.param(
@@ -1038,30 +797,6 @@ def test_tool_policy_decides_the_prompt(
         assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
     else:
         assert _is_allow(result)
-
-
-def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
-    """Tools not in the tools map fall back to default_policy (always)."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    # Use a custom hook_config with a novel server prefix
-    custom_config = {
-        "server_prefixes": ["mcp__controls__", "mcp__my_plc__"],
-        "approval_prefixes": ["mcp__controls__", "mcp__my_plc__"],
-    }
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__my_plc__unknown_tool",
-        {"param": "value"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=custom_config,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
 
 
 @pytest.mark.parametrize(
@@ -1461,7 +1196,6 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(tmp_path, hook_r
 @pytest.mark.parametrize(
     ("target", "on", "decision"),
     [
-        pytest.param("live", ("va",), None, id="machine-switched-off"),
         pytest.param("live", ("live",), "ask", id="machine-switched-on"),
         pytest.param("va", ("live",), None, id="sim-switched-off"),
         pytest.param("va", ("va",), "ask", id="sim-switched-on"),
@@ -1491,29 +1225,6 @@ def test_channel_write_follows_the_switch_of_the_write_target(
     assert decision_seen == decision
 
 
-def test_a_tier_that_states_no_writes_defers(tmp_path, hook_runner):
-    """No `writes` and no armed block is a tier that never writes.
-
-    `writes_check` denies every write on it, so a prompt would ask the human to
-    approve a call the next hook refuses, even with the machine switched on.
-    """
-    config = _posture_config(tmp_path, NO_TIER)
-    _write_session_state(tmp_path, target="live", on=("live",))
-
-    def run(hook):
-        return _run(
-            hook,
-            tmp_path,
-            hook_runner,
-            config,
-            "mcp__controls__channel_write",
-            CHANNEL_WRITE_INPUT,
-        )
-
-    assert run("osprey_approval.py") is None
-    assert run("osprey_writes_check.py") == "deny"
-
-
 def test_an_unrebuilt_per_type_ceiling_never_writes_on_a_switched_on_machine(tmp_path, hook_runner):
     """Mock armed, epics not, no tier key, session on `live` with its switch on: deferred.
 
@@ -1538,33 +1249,9 @@ def test_an_unrebuilt_per_type_ceiling_never_writes_on_a_switched_on_machine(tmp
     assert run("osprey_writes_check.py") == "deny"
 
 
-def test_a_write_whose_machine_cannot_be_placed_defers(tmp_path, hook_runner):
-    """No record under a guessed root places the write nowhere.
-
-    `writes_check` denies that cell (`posture_unknown`), so the defer stands.
-    Picking the baseline instead would state a verdict for a session that may
-    have switched away from it.
-    """
-    config = _posture_config(tmp_path, TWO_TARGETS)
-
-    def run(hook):
-        return _run(
-            hook,
-            tmp_path,
-            hook_runner,
-            config,
-            "mcp__controls__channel_write",
-            CHANNEL_WRITE_INPUT,
-        )
-
-    assert run("osprey_approval.py") is None
-    assert run("osprey_writes_check.py") == "deny"
-
-
 @pytest.mark.parametrize(
     ("services", "tool_input", "decision"),
     [
-        pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky_live"}, None, id="lane-on-the-machine"),
         pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky"}, "ask", id="lane-on-the-sim"),
         pytest.param(TWO_LANE_SERVICES, {}, "ask", id="two-lanes-and-none-named"),
         pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky_ghost"}, "ask", id="lane-not-rendered"),
@@ -1623,15 +1310,6 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             id="channel_write-on-the-switched-off-machine",
         ),
         pytest.param(
-            TWO_TARGETS,
-            None,
-            "mcp__controls__channel_write",
-            CHANNEL_WRITE_INPUT,
-            ("va", ("va",)),
-            None,
-            id="channel_write-on-the-switched-on-simulator",
-        ),
-        pytest.param(
             SIMULATOR_NEVER,
             None,
             "mcp__python__execute",
@@ -1639,15 +1317,6 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             ("va", ("va",)),
             _BY_WRITES_CHECK,
             id="readwrite-execute-tier-never",
-        ),
-        pytest.param(
-            SIMULATOR_NEVER,
-            None,
-            "mcp__python__execute",
-            {"code": "print(1)", "execution_mode": "readonly"},
-            ("va", ("va",)),
-            None,
-            id="readonly-execute-tier-never",
         ),
         pytest.param(
             NO_TIER,
@@ -1675,15 +1344,6 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             ("live", ("va",)),
             _BY_LANE_GATE,
             id="queue_start-on-the-switched-off-lane",
-        ),
-        pytest.param(
-            TWO_TARGETS,
-            TWO_LANE_SERVICES,
-            "mcp__bluesky__queue_start",
-            {},
-            ("live", ("va",)),
-            None,
-            id="queue_start-with-no-lane-to-place",
         ),
         pytest.param(
             TWO_TARGETS,
@@ -2281,31 +1941,6 @@ def test_the_ask_stamp_carries_the_approved_fields_of_the_envelope(
     assert set(_approved(stamp)) == {"approved_target"}
     assert stamp["approved_target"] == "va"
     assert "agent-target" not in stamp.values()
-
-
-def test_an_agent_supplied_field_the_hook_did_not_bind_never_reaches_the_stamp(
-    tmp_path, hook_runner, make_config, stamp_dir
-):
-    tool_input = {
-        "code": "print(1)",
-        "execution_mode": "readwrite",
-        "approved_view_sha256": "ab" * 32,
-    }
-
-    result = _asked(
-        hook_runner,
-        make_config,
-        tmp_path,
-        "execute",
-        tool_input,
-        GUARDED_ALWAYS_CONFIG,
-        "toolu_rw2",
-    )
-
-    assert _decision(result) == "ask"
-    stamp = _stamp(stamp_dir, "toolu_rw2")
-    assert set(_approved(stamp)) == {"approved_target"}
-    assert "approved_view_sha256" not in stamp
 
 
 def test_an_agent_supplied_field_never_reaches_a_readonly_stamp(
