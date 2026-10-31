@@ -686,7 +686,7 @@ def test_switch_confirms_moves_the_record_and_waits_for_the_fleet(
                 "Writes are asked there"
             )
             expect(page.locator(f"{OPEN_MODAL} .posture-modal-live")).to_have_text(
-                "Real machine — writes move hardware"
+                "Live — writes move hardware"
             )
             page.locator(MODAL_CONFIRM).click()
 

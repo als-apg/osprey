@@ -11,7 +11,7 @@
  *
  * What they pin down, in the order a reviewer would ask about it:
  *
- * - machines are named by consequence (`Real machine`, `Rehearsal`,
+ * - machines are named by consequence (`Live`, `Rehearsal`,
  *   `Simulator`), the deployment's configured `display_name` wins, and the
  *   server's implementation label survives only on the tooltip;
  * - NO PROCESS CLAIMS: nothing rendered — rows, card, either confirm — states
@@ -81,7 +81,7 @@ let popoverModule;
 const KINDS = {
   live: {
     target: 'live',
-    label: 'Real machine — writes move hardware',
+    label: 'Live — writes move hardware',
     short_label: 'LIVE',
     machine_kind: 'real',
     display_name: '',
@@ -636,7 +636,7 @@ describe('the card', () => {
     expect(tip.textContent).toContain('Rehearsal — nothing moves');
     expect(tip.textContent).toContain('127.0.0.1:10090');
     expect(tip.querySelector('.ctc-tip-what')?.textContent).toBe(
-      "Copy of the real machine's controls · nothing moves"
+      "Copy of the live machine's controls · nothing moves"
     );
     expect(groupEl('standin')?.getAttribute('aria-label')).toBe('writes asked for Rehearsal');
     expect(checked('standin')).toEqual(['asked']);
@@ -671,13 +671,13 @@ describe('the card', () => {
 describe('names', () => {
   test('every machine is named by what it is, not how it is wired', async () => {
     await bootOpen();
-    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Real machine');
+    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Live');
     expect(rowEl('va')?.querySelector('.ctc-name')?.textContent).toBe('Simulator');
     // No raw server label reaches a resting surface — the labels live only
     // inside the ⓘ tooltips.
     const atRest = /** @type {HTMLElement} */ (popEl()?.cloneNode(true));
     for (const tip of atRest.querySelectorAll('.ctc-tip')) tip.remove();
-    expect(atRest.textContent).not.toContain('Real machine — writes move hardware');
+    expect(atRest.textContent).not.toContain('Live — writes move hardware');
     expect(atRest.textContent).not.toContain('Simulator — nothing moves');
   });
 
@@ -915,9 +915,7 @@ describe('the switch under a lock', () => {
       })
     );
     expect(optionEl('live', 'asked')?.disabled).toBe(false);
-    expect(optionEl('live', 'asked')?.title).toBe(
-      'Set writes to asked for Real machine — asks first'
-    );
+    expect(optionEl('live', 'asked')?.title).toBe('Set writes to asked for Live — asks first');
     expect(optionEl('va', 'off')?.disabled).toBe(false);
     // And no row offers a Switch it knows would be refused; the reason word
     // stands where the button was.
@@ -1042,11 +1040,11 @@ describe('turning writes off and on', () => {
     optionEl('live', 'asked')?.click();
     await flush();
 
-    expect(confirmTitle()).toBe('Set writes to asked on Real machine?');
+    expect(confirmTitle()).toBe('Set writes to asked on Live?');
     expect(posts()).toHaveLength(0);
     // The facility's own machine, and only it, carries the hardware notice.
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware'
+      'Live — writes move hardware'
     );
     expect(confirmBtn()?.dataset.live).toBe('true');
     expect(confirmBtn()?.textContent).toBe('Set writes to asked');
@@ -1062,7 +1060,7 @@ describe('turning writes off and on', () => {
     expect(body).not.toMatch(/approval|asks you|limits/i);
     expect(body).not.toMatch(/[\w.-]+:\d+/);
     // D10: every widening names the machine and whether writes will still prompt.
-    expect(body).toContain('Writes to Real machine will still prompt');
+    expect(body).toContain('Writes to Live will still prompt');
   });
 
   test('the simulator turns on without the hardware notice', async () => {
@@ -1289,7 +1287,7 @@ describe('a stop that lands while a turn-on is asked', () => {
     // The new click carries the epoch the re-read brought.
     optionEl('live', 'asked')?.click();
     await flush();
-    expect(confirmTitle()).toBe('Set writes to asked on Real machine?');
+    expect(confirmTitle()).toBe('Set writes to asked on Live?');
     postAnswers.push({ ok: true, body: { target: 'live', state: 'asked', switch_epoch: '9' } });
     confirmBtn()?.click();
     await flush();
@@ -1545,7 +1543,7 @@ describe('switching', () => {
     switchEl('live')?.click();
     await flush();
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware'
+      'Live — writes move hardware'
     );
   });
 
@@ -1824,7 +1822,7 @@ describe("don't ask again", () => {
     await bootOpen();
     switchEl('live')?.click();
     await flush();
-    expect(confirmTitle()).toBe('Switch to Real machine?');
+    expect(confirmTitle()).toBe('Switch to Live?');
   });
 
   test('cancelling with the box ticked records nothing', async () => {
@@ -1908,7 +1906,7 @@ describe("don't ask again", () => {
     optionEl('live', 'asked')?.click();
     await flush();
 
-    expect(confirmTitle()).toBe('Set writes to asked on Real machine?');
+    expect(confirmTitle()).toBe('Set writes to asked on Live?');
     expect(skipBox()).toBeNull();
     expect(posts()).toHaveLength(0);
   });

@@ -184,14 +184,14 @@ health dot to see the health of the services.
 
 The first part names the machine this deployment stands on, by what it **is**:
 
-- **Real machine** --- the facility's own. Writes move hardware.
+- **Live** --- the facility's own. Writes move hardware.
 - **Rehearsal** --- a copy of the real machine's controls, same channel names,
   no hardware behind it. Nothing moves.
 - **Simulator** --- the virtual accelerator: a physics model with beam in it,
   served from its container or in process. Nothing moves.
 
 A deployment can put its own names on its machines (*Example Research
-Facility storage ring* rather than *Real machine*); what the machine is stays
+Facility storage ring* rather than *Live*); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server's own technical label.
 

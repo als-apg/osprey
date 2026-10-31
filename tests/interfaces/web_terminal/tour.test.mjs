@@ -414,9 +414,9 @@ describe('steps', () => {
 
     const body = document.querySelector('.tour-body')?.textContent ?? '';
     expect(body).toContain('currently on Rehearsal — writes off.');
-    for (const word of ['real machine', 'rehearsal', 'simulator']) expect(body).toContain(word);
+    for (const word of ['live machine', 'rehearsal', 'simulator']) expect(body).toContain(word);
     expect(body).toContain('turn writes on or off');
-    expect(body).not.toMatch(/stand-in|sandbox|LIVE MACHINE/i);
+    expect(body).not.toMatch(/stand-in|sandbox/i);
   });
 
   test('a session on no known machine gets no read phrase', () => {

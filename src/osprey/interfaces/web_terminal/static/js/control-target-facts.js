@@ -119,7 +119,7 @@ export function machineKind(row) {
  * @type {Record<string, string>}
  */
 export const KIND_WORDS = {
-  [KIND_REAL]: 'Real machine',
+  [KIND_REAL]: 'Live',
   [KIND_REHEARSAL]: 'Rehearsal',
   [KIND_SIMULATOR]: 'Simulator',
 };
@@ -134,7 +134,7 @@ export const KIND_WORDS = {
  * @type {Record<string, string>}
  */
 export const KIND_BANNERS = {
-  [KIND_REAL]: 'Real machine — writes move hardware',
+  [KIND_REAL]: 'Live — writes move hardware',
   [KIND_REHEARSAL]: 'Rehearsal — nothing moves',
   [KIND_SIMULATOR]: 'Simulator — nothing moves',
 };
@@ -171,7 +171,7 @@ const TIER_CAPS_SENTENCE = 'your tier caps writes at asked';
  * @type {Record<string, string>}
  */
 export const KIND_READ_PHRASES = {
-  [KIND_REAL]: 'read values from the real machine',
+  [KIND_REAL]: 'read values from the live machine',
   [KIND_REHEARSAL]: 'read values from the rehearsal copy',
   [KIND_SIMULATOR]: 'read values from the simulator',
 };
@@ -184,7 +184,7 @@ export const KIND_READ_PHRASES = {
  */
 const KIND_DESCRIPTORS = {
   [KIND_REAL]: 'Writes move hardware',
-  [KIND_REHEARSAL]: "Copy of the real machine's controls · nothing moves",
+  [KIND_REHEARSAL]: "Copy of the live machine's controls · nothing moves",
   [KIND_SIMULATOR]: 'Physics model · nothing moves',
 };
 
@@ -288,7 +288,7 @@ export const REASON_PHRASES = {
   archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
-  reaches_live_machine: 'points at the real machine',
+  reaches_live_machine: 'points at the live machine',
   selected_role_missing: 'no endpoint for role',
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
   [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',

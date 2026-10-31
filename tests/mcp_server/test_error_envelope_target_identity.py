@@ -40,10 +40,10 @@ from tests.mcp_server.conftest import assert_raises_error
 
 IDENTITY = {
     "name": "live",
-    "label": "Real machine — writes move hardware",
+    "label": "Live — writes move hardware",
     "endpoint": "localhost:5064",
 }
-CLAUSE = "(active target: Real machine — writes move hardware at localhost:5064)"
+CLAUSE = "(active target: Live — writes move hardware at localhost:5064)"
 
 
 # ------------------------------------------------------------- the resolver
@@ -52,8 +52,8 @@ CLAUSE = "(active target: Real machine — writes move hardware at localhost:506
 def _slot(endpoint: str = "localhost:5064", role: str = "write_access") -> dict:
     """One target slot in the shape the supervisor's display cache holds."""
     return {
-        "label": "Real machine — writes move hardware",
-        "display_name": "Real machine",
+        "label": "Live — writes move hardware",
+        "display_name": "Live",
         "endpoint": endpoint,
         "selected_role": role,
         "real_machine": True,
@@ -122,7 +122,7 @@ def test_the_resolver_prints_the_read_gateway_the_writer_rendered(monkeypatch):
     monkeypatch.setattr(server_context, "get_server_context", lambda: _FakeContext(slot))
     assert describe_active_target() == {
         "name": "live",
-        "label": "Real machine — writes move hardware",
+        "label": "Live — writes move hardware",
         "endpoint": "localhost:5065",
     }
 
@@ -176,7 +176,7 @@ async def test_a_connection_failure_names_the_machine():
     assert CLAUSE in envelope["error_message"]
     assert envelope["details"]["active_target"] == IDENTITY
     # The first suggestion points at the actual machine, not a generic service.
-    assert "Real machine — writes move hardware at localhost:5064" in envelope["suggestions"][0]
+    assert "Live — writes move hardware at localhost:5064" in envelope["suggestions"][0]
 
 
 @pytest.mark.usefixtures("resolved_identity")

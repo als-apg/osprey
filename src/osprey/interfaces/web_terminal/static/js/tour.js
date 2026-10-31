@@ -278,7 +278,7 @@ const STEPS = [
       const parts = [
         'The deployment points at one control target: the ',
         name(KIND_REAL),
-        ', a ',
+        ' machine, a ',
         name(KIND_REHEARSAL),
         ' (a copy of the real controls — nothing moves), or a ',
         name(KIND_SIMULATOR),

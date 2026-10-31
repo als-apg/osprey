@@ -90,7 +90,7 @@ OTHER_TERMINAL_PID = os.getppid()
 OTHER_TERMINAL_PORT = 8090
 
 #: Each machine kind's banner (C-WORDS, D4): the label every GET row carries.
-REAL_LABEL = "Real machine — writes move hardware"
+REAL_LABEL = "Live — writes move hardware"
 REHEARSAL_LABEL = "Rehearsal — nothing moves"
 SIM_LABEL = "Simulator — nothing moves"
 

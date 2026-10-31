@@ -71,7 +71,7 @@ let chipModule;
 const KINDS = {
   live: {
     target: 'live',
-    label: 'Real machine — writes move hardware',
+    label: 'Live — writes move hardware',
     short_label: 'LIVE',
     machine_kind: 'real',
     endpoint: 'gw.example.org:5064',
@@ -407,7 +407,7 @@ describe('targetReading', () => {
   test('answers in the chip’s own words for every kind and state', async () => {
     /** @type {Record<string, [string, string]>} */
     const NAMED = {
-      live: ['Real machine', 'real'],
+      live: ['Live', 'real'],
       standin: ['Rehearsal', 'rehearsal'],
       va: ['Simulator', 'simulator'],
     };
@@ -466,7 +466,7 @@ describe('state matrix', () => {
   const KIND_ATTR = { live: 'real', standin: 'rehearsal', va: 'simulator' };
   /** The consequence word each kind renders when no display_name is configured. */
   /** @type {Record<string, string>} */
-  const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator' };
+  const WORDS = { live: 'Live', standin: 'Rehearsal', va: 'Simulator' };
   /** @type {Record<string, string>} */
   const PHRASES = {
     asked: 'writes asked',
@@ -519,7 +519,7 @@ describe('state matrix', () => {
       })
     );
     expect(chipEl()?.dataset.targetKind).toBe('real');
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
   });
 
   test('a row with no machine_kind falls back to the loud answer, whatever its label', async () => {
@@ -532,7 +532,7 @@ describe('state matrix', () => {
       if (chipModule.getState()) await chipModule.refetch();
       else await boot(served);
       expect(chipEl()?.dataset.targetKind).toBe('real');
-      expect(shortText()).toBe('Real machine');
+      expect(shortText()).toBe('Live');
     }
   });
 
@@ -696,7 +696,7 @@ describe('refetch hints', () => {
     await flush();
     // Repainted without a single tick of the 5 s fallback having passed.
     expect(getCount()).toBe(before + 1);
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
   });
 
   test('a control_target_set frame triggers a re-read', async () => {
@@ -780,7 +780,7 @@ describe('polling', () => {
     expect(chipModule.isPending()).toBe(false);
     expect(chipEl()?.dataset.pending).toBeUndefined();
     expect(stateText()).toBe('writes asked');
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
 
     const settled = getCount();
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS * 4);
@@ -872,7 +872,7 @@ describe('polling', () => {
     await flush();
     expect(chipModule.isPending()).toBe(false);
     expect(stateText()).toBe('writes asked');
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
   });
 
   test('a server that fails the switch ends the wait and is named', async () => {
@@ -1052,13 +1052,13 @@ describe('read ordering', () => {
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
 
     // The parked read finally resolves, carrying history.
     heldGets.shift()?.();
     await slow;
     await flush();
-    expect(shortText()).toBe('Real machine');
+    expect(shortText()).toBe('Live');
     expect(chipEl()?.dataset.targetKind).toBe('real');
   });
 

@@ -64,12 +64,12 @@ describe('kind words', () => {
 
   test('the names and banners are the owner’s words', () => {
     expect(KIND_WORDS).toEqual({
-      real: 'Real machine',
+      real: 'Live',
       rehearsal: 'Rehearsal',
       simulator: 'Simulator',
     });
     expect(KIND_BANNERS).toEqual({
-      real: 'Real machine — writes move hardware',
+      real: 'Live — writes move hardware',
       rehearsal: 'Rehearsal — nothing moves',
       simulator: 'Simulator — nothing moves',
     });
@@ -97,7 +97,7 @@ describe('kind words', () => {
 
   test('a non-live standin reads as the real machine, never "Rehearsal"', () => {
     const row = { target: 'standin', machine_kind: 'real', label: 'Rehearsal — nothing moves' };
-    expect(displayName(row, machineKind(row))).toBe('Real machine');
+    expect(displayName(row, machineKind(row))).toBe('Live');
   });
 
   test('only the real machine’s descriptor is a hazard', () => {
@@ -144,7 +144,7 @@ const ARMED = /** @type {const} */ (['asked', 'allowed']);
 /** The banner each kind's confirm carries. */
 /** @type {Record<string, string|null>} */
 const CONFIRM_BANNERS = {
-  real: 'Real machine — writes move hardware',
+  real: 'Live — writes move hardware',
   rehearsal: 'Rehearsal — nothing moves',
   simulator: null,
 };
@@ -215,7 +215,7 @@ describe('switchConfirm', () => {
     for (const word of ARMED) {
       const spec = switchConfirm(row, 'real', word);
       expect(textOf(spec.body)).toContain('All control reads and writes go to gw:5064.');
-      expect(spec.live).toBe('Real machine — writes move hardware');
+      expect(spec.live).toBe('Live — writes move hardware');
     }
     expect(switchConfirm(row, 'rehearsal', 'allowed').live).toBe('Rehearsal — nothing moves');
     expect(switchConfirm(row, 'simulator', 'allowed').live).toBeNull();

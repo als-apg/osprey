@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 #: The banner an owner reads beside each kind of machine (C-WORDS).
 KIND_BANNERS: dict[str, str] = {
-    "real": "Real machine — writes move hardware",
+    "real": "Live — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
     "simulator": "Simulator — nothing moves",
 }

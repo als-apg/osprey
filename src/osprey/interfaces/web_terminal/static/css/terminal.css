@@ -999,7 +999,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   opacity: 0.72;
 }
 
-/* The machine's name — the kind's own word (Real machine, Rehearsal,
+/* The machine's name — the kind's own word (Live, Rehearsal,
    Simulator) or the deployment's configured display name. A configured
    name is free text, so the chip caps it with an ellipsis rather than letting
    one long name push the header's other actions off screen; the full name
@@ -2072,7 +2072,7 @@ html[data-ui-mode="simple"] #terminal-container {
   margin-bottom: var(--space-3);
 }
 
-/* The machine banner a confirm carries (C-WORDS): "Real machine — writes move
+/* The machine banner a confirm carries (C-WORDS): "Live — writes move
    hardware" in red, "Rehearsal — nothing moves" in amber, keyed on the
    dialog's `data-target-kind`. Same box as the error notice above — it is the
    same kind of thing to read before clicking — but it sits under the body

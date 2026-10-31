@@ -99,9 +99,7 @@ test('a dialog about no machine has no data-target-kind', () => {
 });
 
 test('a real-machine turn-on offers no waiver when the raiser passes none', () => {
-  showConfirm(
-    spec({ live: 'Real machine — writes move hardware', targetKind: 'real', skipKeyBase: null })
-  );
+  showConfirm(spec({ live: 'Live — writes move hardware', targetKind: 'real', skipKeyBase: null }));
 
   expect(document.querySelector('.posture-modal-skip')).toBeNull();
   expect(
