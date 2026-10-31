@@ -23,6 +23,10 @@ judgment the export pends, and what each model wires. The document shape is::
         tune:                 # optional; the address the model's tunes are read on
           {x: <address>, y: <address>, s?: <address>}   # one scalar per plane
           | {address: <address>, planes: [x, y, s?]}    # one waveform, planes in order
+        places:               # optional; the model's place tree, from DeviceList
+          sectors: {count: <n>, token: <format with {sector}>}   # optional
+          model_wide: [<raw family>, ...]                 # optional; needs sectors
+          sector_override: {<raw family>: <sector>}      # optional; needs sectors
     section_order: [<model name>, ...]
     branches: {<class>: {parent, description}}            # optional
     families: {<raw family>: {rename?, branch?, class?, devices?, aliases,
@@ -54,6 +58,15 @@ A family without the key is identified by ``names``; the import stops
 (``mapping-undecided``) where the export names no device for one of its
 slots, and (``mapping-invalid``) where an answer does not fit the export.
 
+A model's ``places`` turns its devices' ``DeviceList`` rows into places
+(:mod:`~osprey.facility.layers.mml.places`): the model is a place, and each
+of the ``count`` sectors ``sectors`` states is a place under it, named by
+``token`` formatted with the sector number (``SR{sector:02d}`` names
+``SR/SR03``). ``model_wide`` lists the families whose devices sit on the model
+whatever their rows say, ``sector_override`` puts a family's devices in one
+sector; both are this model's answers, never the shared family entry's. A
+model without the key gets no places.
+
 Every channel's role follows from its field's direction (:func:`field_roles`):
 ``write`` is a setpoint, ``read`` a readback. The import writes no ``pair``; the
 build pairs each setpoint with the readback of its quantity.
@@ -62,7 +75,9 @@ build pairs each setpoint with the readback of its quantity.
 ``section_order`` lists every model once, classes and branches resolve against
 the vocabulary, a ``devices`` answer names another family, one-word device
 names or a one-word stem, every direction and wiring family names a field the mapping
-describes, a field's ``signal`` is a vocabulary signal role, and -- given the
+describes, a field's ``signal`` is a vocabulary signal role, a model's
+``places`` answers name families and its own sectors with PN_LOCAL names, and
+-- given the
 export -- the mapping names exactly the export's
 systems and families, gives every channel-bearing field a direction, a
 ``stated`` direction agrees with the export's own vote unless ``override``, and
@@ -134,8 +149,10 @@ __all__ = [
     "MappingError",
     "Model",
     "OwnerMap",
+    "PlaceRules",
     "RowAnswer",
     "SameAs",
+    "SectorList",
     "SharedAnswer",
     "TUNE_PLANES",
     "TuneBlock",
@@ -312,6 +329,36 @@ class TuneBlock:
 
 
 @dataclass(frozen=True)
+class SectorList:
+    """A model's sectors: ``1`` to ``count``, sector ``k`` named ``token.format(sector=k)``."""
+
+    count: int
+    token: str
+
+    def name(self, sector: int) -> str:
+        """The place segment of one sector, e.g. ``SR03``."""
+        return self.token.format(sector=sector)
+
+    def names(self) -> dict[int, str]:
+        """Every sector's place segment, by sector number."""
+        return {sector: self.name(sector) for sector in range(1, self.count + 1)}
+
+
+@dataclass(frozen=True)
+class PlaceRules:
+    """How one model's devices are placed from their ``DeviceList`` rows.
+
+    ``sectors`` is ``None`` for a model that is one place with no sectors;
+    ``model_wide`` and ``sector_override`` are keyed by raw family name and
+    hold for this model alone.
+    """
+
+    sectors: SectorList | None = None
+    model_wide: tuple[str, ...] = ()
+    sector_override: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Model:
     """One model, keyed in the document by the raw system token it is read from."""
 
@@ -321,6 +368,7 @@ class Model:
     provenance: str
     wiring: dict[str, WiringFamily] = field(default_factory=dict)
     tune: TuneBlock | None = None
+    places: PlaceRules | None = None
 
 
 @dataclass(frozen=True)
@@ -581,7 +629,9 @@ _TOP_OPTIONAL = frozenset({"facility", "branches", "judgments"})
 _FACILITY_REQUIRED = frozenset({"code"})
 _FACILITY_OPTIONAL = frozenset({"name", "description"})
 _MODEL_REQUIRED = frozenset({"name", "description", "provenance"})
-_MODEL_OPTIONAL = frozenset({"wiring", "tune"})
+_MODEL_OPTIONAL = frozenset({"wiring", "tune", "places"})
+_PLACES_KEYS = frozenset({"sectors", "model_wide", "sector_override"})
+_SECTORS_KEYS = frozenset({"count", "token"})
 _TUNE_WAVEFORM_KEYS = frozenset({"address", "planes"})
 _WIRING_KEYS = frozenset({"element_field", "engine", "calibration"})
 _WIRING_OPTIONAL = frozenset({"voltage"})
@@ -687,12 +737,56 @@ def _tune(value: Any, path: str) -> TuneBlock:
     )
 
 
+def _sectors(value: Any, path: str) -> SectorList:
+    body = _dict(value, path)
+    _keys(body, path, _SECTORS_KEYS, _NONE)
+    count = body["count"]
+    if not (_ordinal(count) and count >= 1):
+        shown = count if _ordinal(count) else _type_name(count)
+        raise MappingError(f"{path}.count", f"must be a positive integer, got {shown}")
+    token = _str(body, "token", path, nullable=False)
+    if "{sector" not in token:
+        raise MappingError(f"{path}.token", f"must name the sector as {{sector}}, got {token!r}")
+    try:
+        sectors = SectorList(count=count, token=token)
+        names = sectors.names()
+    except (IndexError, KeyError, ValueError) as error:
+        raise MappingError(f"{path}.token", f"is no format of {{sector}}: {error}") from None
+    if len(set(names.values())) != count:
+        raise MappingError(f"{path}.token", f"{token!r} names two sectors alike")
+    return sectors
+
+
+def _places(value: Any, path: str) -> PlaceRules:
+    body = _dict(value, path)
+    _keys(body, path, _NONE, _PLACES_KEYS)
+    sectors = None if "sectors" not in body else _sectors(body["sectors"], f"{path}.sectors")
+    model_wide = _str_list(body.get("model_wide", []), f"{path}.model_wide")
+    override: dict[str, int] = {}
+    if "sector_override" in body:
+        entry = f"{path}.sector_override"
+        for family, sector in _dict(body["sector_override"], entry).items():
+            key = f"{entry}.{family}"
+            if not isinstance(family, str):
+                raise MappingError(key, f"key must be a string, got {_type_name(family)}")
+            if not (_ordinal(sector) and sector >= 1):
+                shown = sector if _ordinal(sector) else _type_name(sector)
+                raise MappingError(key, f"must be a sector number, got {shown}")
+            override[family] = sector
+    if sectors is None:
+        for key in ("model_wide", "sector_override"):
+            if body.get(key):
+                raise MappingError(f"{path}.{key}", "needs the model's sectors")
+    return PlaceRules(sectors=sectors, model_wide=model_wide, sector_override=override)
+
+
 def _models(value: Any) -> dict[str, Model]:
     models: dict[str, Model] = {}
     for raw, body, path in _entries(value, "models"):
         _keys(body, path, _MODEL_REQUIRED, _MODEL_OPTIONAL)
         wiring = body.get("wiring", _MISSING)
         tune = body.get("tune", _MISSING)
+        places = body.get("places", _MISSING)
         models[raw] = Model(
             raw=raw,
             name=_str(body, "name", path, nullable=False),
@@ -700,6 +794,7 @@ def _models(value: Any) -> dict[str, Model]:
             provenance=_str(body, "provenance", path, nullable=False),
             wiring={} if wiring is _MISSING else _wiring(wiring, f"{path}.wiring"),
             tune=None if tune is _MISSING else _tune(tune, f"{path}.tune"),
+            places=None if places is _MISSING else _places(places, f"{path}.places"),
         )
     return models
 
@@ -1305,6 +1400,30 @@ def _judgment_families(mapping: Mapping) -> Iterator[Problem]:
             yield Problem(f"judgments.{family}", f"{family} is no family")
 
 
+def _place_rules(mapping: Mapping) -> Iterator[Problem]:
+    """A model's place answers name families, sectors it has, and PN_LOCAL segments."""
+    for raw, model in mapping.models.items():
+        rules = model.places
+        if rules is None or rules.sectors is None:
+            continue
+        path = f"models.{raw}.places"
+        for name in rules.sectors.names().values():
+            if not _pn_local(name):
+                yield _not_pn_local(f"{path}.sectors.token", name)
+                break
+        for index, family in enumerate(rules.model_wide):
+            if family not in mapping.families:
+                yield Problem(f"{path}.model_wide[{index}]", f"{family} is no family")
+        for family, sector in rules.sector_override.items():
+            key = f"{path}.sector_override.{family}"
+            if family not in mapping.families:
+                yield Problem(key, f"{family} is no family")
+            elif family in rules.model_wide:
+                yield Problem(key, f"{family} is also model_wide; answer it once")
+            elif sector > rules.sectors.count:
+                yield Problem(key, f"sector {sector} is not one of {raw}'s {rules.sectors.count}")
+
+
 _RULES: tuple[Callable[[Mapping], Iterator[Problem]], ...] = (
     _identity_code,
     _model_names,
@@ -1317,6 +1436,7 @@ _RULES: tuple[Callable[[Mapping], Iterator[Problem]], ...] = (
     _direction_fields,
     _wiring_fields,
     _judgment_families,
+    _place_rules,
 )
 
 

@@ -227,6 +227,40 @@ the build stops (``place-conflict``) when a wired device's deck disagrees.
 ``imported/mml/rows.json`` records which device each export ``DeviceList`` row
 became, and the response check reads it.
 
+Places from ``DeviceList``
+--------------------------
+
+The import writes places only for a model whose mapping entry answers
+``places``; a mapping with no such answer writes no ``places.yaml`` and no
+device ``place``. The model is a place, and each sector ``sectors`` lists is a
+place under it, named by ``token`` formatted with the sector number:
+
+.. code-block:: yaml
+
+   models:
+     SR:
+       name: SR
+       places:
+         sectors: {count: 12, token: "SR{sector:02d}"}   # SR/SR01 ... SR/SR12
+         model_wide: [RF, TUNE, DCCT]                    # these sit on SR
+         sector_override: {ExtractionKicker: 2}          # this sits in SR/SR02
+
+The sector list is stated, never read off the rows, so a place exists whether
+or not a device sits there. Each device of the model takes the first of: its
+family is in ``model_wide`` (the model); its family has a ``sector_override``
+(that sector); its ``DeviceList`` rows name several sectors (the model); its
+rows name one sector (that sector); it has no row (the model). Both answers
+are this model's, so a family shared by two models can be sectored on one and
+model-wide on the other. A device's address is never where its place comes
+from: a series supply's one address feeds many magnets, each placed by its own
+row.
+
+Two placements stop the import before anything is written: a row naming a
+sector beyond the list, and a device placed by its row and bound alone to an
+address that begins with another sector's token. Answer either with
+``sector_override`` or ``model_wide``. The build records these places as
+``place_from: imported``; a span that holds the device takes precedence.
+
 A setpoint takes its ``tolerance`` from its write field's
 ``Setpoint.Tolerance``, one number per device or one for the family, written
 ``{absolute: <x>}`` in the field's ``HWUnits``. A setpoint gets none when the

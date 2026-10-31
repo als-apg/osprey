@@ -90,7 +90,9 @@ a field left out is either filled by the build or stays absent.
 A place with a ``span`` covers a stretch of one model's deck, from the
 ``from_marker`` element up to the ``to_marker`` element, or to the deck's end
 without one. A device the deck puts inside it belongs to the deepest such
-place, unless the device states its own ``place``.
+place, unless the device states its own ``place`` in an authored record or a
+fix. A place only an importing layer states (``place_from: imported``) yields
+to such a span and stands where none holds the device.
 
 .. code-block:: yaml
 
