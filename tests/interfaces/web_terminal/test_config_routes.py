@@ -72,6 +72,7 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
+from tests._builds import copy_build
 from tests._preset_data import create_project_as_built
 
 #: An unprotected key the Config panel may still write. ``claude_code`` is an
@@ -87,20 +88,33 @@ COSMETIC_KEY = "claude_code.default_model"
 RENDER_SHAPING_KEY = ("channel_finder", "pipeline_mode")
 
 
-@pytest.fixture
-def built_project(tmp_path):
-    """A real OSPREY project on a ``never`` tier (channel_write baked into deny)."""
+@pytest.fixture(scope="module")
+def _rendered_project(tmp_path_factory):
+    """A real OSPREY project on a ``never`` tier (channel_write baked into deny).
+
+    Rendered once for the module; tests get a private copy via ``built_project``.
+    """
     manager = TemplateManager()
     project_dir = create_project_as_built(
         manager,
         project_name="route-regen",
-        output_dir=tmp_path,
+        output_dir=tmp_path_factory.mktemp("config-routes"),
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
     config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})
     manager.regenerate_claude_code(project_dir)
     return project_dir
+
+
+@pytest.fixture
+def built_project(_rendered_project, tmp_path):
+    """A private copy of the module's render, re-anchored by :func:`copy_build`.
+
+    The render records its own absolute path, so a plain copy would resolve
+    back to the shared one; the copy is the test's to mutate.
+    """
+    return copy_build(_rendered_project, tmp_path)
 
 
 @pytest.fixture
@@ -803,6 +817,8 @@ class TestConfigBackupLocation:
         assert backup.is_file()
         # It is the *pre-write* config, which is the only thing a backup is for.
         assert backup.read_bytes() == before
+        assert not (built_project / "config.yml.bak").exists()
+        assert [p.name for p in built_project.iterdir() if p.suffix == ".bak"] == []
 
     def test_patch_writes_its_backup_into_the_state_zone(self, client, built_project):
         before = (built_project / "config.yml").read_bytes()
@@ -814,35 +830,8 @@ class TestConfigBackupLocation:
         backup = _backup_path(built_project)
         assert backup.is_file()
         assert backup.read_bytes() == before
-
-    @pytest.mark.parametrize(
-        "save",
-        [
-            pytest.param(
-                lambda client, project: client.patch(
-                    "/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}}
-                ),
-                id="patch",
-            ),
-            pytest.param(
-                lambda client, project: client.put(
-                    "/api/config", json={"raw": _put_raw(project, _switch_pipeline)}
-                ),
-                id="put",
-            ),
-        ],
-    )
-    def test_config_backup_is_never_written_beside_the_render(self, client, built_project, save):
-        """The whole point: no backup file is created next to config.yml.
-
-        Stated as "no ``.bak`` lands directly in the project directory" rather
-        than "the directory is unchanged", because in the default flat layout the
-        state zone is itself *inside* the project (``var/agent_data``) and gets
-        created on first use. That is fine and is not the thing the split breaks:
-        what breaks is creating a new file in the *render*, beside the config.
-        """
-        assert save(client, built_project).status_code == 200
-
+        # Never beside the render: no ``.bak`` lands directly in the project
+        # directory (the flat layout's state zone is inside it, which is fine).
         assert not (built_project / "config.yml.bak").exists()
         assert [p.name for p in built_project.iterdir() if p.suffix == ".bak"] == []
 

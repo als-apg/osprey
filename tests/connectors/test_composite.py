@@ -323,6 +323,11 @@ def test_a_failed_model_lists_no_variables(tmp_path: Path) -> None:
 def _model_set_callers(path: Path) -> set[str]:
     """The functions of ``path`` that call ``model_set``, ``<module>`` at top level."""
     callers: set[str] = set()
+    source = path.read_text(encoding="utf-8")
+    # A call spells the name it calls (an identifier has no escape sequence),
+    # and parsing every module is what the scan spends its time on.
+    if "model_set" not in source:
+        return callers
 
     def visit(node: ast.AST, scope: str) -> None:
         for child in ast.iter_child_nodes(node):
@@ -336,7 +341,7 @@ def _model_set_callers(path: Path) -> set[str]:
                     callers.add(scope)
             visit(child, scope)
 
-    visit(ast.parse(path.read_text(encoding="utf-8")), "<module>")
+    visit(ast.parse(source), "<module>")
     return callers
 
 

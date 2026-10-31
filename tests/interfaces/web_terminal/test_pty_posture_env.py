@@ -208,27 +208,12 @@ class TestAnEnvChangeReachesTheChild:
 
         assert reused is False
         assert second_child is not first_child
+        # The replaced child is killed, not orphaned beside its replacement.
+        assert first_child.is_alive is False
+        assert registry.get_session("sess-1") is second_child
         # The child itself — not the store — reports the new marker.
         assert wait_for_report(report, 2, second_child) == [first or "<unset>", second or "<unset>"]
         assert second_child.is_alive
-
-    def test_mismatch_terminates_the_stale_child(self, registry, report):
-        """The replaced child is killed, not orphaned beside its replacement."""
-        command = _reporting_command(report)
-        stale, _ = registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=_connection_env()
-        )
-        wait_for_report(report, 1, stale)
-        assert stale.is_alive
-
-        fresh, reused = registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=_connection_env(execution_mode="readonly")
-        )
-
-        assert reused is False
-        assert stale.is_alive is False
-        assert registry.get_session("sess-1") is fresh
-        assert fresh.is_alive
 
     def test_two_pooled_sessions_hold_different_markers(self, registry, tmp_path):
         """The overlay is per session, and two live children can disagree."""
@@ -274,22 +259,6 @@ class TestAnEnvChangeReachesTheChild:
 
 
 class TestWarmReuse:
-    def test_identical_env_keeps_the_warm_child(self, registry, report):
-        command = _reporting_command(report)
-        env = _connection_env(execution_mode="readonly", telemetry_id="sess-1")
-
-        first, _ = registry.get_or_create_session("sess-1", command, 24, 80, extra_env=env)
-        wait_for_report(report, 1, first)
-
-        second, reused = registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=dict(env)
-        )
-
-        assert reused is True
-        assert second is first
-        # No second exec — the original child is still the one running.
-        assert report.read_text().split() == ["readonly"]
-
     def test_per_connection_names_do_not_force_a_respawn(self, registry, report):
         """The scope decision, pinned.
 

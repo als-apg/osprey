@@ -84,17 +84,25 @@ def _pool(
     )
 
 
-async def test_stop_ends_the_processes_the_chat_agent_started(tmp_path):
+async def test_stop_ends_and_logs_the_processes_the_chat_agent_started(tmp_path, caplog):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py", "orbit_poll.py"))
     session = await start_chat(factory)
     pids: list[int] = []
     try:
         pids = wait_for_chat_pids(session, factory.pid_files[0], 3)
 
-        await session.stop()
+        with caplog.at_level(logging.INFO, logger=operator_session.__name__):
+            await session.stop()
 
         assert session.process_exited is True
         await wait_gone(pids)
+        grandchild = pids[0]
+        assert [
+            record
+            for record in caplog.records
+            if "magnet_scan.py" in record.getMessage() and str(grandchild) in record.getMessage()
+        ]
+        assert session.started_commands() == []
     finally:
         await session.stop()
         kill_quietly(pids)
@@ -115,27 +123,6 @@ async def test_stop_ends_started_processes_that_ignore_sigterm(tmp_path):
         await session.stop()
 
         await wait_gone(pids, within=10.0)
-    finally:
-        await session.stop()
-        kill_quietly(pids)
-
-
-async def test_stop_logs_what_it_ended(tmp_path, caplog):
-    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
-    session = await start_chat(factory)
-    pids: list[int] = []
-    try:
-        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
-
-        with caplog.at_level(logging.INFO, logger=operator_session.__name__):
-            await session.stop()
-
-        grandchild = pids[0]
-        assert [
-            record
-            for record in caplog.records
-            if "magnet_scan.py" in record.getMessage() and str(grandchild) in record.getMessage()
-        ]
     finally:
         await session.stop()
         kill_quietly(pids)
@@ -524,20 +511,6 @@ async def test_started_commands_lists_only_groups_of_their_own(tmp_path):
         assert [c.label for c in commands] == ["magnet_scan.py"]
         assert commands[0].pgid == grandchild
         assert helper not in {pid for c in commands for pid, _ in c.members}
-    finally:
-        await session.stop()
-        kill_quietly(pids)
-
-
-async def test_started_commands_of_a_stopped_chat_is_empty(tmp_path):
-    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
-    session = await start_chat(factory)
-    pids: list[int] = []
-    try:
-        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
-        await session.stop()
-
-        assert session.started_commands() == []
     finally:
         await session.stop()
         kill_quietly(pids)

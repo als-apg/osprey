@@ -543,9 +543,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     # spellings of this directory are accepted so a symlinked checkout still
     # matches whichever one pytest collected through.
     here = Path(__file__).parent
-    these_dirs = {here, here.resolve()}
+    these_dirs = tuple(f"{directory}{os.sep}" for directory in {here, here.resolve()})
     for item in items:
-        if any(item.path.is_relative_to(directory) for directory in these_dirs):
+        if str(item.path).startswith(these_dirs):
             item.add_marker(skip)
 
 
