@@ -55,7 +55,7 @@ Where the panels live
 
 Panels have a row in the sidebar on the left of the window, in both views.
 **Artifacts** (and **Events**, when the deployment enables it) is in the
-**Workspace** section, below **Agent**. All other panels are in the **Tools**
+**Workspace** section, with **Agent**. All other panels are in the **Tools**
 section, followed by **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
