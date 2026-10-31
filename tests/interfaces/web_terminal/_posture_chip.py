@@ -49,7 +49,7 @@ TIMEOUT = 15_000
 CHIP = "#control-target-chip"
 CHIP_SHORT = f"{CHIP} .ctc-short"
 CHIP_STATE = f"{CHIP} .ctc-state"
-POPOVER = ".ctc-popover.open"
+POPOVER = "#control-target-popover:not([hidden])"
 CARD = f"{POPOVER} .ctc-card"
 FOOT_NOTE = f"{POPOVER} .ctc-foot-note"
 

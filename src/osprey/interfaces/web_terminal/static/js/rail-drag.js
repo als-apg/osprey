@@ -1,9 +1,9 @@
 // @ts-check
-/* OSPREY Web Terminal — Rail Drag (drag a rail entry into the workspace)
+/* OSPREY Web Terminal — Rail Drag (drag a sidebar row into the workspace)
  *
- * The precise half of the open-beside verb: dragging a rail entry into the
- * workspace opens (or moves) that panel as a NEW tile exactly where it is
- * dropped. The rail entry is a plain HTML5 drag source (panel-rail.js sets
+ * The precise half of the open-beside verb: dragging a panel's sidebar row
+ * into the workspace opens (or moves) that panel as a NEW tile exactly where
+ * it is dropped. The row is a plain HTML5 drag source (panel-rail.js sets
  * `draggable` and forwards dragstart/dragend here via panel-manager's
  * closures); this module bridges that FOREIGN drag into dockview's own
  * external-drag hooks, verified against the vendored dockview-core build:
@@ -30,7 +30,7 @@
  * Iframe shields: a drag crossing an overlay iframe would have its dragover
  * events swallowed by that separate browsing context, killing dockview's drop
  * detection. dockview's own drags shield via dock-workspace's onDragGesture;
- * a rail drag starts OUTSIDE dockview, so the same two shields are raised
+ * a sidebar drag starts OUTSIDE dockview, so the same two shields are raised
  * here across the gesture — the `.dock-dragging` class on .main-container
  * (terminal.css) and the adapter's inline pointer-events toggle
  * (setIframePointerShield), which the class rule cannot reach.
@@ -39,7 +39,7 @@
 import { getDockApi } from './dock-workspace.js';
 import { setIframePointerShield } from './dock-iframe.js';
 
-/** DataTransfer type carrying the dragged panel's rail id. */
+/** DataTransfer type carrying the dragged row's panel id. */
 export const RAIL_DRAG_MIME = 'application/x-osprey-panel';
 
 /** True once the dockview listeners are attached (idempotent guard). */
@@ -122,9 +122,9 @@ function wire() {
 
 // The gesture's natural terminators, mirroring dock-workspace.js's
 // onDragGesture. HTML5 delivers dragend only to the drag's SOURCE element —
-// a rail entry removed mid-drag (SSE remove_panel_from_rail, arrange prune, another
+// a row removed mid-drag (SSE remove_panel_from_rail, arrange prune, another
 // client) can never fire it, and native drags suppress mouseup/pointerup
-// until the pointer is released. Relying on the entry's own dragend alone
+// until the pointer is released. Relying on the row's own dragend alone
 // therefore left the shields up FOREVER on a lost gesture: every panel
 // iframe stayed pointer-events:none — rendering, but inert. These document
 // listeners are the failsafe: capture-phase, self-disarming, armed per drag.
@@ -148,10 +148,10 @@ function disarmFailsafe() {
 }
 
 /**
- * Begin a rail drag: stamp the payload and raise the iframe shields. Returns
- * false — cancelling the drag (panel-rail preventDefaults) — in fallback mode
- * (no dock to drop into). Both ui views drag alike.
- * @param {string} id  panel-manager rail id
+ * Begin a sidebar drag: stamp the payload and raise the iframe shields.
+ * Returns false — cancelling the drag (panel-rail preventDefaults) — in
+ * fallback mode (no dock to drop into). Both ui views drag alike.
+ * @param {string} id  the dragged row's panel id
  * @param {DataTransfer | null} dataTransfer
  * @returns {boolean} whether the drag may proceed
  */
@@ -168,7 +168,7 @@ export function railDragStart(id, dataTransfer) {
   return true;
 }
 
-/** End a rail drag (drop, cancel, escape, or failsafe): lower the iframe
+/** End a sidebar drag (drop, cancel, escape, or failsafe): lower the iframe
  *  shields and disarm the document-level terminators. Idempotent. */
 export function railDragEnd() {
   disarmFailsafe();

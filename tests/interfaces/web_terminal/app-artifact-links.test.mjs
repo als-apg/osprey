@@ -10,7 +10,8 @@
  *
  * Seams as in app-agent-links.test.mjs: terminal.js is mocked whole and app.js
  * is imported once, statically; panel-manager.js keeps its real exports except
- * the one the wiring calls.
+ * the one the wiring calls. sidebar-artifacts.js is mocked: app.js only calls
+ * its init, which this file never reaches.
  */
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -28,20 +29,6 @@ vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url, /** @type {RequestInit | undefined} */ init) => {
-      if (url === '/api/bar-items') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            version: 1,
-            rev: 0,
-            header: [],
-            status: [],
-            header_visible: true,
-            status_visible: true,
-          }),
-        };
-      }
       if (url.endsWith('/panel/artifacts/api/focus')) {
         gallery.focusCalls.push({ url, init });
         if (gallery.fail) throw new TypeError('Failed to fetch');
@@ -78,6 +65,11 @@ vi.mock(
     return { ...actual, navigateAndActivatePanel: panels.navigate };
   }
 );
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => ({
+  initSidebarArtifacts: vi.fn(),
+  teardownSidebarArtifacts: vi.fn(),
+}));
 
 import { initArtifactLinks } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
 

@@ -8,7 +8,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OSPREY Workspace</title>
+  <title>OSPREY Artifacts</title>
   <meta name="description" content="Artifact Gallery for OSPREY Control System Agent">
 
   <!-- FOUC prevention: applies data-theme before any CSS loads. Replaces the
@@ -68,8 +68,8 @@
   <div class="app-container">
     <!-- App header — slim wordmark + theme + status. In the web-terminal shell
          (body.embedded) the shell chrome supplies the wordmark, theme toggle
-         and status, so this whole bar is hidden (frame 2a); the browse view's
-         own two cards fill the panel. Scope/refresh/layout live in the
+         and status, so this whole bar is hidden, and the page below it is the
+         hub's viewer of one artifact. Scope/refresh/layout live in the
          browser column's ⋯ menu below. -->
     <header class="header">
       <div class="header-inner">
@@ -82,7 +82,7 @@
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <span class="logo-text">WORKSPACE</span>
+            <span class="logo-text">Artifacts</span>
           </a>
         </div>
         <div class="header-right">
@@ -98,13 +98,14 @@
     <!-- Main Content -->
     <main class="main">
       <!-- Browse View — two cards on the neutral canvas (frame 2a): a left
-           browser-column card beside a large detail/preview card. -->
+           browser-column card beside a large detail/preview card. Embedded,
+           only the preview pane shows: the hub's sidebar owns the list. -->
       <section id="view-artifacts-browse" class="view active">
         <div class="browse-layout">
           <!-- Left browser column — card: a single toolbar row + tree/timeline.
-               Identity chrome (title, count) is the tile bar's job in the
-               embedded shell and the app header's on the standalone page;
-               rare actions (scope, refresh, layout) live in the ⋯ menu. -->
+               Standalone only (gallery.css hides it embedded). Identity chrome
+               (title, count) is the app header's; rare actions (scope,
+               refresh, layout) live in the ⋯ menu. -->
           <aside class="browse-sidebar" id="browse-sidebar">
             <div class="sidebar-header">
               <!-- The only bar: filter input beside the Types/Activity mode
@@ -260,63 +261,6 @@
           </div>
         </div>
       </section>
-
-      <!-- Simple View — a big latest-result card above a friendly
-           "Results from this session" list (frame 2b). Shown only when
-           html[data-ui-mode="simple"]; the browse view (Expert) is the
-           default. Both share the same artifact data + session scoping;
-           simple-view.js populates this section. -->
-      <section id="view-artifacts-simple">
-        <div class="simple-layout">
-          <!-- Latest result -->
-          <div class="simple-result-card">
-            <div class="simple-empty" id="simple-empty">
-              <div class="preview-empty-inner">
-                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
-                  <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
-                  <path d="M6 32l12-12 8 8 6-6 10 10"/>
-                  <circle cx="16" cy="16" r="3"/>
-                </svg>
-                <p>No results yet</p>
-              </div>
-            </div>
-            <div class="simple-result hidden" id="simple-result">
-              <div class="simple-result-header">
-                <span class="simple-result-title" id="simple-result-title"></span>
-                <span class="simple-badge-new" id="simple-result-badge" hidden>NEW</span>
-                <div class="simple-result-actions">
-                  <a class="btn btn-primary" id="simple-open-full" target="_blank" rel="noopener">Open full size</a>
-                  <a class="btn btn-secondary" id="simple-save">Save</a>
-                </div>
-              </div>
-              <!-- Carries .preview-viewport as well: this slot holds the very
-                   markup the Expert preview pane's viewport does (one shared
-                   dispatch, artifact-viewport.js), so it takes that class's
-                   sizing rules rather than restating them. -->
-              <div class="simple-result-preview preview-viewport" id="simple-result-preview"></div>
-              <div class="simple-result-caption" id="simple-result-caption"></div>
-            </div>
-          </div>
-          <!-- Results from this session -->
-          <div class="simple-list-card">
-            <div class="simple-list-header">
-              <span class="simple-list-title">Results from this session</span>
-              <span class="simple-list-count" id="simple-list-count">0</span>
-              <button class="simple-show-all" id="simple-show-all" hidden>Show all &rarr;</button>
-            </div>
-            <div class="simple-list-body" id="simple-list-body">
-              <!-- Session results rendered dynamically -->
-            </div>
-            <!-- Script runs: the approval review, notebook and result record
-                 each executed script leaves; folded so results stay on top. -->
-            <details class="simple-runs" id="simple-runs" hidden>
-              <summary class="simple-runs-summary">Script runs <span class="simple-list-count" id="simple-runs-count">0</span></summary>
-              <div class="simple-list-body" id="simple-runs-body"></div>
-            </details>
-          </div>
-        </div>
-      </section>
-
     </main>
   </div>
 

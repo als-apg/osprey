@@ -56,7 +56,7 @@ INFO_TIP_HOSTS = [
     ),
     Host(
         label="control-target",
-        source=f"{_IFACE}/web_terminal/static/js/control-target-popover.js",
+        source=f"{_IFACE}/web_terminal/static/js/control-target-rows.js",
         styles=(f"{_IFACE}/web_terminal/static/css/terminal.css",),
     ),
 ]

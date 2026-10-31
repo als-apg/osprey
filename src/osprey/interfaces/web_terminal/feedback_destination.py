@@ -66,8 +66,8 @@ def coerce_config_str(key: str, value: object, default: str) -> str:
 
     An **explicitly blank** value (``docs_url: ""``) means "this deployment has
     no such target", and is returned as ``""``. That posture is what the rail
-    anchor, the status-bar link and the dialog's channel guard are built on: an
-    air-gapped control room blanks ``web.docs_url`` and gets no documentation
+    anchor and the dialog's channel guard are built on: an air-gapped control
+    room blanks ``web.docs_url`` and gets no documentation
     link rather than one that opens a dead tab, and blanking
     ``web.feedback.github_repo`` retires the GitHub channel instead of aiming it
     at the upstream maintainers' tracker. Folding blank back into the default

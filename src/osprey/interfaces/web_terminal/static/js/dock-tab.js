@@ -8,90 +8,128 @@
  * learned once. There is no drag badge: the bar itself is the drag handle
  * (cursor: grab), a convention the workspace teaches by use:
  *
- *   service tiles — a visible `.tile-tab-title` + close. The close is
- *     a LOCAL tile close (the panel keeps its rail entry; dock-sync routes
- *     the click to a vacate handler); membership removal stays the rail
- *     entry's "×". Popout remains rail-only.
- *   the terminal tile — the adopted live `.terminal-header` + close.
- *     The header supplies the identity and more: session LED, session id,
- *     the session selector and "+ New" are frequently-used, stateful
- *     controls with nowhere better to live.
+ *   service tiles — a visible `.tile-tab-title`, pop out and close. Pop out
+ *     moves the panel into its own browser window (popout.js), which retires
+ *     the tile until that window closes. The close is
+ *     a LOCAL tile close (the panel keeps its sidebar row; dock-sync routes
+ *     the click to a vacate handler).
+ *   the Agent tile — an adopted live bar + close. The Simple view adopts the
+ *     chat console's `.op-session-bar` (status dot, `Agent`, New
+ *     conversation, notifications, Export, earlier conversations); the
+ *     Expert view adopts the `.terminal-header` (session label, session
+ *     selector, "+ New"). The bar is chosen when the tab is built, and a view
+ *     flip rebuilds every tab (applyDockMode re-applies the layout through
+ *     `fromJSON` or `clear` + `addPanel`), so the choice follows the view.
+ *     The close runs dock-workspace's closeTerminalPanel, which keeps
+ *     `html[data-agent]` and the `osprey-agent-pane` event in step.
  *
  * Registered via dockview's createTabComponent/defaultTabComponent
  * (dock-workspace.js), which keeps dockview's native tab DnD, drop
  * hit-testing and close plumbing intact — the bar IS the drag handle.
  *
  * Both bar kinds are also a right-click surface: the tile header opens the
- * same verb menu as the panel's rail entry (panel-context-menu.js), routed
+ * same verb menu as the panel's sidebar row (panel-context-menu.js), routed
  * through the setTileContextMenuHandler registration seam below.
  */
 
-import { TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { withEchoSuppressed } from './dock-sync.js';
-import { svgIcon } from './svg-icons.js';
+import { closeTerminalPanel } from './dock-workspace.js';
+import { popOutPanel, canPopOut } from './popout.js';
+import { icon } from '/design-system/js/icons.js';
+
+/** What the disabled Pop out button says about an opaque-origin panel. */
+const CANNOT_POP_OUT = 'This panel runs at an opaque origin and cannot be popped out.';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
 
 /**
- * The page's one `.terminal-header` node, cached across tab rebuilds: after a
- * terminal close the node is detached, and the reopen path must re-adopt the
- * SAME live subtree so every reference held by terminal.js / session code
- * stays valid — the header-level counterpart of dock-workspace's adoptSubtree
- * mechanism.
+ * The page's two live Agent bars, cached across tab rebuilds: after a close
+ * the adopted node is detached, and the reopen path must re-adopt the SAME
+ * live subtree so every reference held by terminal.js, sessions.js and the
+ * chat stays valid — the header-level counterpart of dock-workspace's
+ * adoptSubtree mechanism.
  *
- * Registered explicitly via setTerminalHeaderSource — there is deliberately NO
- * lazy `document.querySelector` fallback here. dockview always constructs a
+ * Registered explicitly via setTerminalHeaderSource /
+ * setTerminalConsoleBarSource — there is deliberately NO lazy
+ * `document.querySelector` fallback here. dockview always constructs a
  * panel's content component before its tab component, so by the time the
  * terminal's TileTab is constructed, dock-workspace's own content adoption
  * (adoptSubtree) has already moved the whole `.terminal-panel` subtree into a
  * detached host div, ahead of dockview inserting that host into the live
  * document. A document-wide query at TileTab-construction time is therefore
- * GUARANTEED to miss the header (it exists, just not reachable from
- * `document` at that instant), not merely liable to — a fallback here would
- * just silently re-introduce that bug. Callers MUST register the reference up
- * front, before adoption can detach it (see dock-workspace.js's
+ * GUARANTEED to miss both bars. Callers MUST register the references up
+ * front, before adoption can detach them (see dock-workspace.js's
  * initDockWorkspace, which does this before its first addPanel for the
  * terminal).
  * @type {HTMLElement | null}
  */
 let terminalHeaderEl = null;
 
+/** The chat console's `.op-session-bar` (Simple view). @type {HTMLElement | null} */
+let terminalConsoleBarEl = null;
+
 /**
- * Registers the live `.terminal-header` node. Called once by dock-workspace.js
- * before the terminal panel is added to dockview (see initDockWorkspace).
- * Also wires the interactive-children pointerdown guard and the header's
- * contextmenu route directly on the node, here rather than in the TileTab
- * constructor: the header node is long-lived across close/reopen/mode-switch,
- * but a TileTab is rebuilt on every one of those, so attaching in the
- * constructor would stack a new listener on the same node each time.
- * Registration happens exactly once per node.
+ * Registers the live `.terminal-header` node, the Expert view's Agent bar.
+ * Called once by dock-workspace.js before the terminal panel is added to
+ * dockview (see initDockWorkspace).
  * @param {HTMLElement} el
  */
 export function setTerminalHeaderSource(el) {
   terminalHeaderEl = el;
-  // Interactive children (session selector, + New) must act, not drag: stop
-  // pointerdown from reaching dockview's tab drag tracking. Plain header
-  // surface still bubbles, so the bar remains the drag handle.
+  wireTerminalBar(el);
+}
+
+/**
+ * Registers the chat console's `.op-session-bar`, the Simple view's Agent
+ * bar. Called once by dock-workspace.js beside setTerminalHeaderSource; the
+ * console is built before the dock (app.js runs initChat first).
+ * @param {HTMLElement} el
+ */
+export function setTerminalConsoleBarSource(el) {
+  terminalConsoleBarEl = el;
+  wireTerminalBar(el);
+}
+
+/**
+ * Wire the interactive-children pointerdown guard and the bar's contextmenu
+ * route directly on a registered bar node, here rather than in the TileTab
+ * constructor: the node is long-lived across close/reopen/mode-switch, but a
+ * TileTab is rebuilt on every one of those, so attaching in the constructor
+ * would stack a new listener on the same node each time. Registration happens
+ * exactly once per node.
+ * @param {HTMLElement} el
+ */
+function wireTerminalBar(el) {
+  // Interactive children (selector, + New, the console's icon buttons) must
+  // act, not drag: stop pointerdown from reaching dockview's tab drag
+  // tracking. Plain bar surface still bubbles, so the bar remains the drag
+  // handle.
   el.addEventListener('pointerdown', (e) => {
     if (e.target instanceof Element && e.target.closest(INTERACTIVE)) {
       e.stopPropagation();
     }
   });
-  // The terminal bar's right-click surface is the adopted header itself, not
-  // the tab root: the header fills the bar, and listening on the root as well
+  // The Agent bar's right-click surface is the adopted bar itself, not the
+  // tab root: the bar fills the tile bar, and listening on the root as well
   // would run the handler twice for one press.
   wireTileContextMenu(el, TERMINAL_RAIL_ID);
 }
 
-/** @returns {HTMLElement | null} */
-function terminalHeader() {
-  return terminalHeaderEl;
+/**
+ * The bar the Agent tile adopts in the current view: the console bar in
+ * Simple (the header when the console never built), the header in Expert.
+ * @returns {HTMLElement | null}
+ */
+function terminalBar() {
+  const simple = document.documentElement.getAttribute('data-ui-mode') === 'simple';
+  return (simple ? terminalConsoleBarEl : null) ?? terminalHeaderEl;
 }
 
-/** Matches the interactive children of the adopted terminal header. */
+/** Matches the interactive children of an adopted Agent bar. */
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
 
 /**
@@ -146,6 +184,41 @@ function wireTileContextMenu(el, id) {
 }
 
 /**
+ * A service tile's Pop out button: moves the panel into its own window. It
+ * runs the pop-out inside the click, the gesture the browser needs to open a
+ * window at all. A panel with no first-party page to open (an opaque-origin
+ * panel) gets the button disabled, with the reason as its title. The gate
+ * cannot be read when the tile is built: the panel's URL and its frame kind
+ * resolve later, and a button disabled then would never receive the click
+ * that re-reads it. So the button starts enabled and reads the gate when the
+ * pointer or focus arrives and again at click time.
+ * @param {string} panelId  service panel id (the placeholder id minus its prefix)
+ * @returns {HTMLButtonElement}
+ */
+function buildPopoutButton(panelId) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-popout osprey-icon-btn';
+  btn.appendChild(icon('popout'));
+  btn.setAttribute('aria-label', 'Pop out');
+  btn.title = 'Pop out';
+  const paint = () => {
+    const allowed = canPopOut(panelId);
+    btn.disabled = !allowed;
+    btn.title = allowed ? 'Pop out' : CANNOT_POP_OUT;
+  };
+  btn.addEventListener('pointerenter', paint);
+  btn.addEventListener('focus', paint);
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    paint();
+    if (!btn.disabled) popOutPanel(panelId);
+  });
+  return btn;
+}
+
+/**
  * The tile-tab renderer (dockview ITabRenderer: element / init / dispose).
  */
 class TileTab {
@@ -171,16 +244,13 @@ class TileTab {
     /** @type {string | null} service panel id the region is keyed by */
     this._servicePanelId = null;
 
-    if (id === TERMINAL_RAIL_ID) {
+    const terminal = id === TERMINAL_RAIL_ID;
+    if (terminal) {
       root.classList.add('tile-tab-terminal');
-      const header = terminalHeader();
-      if (header) {
-        root.appendChild(header); // DOM relocation — live references survive
-        // The interactive-children pointerdown guard is wired once, on the
-        // node itself, by setTerminalHeaderSource — not here (see that
-        // function's docstring for why attaching per-construction would
-        // accumulate listeners).
-      }
+      const bar = terminalBar();
+      // DOM relocation — live references survive. The pointerdown guard and
+      // the context menu are wired once, on the node itself, at registration.
+      if (bar) root.appendChild(bar);
     } else {
       const title = document.createElement('span');
       title.className = 'tile-tab-title';
@@ -194,7 +264,7 @@ class TileTab {
       const contrib = document.createElement('div');
       contrib.className = 'tile-tab-contrib';
       // Interactive children act instead of dragging — same guard as the
-      // adopted terminal header; empty region surface still bubbles so the
+      // adopted Agent bar; empty region surface still bubbles so the
       // bar remains the drag handle.
       contrib.addEventListener('pointerdown', (e) => {
         if (e.target instanceof Element && e.target.closest(INTERACTIVE)) {
@@ -207,9 +277,9 @@ class TileTab {
         ? id.slice(PLACEHOLDER_PREFIX.length)
         : id;
       registerContribHost(this._servicePanelId, contrib);
-      // The bar is the panel's second home for its verbs, alongside the rail
-      // entry. Wired per construction because a service tab's root IS rebuilt
-      // with the tab — unlike the terminal's long-lived adopted header.
+      // The bar is the panel's second home for its verbs, alongside the
+      // sidebar row. Wired per construction because a service tab's root IS
+      // rebuilt with the tab — unlike the long-lived adopted Agent bar.
       wireTileContextMenu(root, this._servicePanelId);
     }
 
@@ -221,20 +291,22 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
+    if (!terminal) actions.appendChild(buildPopoutButton(this._servicePanelId ?? id));
     const close = document.createElement('button');
     close.type = 'button';
-    close.className = 'tile-tab-close';
-    close.appendChild(svgIcon('close'));
-    close.title = 'Close tile';
-    close.setAttribute('aria-label', 'Close tile');
+    close.className = 'tile-tab-close osprey-icon-btn';
+    close.appendChild(icon('x'));
+    close.title = terminal ? 'Close Agent pane (reopen from the sidebar)' : 'Close tile';
+    close.setAttribute('aria-label', terminal ? 'Close Agent pane' : 'Close tile');
     close.addEventListener('click', (e) => {
       if (e.defaultPrevented) return;
       e.preventDefault();
       // The removal makes dockview auto-activate a surviving tile; that is a
       // side effect of the close, not a human focus gesture, so it must not
       // reach the focus reporter — the same suppression retireTile applies to
-      // its own removal.
-      withEchoSuppressed(() => this._api?.close?.());
+      // its own removal. The Agent tile closes through dock-workspace so the
+      // closed state reaches `html[data-agent]` and the sidebar.
+      withEchoSuppressed(() => (terminal ? closeTerminalPanel() : this._api?.close?.()));
     });
     actions.appendChild(close);
     root.appendChild(actions);
@@ -251,12 +323,15 @@ class TileTab {
     this._api = params.api;
     // The panel title is a service bar's visible label AND its accessible
     // name, kept current so a renamed panel never shows or announces a stale
-    // one. The terminal bar is exempt: the header it adopted names it already.
+    // one. The Agent bar is exempt: the bar it adopted names it already.
     if (this._panelId === TERMINAL_RAIL_ID) return;
     /** @param {string} title */
+    // The registry's labels are the panel ids' shouting form (ARIEL, EVENTS);
+    // the chrome shows them in title case, as the sidebar rows do.
     const applyName = (title) => {
-      if (this._titleEl) this._titleEl.textContent = title;
-      this._element.setAttribute('aria-label', title);
+      const name = titleCase(title);
+      if (this._titleEl) this._titleEl.textContent = name;
+      this._element.setAttribute('aria-label', name);
     };
     applyName(params.title ?? '');
     const sub = params.api?.onDidTitleChange?.((/** @type {any} */ e) => applyName(e?.title ?? ''));

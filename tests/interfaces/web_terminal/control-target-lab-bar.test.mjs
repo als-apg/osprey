@@ -12,7 +12,7 @@
  *    fetchable through `/panel/{id}/terminal-static/js/`, and the first
  *    unreachable one breaks the whole graph — the bar simply never appears,
  *    with a 404 in a console nobody is watching. One import of `terminal.js`,
- *    `panel-manager.js` or `bar-host.js` would drag the hub's page machinery
+ *    `panel-manager.js` or `sidebar.js` would drag the hub's page machinery
  *    onto a page that has none of it. The closure is walked transitively here
  *    and asserted as an exact set, so growing it is a deliberate edit to this
  *    list rather than a surprise in a browser.
@@ -20,7 +20,7 @@
  *    `#main`'s layout and reflows what it finds there; the chip needs a host
  *    that is stable across its own re-renders. Both are asserted below.
  * 3. **The bar drifts from the chip.** A popped-out Lab page must say what the
- *    header chip says and do what it does: the kind and state words, the
+ *    sidebar chip says and do what it does: the kind and state words, the
  *    turn-on confirm and its sentence, the stamped-retry rule, the
  *    stop-not-taken sentence, and C-POST's body with `session_id: null`.
  *
@@ -43,6 +43,8 @@ import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
 const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
 const MODULE = `../../../src/osprey/interfaces/web_terminal/static/js/${ENTRY}`;
+/** The theme follower the entry starts on a page the hub framed. */
+const FOLLOWER = '../../../src/osprey/interfaces/web_terminal/static/js/lab-theme-follow.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-lab-bar.js')} */
 let barModule;
@@ -265,14 +267,14 @@ afterEach(() => {
 /* ---- the import closure ------------------------------------------------- */
 
 describe('import closure', () => {
-  test('is exactly the chip, the popover and what those two pull in', () => {
+  test('is exactly the chip, the popover, the theme follower and what they pull in', () => {
     // Every name here is fetched through the panel-scoped static route by a
     // test in test_proxy_jupyter_integration.py, which walks this same graph
     // from the Python side. Adding one means adding it there too — that is
     // the point of pinning it in both languages. The walk follows relative
     // specifiers only; an absolute `/design-system/js/…` import is served by
     // the design-system route and proven there. An exact set also rules out
-    // every hub-page module (terminal.js, panel-manager.js, bar-host.js,
+    // every hub-page module (terminal.js, panel-manager.js, sidebar.js,
     // app.js) this page has none of.
     expect([...closureOf(ENTRY)].sort()).toEqual([
       'activity-format.js',
@@ -281,6 +283,8 @@ describe('import closure', () => {
       'control-target-chip.js',
       'control-target-facts.js',
       'control-target-popover.js',
+      'control-target-rows.js',
+      'lab-theme-follow.js',
       'modal-overlay.js',
       'posture-confirm.js',
     ]);
@@ -303,14 +307,37 @@ describe('mount', () => {
     expect(main.contains(bar)).toBe(false);
   });
 
-  test('the chip mounts inside the bar, in its own positioning context', async () => {
+  test('the chip mounts inside the bar; its popover at <body> level', async () => {
     const bar = /** @type {HTMLElement} */ (barEl());
     const anchor = /** @type {HTMLElement} */ (anchorEl());
 
     expect(anchor.parentElement).toBe(bar);
     expect(anchor.contains(/** @type {Node} */ (chipEl()))).toBe(true);
-    // The popover is absolute against the anchor, so it travels with the chip.
-    expect(anchor.querySelector('.ctc-popover')).not.toBeNull();
+    // A design-system popover, placed by popover.js below the chip.
+    const pop = /** @type {HTMLElement} */ (document.getElementById('control-target-popover'));
+    expect(pop.parentElement).toBe(document.body);
+    expect(pop.classList.contains('osprey-popover')).toBe(true);
+  });
+
+  test('the popover opens below the chip, right-aligned with it', async () => {
+    const chip = /** @type {HTMLElement} */ (chipEl());
+    chip.getBoundingClientRect = () =>
+      /** @type {DOMRect} */ ({
+        left: 600,
+        right: 760,
+        top: 1,
+        bottom: 29,
+        width: 160,
+        height: 28,
+      });
+
+    chip.click();
+    await flush();
+
+    const pop = /** @type {HTMLElement} */ (document.getElementById('control-target-popover'));
+    expect(pop.hidden).toBe(false);
+    expect(pop.style.top).toBe('33px');
+    expect(pop.style.right).toBe(`${window.innerWidth - 760}px`);
   });
 
   test('paints the roster the deployment answered with', async () => {
@@ -329,7 +356,7 @@ describe('mount', () => {
     expect(barEl()).toBe(first);
     expect(document.querySelectorAll(`#osprey-control-target-bar`).length).toBe(1);
     expect(document.querySelectorAll('.control-target-chip').length).toBe(1);
-    expect(document.querySelectorAll('.ctc-popover').length).toBe(1);
+    expect(document.querySelectorAll('#control-target-popover').length).toBe(1);
   });
 
   test('teardown takes the bar, the chip and the styles back off the page', () => {
@@ -340,6 +367,8 @@ describe('mount', () => {
     expect(document.getElementById(barModule.STYLE_ID)).toBeNull();
     expect(document.getElementById(barModule.TERMINAL_CSS_ID)).toBeNull();
     expect(document.getElementById(barModule.TOKENS_CSS_ID)).toBeNull();
+    expect(document.getElementById(barModule.PRIMITIVES_CSS_ID)).toBeNull();
+    expect(document.getElementById('control-target-popover')).toBeNull();
     // Including the attribute it stamped on someone else's document.
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
@@ -383,32 +412,60 @@ describe('framed inside the hub', () => {
     expect(document.getElementById(barModule.TERMINAL_CSS_ID)).toBeNull();
     expect(document.getElementById(barModule.TOKENS_CSS_ID)).toBeNull();
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
-    // The header chip on the hub page is the one reader and the one socket.
+    // The sidebar chip on the hub page is the one reader and the one socket.
     expect(getCount()).toBe(0);
     expect(FakeEventSource.opened).toHaveLength(0);
+  });
+
+  test('the self-boot starts the theme follower on a page framed with embedded=true', async () => {
+    // The address the hub's buildEmbedSrc gives the JUPYTER tile.
+    window.history.replaceState({}, '', '/panel/jupyter/lab?embedded=true&theme=dark');
+    const execute = vi.fn(async () => {});
+    Reflect.set(window, 'jupyterapp', {
+      started: Promise.resolve(),
+      commands: { hasCommand: () => true, isToggled: () => false, execute },
+    });
+    try {
+      await bootFramed();
+      // Lab has loaded its own theme: the follower's ready signal.
+      document.body.setAttribute('data-jp-theme-name', 'JupyterLab Light');
+
+      await vi.waitFor(() =>
+        expect(execute).toHaveBeenCalledWith('apputils:change-theme', { theme: 'JupyterLab Dark' })
+      );
+      // Framed, the bar itself still stays off.
+      expect(barEl()).toBeNull();
+    } finally {
+      (await import(FOLLOWER)).teardownLabThemeFollow();
+      Reflect.deleteProperty(window, 'jupyterapp');
+      document.body.removeAttribute('data-jp-theme-name');
+      window.history.replaceState({}, '', '/');
+    }
   });
 });
 
 /* ---- what the page has to load ------------------------------------------ */
 
 describe('stylesheets', () => {
-  test('loads the hub tokens and the hub stylesheet, each once', () => {
+  test('loads the hub tokens, the primitives and the hub stylesheet, each once', () => {
     barModule.initControlTargetLabBar();
 
     const links = [...document.head.querySelectorAll('link[rel="stylesheet"]')].map(
       (l) => /** @type {HTMLLinkElement} */ (l).href
     );
     expect(links.filter((h) => h.endsWith('/design-system/css/tokens.css')).length).toBe(1);
+    expect(links.filter((h) => h.endsWith('/design-system/css/primitives.css')).length).toBe(1);
     expect(links.filter((h) => h.endsWith('/css/terminal.css')).length).toBe(1);
   });
 
-  test('positions the bar itself, and anchors the popover before the sheet lands', () => {
+  test('positions the bar itself, and lifts the popover above the Lab chrome', () => {
     expect(document.getElementById(barModule.STYLE_ID)).not.toBeNull();
-    // Fixed, because the bar is not part of any layout on this page — and the
-    // anchor rule is a floor under terminal.css, which carries the same one.
-    // CSS file loading is off here, so the injected floor is all that applies.
+    // Fixed, because the bar is not part of any layout on this page. CSS file
+    // loading is off here, so the injected rules are all that applies.
     expect(getComputedStyle(/** @type {Element} */ (barEl())).position).toBe('fixed');
-    expect(getComputedStyle(/** @type {Element} */ (anchorEl())).position).toBe('relative');
+    expect(document.getElementById(barModule.STYLE_ID)?.textContent).toMatch(
+      /#control-target-popover\s*\{\s*z-index: var\(--z-overlay/
+    );
   });
 });
 

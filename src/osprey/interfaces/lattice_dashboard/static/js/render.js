@@ -16,8 +16,21 @@ import { subscribe, chartTheme, monoFontStack } from '/design-system/js/theme-ma
 // Theme-independent Plotly layout — colors come from chartTheme() at
 // render/re-theme time (see renderPlotly() and the theme subscription
 // below).
-const FIGURE_MARGIN = { l: 45, r: 15, t: 30, b: 35 };
+//
+// The modebar is always shown and sits in the top-right corner of the plot
+// div (plotly draws it at top 2px, 22px tall). Nothing the figure lays out
+// may share that band, at any card width, so the top margin starts below
+// it: the plot area begins at MODEBAR_CLEARANCE, and a label the figure
+// pins to the plot's top edge (a subplot title) gets its own row under the
+// band. The figure's own title moves to the card caption (see
+// setFigureCaption()), and a legend laid out above the plot moves below it.
+const MODEBAR_CLEARANCE = 30;
+const FIGURE_MARGIN = { l: 45, r: 15, t: MODEBAR_CLEARANCE, b: 35 };
 const FIGURE_FONT_SIZE = 10;
+// One row of top-edge label text: a line of its font size plus a small gap
+// to the modebar band above it.
+const TOP_LABEL_LEADING = 1.3;
+const TOP_LABEL_GAP = 4;
 
 const PLOTLY_CONFIG = {
   responsive: true,
@@ -173,9 +186,16 @@ export function renderPlotly(name, figData) {
     // Read per render so a re-theme that changes the stack takes effect on
     // the next draw.
     font: { family: monoFontStack(), size: FIGURE_FONT_SIZE, color: themeLayout.font.color },
-    margin: FIGURE_MARGIN,
+    margin: { ...FIGURE_MARGIN, t: MODEBAR_CLEARANCE + topLabelRoom(figData.layout) },
   };
   const defaultFontColor = themeLayout.font.color;
+
+  // The card caption names the figure, so plotly does not draw the title a
+  // second time — in the band the modebar covers. The caption carries the
+  // figure's title text, which can say more than the static name (the
+  // chromaticity values, the surviving particle count).
+  setFigureCaption(name, figData.layout?.title);
+  delete layout.title;
 
   // Merge axis colors into ALL axes (not just secondary ones)
   if (figData.layout) {
@@ -196,8 +216,19 @@ export function renderPlotly(name, figData) {
     if (figData.layout.annotations) {
       layout.annotations = figData.layout.annotations;
     }
-    if (figData.layout.title) {
-      layout.title = figData.layout.title;
+    // A horizontal legend laid out above the plot would share the modebar's
+    // band; anchor it to the bottom of the figure instead. Plotly reserves
+    // a container-anchored legend's height below the axis titles itself.
+    if (isLegendAbovePlot(figData.layout.legend)) {
+      layout.legend = {
+        ...figData.layout.legend,
+        x: 0.5,
+        xanchor: 'center',
+        xref: 'paper',
+        y: 0,
+        yanchor: 'bottom',
+        yref: 'container',
+      };
     }
   }
 
@@ -207,6 +238,65 @@ export function renderPlotly(name, figData) {
   delete layout.height;
 
   Plotly.react(plotEl, applyThemedMarkers(figData.data, defaultFontColor), layout, PLOTLY_CONFIG);
+}
+
+/**
+ * Pixels a figure needs above its plot area for labels pinned to the plot's
+ * top edge — make_subplots' first-row subplot titles are annotations at paper
+ * y=1 anchored at their bottom. One row, sized by the largest such label.
+ * @param {any} sourceLayout - the figure's own layout
+ * @returns {number}
+ */
+function topLabelRoom(sourceLayout) {
+  const annotations = Array.isArray(sourceLayout?.annotations) ? sourceLayout.annotations : [];
+  let room = 0;
+  for (const annotation of annotations) {
+    const pinnedToTop =
+      annotation.yref === 'paper' && annotation.yanchor === 'bottom' && annotation.y >= 1;
+    if (!pinnedToTop) continue;
+    const size = annotation.font?.size ?? FIGURE_FONT_SIZE;
+    room = Math.max(room, Math.ceil(size * TOP_LABEL_LEADING) + TOP_LABEL_GAP);
+  }
+  return room;
+}
+
+/**
+ * Whether a figure lays its legend out horizontally above the plot area.
+ * @param {any} legend - the figure's own layout.legend
+ * @returns {boolean}
+ */
+function isLegendAbovePlot(legend) {
+  return legend?.orientation === 'h' && typeof legend.y === 'number' && legend.y >= 1;
+}
+
+/**
+ * Put a figure's title text into its card caption. Plotly titles may carry
+ * <sub>/<sup> markup (ξ<sub>x</sub>); those become real elements, any other
+ * tag is dropped, and every piece of text goes in as a text node.
+ * @param {string} name
+ * @param {any} title - layout.title, a string or {text}
+ */
+function setFigureCaption(name, title) {
+  const text = typeof title === 'string' ? title : title?.text;
+  if (typeof text !== 'string' || text.trim() === '') return;
+  const captionEl = document.querySelector(`#cell-${name} .figure-title`);
+  if (!captionEl) return;
+
+  captionEl.textContent = '';
+  /** @type {Element} */
+  let target = captionEl;
+  for (const part of text.split(/(<\/?(?:sub|sup)>)/i)) {
+    const tag = part.match(/^<(\/?)(sub|sup)>$/i);
+    if (tag && !tag[1] && target === captionEl) {
+      const scriptEl = document.createElement(tag[2].toLowerCase());
+      captionEl.appendChild(scriptEl);
+      target = scriptEl;
+    } else if (tag) {
+      if (tag[1]) target = captionEl;
+    } else if (part) {
+      target.appendChild(document.createTextNode(part.replace(/<[^>]*>/g, '')));
+    }
+  }
 }
 
 /**
@@ -271,15 +361,18 @@ export function createRenderer(figureNames, callbacks) {
 
     // Simple-mode status line (hidden in Expert via CSS): a plain-language
     // stand-in for the dense stat chips. Updated on every state render so it
-    // is correct the moment the mode is flipped to simple.
+    // is correct the moment the mode is flipped to simple. It never names the
+    // model: the header already does (the tile bar's subtitle when embedded,
+    // #lattice-name standalone), and the notice banner says why a model did
+    // not load.
     const simpleStatusEl = document.getElementById('lattice-simple-status');
     if (simpleStatusEl) {
       if (ready) {
-        simpleStatusEl.textContent = `Showing lattice optics for ${selection.model}`;
-      } else if (selection.status === 'failed' && selection.model) {
-        simpleStatusEl.textContent = `${selection.model} did not load`;
+        simpleStatusEl.textContent = 'Showing beta functions and dispersion along the lattice';
+      } else if (selection.status === 'failed') {
+        simpleStatusEl.textContent = 'No optics to show';
       } else {
-        simpleStatusEl.textContent = 'No lattice loaded yet';
+        simpleStatusEl.textContent = 'Optics appear when a lattice loads';
       }
     }
 

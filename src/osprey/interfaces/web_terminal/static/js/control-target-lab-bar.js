@@ -2,34 +2,43 @@
 /**
  * OSPREY Web Terminal — the control-target bar on an embedded JupyterLab page.
  *
- * A notebook cell writes to the machine, so the question the hub's header chip
- * answers — *if this writes now, where does it land, and will it be refused?* —
- * has to be answerable without leaving the notebook. This module is the whole
- * of that: it is the entry module the panel proxy injects into JupyterLab's
- * `<head>` (`_inject_control_target_bar` in `routes/proxy.py`), and everything
- * below it is the hub's own chip, unchanged.
+ * A notebook cell writes to the machine, so the question the hub's
+ * control-system chip answers — *if this writes now, where does it land, and
+ * will it be refused?* — has to be answerable without leaving the notebook.
+ * This module is the whole of that: it is the entry module the panel proxy
+ * injects into JupyterLab's `<head>` (`_inject_control_target_bar` in
+ * `routes/proxy.py`), and everything below it is the hub's own chip,
+ * unchanged.
  *
- * **One picker per window.** Inside the hub the JUPYTER tab is an iframe under
- * the header, and the header chip is the picker; a second one in the frame
- * would be the same switch drawn twice. So the bar mounts only when the Lab
- * page is its own top-level document — popped out of the hub, or opened at
- * its own address — and does nothing at all when framed: no host, no
- * stylesheets, no stream. The proxy injects the tag either way, because only
- * the page can tell which it is ({@link isEmbedded}).
+ * **One picker per window.** Inside the hub the Jupyter tile is an iframe
+ * beside the sidebar, and the sidebar's chip is the picker; a second one in
+ * the frame would be the same switch drawn twice. So the bar mounts only when
+ * the Lab page is its own top-level document — popped out of the hub, or
+ * opened at its own address — and does nothing at all when framed: no host,
+ * no stylesheets, no stream. The proxy injects the tag either way, because
+ * only the page can tell which it is ({@link isEmbedded}).
  *
- * It owns three things and nothing else:
+ * **The framed page's own job.** Framed, the page needs something else, and
+ * this entry starts that too: `lab-theme-follow.js` puts the hub's light/dark
+ * on JupyterLab, which themes itself and would otherwise stay in the theme the
+ * sidecar pinned at start. Each half guards itself — the bar on a top-level
+ * window, the follower on the `embedded=true` the hub frames the page with —
+ * and each boots inside its own `try`.
+ *
+ * The bar owns three things and nothing else:
  *
  * - **a stable host.** One fixed-position element on `document.body`, created
  *   once and never re-rendered. JupyterLab owns `#main`'s layout and reflows
  *   what it finds there, so the bar lives outside it; and the chip's docs are
  *   explicit that a host re-rendered away leaves the chip's anchor detached
  *   with both its timers stopping themselves on the next tick.
- * - **the stylesheets the chip is written against.** The hub's design tokens
- *   and `terminal.css`, both fetched back out of the hub's own tree through
- *   the panel-scoped static routes. Nothing here restates a chip rule: a copy
- *   would drift from the hub's within a release, and the two surfaces showing
- *   the same machine in different colours is the failure this whole feature
- *   exists to prevent.
+ * - **the stylesheets the chip is written against.** The hub's design tokens,
+ *   the design system's primitives (the popover, its rows, switches and
+ *   buttons) and `terminal.css`, all fetched back out of the hub's own tree
+ *   through the panel-scoped static routes. Nothing here restates a chip
+ *   rule: a copy would drift from the hub's within a release, and the two
+ *   surfaces showing the same machine in different colours is the failure
+ *   this whole feature exists to prevent.
  * - **the theme.** JupyterLab publishes its own light/dark choice on
  *   `<body data-jp-theme-light>`; the tokens key off `data-theme`. The bar
  *   translates one into the other, and follows a change.
@@ -61,8 +70,8 @@
  *   saves are 401ing too, and the reload lands on the login explanation), but
  *   anything unsaved since Lab's last autosave goes with it.
  *
- * The page has no `terminal.js`, no bar-item shell and no `.header-actions`,
- * which is exactly why `initControlTargetChip` takes a `host`.
+ * The page has no `terminal.js` and no sidebar, which is exactly why
+ * `initControlTargetChip` takes a `host`.
  */
 
 import { initControlTargetChip, teardownControlTargetChip } from './control-target-chip.js';
@@ -70,6 +79,7 @@ import {
   initControlTargetPopover,
   teardownControlTargetPopover,
 } from './control-target-popover.js';
+import { initLabThemeFollow } from './lab-theme-follow.js';
 
 /** The bar itself. Also the chip's host, and the CSS hook below. */
 const BAR_ID = 'osprey-control-target-bar';
@@ -77,9 +87,10 @@ const BAR_ID = 'osprey-control-target-bar';
 /** The `<style>` this module injects: the bar's own layout, and nothing else. */
 export const STYLE_ID = 'osprey-control-target-bar-style';
 
-/** The two `<link>`s, by id, so a re-init cannot double them. */
+/** The three `<link>`s, by id, so a re-init cannot double them. */
 export const TERMINAL_CSS_ID = 'osprey-control-target-bar-terminal-css';
 export const TOKENS_CSS_ID = 'osprey-control-target-bar-tokens-css';
+export const PRIMITIVES_CSS_ID = 'osprey-control-target-bar-primitives-css';
 
 /**
  * The hub's `terminal.css`, addressed relative to this module.
@@ -106,24 +117,36 @@ export const TERMINAL_CSS_URL = new URL('../css/terminal.css', import.meta.url).
 export const TOKENS_CSS_URL = new URL('../../design-system/css/tokens.css', import.meta.url).href;
 
 /**
+ * The design system's primitives, from the same route as the tokens. The
+ * popover is a `.osprey-popover`, and its title, separator and row lines, its
+ * switches and its buttons are the shared classes this file defines. Every
+ * rule in it is scoped to an `.osprey-*` class, so nothing here restyles
+ * JupyterLab's own document.
+ */
+export const PRIMITIVES_CSS_URL = new URL('../../design-system/css/primitives.css', import.meta.url)
+  .href;
+
+/**
  * The bar's own layout. Everything the chip and its popover look like comes
- * from `terminal.css`; what is here is only where the bar sits.
+ * from `terminal.css` and the primitives; what is here is only where the bar
+ * sits and which layer the popover opens on.
  *
  * `top: 1px; right: 10px` parks it in the empty right end of JupyterLab's menu
  * bar, which is 28 px tall, exactly the chip's height, and left-aligned — so
  * the bar reads as part of the top chrome without covering a menu. It has to
- * be at the TOP: `.ctc-popover` opens `top: calc(100% + …)` under its trigger,
- * and a bar at the bottom of the viewport would drop its 420 px popover off
- * the screen.
+ * be at the TOP: the popover opens below the chip, right-aligned with it, and
+ * a bar at the bottom of the viewport would drop its 420 px popover off the
+ * screen.
  *
- * The z-index is a layer above JupyterLab's chrome and a layer BELOW the
- * confirm overlay (`--z-modal`, mounted on `document.body` by
- * `posture-confirm.js`), which is what keeps the hub's behaviour intact: the
- * confirm covers the popover that raised it.
+ * The bar and the popover (which popover.js places at <body> level) sit a
+ * layer above JupyterLab's chrome and a layer BELOW the confirm overlay
+ * (`--z-modal`, mounted on `document.body` by `posture-confirm.js`), which is
+ * what keeps the hub's behaviour intact: the confirm covers the popover that
+ * raised it.
  *
  * The `.ctc-anchor` rules are a floor under `terminal.css`, which carries the
- * same two: the popover is absolutely positioned against the anchor, so it
- * anchors correctly even in the moments before the stylesheet lands.
+ * same two, so the chip lays out correctly even in the moments before the
+ * stylesheet lands.
  */
 const BAR_CSS = `
 #${BAR_ID} {
@@ -136,12 +159,15 @@ const BAR_CSS = `
 }
 
 #${BAR_ID} .ctc-anchor {
-  position: relative;
   display: flex;
 }
 
 #${BAR_ID} .ctc-anchor[hidden] {
   display: none;
+}
+
+#control-target-popover {
+  z-index: var(--z-overlay, 300);
 }
 `;
 
@@ -210,8 +236,8 @@ export function initControlTargetLabBar() {
   watchTheme();
 
   initControlTargetChip({ host: bar });
-  // Only after the chip: the popover hangs off the chip's anchor and answers
-  // null on a page where no chip has mounted.
+  // Only after the chip: the popover opens from the chip and answers null on
+  // a page where no chip has mounted.
   initControlTargetPopover();
 
   return bar;
@@ -232,20 +258,23 @@ export function teardownControlTargetLabBar() {
   bar?.remove();
   bar = null;
 
-  for (const id of [STYLE_ID, TERMINAL_CSS_ID, TOKENS_CSS_ID]) {
+  for (const id of [STYLE_ID, TERMINAL_CSS_ID, TOKENS_CSS_ID, PRIMITIVES_CSS_ID]) {
     document.getElementById(id)?.remove();
   }
 }
 
 /**
- * The tokens, the hub's stylesheet and the bar's own layout, each once.
+ * The tokens, the primitives, the hub's stylesheet and the bar's own layout,
+ * each once.
  *
- * Order matters between the two links only in that tokens define what
- * `terminal.css` reads; both are `<link>`s in `<head>`, so the cascade is
- * document order and the chip is styled the moment the second lands.
+ * Order matters between the links only in that tokens define what the other
+ * two read and `terminal.css` refines the primitives; all are `<link>`s in
+ * `<head>`, so the cascade is document order and the chip is styled the
+ * moment the last lands.
  */
 function ensureStyles() {
   ensureStylesheet(TOKENS_CSS_ID, TOKENS_CSS_URL);
+  ensureStylesheet(PRIMITIVES_CSS_ID, PRIMITIVES_CSS_URL);
   ensureStylesheet(TERMINAL_CSS_ID, TERMINAL_CSS_URL);
 
   if (!document.getElementById(STYLE_ID)) {
@@ -296,11 +325,12 @@ function watchTheme() {
 
 /**
  * This module is an entry point — the page that loads it has no app shell to
- * call `init` from — so it starts itself.
+ * call `init` from — so it starts itself: the bar, then the theme follower.
  *
- * Inside a `try`, because the one thing worse than a missing chip is a broken
- * notebook: nothing this module can throw is worth taking JupyterLab down
- * with, and the console message is what says which it was.
+ * Each inside its own `try`, because the one thing worse than a missing chip
+ * or a light tile in a dark hub is a broken notebook: nothing this module can
+ * throw is worth taking JupyterLab down with, and the console message is what
+ * says which part it was. One failing does not keep the other from starting.
  *
  * A module script runs after the document is parsed, so `document.body` is
  * there; the listener is for the case where something loads this module
@@ -311,6 +341,11 @@ function boot() {
     initControlTargetLabBar();
   } catch (err) {
     console.error('OSPREY control-target bar failed to start:', err);
+  }
+  try {
+    initLabThemeFollow();
+  } catch (err) {
+    console.error('OSPREY Jupyter theme follower failed to start:', err);
   }
 }
 

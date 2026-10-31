@@ -20,33 +20,20 @@
  * xterm.js and a socket. app.js is imported once and statically, exactly as in
  * app-logout.test.mjs: its DOMContentLoaded bootstrap has already passed by the
  * time a test module evaluates, and `initIframePasteBridge` is exported so it
- * can be driven directly instead.
+ * can be driven directly instead. sidebar-artifacts.js is mocked: app.js only
+ * calls its init, which this file never reaches.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
-// The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time. Nothing serves this environment, so
-// that request is answered here — from `vi.hoisted`, which runs before the
-// static imports are evaluated and therefore before the GET is made. Any other
-// URL is a dependency this file has not declared, and fails loudly.
+// Nothing serves this environment, so no request is answered: any fetch is a
+// dependency this file has not declared, and fails loudly. Stubbed from
+// `vi.hoisted`, which runs before the static imports are evaluated.
 vi.hoisted(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
-      };
+      throw new Error(`unstubbed fetch: ${url}`);
     })
   );
 });
@@ -75,6 +62,11 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   pasteToTerminal: term.paste,
   /** @param {() => void} fn */
   onSessionChange: (fn) => term.sessionListeners.push(fn),
+}));
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js', () => ({
+  initSidebarArtifacts: vi.fn(),
+  teardownSidebarArtifacts: vi.fn(),
 }));
 
 import { initIframePasteBridge } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';

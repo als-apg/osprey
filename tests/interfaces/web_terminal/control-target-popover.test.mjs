@@ -3,7 +3,7 @@
  * Unit tests for the control-target popover (control-target-popover.js):
  *   npx vitest run tests/interfaces/web_terminal/control-target-popover.test.mjs
  *
- * The popover is the panel behind the header chip: a card for the machine the
+ * The popover is the panel behind the sidebar's chip: a card for the machine the
  * agent stands on, a row per other configured target, and every gesture that
  * CHANGES where this session writes. It fetches nothing of its own — it
  * subscribes to the chip and renders `getState()` — so these tests drive it
@@ -29,8 +29,12 @@
  *   a stop says the stop did not take effect while the machine still reads on;
  * - a confirmed change leaves the popover OPEN and re-renders in place, so an
  *   operator changing several machines never reopens it;
- * - Escape dismisses an open confirm BEFORE it closes the popover, and a click
- *   inside the confirm is not an outside click;
+ * - the popover is a body-level design-system popover (popover.js): beside
+ *   the sidebar it opens 8 px right of the sidebar's edge, under a chip on a
+ *   page bar it hangs below the chip, and a press outside, Escape, a resize
+ *   or a change of sidebar width closes it;
+ * - Escape dismisses an open confirm BEFORE it closes the popover, and a
+ *   press inside the confirm is not a press outside;
  * - Switch to confirms, POSTs, shows `switching…` on that row, and renders the
  *   outcome the route publishes for the `request_id` — success, refusal, and
  *   the expiry a dead controls server never answers;
@@ -59,6 +63,9 @@ const POPOVER = '../../../src/osprey/interfaces/web_terminal/static/js/control-t
 
 const FACTS = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-facts.js';
 const { STOP_NOT_TAKEN_SENTENCE: STOP_NOT_TAKEN, TURN_ON_SENTENCE: TURN_ON } = await import(FACTS);
+/** The outcome freshness window lives with the rows that show the outcome. */
+const { OUTCOME_MAX_AGE_S } =
+  await import('../../../src/osprey/interfaces/web_terminal/static/js/control-target-rows.js');
 /** What a turn-on a stop overtook reads on its row. */
 const STOPPED_SINCE =
   'Writes were turned off after this turn-on began — nothing was turned on. Click again to turn them on.';
@@ -249,18 +256,21 @@ function stubFetch() {
   );
 }
 
-/** The global header the chip mounts into (index.html's shape). */
+/**
+ * The sidebar's control-system block the chip mounts into (index.html's
+ * shape), and somewhere outside it to click.
+ */
 function mountFixture() {
   document.body.innerHTML = `
-    <header class="header">
-      <div class="header-right">
-        <div class="header-actions">
-          <button id="command-palette-btn" type="button"></button>
-        </div>
-      </div>
-    </header>
+    <nav class="sidebar" id="sidebar" aria-label="Panels">
+      <div class="sidebar-target" id="sidebar-target"></div>
+      <button class="osprey-search" id="command-palette-btn" type="button"></button>
+    </nav>
     <div id="outside"></div>`;
 }
+
+/** The sidebar's control-system block, the host app.js hands the chip. */
+const targetHost = () => /** @type {HTMLElement} */ (document.getElementById('sidebar-target'));
 
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
@@ -270,10 +280,11 @@ async function flush() {
 /**
  * Boot the chip and its popover against a roster.
  * @param {any} [payload]
+ * @param {HTMLElement} [host] where the chip mounts; the sidebar's block by default
  */
-async function boot(payload) {
+async function boot(payload, host = targetHost()) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip();
+  chipModule.initControlTargetChip({ host });
   popoverModule.initControlTargetPopover();
   await flush();
 }
@@ -287,8 +298,12 @@ async function bootOpen(payload) {
 
 const chipEl = () =>
   /** @type {HTMLButtonElement|null} */ (document.querySelector('.control-target-chip'));
-const popEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-popover'));
-const isOpen = () => Boolean(popEl()?.classList.contains('open'));
+const popEl = () =>
+  /** @type {HTMLElement|null} */ (document.getElementById('control-target-popover'));
+const isOpen = () => Boolean(popEl() && !popEl()?.hidden);
+/** A pointer press, the event popover.js dismisses on. @param {Element} target */
+const pointerDown = (target) =>
+  target.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
 const cardEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-card'));
 const bannerEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-banner'));
 /** @param {string} target */
@@ -367,10 +382,13 @@ afterEach(() => {
 /* ---- mount and open/close ----------------------------------------------- */
 
 describe('mounting', () => {
-  test('mounts inside the chip anchor and starts closed', async () => {
+  test('mounts at <body> level as a design-system popover dialog, closed', async () => {
     await boot();
-    const anchor = document.querySelector('.ctc-anchor');
-    expect(anchor?.contains(/** @type {Node} */ (popEl()))).toBe(true);
+    const pop = /** @type {HTMLElement} */ (popEl());
+    expect(pop.parentElement).toBe(document.body);
+    expect(pop.classList.contains('osprey-popover')).toBe(true);
+    expect(pop.getAttribute('role')).toBe('dialog');
+    expect(pop.getAttribute('aria-label')).toBe('Control target');
     expect(isOpen()).toBe(false);
     expect(chipEl()?.getAttribute('aria-controls')).toBe('control-target-popover');
   });
@@ -378,11 +396,11 @@ describe('mounting', () => {
   test('a second init reuses the same popover', async () => {
     await boot();
     popoverModule.initControlTargetPopover();
-    expect(document.querySelectorAll('.ctc-popover')).toHaveLength(1);
+    expect(document.querySelectorAll('#control-target-popover')).toHaveLength(1);
   });
 
   test('init no-ops on a page with no chip', () => {
-    document.body.innerHTML = '<header></header>';
+    document.body.innerHTML = '<div id="elsewhere"></div>';
     expect(popoverModule.initControlTargetPopover()).toBeNull();
   });
 });
@@ -399,17 +417,34 @@ describe('open and close', () => {
     expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('an outside click closes it and mirrors the state onto the chip', async () => {
+  test('a press outside closes it and mirrors the state onto the chip', async () => {
     await bootOpen();
-    /** @type {HTMLElement} */ (document.getElementById('outside')).click();
+    pointerDown(/** @type {HTMLElement} */ (document.getElementById('outside')));
     expect(isOpen()).toBe(false);
     expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('a click inside the popover does not close it', async () => {
+  test('a press inside the popover does not close it', async () => {
     await bootOpen();
-    /** @type {HTMLElement} */ (document.querySelector('.ctc-list-title')).click();
+    pointerDown(/** @type {HTMLElement} */ (popEl()?.querySelector('.osprey-popover-title')));
     expect(isOpen()).toBe(true);
+  });
+
+  test('opening puts focus on the first writes switch', async () => {
+    await bootOpen();
+    expect(document.activeElement).toBe(toggleEl('standin'));
+  });
+
+  test('a re-render keeps focus on the same control', async () => {
+    await bootOpen();
+    toggleEl('live')?.focus();
+    const before = toggleEl('live');
+
+    await chipModule.refetch();
+    await flush();
+
+    expect(toggleEl('live')).not.toBe(before);
+    expect(document.activeElement).toBe(toggleEl('live'));
   });
 
   test('Escape closes it and returns focus to the chip', async () => {
@@ -417,6 +452,119 @@ describe('open and close', () => {
     pressEscape();
     expect(isOpen()).toBe(false);
     expect(document.activeElement).toBe(chipEl());
+  });
+});
+
+describe('beside the sidebar', () => {
+  /**
+   * Give the sidebar a right edge and the chip a top, as layout would.
+   * @param {number} chipTop
+   */
+  function layout(chipTop) {
+    const sidebar = /** @type {HTMLElement} */ (document.getElementById('sidebar'));
+    vi.spyOn(sidebar, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({ left: 0, right: 220, top: 0, bottom: 700, width: 220, height: 700 })
+    );
+    const chip = /** @type {HTMLElement} */ (chipEl());
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({
+        left: 8,
+        right: 212,
+        top: chipTop,
+        bottom: chipTop + 40,
+        width: 204,
+        height: 40,
+      })
+    );
+  }
+
+  test('opens 8 px right of the sidebar, level with the chip', async () => {
+    await boot();
+    layout(64);
+    chipEl()?.click();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(popEl()?.style.left).toBe('228px');
+    expect(popEl()?.style.top).toBe('64px');
+  });
+
+  test('keeps its top inside the window', async () => {
+    await boot();
+    layout(window.innerHeight + 500);
+    chipEl()?.click();
+    await flush();
+    // happy-dom lays nothing out, so the popover is 0 px tall: the clamp is
+    // the window's height less the 8 px margin.
+    expect(popEl()?.style.top).toBe(`${window.innerHeight - 8}px`);
+
+    chipEl()?.click();
+    await flush();
+    layout(-30);
+    chipEl()?.click();
+    await flush();
+    expect(popEl()?.style.top).toBe('8px');
+  });
+
+  test('a window resize closes it', async () => {
+    await bootOpen();
+    window.dispatchEvent(new Event('resize'));
+    expect(isOpen()).toBe(false);
+    expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('a change of sidebar width closes it', async () => {
+    await bootOpen();
+    document.dispatchEvent(
+      new CustomEvent('osprey-collapsible-change', {
+        detail: { attribute: 'data-sidebar', state: 'collapsed' },
+      })
+    );
+    expect(isOpen()).toBe(false);
+    expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('under a chip outside the sidebar it hangs below the chip, right-aligned', async () => {
+    const bar = document.createElement('div');
+    document.body.appendChild(bar);
+    await boot(undefined, bar);
+    const chip = /** @type {HTMLElement} */ (chipEl());
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue(
+      /** @type {DOMRect} */ ({ left: 600, right: 760, top: 1, bottom: 29, width: 160, height: 28 })
+    );
+    chip.click();
+    await flush();
+    expect(isOpen()).toBe(true);
+    expect(popEl()?.style.left).toBe('');
+    expect(popEl()?.style.top).toBe('33px');
+    expect(popEl()?.style.right).toBe(`${window.innerWidth - 760}px`);
+  });
+});
+
+/* ---- the design-system primitives ---------------------------------------- */
+
+describe('built on the design-system primitives', () => {
+  test('titles, separators, rows, dots, switches and buttons', async () => {
+    await bootOpen();
+    const pop = /** @type {HTMLElement} */ (popEl());
+    const titles = [...pop.querySelectorAll(':scope > .osprey-popover-title')].map(
+      (n) => n.textContent
+    );
+    expect(titles).toEqual(['The agent is on', 'Other machines']);
+    expect(pop.querySelectorAll(':scope > .osprey-popover-sep').length).toBeGreaterThan(0);
+
+    const row = /** @type {HTMLElement} */ (rowEl('live'));
+    expect(row.classList.contains('osprey-popover-item')).toBe(true);
+    expect(row.querySelector('.ctc-name-line > .osprey-dot')).not.toBeNull();
+    expect(cardEl()?.querySelector('.ctc-card-title > .osprey-dot')).not.toBeNull();
+    expect(toggleEl('live')?.querySelector('.osprey-switch')).not.toBeNull();
+    expect(allOffEl().classList.contains('osprey-btn')).toBe(true);
+  });
+
+  test('Switch to is the primary button', async () => {
+    await bootOpen();
+    const swap = document.querySelector('.ctc-switch');
+    expect(swap?.classList.contains('osprey-btn')).toBe(true);
+    expect(swap?.classList.contains('primary')).toBe(true);
   });
 });
 
@@ -433,7 +581,9 @@ describe('the card', () => {
     // stand-in is not the real machine.
     expect(card.dataset.real).toBeUndefined();
     expect(rowEl('standin')).toBeNull();
-    expect(card.querySelector('.ctc-card-eyebrow')?.textContent).toBe('The agent is on');
+    // The card sits under the popover's own title line, not an eyebrow of its own.
+    expect(card.previousElementSibling?.className).toBe('osprey-popover-title');
+    expect(card.previousElementSibling?.textContent).toBe('The agent is on');
   });
 
   test('the card names the machine by consequence and keeps the label on hover', async () => {
@@ -1409,7 +1559,7 @@ describe('switching', () => {
           target: 'va',
           status: 'applied',
           reason: null,
-          age_s: popoverModule.OUTCOME_MAX_AGE_S + 1,
+          age_s: OUTCOME_MAX_AGE_S + 1,
         },
       })
     );
@@ -1674,12 +1824,12 @@ describe("don't ask again", () => {
 /* ---- the confirm sits ABOVE the popover, which stays open ---------------- */
 
 describe('a confirm and the popover beneath it', () => {
-  test('a click inside the confirm is not an outside click', async () => {
+  test('a press inside the confirm is not a press outside', async () => {
     await bootOpen();
     toggleEl('live')?.click();
     await flush();
 
-    inConfirm('.posture-modal-body').click();
+    pointerDown(inConfirm('.posture-modal-body'));
     expect(isOpen()).toBe(true);
     expect(confirmEl()).not.toBeNull();
   });

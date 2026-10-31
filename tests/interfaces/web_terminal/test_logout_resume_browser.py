@@ -4,14 +4,14 @@ Exercises the client-side half of the multi-user round trip in a real Chromium
 page — the part a FastAPI TestClient can't see because it neither runs the
 frontend JS nor persists ``localStorage`` across navigations:
 
-  * the display menu's session footer — the identity line naming the user and
-    the logout control beside System Settings (``#logout-btn`` carrying
-    ``data-landing-url``) — renders only when the server emitted a non-empty
-    ``terminal_user`` / ``landing_url`` (multi-user);
-  * clicking logout POSTs the real server logout route (``logout_terminal``,
-    routes/websocket.py — empties the PTY and operator registries), clears the
-    client's stored PTY session id, THEN navigates to the configured landing
-    origin;
+  * the ☰ More menu's identity line naming the user and the sidebar footer's
+    Sign out row (``#logout-btn`` carrying ``data-landing-url``) render only
+    when the server emitted a non-empty ``terminal_user`` / ``landing_url``
+    (multi-user);
+  * clicking Sign out asks first (the sign-out dialog); confirming POSTs the
+    real server logout route (``logout_terminal``, routes/websocket.py —
+    empties the PTY and operator registries), clears the client's stored PTY
+    session id, THEN navigates to the configured landing origin;
   * returning to the terminal origin does NOT resume the prior warm PTY —
     this render's stored pointer stays empty across the round trip and the
     client opens a brand-new WebSocket (no ``mode=resume``, no stale
@@ -64,12 +64,12 @@ except ImportError:  # pragma: no cover
 
 @pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
 def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_browser):
-    """Full multi-user loop: header + logout render, logout resets the station.
+    """Full multi-user loop: identity + Sign out render, logout resets the station.
 
     Closes M2: a warm PTY (represented here by a seeded ``localStorage`` id, see
     the module docstring) does NOT survive the logout -> landing -> return round
     trip. Logout clears the client's stored session id before navigating away
-    (task 4.2's ``initLogoutButton``, backed server-side by task 4.1's real
+    (logout.js, run by the sign-out dialog; backed server-side by the real
     ``logout_terminal`` registry cleanup), so the return visit opens a brand-new
     terminal — no ``mode=resume``, no ``session_id`` carried over from the prior
     visit, and no re-adopted stored id — rather than reconnecting to the old
@@ -99,8 +99,8 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         logout = page.locator("#logout-btn")
         expect(logout).to_have_count(1)
         assert logout.get_attribute("data-landing-url") == landing_url
-        # It lives inside the display menu's popover, so it starts hidden.
-        expect(logout).to_be_hidden()
+        # It is a row of the sidebar footer, on screen from the first paint.
+        expect(logout).to_be_visible()
 
         # --- Represent an established (warm) PTY session (see module docstring) ---
         # Seed the key the client actually reads: derived from the scope the
@@ -129,14 +129,16 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         page.on("request", _record)
 
         # --- Logout: clears the stored pointer, THEN navigates to landing ---
-        # Logout lives behind the header identity chip — the name in the corner
-        # is what an operator reaches for to leave. Open it first.
-        page.click("#header-identity-trigger")
-        # The menu names the operator, so they can confirm WHICH terminal they
-        # are leaving before they leave it.
-        expect(page.locator("#header-identity-menu .header-identity-who-name")).to_have_text(user)
-        expect(page.locator("#logout-btn")).to_be_visible()
+        # The ☰ More menu names the operator, so they can confirm WHICH terminal
+        # they are leaving before they leave it.
+        page.click("#more-btn")
+        expect(page.locator("#more-menu .more-menu-user")).to_have_text(user)
+        page.keyboard.press("Escape")
+        # Sign out is the sidebar footer's row, and it asks first.
         page.click("#logout-btn")
+        dialog = page.locator(".posture-modal-overlay:not([data-closing])")
+        expect(dialog.locator(".posture-modal-title")).to_have_text("Sign out of OSPREY?")
+        dialog.locator(".posture-modal-confirm").click()
         page.wait_for_url(lambda u: u.startswith(landing_url))
         assert page.url.startswith(landing_url)
         expect(page.locator("#landing-marker")).to_be_visible()

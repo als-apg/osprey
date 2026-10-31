@@ -56,6 +56,7 @@ CHIP_JS = (
     "control-target-chip.js",
     "control-target-facts.js",
     "control-target-popover.js",
+    "control-target-rows.js",
     "control-target-lab-bar.js",
 )
 

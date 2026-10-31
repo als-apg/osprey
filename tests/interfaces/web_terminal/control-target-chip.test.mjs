@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * Unit tests for the control-target header chip (control-target-chip.js):
+ * Unit tests for the control-target chip (control-target-chip.js):
  *   npx vitest run tests/interfaces/web_terminal/control-target-chip.test.mjs
  *
- * The chip is the header's one-line answer to "if the agent writes now, where
+ * The chip is the sidebar's one-line answer to "if the agent writes now, where
  * does it land, and will it be refused?". It reads ONE truth —
  * `GET /api/terminal/posture` — and derives nothing from what this page last
  * did, so a posture narrowed in another tab and a target the agent switched
@@ -11,14 +11,14 @@
  *
  * What these tests pin down, in the order a reviewer would ask about it:
  *
- * - the chip mounts once, into the `control-target` `.bar-item` shell the
- *   layout placed in the header host — never against a neighbour, because the
- *   palette trigger it used to sit in front of is now inside a shell of its own
- *   and is no longer a child of the host. A second init re-renders rather than
- *   mounting a second chip, and re-homes the same node if the shell shows up
- *   after a fallback mount;
+ * - the chip mounts once, into the host its caller hands it (the hub hands it
+ *   the sidebar's control-system block, `#sidebar-target`) and nowhere else:
+ *   with no host it does nothing at all. A second init re-renders rather than
+ *   mounting a second chip, and re-homes the same node into a new host;
  * - a caller may hand it a `host` of its own, which is what lets the
  *   JupyterLab bar mount it (that suite pins the import closure);
+ * - `targetReading()` gives the chip's own words (name, write state, kind,
+ *   state word) to the surfaces that repeat them;
  * - the roster is a fact about the DEPLOYMENT: the read carries no session id,
  *   and nothing here waits for a session to be settled;
  * - the pushed `{type: 'control_context'}` frame is what makes the chip
@@ -227,47 +227,25 @@ function stubFetch() {
 }
 
 /**
- * The global header the chip mounts into, in index.html's shape: a bar-item
- * HOST (`.header-actions[data-bar-host="header"]`) whose direct children are
- * all `.bar-item` shells, one per item in the effective layout.
- *
- * The shape matters to this suite and is not decoration. The palette trigger
- * is no longer a child of the host — it sits inside its own `search` shell —
- * so a mount that positioned itself against `actions.querySelector('#command
- * -palette-btn')` would find the button (a descendant query) and then throw on
- * `insertBefore`, taking every later line of app.js's DOMContentLoaded with it.
- * A fixture that kept the button as a direct child would have gone on passing
- * through exactly that breakage.
- *
- * `control-target` is a JS-built item, so its shell is emitted EMPTY and the
- * chip is what fills it.
+ * The sidebar the chip mounts into, in index.html's shape: the control-system
+ * block `#sidebar-target` between the sidebar head and the palette trigger.
+ * The block ships EMPTY; the chip is what fills it, and its neighbours are
+ * never touched.
  */
 function mountFixture() {
   document.body.innerHTML = `
-    <header class="header">
-      <div class="header-actions" data-bar-host="header">
-        <div class="bar-item" data-bar-item="logo"><span class="header-logo">OSPREY</span></div>
-        <div class="bar-item" data-bar-item="space"></div>
-        <div class="bar-item" data-bar-item="control-target"></div>
-        <div class="bar-item" data-bar-item="search">
-          <button id="command-palette-btn" class="command-palette-trigger" type="button"></button>
-        </div>
-        <div class="bar-item" data-bar-item="display">
-          <osprey-display-menu id="display-menu"></osprey-display-menu>
-        </div>
+    <nav class="sidebar" id="sidebar" aria-label="Panels">
+      <div class="sidebar-head">
+        <a class="sidebar-brand" href="/" aria-label="OSPREY"></a>
+        <button class="osprey-icon-btn" id="sidebar-toggle" type="button"></button>
       </div>
-    </header>`;
+      <div class="sidebar-target" id="sidebar-target"></div>
+      <button class="osprey-search" id="command-palette-btn" type="button"></button>
+    </nav>`;
 }
 
-/**
- * The same header with the `control-target` item absent from the layout — the
- * fallback path, and also the shape of any host rendered before the shells
- * existed.
- */
-function mountFixtureWithoutShell() {
-  mountFixture();
-  document.querySelector('[data-bar-item="control-target"]')?.remove();
-}
+/** The sidebar's control-system block, the host app.js hands the chip. */
+const targetHost = () => /** @type {HTMLElement} */ (document.getElementById('sidebar-target'));
 
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
@@ -275,13 +253,14 @@ async function flush() {
 }
 
 /**
- * Boot the chip against a given roster.
+ * Boot the chip against a given roster, into `opts.host` when the key is
+ * given (null included) and into the sidebar's block otherwise.
  * @param {any} [payload]
  * @param {{host?: HTMLElement|null}} [opts]
  */
 async function boot(payload, opts = {}) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip({ host: opts.host });
+  chipModule.initControlTargetChip({ host: 'host' in opts ? opts.host : targetHost() });
   await flush();
 }
 
@@ -317,65 +296,38 @@ afterEach(() => {
 /* ---- mount -------------------------------------------------------------- */
 
 describe('mount', () => {
-  test('takes its position from the layout, never from the palette trigger', async () => {
+  test('mounts into the host it is handed, leaving its neighbours alone', async () => {
     await boot();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
-    const palette = /** @type {HTMLElement} */ (document.querySelector('#command-palette-btn'));
-    // The regression this pins: the palette button is a DESCENDANT of the host
-    // but not a child of it, so any `actions.insertBefore(anchor, palette)`
-    // throws NotFoundError — and this init runs inside app.js's
-    // DOMContentLoaded body, where a throw takes every later boot step with it.
-    expect(actions.contains(palette)).toBe(true);
-    expect(palette.parentElement).not.toBe(actions);
-    // The chip sits where the layout put its shell — third of five — and the
-    // shells around it are untouched.
-    const order = [...actions.children].map((el) => el.getAttribute('data-bar-item'));
-    expect(order).toEqual(['logo', 'space', 'control-target', 'search', 'display']);
-    const shell = /** @type {HTMLElement} */ (
-      document.querySelector('[data-bar-item="control-target"]')
-    );
-    expect(shell.children).toHaveLength(1);
-    expect(shell.firstElementChild).toBe(anchorEl());
-    // The chip lives inside its own positioning context (the popover is
-    // absolute under it), and that context is what fills the item's shell.
+    const sidebar = /** @type {HTMLElement} */ (document.getElementById('sidebar'));
+    const host = targetHost();
+    // The block's neighbours keep their places: the chip only ever appends
+    // into its host and never positions itself against the palette trigger.
+    const order = [...sidebar.children].map((el) => el.id || el.className);
+    expect(order).toEqual(['sidebar-head', 'sidebar-target', 'command-palette-btn']);
+    expect(host.children).toHaveLength(1);
+    expect(host.firstElementChild).toBe(anchorEl());
+    // The chip lives inside its own wrapper, and that wrapper is what fills
+    // the block.
     expect(chipEl()?.parentElement).toBe(anchorEl());
-    expect(chipModule.getAnchorElement()).toBe(anchorEl());
-    expect(shell.parentElement).toBe(actions);
-  });
-
-  test('falls back to the host itself when the layout places no shell', async () => {
-    mountFixtureWithoutShell();
-    await boot();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
-    const anchor = /** @type {HTMLElement} */ (anchorEl());
-    expect(chipEl()).not.toBeNull();
-    expect(anchor.parentElement).toBe(actions);
-    // Degrading to "somewhere in the action run" beats not mounting the chip
-    // at all: the answer to "where would a write land" is worth more than its
-    // position in the bar.
-    expect(anchor.hidden).toBe(false);
+    expect(anchorEl()?.hidden).toBe(false);
   });
 
   test('is idempotent — a second init re-renders rather than mounting twice', async () => {
     await boot();
-    chipModule.initControlTargetChip();
+    chipModule.initControlTargetChip({ host: targetHost() });
     await flush();
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(document.querySelectorAll('.ctc-anchor')).toHaveLength(1);
   });
 
-  test('re-homes the SAME chip into a shell that arrives after a fallback mount', async () => {
-    mountFixtureWithoutShell();
+  test('re-homes the SAME chip into a different host', async () => {
     await boot();
     const first = chipEl();
     const anchor = anchorEl();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
 
-    const shell = document.createElement('div');
-    shell.className = 'bar-item';
-    shell.dataset.barItem = 'control-target';
-    actions.prepend(shell);
-    chipModule.initControlTargetChip();
+    const other = document.createElement('div');
+    document.body.appendChild(other);
+    chipModule.initControlTargetChip({ host: other });
     await flush();
 
     // Moved, not rebuilt: the popover hangs its listeners on this exact node
@@ -383,14 +335,15 @@ describe('mount', () => {
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(chipEl()).toBe(first);
     expect(anchorEl()).toBe(anchor);
-    expect(anchor?.parentElement).toBe(shell);
+    expect(anchor?.parentElement).toBe(other);
+    expect(targetHost().children).toHaveLength(0);
   });
 
   test('carries the popover trigger ARIA and the four spans the stylesheet keys on', async () => {
     await boot();
     const chip = /** @type {HTMLButtonElement} */ (chipEl());
     expect(chip.type).toBe('button');
-    expect(chip.getAttribute('aria-haspopup')).toBe('true');
+    expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     for (const cls of ['.ctc-dot', '.ctc-short', '.ctc-sep', '.ctc-state', '.ctc-caret']) {
       expect(chip.querySelector(cls)).not.toBeNull();
@@ -409,31 +362,89 @@ describe('mount', () => {
     expect(chipEl()?.hidden).toBe(false);
   });
 
-  test('does nothing at all on a page with no header and no host', async () => {
-    document.body.innerHTML = '<div id="elsewhere"></div>';
+  test('does nothing at all without a host, even beside an empty block', async () => {
+    // No discovery: `#sidebar-target` is on the page, but the chip mounts only
+    // where its caller puts it (app.js skips the call when the picker is off).
     chipModule.initControlTargetChip();
+    chipModule.initControlTargetChip({ host: null });
     await flush();
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
+    expect(targetHost().children).toHaveLength(0);
     expect(getCount()).toBe(0);
+    expect(FakeEventSource.opened).toHaveLength(0);
   });
 
-  test('mounts into a host the caller hands it, header or no header', async () => {
-    // The JupyterLab page has neither the `control-target` shell nor
-    // `.header-actions`; the bar module that owns its own element passes it.
+  test('mounts into a host the caller hands it, sidebar or no sidebar', async () => {
+    // The JupyterLab page has no sidebar; the bar module that owns its own
+    // element passes it.
     document.body.innerHTML = '<div id="lab-bar"></div>';
     const host = /** @type {HTMLElement} */ (document.querySelector('#lab-bar'));
     await boot(viewOf(), { host });
     expect(anchorEl()?.parentElement).toBe(host);
     expect(chipEl()?.hidden).toBe(false);
   });
+});
 
-  test('a host beats the header the discovery would have found', async () => {
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    await boot(viewOf(), { host });
-    expect(anchorEl()?.parentElement).toBe(host);
-    expect(document.querySelector('[data-bar-item="control-target"]')?.children).toHaveLength(0);
+/* ---- targetReading ------------------------------------------------------ */
+
+describe('targetReading', () => {
+  test('is null while nothing has been read', () => {
+    expect(chipModule.targetReading()).toBeNull();
+  });
+
+  test('answers in the chip’s own words for every kind and state', async () => {
+    /** @type {Record<string, [string, string]>} */
+    const NAMED = {
+      live: ['Real machine', 'real'],
+      standin: ['Rehearsal', 'rehearsal'],
+      va: ['Simulator', 'simulator'],
+    };
+    for (const [kindName, kind] of Object.entries(KINDS)) {
+      for (const [stateName, state] of Object.entries(STATES)) {
+        served = viewOf({
+          control_target: kind.target,
+          targets: [rowOf({ ...kind, ...state, active: true })],
+        });
+        if (chipModule.getState()) await chipModule.refetch();
+        else await boot(served);
+        const [name, kindAttr] = NAMED[kindName];
+        expect(chipModule.targetReading()).toEqual({
+          name,
+          state: `writes ${stateName}`,
+          kind: kindAttr,
+          word: stateName,
+        });
+        // The one derivation the chip paints from.
+        expect(shortText()).toBe(name);
+        expect(stateText()).toBe(`writes ${stateName}`);
+      }
+    }
+  });
+
+  test("names the deployment's configured display_name", async () => {
+    await boot(
+      viewOf({
+        targets: [rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true })],
+      })
+    );
+    expect(chipModule.targetReading()?.name).toBe('Example storage ring');
+    expect(chipModule.targetReading()?.kind).toBe('real');
+  });
+
+  test('says switching… while a request this browser wrote is outstanding', async () => {
+    await boot();
+    chipModule.markPending('req-1', 'va', 4);
+    const reading = chipModule.targetReading();
+    expect(reading?.state).toBe('switching…');
+    // The row it speaks for has not changed yet.
+    expect(reading?.word).toBe('on');
+    expect(stateText()).toBe('switching…');
+  });
+
+  test('is null for an empty roster, where the chip hides', async () => {
+    await boot(viewOf({ targets: [] }));
+    expect(chipModule.targetReading()).toBeNull();
   });
 });
 
@@ -621,7 +632,7 @@ describe('refetch hints', () => {
     expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
     // A second init must not subscribe again: api.js would share the socket,
     // so what a second subscription costs is a second read per frame.
-    chipModule.initControlTargetChip();
+    chipModule.initControlTargetChip({ host: targetHost() });
     await flush();
     expect(FakeEventSource.opened).toHaveLength(1);
     const before = getCount();
