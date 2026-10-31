@@ -50,6 +50,15 @@ ALL_ROUTES = [
 
 CONFIG: dict[str, Any] = {"services": {"dial-demo": {"port": PORT}}}
 
+#: What a login that shows no panel and no tool server is projected.
+NOTHING: dict[str, Any] = {
+    "web": {"panels": {}},
+    "web_panels": [],
+    "mcp_servers": {},
+    "apps": {},
+    "dispatch": {"denied_app_tools": []},
+}
+
 
 def _manifest(data: dict[str, Any] = DIAL, **panel: Any) -> AppManifest:
     data = copy.deepcopy(data)
@@ -123,17 +132,14 @@ def test_a_container_without_health_projects_no_health_endpoint() -> None:
     ids=["hidden", "not-in-apps-block"],
 )
 def test_a_panel_the_login_does_not_show_is_not_projected(selection: LoginSelection) -> None:
-    assert project_login([_manifest()], CONFIG, selection) == {
-        "web": {"panels": {}},
-        "web_panels": [],
-    }
+    assert project_login([_manifest()], CONFIG, selection) == NOTHING
 
 
 def test_an_application_without_a_panel_projects_nothing() -> None:
     data = copy.deepcopy(DIAL)
     del data["panel"]
     result = project_login([parse_manifest(data, app="dial-demo")], CONFIG, _login())
-    assert result == {"web": {"panels": {}}, "web_panels": []}
+    assert result == NOTHING
 
 
 @pytest.mark.parametrize("tier", ["asked", "allowed"])
