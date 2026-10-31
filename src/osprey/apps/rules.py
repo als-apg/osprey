@@ -85,13 +85,17 @@ class LoginSelection:
 
     audience: Literal["person", "shared"]
     apps: Mapping[str, AppSelection]
-    tier: Literal["allowed", "never"]
+    tier: Literal["never", "asked", "allowed"]
     shared_cards: tuple[str, ...]
 
     def arms(self, app: str) -> bool:
-        """Whether this login arms *app*: shows it, under tier ``allowed``."""
+        """Whether this login arms *app*: shows it, under a tier that writes.
+
+        ``asked`` and ``allowed`` both arm; which writes then need a human's
+        approval, and which machine they reach, is decided per write at runtime.
+        """
         selection = self.apps.get(app)
-        return selection is not None and selection.shown and self.tier == "allowed"
+        return selection is not None and selection.shown and self.tier != "never"
 
 
 @dataclass(frozen=True)
@@ -158,20 +162,47 @@ def validate(
     panel_owner: dict[str, str] = {}
     for manifest in manifests:
         found.extend(_check_app(manifest, reserved, container_owner, panel_owner, seen_names))
-    for login, selection in logins.items():
-        if selection.audience == "shared" and selection.tier == "allowed":
-            cards = ", ".join(selection.shared_cards) or "shared:"
-            found.append(
-                Violation(
-                    "",
-                    f"logins.{login}",
-                    "shared_login_tier",
-                    f"login {login} is shared (by {cards}) and a shared login renders "
-                    "control_system.writes: never; it cannot arm an application",
-                )
-            )
+    found.extend(_check_arming(manifests, logins))
     if found:
         raise AppManifestError.from_violations(found)
+
+
+def _check_arming(
+    manifests: Sequence[AppManifest], logins: Mapping[str, LoginSelection]
+) -> list[Violation]:
+    """The rules for each application a login arms.
+
+    An armed application with write tools needs a container that drives the
+    target, or its writes reach nothing; a shared login arms no application.
+    """
+    out: list[Violation] = []
+    for login, selection in logins.items():
+        for m in manifests:
+            if not selection.arms(m.name):
+                continue
+            writes = m.tools is not None and bool(m.tools.approval)
+            if writes and not any(c.drives_target for c in m.containers.values()):
+                out.append(
+                    Violation(
+                        m.name,
+                        "containers",
+                        "armed_drives_target",
+                        f"login {login} arms {m.name}, whose write tools need a container "
+                        "that sets drives_target: true",
+                    )
+                )
+            if selection.audience == "shared":
+                cards = ", ".join(selection.shared_cards) or "shared:"
+                out.append(
+                    Violation(
+                        "",
+                        f"logins.{login}",
+                        "shared_login_tier",
+                        f"login {login} is shared (by {cards}) and arms application {m.name}; "
+                        "a shared login renders control_system.writes: never",
+                    )
+                )
+    return out
 
 
 def _check_app(
