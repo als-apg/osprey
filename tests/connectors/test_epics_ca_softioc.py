@@ -234,7 +234,8 @@ def test_aioca_and_the_connector_share_one_context_and_exit_cleanly(ioc, prefix,
 def test_the_dispatch_source_and_the_connector_share_the_ca_loop(ioc, prefix):
     result = _drive("dispatch", prefix, ioc)
 
-    assert result["fired"] == [[1.0, 6.0], [2.0, 7.5]]
+    assert result["writes"] == ["CONFIRMED"] * 4, result
+    assert result["fired"] == [[1.0, 6.0], [2.0, 7.5]], result
 
 
 def test_the_ca_loop_is_stopped_before_aioca_tears_channel_access_down(ioc, prefix):
@@ -270,6 +271,7 @@ def test_a_dispatch_trigger_stays_armed_across_a_repoint(ioc, prefix):
     """The dispatch source watches through the connector, so its monitor comes back too."""
     result = _drive("dispatch_repoint", prefix, ioc)
 
+    assert result["writes"] == ["CONFIRMED"] * 2, result
     assert result["fired"] == [[1.0, 6.0]], result
 
 
