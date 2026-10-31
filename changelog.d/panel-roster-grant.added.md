@@ -1,0 +1,1 @@
+An application panel declaring `roster_grant` gets the entitled users' terminal secrets on its own service, through the same grant the Bluesky panel uses; with `single_user_alias` on a deployment without a roster, it accepts the deployment secret under the build account's name. Every service template now reads its own `service_key`, `service` block and `panel_grant`.
