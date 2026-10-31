@@ -534,7 +534,7 @@ def deployment_packages(root: Path, dependencies: Sequence[str]) -> list[Path]:
             if entry.is_dir() and candidate.is_file():
                 found.append(candidate)
     for raw in dependencies:
-        directory = _local_path(raw, root)
+        directory = local_path(raw, root)
         if directory is None:
             continue
         candidate = (directory / "pyproject.toml").resolve()
@@ -543,7 +543,8 @@ def deployment_packages(root: Path, dependencies: Sequence[str]) -> list[Path]:
     return found
 
 
-def _local_path(raw: str, root: Path) -> Path | None:
+def local_path(raw: str, root: Path) -> Path | None:
+    """The path a ``dependencies`` entry names on this host, or ``None`` for an index one."""
     spec = raw.strip()
     if spec.startswith("-e "):
         spec = spec[3:].strip()

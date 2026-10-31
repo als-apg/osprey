@@ -1,4 +1,4 @@
-"""Dev-wheel artifact helpers: build, per-process cache, staging copy, and manifest.
+"""Wheel artifacts staged into image build contexts: the dev wheel and deployment packages.
 
 A ``--dev`` deploy installs a locally-built osprey wheel into container build
 contexts instead of the released PyPI pin. This module owns that wheel's whole
@@ -15,12 +15,19 @@ The per-context *decision* to stage — gated on ``--dev`` and the presence of a
 (``_stage_dev_wheel_for_context``), where it is wired into the compose render
 flow; that module re-exports the copy and cache-reset helpers below so existing
 import and monkeypatch call sites keep resolving against it.
+
+It also builds a deployment's own packages (:func:`build_deployment_packages`)
+into the directory every image context carries, with their manifest.
 """
 
 import atexit
 import contextlib
 import os
 import shutil
+import subprocess
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from importlib.metadata import entry_points
 from pathlib import Path
 
 from osprey.cli.phase_reporter import report_step
@@ -513,3 +520,233 @@ def _copy_local_framework_for_override(out_dir):
             f"staging the local osprey wheel failed: {e}",
             "Re-run once the error above is resolved.",
         ) from e
+
+
+# ── Deployment packages ──────────────────────────────────────────────────────
+# A deployment's own Python packages — each `apps/<name>/` holding a
+# `pyproject.toml`, and each local-path entry of the profile's `dependencies`
+# (osprey.apps.rules.deployment_packages) — are built to wheels by `osprey build`
+# into one directory of the render, which every image context carries. The
+# build venv installs each wheel by path; the recorded dependency list and the
+# rendered Dockerfile name each by its distribution, which the image's deps layer
+# finds in that directory. Both install on the framework's own resolve, so the
+# framework's `==` requirements bind what a package may pull in.
+
+#: The directory, in the render and at the root of every image context, holding
+#: the built wheels and their manifest. A subdirectory, never loose wheels at the
+#: context root: the Dockerfile's wheel layer reinstalls every root ``*.whl`` as
+#: osprey itself.
+DEPLOYMENT_PACKAGES_DIRNAME = "osprey-deployment-packages"
+
+#: The manifest listing the built wheels, beside them.
+DEPLOYMENT_PACKAGES_MANIFEST = "manifest.json"
+
+#: The entry-point group a measurement kind is registered under.
+FACILITY_KINDS_GROUP = "osprey.facility.kinds"
+
+#: The framework's own distribution name.
+FRAMEWORK_DISTRIBUTION = "osprey-framework"
+
+# A wheel build that fails exits nonzero; this cap bounds only one that hangs.
+_WHEEL_BUILD_TIMEOUT_S = 600
+
+
+@dataclass(frozen=True)
+class DeploymentPackage:
+    """One built deployment package.
+
+    Attributes:
+        name: The distribution's canonical name.
+        version: Its version, as the built wheel spells it.
+        wheel: The built wheel.
+        replaces: The profile ``dependencies`` entries this wheel stands for, every
+            spelling of its path; empty for an application package no entry names.
+    """
+
+    name: str
+    version: str
+    wheel: Path
+    replaces: tuple[str, ...] = ()
+
+    @property
+    def requirement(self) -> str:
+        """The spelling the recorded list and the Dockerfile carry: name and version."""
+        return f"{self.name}=={self.version}"
+
+    @property
+    def install_requirement(self) -> str:
+        """The spelling the build venv installs: the name, bound to the wheel."""
+        return f"{self.name} @ {self.wheel.resolve().as_uri()}"
+
+
+def build_deployment_packages(
+    root: Path, dependencies: Sequence[str], dest: Path
+) -> tuple[DeploymentPackage, ...]:
+    """Build every deployment package of *root* into *dest*, with its manifest.
+
+    Args:
+        root: The deployment root.
+        dependencies: The profile's ``dependencies`` entries.
+        dest: The deployment-packages directory; replaced whole, and not created
+            when the deployment has no package.
+
+    Returns:
+        The packages, in :func:`osprey.apps.rules.deployment_packages` order.
+
+    Raises:
+        BuildProfileError: A local-path entry holds no package to build, or a
+            package's wheel build failed.
+    """
+    from osprey.apps.rules import deployment_packages, local_path
+    from osprey_connectors.errors import BuildProfileError
+
+    # Each local-path entry stands for the package at its path, an application
+    # package included, so the entry is spelled as that package in place and no
+    # distribution is named twice. An entry with no package to build could not
+    # be substituted: verbatim, it would reach the Dockerfile and break the image.
+    replaced: dict[Path, list[str]] = {}
+    unbuildable: list[str] = []
+    for raw in dependencies:
+        directory = local_path(raw, root)
+        if directory is None:
+            continue
+        pyproject = (directory / "pyproject.toml").resolve()
+        if pyproject.is_file():
+            replaced.setdefault(pyproject, []).append(raw)
+        else:
+            unbuildable.append(raw)
+    if unbuildable:
+        raise BuildProfileError(
+            f"dependencies {', '.join(map(repr, unbuildable))}: a local-path entry must be a "
+            "directory holding a pyproject.toml, which osprey build turns into a wheel for "
+            "the project image.\n"
+            "        Point it at the package's directory, or name an index requirement."
+        )
+
+    # Once each, however its path is spelled.
+    sources = list(
+        {path.resolve(): path for path in deployment_packages(root, list(dependencies))}.values()
+    )
+    if dest.exists():
+        shutil.rmtree(dest)
+    if not sources:
+        return ()
+    dest.mkdir(parents=True)
+
+    from packaging.utils import parse_wheel_filename
+
+    packages: list[DeploymentPackage] = []
+    for pyproject in sources:
+        wheel = _build_wheel(pyproject.parent, dest)
+        name, version, _build, _tags = parse_wheel_filename(wheel.name)
+        packages.append(
+            DeploymentPackage(
+                name=str(name),
+                version=str(version),
+                wheel=wheel,
+                replaces=tuple(replaced.get(pyproject.resolve(), ())),
+            )
+        )
+    _write_deployment_packages_manifest(packages, dest)
+    report_step(f"built {len(packages)} deployment package wheel(s)")
+    return tuple(packages)
+
+
+def _build_wheel(source: Path, out_dir: Path) -> Path:
+    """Build *source*'s wheel into *out_dir*; return it.
+
+    uv when it is on hand (as the build venv's installer is), else pip.
+    """
+    import sys
+    import tempfile
+
+    from osprey_connectors.errors import BuildProfileError
+
+    uv = os.environ.get("UV") or shutil.which("uv")
+    with tempfile.TemporaryDirectory() as scratch:
+        if uv:
+            cmd = [uv, "build", "--wheel", "--quiet", "--out-dir", scratch, str(source)]
+        else:
+            cmd = [sys.executable, "-m", "pip", "wheel", "--no-deps", "--quiet"]
+            cmd += ["--wheel-dir", scratch, str(source)]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_WHEEL_BUILD_TIMEOUT_S
+            )
+        except subprocess.TimeoutExpired as e:
+            raise BuildProfileError(
+                f"building the wheel of the deployment package {_shown(source)} did not "
+                f"finish within {_WHEEL_BUILD_TIMEOUT_S // 60} minutes"
+            ) from e
+        wheels = sorted(Path(scratch).glob("*.whl"))
+        if result.returncode != 0 or len(wheels) != 1:
+            output = (result.stdout + result.stderr).strip()
+            raise BuildProfileError(
+                f"building the wheel of the deployment package {_shown(source)} failed:\n"
+                f"{output or 'the build produced no single wheel'}"
+            )
+        built = out_dir / wheels[0].name
+        shutil.copy2(wheels[0], built)
+    return built
+
+
+def _shown(source: Path) -> str:
+    """*source* as an author names it: ``apps/<name>`` for an application."""
+    parts = source.parts
+    if len(parts) >= 2 and parts[-2] == "apps":
+        return f"apps/{parts[-1]}"
+    return str(source)
+
+
+def _write_deployment_packages_manifest(packages: Sequence[DeploymentPackage], dest: Path) -> None:
+    """Write the manifest: each package's name, version and wheel file, in order."""
+    import json
+
+    manifest = {
+        "packages": [
+            {"name": p.name, "version": p.version, "wheel": p.wheel.name} for p in packages
+        ]
+    }
+    (dest / DEPLOYMENT_PACKAGES_MANIFEST).write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:
+    """Refuse a registered measurement kind the project image would not install.
+
+    Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
+    declaring it. That distribution has to be one the image installs: the
+    framework itself, or a distribution *requirements* names (an index
+    requirement, or a built deployment package by its name).
+
+    Args:
+        requirements: The dependency list the image installs, beside the framework.
+
+    Raises:
+        BuildProfileError: Naming each kind whose package is not installed.
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.utils import canonicalize_name
+
+    from osprey_connectors.errors import BuildProfileError
+
+    shipped = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
+    for raw in requirements:
+        try:
+            shipped.add(canonicalize_name(Requirement(raw).name))
+        except InvalidRequirement:
+            continue
+    refused = []
+    for kind in entry_points(group=FACILITY_KINDS_GROUP):
+        dist = getattr(kind, "dist", None)
+        dist_name = getattr(dist, "name", None)
+        if dist_name is None or canonicalize_name(dist_name) not in shipped:
+            refused.append(f"{kind.name!r} (package {dist_name or 'unknown'})")
+    if refused:
+        raise BuildProfileError(
+            f"measurement kind {', '.join(refused)}: the kind's package is not among the "
+            "packages the project image installs.\n"
+            "        Add the package to the profile's dependencies, as an index requirement "
+            "or a local path."
+        )

@@ -52,6 +52,12 @@ import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey.deployment.wheel_build import (
+    DEPLOYMENT_PACKAGES_DIRNAME,
+    DeploymentPackage,
+    build_deployment_packages,
+    refuse_unshipped_kinds,
+)
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
@@ -69,6 +75,7 @@ from .build_environment import (
     _create_project_venv,
     _plan_project_venv,
     _resolve_osprey_spec,
+    deployment_dependencies,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -1407,6 +1414,11 @@ class _SharedRenderInputs(NamedTuple):
     stack they ship in.
     """
 
+    deployment_packages: tuple[DeploymentPackage, ...] = ()
+    """The deployment's own packages, built once into the staged render's
+    deployment-packages directory before the venv. Every image context carries
+    a copy of that directory, and every rendered Dockerfile installs from it."""
+
     views_omitted_reported: set[str] | None = None
     """Facility views this build has already named as not written.
 
@@ -2070,6 +2082,7 @@ def _render_project(
         project_deps=shared.project_deps,
         skip_deps=shared.skip_deps,
         runtime_interpreter=shared.runtime_interpreter,
+        deployment_packages=shared.deployment_packages,
     )
     # `api.providers`, rendered verbatim from the catalog beside `profile.yml`.
     # It is a file rather than a profile field because it is a list of
@@ -3130,6 +3143,12 @@ def _render_container_project(
     rendered.rename(image_root / BUILD_DIR_NAME)
     scratch.rmdir()
     _stage_source_zone(shared.repo_root, image_root)
+    if shared.deployment_packages:
+        # The wheels its Dockerfile names, at the context root where its deps
+        # layer copies them from.
+        shutil.copytree(
+            zones.stage / DEPLOYMENT_PACKAGES_DIRNAME, image_root / DEPLOYMENT_PACKAGES_DIRNAME
+        )
     _strip_secrets(image_root)
     # Written, then applied to the tree, and only then is the manifest stamped:
     # the fingerprint has to be taken over the tree the image will actually
@@ -3555,10 +3574,18 @@ def _build_repo(
         # swap time. Its dependency record, which `_create_project_venv` writes
         # beside it, is copied into the staged tree — the record and the
         # environment it describes must ship together.
+        # The deployment's own packages, built to wheels in the staged render
+        # before the venv: the venv installs each from its wheel, and every
+        # image context carries the directory (`_render_container_project`).
+        deployment_packages = build_deployment_packages(
+            repo_root,
+            list(build_profile.dependencies or []),
+            zones.stage / DEPLOYMENT_PACKAGES_DIRNAME,
+        )
         if not skip_deps:
             # Judged before the phase opens: a plan that refuses the build
             # leaves the existing venv exactly as it was.
-            plan = _plan_project_venv(build_profile)
+            plan = _plan_project_venv(build_profile, deployment_packages)
             # Reported on its own, not folded into the render below: it is the
             # longest thing a first build does by a wide margin, and a build
             # that looks stuck for two minutes is the moment an operator most
@@ -3570,7 +3597,12 @@ def _build_repo(
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")
         else:
-            project_deps = list(build_profile.dependencies or [])
+            project_deps = deployment_dependencies(
+                list(build_profile.dependencies or []), deployment_packages
+            )
+            # The image installs the environment packages too, as the plan's
+            # merged list does.
+            refuse_unshipped_kinds([*project_deps, *(build_profile.environment.packages or [])])
 
         shared = _SharedRenderInputs(
             repo_root=repo_root,
@@ -3588,6 +3620,7 @@ def _build_repo(
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
+            deployment_packages=deployment_packages,
         )
 
         # One reported phase over every render pass this build makes — the
@@ -4132,6 +4165,7 @@ def _repo_render_context(
     project_deps: list[str],
     skip_deps: bool,
     runtime_interpreter: str | None = None,
+    deployment_packages: Sequence[DeploymentPackage] = (),
 ) -> dict[str, Any]:
     """The template context for a four-zone render.
 
@@ -4173,6 +4207,12 @@ def _repo_render_context(
         "project_root": str(runtime_root or repo_root),
         "dependencies": project_deps,
         "pip_dependency_args": " ".join(shlex.quote(d) for d in project_deps),
+        # The directory, at the image context's root, holding the deployment's
+        # own package wheels the dependency list names; empty with none.
+        "deployment_packages_dir": DEPLOYMENT_PACKAGES_DIRNAME if deployment_packages else "",
+        # Each of those wheels, by distribution and file: the image binds the
+        # name the dependency list carries to its staged wheel.
+        "deployment_wheels": [{"name": p.name, "wheel": p.wheel.name} for p in deployment_packages],
         # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
         # the agent's user: a render that can still reach the setup tool needs
         # the file that tool edits to be writable, and every other tier must

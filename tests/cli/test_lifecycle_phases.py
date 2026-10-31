@@ -17,6 +17,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -277,6 +278,9 @@ class TestBuildPhases:
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
+            # No environment packages: a `--skip-deps` build judges the kinds
+            # over the dependencies and these together.
+            environment = SimpleNamespace(packages=[])
             lifecycle = _Lifecycle()
             config: dict = {}
             deploy = None
