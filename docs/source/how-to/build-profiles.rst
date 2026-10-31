@@ -16,7 +16,7 @@ and safe to delete and rebuild at any time.
    :icon: book
 
    - Creating a deployment repository and rendering its ``build/`` zone
-   - What lives in a profile: the convention directories, ``data/``, secrets, tiers and apps
+   - What lives in a profile: the convention directories, ``data/``, secrets, logins
    - Moving an artifact you want to own out of ``build/`` and into the profile
    - Shipping and wiring your own hook scripts
    - Keeping a profile and its build in step
@@ -93,17 +93,19 @@ What ``osprey init`` writes
      .env            your values and secrets (only when your shell had keys to seed)
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
-     tiers/          one delta per web-terminal access level (multi-user presets only)
-     apps/           one complete agent per shared card (multi-user presets only)
+     tiers/          one file per web-terminal login (multi-user presets only)
+     apps/           one directory per application the preset lists, with a
+                     .provenance sidecar (presets that list applications only)
      web-terminal-context/  the shared base.md baseline, plus one seeded
                      directory per operator on the roster
      ci-extra.yml    the facility's own CI jobs; never regenerated
-     .gitignore      keeps build/, var/ and .env out of version control
+     .gitignore      keeps build/, var/, .env and apps/*/panel/vendor/ out of
+                     version control
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml``, ``tiers/``, ``apps/`` and ``web-terminal-context/`` appear only when
-the preset calls for them — a ``hello-world`` deployment has none of them.
+``triggers.yml``, ``tiers/``, ``apps/`` and ``web-terminal-context/`` appear
+only when the preset calls for them — a ``hello-world`` deployment has none of them.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its ``deploy:`` block commented out, so there are no
@@ -210,8 +212,8 @@ the same list. Name one with its directory as a prefix:
    hooks:
      - hooks/osprey_limits.py    # only a file replacing an OSPREY hook
 
-``profile.yml``'s lists select for the deployment and every tier, a tier adds to
-them, and an app's lists are its whole selection. A bare entry always means
+``profile.yml``'s lists select for the deployment and every login, a login adds
+to them, and a ``lists: own`` login's lists are its whole selection. A bare entry always means
 OSPREY's artifact. A file named like one (``rules/facility.md``) replaces it
 only where its path, ``rules/facility``, is named: there it counts as that
 artifact for wiring, checks and the brief, and supplies only the content.
@@ -219,7 +221,7 @@ Listing both in one render is a build error. A path naming no file fails the bui
 reaches no render, and the build warns. ``osprey init`` names the facility
 description it seeds by its path. ``osprey init --revalidate`` turns a bare
 entry into the path wherever the repo ships the file, and names every other
-unnamed one in ``profile.yml`` and each app, so an existing deployment's renders
+unnamed one in ``profile.yml`` and each login, so an existing deployment's renders
 stay as they were.
 
 A ``hooks:`` list names a ``hooks/<file>`` only to replace an OSPREY hook; any
@@ -315,7 +317,7 @@ Three layers stack, in this order:
   becomes their ``CLAUDE.md``.
 
 Unlike the per-operator directories, the baseline is **not** roster-derived. It
-is copied on every build, including a tier or app render that has no roster at all,
+is copied on every build, including a login render that has no roster at all,
 and ``osprey init`` writes it whenever the profile stands up web terminals
 (``modules.web_terminals.enabled``) — even when the roster is still empty, so a
 profile that names no operators yet still starts from text it can see. A
@@ -330,12 +332,12 @@ other profile-shipped file:
      web-terminal-context:
        - web-terminal-context/base.md   # the framework fallback renders instead
 
-A tier or app render has no web terminals of its own, so it resolves an empty
+A login render has no web terminals of its own, so it resolves an empty
 roster and copies no operator directories.
 
-To keep the baseline in the deployment but leave it out of one tier's or app's
-terminals, set ``seed_base: false`` at the top of that file in ``tiers/`` or
-``apps/``: its users are seeded from their own ``extra.md`` alone.
+To keep the baseline in the deployment but leave it out of one login's
+terminals, set ``seed_base: false`` at the top of its file in ``tiers/``: its
+users are seeded from their own ``extra.md`` alone.
 
 .. admonition:: ``base.md`` is the only loose file
    :class: important
@@ -358,7 +360,7 @@ what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.
 
 That includes its name. The compose project, the volumes, the images and the
-tier and app renders are all named from the tracked ``project_name:`` field, never
+login renders are all named from the tracked ``project_name:`` field, never
 from the folder the clone sits in, so a clone under any folder name renders and
 deploys the same deployment. The flip side is that two clones on one host are
 the same deployment until one of them says otherwise. A second clone that runs
@@ -418,8 +420,8 @@ The artifact is **moved** out of ``build/`` and into the matching convention
 slot of the repository's profile — ``rules/safety`` lands at
 ``<profile>/rules/safety.md``, ``services/postgresql`` at
 ``<profile>/services/postgresql/``. A claimed skill, agent, rule, output style
-or hook is named by its path (``rules/safety``) wherever ``profile.yml`` or an
-app listed its bare name. Edit it there, then rebuild:
+or hook is named by its path (``rules/safety``) wherever ``profile.yml`` or a
+login listed its bare name. Edit it there, then rebuild:
 
 .. code-block:: bash
 
@@ -499,11 +501,11 @@ Valid events: ``PreToolUse``, ``PostToolUse``, ``UserPromptSubmit``,
 
 Guards are a floor. Every ``PreToolUse`` hook in force on the deployment's
 render — OSPREY's (approval, ``writes-check``, ``limits``, ``memory-guard``) or
-one ``profile.yml`` declares — reaches every tier and app render, inert where
-no tool it matches is present. A tier or app adds guards; it never drops one by
-leaving it out. A declaration on any other event reaches a tier with
-``profile.yml``'s config, and an app only when the app's own ``config:``
-declares it.
+one ``profile.yml`` declares — reaches every login render, inert where no tool
+it matches is present. A login adds guards; it never drops one by leaving it
+out. A declaration on any other event reaches a ``lists: add`` login with
+``profile.yml``'s config, and a ``lists: own`` login only when its own
+``config:`` declares it.
 
 Declared wiring is **added** to the framework's, never put in its place. Your
 declaration cannot remove, alter, or displace anything the generated settings
@@ -566,18 +568,16 @@ the built-in was. This is the one ``hooks/<file>`` a list accepts.
 the profile's ``hooks:`` selection, so a declaration naming one would invoke it
 twice. Select or unselect a built-in through ``hooks:``; never through
 ``claude_code.hooks``. A built-in guard the deployment selects reaches every
-tier and app all the same, in the spelling ``profile.yml`` gives it.
+login all the same, in the spelling ``profile.yml`` gives it.
 
 
-Tiers and Apps
-==============
+Logins
+======
 
-Some presets give each operator their own web terminal. Each operator's
-terminal runs the deployment's agent at a **tier** — an access level such as
-read-only, write-capable or admin. Cards everyone on the roster can open run an
-**app** — a second, complete agent, such as the logbook research assistant.
-For those presets (``control-assistant``), ``osprey init`` writes one file per
-tier and per app:
+Some presets give each operator their own web terminal. Every card on the
+landing page opens a **login**: one file in ``tiers/``, laid over
+``profile.yml`` and rendered as its own project. For those presets
+(``control-assistant``), ``osprey init`` writes six:
 
 .. code-block:: text
 
@@ -588,51 +588,79 @@ tier and per app:
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
        admin.yml          # the one terminal that may edit the deployment
-     apps/
-       logbook.yml        # logbook research
-       knowledge.yml      # facility knowledge
-       channel-finder.yml # channel search
+       logbook.yml        # logbook research, shared
+       knowledge.yml      # facility knowledge, shared
+       channel-finder.yml # channel search, shared
 
-A tier holds only its **differences** from ``profile.yml`` — for ``readonly``,
-chiefly ``control_system.writes: never``; for ``admin``, the
-privileges the profile deliberately withholds. The build lays it over the
-profile: lists are added by name, ``config:`` keys win. A tier never subtracts
-and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
-``data:`` or ``services:``.
+A login file says what its card's agent is: ``name``, ``model``,
+``claude_md_template``, ``default_panel``, ``channel_finder_mode``, the
+``hooks``, ``rules``, ``skills``, ``agents``, ``output_styles``,
+``web_panels`` and ``mcp_servers`` lists, ``panel_presets``, ``config:``,
+the per-render keys ``extra_mounts``, ``seed_base`` and ``image``, and the
+``provenance:`` block ``osprey init`` writes. A deployment fact — the
+connector, the provider, ``port_base``, a service block, ``data:``,
+``services:`` — is refused on a login, naming ``profile.yml`` as its home, and
+so are ``extends:`` and ``exclude:``. A login never subtracts.
 
-An app is a whole agent definition — its own skills, rules, brief and tool
-servers — composed over the deployment's services, data and provider. Every app
-render is read-only on the machine.
+``lists:`` says how the file's lists meet the deployment's:
 
-An app runs the deployment's model unless its file names its own with a
+- ``lists: add`` (the default) adds them by name, and its ``config:`` keys win.
+  ``readonly`` holds chiefly ``control_system.writes: never``; ``admin`` the
+  privileges the profile deliberately withholds.
+- ``lists: own`` takes the lists, ``name``, ``default_panel``,
+  ``claude_md_template`` and ``channel_finder_mode`` from the file alone;
+  nothing the deployment selects is inherited. Its ``mcp_servers`` are added
+  to the deployment's, but none of the deployment's server switches reach it,
+  so the file switches off each server it does without. The guards still reach
+  it (see :ref:`profile-custom-hooks`). The bundled ``logbook``, ``knowledge``
+  and ``channel-finder`` logins are written this way.
+
+A login's write posture is its tier, ``control_system.writes``
+(:doc:`web-terminal/multi-user/tiers`). A login named by
+``modules.web_terminals.shared`` opens from a shared card everyone on the
+roster can use, and a shared card never writes: the build seals that render
+``control_system.writes: never``, closes every deployment-edit door and adds
+the ``writes-check`` hook, whatever its file says; no ``--set`` edit unseals
+it.
+
+``apps:`` picks the applications the deployment lists in ``profile.yml`` that
+this login's card shows: ``apps: {<name>: {shown: true}}``. A listed
+application is shown under ``lists: add`` and hidden under ``lists: own``
+unless the entry says otherwise. Whether one is on is ``profile.yml``'s to say,
+never a login's. A shown application writes only where the login's tier arms
+it — ``asked`` or ``allowed``, never ``never`` — and then only on a machine
+whose switch the operator has turned on; whether a write still asks for
+approval is decided per write at run time.
+
+A login runs the deployment's model unless its file names its own with a
 top-level ``model:``, such as a cheaper model for a research card:
 
 .. code-block:: yaml
 
-   # apps/logbook.yml
+   # tiers/logbook.yml
    model: claude-sonnet-5
 
-The id must be one the deployment's provider serves; the provider itself is
-always ``profile.yml``'s. As for ``profile.yml``, an id the provider's
-``models`` list does not carry is used as written, and the build warns that the
-provider does not list it. A tier may set ``model:`` the same way. Neither
-spells ``config: claude_code.default_model``; the build renders that key from
-``model:`` and refuses it in the file that spells it.
+The provider is always ``profile.yml``'s: a login may name its own model, never
+its own provider. As for ``profile.yml``, an id the provider's ``models`` list
+does not carry is used as written, and the build warns that the provider does
+not list it. A login never spells ``config: claude_code.default_model``; the
+build renders that key from ``model:`` and refuses it in the file that spells
+it.
 
-Both kinds may set ``extra_mounts``, ``seed_base`` and ``image`` at the top of
-the file. Edit a file to change what its terminals can do, and see the merged
-result with:
+Edit a file to change what its terminals can do, and see the merged result
+with:
 
 .. code-block:: bash
 
    osprey validate tiers/readonly.yml
 
-The file name is the name: ``users[].tier`` and ``default_tier`` pick a file in
-``tiers/``, ``shared:`` picks one in ``apps/``. Each renders to
-``build/<project_name>-<name>``. ``osprey up`` renders nothing: a tier or app
-missing from ``build/`` stops the start and points at ``osprey build``.
-``osprey scaffold tiers`` and ``osprey scaffold apps`` write the preset's
-files again, leaving any you edited alone.
+The file name is the name: ``users[].tier``, ``default_tier`` and ``shared:``
+each pick a file in ``tiers/``. Each renders to
+``build/<project_name>-<name>``. ``osprey up`` renders nothing: a login missing
+from ``build/`` stops the start and points at ``osprey build``.
+``osprey scaffold tiers`` writes the preset's login files again, leaving any
+you edited alone. A repository that still keeps a login in ``apps/`` moves it
+with ``osprey init --revalidate`` (:doc:`/reference/cli`).
 
 
 .. _profile-exclude:
@@ -674,8 +702,8 @@ spelling and lists what to take out of it:
 This is how a profile deploys fewer services than the one it extends. Lists
 under ``config:`` union across ``extends`` and across a host-variant overlay,
 so an overlay cannot state a shorter list; it names the entries it drops instead.
-``exclude:`` belongs to ``profile.yml`` and its variant overlays; a tier or app
-that spells it is refused.
+``exclude:`` belongs to ``profile.yml`` and its variant overlays; a login that
+spells it is refused.
 A key the profile does not carry is a silent no-op; a key that holds anything
 other than a list is refused.
 
@@ -687,7 +715,7 @@ but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
 ``web.panels.<id>`` block a render carries, ``true`` for a selected panel and
 ``false`` for any other, and the web terminal, the health probe and the
 credential grants all read that one flag. The facts stay so the Reach Contract
-can keep copying a host's addresses into the tiers and apps that *do* select the tab.
+can keep copying a host's addresses into the logins that *do* select the tab.
 A ``config:`` line that says ``web.panels.<id>.enabled`` and contradicts the
 selection is refused at validation, as two spellings of one fact disagreeing.
 
@@ -767,10 +795,10 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
    echo OSPREY_PROFILE_VARIANT=teststand > .env.variant
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
-anything, and says which variant it used in its output. Tiers and apps are rendered
+anything, and says which variant it used in its output. Logins are rendered
 for the same host, so a stack cannot come up half-configured for another one: each
 sees the overlay through the ``profile.yml`` it merges over. An overlay that adds a
-``services:`` entry therefore adds it to the deployment, and the tier and app renders
+``services:`` entry therefore adds it to the deployment, and the login renders
 stay attached to it like any other service the deployment runs.
 
 The overlays are committed: which hosts a deployment has is part of what the

@@ -81,7 +81,7 @@ inside the deployment can reach nginx back:
 ``.claude/settings.json`` denies ``Bash``, ``Monitor``, ``WebFetch``,
 ``WebSearch`` and ``mcp__plugin_*`` (``osprey scaffold web-terminals
 lint`` reports the same, as ``web_terminals.open_mode_egress``). All of them
-are in OSPREY's deny defaults, so a refusal means a tier or app lifted one —
+are in OSPREY's deny defaults, so a refusal means a login lifted one —
 put it back in that file's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.

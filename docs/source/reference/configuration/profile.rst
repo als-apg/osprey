@@ -956,9 +956,9 @@ An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,
 the graph store's bolt port, the Postgres the logbook lives in, the Bluesky
 bridge, the EVENTS and BLUESKY tab URLs — is copied
-from the hosting deployment's own render into each tier and app built beside
+from the hosting deployment's own render into each login built beside
 it, so a service moved on the hosting profile moves every render with it, and
-the bundled tier and app files pin none of them. A tier or app that spells one
+the bundled login files pin none of them. A login that spells one
 of these keys with a *different* value is refused — the two copies would dial
 different places, and the build names both. (A tier inherits the hosting
 profile's ``config:`` keys, so a port moved there is spelled in every tier as
