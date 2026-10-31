@@ -216,6 +216,22 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "graphdb": ("GRAPHDB_PASSWORD",),
 }
 
+
+def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """The deployed ``services.<key>`` rows an application's manifest projected.
+
+    A projected row is the one kind of service row that names its owning
+    application (``services.<key>.app``).
+    """
+    deployed = {str(s) for s in (config.get("deployed_services") or [])}
+    services = config.get("services") or {}
+    return {
+        str(key): row
+        for key, row in services.items()
+        if str(key) in deployed and isinstance(row, Mapping) and row.get("app")
+    }
+
+
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
 # NEVER minted — distinct from _SERVICE_TOKEN_VARS (which mints an unset var
 # for a deployed service) and from a bare _VAR_VALIDATORS entry alone (which,
@@ -2353,7 +2369,9 @@ def _deployed_project_image_services(
 ) -> list[str]:
     """Every service this deployment renders on the project image's compose line.
 
-    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the two derived
+    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, every projected
+    ``runtime: osprey`` application container (a projected row with no
+    ``image``), plus the two derived
     services, which are never ``deployed_services`` entries: the history page,
     rendered exactly when
     :func:`~osprey.agent_record.config.history_page_deployed` holds, and
@@ -2375,6 +2393,7 @@ def _deployed_project_image_services(
     """
     deployed = {str(s) for s in (config.get("deployed_services") or [])}
     services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
+    services += [key for key, row in _projected_services(config).items() if not row.get("image")]
     if history_page_deployed(config):
         services.append(HISTORY_SERVICE)
     if compose_files is None or _stack_runs_record(compose_files):
