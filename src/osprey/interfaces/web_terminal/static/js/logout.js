@@ -28,7 +28,7 @@
  * returns before the lock, leaving the button usable.
  */
 
-import { withPrefix } from './api.js';
+import { stopForLeaving, withPrefix } from './api.js';
 import { clearStoredSessionId } from './terminal.js';
 
 /**
@@ -48,6 +48,9 @@ export async function logout(landingUrl, btn = null) {
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
   }
+  // The POST ends this session, so a channel's next failure would see it gone
+  // and reload the page, racing the navigation below.
+  stopForLeaving();
   try {
     await fetch(withPrefix('/api/terminal/logout'), { method: 'POST' });
   } catch (err) {
