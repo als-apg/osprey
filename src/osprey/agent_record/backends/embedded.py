@@ -35,6 +35,7 @@ on failure, except :meth:`EmbeddedBackend.health`, which reports a failure as
 
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
@@ -125,8 +126,20 @@ class RecordBackendLocked(RecordBackendUnavailable):
         super().__init__(message)
 
 
+_QUOTED = re.compile(r'"[^"]*"')
+_LOCK_CONFLICT = "could not set lock on file"
+
+
 def _is_lock_error(exc: duckdb.Error) -> bool:
-    return isinstance(exc, duckdb.IOException) and "lock" in str(exc).lower()
+    """Whether DuckDB refused the open because another process holds the file.
+
+    DuckDB quotes the file path inside its messages, so the quoted text is
+    removed before the fixed lock-conflict wording is matched: a path that
+    happens to contain "lock" never turns another IO error into a conflict.
+    """
+    if not isinstance(exc, duckdb.IOException):
+        return False
+    return _LOCK_CONFLICT in _QUOTED.sub('""', str(exc)).lower()
 
 
 def _sql_string(text: str) -> str:

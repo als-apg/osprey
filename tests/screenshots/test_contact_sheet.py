@@ -57,7 +57,7 @@ from docs.screenshots.contact_sheet import (
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from osprey.cli.project_utils import encode_claude_project_path
+from osprey.agent_runner.project_paths import encode_claude_project_path
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.stores.artifact_store import ArtifactStore
 

@@ -44,6 +44,12 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.deployment.deployment_record import (
+    DEPLOYMENT_RECORD_RELPATH,
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    write_deployment_record,
+)
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -52,8 +58,14 @@ PROJECT = "als-exemplar"
 
 @pytest.fixture
 def lifecycle_repo(tmp_path: Path) -> Path:
-    """The gold-standard three-zone deployment repo, with no ``.env`` in it."""
-    return build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    """The gold-standard three-zone deployment repo, with no ``.env`` in it.
+
+    It holds the record a start of :data:`PROJECT` on docker wrote, which is
+    what both verbs report on.
+    """
+    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+    write_deployment_record(repo, DeploymentRecord("docker", PROJECT))
+    return repo
 
 
 def container(
@@ -92,9 +104,14 @@ def runtime(monkeypatch):
     monkeypatch.setattr(
         status_display,
         "get_ps_command",
-        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+        lambda config, all_containers=False, runtime=None: [
+            runtime,
+            "ps",
+            "-a",
+            "--format",
+            "json",
+        ],
     )
-    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
     def _fake_run(
         cmd,
@@ -199,8 +216,8 @@ def test_a_repo_with_no_build_says_so_and_still_shows_its_containers(lifecycle_r
     # computed rather than not appearing: two silently absent sections read as a
     # deployment with no endpoints and no agent.
     assert "read from build/config.yml" in text
-    # And the project name in the header is labelled as the derivation it is.
-    assert "from the directory name" in text
+    # The project in the header is the one the last start recorded.
+    assert PROJECT in text.split("Containers", 1)[1]
 
 
 @pytest.mark.usefixtures("runtime")
@@ -893,6 +910,78 @@ def test_status_only_ever_asks_the_runtime_to_list(lifecycle_repo, runtime):
         assert argv[1] in ("ps", "volume"), argv
 
 
+def _corrupt_the_record(repo: Path) -> None:
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+
+
+def test_status_owns_the_containers_of_the_recorded_project(lifecycle_repo, runtime):
+    """A rebuild renamed the project; the running stack is still the recorded one's."""
+    render_build(lifecycle_repo)
+    write_deployment_record(lifecycle_repo, DeploymentRecord("docker", "earlier-name"))
+    runtime["containers"] = [container("dispatch", project="earlier-name")]
+
+    text = report(lifecycle_repo)
+
+    containers = text.split("Containers", 1)[1]
+    assert "earlier-name" in containers
+    assert "dispatch" in containers
+    assert "Other OSPREY containers" not in text
+
+
+def test_status_asks_the_recorded_runtime(lifecycle_repo, monkeypatch):
+    """ps, volume ls and inspect all go to the runtime the last start drove."""
+    from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
+    from osprey.deployment.compose_generator import state_identity_dir
+    from osprey.deployment.web_terminals.naming import web_container_name
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    render_build(
+        lifecycle_repo,
+        config=_RENDERED_CONFIG + "modules:\n  web_terminals:\n    enabled: true\n"
+        "    users:\n      - alice\n",
+    )
+    write_deployment_record(lifecycle_repo, DeploymentRecord("podman", PROJECT))
+    marker = state_identity_dir(lifecycle_repo, "alice") / PREFLIGHT_REFUSED_MARKER
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("2099-01-01T00:00:00+00:00\n- refused\n", encoding="utf-8")
+    rows = [container(web_container_name(PROJECT, "alice"), repo_id=repo_identity(lifecycle_repo))]
+    asked: list[list[str]] = []
+
+    def _run(cmd, **kwargs):
+        argv = list(cmd)
+        asked.append(argv)
+        stdout = json.dumps(rows) if argv[1] == "ps" else ""
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+    monkeypatch.setattr(status_display.subprocess, "run", _run)
+
+    report(lifecycle_repo)
+
+    assert {argv[1] for argv in asked} == {"ps", "volume", "inspect"}
+    assert {argv[0] for argv in asked} == {"podman"}
+
+
+def test_status_with_no_record_says_nothing_is_deployed_and_asks_nothing(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / DEPLOYMENT_RECORD_RELPATH).unlink()
+
+    text = report(lifecycle_repo)
+
+    assert NOTHING_DEPLOYED in text
+    assert runtime["cmds"] == []
+
+
+def test_status_names_an_unreadable_record_and_asks_nothing(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    _corrupt_the_record(lifecycle_repo)
+
+    text = report(lifecycle_repo)
+
+    assert "unreadable" in text
+    assert str(DEPLOYMENT_RECORD_RELPATH) in text
+    assert runtime["cmds"] == []
+
+
 # ---------------------------------------------------------------------------
 # logs: the invocation it hands to the runtime
 # ---------------------------------------------------------------------------
@@ -991,6 +1080,42 @@ def test_logs_pins_the_compose_project_name(lifecycle_repo):
     _cmd, env = status_display.logs_command(lifecycle_repo)
 
     assert env["COMPOSE_PROJECT_NAME"] == PROJECT
+
+
+@pytest.mark.usefixtures("runtime")
+def test_logs_follows_the_recorded_project_with_the_recorded_runtime(lifecycle_repo, monkeypatch):
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    render_build(lifecycle_repo)
+    recorded = DeploymentRecord("podman", "earlier-name")
+    assert resolve_project_name({"project_name": PROJECT}) != recorded.compose_project
+    write_deployment_record(lifecycle_repo, recorded)
+
+    cmd, env = status_display.logs_command(lifecycle_repo)
+
+    assert cmd[0] == recorded.runtime
+    assert env["COMPOSE_PROJECT_NAME"] == recorded.compose_project
+
+
+def test_logs_with_no_record_says_nothing_is_deployed(lifecycle_repo):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / DEPLOYMENT_RECORD_RELPATH).unlink()
+
+    result = CliRunner().invoke(logs_verb, ["--repo", str(lifecycle_repo)])
+
+    assert result.exit_code != 0
+    assert NOTHING_DEPLOYED in result.output
+
+
+def test_logs_names_an_unreadable_record(lifecycle_repo):
+    from osprey.deployment.errors import DeploymentRecordError
+
+    render_build(lifecycle_repo)
+    _corrupt_the_record(lifecycle_repo)
+
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)):
+        status_display.logs_command(lifecycle_repo)
 
 
 def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):

@@ -408,6 +408,11 @@ body {
 .osprey-md-rendered a { color: var(--color-accent-light); text-decoration: none; border-bottom: 1px solid var(--accent-tint-30); }
 .osprey-md-rendered a:hover { border-bottom-color: var(--color-accent-light); }
 
+/* A facility link names a channel or device record; it shows the record on
+   hover and does not navigate. */
+.osprey-md-rendered a.okf-facility-link { font-family: var(--font-mono); cursor: help; border-bottom-style: dotted; }
+.osprey-md-rendered a.okf-facility-link--dangling { font-family: var(--font-mono); cursor: help; color: var(--text-muted); border-bottom: 1px dashed var(--text-muted); }
+
 .osprey-md-rendered code {
   font-family: var(--font-mono);
   font-size: 11px;

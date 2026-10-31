@@ -1040,8 +1040,13 @@ def pytest_collection_modifyitems(items):
                 item.add_marker(pytest.mark.skip(reason=resolved[1]))
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Register the harness's plugins and the markers whose seams live in this file."""
+    """Claim the run's temporary root, then register the harness's plugins and this file's markers.
+
+    The harness claims the root first, ahead of pytest's own temporary-path
+    setup, which reads it. See the harness's _run_temp.py.
+    """
     _harness.pytest_configure(config)
 
     # A shared fixture's temporary directories go when its scope ends, not when
@@ -1067,6 +1072,17 @@ def pytest_configure(config):
         "facility's profiles checkout, a named export and mapping, or a "
         "stand-in tree, and skips naming the unset variables anywhere else.",
     )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    """Relay a worker's e2e refusal, ending the session as a usage error.
+
+    The harness's _run_temp releases the run's temporary root after this hook,
+    reading the exit status it settles: the ``failed`` retention policy keeps
+    the root of a run that did not pass.
+    """
+    _relay_e2e_refusal(session)
 
 
 # ===================================================================
@@ -1125,12 +1141,12 @@ def pytest_sessionstart(session):
     os.environ["GIT_CEILING_DIRECTORIES"] = os.pathsep.join((base, ceilings)) if ceilings else base
 
 
-@pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session):
+def _relay_e2e_refusal(session) -> None:
     """Print a relayed refusal and end the session as a usage error.
 
-    Every worker collects the same selection, so every refusal is identical and
-    the first one is printed.
+    Called from ``pytest_sessionfinish`` above, before the run's temporary root
+    is released. Every worker collects the same selection, so every refusal is
+    identical and the first one is printed.
     """
     refusals = session.config.stash.get(_E2E_REFUSALS, [])
     if not refusals:
@@ -1159,24 +1175,22 @@ def test_config(tmp_path):
     Examples:
         Basic usage::
 
-            def test_something(test_config):
+            def test_something(test_config, monkeypatch):
                 # Config file exists at test_config
                 assert test_config.exists()
                 # Set environment to use it
-                os.environ['CONFIG_FILE'] = str(test_config)
+                monkeypatch.setenv("CONFIG_FILE", str(test_config))
 
         With custom modifications::
 
             def test_custom(test_config):
                 # Read existing config
                 import yaml
-                with open(test_config) as f:
-                    config = yaml.safe_load(f)
+                config = yaml.safe_load(test_config.read_text())
                 # Modify
-                config['execution']['execution_method'] = 'subprocess'
+                config["execution"]["execution_method"] = "subprocess"
                 # Write back
-                with open(test_config, 'w') as f:
-                    yaml.dump(config, f)
+                test_config.write_text(yaml.dump(config))
     """
     import yaml
 
@@ -1221,8 +1235,7 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
     }
 
-    with open(config_file, "w") as f:
-        yaml.dump(config, f)
+    config_file.write_text(yaml.dump(config))
 
     # Do NOT initialize registry here - let each test handle registry initialization
     # to avoid state pollution between tests

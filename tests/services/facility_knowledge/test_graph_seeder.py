@@ -626,7 +626,9 @@ class TestLazyNeo4jImport:
             "import sys\n"
             "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
         )
-        result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-c", source], capture_output=True, text=True, timeout=120
+        )
         assert result.returncode == 0, result.stderr
 
     def test_missing_driver_error_names_the_dependency(self, monkeypatch):

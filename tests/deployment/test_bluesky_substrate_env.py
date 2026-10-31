@@ -623,7 +623,7 @@ class TestLegacyCurveDirMigration:
         import subprocess
 
         repo = env_path.parent
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True, timeout=60)
         # The pre-#716 scaffold ignored only the legacy spelling.
         (repo / ".gitignore").write_text("/data/bluesky_curve/\n", encoding="utf-8")
         self._write_legacy_set(repo)
@@ -640,6 +640,7 @@ class TestLegacyCurveDirMigration:
             ],
             cwd=repo,
             capture_output=True,
+            timeout=60,
         )
         assert ignored.returncode == 0, "relocated key material must stay out of version control"
 
@@ -799,7 +800,7 @@ class TestGeneratedProjectGitignore:
         # reaches it — `osprey.templates.project` is a plain data directory,
         # not an importable module with a __file__.
         template = Path(osprey.templates.__file__).parent / "project" / "gitignore"
-        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=60)
         (tmp_path / ".gitignore").write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
         return tmp_path
 
@@ -812,6 +813,7 @@ class TestGeneratedProjectGitignore:
                 ["git", "check-ignore", "-q", "--no-index", str(relative_path)],
                 cwd=repo,
                 capture_output=True,
+                timeout=60,
             ).returncode
             == 0
         )

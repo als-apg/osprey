@@ -233,7 +233,7 @@ def test_the_reader_adds_only_the_standard_library_and_loads_no_model() -> None:
         "print(json.dumps([added, sorted(roots & {'numpy', 'lume', 'at', 'osprey'})]))\n"
     )
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
 
     assert json.loads(result.stdout) == [[], []]

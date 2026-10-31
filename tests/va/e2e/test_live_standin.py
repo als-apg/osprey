@@ -171,10 +171,10 @@ MIN_COLLECTED_TESTS = 21
 #: identically by both instances and never written by anything in this file.
 PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
-#: The setpoint written on the sandbox, and the value written: a corrector the
-#: probe never reads, at a current well inside the corrector band and away from
-#: its nominal zero, so the stand-in's own reading cannot equal it by accident.
-WRITTEN_CHANNEL = "SR:MAG:HCM:02:CURRENT:SP"
+#: The value written on the sandbox, to the corrector of slot 1
+#: (``conftest.corrector_at_slot``): a corrector the probe never reads, at a
+#: current well inside the corrector band and away from its nominal zero, so the
+#: stand-in's own reading cannot equal it by accident.
 WRITTEN_VALUE = 2.5
 
 #: The instance each container serves as, and the name its model RPC reports.
@@ -182,25 +182,27 @@ SANDBOX_INSTANCE = "virtual_accelerator"
 STANDIN_INSTANCE = "live_standin"
 
 #: The physics model whose log the stand-in appends on the demo tree.
-DEMO_PHYSICS_MODEL = "SR"
+DEMO_PHYSICS_MODEL = e2e_conftest.LANE_MODEL
 
 # -- the write leg's channels -----------------------------------------------
 
-#: The address the write leg attempts, in this deployment's own naming grammar
-#: and absent from the limits database — device 99 of 72 correctors, so
-#: nothing answers on it either; that costs the assertion
-#: nothing, because ``mode: exclusive`` refuses it in the
-#: validator before any ``caput`` is issued. The guard in
+#: The address the write leg attempts: absent from the limits database and
+#: from the simulator view, so nothing answers on it either; that costs the
+#: assertion nothing, because ``mode: exclusive`` refuses it in the validator
+#: before any ``caput`` is issued. The guard in
 #: ``TestTheShippedDefaultsAreWhatThisModuleMeasured`` is what keeps it unlisted.
-UNLISTED_CHANNEL = "SR:MAG:HCM:99:CURRENT:SP"
+UNLISTED_CHANNEL = "VA:E2E:UNLISTED:SETPOINT"
 
-#: A value inside the window the limits database gives the one SR corrector it
-#: lists, so the refusal below cannot be a min/max verdict wearing another name.
-UNLISTED_WRITE_VALUE = 1.0
+#: A value inside the window the limits database gives the lane's bounded
+#: corrector, three quarters of the way up and so off its held nominal, so the
+#: refusal below cannot be a min/max verdict wearing another name.
+UNLISTED_WRITE_VALUE = e2e_conftest.LANE.band[0] + 0.75 * (
+    e2e_conftest.LANE.band[1] - e2e_conftest.LANE.band[0]
+)
 
 #: A channel the limits database *does* list, read only by the guard that
 #: proves this module pointed the posture at a database that really loaded.
-LISTED_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
+LISTED_CHANNEL = e2e_conftest.BOUNDED_SETPOINT
 
 #: The violation the exclusive mode reports for a channel it has no entry for.
 #: Distinct from ``LIMITS_DATABASE_UNAVAILABLE``, which is what a database that
@@ -658,13 +660,14 @@ async def round_trip(tmp_path_factory, endpoints) -> RoundTrip:
         terminate_grace_s=2.0,
     )
     manager.reset_state()
-    _caput(endpoints.sandbox, WRITTEN_CHANNEL, WRITTEN_VALUE)
+    written_channel = e2e_conftest.corrector_at_slot(1).setpoint_address
+    _caput(endpoints.sandbox, written_channel, WRITTEN_VALUE)
     try:
         await manager.start(TARGET_VA)
-        written_on_sandbox = await reading(manager, WRITTEN_CHANNEL)
+        written_on_sandbox = await reading(manager, written_channel)
 
         outbound = await manager.switch(TARGET_STANDIN)
-        written_on_standin = await reading(manager, WRITTEN_CHANNEL)
+        written_on_standin = await reading(manager, written_channel)
         refusal = await refused_write(manager, UNLISTED_CHANNEL, UNLISTED_WRITE_VALUE)
 
         homebound = await manager.switch(TARGET_VA)
@@ -954,14 +957,16 @@ class TestTheShippedDefaultsAreWhatThisModuleMeasured:
         """The write leg's subject, checked against the database it is judged by.
 
         Read from the same file the deployment points ``database_path`` at: the
-        limits view a build renders from the preset's limits.yaml. The
-        listed sibling is the other half: a database this module could not read,
-        or one whose grammar had moved on, would fail here rather than turn the
+        limits view a build renders from the preset's limits.yaml, and from the
+        simulator view the containers serve. The listed sibling is the other
+        half: a database this module could not read, or one that had stopped
+        listing the bounded corrector, would fail here rather than turn the
         refusal above into a verdict about nothing.
         """
         database = json.loads(e2e_conftest.LIMITS_DB_PATH.read_text(encoding="utf-8"))
 
         assert UNLISTED_CHANNEL not in database
+        assert UNLISTED_CHANNEL not in e2e_conftest.PRESET_VIEW.channels()
         assert LISTED_CHANNEL in database
 
 

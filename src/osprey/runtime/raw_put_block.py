@@ -126,6 +126,20 @@ _CTYPES_LOADER_ROWS = frozenset(
 _FFI_LOADER_ROWS = frozenset({("cffi.api.FFI", "dlopen")})
 _SYMBOL_LOOKUP_ROW = ("ctypes.CDLL", "__getitem__")
 
+#: The stdlib resolutions that load native code or spawn a process lazily, on
+#: first use, each with a label a test or a failure can name. A readonly run
+#: resolves every row before it closes the gate, while loading and spawning are
+#: still allowed; once resolved, each answers from its cache, so a library that
+#: makes the lookup later imports under the gate.
+_STDLIB_WARMUPS: tuple[tuple[str, Callable[[], object]], ...] = (
+    # Resolved by shelling out to ``uname -p`` on first read; h5py reads it
+    # while ``import at`` initialises its type layer.
+    ("platform.processor", platform.processor),
+    # From CPython 3.14 the module loads libc while it is imported, and
+    # threadpoolctl imports it under ``scipy.io``.
+    ("ctypes.util", lambda: importlib.import_module("ctypes.util")),
+)
+
 #: Put entry points no library handle resolves in a readonly run, and which are
 #: closed on the instance of a handle that already resolved them.
 _HANDLE_PUT_SYMBOLS = ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put")
@@ -632,31 +646,28 @@ def _install_readonly(
     eager_targets: Rows,
     deferred_targets: Rows,
     refusal: str,
+    load_refusal: str,
 ) -> None:
     """Refuse every write entry point in the tables, and every escape route."""
-    # CPython resolves ``platform.uname().processor`` lazily, by shelling out to
-    # ``uname -p`` on first read — and h5py reads it while ``import at``
-    # initialises its type layer, so the subprocess refusal below would kill the
-    # import of a pure-simulation library. Resolve it once now, while spawning
-    # is still allowed; the cached value answers every later lookup without
-    # touching subprocess.
-    platform.processor()
-    # ``ctypes.util`` loads the C library while it is imported on some
-    # platforms, and threadpoolctl imports it on the way into scipy — so the
-    # loader refusal below would kill the import of a simulation library over
-    # a load that is no control-system client. Import it now, while loads are
-    # still allowed; later imports take the cached module.
-    import ctypes.util  # noqa: F401
+    # A warm-up that raises fails the install: a gate that skipped one would
+    # refuse the lookup later, inside an innocent import.
+    for _label, warm in _STDLIB_WARMUPS:
+        warm()
 
     def _osprey_readonly_refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError(refusal)
 
-    def _osprey_refused_load(*_args: Any, **_kwargs: Any) -> Any:
-        # Every load after install refuses, through ``ctypes`` and cffi alike,
-        # so the refusal holds no loader it could hand back.
-        raise RuntimeError(refusal)
+    # Every load after install refuses, through ``ctypes`` and cffi alike, so
+    # neither refuser holds a loader it could hand back. Each is shaped like the
+    # rows it replaces, so the refusal names the library the call asked for.
+    def _osprey_refused_load(name: Any = None, *_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(load_refusal.format(library=_library_label(name)))
+
+    def _osprey_refused_ffi_load(_self: Any, name: Any = None, *_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(load_refusal.format(library=_library_label(name)))
 
     setattr(_osprey_refused_load, _LOADER_GATE_ATTR, True)
+    setattr(_osprey_refused_ffi_load, _LOADER_GATE_ATTR, True)
 
     def _osprey_gated_symbol(self: Any, name_or_ordinal: Any) -> Any:
         # ``CDLL.__getitem__``, restated rather than wrapped so the original is
@@ -676,8 +687,10 @@ def _install_readonly(
 
     def _readonly_replacement(dotted: str, attr: str, _original: Any, _owner: Any) -> Any:
         row = (dotted, attr)
-        if row in _CTYPES_LOADER_ROWS or row in _FFI_LOADER_ROWS:
+        if row in _CTYPES_LOADER_ROWS:
             return _osprey_refused_load
+        if row in _FFI_LOADER_ROWS:
+            return _osprey_refused_ffi_load
         if row == _SYMBOL_LOOKUP_ROW:
             return _osprey_gated_symbol
         return _osprey_readonly_refuse
@@ -930,10 +943,13 @@ def install(mode: str, **contract: Any) -> None:
     Every row is a ``(dotted, attrs)`` pair. Failing to patch one target prints
     a warning naming it and moves on to the next; an absent target is silent.
 
-    ``"readonly"`` takes ``eager_targets``, ``deferred_targets`` and
-    ``refusal``. *eager_targets* are resolved and refused now; *deferred_targets*
-    are refused when their module is imported (or now, when it already is). A
-    refused call raises ``RuntimeError(refusal)``.
+    ``"readonly"`` takes ``eager_targets``, ``deferred_targets``, ``refusal``
+    and ``load_refusal``. *eager_targets* are resolved and refused now;
+    *deferred_targets* are refused when their module is imported (or now, when
+    it already is). A refused call raises ``RuntimeError(refusal)``; a refused
+    shared-library load raises ``RuntimeError`` with *load_refusal* formatted
+    with ``library``, the basename the load asked for (``<process>`` for the
+    process itself).
 
     ``"armed"`` takes ``blocked_targets``, ``rpc_targets``, ``refuse_rpc``,
     ``marker``, ``rpc_refusals`` and ``ca_provider_targets``. A blocked row

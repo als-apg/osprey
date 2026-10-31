@@ -1,0 +1,1 @@
+`osprey down`, `status`, `logs`, `reset` and the container health checks act on the project `osprey up` started, with the runtime it started it with, even from a fresh shell or after a rebuild renamed it. With no deployment record they say nothing has been deployed from this repo yet.

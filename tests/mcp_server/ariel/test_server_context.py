@@ -1,9 +1,11 @@
 """Tests for ARIEL MCP server context."""
 
+import asyncio
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server_context import (
     ARIELContext,
@@ -12,6 +14,7 @@ from osprey.mcp_server.ariel.server_context import (
     reset_ariel_context,
 )
 from osprey.services.ariel_search.exceptions import ConfigurationError, VocabularyError
+from tests.mcp_server.conftest import assert_raises_error
 
 
 def test_initialize_loads_config(tmp_path, monkeypatch):
@@ -211,3 +214,172 @@ def test_initialize_refuses_a_malformed_entry_text_budget(tmp_path, monkeypatch)
 
     with pytest.raises(ValueError, match=r"ariel\.entry_text\.listing_chars"):
         initialize_ariel_context()
+
+
+# ---------------------------------------------------------------------------
+# Service open: a missing embedding table is refused, never cached
+# ---------------------------------------------------------------------------
+
+_TABLE_MISSING = (
+    "search_modules.semantic.model: semantic search is enabled for model 'm', "
+    "but this database has no embedding table for it ('text_embeddings_m')"
+)
+_TABLE_REMEDY = "Run `osprey ariel quickstart`, or set search_modules.semantic.enabled: false"
+
+
+def _write_semantic_project(project_dir, *, semantic_enabled=True):
+    """Write a config.yml whose ARIEL section enables (or not) semantic search."""
+    config = {
+        "ariel": {
+            "database": {"uri": "postgresql://localhost:5432/ariel"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": semantic_enabled, "model": "m"},
+            },
+        }
+    }
+    (project_dir / "config.yml").write_text(json.dumps(config))
+
+
+def _service_factory(outcomes):
+    """Patch target for ``create_ariel_service`` building real services.
+
+    Each built service's repository answers the table probe with the next item
+    of ``outcomes`` (an exception to raise, or ``None`` to pass), and its
+    ``aclose`` is recorded instead of closing pools that were never opened.
+    """
+    from osprey.services.ariel_search.service import ARIELSearchService
+
+    built: list[ARIELSearchService] = []
+    repository = MagicMock()
+    repository.validate_search_model_table = AsyncMock(side_effect=outcomes)
+
+    async def create(config, **kwargs):
+        # Yield once, as a real pool open does, so racing callers interleave.
+        await asyncio.sleep(0)
+        service = ARIELSearchService(config=config, pool=MagicMock(), repository=repository)
+        service.aclose = AsyncMock()  # type: ignore[method-assign]
+        built.append(service)
+        return service
+
+    return create, built, repository
+
+
+def _table_missing(remedy=_TABLE_REMEDY):
+    return ConfigurationError(
+        _TABLE_MISSING, config_key="search_modules.semantic.model", remedy=remedy
+    )
+
+
+async def test_service_refuses_missing_embedding_table_and_caches_nothing(tmp_path, monkeypatch):
+    """A refused probe closes the built service, raises the tool refusal, caches nothing."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    ctx = initialize_ariel_context()
+    create, built, _ = _service_factory([_table_missing()])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        with assert_raises_error(error_type="service_unavailable") as captured:
+            await ctx.service()
+
+    assert captured["envelope"]["error_message"] == _TABLE_MISSING
+    assert captured["envelope"]["suggestions"] == [_TABLE_REMEDY]
+    assert len(built) == 1
+    built[0].aclose.assert_awaited_once()
+    assert ctx._service is None
+
+
+async def test_service_refusal_without_a_remedy_suggests_nothing(tmp_path, monkeypatch, caplog):
+    """A refusal that names no fix is rendered without one, and no restart is advised."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    ctx = initialize_ariel_context()
+    create, _, _ = _service_factory([_table_missing(remedy=None)])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        with assert_raises_error(error_type="service_unavailable") as captured:
+            await ctx.service()
+
+    assert captured["envelope"]["suggestions"] == []
+    assert "Remedy" not in caplog.text
+    assert "restart" not in caplog.text
+
+
+async def test_service_serves_once_the_table_exists(tmp_path, monkeypatch):
+    """After the operator runs the fix, the next call builds and caches a service."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    ctx = initialize_ariel_context()
+    create, built, _ = _service_factory([_table_missing(), None])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        with assert_raises_error(error_type="service_unavailable"):
+            await ctx.service()
+        service = await ctx.service()
+        again = await ctx.service()
+
+    assert service is again is built[1]
+    assert ctx._service is service
+    built[1].aclose.assert_not_awaited()
+
+
+async def test_service_with_semantic_disabled_asks_no_table(tmp_path, monkeypatch):
+    """With semantic search off the service opens without a table probe."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path, semantic_enabled=False)
+    ctx = initialize_ariel_context()
+    create, built, repository = _service_factory([_table_missing()])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        service = await ctx.service()
+
+    assert service is built[0]
+    repository.validate_search_model_table.assert_not_called()
+
+
+async def test_concurrent_first_calls_build_one_service(tmp_path, monkeypatch):
+    """Two first calls racing against a passing probe build exactly one service."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    ctx = initialize_ariel_context()
+    create, built, _ = _service_factory([None, None])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        first, second = await asyncio.gather(ctx.service(), ctx.service())
+
+    assert first is second
+    assert len(built) == 1
+
+
+async def test_concurrent_first_calls_both_refused(tmp_path, monkeypatch):
+    """Two first calls racing against a refusing probe both raise; each build is closed."""
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    ctx = initialize_ariel_context()
+    create, built, _ = _service_factory([_table_missing(), _table_missing()])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        results = await asyncio.gather(ctx.service(), ctx.service(), return_exceptions=True)
+
+    assert all(isinstance(r, ToolError) for r in results)
+    assert len(built) == 2
+    for service in built:
+        service.aclose.assert_awaited_once()
+    assert ctx._service is None
+
+
+async def test_search_tool_answers_with_the_refusal(tmp_path, monkeypatch):
+    """A search tool called while the table is missing returns the error envelope."""
+    from osprey.mcp_server.ariel.tools.keyword_search import keyword_search
+    from tests.mcp_server.ariel.conftest import get_tool_fn
+
+    monkeypatch.chdir(tmp_path)
+    _write_semantic_project(tmp_path)
+    initialize_ariel_context()
+    create, _, _ = _service_factory([_table_missing()])
+
+    with patch("osprey.services.ariel_search.service.create_ariel_service", new=create):
+        with assert_raises_error(error_type="service_unavailable") as captured:
+            await get_tool_fn(keyword_search)(query="beam current")
+
+    assert captured["envelope"]["error_message"] == _TABLE_MISSING

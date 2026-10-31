@@ -34,6 +34,7 @@ from osprey.dispatch import server
 from osprey.dispatch.registry import TriggerRegistry
 from osprey.dispatch.trigger_config import TriggerConfig
 from osprey.utils.owner_header import OWNER_HEADER
+from tests._live import async_wait_until
 from tests.conftest import dispatcher_route_registry
 
 # The route rows build the app through ``create_server()``, which configures a
@@ -246,14 +247,12 @@ async def _retry_and_record(app, owner_header: str | None) -> tuple[dict[str, An
 
 async def _wait_for_history(registry: TriggerRegistry, name: str) -> list[dict[str, Any]]:
     """Poll *name*'s history until it holds an entry, bounded at 5 s."""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + 5
-    while True:
-        history = await registry.get_history(name)
-        if history:
-            return history
-        assert loop.time() < deadline, f"no history entry for {name!r} within 5 s"
-        await asyncio.sleep(0.01)
+    return await async_wait_until(
+        lambda: registry.get_history(name),
+        timeout=5,
+        interval=0.01,
+        what=f"a history entry for {name!r}",
+    )
 
 
 async def _retry_over_the_wire(app, owner_header: str | None) -> dict[str, Any]:

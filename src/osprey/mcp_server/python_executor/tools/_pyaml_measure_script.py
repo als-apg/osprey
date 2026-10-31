@@ -43,8 +43,9 @@ Result line fields (JSON object):
 * a completed matrix kind: ``shape``, ``observables`` (``[name, plane]``),
   ``variables`` and ``data_file``; a completed ``chromaticity_monitor``:
   ``chromaticity`` and ``data_file``;
-* a stopped run: ``remainder``, the variables not measured, or the kind, and
-  ``error``, the first line of the exception that stopped it, when one did;
+* ``missing``: ``{}`` for a completed run; for a stopped run each variable
+  not measured, or the kind when none is left, mapped to the first line of
+  the exception that stopped it, or ``null`` when none did;
 * a refusal: ``{"kind", "refused"}`` and nothing else.
 """
 
@@ -595,11 +596,13 @@ def first_line(exc):
     return type(exc).__name__
 
 
-def remainder(variables, recorder):
-    """The variables not yet measured for ``trm``/``crm``, else the kind."""
+def missing(variables, recorder, text):
+    """Each variable not yet measured for ``trm``/``crm``, else the kind, mapped to ``text``."""
     if KIND in ("trm", "crm"):
-        return [name for name in variables if name not in recorder.done]
-    return KIND
+        left = [name for name in variables if name not in recorder.done]
+        if left:
+            return dict.fromkeys(left, text)
+    return {KIND: text}
 
 
 def tool_bpm_array(holder):
@@ -626,9 +629,8 @@ def main():
     except BaseException as exc:
         result.update(
             completed=False,
-            error=first_line(exc),
             moved=pairs(getattr(exc, "moved_setpoints", None) or {}),
-            remainder=remainder(variables, recorder),
+            missing=missing(variables, recorder, first_line(exc)),
         )
         print(RESULT_TAG, json.dumps(result), flush=True)
         raise
@@ -636,9 +638,10 @@ def main():
     result["completed"] = run.completed
     result["moved"] = pairs(run.moved)
     if not run.completed:
-        result["remainder"] = remainder(variables, recorder)
+        result["missing"] = missing(variables, recorder, None)
         print(RESULT_TAG, json.dumps(result), flush=True)
         return
+    result["missing"] = {}
     data_file = root / f"pyaml_measure_{KIND}.json"
     save(tool, data_file)
     result["data_file"] = str(data_file)

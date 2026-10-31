@@ -66,7 +66,7 @@ def _child_harness(child_environment, state_root):
     """Every test here runs a child against a scratch state root."""
 
 
-def deployment_record(root, monkeypatch, target: str):
+def control_context_record(root, monkeypatch, target: str):
     """A control-context record this process owns, under a stamped scratch root.
 
     The roster reads no record — it reports what this server knows. The SWITCH
@@ -306,7 +306,7 @@ class TestCorrectBeforeAnySwitch:
         raw = config_with_gateways(va_probe=None)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        deployment_record(state_root, monkeypatch, manager.baseline)
+        control_context_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
@@ -628,7 +628,7 @@ class TestDegradation:
         raw["control_system"]["connector"] = {"virtual_accelerator": va_block}
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        deployment_record(state_root, monkeypatch, manager.baseline)
+        control_context_record(state_root, monkeypatch, manager.baseline)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 

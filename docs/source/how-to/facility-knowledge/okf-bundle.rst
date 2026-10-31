@@ -54,6 +54,18 @@ ones:
 
    See [Personnel Safety System](/subsystems/pss.md) for the interlock hierarchy.
 
+**Facility links.** A document names a channel or a device of the facility
+file with a ``facility:`` link to its address or device id. Wrap the whole
+destination in angle brackets when the address holds a space:
+
+.. code-block:: markdown
+
+   Read [the X position](facility:SR:DIAG:BPM:01:POSITION:X) of [BPM 01](facility:SR/BPM01).
+   Check [the gauge](<facility:SECTOR 1 GAUGE>) first.
+
+``osprey build`` warns ``link-dangling`` for each link the facility file does not
+hold. The KNOWLEDGE panel shows the linked record when you hover over the link.
+
 **4. Validation levels.** OKF distinguishes two strictness levels, so
 half-finished stubs and finished documents can coexist. *Consuming* validation
 requires only a ``type`` (a tolerant reader check); *authoring* validation also

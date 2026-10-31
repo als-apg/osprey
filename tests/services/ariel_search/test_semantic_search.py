@@ -140,29 +140,39 @@ class TestThresholdResolution:
     """What :func:`semantic_search` hands the repository."""
 
     @pytest.mark.asyncio
-    async def test_explicit_argument_wins_over_config(self, mock_repository, mock_embedder):
+    async def test_explicit_argument_wins_over_config(
+        self, mock_repository, mock_embedder, search_calls
+    ):
         await semantic_search(
             "test",
             mock_repository,
             make_wired_config({"similarity_threshold": 0.8}),
             mock_embedder,
             similarity_threshold=0.3,
+            search_calls=search_calls,
         )
         assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.3
 
     @pytest.mark.asyncio
-    async def test_config_value_is_used_without_an_argument(self, mock_repository, mock_embedder):
+    async def test_config_value_is_used_without_an_argument(
+        self, mock_repository, mock_embedder, search_calls
+    ):
         await semantic_search(
             "test",
             mock_repository,
             make_wired_config({"similarity_threshold": 0.9}),
             mock_embedder,
+            search_calls=search_calls,
         )
         assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.9
 
     @pytest.mark.asyncio
-    async def test_default_applies_when_settings_are_absent(self, mock_repository, mock_embedder):
-        await semantic_search("test", mock_repository, make_wired_config(), mock_embedder)
+    async def test_default_applies_when_settings_are_absent(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        await semantic_search(
+            "test", mock_repository, make_wired_config(), mock_embedder, search_calls=search_calls
+        )
         assert (
             mock_repository.semantic_search.call_args.kwargs["similarity_threshold"]
             == DEFAULT_SIMILARITY_THRESHOLD
@@ -170,7 +180,7 @@ class TestThresholdResolution:
 
     @pytest.mark.asyncio
     async def test_malformed_settings_raise_instead_of_reaching_the_repository(
-        self, mock_repository, mock_embedder
+        self, mock_repository, mock_embedder, search_calls
     ):
         with pytest.raises(
             ValueError, match="search_modules.semantic.settings.similarity_threshold"
@@ -180,12 +190,13 @@ class TestThresholdResolution:
                 mock_repository,
                 make_wired_config({"similarity_threshold": "high"}),
                 mock_embedder,
+                search_calls=search_calls,
             )
         mock_repository.semantic_search.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_explicit_argument_short_circuits_the_config_block(
-        self, mock_repository, mock_embedder
+        self, mock_repository, mock_embedder, search_calls
     ):
         # A caller that named the threshold never reaches the config block, so
         # a malformed one does not fail a query that had no use for it. The
@@ -197,11 +208,14 @@ class TestThresholdResolution:
             make_wired_config({"similarity_threshold": "high"}),
             mock_embedder,
             similarity_threshold=0.4,
+            search_calls=search_calls,
         )
         assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.4
 
     @pytest.mark.asyncio
-    async def test_empty_query_returns_before_parsing(self, mock_repository, mock_embedder):
+    async def test_empty_query_returns_before_parsing(
+        self, mock_repository, mock_embedder, search_calls
+    ):
         # The empty-query short circuit stays ahead of the parser, so a blank
         # box in the panel is not the thing that surfaces a config error.
         result = await semantic_search(
@@ -209,6 +223,7 @@ class TestThresholdResolution:
             mock_repository,
             make_wired_config({"similarity_threshold": "high"}),
             mock_embedder,
+            search_calls=search_calls,
         )
         assert result == []
 
@@ -218,7 +233,7 @@ class TestEmbeddingTimeout:
 
     @pytest.mark.asyncio
     async def test_semantic_search_never_waits_past_its_embedding_timeout(
-        self, monkeypatch, mock_repository, mock_embedder
+        self, monkeypatch, mock_repository, mock_embedder, search_calls
     ):
         from osprey.services.ariel_search.exceptions import SearchTimeoutError
         from osprey.services.ariel_search.search import semantic
@@ -228,7 +243,13 @@ class TestEmbeddingTimeout:
         mock_embedder.execute_embedding = MagicMock(side_effect=lambda **_: release.wait(30.0))
         try:
             with pytest.raises(SearchTimeoutError) as raised:
-                await semantic_search("beam", mock_repository, make_wired_config(), mock_embedder)
+                await semantic_search(
+                    "beam",
+                    mock_repository,
+                    make_wired_config(),
+                    mock_embedder,
+                    search_calls=search_calls,
+                )
         finally:
             release.set()
 
@@ -237,7 +258,7 @@ class TestEmbeddingTimeout:
 
     @pytest.mark.asyncio
     async def test_saturation_reaches_the_caller_as_a_timeout(
-        self, monkeypatch, mock_repository, mock_embedder
+        self, monkeypatch, mock_repository, mock_embedder, search_calls
     ):
         from osprey.services.ariel_search.exceptions import SearchTimeoutError
         from osprey.services.ariel_search.search import semantic
@@ -248,7 +269,13 @@ class TestEmbeddingTimeout:
         monkeypatch.setattr(semantic, "run_search_call", saturated)
 
         with pytest.raises(SearchTimeoutError, match="search calls saturated") as raised:
-            await semantic_search("beam", mock_repository, make_wired_config(), mock_embedder)
+            await semantic_search(
+                "beam",
+                mock_repository,
+                make_wired_config(),
+                mock_embedder,
+                search_calls=search_calls,
+            )
 
         assert raised.value.operation == "query embedding"
         mock_repository.semantic_search.assert_not_called()
@@ -371,7 +398,7 @@ class TestQueryEmbeddingProvider:
 
     @pytest.mark.asyncio
     async def test_openai_semantic_provider_embeds_through_openai_without_api_base(
-        self, mock_repository, no_provider_configs
+        self, mock_repository, no_provider_configs, search_calls
     ):
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -393,7 +420,9 @@ class TestQueryEmbeddingProvider:
 
         response = SimpleNamespace(data=[{"embedding": [0.1, 0.2, 0.3]}])
         with patch("litellm.embedding", return_value=response) as embed:
-            await semantic_search("beam loss", mock_repository, config, embedder)
+            await semantic_search(
+                "beam loss", mock_repository, config, embedder, search_calls=search_calls
+            )
 
         embed.assert_called_once()
         assert "api_base" not in embed.call_args.kwargs
@@ -408,7 +437,7 @@ class TestQueryEmbeddingProvider:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
     async def test_llama_cpp_text_table_query_is_cut_to_its_dimension(
-        self, monkeypatch, mock_repository
+        self, monkeypatch, mock_repository, search_calls
     ):
         import requests
 
@@ -444,7 +473,9 @@ class TestQueryEmbeddingProvider:
         embedder = _embedder_for(config)
         assert type(embedder) is LlamaCppProviderAdapter
 
-        await semantic_search("orbit kick", mock_repository, config, embedder)
+        await semantic_search(
+            "orbit kick", mock_repository, config, embedder, search_calls=search_calls
+        )
 
         assert seen[0]["dimensions"] == 1024
         assert seen[0]["base_url"] == "http://localhost:8080"
@@ -453,7 +484,7 @@ class TestQueryEmbeddingProvider:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
     async def test_a_semantic_ollama_provider_still_embeds_through_ollama(
-        self, monkeypatch, mock_repository
+        self, monkeypatch, mock_repository, search_calls
     ):
         from osprey.models.providers.ollama import OllamaProviderAdapter
 
@@ -478,7 +509,9 @@ class TestQueryEmbeddingProvider:
         embedder = _embedder_for(config)
         assert type(embedder) is OllamaProviderAdapter
 
-        await semantic_search("orbit kick", mock_repository, config, embedder)
+        await semantic_search(
+            "orbit kick", mock_repository, config, embedder, search_calls=search_calls
+        )
 
         assert len(seen) == 1
         assert "dimensions" not in seen[0]
@@ -490,7 +523,7 @@ class TestProviderConfig:
 
     @pytest.mark.asyncio
     async def test_a_given_provider_config_is_used_without_a_lookup(
-        self, mock_repository, no_provider_configs
+        self, mock_repository, no_provider_configs, search_calls
     ):
         embedder = make_fake_embedding_provider()()
 
@@ -500,6 +533,7 @@ class TestProviderConfig:
             make_wired_config(),
             embedder,
             provider_config={"base_url": "http://given:1", "api_key": "k"},
+            search_calls=search_calls,
         )
 
         assert no_provider_configs == []
@@ -508,7 +542,7 @@ class TestProviderConfig:
 
     @pytest.mark.asyncio
     async def test_none_resolves_through_semantic_provider(
-        self, mock_repository, no_provider_configs
+        self, mock_repository, no_provider_configs, search_calls
     ):
         embedder = make_fake_embedding_provider(default_base_url="http://default:2")()
         config = _config(
@@ -516,7 +550,7 @@ class TestProviderConfig:
             enhancement_modules={"text_embedding": {"provider": "llama-cpp"}},
         )
 
-        await semantic_search("q", mock_repository, config, embedder)
+        await semantic_search("q", mock_repository, config, embedder, search_calls=search_calls)
 
         assert no_provider_configs == ["llama-cpp"]
         assert embedder.calls[0]["base_url"] == "http://default:2"
@@ -524,12 +558,16 @@ class TestProviderConfig:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
     async def test_a_truncating_provider_without_a_model_entry_uses_the_settings_dimension(
-        self, mock_repository
+        self, mock_repository, search_calls
     ):
         embedder = make_fake_embedding_provider(truncates_to_dimensions=True)()
 
         await semantic_search(
-            "q", mock_repository, make_wired_config({"embedding_dimension": 3}), embedder
+            "q",
+            mock_repository,
+            make_wired_config({"embedding_dimension": 3}),
+            embedder,
+            search_calls=search_calls,
         )
 
         assert embedder.calls[0]["dimensions"] == 3
@@ -569,7 +607,7 @@ class TestReachableQueryServer:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
     async def test_a_refusing_localhost_reaches_the_fallback_with_one_walk(
-        self, reserve_port, monkeypatch, mock_repository
+        self, reserve_port, monkeypatch, mock_repository, search_calls
     ):
         from osprey.models.providers import _local_server
         from tests.services.ariel_search.test_provider_resolver import (
@@ -592,9 +630,13 @@ class TestReachableQueryServer:
             embedder = _embedder_for(config)
             assert type(embedder) is cls
 
-            await semantic_search("beam", mock_repository, config, embedder)
+            await semantic_search(
+                "beam", mock_repository, config, embedder, search_calls=search_calls
+            )
             walked = len(probes.calls)
-            await semantic_search("orbit", mock_repository, config, embedder)
+            await semantic_search(
+                "orbit", mock_repository, config, embedder, search_calls=search_calls
+            )
         finally:
             stub.stop()
 
@@ -642,7 +684,9 @@ class TestReachableQueryServer:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
-    async def test_a_hanging_probe_never_stalls_the_event_loop(self, monkeypatch, mock_repository):
+    async def test_a_hanging_probe_never_stalls_the_event_loop(
+        self, monkeypatch, mock_repository, search_calls
+    ):
         self._slow_probe(monkeypatch, 3.0)
         config = _fallback_config(1)
         embedder = _embedder_for(config)
@@ -656,7 +700,9 @@ class TestReachableQueryServer:
         task = asyncio.create_task(ticker())
         started = time.monotonic()
         try:
-            await semantic_search("beam", mock_repository, config, embedder)
+            await semantic_search(
+                "beam", mock_repository, config, embedder, search_calls=search_calls
+            )
         finally:
             task.cancel()
 
@@ -667,12 +713,16 @@ class TestReachableQueryServer:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
-    async def test_a_hanging_probe_never_delays_to_thread(self, monkeypatch, mock_repository):
+    async def test_a_hanging_probe_never_delays_to_thread(
+        self, monkeypatch, mock_repository, search_calls
+    ):
         self._slow_probe(monkeypatch, 3.0)
         config = _fallback_config(1)
         embedder = _embedder_for(config)
 
-        search = asyncio.create_task(semantic_search("beam", mock_repository, config, embedder))
+        search = asyncio.create_task(
+            semantic_search("beam", mock_repository, config, embedder, search_calls=search_calls)
+        )
         await asyncio.sleep(0.2)
         started = time.monotonic()
         assert await asyncio.to_thread(lambda: 42) == 42

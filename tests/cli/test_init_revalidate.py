@@ -60,6 +60,7 @@ def _git(root: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     ).stdout
 
 

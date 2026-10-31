@@ -542,6 +542,26 @@ def record_path(hook_input=None):
 
 # -- liveness --------------------------------------------------------------
 
+_PROC_ROOT = "/proc"
+
+
+def _is_thread_id(pid):
+    """Whether the kernel knows *pid* as a thread of some other process.
+
+    Linux draws PIDs and thread ids from one number space, and ``/proc/<tid>``
+    opens by number though no listing shows it. A process is its own thread
+    group leader, so a ``Tgid`` that differs from *pid* means a thread. ``False``
+    when ``/proc`` says nothing, which is every platform without one.
+    """
+    try:
+        with open(f"{_PROC_ROOT}/{pid}/status", "rb") as status:
+            for line in status:
+                if line.startswith(b"Tgid:"):
+                    return int(line.split()[1]) != pid
+    except (OSError, ValueError, IndexError):
+        return False  # no /proc, or one that does not read like Linux's: no claim either way
+    return False
+
 
 def _is_process_alive(pid):
     """Whether *pid* names a running process.
@@ -550,7 +570,8 @@ def _is_process_alive(pid):
     process exists. ``PermissionError`` means it exists but belongs to another
     user, so it counts as ALIVE — treating an unreachable owner as dead would
     discard live state. Non-positive PIDs address process *groups* and are
-    rejected without calling ``os.kill`` at all.
+    rejected without calling ``os.kill`` at all. A thread id also answers
+    ``os.kill`` and is no process (:func:`_is_thread_id`).
     """
     try:
         pid = int(pid)
@@ -563,10 +584,10 @@ def _is_process_alive(pid):
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        pass  # another user's process still exists; the thread check below applies to it too
     except OSError:  # pragma: no cover - platform oddity; assume alive
         return True
-    return True
+    return not _is_thread_id(pid)
 
 
 # -- record reading --------------------------------------------------------

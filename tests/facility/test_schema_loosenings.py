@@ -83,7 +83,7 @@ ACCELERATOR_WORDS = (
 VOCABULARY_ADDITIONS = {"Septum": ("Magnet", False), "Kicker": ("Magnet", False)}
 
 #: The word `ring` in any identifier shape; `string` is not a hit.
-RING_TOKEN = r"(?i)\bring\b|Ring(?=[A-Z_])|_ring\b|\bring_"
+RING_TOKEN = r"(?i:\bring\b)|Ring(?=[A-Z_])|_ring\b|\bring_"
 
 
 def _load(name: str) -> dict:
@@ -313,6 +313,7 @@ def test_the_word_checks_would_catch_a_hit() -> None:
     assert re.search(RING_TOKEN, "  lattice_ring: x")
     assert re.search(RING_TOKEN, "RingModel")
     assert not re.search(RING_TOKEN, "  default_range: string")
+    assert not re.search(RING_TOKEN, "  wiring_role_enum:")
     assert re.search(ACCELERATOR_WORDS[1], "a Beam line", re.IGNORECASE)
     assert re.search(FACILITY_WORDS[0], "the " + "A" + "LS demo")
 

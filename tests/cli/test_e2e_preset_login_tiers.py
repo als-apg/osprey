@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import chdir, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -48,16 +48,6 @@ def _pinned_env() -> Iterator[None]:
         yield
 
 
-@contextmanager
-def _cwd(path: Path) -> Iterator[None]:
-    previous = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)
-
-
 def _render(base: Path, project: str, init_args: list[str]) -> Path:
     """``osprey init <repo> *init_args`` then ``osprey build``, as the e2e fixture runs them."""
     from click.testing import CliRunner
@@ -66,7 +56,7 @@ def _render(base: Path, project: str, init_args: list[str]) -> Path:
     from osprey.cli.init_cmd import init as init_command
 
     repo = base / project
-    with _pinned_env(), _cwd(base):
+    with _pinned_env(), chdir(base):
         result = CliRunner().invoke(init_command, [str(repo), *init_args])
         assert result.exit_code == 0, result.output
         result = CliRunner().invoke(

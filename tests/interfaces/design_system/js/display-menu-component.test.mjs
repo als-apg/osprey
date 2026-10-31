@@ -112,6 +112,21 @@ describe('<osprey-display-menu>', () => {
       expect(options).toEqual(['light', 'dark']);
     });
 
+    test('no View row when the deployment offers no Expert view', () => {
+      document.documentElement.setAttribute('data-expert-view', 'off');
+      try {
+        const el = mount();
+        const headings = Array.from(el.querySelectorAll('.display-menu-heading')).map(
+          (h) => h.textContent
+        );
+        expect(headings).toEqual(['Appearance', 'Theme']);
+        expect(el.querySelector('.display-menu-view')).toBeNull();
+        expect(el.querySelector('[data-mode="expert"]')).toBeNull();
+      } finally {
+        document.documentElement.removeAttribute('data-expert-view');
+      }
+    });
+
     test('the View row offers exactly expert and simple', () => {
       const el = mount();
       const options = Array.from(el.querySelectorAll('.display-menu-view .display-seg-option')).map(

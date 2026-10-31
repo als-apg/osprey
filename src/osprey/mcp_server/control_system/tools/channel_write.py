@@ -129,7 +129,7 @@ from osprey.mcp_server.approval_record import APPROVAL_MISSING, require_approval
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
-from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import control_context
 from osprey_connectors.errors import (
@@ -846,11 +846,13 @@ async def channel_write(
     Leave `confirm` unset unless the operator asks for it: the deployment
     resolves it per channel from the limits database, which confirms by default.
     This tool does not raise on a write that was not confirmed — it reports the
-    word. (`osprey.runtime.write_channel`, on the Python path, raises.) It
-    raises only when every write in the call came back `refused` or `failed`,
-    which is the one case where no value reached any channel at all. A call
-    mixing those with any other word returns normally, and the per-channel
-    `outcome` is where you read what happened to each one.
+    word. (`osprey.runtime.write_channel`, on the Python path, raises.) A
+    call where no value reached any channel raises, carrying the same rows
+    under `details.results`: `write_refused` when every write was refused,
+    `nothing_answered` when any was sent and not taken. A call mixing those
+    words with any other returns normally, and the per-channel `outcome` is
+    where you read what happened to each one. The shape is the partial-answer
+    contract (docs: Reference → Contracts → Partial Answers).
 
     Args:
         operations: List of write operations, each with "channel", "value", and optional "notes".
@@ -1038,7 +1040,8 @@ async def channel_write(
         # connector, instead of shipping a plausible envelope.
         if len(connector_results) != len(operations):
             raise RuntimeError(
-                f"{type(connector).__name__} returned {len(connector_results)} write result(s) "
+                f"{type(connector.connector).__name__} returned {len(connector_results)} "
+                "write result(s) "
                 f"for {len(operations)} operation(s): the fate of at least one write is "
                 f"unreported, so no outcome from this call can be trusted."
             )
@@ -1080,11 +1083,15 @@ async def channel_write(
             # without being confirmed, or one that came back different — is
             # reported rather than raised: the agent needs it to tell the
             # operator what the machine now holds.
+            # Either way the raised envelope carries the rows under
+            # details.results: it replaces the result the agent would have
+            # read, and the rows are the only place each write's own fate and
+            # text are stated.
             failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
             if not failed:
-                # Every op was a refusal that put no value on a channel: surface
-                # a typed write-refusal envelope, not internal_error. Each row is
-                # attributed to the refuser its own reason names, so a mixed
+                # Every op was a refusal that put no value on a channel: the
+                # cause is a typed write refusal, not internal_error. Each row
+                # is attributed to the refuser its own reason names, so a mixed
                 # batch never lets one row's refuser speak for another's.
                 headline = _all_refused_headline(results)
                 # The envelope's reason and channel come from the first row
@@ -1101,20 +1108,21 @@ async def channel_write(
                 # The per-result `error` is the only place the refusal says
                 # WHICH posture refused and where to lift it — the session's
                 # read-only setting for this control target and the header chip
-                # that set it, or the config key for a deployment refusal. A
-                # raised envelope replaces the results the agent would have
-                # read, so the headline alone would drop that sentence on the
-                # floor for exactly the common case: one channel, one refusal.
+                # that set it, or the config key for a deployment refusal. The
+                # headline carries it so the message alone names the remedy in
+                # the common case: one channel, one refusal.
                 detail = first["error"]
-                raise ChannelWriteBlockedError(
-                    first["channel"],
-                    first["refusal_reason"],
-                    message=f"{headline} — {detail}" if detail else headline,
+                raise NothingAnsweredError(
+                    ChannelWriteBlockedError(
+                        first["channel"],
+                        first["refusal_reason"],
+                        message=f"{headline} — {detail}" if detail else headline,
+                    ),
+                    results=results,
                 )
-            # At least one write was attempted and failed (an I/O failure, not a
-            # policy refusal): preserve the internal_error classification.
-            errors = sorted({entry["error"] for entry in results if entry["error"]})
-            raise RuntimeError(f"All {len(results)} write(s) rejected: {'; '.join(errors)}")
+            # At least one write was sent and not taken (an I/O failure, not a
+            # policy refusal): no one cause speaks for every row.
+            raise NothingAnsweredError(None, results=results)
 
         # Agent-activity highlight (purely additive, after the fact): name only
         # the channels a value actually reached. Every refusal path — limits

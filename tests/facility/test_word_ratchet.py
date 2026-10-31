@@ -19,6 +19,9 @@ spelling, the frozen previous-release repo and the released notes keep it
 task still rewords, each row deleted by that task. A data line that must spell
 the old key carries ``RETIRED_SPELLING_MARKER``. An allowlist row that stops
 matching anything fails, so the list only shrinks.
+
+The example deployment name that named a site (``SITE_EXAMPLE_WORD``) is a
+fourth token, scanned over the core text under ``SITE_SCAN_PATHS``.
 """
 
 from __future__ import annotations
@@ -30,7 +33,12 @@ from pathlib import Path
 
 import pytest
 
-from tests._vocabulary import ENGINE_WORDS, RATCHET_WORD, RETIRED_ROSTER_WORD
+from tests._vocabulary import (
+    ENGINE_WORDS,
+    RATCHET_WORD,
+    RETIRED_ROSTER_WORD,
+    SITE_EXAMPLE_WORD,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -371,3 +379,62 @@ def test_every_retired_word_allowlist_entry_still_matches() -> None:
         if not hit_paths.intersection(covered):
             stale.append(glob)
     assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
+
+
+# --- the site example name --------------------------------------------------------
+
+#: The core text the site example name never enters.
+SITE_SCAN_PATHS: tuple[str, ...] = ("src", "packages", "docs", "plugins", "README.md")
+
+
+def site_example_hits(root: Path) -> list[str]:
+    """Every ``path:line`` under ``SITE_SCAN_PATHS`` naming the site example name."""
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-I",
+            "-n",
+            "-P",
+            "-e",
+            SITE_EXAMPLE_WORD,
+            "--",
+            *SITE_SCAN_PATHS,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 1), result.stderr
+    return sorted(":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines() if line)
+
+
+@pytest.mark.parametrize("text", ["als-assistant", "~/deployments/als-assistant/tiers"])
+def test_site_example_word_finds_the_name(text: str) -> None:
+    assert re.search(SITE_EXAMPLE_WORD, text) is not None
+
+
+@pytest.mark.parametrize("text", ["my-assistant", "als-assistants-guide", "pals-assistant"])
+def test_site_example_word_leaves_other_words(text: str) -> None:
+    assert re.search(SITE_EXAMPLE_WORD, text) is None
+
+
+def test_a_planted_site_example_is_flagged(tmp_path: Path) -> None:
+    line = "osprey init als-assistant\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "src/x.py": line,
+            "docs/x.rst": line,
+            "plugins/x/SKILL.md": line,
+            "tests/x.py": line,
+            "CHANGELOG.md": line,
+        },
+    )
+
+    assert site_example_hits(root) == ["docs/x.rst:1", "plugins/x/SKILL.md:1", "src/x.py:1"]
+
+
+def test_no_core_text_names_the_site_example() -> None:
+    assert site_example_hits(REPO_ROOT) == []

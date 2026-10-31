@@ -151,7 +151,7 @@ BRIDGE_URLS = {
 LANE_ENV_PREFIX = {LANE_VA: "BLUESKY", LANE_LIVE: "BLUESKY_LIVE"}
 
 #: Container-name prefix of the live lane's Channel Access endpoint. The run's
-#: own ephemeral port is appended: a fixed name would be mutually destructive
+#: own reserved port is appended: a fixed name would be mutually destructive
 #: between two concurrent runs (each force-removes its name as stale cleanup),
 #: which is the convention the rest of this directory already follows.
 LIVE_ENDPOINT_PREFIX = "osprey-va-e2e-lane-live"

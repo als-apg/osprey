@@ -2785,6 +2785,20 @@ keys:
       per access level. A value that is not one of the two warns and falls back
       to the default.
     default: expert
+  web.expert_view:
+    rendered: false
+    evidence: 'get_config_value\("web\.expert_view", True, str\(config_path\)\)'
+    note: >-
+      Whether the deployment offers the Expert view at all. False rules it out
+      on every login the render serves: the resolved `web.ui_mode` is `simple`
+      whatever it says, the display menu's View row and the palette's mode
+      switch are gone, `?mode=expert` and a stored pick are ignored, and
+      `/ws/terminal` (the Expert view's PTY session) is refused before anything
+      is spawned. Read like the privilege gates — a file that exists but cannot
+      be read closes it — because the server refuses a route on it. The build
+      refuses `web.ui_mode: expert` beside it. No preset states it: absent is
+      today's behaviour.
+    default: true
   web.theme:
     evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-

@@ -25,6 +25,13 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
 
+
+@pytest.fixture(autouse=True)
+def empty_proc(tmp_path_factory, monkeypatch):
+    """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
+    monkeypatch.setattr(control_context, "_PROC_ROOT", str(tmp_path_factory.mktemp("proc")))
+
+
 TARGETS_META = {
     "live": {
         "label": "Example storage ring",
@@ -664,6 +671,12 @@ class _FakeManager:
 
     def active_proxy(self):
         return self.proxy
+
+    async def serving_proxy(self):
+        return self.proxy
+
+    def active_binding(self):
+        return ("live", 0)
 
     def active_target(self):
         return "live"

@@ -88,6 +88,7 @@ from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
 from osprey.deployment.web_terminals.roster import normalize_users
 from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
+from tests._container_support import RuntimeContainer, wait_until_ready
 from tests._renders import tier_render
 from tests.e2e._deploy_support import (
     RUNTIME,
@@ -98,6 +99,11 @@ from tests.e2e._deploy_support import (
     image_label,
     runtime_cli,
     volume_exists,
+)
+from tests.integration._qmd_ariel_support import (
+    SIDECAR_HEALTH_CEILING,
+    sidecar_log_mark,
+    wait_for_reindex_settled,
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
@@ -1554,14 +1560,11 @@ QMD_TOUCH_MARKER = ".qmd-touch"
 #: larger corpus buys nothing but embedding time.
 BUNDLE_SEED_DIR = FIXTURES_DIR / "facility_bundle"
 
-#: How long the sidecar gets to build its first index and open the port. Two
-#: documents index in seconds, but the embedder loads on CPU on first use.
+#: Seconds the sidecar may go without writing to its log before the wait for
+#: its port gives up. Two documents index in seconds, but the embedder loads on
+#: CPU on first use; while the log keeps growing the wait goes on, up to
+#: ``SIDECAR_HEALTH_CEILING``.
 QMD_READY_TIMEOUT_SEC = 300.0
-
-#: How long a marker-triggered re-index gets to make a new document findable.
-#: The sidecar polls markers on its own interval and then re-runs `qmd update`
-#: + `qmd embed`; on macOS the bind-mount stat() also has to cross the VM.
-QMD_REINDEX_TIMEOUT_SEC = 240.0
 
 #: Marker poll interval the sidecar runs with here -- below the entrypoint's
 #: own 5 s default (`POLL_INTERVAL`), because the freshness assertion waits on
@@ -1697,58 +1700,26 @@ def _wait_for_qmd_health(timeout: float) -> None:
     """Block until the sidecar opens its port, or fail naming what went wrong.
 
     The entrypoint runs its whole startup index pass BEFORE it opens the port,
-    so this covers indexing the seed corpus, not just process start. A sidecar
-    that never opens the port has almost always died in that pass; the last
-    lines of its log say why, so they are carried into the failure.
+    so this covers indexing the seed corpus, not just process start. *timeout*
+    is the silence the sidecar is allowed; a sidecar that exits ends the wait
+    at once, and the failure carries the last lines of its log.
     """
-    deadline = time.monotonic() + timeout
-    last_err = "(no attempt yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(  # loopback only
-                f"http://127.0.0.1:{QMD_PORT}/health", timeout=5.0
-            ) as resp:
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(2.0)
-    logs = runtime_cli("logs", "--tail", "40", QMD_CONTAINER, timeout=30)
-    raise AssertionError(
-        f"qmd sidecar did not answer /health on :{QMD_PORT} within {timeout:.0f}s "
-        f"(last: {last_err})\n--- {QMD_CONTAINER} logs (tail) ---\n"
-        f"{logs.stdout}\n{logs.stderr}"
+
+    def probe() -> None:
+        with urllib.request.urlopen(  # loopback only
+            f"http://127.0.0.1:{QMD_PORT}/health", timeout=5.0
+        ) as resp:
+            if resp.status != 200:
+                raise AssertionError(f"/health answered HTTP {resp.status}")
+
+    wait_until_ready(
+        probe,
+        "qmd sidecar",
+        container=RuntimeContainer(QMD_CONTAINER, RUNTIME),
+        timeout=timeout,
+        interval=2.0,
+        ceiling=SIDECAR_HEALTH_CEILING,
     )
-
-
-def _wait_for_indexed(client: QMDClient, token: str, filename: str, timeout: float) -> list:
-    """Poll the sidecar until *filename* is among the hits for *token*.
-
-    The wait condition is that ONE named document is findable, never that the
-    query returned anything: the semantic half of a hybrid search returns its
-    nearest neighbours for any input, so a query for a token that is nowhere in
-    the corpus still comes back with the corpus's other documents. Polling on
-    "non-empty" would therefore return instantly, before the re-index it is
-    supposed to be waiting for, and the freshness assertion would prove
-    nothing.
-
-    Returns:
-        The last hit list observed — the matching one when the wait succeeded,
-        and whatever the sidecar was answering with when it timed out, which is
-        what the caller reports.
-    """
-    deadline = time.monotonic() + timeout
-    hits: list = []
-    while time.monotonic() < deadline:
-        # rerank=False deliberately: the reranker is a 610 MB model that loads
-        # on CPU on first use and blows the client's timeout against a cold
-        # sidecar. Nothing here is a ranking-quality assertion.
-        hits = client.query(QMD_OKF_COLLECTION, token, limit=10, rerank=False)
-        if any(hit.file == filename for hit in hits):
-            return hits
-        time.sleep(3.0)
-    return hits
 
 
 @pytest.mark.qmd
@@ -2022,6 +1993,8 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
 
         # Touch the corpus marker, exactly as a bundle writer does, so the
         # sidecar re-indexes within a poll instead of waiting out its sweep.
+        sidecar = RuntimeContainer(QMD_CONTAINER, RUNTIME)
+        mark = sidecar_log_mark(sidecar)
         marker = runtime_cli(
             "exec",
             _web_container("alice"),
@@ -2031,13 +2004,17 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         )
         assert marker.returncode == 0, format_failure("touch the corpus marker from alice", marker)
 
-        hits = _wait_for_indexed(client, token, draft_name, QMD_REINDEX_TIMEOUT_SEC)
+        wait_for_reindex_settled(client, sidecar, since=mark)
+        # rerank=False: the reranker is a 610 MB model that loads on CPU on first
+        # use and blows the client's timeout against a cold sidecar.
+        hits = client.query(QMD_OKF_COLLECTION, token, limit=10, rerank=False)
         logs = runtime_cli("logs", "--tail", "30", QMD_CONTAINER, timeout=30)
+        # One named document, never "non-empty": hybrid search returns its
+        # nearest neighbours for any token, so a non-empty answer proves nothing.
         assert any(hit.file == draft_name for hit in hits), (
-            f"the sidecar never indexed {draft_name}, written from alice's container "
-            f"into the shared bundle. A query for {token!r} in collection "
-            f"{QMD_OKF_COLLECTION!r} was still answering with "
-            f"{[hit.file for hit in hits]!r} after {QMD_REINDEX_TIMEOUT_SEC:.0f}s.\n"
+            f"the settled index does not list {draft_name}, written from alice's "
+            f"container into the shared bundle. A query for {token!r} in collection "
+            f"{QMD_OKF_COLLECTION!r} answered with {[hit.file for hit in hits]!r}.\n"
             f"--- {QMD_CONTAINER} logs (tail) ---\n{logs.stdout}\n{logs.stderr}"
         )
         assert all(hit.collection == QMD_OKF_COLLECTION for hit in hits), (

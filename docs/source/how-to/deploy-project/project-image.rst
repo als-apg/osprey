@@ -69,13 +69,15 @@ Quickstart
 .. code-block:: bash
 
    osprey build                            # renders the container repo too
-   cd build/.image/my-project              # the context the build rendered
-   docker build -t my-project -f build/Dockerfile .
-   cd -                                    # back to the deployment repo root
+   docker build -t my-project \
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
    docker run --rm -p 10100:10100 --env-file .env \
      -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
      -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
      my-project
+
+Every line runs at the deployment repo root; the build names the container repo
+``osprey build`` rendered (``build/.image/<name>/``) as its context.
 
 The terminal holds the agent record; like the provider key, its login and
 service file are supplied at run time and never enter the image. The build
@@ -177,7 +179,8 @@ vendored assets for an air-gapped host:
    docker build -t my-project \
      --build-arg OSPREY_PIP_SPEC="git+https://git.example.gov/tools/osprey.git@main" \
      --build-arg PIP_NO_PROXY="git.example.gov" \
-     --build-arg OSPREY_OFFLINE=1 .
+     --build-arg OSPREY_OFFLINE=1 \
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
 
 .. warning::
 
@@ -249,10 +252,9 @@ Building by hand, stage the copy yourself and name it:
 
 .. code-block:: bash
 
-   cd build/.image/my-project
-   cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem site-ca.pem
+   cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem build/.image/my-project/site-ca.pem
    docker build -t my-project --build-arg OSPREY_SITE_CA=site-ca.pem \
-     -f build/Dockerfile .
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
 
 That first path is where a RHEL-family build host keeps its system bundle
 (individual CA files also live under ``/etc/pki/ca-trust/source/anchors/``).
@@ -395,8 +397,8 @@ a root ``CLAUDE.md`` would be loaded into every session. The rest of the
 repository's source travels, which is what lets the container's drift check
 agree with the host.
 
-That is why the by-hand build below runs from ``build/.image/<name>/`` rather
-than from the repository root. ``osprey build --runtime-root PATH`` is the same
+That is why the by-hand build uses ``build/.image/<name>/`` as its context
+rather than the repository root. ``osprey build --runtime-root PATH`` is the same
 mechanism exposed directly, for a render whose output will run somewhere other
 than where it was made.
 
@@ -676,7 +678,8 @@ matches the usual amd64 deployment target:
 
 .. code-block:: bash
 
-   docker build --platform linux/amd64 -t my-project .
+   docker build --platform linux/amd64 -t my-project \
+     -f build/.image/my-project/build/Dockerfile build/.image/my-project
    docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env \
      -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
      -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \

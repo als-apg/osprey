@@ -42,9 +42,7 @@ REGISTRY_KEY = "system_health"
 def _fresh_source(obj) -> str:
     """Read *obj*'s source file directly from disk (deterministic; avoids the
     ``inspect.getsource`` line-slicing flake under ``.py``/``.pyc`` skew)."""
-    path = inspect.getsourcefile(obj) or inspect.getfile(obj)
-    with open(path, encoding="utf-8") as fh:
-        return fh.read()
+    return Path(inspect.getsourcefile(obj) or inspect.getfile(obj)).read_text(encoding="utf-8")
 
 
 def _fresh_build_package_source() -> str:
@@ -163,13 +161,11 @@ async def test_system_health_server_config_endpoint_returns_proxy_path(monkeypat
 
 def test_frontend_panel_manager_registers_system_health_tab():
     """The PANELS array lives in panel-catalog.js; panel-manager.js imports it."""
-    import os
 
-    catalog_path = os.path.join(
-        os.path.dirname(inspect.getfile(web_terminal_app)), "static", "js", "panel-catalog.js"
+    catalog_path = (
+        Path(inspect.getfile(web_terminal_app)).parent / "static" / "js" / "panel-catalog.js"
     )
-    with open(catalog_path, encoding="utf-8") as fh:
-        js = fh.read()
+    js = catalog_path.read_text(encoding="utf-8")
     assert "id: 'system-health'" in js
     assert "/api/system-health-server" in js
     # healthEndpoint MUST be the explicit '/health': an omitted/null value skips

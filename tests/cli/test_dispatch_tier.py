@@ -60,13 +60,11 @@ def _dispatch(**overrides: object) -> DispatchConfig:
 def _write_config(project_path: Path, config: dict | None = None) -> None:
     doc = {"deployed_services": [], "services": {}}
     doc.update(config or {})
-    with open(project_path / "config.yml", "w") as fh:
-        YAML().dump(doc, fh)
+    YAML().dump(doc, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
-    with open(project_path / "config.yml") as fh:
-        return YAML().load(fh)
+    return YAML().load(project_path / "config.yml")
 
 
 # ── the dataclass and the parser ─────────────────────────────────────────────

@@ -13,7 +13,6 @@ import os
 from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -97,22 +96,6 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture
-def restore_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Put back the working directory and ``os.environ`` a verb changes in-process.
-
-    Leak guarded: ``chat``, ``web``, ``query`` and ``sim`` chdir into the render
-    and write ``os.environ`` directly (the deployment ``.env`` overlay, the port
-    publication, the operator secret, ``OSPREY_CONFIG``). Both outlive a
-    ``CliRunner`` invocation and would otherwise reach every later test in the
-    worker. Modules whose verbs do this take it with
-    ``pytestmark = pytest.mark.usefixtures("restore_process_state")``.
-    """
-    monkeypatch.chdir(Path.cwd())
-    with patch.dict(os.environ):
-        yield
-
-
 @pytest.fixture(autouse=True)
 def restore_installed_reporter() -> Iterator[None]:
     """Leave the phase-reporter singleton exactly as the test found it.
@@ -191,7 +174,7 @@ def container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(
         "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
+        lambda config=None, **_: (True, ""),
     )
 
 

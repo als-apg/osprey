@@ -473,7 +473,7 @@ async def archiver_read(
         # exactly when a diagnosis needs it most. The only thing the control
         # target contributes here is provenance, stamped below.
         connector = await registry.archiver()
-        provenance = _provenance(registry.config.archiver, connector)
+        provenance = _provenance(registry.config.archiver, connector.connector)
 
         # Deduplicate: all counts below must describe what was actually queried.
         unique_channels = list(dict.fromkeys(channels))

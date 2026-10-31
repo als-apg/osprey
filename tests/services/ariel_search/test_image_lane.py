@@ -170,10 +170,10 @@ def _lane_records(caplog, level: int) -> list[logging.LogRecord]:
 
 class TestVectorSql:
     @pytest.mark.usefixtures("fake_provider")
-    async def test_k_and_ef_search_follow_fetch_limit(self):
+    async def test_k_and_ef_search_follow_fetch_limit(self, search_calls):
         pool = _pool([("e1", "a1", 0.8), ("e2", "a3", 0.6)])
         hits = await image_lane.search_images(
-            "beam loss", _repo(pool), _ariel_config(), fetch_limit=200
+            "beam loss", _repo(pool), _ariel_config(), fetch_limit=200, search_calls=search_calls
         )
 
         assert hits == {"e1": ImageHit("a1", 0.8), "e2": ImageHit("a3", 0.6)}
@@ -198,11 +198,15 @@ class TestVectorSql:
         ("fetch_limit", "k", "ef"), [(200, 600, "600"), (5, 15, "40"), (500, 1000, "1000")]
     )
     @pytest.mark.usefixtures("fake_provider")
-    async def test_k_is_capped_and_ef_search_floored(self, fetch_limit, k, ef):
+    async def test_k_is_capped_and_ef_search_floored(self, fetch_limit, k, ef, search_calls):
         pool = _pool()
         assert (
             await image_lane.search_images(
-                "q", _repo(pool), _ariel_config(), fetch_limit=fetch_limit
+                "q",
+                _repo(pool),
+                _ariel_config(),
+                fetch_limit=fetch_limit,
+                search_calls=search_calls,
             )
             == {}
         )
@@ -210,19 +214,25 @@ class TestVectorSql:
         assert pool.matching("hnsw.ef_search")[0][1]["ef"] == ef
 
     @pytest.mark.usefixtures("fake_provider")
-    async def test_dict_rows_keep_the_nearest_picture_per_entry(self):
+    async def test_dict_rows_keep_the_nearest_picture_per_entry(self, search_calls):
         pool = _pool(
             [
                 {"entry_id": "e1", "attachment_id": "a1", "similarity": 0.9},
                 {"entry_id": "e1", "attachment_id": "a2", "similarity": 0.5},
             ]
         )
-        hits = await image_lane.search_images("q", _repo(pool), _ariel_config(), fetch_limit=10)
+        hits = await image_lane.search_images(
+            "q", _repo(pool), _ariel_config(), fetch_limit=10, search_calls=search_calls
+        )
         assert hits == {"e1": ImageHit("a1", 0.9)}
 
-    async def test_original_query_text_is_embedded(self, fake_provider):
+    async def test_original_query_text_is_embedded(self, fake_provider, search_calls):
         await image_lane.search_images(
-            "orbit plot sector 3", _repo(_pool()), _ariel_config(), fetch_limit=10
+            "orbit plot sector 3",
+            _repo(_pool()),
+            _ariel_config(),
+            fetch_limit=10,
+            search_calls=search_calls,
         )
         (call,) = fake_provider.embed_calls
         assert call["inputs"] == ["orbit plot sector 3"]
@@ -230,26 +240,30 @@ class TestVectorSql:
         assert call["model_id"] == MODEL
 
     @pytest.mark.usefixtures("clock")
-    async def test_missing_table_is_a_config_failure(self, fake_provider, caplog):
+    async def test_missing_table_is_a_config_failure(self, fake_provider, caplog, search_calls):
         from psycopg.errors import UndefinedTable
 
         pool = _pool(UndefinedTable(f'relation "{TABLE}" does not exist'))
         with caplog.at_level(logging.DEBUG, logger="ariel"):
-            hits = await image_lane.search_images("q", _repo(pool), _ariel_config(), fetch_limit=10)
+            hits = await image_lane.search_images(
+                "q", _repo(pool), _ariel_config(), fetch_limit=10, search_calls=search_calls
+            )
         assert hits is None
         assert image_lane.last_unavailable_reason() == "config"
         assert len(_lane_records(caplog, logging.WARNING)) == 1
         # The breaker is open: the next query reaches neither the provider nor the database.
         calls = len(fake_provider.embed_calls)
         assert (
-            await image_lane.search_images("q", _repo(pool), _ariel_config(), fetch_limit=10)
+            await image_lane.search_images(
+                "q", _repo(pool), _ariel_config(), fetch_limit=10, search_calls=search_calls
+            )
             is None
         )
         assert len(fake_provider.embed_calls) == calls
 
     @pytest.mark.parametrize("which", ["query_canceled", "pool_timeout"])
     @pytest.mark.usefixtures("fake_provider")
-    async def test_statement_and_pool_timeouts_are_unreachable(self, which):
+    async def test_statement_and_pool_timeouts_are_unreachable(self, which, search_calls):
         from psycopg.errors import QueryCanceled
         from psycopg_pool import PoolTimeout
 
@@ -257,12 +271,16 @@ class TestVectorSql:
             pool = _pool(QueryCanceled("canceling statement due to statement timeout"))
         else:
             pool = _FakePool(error=PoolTimeout("couldn't get a connection after 2.00 sec"))
-        hits = await image_lane.search_images("q", _repo(pool), _ariel_config(), fetch_limit=10)
+        hits = await image_lane.search_images(
+            "q", _repo(pool), _ariel_config(), fetch_limit=10, search_calls=search_calls
+        )
         assert hits is None
         assert image_lane.last_unavailable_reason() == "unreachable"
 
     @pytest.mark.usefixtures("fake_provider")
-    async def test_a_statement_past_its_timeout_gives_text_only_within_the_bound(self):
+    async def test_a_statement_past_its_timeout_gives_text_only_within_the_bound(
+        self, search_calls
+    ):
         release = asyncio.Event()
 
         class _SlowConn:
@@ -294,7 +312,7 @@ class TestVectorSql:
 
         started = time.monotonic()
         hits = await image_lane.search_images(
-            "q", _repo(_SlowPool()), _ariel_config(), fetch_limit=10
+            "q", _repo(_SlowPool()), _ariel_config(), fetch_limit=10, search_calls=search_calls
         )
         elapsed = time.monotonic() - started
         assert hits is None
@@ -308,10 +326,14 @@ class TestVectorSql:
 
 
 class TestProviderBounds:
-    async def test_a_sleeping_embed_call_receives_the_query_timeout(self, fake_provider):
+    async def test_a_sleeping_embed_call_receives_the_query_timeout(
+        self, fake_provider, search_calls
+    ):
         fake_provider.sleep_s = 30.0
         started = time.monotonic()
-        hits = await image_lane.search_images("q", _repo(_pool()), _ariel_config(), fetch_limit=10)
+        hits = await image_lane.search_images(
+            "q", _repo(_pool()), _ariel_config(), fetch_limit=10, search_calls=search_calls
+        )
         elapsed = time.monotonic() - started
         assert hits is None
         assert fake_provider.embed_calls[0]["timeout"] == 5
@@ -319,7 +341,9 @@ class TestProviderBounds:
         assert elapsed < BOUND_S
         assert image_lane.last_unavailable_reason() == "unreachable"
 
-    async def test_a_slow_resolver_probe_leaves_the_loop_free(self, llama_stub, monkeypatch):
+    async def test_a_slow_resolver_probe_leaves_the_loop_free(
+        self, llama_stub, monkeypatch, search_calls
+    ):
         stub = llama_stub()
         release = threading.Event()
         monkeypatch.setattr(_local_server, "probe", lambda url, path, timeout: release.wait(10))
@@ -335,7 +359,11 @@ class TestProviderBounds:
         started = time.monotonic()
         try:
             hits = await image_lane.search_images(
-                "q", _repo(_pool()), _ariel_config(stub.url), fetch_limit=10
+                "q",
+                _repo(_pool()),
+                _ariel_config(stub.url),
+                fetch_limit=10,
+                search_calls=search_calls,
             )
         finally:
             elapsed = time.monotonic() - started
@@ -353,7 +381,9 @@ class TestProviderBounds:
 
 
 class TestBreakerAndReason:
-    async def test_repeated_reason_logs_one_warning_then_debug(self, fake_provider, caplog, clock):
+    async def test_repeated_reason_logs_one_warning_then_debug(
+        self, fake_provider, caplog, clock, search_calls
+    ):
         import requests
 
         fake_provider.error = requests.ConnectionError("refused")
@@ -361,7 +391,9 @@ class TestBreakerAndReason:
         with caplog.at_level(logging.DEBUG, logger="ariel"):
             for _ in range(3):
                 assert (
-                    await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10)
+                    await image_lane.search_images(
+                        "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+                    )
                     is None
                 )
                 clock.now += 31
@@ -376,44 +408,70 @@ class TestBreakerAndReason:
             fake_provider.error = None
             fake_provider.health = HealthResult(False, "serves other", "model")
             assert (
-                await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) is None
+                await image_lane.search_images(
+                    "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+                )
+                is None
             )
             assert len(_lane_records(caplog, logging.WARNING)) == 2
             assert image_lane.last_unavailable_reason() == "model"
 
             clock.now += 31
             fake_provider.health = HealthResult(True, "ok", None)
-            assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) == {}
+            assert (
+                await image_lane.search_images(
+                    "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+                )
+                == {}
+            )
             assert len(_lane_records(caplog, logging.INFO)) == 1
             assert image_lane.last_unavailable_reason() is None
             assert availability.current_reason(image_lane.TRACKER_KEY) is None
 
-    async def test_open_breaker_skips_the_provider_and_keeps_the_reason(self, fake_provider, clock):
+    async def test_open_breaker_skips_the_provider_and_keeps_the_reason(
+        self, fake_provider, clock, search_calls
+    ):
         fake_provider.health = HealthResult(False, "down", "unreachable")
         config = _ariel_config()
-        assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) is None
+        assert (
+            await image_lane.search_images(
+                "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            is None
+        )
         health_calls = len(fake_provider.health_calls)
 
         clock.now += 10
-        assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) is None
+        assert (
+            await image_lane.search_images(
+                "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            is None
+        )
         assert len(fake_provider.health_calls) == health_calls
         assert fake_provider.embed_calls == []
 
         clock.now += 31
         assert image_lane.last_unavailable_reason() == "unreachable"
 
-    async def test_unhealthy_verdict_sends_no_post(self, fake_provider):
+    async def test_unhealthy_verdict_sends_no_post(self, fake_provider, search_calls):
         fake_provider.health = HealthResult(False, "serves another model", "model")
         assert (
-            await image_lane.search_images("q", _repo(_pool()), _ariel_config(), fetch_limit=10)
+            await image_lane.search_images(
+                "q", _repo(_pool()), _ariel_config(), fetch_limit=10, search_calls=search_calls
+            )
             is None
         )
         assert fake_provider.embed_calls == []
         assert image_lane.last_unavailable_reason() == "model"
 
-    async def test_reset_state_clears_breaker_reason_verdict_and_settings(self, fake_provider):
+    async def test_reset_state_clears_breaker_reason_verdict_and_settings(
+        self, fake_provider, search_calls
+    ):
         fake_provider.health = HealthResult(False, "down", "unreachable")
-        await image_lane.search_images("q", _repo(_pool()), _ariel_config(), fetch_limit=10)
+        await image_lane.search_images(
+            "q", _repo(_pool()), _ariel_config(), fetch_limit=10, search_calls=search_calls
+        )
         image_lane._reset_state()
         assert image_lane.last_unavailable_reason() is None
         assert image_lane._breaker_until is None
@@ -427,7 +485,7 @@ class TestBreakerAndReason:
 
 
 class TestSettings:
-    async def test_settings_resolve_once_per_config(self, llama_stub, monkeypatch):
+    async def test_settings_resolve_once_per_config(self, llama_stub, monkeypatch, search_calls):
         stub = llama_stub()
         real = image_lane.resolve_provider
         calls: list[Any] = []
@@ -440,7 +498,12 @@ class TestSettings:
         config = _ariel_config(stub.url)
         pool = _pool()
         for _ in range(2):
-            assert await image_lane.search_images("q", _repo(pool), config, fetch_limit=10) == {}
+            assert (
+                await image_lane.search_images(
+                    "q", _repo(pool), config, fetch_limit=10, search_calls=search_calls
+                )
+                == {}
+            )
         assert len(calls) == 1
         assert calls[0]["serves"] == "image_embeddings"
         settings = image_lane._settings_cache[1]  # type: ignore[index]
@@ -450,11 +513,13 @@ class TestSettings:
         assert len(pool.matching(f"FROM {TABLE}")) == 2
 
         # A different config object is resolved afresh.
-        await image_lane.search_images("q", _repo(pool), _ariel_config(stub.url), fetch_limit=10)
+        await image_lane.search_images(
+            "q", _repo(pool), _ariel_config(stub.url), fetch_limit=10, search_calls=search_calls
+        )
         assert len(calls) == 2
 
     async def test_provider_is_an_instance_whose_health_check_gets_key_and_url(
-        self, llama_stub, monkeypatch
+        self, llama_stub, monkeypatch, search_calls
     ):
         from osprey.models.providers.llama_cpp import LlamaCppProviderAdapter
 
@@ -468,7 +533,12 @@ class TestSettings:
 
         monkeypatch.setattr(LlamaCppProviderAdapter, "check_embedding_health", _spy)
         config = _ariel_config(stub.url)
-        assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) == {}
+        assert (
+            await image_lane.search_images(
+                "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            == {}
+        )
         settings = image_lane._settings_cache[1]  # type: ignore[index]
         assert isinstance(settings.provider, LlamaCppProviderAdapter)
         assert seen == [(None, stub.url, MODEL)]
@@ -482,13 +552,17 @@ class TestSettings:
         ],
         ids=["no-model", "unknown-provider", "no-provider"],
     )
-    async def test_misconfigured_block_is_a_config_failure(self, block, caplog, clock, llama_stub):
+    async def test_misconfigured_block_is_a_config_failure(
+        self, block, caplog, clock, llama_stub, search_calls
+    ):
         stub = llama_stub()
         config = _ariel_config(stub.url, **block)
         with caplog.at_level(logging.DEBUG, logger="ariel"):
             for _ in range(2):
                 assert (
-                    await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10)
+                    await image_lane.search_images(
+                        "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+                    )
                     is None
                 )
                 clock.now += 31
@@ -497,9 +571,14 @@ class TestSettings:
         assert image_lane._breaker_until is not None
         assert stub.embeddings == []
 
-    async def test_absent_block_is_a_config_failure(self):
+    async def test_absent_block_is_a_config_failure(self, search_calls):
         config = ARIELConfig.from_dict({"database": {"uri": "postgresql://localhost/test"}})
-        assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) is None
+        assert (
+            await image_lane.search_images(
+                "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            is None
+        )
         assert image_lane.last_unavailable_reason() == "config"
 
 
@@ -509,17 +588,19 @@ class TestSettings:
 
 
 class TestAgainstServer:
-    async def test_server_serving_another_alias_gives_model_and_no_post(self, llama_stub):
+    async def test_server_serving_another_alias_gives_model_and_no_post(
+        self, llama_stub, search_calls
+    ):
         stub = llama_stub()
         stub.alias = "other"
         hits = await image_lane.search_images(
-            "q", _repo(_pool()), _ariel_config(stub.url), fetch_limit=10
+            "q", _repo(_pool()), _ariel_config(stub.url), fetch_limit=10, search_calls=search_calls
         )
         assert hits is None
         assert stub.embeddings == []
         assert image_lane.last_unavailable_reason() == "model"
 
-    async def test_ten_queries_send_ten_posts_and_at_most_two_gets(self, llama_stub):
+    async def test_ten_queries_send_ten_posts_and_at_most_two_gets(self, llama_stub, search_calls):
         from osprey.models.providers.llama_cpp import LlamaCppProviderAdapter
         from osprey.services.ariel_search.enhancement.provider_resolver import (
             resolve_reachable_base_url,
@@ -534,7 +615,9 @@ class TestAgainstServer:
         config = _ariel_config(stub.url)
         for i in range(10):
             assert (
-                await image_lane.search_images(f"q{i}", _repo(_pool()), config, fetch_limit=10)
+                await image_lane.search_images(
+                    f"q{i}", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+                )
                 == {}
             )
         assert len(stub.embeddings) == 10
@@ -542,26 +625,43 @@ class TestAgainstServer:
         texts = [r["input"][0]["content"][0]["text"] for r in stub.embeddings]
         assert texts == [f"q{i}" for i in range(10)]
 
-    async def test_verdict_is_reused_within_its_ttl_and_rechecked_after(self, llama_stub, clock):
+    async def test_verdict_is_reused_within_its_ttl_and_rechecked_after(
+        self, llama_stub, clock, search_calls
+    ):
         stub = llama_stub()
         config = _ariel_config(stub.url)
-        assert await image_lane.search_images("warm", _repo(_pool()), config, fetch_limit=10) == {}
+        assert (
+            await image_lane.search_images(
+                "warm", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            == {}
+        )
         gets = stub.models_gets
 
         for _ in range(10):
             clock.now += 1
-            assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) == {}
+            assert (
+                await image_lane.search_images(
+                    "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+                )
+                == {}
+            )
         assert stub.models_gets - gets <= 1
 
         posts = len(stub.embeddings)
         clock.now += image_lane.VERDICT_TTL_S + 1
         stub.alias = "other"
-        assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) is None
+        assert (
+            await image_lane.search_images(
+                "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            is None
+        )
         assert image_lane.last_unavailable_reason() == "model"
         assert len(stub.embeddings) == posts
 
     async def test_fallback_found_after_cooldown(
-        self, reserve_port, llama_stub, monkeypatch, clock
+        self, reserve_port, llama_stub, monkeypatch, clock, search_calls
     ):
         stub = llama_stub()
         configured = _refused_url(reserve_port())
@@ -581,9 +681,16 @@ class TestAgainstServer:
         )
         config = _ariel_config(configured)
 
-        assert await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10) is None
+        assert (
+            await image_lane.search_images(
+                "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+            )
+            is None
+        )
         clock.now += image_lane.IMAGE_LANE_COOLDOWN_S + 1
-        hits = await image_lane.search_images("q", _repo(_pool()), config, fetch_limit=10)
+        hits = await image_lane.search_images(
+            "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+        )
         assert hits == {}
         assert image_lane.last_unavailable_reason() is None
         assert len(stub.embeddings) >= 1

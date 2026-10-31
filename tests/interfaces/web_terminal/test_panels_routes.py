@@ -87,6 +87,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "allow_runtime_panels",
         "presets",
         "ui_mode",
+        "expert_view",
         "rail_position",
         "rail_position_configured",
         "family_rail_defaults",

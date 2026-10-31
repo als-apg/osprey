@@ -10,6 +10,7 @@ the bare string ``okf`` is used consistently across the four wiring sites
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from types import SimpleNamespace
 
 from osprey.interfaces.web_terminal import app as web_terminal_app
@@ -35,9 +36,7 @@ def _fresh_source(obj) -> str:
     module this is the entire source; behavioural assertions are used instead
     wherever a function's actual effect can be exercised directly.
     """
-    path = inspect.getsourcefile(obj) or inspect.getfile(obj)
-    with open(path, encoding="utf-8") as fh:
-        return fh.read()
+    return Path(inspect.getsourcefile(obj) or inspect.getfile(obj)).read_text(encoding="utf-8")
 
 
 def test_okf_is_a_builtin_panel_with_knowledge_label():
@@ -155,16 +154,11 @@ def test_frontend_panel_manager_registers_okf_tab():
     The PANELS array lives in panel-catalog.js; panel-manager.js imports it
     from there and filters it against /api/panels at init.
     """
-    import os
 
-    catalog_path = os.path.join(
-        os.path.dirname(inspect.getfile(web_terminal_app)),
-        "static",
-        "js",
-        "panel-catalog.js",
+    catalog_path = (
+        Path(inspect.getfile(web_terminal_app)).parent / "static" / "js" / "panel-catalog.js"
     )
-    with open(catalog_path, encoding="utf-8") as fh:
-        js = fh.read()
+    js = catalog_path.read_text(encoding="utf-8")
     assert "id: 'okf'" in js
     assert "/api/okf-server" in js
 

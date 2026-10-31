@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.subprocess_capture import observe_exit, stop_child
 from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
@@ -36,6 +37,26 @@ _HIGHEST_EPHEMERAL_START = 49152
 #: A pinned deployment block: ``port_base``, ``PORT_BASE`` or ``worker_port_base``
 #: set to a literal, in Python, YAML or an ``osprey set`` argument.
 _PINNED_BASE = re.compile(r"port_base\W{1,4}(\d{4,5})\b", re.IGNORECASE)
+
+#: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
+_HOLDER_GRACE_S = 1.0
+
+
+def _end_holder(holder: subprocess.Popen[str]) -> None:
+    """End a lock holder by closing its stdin, then stop its group, which reaps it.
+
+    A holder exits on EOF; one that ignores it is stopped all the same and
+    fails the test.
+    """
+    if holder.stdin is not None:
+        holder.stdin.close()
+    exited = observe_exit(holder, within=10.0)
+    if holder.stdout is not None:
+        holder.stdout.close()
+    outcome = stop_child(holder, grace=_HOLDER_GRACE_S)
+    assert outcome.gone, outcome.describe()
+    if exited is None:
+        pytest.fail("the lock holder ignored EOF; its group was stopped")
 
 
 def test_the_port_lies_below_the_ephemeral_range():
@@ -127,6 +148,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     try:
         assert holder.stdout is not None
@@ -135,7 +157,7 @@ def test_a_port_locked_by_another_process_is_never_yielded(monkeypatch):
         with pytest.raises(RuntimeError, match="1 candidate"), reserved_port():
             pass
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
 
 
 @pytest.mark.parametrize(
@@ -236,6 +258,7 @@ def test_hold_ports_keeps_the_locks_until_exit():
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     try:
         assert holder.stdout is not None
@@ -243,7 +266,7 @@ def test_hold_ports_keeps_the_locks_until_exit():
         assert len(set(ports)) == 2
         assert _lockable_elsewhere(ports) == [False, False]
     finally:
-        holder.communicate(timeout=10)
+        _end_holder(holder)
     assert holder.returncode == 0
     assert _lockable_elsewhere(ports) == [True, True]
 

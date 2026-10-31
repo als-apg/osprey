@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e.claude_code.conftest import AGENT_UNLISTED_SETPOINT, BOUNDED_SETPOINT
 from tests.e2e.sdk_helpers import print_run_summary, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
@@ -28,7 +29,7 @@ pytestmark = pytest.mark.harness_benchmark
 async def test_write_within_limits_succeeds(safety_project):
     """Scenario 2: Writing a value within limits should succeed.
 
-    SR:DIAG:TEMP:01:TEMPERATURE:SP has limits min=0, max=100, writable=true.
+    The safety world's bounded setpoint has limits min=0, max=100, writable=true.
     Writing 50.0 is within bounds. The approval hook returns "ask" in
     selective mode (default). The test's auto_approve policy approves
     the callback, allowing the write to proceed.
@@ -37,7 +38,7 @@ async def test_write_within_limits_succeeds(safety_project):
     """
     prompt = (
         "Use the channel_write tool to write the value 50.0 to the channel "
-        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
+        f"'{BOUNDED_SETPOINT}'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -80,7 +81,7 @@ async def test_write_within_limits_succeeds(safety_project):
 async def test_write_to_unlisted_channel_succeeds(safety_project):
     """Scenario 5: Writing to an unlisted channel should succeed in the optional mode.
 
-    SR:RANDOM:UNLISTED is not in the limits DB. In the optional mode — which
+    The safety world's agent-lane unlisted setpoint is not in the limits DB. In the optional mode — which
     the ``safety_project`` fixture pins via ``mode: optional`` — unlisted
     channels are allowed through without limits validation.
 
@@ -88,7 +89,7 @@ async def test_write_to_unlisted_channel_succeeds(safety_project):
     """
     prompt = (
         "Use the channel_write tool to write the value 42.0 to the channel "
-        "'SR:RANDOM:UNLISTED'. Report the result."
+        f"'{AGENT_UNLISTED_SETPOINT}'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(

@@ -36,10 +36,7 @@ from osprey.utils.tool_rules import matches_denylist
 
 try:
     from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
-
-    CLAUDE_SDK_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only without the SDK
-    CLAUDE_SDK_AVAILABLE = False
     PermissionResultAllow = object  # type: ignore[assignment,misc]
     PermissionResultDeny = object  # type: ignore[assignment,misc]
 
