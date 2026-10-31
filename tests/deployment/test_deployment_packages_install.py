@@ -61,6 +61,9 @@ dependencies = []
 """
 
 
+_REAL_BUILD_WHEEL = wheel_build._build_wheel
+
+
 def _fake_wheel(source: Path, out_dir: Path) -> Path:
     """Stand in for the wheel build: a wheel named from the source's pyproject."""
     import tomllib
@@ -459,3 +462,34 @@ def test_a_skip_deps_build_names_a_distribution_once(tmp_path: Path) -> None:
     dockerfile = (repo / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
     primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
     assert '"$OSPREY_PIP_SPEC" ring-kind==0.2.0 knob-app==0.1.0 --refresh-package' in primer
+
+
+@pytest.mark.parametrize(
+    ("operator", "expected"), [(None, "315532800"), ("1700000000", "1700000000")]
+)
+def test_a_wheel_build_is_reproducible_unless_the_operator_says_otherwise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operator: str | None, expected: str
+) -> None:
+    """``SOURCE_DATE_EPOCH`` defaults to the earliest zip time; the operator's wins."""
+    recorded: dict[str, Any] = {}
+
+    def fake(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        flag = "--out-dir" if "--out-dir" in cmd else "--wheel-dir"
+        (Path(cmd[cmd.index(flag) + 1]) / "x-1.0-py3-none-any.whl").write_bytes(b"")
+        recorded["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(
+        wheel_build,
+        "subprocess",
+        SimpleNamespace(run=fake, TimeoutExpired=subprocess.TimeoutExpired),
+    )
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    if operator is not None:
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", operator)
+    out = tmp_path / "out"
+    out.mkdir()
+
+    _REAL_BUILD_WHEEL(tmp_path, out)
+
+    assert recorded["env"]["SOURCE_DATE_EPOCH"] == expected
