@@ -349,34 +349,9 @@ TIER_KIND_KEYS = (
     | RENDER_KEYS
 )
 
-#: The known keys of an app: a whole agent definition (lists, brief, config and
-#: tool servers), the model it runs, plus the per-render keys. The model is an
-#: id the host's provider serves, and an app that names none runs the host's.
-#: The deployment's provider, services and roster stay the host's.
-APP_KIND_KEYS = frozenset(
-    {
-        "name",
-        "model",
-        "hooks",
-        "rules",
-        "skills",
-        "agents",
-        "output_styles",
-        "web_panels",
-        "default_panel",
-        "claude_md_template",
-        "channel_finder_mode",
-        "config",
-        "mcp_servers",
-        "provenance",
-    }
-    | RENDER_KEYS
-)
-
 _KIND_KEYS: Mapping[ProfileKind, frozenset[str]] = {
     ProfileKind.ROOT: ROOT_KIND_KEYS,
     ProfileKind.TIER: TIER_KIND_KEYS,
-    ProfileKind.APP: APP_KIND_KEYS,
 }
 
 
@@ -1112,8 +1087,8 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
 def reject_unknown_kind_keys(raw: Mapping[Any, Any], kind: ProfileKind, where: str) -> None:
     """Refuse a top-level key that is not legal in a profile file of *kind*.
 
-    Run on the file's own document, before it is merged over its root: a tier
-    or app holds only what it adds, so a deployment key spelled there would
+    Run on the file's own document, before it is merged over its root: a login
+    holds only what it adds, so a deployment key spelled there would
     otherwise be laundered into the merged document, where the root set
     accepts it. A root profile is checked against the root set.
 
@@ -1156,10 +1131,9 @@ def reject_unknown_kind_keys(raw: Mapping[Any, Any], kind: ProfileKind, where: s
                 continue
             close = difflib.get_close_matches(key, known, n=1)
             named.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
-        article = "an" if kind is ProfileKind.APP else "a"
         message = (
             f"Unknown {kind.value} key(s) in {where}: {', '.join(named)}. "
-            f"Remove or correct them — valid keys in {article} {kind.value} are: "
+            f"Remove or correct them — valid keys in a {kind.value} are: "
             f"{', '.join(known)}."
         )
     if app_problems:

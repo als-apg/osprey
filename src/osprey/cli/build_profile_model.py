@@ -316,8 +316,8 @@ def render_key_errors(config: Any) -> list[str]:
         return []
     return [
         "config: modules.web_terminals.renders is written by the build, which derives "
-        "every entry from the files in tiers/ and apps/ and from project_name; set "
-        "extra_mounts, seed_base or image at the top of the tier or app file instead. "
+        "every entry from the login files in tiers/ and from project_name; set "
+        "extra_mounts, seed_base or image at the top of the login file instead. "
         "Delete modules.web_terminals.renders from profile.yml."
     ]
 

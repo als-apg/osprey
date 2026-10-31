@@ -52,9 +52,10 @@ from .build_profile_load import (
     _parse_profile,
 )
 from .build_profile_merge import (
+    _refuse_root_lists,
     _resolve_extends,
     resolve_profile_document,
-    seal_app_render,
+    seal_shared_render,
 )
 from .build_profile_model import BuildProfile
 from .build_profile_presets import _load_preset_raw
@@ -604,7 +605,7 @@ def resolve_build_document(
         # the file's own parent, would build a hollow project from the delta
         # alone and read its data tree from `tiers/`. The host variant is
         # handed over rather than merged here: it overlays that root, so a
-        # tier or app sees it through the deployment it merges over and is
+        # login sees it through the deployment it merges over and is
         # never refused for a key only the variant spells.
         document = resolve_profile_document(
             raw, profile_path.resolve(), root_overlays=read_overlays
@@ -618,10 +619,13 @@ def resolve_build_document(
         # merged — because only here does the whole picture an edit outranks
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
-        # The edit lands after the app composer pinned the render, so an app
-        # is sealed again: no edit arms it or opens a deployment-edit door.
-        if document.app_rel is not None and set_pairs:
-            raw = seal_app_render(raw, document.app_rel)
+        if set_pairs and not is_layer:
+            # An edit may not spell on the root what the file may not.
+            _refuse_root_lists(raw, str(profile_path))
+        # The edit lands after the shared login's render was sealed, so it is
+        # sealed again: no edit arms it or opens a deployment-edit door.
+        if document.shared_rel is not None and set_pairs:
+            raw = seal_shared_render(raw, document.shared_rel)
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset

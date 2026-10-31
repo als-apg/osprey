@@ -259,8 +259,8 @@ def test_retired_write_answer_is_pure_and_none_for_a_silent_mapping():
     assert retired_write_answer({"control_system.writes": "allowed"}) is None
 
 
-#: The previous release's shipped tier and app documents, which still spell the
-#: retired keys, and the bundled document that succeeds each one.
+#: The previous release's shipped tier documents, which still spell the retired
+#: keys, and the bundled login that succeeds each one.
 _PREVIOUS_TIER_LAYERS = (
     Path(__file__).resolve().parents[1]
     / "fixtures"
@@ -271,9 +271,11 @@ _SUCCESSORS = {
     "admin": "tiers/admin.yml",
     "readwrite": "tiers/readwrite.yml",
     "readonly": "tiers/readonly.yml",
-    "knowledge": "apps/knowledge.yml",
-    "logbook": "apps/logbook.yml",
+    "knowledge": "tiers/knowledge.yml",
+    "logbook": "tiers/logbook.yml",
 }
+#: The successors that are shared logins, sealed ``never``.
+_SHARED_SUCCESSORS = ("knowledge", "logbook")
 
 
 def test_every_previous_release_document_reads_as_its_bundled_successor(tmp_path):
@@ -295,7 +297,7 @@ def test_every_previous_release_document_reads_as_its_bundled_successor(tmp_path
         new = yaml.safe_load(new_path.read_text(encoding="utf-8"))
         assert retired_write_answer(new["config"]) is None, new_path
         assert new["config"]["control_system.writes"] == answer, new_path
-        if new_path.parent.name == "apps":
+        if stem in _SHARED_SUCCESSORS:
             assert answer == "never", new_path
         new_rendered = _section(_read_profile_document(new_path)["config"], tmp_path)
         assert new_rendered["writes"] == answer, new_path
@@ -480,7 +482,22 @@ def test_a_never_tier_overrides_a_rewritten_allowed_root_in_every_spelling(
     assert _section(merged["config"], tmp_path)["writes"] == "never"
 
 
-# ── apps ─────────────────────────────────────────────────────────────────────
+# ── shared logins ────────────────────────────────────────────────────────────
+
+
+def _shared_login(tmp_path: Path, text: str) -> Path:
+    """A repo whose ``shared:`` names ``tiers/logbook.yml``, a `lists: own` login."""
+    _write(
+        tmp_path / "profile.yml",
+        "name: Facility\nconfig:\n  modules.web_terminals.shared: [logbook]\n",
+    )
+    return _write(tmp_path / "tiers" / "logbook.yml", "name: Logbook\nlists: own\n" + text)
+
+
+def _render_shared(path: Path) -> dict[str, Any]:
+    from osprey.cli.build_profile_merge import resolve_profile_document
+
+    return resolve_profile_document(_read_profile_document(path), path, warn=False).raw
 
 
 @pytest.mark.parametrize(
@@ -492,30 +509,31 @@ def test_a_never_tier_overrides_a_rewritten_allowed_root_in_every_spelling(
         "config:\n  control_system:\n    writes_enabled: true\n",
     ],
 )
-def test_an_app_reads_as_never_whatever_its_retired_keys_say(text, tmp_path):
-    parsed = _read_profile_document(
-        _write(tmp_path / "apps" / "logbook.yml", text), "preset 'apps/logbook'"
-    )
-    rendered = _section(parsed["config"], tmp_path)
+def test_a_shared_login_renders_never_whatever_its_retired_keys_say(text, tmp_path):
+    rendered = _section(_render_shared(_shared_login(tmp_path, text))["config"], tmp_path)
     assert rendered["writes"] == "never"
     assert _retired_leaves_in(rendered) == []
 
 
-def test_an_arming_retired_key_in_an_app_warns_that_it_arms_nothing(caplog, tmp_path):
-    caplog.set_level(logging.WARNING, logger=_LOGGER_NAME)
-    path = _write(
-        tmp_path / "apps" / "logbook.yml",
+def test_an_arming_retired_key_in_a_shared_login_warns_once_that_it_arms_nothing(caplog, tmp_path):
+    caplog.set_level(logging.WARNING)
+    path = _shared_login(
+        tmp_path,
         "config:\n  control_system.writes_enabled: true\n"
         "  control_system.connector.epics.writes_enabled: false\n",
     )
-    _read_profile_document(path)
-    lines = _warnings(caplog)
-    armed = [line for line in lines if "control_system.writes_enabled`" in line]
-    assert len(armed) == 1
-    assert "arms nothing" in armed[0]
+    _render_shared(path)
+    _render_shared(path)
+    armed = [r.getMessage() for r in caplog.records if "arm nothing" in r.getMessage()]
+    assert len(armed) == 1, armed
+    assert "modules.web_terminals.shared" in armed[0]
     assert "control_system.writes: never" in armed[0]
-    unarmed = [line for line in lines if "connector.epics.writes_enabled" in line]
-    assert len(unarmed) == 1 and "arms nothing" not in unarmed[0]
+
+
+def test_a_shared_login_authoring_allowed_is_refused_naming_shared(tmp_path):
+    path = _shared_login(tmp_path, "config:\n  control_system.writes: allowed\n")
+    with pytest.raises(BuildProfileError, match="modules.web_terminals.shared"):
+        _render_shared(path)
 
 
 # ── kind comes from the path (BE-14) ─────────────────────────────────────────

@@ -29,7 +29,6 @@ from osprey.cli.build_profile_merge import (
     resolve_profile_document,
 )
 from osprey.cli.build_profile_resolve import resolve_build_document
-from osprey.cli.profile_root import ProfileKind
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import tier_writes
 
@@ -200,12 +199,15 @@ def test_root_only_render_reads_its_extends_chain(tmp_path, caplog):
     assert "was never, now allowed" in message
 
 
-def test_an_app_never_warns(tmp_path, caplog):
+def test_a_shared_login_never_warns(tmp_path, caplog):
     path = _repo(
         tmp_path,
-        {**_TWO_MACHINES, "control_system.writes_enabled": True},
+        {
+            **_TWO_MACHINES,
+            "control_system.writes_enabled": True,
+            "modules.web_terminals.shared": ["ops"],
+        },
         {"control_system.connector.epics.writes_enabled": False},
-        layer="apps/logbook.yml",
     )
     with caplog.at_level(logging.WARNING):
         _resolve(path)
@@ -222,7 +224,7 @@ def test_render_document_without_files_skips_the_check(tmp_path, caplog):
     host = {"config": {**_TWO_MACHINES, "control_system.writes_enabled": True}}
     layer = _read_profile_document(path)
     with caplog.at_level(logging.WARNING):
-        render_document(ProfileKind.TIER, host, layer, "tiers/ops.yml")
+        render_document(host, layer, "tiers/ops.yml")
     assert _posture_warnings(caplog) == []
 
 

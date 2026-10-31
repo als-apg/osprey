@@ -1,28 +1,26 @@
 """Profile-root discovery — the anchor every profile-relative path resolves against.
 
-A positional profile file is one of three kinds, and its location alone says
-which: a deployment's own **root** profile, a **tier** in ``tiers/`` beside that
-profile's ``profile.yml``, or an **app** in ``apps/`` beside it. Tiers and apps
-are layers: their ``data:``, convention dirs, ``.env`` and hash material all
-belong to the profile root one level up, never to the layer's own directory, so
-the distinction is made once, here, rather than re-derived by each consumer.
-The package ships tier and app presets the same way, in ``presets/tiers/`` and
-``presets/apps/`` beside the deployment presets; those anchor at the presets
-directory, which holds no ``profile.yml``.
+A positional profile file is one of two kinds, and its location alone says
+which: a deployment's own **root** profile, or a **login** in ``tiers/`` beside
+that profile's ``profile.yml``. A login is a layer: its ``data:``, convention
+dirs, ``.env`` and hash material all belong to the profile root one level up,
+never to the layer's own directory, so the distinction is made once, here,
+rather than re-derived by each consumer. The package ships login presets the
+same way, in ``presets/tiers/`` beside the deployment presets; those anchor at
+the presets directory, which holds no ``profile.yml``.
 
 The trigger is deliberately narrow: the file's parent directory is named
-``tiers`` or ``apps`` **and** a ``profile.yml`` sits beside that directory. One
-level, no upward walk. A walk would quietly capture unrelated files (a profile
-passed from a scratch directory that happens to sit under a ``tiers`` ancestor)
-and anchor them somewhere the caller never named; the narrow predicate leaves
-every other path — including the bare temp-file profiles tests build —
-standalone, with its own parent as root and no further requirements.
+``tiers`` **and** a ``profile.yml`` sits beside that directory. One level, no
+upward walk. A walk would quietly capture unrelated files (a profile passed
+from a scratch directory that happens to sit under a ``tiers`` ancestor) and
+anchor them somewhere the caller never named; the narrow predicate leaves every
+other path — including the bare temp-file profiles tests build — standalone,
+with its own parent as root and no further requirements.
 
 A file inside a layer directory whose root is missing is an error rather than a
 standalone build: it is a layer, so building it alone would silently produce a
-profile missing everything the root was meant to supply. A stem present in both
-``tiers/`` and ``apps/`` is refused: the name is the render's name, and one name
-cannot be both an access level of the deployment's agent and a separate app.
+profile missing everything the root was meant to supply. ``apps/`` holds
+applications, never logins: a plain ``<name>.yml`` there is refused by name.
 
 The retired layer directory is read as ``tiers/`` for one release, with a single
 warning naming the rewrite.
@@ -57,7 +55,6 @@ class ProfileKind(StrEnum):
 
     ROOT = "root"
     TIER = "tier"
-    APP = "app"
 
     @property
     def is_layer(self) -> bool:
@@ -80,7 +77,7 @@ _LAYER_KINDS: dict[str, ProfileKind] = {
 def layer_files(root_dir: Path) -> list[tuple[ProfileKind, Path]]:
     """Every layer file a profile root carries, as ``(kind, path)``.
 
-    The direct children of ``tiers/``, ``apps/`` and the retired layer directory (in that
+    The direct children of ``tiers/`` and the retired layer directory (in that
     order) that are files and are not dot-prefixed, sorted by name within each
     directory. Exactly the files :func:`resolve_profile_root` reads as layers —
     a file is a layer only when its parent directory IS a layer directory — so
@@ -126,20 +123,33 @@ def _is_bundled_preset_dir(path: Path) -> bool:
     return is_bundled_preset_dir(path)
 
 
-def _refuse_stem_in_two_kinds(path: Path, root_dir: Path, kind: ProfileKind) -> None:
-    """Raise when *path*'s stem also names a layer file of the other kind."""
-    other_dirs = [d for d in LAYER_DIRNAMES if _LAYER_KINDS[d] is not kind]
-    for other in other_dirs:
-        twin = root_dir / other / path.name
-        if twin.is_file():
-            raise BuildProfileError(
-                f"{path} and {twin} share the name {path.stem!r}. That name is both a "
-                f"tier and an app, and a render is named by its file, so neither can be "
-                f"built. Rename one of them, or delete the one this deployment does not "
-                f"use: a tier in '{TIERS_DIRNAME}/' is an access level of the "
-                f"deployment's own agent, an app in '{APPS_DIRNAME}/' is a separate agent "
-                "the deployment offers."
-            )
+def plain_app_file_refusal(name: str) -> str:
+    """The refusal of a login file left in ``apps/``, which holds applications only.
+
+    Args:
+        name: The file's name, e.g. ``logbook.yml``.
+    """
+    return (
+        f"{APPS_DIRNAME}/{name} is a login file; {APPS_DIRNAME}/ holds application "
+        f"directories only. Run `osprey init --revalidate` to move it to {TIERS_DIRNAME}/"
+    )
+
+
+def refuse_plain_app_files(root_dir: Path) -> None:
+    """Refuse a profile root whose ``apps/`` holds a plain ``<name>.yml`` login file.
+
+    Logins live in ``tiers/``; a file left in ``apps/`` from before the move is
+    never read as a login, so the build names it rather than walking past it.
+
+    Raises:
+        BuildProfileError: On the first such file, by name.
+    """
+    apps_dir = root_dir / APPS_DIRNAME
+    if not apps_dir.is_dir():
+        return
+    for entry in sorted(apps_dir.iterdir(), key=lambda entry: entry.name):
+        if entry.is_file() and entry.suffix in (".yml", ".yaml"):
+            raise BuildProfileError(plain_app_file_refusal(entry.name))
 
 
 def _warn_layer_file(path: Path, root_dir: Path) -> None:
@@ -168,22 +178,23 @@ def resolve_profile_root(profile_path: Path) -> tuple[Path, ProfileKind]:
     Returns:
         ``(root_dir, kind)``. ``root_dir`` is the absolute directory that
         ``data:``, convention dirs, ``.env`` and hash material resolve against:
-        the profile root for a tier or app, the bundled presets directory for a
-        tier or app preset, the file's own parent otherwise. ``kind`` is
-        :attr:`ProfileKind.TIER` or :attr:`ProfileKind.APP` for a layer that
-        still has to be merged over a root profile, :attr:`ProfileKind.ROOT`
-        otherwise.
+        the profile root for a login, the bundled presets directory for a
+        login preset, the file's own parent otherwise. ``kind`` is
+        :attr:`ProfileKind.TIER` for a layer that still has to be merged over a
+        root profile, :attr:`ProfileKind.ROOT` otherwise.
 
     Raises:
-        BuildProfileError: If the file sits in ``tiers/``, ``apps/`` or a
-            retired layer directory with no ``profile.yml`` beside it, or its
-            stem names both a tier and an app.
+        BuildProfileError: If the file sits in ``tiers/`` or a retired layer
+            directory with no ``profile.yml`` beside it, or is a plain login
+            file in ``apps/`` beside one.
     """
     path = Path(profile_path).resolve()
     parent = path.parent
     kind = _LAYER_KINDS.get(parent.name)
 
     if kind is None:
+        if parent.name == APPS_DIRNAME and (parent.parent / PROFILE_FILENAME).is_file():
+            raise BuildProfileError(plain_app_file_refusal(path.name))
         return parent, ProfileKind.ROOT
 
     root_dir = parent.parent
@@ -201,7 +212,6 @@ def resolve_profile_root(profile_path: Path) -> tuple[Path, ProfileKind]:
             "profile."
         )
 
-    _refuse_stem_in_two_kinds(path, root_dir, kind)
     if parent.name in RETIRED_LAYER_DIRS:
         _warn_layer_file(path, root_dir)
     return root_dir, kind
@@ -223,7 +233,7 @@ class ProjectProfileProblem(Enum):
     #: The manifest names a profile file that is not there any more.
     PROFILE_FILE_MISSING = "profile_file_missing"
 
-    #: A tier or app whose root profile is gone; see :func:`resolve_profile_root`.
+    #: A login whose root profile is gone; see :func:`resolve_profile_root`.
     ROOT_UNRESOLVABLE = "root_unresolvable"
 
 
@@ -243,7 +253,7 @@ class ProjectProfile:
     #: The resolved profile root; ``None`` whenever ``problem`` is set.
     root: Path | None = None
 
-    #: What ``profile_path`` is; a tier or app anchors one level up.
+    #: What ``profile_path`` is; a login anchors one level up.
     kind: ProfileKind = ProfileKind.ROOT
 
     #: Set when no root resolved; ``None`` on success.
@@ -256,14 +266,14 @@ class ProjectProfile:
 
     @property
     def is_layer(self) -> bool:
-        """Whether ``profile_path`` is a layer (tier or app) over the root."""
+        """Whether ``profile_path`` is a layer (a login) over the root."""
         return self.kind.is_layer
 
     @property
     def env_path(self) -> Path | None:
         """The ``.env`` that owns this project's secrets, or ``None``.
 
-        The ``.env`` sits at the profile *root*: a tier or app shares the root
+        The ``.env`` sits at the profile *root*: a login shares the root
         profile's secrets rather than keeping its own beside itself.
         """
         return None if self.root is None else self.root / ".env"
@@ -276,7 +286,7 @@ def resolve_project_profile(project_dir: Path, *, require_profile_file: bool) ->
     from a *project* rather than a profile file, following
     ``build_args.profile_path_abs`` — the path ``osprey build`` actually
     resolved — and then anchoring it the way the build does, so a project built
-    from a tier or app reports the root one level above ``tiers/`` or ``apps/``
+    from a login reports the root one level above ``tiers/``
     rather than the layer's own directory.
 
     Callers ask the same question for different reasons, and the one thing they
@@ -284,7 +294,7 @@ def resolve_project_profile(project_dir: Path, *, require_profile_file: bool) ->
     *there*, which ``require_profile_file`` makes explicit:
 
     * ``True`` for a caller acting on the profile — moving an artifact into it,
-      reading a tier or app out of it. A directory that no longer holds a
+      reading a login out of it. A directory that no longer holds a
       profile would otherwise be reported as the root and every file under it
       as individually missing: one problem told as several, none of them the
       real one.

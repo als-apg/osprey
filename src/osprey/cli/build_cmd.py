@@ -2576,7 +2576,7 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
     """Every layer file a build of *repo_root* renders a project for.
 
     :func:`~osprey.cli.profile_root.layer_files` — the direct children of
-    ``tiers/``, ``apps/`` and the retired layer directory — which is the same listing the
+    ``tiers/`` and the retired layer directory — which is the same listing the
     content-hash fold (:func:`~osprey.cli.build_profile_merge._fold_profile_material`)
     and the staleness digests read. The build and the fingerprint have to agree
     exactly: a file the fingerprint covers but the render skips would make an
@@ -2589,11 +2589,14 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
 
     Raises:
         BuildProfileError: When a layer does not anchor back at *repo_root*
-            (see the containment check below), or two layer files share a
-            name, which would render two projects into one directory.
+            (see the containment check below), two layer files share a
+            name, which would render two projects into one directory, or
+            ``apps/`` holds a plain login file
+            (:func:`~osprey.cli.profile_root.refuse_plain_app_files`).
     """
-    from .profile_root import layer_files, resolve_profile_root
+    from .profile_root import layer_files, refuse_plain_app_files, resolve_profile_root
 
+    refuse_plain_app_files(repo_root)
     layers = layer_files(repo_root)
 
     # The property the rest of this rests on: a file found in a layer directory
@@ -2635,30 +2638,28 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
 
 def _layer_render(
     shared: _SharedRenderInputs,
-    kind: ProfileKind,
     layer: Path,
     *,
     project_name: str,
     host_profile: BuildProfile,
 ) -> tuple[str, Any]:
-    """The rendered project name and the resolved profile for one tier or app file.
+    """The rendered project name and the resolved profile for one login file.
 
     The one place a layer file is turned into what its render is made from, so
     the host-side render and the image copy of it cannot disagree about either.
 
-    The name is :func:`~osprey.deployment.web_terminals.render_naming.render_project`'s
-    for the file's kind, the same call the render projection
+    The name is :func:`~osprey.deployment.web_terminals.render_naming.render_project`'s,
+    the same call the render projection
     (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
     makes when it writes ``modules.web_terminals.renders.<name>`` into the
     deployment's config, which is how the deploy finds this render.
 
-    A tier is the deployment's own agent at one access level, so its render
+    A login is the deployment's own agent at one access level, so its render
     records the deployment's preset: the packaged trees it copies and the preset
-    its manifest is stamped with are the deployment's. The tier file's own
-    ``provenance:`` block says which bundled tier it was materialized from, which
-    is a fact about that file for ``osprey validate`` and not a preset the build
-    could copy anything from. An app keeps what its resolution gives it: the
-    composer already carries the deployment's provenance.
+    its manifest is stamped with are the deployment's. The login file's own
+    ``provenance:`` block says which bundled login it was materialized from,
+    which is a fact about that file for ``osprey validate`` and not a preset the
+    build could copy anything from.
 
     Returns:
         ``(project, resolved)``: the render's project name and its
@@ -2666,23 +2667,16 @@ def _layer_render(
     """
     from dataclasses import replace
 
-    from osprey.deployment.web_terminals.render_naming import (
-        RENDER_KIND_APP,
-        RENDER_KIND_TIER,
-        render_project,
-    )
+    from osprey.deployment.web_terminals.render_naming import render_project
 
     from .build_profile import resolve_build_document
-    from .profile_root import ProfileKind
 
-    render_kind = RENDER_KIND_APP if kind is ProfileKind.APP else RENDER_KIND_TIER
-    project, _ = render_project(project_name, layer.stem, kind=render_kind)
+    project, _ = render_project(project_name, layer.stem)
     resolved = resolve_build_document(layer, None, shared.profile_overlays)
-    if kind is not ProfileKind.APP:
-        profile = replace(resolved.profile, provenance=host_profile.provenance)
-        # Not a dataclass field, so `replace` does not carry it: set it here.
-        profile.inherited_preset = host_profile.inherited_preset
-        resolved = replace(resolved, profile=profile)
+    profile = replace(resolved.profile, provenance=host_profile.provenance)
+    # Not a dataclass field, so `replace` does not carry it: set it here.
+    profile.inherited_preset = host_profile.inherited_preset
+    resolved = replace(resolved, profile=profile)
     return project, resolved
 
 
@@ -2694,22 +2688,21 @@ def _render_projects(
     host_profile: BuildProfile,
     selections_out: set[str] | None = None,
 ) -> list[Path]:
-    """Render ``build/<project_name>-<name>/`` for every file in ``tiers/`` and ``apps/``.
+    """Render ``build/<project_name>-<name>/`` for every file in ``tiers/``.
 
-    Tiers and apps are rendered HERE, by the build, and nowhere else. No start
+    Logins are rendered HERE, by the build, and nowhere else. No start
     verb renders one: ``build/`` is the complete account of what a deploy will
     run, and a render appearing at ``osprey up`` would make that false exactly
     when it mattered: an operator whose tier file changed would get a fresh tier
     beside a stale deployment, from a start that re-rendered half the stack.
 
     Into the STAGED tree, so these projects transit the atomic swap with
-    everything else (:func:`_swap_in_render`): a tier or app that will not
+    everything else (:func:`_swap_in_render`): a login that will not
     resolve fails the whole build and leaves the previous ``build/`` exactly as
     it was. Never a half-written set.
 
     Every file is rendered whether the roster references it or not: the roster
-    decides which renders are *deployed*, ``tiers/`` and ``apps/`` decide which
-    exist. See :func:`_layer_render` for how each one is named and resolved.
+    decides which renders are *deployed*, ``tiers/`` decides which exist. See :func:`_layer_render` for how each one is named and resolved.
 
     ``selections_out``, when given, collects every convention artifact a
     render's lists select, for the build's report of the ones none does.
@@ -2729,11 +2722,11 @@ def _render_projects(
     already_warned = unknown_root_entries(shared.repo_root)
 
     rendered: list[Path] = []
-    for kind, layer in layers:
+    for _kind, layer in layers:
         project, resolved = _layer_render(
-            shared, kind, layer, project_name=project_name, host_profile=host_profile
+            shared, layer, project_name=project_name, host_profile=host_profile
         )
-        logger.debug("  Rendering %s %r → %s/", kind.value, layer.stem, project)
+        logger.debug("  Rendering tier %r → %s/", layer.stem, project)
         if selections_out is not None:
             selections_out.update(render_convention_selections(resolved.profile))
         rendered.append(
@@ -3195,9 +3188,9 @@ def _render_container_projects(
             deployment=True,
         )
     ]
-    for kind, layer in _layer_files(shared.repo_root):
+    for _kind, layer in _layer_files(shared.repo_root):
         project, layer_resolved = _layer_render(
-            shared, kind, layer, project_name=project_name, host_profile=resolved.profile
+            shared, layer, project_name=project_name, host_profile=resolved.profile
         )
         contexts.append(
             _render_container_project(

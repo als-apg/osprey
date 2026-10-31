@@ -19,7 +19,7 @@ import yaml
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_merge import resolve_profile_document
-from osprey.cli.build_profile_presets import _load_preset_raw, list_apps, list_tiers
+from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
 from osprey.facility.errors import FacilityBuildError
 from osprey.utils.config_writer import config_read, config_update_fields
 
@@ -93,7 +93,7 @@ def test_a_start_set_stated_twice_is_checked_as_the_render_keeps_it() -> None:
 
 @pytest.mark.parametrize(
     "layer",
-    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+    [f"tiers/{name}" for name in list_tiers()],
 )
 def test_a_child_preset_that_turns_the_web_terminals_off_reads_off(
     layer: str, tmp_path: Path

@@ -26,8 +26,8 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
-from tests._renders import app_render, tier_render
+from osprey.utils.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from tests._renders import tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -1911,15 +1911,12 @@ def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
 
 @pytest.mark.parametrize(
     ("build", "expected"),
-    [
-        (tier_render, f"{TIERS_DIRNAME}/assistant.yml"),
-        (app_render, f"{APPS_DIRNAME}/assistant.yml"),
-    ],
-    ids=["tier", "app"],
+    [(tier_render, f"{TIERS_DIRNAME}/assistant.yml")],
+    ids=["tier"],
 )
 def test_lint_not_a_delta_names_the_file_of_the_entry_kind(tmp_path, build, expected) -> None:
-    """The remedy names the file `osprey init` writes for the render's kind:
-    `tiers/<name>.yml` for a tier, `apps/<name>.yml` for an app."""
+    """The remedy names the file `osprey init` writes for every render:
+    `tiers/<name>.yml`, the login file."""
     # Arrange
     entry = build(
         "assistant",

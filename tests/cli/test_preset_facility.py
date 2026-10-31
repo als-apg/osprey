@@ -21,7 +21,6 @@ from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 from osprey.cli.build_profile_presets import (
     PRESET_FACILITY_KEY,
     _read_preset_document,
-    list_apps,
     list_presets,
     list_tiers,
     preset_facility,
@@ -55,7 +54,7 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
         ("control_assistant", "example"),
         ("hello-world", "hello_world"),
         ("tiers/readonly", None),
-        ("apps/logbook", None),
+        ("tiers/logbook", None),
         (None, None),
         ("no-such-preset", None),
     ],
@@ -75,7 +74,7 @@ def test_every_facility_a_shipped_preset_names_is_shipped() -> None:
 
 @pytest.mark.parametrize(
     "layer",
-    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+    [f"tiers/{name}" for name in list_tiers()],
 )
 def test_no_shipped_tier_or_app_names_a_facility(layer: str) -> None:
     """The facility is the deployment's, named once on the root preset.

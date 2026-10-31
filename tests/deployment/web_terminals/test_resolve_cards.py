@@ -19,7 +19,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.deployment.web_terminals.render_naming import (
-    RENDER_KIND_APP,
+    RENDER_KIND_SHARED,
     RENDER_KIND_TIER,
     render_kind_conflict,
     render_project,
@@ -32,7 +32,7 @@ from osprey.deployment.web_terminals.roster import (
     resolve_cards,
 )
 from osprey.port_layout import INDEX_MAX
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 PROJECT = "facility"
 
@@ -84,7 +84,7 @@ def test_people_resolve_identically_with_and_without_shared() -> None:
 
     # Act
     plain = resolve_cards(without, {}, project_name=PROJECT)
-    mixed = resolve_cards(with_apps, {}, project_name=PROJECT, app_titles=TITLES)
+    mixed = resolve_cards(with_apps, {}, project_name=PROJECT, shared_titles=TITLES)
 
     # Assert
     assert _people(mixed) == plain
@@ -150,13 +150,13 @@ def test_each_shared_app_resolves_to_its_own_render() -> None:
     subtree = _subtree(shared=["logbook", "knowledge"])
 
     # Act
-    apps = _apps(resolve_cards(subtree, {}, project_name=PROJECT, app_titles=TITLES))
+    apps = _apps(resolve_cards(subtree, {}, project_name=PROJECT, shared_titles=TITLES))
 
     # Assert
     project, project_path = render_project(PROJECT, "logbook")
     assert project_path == f"build/{PROJECT}-logbook"
     assert apps[0] == {
-        "kind": RENDER_KIND_APP,
+        "kind": "app",
         "app": "logbook",
         "name": "logbook",
         "index": INDEX_MAX,
@@ -188,7 +188,7 @@ def test_app_image_in_registry_mode_is_named_by_the_app() -> None:
 
 def test_app_carries_its_catalog_mounts_and_seed_base() -> None:
     catalog = {
-        "logbook": app_render(
+        "logbook": tier_render(
             "logbook",
             f"{PROJECT}-logbook",
             extra_mounts=["/srv/logbook:/data:ro", 3],
@@ -233,24 +233,24 @@ def test_apps_resolve_through_a_lenient_caller_too() -> None:
 # ── A name is a tier or an app, never both ───────────────────────────────────
 
 
-def test_naming_refuses_a_tier_that_is_an_app() -> None:
-    problem = render_kind_conflict("logbook", RENDER_KIND_TIER, apps={"logbook"})
+def test_naming_refuses_a_tier_that_is_a_shared_login() -> None:
+    problem = render_kind_conflict("logbook", RENDER_KIND_TIER, shared={"logbook"})
     assert problem is not None
     assert "modules.web_terminals.shared" in problem
     with pytest.raises(ValueError, match="never both"):
-        render_project(PROJECT, "logbook", kind=RENDER_KIND_TIER, apps={"logbook"})
+        render_project(PROJECT, "logbook", kind=RENDER_KIND_TIER, shared={"logbook"})
 
 
-def test_naming_refuses_an_app_that_is_a_tier() -> None:
-    assert render_kind_conflict("admin", RENDER_KIND_APP, tiers={"admin"}) is not None
+def test_naming_refuses_a_shared_login_that_is_a_tier() -> None:
+    assert render_kind_conflict("admin", RENDER_KIND_SHARED, tiers={"admin"}) is not None
     with pytest.raises(ValueError, match="never both"):
-        render_project(PROJECT, "admin", kind=RENDER_KIND_APP, tiers={"admin"})
+        render_project(PROJECT, "admin", kind=RENDER_KIND_SHARED, tiers={"admin"})
 
 
 def test_naming_accepts_distinct_names_and_unchecked_calls() -> None:
-    assert render_kind_conflict("admin", RENDER_KIND_TIER, apps={"logbook"}) is None
-    assert render_kind_conflict("logbook", RENDER_KIND_APP, tiers={"admin"}) is None
-    checked = render_project(PROJECT, "logbook", kind=RENDER_KIND_APP, tiers={"admin"})
+    assert render_kind_conflict("admin", RENDER_KIND_TIER, shared={"logbook"}) is None
+    assert render_kind_conflict("logbook", RENDER_KIND_SHARED, tiers={"admin"}) is None
+    checked = render_project(PROJECT, "logbook", kind=RENDER_KIND_SHARED, tiers={"admin"})
     assert checked == render_project(PROJECT, "logbook")
 
 
@@ -285,10 +285,23 @@ def test_an_app_named_like_a_role_tier_is_refused() -> None:
         resolve_cards(subtree, {}, project_name=PROJECT)
 
 
-def test_an_app_named_like_a_projected_tier_is_refused() -> None:
+def test_a_shared_login_rendered_from_tiers_resolves() -> None:
+    """Every login file renders a ``kind: tier`` projection entry, the shared
+    ones included: being projected is no use as a tier, so it is no collision."""
     renders = {"knowledge": {"kind": "tier", "project": f"{PROJECT}-knowledge"}}
     subtree = _subtree(shared=["knowledge"], renders=renders)
-    with pytest.raises(ValueError, match="shared app 'knowledge'.*also used as a tier"):
+
+    apps = _apps(resolve_cards(subtree, {}, project_name=PROJECT))
+
+    assert apps[0]["project"] == f"{PROJECT}-knowledge"
+
+
+def test_a_shared_login_a_role_uses_as_a_tier_is_refused() -> None:
+    subtree = _subtree(
+        shared=["knowledge"],
+        authorization={"roles": {"reader": {"tier": "knowledge"}}},
+    )
+    with pytest.raises(ValueError, match="shared login 'knowledge'.*also used as a tier"):
         resolve_cards(subtree, {}, project_name=PROJECT)
     # Lenient: the card stays on the roster, unresolved.
     apps = _apps(resolve_cards(subtree, {}, strict=False, project_name=PROJECT))
@@ -327,7 +340,7 @@ def test_a_built_repo_lists_people_only_in_config_and_profile(
     # And resolving the built config derives the app cards in memory.
     titles = {**TITLES, "channel-finder": "Channel Finder"}
     resolved = resolve_cards(
-        web_terminals, {}, strict=False, project_name=config["project_name"], app_titles=titles
+        web_terminals, {}, strict=False, project_name=config["project_name"], shared_titles=titles
     )
     apps = _apps(resolved)
     assert [entry["name"] for entry in _people(resolved)] == people

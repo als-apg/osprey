@@ -320,7 +320,7 @@ def _normalize_retired_roster_keys(raw: dict[str, Any], source: str) -> dict[str
                 continue
             spelled = f"{catalog_old}.{name}.{knob}"
             if knob in RENDER_KEYS:
-                remedy = f"set `{knob}` at the top of tiers/{name}.yml (or apps/{name}.yml)"
+                remedy = f"set `{knob}` at the top of tiers/{name}.yml"
             elif knob == "landing_group":
                 remedy = f"group landing cards with `{_WT_LABEL}.landing.groups`"
             else:
@@ -357,9 +357,6 @@ _FLAT_RETIRED_LABEL = f"{_CONTROL_SYSTEM}.{RETIRED_WRITES_LEAF}"
 
 _ALLOWED = "allowed"
 _NEVER = "never"
-
-#: The document kind an app file is read as (``LAYER_DIR_KINDS``' word).
-_APP_KIND = "app"
 
 #: Resolved path -> the retired posture leaves the normalizer removed from the
 #: document there (C-ORIGIN). Set or deleted on every parse of a path.
@@ -586,11 +583,11 @@ def retired_write_origin(path: Path) -> dict[str, Any] | None:
 
 
 def _document_kind(path: Path | None) -> str:
-    """``app``, ``tier``, ``layer`` or ``root``, from where the document lives.
+    """``tier``, ``layer`` or ``root``, from where the document lives.
 
     Only the directory holding the file counts, so a root profile in a repo
-    that happens to sit under an ``apps/`` directory is still a root. A
-    document with no file is a root.
+    that happens to sit under a ``tiers/`` directory of something else is
+    still a root. A document with no file is a root.
     """
     if path is None:
         return "root"
@@ -671,7 +668,7 @@ def _place_tier_key(config: dict, found: _WriteSpellings, answer: str) -> None:
         del container[key]
 
 
-def _warn_retired_writes(found: _WriteSpellings, source: str, kind: str, answer: str) -> None:
+def _warn_retired_writes(found: _WriteSpellings, source: str, answer: str) -> None:
     labels: list[tuple[str, bool]] = []
     for container, key, _top in found.flat:
         labels.append((_FLAT_RETIRED_LABEL, container.get(key) is True))
@@ -682,15 +679,8 @@ def _warn_retired_writes(found: _WriteSpellings, source: str, kind: str, answer:
                 container.get(key) is True,
             )
         )
-    for label, arms in labels:
-        if kind == _APP_KIND:
-            reading = (
-                f"it arms nothing: an app is always `{_WRITES_LABEL}: {_NEVER}`"
-                if arms
-                else f"an app is always `{_WRITES_LABEL}: {_NEVER}`"
-            )
-        else:
-            reading = f"this document reads as `{_WRITES_LABEL}: {answer}`"
+    for label, _arms in labels:
+        reading = f"this document reads as `{_WRITES_LABEL}: {answer}`"
         _warn_retired(source, label, f"`{label}` is retired; {reading}")
 
 
@@ -712,22 +702,22 @@ def _tier_key_values(mapping: dict, prefix: tuple[str, ...] = ()) -> Iterator[An
             yield from _tier_key_values(value, path)
 
 
-def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | None = None) -> None:
+def validate_tier_key_value(raw: dict[str, Any], source: str) -> None:
     """Refuse a ``control_system.writes`` that is not the string ``allowed`` or ``never``.
 
     Runs after :func:`normalize_retired_write_keys` on every document it
     sees — files, text and the ``--set`` layer — so a value it wrote is
     checked too. Only the exact lowercase strings pass: a boolean, ``null``,
-    ``"Allowed"`` or ``"yes"`` is refused rather than read as either tier. An
-    app (kind from *path*, as for the normalizer) may only spell ``never``.
+    ``"Allowed"`` or ``"yes"`` is refused rather than read as either tier.
+    Whether a login may spell ``allowed`` is its audience's question, judged
+    where the render is composed.
 
     Args:
         raw: One raw profile mapping; not changed.
         source: How to name the document in the error.
-        path: The file the document was read from, when there is one.
 
     Raises:
-        BuildProfileError: On any other value, or ``allowed`` in an app.
+        BuildProfileError: On any other value.
     """
     config = raw.get("config")
     if not isinstance(config, dict):
@@ -740,12 +730,6 @@ def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | No
             raise BuildProfileError(
                 f"{source}: `{_WRITES_LABEL}` must be `{_ALLOWED}` or `{_NEVER}`, got {value!r}"
             )
-    if _ALLOWED in values and _document_kind(path) == _APP_KIND:
-        raise BuildProfileError(
-            f"{source}: an app cannot spell `{_WRITES_LABEL}: {_ALLOWED}` — "
-            f"an app is always `{_WRITES_LABEL}: {_NEVER}`; set the tier key in "
-            "the profile or a tier instead"
-        )
 
 
 def normalize_retired_write_keys(
@@ -759,11 +743,12 @@ def normalize_retired_write_keys(
     so a silent tier, overlay or ``extends`` child inherits its host's tier.
     The retired leaves are removed (a connector block they empty is left for
     the render's checks) and ``control_system.writes`` is written where they
-    stood (:func:`_place_tier_key`): :func:`retired_write_answer` for a root,
-    tier or retired-layer document, ``never`` for an app.
+    stood (:func:`_place_tier_key`): :func:`retired_write_answer`, for every
+    document. A login named by ``shared:`` is sealed ``never`` where its render
+    is composed, which reads the recorded origin to tell a rewritten
+    ``allowed`` from an authored one.
 
-    The document's kind is read from *path* — never from *source*, which is a
-    display label. With a path, the removed leaves are recorded for
+    With a path, the removed leaves are recorded for
     :func:`retired_write_origin`, and a parse that finds none deletes the
     record, so a file rewritten in the same process leaves nothing stale.
 
@@ -794,7 +779,7 @@ def normalize_retired_write_keys(
     if not (found.flat or found.per_type):
         if key is not None:
             _RETIRED_WRITE_ORIGINS.pop(key, None)
-        validate_tier_key_value(raw, source, path=path)
+        validate_tier_key_value(raw, source)
         return raw
     assert isinstance(config, dict)
     if found.new:
@@ -803,15 +788,14 @@ def normalize_retired_write_keys(
         raise _mixed_writes_error(found, source)
 
     leaves = _retired_leaves(config)
-    kind = _document_kind(path)
-    answer = _NEVER if kind == _APP_KIND else _retired_tier(leaves)
-    _warn_retired_writes(found, source, kind, answer)
+    answer = _retired_tier(leaves)
+    _warn_retired_writes(found, source, answer)
 
     _place_tier_key(config, found, answer)
 
     if key is not None:
         _RETIRED_WRITE_ORIGINS[key] = leaves
-    validate_tier_key_value(raw, source, path=path)
+    validate_tier_key_value(raw, source)
     return raw
 
 

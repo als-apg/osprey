@@ -22,7 +22,7 @@ from osprey.cli.build_profile_emit import (
     _collapse_config_prefixes,
     emit_standalone_profile_yaml,
 )
-from osprey.cli.build_profile_presets import _presets_dir, list_apps
+from osprey.cli.build_profile_presets import _presets_dir
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey_connectors.errors import BuildProfileError
 
@@ -256,7 +256,7 @@ def test_web_tier_off_override_emits_one_web_terminals_key_holding_enabled_false
     # roster is built from.
     assert subtree["default_tier"] == "readonly"
     assert {user["name"] for user in subtree["users"]} == {"alice", "bob", "carol"}
-    assert set(subtree["shared"]) == set(list_apps())
+    assert set(subtree["shared"]) == {"channel-finder", "knowledge", "logbook"}
 
 
 def test_the_collapsed_key_keeps_the_section_header_it_was_holding() -> None:

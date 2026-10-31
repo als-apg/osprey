@@ -1,10 +1,9 @@
 """Known profile keys are a function of the file's kind.
 
-A root ``profile.yml`` may spell every key the schema defines. A tier
-(``tiers/<name>.yml``) is a small delta over the deployment's own agent: the
-root set minus every deployment key, plus the per-render keys. An app
-(``apps/<name>.yml``) is a whole agent definition offered beside the
-deployment's own. ``extends`` is legal in a root profile only. The loader,
+A root ``profile.yml`` may spell every key the schema defines. A login
+(``tiers/<name>.yml``, kind ``tier``) is the root set minus every deployment
+key, plus the per-render keys; one that says ``lists: own`` owns its lists
+outright. ``extends`` is legal in a root profile only. The loader,
 ``osprey set`` and ``osprey validate <file>`` judge a file against its kind's
 set, and their refusal names the keys legal in that file.
 """
@@ -20,7 +19,6 @@ from click.testing import CliRunner
 
 from osprey.cli.build_profile_load import (
     _KNOWN_PROFILE_KEYS,
-    APP_KIND_KEYS,
     RENDER_KEYS,
     ROOT_KIND_KEYS,
     ROOT_ONLY_KEYS,
@@ -49,28 +47,6 @@ _DEPLOYMENT_KEYS = frozenset(
         "dependencies",
         "exclude",
         "agent_record",
-    }
-)
-
-_EXPECTED_APP_KEYS = frozenset(
-    {
-        "name",
-        "model",
-        "hooks",
-        "rules",
-        "skills",
-        "agents",
-        "output_styles",
-        "web_panels",
-        "default_panel",
-        "claude_md_template",
-        "channel_finder_mode",
-        "config",
-        "mcp_servers",
-        "extra_mounts",
-        "seed_base",
-        "image",
-        "provenance",
     }
 )
 
@@ -107,12 +83,7 @@ def test_tier_set_admits_no_deployment_key_and_every_render_key() -> None:
     assert RENDER_KEYS <= TIER_KIND_KEYS
 
 
-def test_app_set_is_the_agent_definition() -> None:
-    assert APP_KIND_KEYS == _EXPECTED_APP_KEYS
-    assert known_profile_keys(ProfileKind.APP) == _EXPECTED_APP_KEYS
-
-
-@pytest.mark.parametrize("kind", [ProfileKind.TIER, ProfileKind.APP])
+@pytest.mark.parametrize("kind", [ProfileKind.TIER])
 def test_extends_is_legal_in_a_root_profile_only(kind: ProfileKind) -> None:
     assert "extends" in known_profile_keys(ProfileKind.ROOT)
     assert "extends" not in known_profile_keys(kind)
@@ -135,7 +106,7 @@ def test_render_keys_are_not_root_keys() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", [ProfileKind.TIER, ProfileKind.APP])
+@pytest.mark.parametrize("kind", [ProfileKind.TIER])
 def test_every_legal_key_passes(kind: ProfileKind) -> None:
     reject_unknown_kind_keys(dict.fromkeys(known_profile_keys(kind)), kind, "x/y.yml")
 
@@ -155,21 +126,9 @@ def test_a_deployment_key_in_a_tier_is_refused_naming_the_tier_keys(key: str) ->
     assert f" {key}," not in listed and not listed.rstrip(".").endswith(f" {key}")
 
 
-@pytest.mark.parametrize("key", ["provider", "dispatch", "extends", "services"])
-def test_a_host_key_in_an_app_is_refused_naming_the_app_keys(key: str) -> None:
-    with pytest.raises(BuildProfileError) as excinfo:
-        reject_unknown_kind_keys({"name": "logbook", key: "x"}, ProfileKind.APP, "apps/lb.yml")
-
-    message = str(excinfo.value)
-    assert "Unknown app key(s) in apps/lb.yml" in message
-    assert f"{key!r} (legal only in the deployment's profile.yml)" in message
-    listed = message.split("valid keys in an app are:", 1)[1]
-    assert sorted(_EXPECTED_APP_KEYS) == [k.strip(" .") for k in listed.split(",")]
-
-
 def test_a_typo_in_a_layer_gets_a_suggestion_from_its_own_set() -> None:
     with pytest.raises(BuildProfileError) as excinfo:
-        reject_unknown_kind_keys({"seed_bas": "x"}, ProfileKind.APP, "apps/lb.yml")
+        reject_unknown_kind_keys({"seed_bas": "x"}, ProfileKind.TIER, "tiers/lb.yml")
 
     assert "'seed_bas' (did you mean 'seed_base'?)" in str(excinfo.value)
 
@@ -205,7 +164,6 @@ def test_a_retired_preset_key_keeps_its_own_message_in_a_layer() -> None:
     ("dirname", "kind_word"),
     [
         ("tiers", "tier"),
-        ("apps", "app"),
         *(
             (retired, LAYER_DIR_KINDS[successor])
             for retired, successor in RETIRED_LAYER_DIRS.items()
@@ -234,11 +192,11 @@ def test_the_loader_refuses_extends_in_a_tier_naming_the_tier_keys(tmp_path: Pat
         load_profile_document(layer)
 
 
-def test_the_loader_refuses_a_host_key_in_an_app(tmp_path: Path) -> None:
+def test_the_loader_refuses_a_login_file_left_in_apps(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
-    layer = _write_yaml(repo / "apps" / "lb.yml", {"name": "lb", "provider": "anthropic"})
+    layer = _write_yaml(repo / "apps" / "lb.yml", {"name": "lb", "lists": "own"})
 
-    with pytest.raises(BuildProfileError, match="valid keys in an app are:"):
+    with pytest.raises(BuildProfileError, match="apps/lb.yml is a login file"):
         load_profile_document(layer)
 
 
@@ -273,7 +231,7 @@ _ROSTER_CONFIG = {
     ],
     "modules.web_terminals.authorization.roles.operators.tier": "readwrite",
     "modules.web_terminals.shared": ["logbook", "knowledge", "channel-finder"],
-    "modules.web_terminals.landing.groups": [{"type": "users"}, {"type": "apps"}],
+    "modules.web_terminals.landing.groups": [{"type": "users"}, {"type": "shared"}],
 }
 
 
@@ -310,7 +268,7 @@ def test_validate_refuses_a_deployment_key_in_a_tier_file(tmp_path: Path) -> Non
     assert "valid keys in a tier are:" in result.output
 
 
-def test_validate_refuses_a_host_key_in_an_app_file(tmp_path: Path) -> None:
+def test_validate_refuses_a_login_file_left_in_apps(tmp_path: Path) -> None:
     from osprey.cli.validate_cmd import validate
 
     repo = _repo(tmp_path)
@@ -318,9 +276,9 @@ def test_validate_refuses_a_host_key_in_an_app_file(tmp_path: Path) -> None:
 
     result = CliRunner().invoke(validate, [str(layer)])
 
-    assert result.exit_code == 2, result.output
-    assert "Unknown app key(s) in apps/lb.yml" in result.output
-    assert "valid keys in an app are:" in result.output
+    assert result.exit_code != 0, result.output
+    assert "apps/lb.yml is a login file" in result.output
+    assert "osprey init --revalidate" in result.output
 
 
 def test_set_names_the_keys_legal_in_the_profile(tmp_path: Path) -> None:
