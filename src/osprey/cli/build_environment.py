@@ -15,12 +15,18 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import unquote, urlparse
 
+from osprey.deployment.wheel_build import (
+    FRAMEWORK_DISTRIBUTION,
+    DeploymentPackage,
+    refuse_unshipped_kinds,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
@@ -357,7 +363,7 @@ def _merge_project_requirements(
     """
     from packaging.utils import canonicalize_name
 
-    reserved = canonicalize_name(_OSPREY_DIST_NAME)
+    reserved = canonicalize_name(FRAMEWORK_DISTRIBUTION)
     winner: dict[str, str] = {}
     order: list[str] = []
 
@@ -389,16 +395,19 @@ def _write_project_pyproject(
 
     1. **Dependency record.** Declares the exact set
        :func:`_create_project_venv` installed, so ``uv sync`` rebuilds the
-       environment rather than pruning it down to nothing.
+       environment rather than pruning it down to nothing. A deployment package
+       is recorded as ``name==version`` with no source: its wheel is in the
+       render's deployment-packages directory, which a resolve from this record
+       alone does not search.
     2. **Project anchor.** ``uv run`` locates an environment by walking *up*
        from the working directory looking for a ``pyproject.toml``. Without one,
        ``uv run osprey web`` inside a built project that happens to sit under
        another project (a checkout, a monorepo) silently resolves the
        *ancestor's* venv. This file stops that walk at the project root.
 
-    *extra_deps* is the very list that was installed, not a re-derivation of
-    it: the environment on the host and the record that rebuilds it elsewhere
-    cannot disagree, because there is only one list.
+    *extra_deps* is the list that was installed, not a re-derivation of it, with
+    each deployment package spelled by name rather than by wheel: the environment
+    on the host and the record cannot disagree, because there is only one list.
 
     Written whole on every build — never appended — so a rebuild over an
     existing render cannot stack duplicate dependency blocks.
@@ -454,9 +463,6 @@ def _write_project_pyproject(
         ]
     (project_path / "pyproject.toml").write_text("\n".join(lines), encoding="utf-8")
     logger.info("  ✓ Recorded %d dependencies in pyproject.toml", len(deps))
-
-
-_OSPREY_DIST_NAME = "osprey-framework"
 
 
 def _pip_member_requirements(osprey_spec: str) -> list[str]:
@@ -622,7 +628,7 @@ def _osprey_requirement_specifiers() -> dict[str, Any]:
     from packaging.utils import canonicalize_name
 
     try:
-        requires = distribution(_OSPREY_DIST_NAME).requires or []
+        requires = distribution(FRAMEWORK_DISTRIBUTION).requires or []
     except PackageNotFoundError:
         return {}
 
@@ -684,7 +690,7 @@ def _freeze_offender_message(
         lines += ["", "Not installed from a package index (no reproducible source):"]
         lines += [f"  - {detail}" for _, detail in unreproducible]
     if conflicts:
-        lines += ["", f"Conflicts with {_OSPREY_DIST_NAME}'s own requirements (osprey wins):"]
+        lines += ["", f"Conflicts with {FRAMEWORK_DISTRIBUTION}'s own requirements (osprey wins):"]
         lines += [f"  - {detail}" for _, detail in conflicts]
     offenders = sorted({name for name, _ in unreproducible + conflicts}, key=str.lower)
     lines += [
@@ -737,7 +743,7 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
         return []
 
     excluded = {canonicalize_name(name) for name in inherit_exclude}
-    excluded.add(canonicalize_name(_OSPREY_DIST_NAME))
+    excluded.add(canonicalize_name(FRAMEWORK_DISTRIBUTION))
 
     survivors: dict[str, tuple[str, str, str | None]] = {}
     for record in _probe_base_distributions(python_path):
@@ -768,7 +774,7 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
             continue  # unparseable version — nothing to compare against
         if not satisfied:
             conflicts.append(
-                (name, f"{name} {version} installed, {_OSPREY_DIST_NAME} requires {specifier}")
+                (name, f"{name} {version} installed, {FRAMEWORK_DISTRIBUTION} requires {specifier}")
             )
 
     if unreproducible or conflicts:
@@ -830,7 +836,13 @@ _VENV_CREATE_TIMEOUT_S = 300
 
 
 class _ProjectVenvPlan(NamedTuple):
-    """Everything the project venv is built from, judged before anything is written."""
+    """Everything the project venv is built from, judged before anything is written.
+
+    ``extra_deps`` is the list the record and the rendered Dockerfile carry, a
+    deployment package by its distribution name; ``install_deps`` is the same
+    list as the venv installs it, each deployment package bound to its built
+    wheel. ``None`` means the two spellings coincide.
+    """
 
     base_python: Path | None
     base_python_arg: str
@@ -839,9 +851,52 @@ class _ProjectVenvPlan(NamedTuple):
     extra_deps: list[str]
     uv_path: str | None
     member_requirements: list[str]
+    install_deps: list[str] | None = None
+    deployment_packages: tuple[DeploymentPackage, ...] = ()
 
 
-def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
+def deployment_dependencies(
+    dependencies: Sequence[str],
+    packages: Sequence[DeploymentPackage],
+    *,
+    install: bool = False,
+) -> list[str]:
+    """The profile's ``dependencies`` with each deployment package spelled in.
+
+    Each local-path entry is replaced, in place, by the package built from it;
+    each application package, which no entry names, follows the entries. A
+    package is spelled by its name and version, or, for the build venv's own
+    install (``install=True``), by its name bound to its built wheel.
+
+    Args:
+        dependencies: The profile's ``dependencies``.
+        packages: The built deployment packages.
+        install: Spell each package for the build venv's install.
+
+    Returns:
+        The dependency list, naming each package once.
+    """
+
+    def spelled(package: DeploymentPackage) -> str:
+        return package.install_requirement if install else package.requirement
+
+    by_entry = {entry: p for p in packages for entry in p.replaces}
+    result: list[str] = []
+    placed: set[str] = set()
+    for raw in dependencies:
+        package = by_entry.get(raw)
+        if package is None:
+            result.append(raw)
+        elif package.name not in placed:
+            placed.add(package.name)
+            result.append(spelled(package))
+    result.extend(spelled(p) for p in packages if not p.replaces)
+    return result
+
+
+def _plan_project_venv(
+    profile: Any, deployment_packages: Sequence[DeploymentPackage] = ()
+) -> _ProjectVenvPlan:
     """Judge the project environment's inputs without writing anything.
 
     Every :class:`BuildProfileError` about the environment's inputs is raised
@@ -892,11 +947,28 @@ def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
     # profile asks for, resolved in one pass alongside osprey itself. osprey's
     # own requirement is not in it — the image installs osprey from its own
     # pinned spec, exactly as `_write_project_pyproject` records it separately.
+    #
+    # The deployment's own packages enter the same list in two spellings: by
+    # name for the record and the image, by built wheel for this venv. Both are
+    # merged alike, so they name the same distributions in the same order.
+    dependencies = list(profile.dependencies or [])
+    environment_packages = list(profile.environment.packages or [])
+    packages = tuple(deployment_packages)
     extra_deps = _merge_project_requirements(
         frozen_base,
-        list(profile.dependencies or []),
-        list(profile.environment.packages or []),
+        deployment_dependencies(dependencies, packages),
+        environment_packages,
     )
+    install_deps = (
+        _merge_project_requirements(
+            frozen_base,
+            deployment_dependencies(dependencies, packages, install=True),
+            environment_packages,
+        )
+        if packages
+        else None
+    )
+    refuse_unshipped_kinds(extra_deps)
 
     # --- Choose the installer ---
     # The pip path names the workspace members beside the framework; a spec
@@ -911,6 +983,8 @@ def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
         extra_deps=extra_deps,
         uv_path=uv_path,
         member_requirements=member_requirements,
+        install_deps=install_deps,
+        deployment_packages=packages,
     )
 
 
@@ -928,7 +1002,9 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
     :func:`_write_project_pyproject`, and rendered by the caller into the
     generated Dockerfile's install line. None of them re-derives it, so the
     host venv, its record and the image built from it cannot disagree about
-    what the project depends on.
+    what the project depends on. The one difference is spelling: a deployment
+    package is installed here from its built wheel (``install_deps``) and named
+    by its distribution everywhere else.
     """
     venv_path = project_path / ".venv"
     uv_path = plan.uv_path
@@ -987,7 +1063,10 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
         raise BuildProfileError(f"Failed to create project venv: {output}")
 
     # --- Install osprey + frozen base + profile deps + environment packages ---
-    all_deps = [osprey_spec] + extra_deps
+    # One resolve with the framework, deployment packages included: a package
+    # that would move one of the framework's pins fails it instead.
+    install_deps = plan.install_deps if plan.install_deps is not None else extra_deps
+    all_deps = [osprey_spec] + install_deps
     venv_python = venv_path / "bin" / "python"
     dep_count = len(extra_deps)
 

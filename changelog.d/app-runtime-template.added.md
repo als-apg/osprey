@@ -1,0 +1,1 @@
+Application containers that run on the project image (`runtime: osprey`) render through a bundled `app_runtime` compose template, published on loopback only. `osprey build` builds each application package under `apps/<name>/` and each local-path dependency to a wheel and installs it in the build venv and in every project image, resolved together with the framework.
