@@ -25,14 +25,14 @@ per rendered project::
 
 ``root.yml`` is ``build/config.yml``; each ``<name>.yml`` is
 ``build/<project>-<name>/config.yml``, the render the build makes of
-``tiers/<name>.yml`` or ``apps/<name>.yml``.
+``tiers/<name>.yml``.
 
 Completeness
 ------------
 A build writes ``config.yml`` in three more places: ``build/.image/*/build/``
 (the container copies), and ``build/services/*/`` (one per deployed service).
-Every one of them is a re-serialization of the root or of a tier or app render,
-so capturing root + tiers + apps captures the whole surface. That is not assumed — the
+Every one of them is a re-serialization of the root or of a login render, so
+capturing root + logins captures the whole surface. That is not assumed — the
 script re-reads every ``config.yml`` under ``build/`` and refuses to write a
 cell whose extra documents do not each equal a captured one. If a future render
 grows a document that is genuinely its own, the freeze fails loudly with the
@@ -185,7 +185,7 @@ REPLACED_KEYS: Mapping[str, str] = {
 
 #: The deployment-repo directories whose files each render a project of their
 #: own, at ``build/<project_name>-<file stem>/``.
-LAYER_DIRS: tuple[str, ...] = ("tiers", "apps")
+LAYER_DIRS: tuple[str, ...] = ("tiers",)
 
 #: The build account every CLI subprocess runs as. ``osprey build`` writes it
 #: into the staged login map (``control_system.login_tiers``), so an unpinned
@@ -484,7 +484,7 @@ def collect_rendered_configs(project: Path) -> dict[str, dict[str, Any]]:
     """The documents a build emitted, keyed by the render they belong to.
 
     The renders are discovered from the deployment repo, not from the build
-    tree: every file directly under ``tiers/`` and ``apps/`` renders one project
+    tree: every file directly under ``tiers/`` renders one project
     at ``build/<project_name>-<file stem>/``, so each of those must hold a
     ``config.yml``. Reading the source side means a render the build failed to
     write is an error here rather than a cell that silently lost a document.
