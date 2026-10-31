@@ -15,9 +15,11 @@ from __future__ import annotations
 import dataclasses
 import glob
 import importlib.util
+import os
 import platform
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable, Sequence
@@ -33,6 +35,7 @@ from check_kit import (
     FULL,
     NOT_TOUCHED,
     PATHS,
+    UV_RUN,
     WHOLE,
     Check,
     Context,
@@ -83,6 +86,11 @@ INVARIANT_TESTS = (
 )
 
 LIVE_CA_VENUE = "linux-x86_64"
+DARWIN_VENUE = "darwin"
+
+#: The readonly gate's warm-up module: which stdlib lookups load native code
+#: lazily depends on the OS and the interpreter.
+READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
 
 #: The dock-engine package: its TypeScript sources, the bundle built from them,
 #: its Vitest suite and the cases both runtimes read.
@@ -593,8 +601,7 @@ def _package_command(*_run: object) -> list[list[str]]:
 
 #: Prints the keys of the documentation's ``redirects`` table, space separated.
 REDIRECT_KEYS_PROBE = (
-    "uv",
-    "run",
+    *UV_RUN,
     "python",
     "-c",
     "import os, runpy; os.chdir('docs/source'); "
@@ -664,7 +671,7 @@ def _check_tracked_ignored(_context: Context) -> int:
 
 
 #: Run in the documentation directory; needs the docs extra, as the build does.
-DOCS_CLEAN = ("uv", "run", "make", "clean")
+DOCS_CLEAN = (*UV_RUN, "make", "clean")
 
 
 def _prune_bytecode(_context: Context) -> int:
@@ -694,18 +701,23 @@ def _clean_docs_build(_context: Context) -> int:
 # Needs and venues
 
 #: Importable only in a venv synced with the docs extra.
-DOCS_EXTRA_PROBE = ("uv", "run", "python", "-c", "import myst_parser")
+DOCS_EXTRA_PROBE = (*UV_RUN, "python", "-c", "import myst_parser")
 
 #: Importable only in a venv synced with the virtual-accelerator extra, on its
 #: platform. The modules are the ones the live gate requires.
-LIVE_CA_PROBE = ("uv", "run", "python", "-c", "import pcaspy, p4p, lume_pva_apg")
+LIVE_CA_PROBE = (*UV_RUN, "python", "-c", "import pcaspy, p4p, lume_pva_apg")
+
+#: Prints the directory whose ``claude`` reports the pin, or the product's
+#: refusal on stderr.
+CLAUDE_PIN_PROBE = (*UV_RUN, "python", "scripts/pinned_claude.py")
+
+#: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
+JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
-#: ``--frozen``: the need probes run before the lockfile check, and a plain
-#: ``uv run`` would re-lock a stale lockfile and hand that check a current one.
-WORKFLOW_LINT_PROBE = ("uv", "run", "--frozen", "shellcheck", "--version")
+WORKFLOW_LINT_PROBE = (*UV_RUN, "shellcheck", "--version")
 
 
 def _need_uv() -> str | None:
@@ -729,10 +741,57 @@ def _need_workflow_linters() -> str | None:
     return "the workflow linters are not installed: run uv sync --extra dev"
 
 
+def _probe(argv: Sequence[str]) -> tuple[int, str, str]:
+    """Run a probe and return its exit status, stdout and stderr."""
+    try:
+        done = subprocess.run(list(argv), cwd=kit.ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        return 127, "", ""
+    return done.returncode, done.stdout, done.stderr
+
+
+def _need_claude_pin() -> str | None:
+    """Met when a ``claude`` reporting the pin is found; its directory then goes
+    first on ``PATH``, so every check this command starts runs it."""
+    status, out, err = _probe(CLAUDE_PIN_PROBE)
+    if status != 0:
+        return " ".join(err.split()) or f"{shlex.join(CLAUDE_PIN_PROBE)} exited {status}"
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    if not lines or not Path(lines[-1]).is_dir():
+        return f"{shlex.join(CLAUDE_PIN_PROBE)} printed no directory"
+    directory = lines[-1]
+    os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
+    kit.say(f"claude-pin: {directory} first on PATH")
+    return None
+
+
+def _js_deps_current() -> ModuleType:
+    """The lockfile compare, loaded by path: scripts/ is not a package."""
+    spec = importlib.util.spec_from_file_location("js_deps_current", JS_DEPS_CURRENT)
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load {JS_DEPS_CURRENT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _need_node() -> str | None:
-    if shutil.which("node") and shutil.which("npm") and (kit.ROOT / "node_modules").is_dir():
+    """Met when ``node_modules`` holds what ``package-lock.json`` pins; runs
+    ``npm ci`` when it does not."""
+    if not (shutil.which("node") and shutil.which("npm")):
+        return "the Node toolchain is not installed: install Node, then run npm ci"
+    first_difference = _js_deps_current().first_difference
+    difference = first_difference(kit.ROOT)
+    if difference is None:
         return None
-    return "the Node toolchain is not installed: install Node, then run npm ci"
+    kit.say(f"node: {difference}; npm ci")
+    status = kit.run(("npm", "ci"))
+    if status != 0:
+        return f"npm ci failed (exit {status}): {difference}"
+    again = first_difference(kit.ROOT)
+    if again is not None:
+        return f"node_modules still differs from package-lock.json after npm ci: {again}"
+    return None
 
 
 def _need_history() -> str | None:
@@ -764,6 +823,7 @@ NEEDS = {
     "uv": _need_uv,
     "gitleaks": _need_gitleaks,
     "node": _need_node,
+    "claude-pin": _need_claude_pin,
     "history": _need_history,
     "docs-extra": _need_docs_extra,
     "graphviz": _need_graphviz,
@@ -777,7 +837,14 @@ def _on_live_ca_venue() -> bool:
     return sys.platform == "linux" and platform.machine() in ("x86_64", "aarch64")
 
 
-VENUES = {LIVE_CA_VENUE: Venue(_on_live_ca_venue, "needs linux x86_64 or aarch64")}
+def _on_darwin_venue() -> bool:
+    return sys.platform == "darwin"
+
+
+VENUES = {
+    LIVE_CA_VENUE: Venue(_on_live_ca_venue, "needs linux x86_64 or aarch64"),
+    DARWIN_VENUE: Venue(_on_darwin_venue, "needs macOS"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -789,24 +856,24 @@ CHECKS: tuple[Check, ...] = (
         "ruff",
         "invariant",
         BOTH,
-        ("uv", "run", "ruff", "check", "."),
+        (*UV_RUN, "ruff", "check", "."),
         needs=("uv",),
-        fix=(("uv", "run", "ruff", "check", ".", "--fix"),),
+        fix=((*UV_RUN, "ruff", "check", ".", "--fix"),),
         annotate=GITHUB_FORMAT,
     ),
     Check(
         "ruff-format",
         "invariant",
         BOTH,
-        ("uv", "run", "ruff", "format", "--check", "."),
+        (*UV_RUN, "ruff", "format", "--check", "."),
         needs=("uv",),
-        fix=(("uv", "run", "ruff", "format", "."),),
+        fix=((*UV_RUN, "ruff", "format", "."),),
     ),
     Check(
         "config-keys",
         "invariant",
         BOTH,
-        ("uv", "run", "python", "scripts/check_config_keys.py", "--back-test"),
+        (*UV_RUN, "python", "scripts/check_config_keys.py", "--back-test"),
         needs=("uv", "history"),
     ),
     Check(
@@ -858,7 +925,7 @@ CHECKS: tuple[Check, ...] = (
         "invariant-tests",
         "invariant",
         BOTH,
-        ("uv", "run", "pytest", *INVARIANT_TESTS),
+        (*UV_RUN, "pytest", *INVARIANT_TESTS),
         needs=("uv",),
         report="junit-pytest",
     ),
@@ -866,7 +933,7 @@ CHECKS: tuple[Check, ...] = (
         "mypy",
         "static",
         BOTH,
-        ("uv", "run", "python", "scripts/mypy_gate.py"),
+        (*UV_RUN, "python", "scripts/mypy_gate.py"),
         scope=("*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
     ),
@@ -874,7 +941,7 @@ CHECKS: tuple[Check, ...] = (
         "import-contracts",
         "static",
         BOTH,
-        ("uv", "run", "lint-imports"),
+        (*UV_RUN, "lint-imports"),
         scope=("*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
     ),
@@ -882,7 +949,7 @@ CHECKS: tuple[Check, ...] = (
         "private-imports",
         "static",
         BOTH,
-        ("uv", "run", "ruff", "check", "--preview", "--select=PLC2701", "."),
+        (*UV_RUN, "ruff", "check", "--preview", "--select=PLC2701", "."),
         scope=("*.py", "pyproject.toml"),
         needs=("uv",),
         annotate=GITHUB_FORMAT,
@@ -909,7 +976,7 @@ CHECKS: tuple[Check, ...] = (
         "actionlint",
         "static",
         BOTH,
-        ("uv", "run", "actionlint"),
+        (*UV_RUN, "actionlint"),
         scope=(".github/workflows/**",),
         needs=("uv", "workflow-linters"),
     ),
@@ -920,8 +987,8 @@ CHECKS: tuple[Check, ...] = (
         "pytest",
         "tests",
         BOTH,
-        ("uv", "run", "pytest"),
-        needs=("uv",),
+        (*UV_RUN, "pytest"),
+        needs=("uv", "claude-pin"),
         bound_s=5400,
         report="junit-pytest",
         tier_flags={
@@ -930,6 +997,8 @@ CHECKS: tuple[Check, ...] = (
         },
         empty_exit=5,
         named_suffixes=(".py",),
+        named_node_ids=True,
+        named_dirs=_is_pytest_file,
         selector=_select_pytest,
         command=_pytest_command,
         prepare=_prune_bytecode,
@@ -940,7 +1009,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest-pty",
         "tests",
         FULL,
-        ("uv", "run", "pytest", "tests/pty/", "-m", "pty"),
+        (*UV_RUN, "pytest", "tests/pty/", "-m", "pty"),
         scope=("tests/pty/**", "src/osprey/cli/**"),
         needs=("uv",),
         bound_s=600,
@@ -955,7 +1024,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest-wallclock",
         "tests",
         FULL,
-        ("uv", "run", "pytest", "tests/integration", "-m", "wallclock"),
+        (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
         scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
         bound_s=900,
@@ -963,11 +1032,36 @@ CHECKS: tuple[Check, ...] = (
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
     ),
+    # The readonly gate refuses every shared-library load once user code starts,
+    # so a stdlib lookup that loads native code lazily must be warmed before it
+    # closes. The sweep runs the warm-ups on the tree's interpreter; this runs
+    # them under 3.14 on macOS in a throwaway environment.
+    Check(
+        "readonly-warmups-py314",
+        "tests",
+        FULL,
+        (
+            *UV_RUN,
+            "--isolated",
+            "--python",
+            "3.14",
+            "--extra",
+            "dev",
+            "pytest",
+            READONLY_WARMUPS_TEST_FILE,
+            "-v",
+        ),
+        scope=(READONLY_WARMUPS_TEST_FILE, "src/osprey/runtime/**"),
+        needs=("uv",),
+        venue=DARWIN_VENUE,
+        bound_s=900,
+        report="junit-pytest",
+    ),
     Check(
         "live-ca",
         "tests",
         FULL,
-        ("uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"),
+        (*UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"),
         scope=(
             "tests/va/test_apply_fault.py",
             "tests/va/test_lume_pva_seam.py",
@@ -1012,7 +1106,7 @@ CHECKS: tuple[Check, ...] = (
         "docs",
         "build",
         FULL,
-        ("uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"),
+        (*UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"),
         scope=("docs/**", "*.rst", "*.md"),
         needs=("uv", "docs-extra", "graphviz"),
         workdir=DOCS_DIR,
@@ -1025,7 +1119,7 @@ CHECKS: tuple[Check, ...] = (
         "linkcheck",
         "build",
         FULL,
-        ("uv", "run", "make", "linkcheck"),
+        (*UV_RUN, "make", "linkcheck"),
         scope=("docs/**",),
         needs=("uv", "docs-extra"),
         workdir=DOCS_DIR,
@@ -1171,6 +1265,11 @@ LANES: tuple[Lane, ...] = (
         "qmd-sidecar-e2e",
         "containers",
         ("tests/integration/test_qmd_models_mount.py", "tests/e2e/test_deploy_lifecycle.py"),
+    ),
+    Lane(
+        "qmd-cache-warmup",
+        "main-branch cache",
+        ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
     ),
     _e2e("jupyter-panel-e2e", "test_jupyter_panel_lifecycle.py"),
     _va(

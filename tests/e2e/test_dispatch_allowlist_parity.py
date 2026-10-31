@@ -53,6 +53,7 @@ import pytest
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
 from tests._live import wait_until
 from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
+from tests.e2e._facility_select import repo_view, seeded_readback
 from tests.e2e._worker_record import WORKER_IDENTITY, WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import HEALTH_TIMEOUT_SEC
@@ -332,19 +333,20 @@ def test_subagent_tools_work_in_settings_stripped_repo(worker):
 
 
 @pytest.mark.parametrize("worker", ["approval_off_repo"], indirect=True)
-def test_approval_hook_allow_does_not_override_worker_deny(worker):
+def test_approval_hook_allow_does_not_override_worker_deny(worker, built_repo):
     """With approval disabled the facility hook would emit an explicit allow
     for mcp__controls__* (documented to override static permission lists, and
     CLI aggregation is not deny-dominates). Under OSPREY_DISPATCH_RUN=1 it
     emits no decision, so the worker hook's deny must stand for a
     trigger-excluded controls tool."""
+    channel = seeded_readback(repo_view(built_repo))
     run = dispatch_and_wait(
         worker,
         # Fully specified so the agent has no reason to ask a clarifying
         # question instead of attempting the tool call (observed flake: with no
         # time range the agent asked "what period?" and never touched the tool,
         # so the deny this test exists to observe never happened).
-        "Call the archiver_read tool NOW for channel SR:BEAM:CURRENT with "
+        f"Call the archiver_read tool NOW for channel {channel} with "
         "start='2h ago' and end='now'. Do not ask any clarifying questions; "
         "attempt the tool call immediately and report its result.",
         allowed_tools=["mcp__controls__channel_read"],

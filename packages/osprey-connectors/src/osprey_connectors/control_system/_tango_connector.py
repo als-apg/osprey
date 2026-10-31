@@ -30,6 +30,7 @@ from osprey_connectors.control_system._base import (
     values_match,
 )
 from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import TANGO
 
@@ -153,7 +154,7 @@ class TangoConnector(ControlSystemConnector):
             ImportError: If PyTango is not installed.
             ValueError: If the block still carries ``timeout``, or if
                 ``timeout_s`` is not a positive, finite number.
-            ConnectionError: If the TANGO database does not answer.
+            ConnectorUnavailableError: If the TANGO database does not answer.
         """
         # Import PyTango here and give a clear error if not installed. The
         # deferred import is what lets the type register unconditionally on
@@ -187,7 +188,9 @@ class TangoConnector(ControlSystemConnector):
             info = await asyncio.to_thread(database.get_info)
             logger.debug(f"TANGO connector: database reachable — {str(info).splitlines()[0]}")
         except Exception as e:
-            raise ConnectionError(f"TANGO connector failed to reach the TANGO database: {e}") from e
+            raise ConnectorUnavailableError(
+                f"TANGO connector failed to reach the TANGO database: {e}"
+            ) from e
 
         self._connected = True
         logger.debug("TANGO connector initialized")
@@ -243,10 +246,11 @@ class TangoConnector(ControlSystemConnector):
         """Synchronous TANGO read (runs in a thread).
 
         Building the proxy and reading the attribute are the two device round
-        trips, and a failure in either is reported as :class:`ConnectionError`
-        naming the attribute, with PyTango's own error kept as the cause — the
-        word the base contract owns for a channel that cannot be reached, and
-        the one the MCP error envelope answers by retiring the connector.
+        trips, and a failure in either is reported as
+        :class:`~osprey_connectors.errors.ChannelUnreachableError` naming the
+        attribute, with PyTango's own error kept as the cause: the class the
+        base contract owns for a channel that cannot be reached, which leaves
+        the connector in place.
 
         The address parse above the guard and the mapping below it are outside
         it on purpose: a malformed address is a ``ValueError`` and a reading
@@ -260,8 +264,8 @@ class TangoConnector(ControlSystemConnector):
         except TimeoutError:
             raise
         except Exception as exc:
-            raise ConnectionError(
-                f"Failed to read TANGO attribute '{channel_address}': {exc}"
+            raise ChannelUnreachableError(
+                channel_address, f"Failed to read TANGO attribute '{channel_address}': {exc}"
             ) from exc
 
         value = attr.value
@@ -315,7 +319,7 @@ class TangoConnector(ControlSystemConnector):
             attributes) the state labels
 
         Raises:
-            ConnectionError: If the device or its attribute cannot be reached
+            ChannelUnreachableError: If the device or its attribute cannot be reached
             TimeoutError: If the read does not answer within its ceiling
             ValueError: If the address does not name a device and an attribute
         """

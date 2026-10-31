@@ -31,6 +31,7 @@ from osprey.services.ariel_search.database.vector_literal import vector_literal
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import image_lane
+from osprey.services.ariel_search.search._offload import SearchCallPool
 from osprey.services.ariel_search.search.qmd import hybrid_search
 from osprey.services.qmd import QMDSearchResult
 from tests.services.ariel_search.fake_adapters import StubAdapter
@@ -114,6 +115,7 @@ class Lane:
     config: ARIELConfig
     repository: ARIELRepository
     vectors: dict[str, list[float]]
+    search_calls: SearchCallPool
 
     @property
     def table(self) -> str:
@@ -157,7 +159,12 @@ class Lane:
 
     async def search(self, text_ranking: list[str], **kwargs: Any) -> list[tuple[Any, ...]]:
         result = await hybrid_search(
-            QUERY, self.repository, self.config, client=StubClient(text_ranking), **kwargs
+            QUERY,
+            self.repository,
+            self.config,
+            client=StubClient(text_ranking),
+            search_calls=self.search_calls,
+            **kwargs,
         )
         assert isinstance(result, list), (
             f"picture lane failed: {image_lane.last_unavailable_reason()!r} {result!r}"
@@ -189,6 +196,7 @@ async def lane(
     server: str,  # noqa: ARG001 - requested for its version guard
     scratch_database: str,
     llama_stub: Callable[[], LlamaStub],
+    search_calls: SearchCallPool,
 ) -> AsyncIterator[Lane]:
     """A migrated scratch database, the stub server and the recorded picture vectors."""
     from osprey.services.ariel_search.database.connection import create_connection_pool
@@ -212,7 +220,7 @@ async def lane(
     )
     async with await create_connection_pool(config.database) as pool:
         await run_migrations(pool, config)
-        yield Lane(scratch_database, config, ARIELRepository(pool, config), vectors)
+        yield Lane(scratch_database, config, ARIELRepository(pool, config), vectors, search_calls)
 
 
 def _row(result: list[tuple[Any, ...]], entry_id: str) -> dict[str, Any]:

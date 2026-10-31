@@ -1355,13 +1355,8 @@ class TestServerLauncherRetry:
         # First call: sets _launched = True, then thread crashes and resets it
         launcher.ensure_running()
 
-        # Give the thread time to crash and reset _launched
-        import time
-
-        time.sleep(1.0)
-
-        # After crash, _launched should be reset to False
-        assert launcher._launched is False
+        # After the crash, _launched is reset to False
+        wait_until(lambda: launcher._launched is False, what="_launched reset after the crash")
 
     def test_server_launcher_health_check_warning(self, reserve_port, caplog, monkeypatch):
         """A server that never answers /health is warned about once the late-health window ends."""

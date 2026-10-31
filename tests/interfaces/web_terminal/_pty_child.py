@@ -10,7 +10,6 @@ own, and every test that starts one kills them in ``finally``.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import os
 import select
@@ -20,13 +19,12 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import psutil
 import pytest
 
-# Bound at import, so a test that patches ``process_tree.snapshot`` with
+# Bound at import, so a test that patches ``process_table.snapshot`` with
 # :func:`readable_rows` never has it call itself.
-from osprey.interfaces.web_terminal.process_tree import ProcessRow, ProcessTableUnreadable
-from osprey.interfaces.web_terminal.process_tree import snapshot as _read_table
+from osprey.deployment.process_table import ProcessRow, ProcessTableUnreadable
+from osprey.deployment.process_table import snapshot as _read_table
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtySession
@@ -231,26 +229,6 @@ def wait_for_pids(session: PtySession, path: Path, count: int) -> list[int]:
         time.sleep(0.05)
 
 
-def pid_gone(pid: int, within: float = 5.0) -> bool:
-    """Return whether *pid* is gone, or a zombie nobody has reaped yet, within *within* s."""
-    deadline = time.monotonic() + within
-    while True:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            pass
-        try:
-            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
-                return True
-        except psutil.NoSuchProcess:
-            return True
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.05)
-
-
 def readable_rows(
     holding: Iterable[int] = (), within: float = CHILD_HANG_CEILING
 ) -> dict[int, ProcessRow]:
@@ -276,56 +254,3 @@ def readable_rows(
         if time.monotonic() > deadline:
             pytest.fail(f"no readable process table within {within:g} s: {cause}")
         time.sleep(_POLL_S)
-
-
-def _running_state(pid: int) -> str | None:
-    """Return the psutil status of *pid* while it runs, ``None`` once it is gone or a zombie.
-
-    The status is read only for a pid the kernel still answers for: that is the
-    one case a signal probe cannot tell a running process from an exited one
-    nobody has reaped.
-    """
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return None
-    except PermissionError:
-        pass
-    try:
-        state = psutil.Process(pid).status()
-    except psutil.NoSuchProcess:
-        return None
-    return None if state == psutil.STATUS_ZOMBIE else state
-
-
-async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
-    """Wait until every one of *pids* is gone, or a zombie nobody has reaped yet.
-
-    The wait of an async test: it yields to the loop between looks and reads
-    the process table off it, so whatever the loop still has to finish is not held up by
-    the waiting. All of *pids* share one deadline of *within* seconds. A pid
-    still running at the deadline fails the wait by name, with the state
-    the process table last reported for it.
-    """
-    started = time.monotonic()
-    running = list(pids)
-    while True:
-        states = {pid: await asyncio.to_thread(_running_state, pid) for pid in running}
-        running = [pid for pid in running if states[pid] is not None]
-        if not running:
-            return
-        waited = time.monotonic() - started
-        if waited > within:
-            pid = running[0]
-            raise AssertionError(
-                f"pid {pid} (ps state {states[pid]!r}) is still running {waited:.1f} s after "
-                "the stop returned"
-            )
-        await asyncio.sleep(0.05)
-
-
-def kill_quietly(pids: Iterable[int]) -> None:
-    """SIGKILL every pid in *pids*, ignoring those already gone."""
-    for pid in pids:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)

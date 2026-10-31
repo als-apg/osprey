@@ -33,7 +33,6 @@ non-self-excluding ``.dockerignore`` beside every service recipe.
 """
 
 import dataclasses
-import os
 import pathlib
 import re
 import subprocess
@@ -42,7 +41,15 @@ import pytest
 
 import osprey
 from tests.deployment._cache_mounts import assert_build_caches_mounted
-from tests.deployment._pip_probe import primer_pip_argv
+from tests.deployment._pip_probe import (
+    APT_NOOP,
+    UV_TO_PIP,
+    deps_sandbox,
+    primer_pip_argv,
+    probe_wheel_body,
+    run_body,
+    stubbed_env,
+)
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
     assert_site_ca_idiom,
@@ -232,7 +239,9 @@ class TestLayerSplit:
 
     def test_every_run_parses_under_sh(self, service):
         for body in _run_bodies(_dockerfile(service)):
-            result = subprocess.run(["sh", "-n", "-c", body], capture_output=True, text=True)
+            result = subprocess.run(
+                ["sh", "-n", "-c", body], capture_output=True, text=True, timeout=60
+            )
             assert result.returncode == 0, (
                 f"{service}: invalid shell syntax in a RUN body:\n{body}\n{result.stderr}"
             )
@@ -251,7 +260,7 @@ class TestLayerSplit:
         """Empirical probe: a failing `pip` inside the wheel layer must fail the
         whole RUN body — the trailing `rm -rf /tmp/ctx` cleanup must not swallow
         the exit status (`fi && rm`, never `fi; rm`)."""
-        result, ctx = _probe_wheel_body(_wheel_body(service), tmp_path, with_wheel=True)
+        result, ctx = probe_wheel_body(_wheel_body(service), tmp_path, with_wheel=True)
         assert result.returncode != 0, (
             f"{service}: wheel-layer RUN exited 0 despite pip failing — a broken "
             f"dev-wheel install would build a stale image silently:\n"
@@ -262,7 +271,7 @@ class TestLayerSplit:
     def test_wheel_layer_no_wheel_is_noop_success(self, service, tmp_path):
         """Empirical probe: with no wheel staged the RUN is a successful no-op
         (the untaken `if` exits 0) and still cleans up the staged context."""
-        result, ctx = _probe_wheel_body(_wheel_body(service), tmp_path, with_wheel=False)
+        result, ctx = probe_wheel_body(_wheel_body(service), tmp_path, with_wheel=False)
         assert result.returncode == 0, (
             f"{service}: no-wheel wheel layer must exit 0:\n{result.stdout}\n{result.stderr}"
         )
@@ -318,34 +327,6 @@ class TestLayerSplit:
             f"{service}: no-manifest deps RUN must exit 0:\n{result.stdout}\n{result.stderr}"
         )
         assert not ctx.exists(), f"{service}: staged context not cleaned up on the no-manifest path"
-
-
-def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
-    """Execute a wheel-layer RUN body in a sandbox with a real shell.
-
-    ``/tmp/ctx`` is rewritten to a temp dir (optionally holding a fake wheel)
-    and a stub ``pip`` that always exits 1 shadows the real one on PATH, so the
-    probe exercises the body's failure-propagation shape without a container.
-    Returns ``(CompletedProcess, ctx_path)``.
-    """
-    ctx = tmp_path / "ctx"
-    ctx.mkdir()
-    (ctx / ".dockerignore").write_text("")
-    if with_wheel:
-        (ctx / "osprey_framework-0.0.0-py3-none-any.whl").write_text("")
-    stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
-    stub_pip = stub_bin / "pip"
-    stub_pip.write_text("#!/bin/sh\nexit 1\n")
-    stub_pip.chmod(0o755)
-    env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}")
-    result = subprocess.run(
-        ["sh", "-c", body.replace("/tmp/ctx", str(ctx))],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    return result, ctx
 
 
 # ── Pre-release pins ─────────────────────────────────────────────────────────
@@ -419,34 +400,17 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     install, so the probe exercises the manifest branch's failure propagation
     without a container. Returns ``(CompletedProcess, ctx_path)``.
     """
-    ctx = tmp_path / "deps-ctx"
-    ctx.mkdir()
-    (ctx / ".dockerignore").write_text("")
+    rewritten, ctx = deps_sandbox(body, tmp_path)
     if with_manifest:
         (ctx / "osprey-local-requirements.txt").write_text("no-such-dep==0.0.0\n")
-    apt_lists = tmp_path / "apt-lists"
-    apt_lists.mkdir()
-    stub_bin = tmp_path / "bin"
-    stub_bin.mkdir()
-    for name, script in (
-        ("apt-get", "#!/bin/sh\nexit 0\n"),
-        ("pip", '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'),
-        ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
-    ):
-        stub = stub_bin / name
-        stub.write_text(script)
-        stub.chmod(0o755)
-    env = dict(
-        os.environ,
-        PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+    pip = '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'
+    env = stubbed_env(
+        tmp_path,
+        {"apt-get": APT_NOOP, "pip": pip, "uv": UV_TO_PIP},
         OSPREY_VERSION="0.0.0",
         OSPREY_DEV="",
     )
-    rewritten = body.replace("/tmp/deps-ctx", str(ctx)).replace(
-        "/var/lib/apt/lists", str(apt_lists)
-    )
-    result = subprocess.run(["sh", "-c", rewritten], capture_output=True, text=True, env=env)
-    return result, ctx
+    return run_body(rewritten, env), ctx
 
 
 # ── Node provenance (event_dispatcher) ───────────────────────────────────────

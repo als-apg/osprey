@@ -10,6 +10,9 @@ plug-ins, the importers and the facility definitions speak; the second scan in
 ``RETIRED_ROSTER_WORD`` is the roster's retired word, which no tracked file
 names, by content or by path, outside the code that reads the old spelling;
 the third scan in :mod:`tests.facility.test_word_ratchet` matches it.
+``SITE_EXAMPLE_WORD`` is the example deployment name that named a site, which no
+core text carries; the fourth scan in :mod:`tests.facility.test_word_ratchet`
+matches it.
 
 ``HARDCODED_VOCABULARY_TOKENS`` hold the facility-vocabulary rule: facility
 terminology has exactly one source of truth. For the graph paradigm that source
@@ -74,6 +77,9 @@ ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 #: impersonation) are not matches. A string for ``git grep -P``, as
 #: ``RATCHET_WORD``; its own source line carries the scan's line marker.
 RETIRED_ROSTER_WORD = r"(?<![A-Za-z])[Pp]ersonas?(?![a-z])|(?<=[a-z0-9])Personas?(?![a-z])|(?<![A-Za-z])PERSONAS?(?![A-Za-z])"  # retired-spelling
+
+#: The example deployment name that named a site; examples use ``my-assistant``.
+SITE_EXAMPLE_WORD = r"\bals-assistant\b"
 
 # Case-sensitive on purpose: lowercase ``epics`` names a connector type in config
 # text, and the bare demo prefix ``SR`` without a colon is not a match.

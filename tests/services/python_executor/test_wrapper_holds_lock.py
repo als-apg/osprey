@@ -28,10 +28,10 @@ from typing import Any
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from tests._guarded_run import held_lock, lock_path
 from tests.mcp_server.python_executor.test_approved_call_forwarding import (
-    _SRC_ROOT,
     CHILD_TIMEOUT_S,
     _Sandbox,
 )
+from tests.services.python_executor._child_env import child_env
 
 #: Where user code finds the target's lock file and the file it would write.
 ENV_LOCK_PATH = "HOLDS_LOCK_PATH"
@@ -96,12 +96,9 @@ def _run(
     )
     for name in ("execution_metadata.json", "results.json"):
         (sandbox.folder / name).unlink(missing_ok=True)
-    env = os.environ.copy()
+    env = child_env(sandbox.site)
     for name in ("OSPREY_CONFIG", "CONFIG_FILE"):
         env.pop(name, None)
-    env["PYTHONPATH"] = os.pathsep.join(
-        filter(None, [str(sandbox.site), str(_SRC_ROOT), env.get("PYTHONPATH")])
-    )
     env["APPROVED_CALL_VALUES"] = str(sandbox.values_path)
     env["OSPREY_EXECUTION_MODE"] = mode
     env["OSPREY_CONTROL_TARGET"] = "live"

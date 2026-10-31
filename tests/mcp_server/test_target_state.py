@@ -672,6 +672,12 @@ class _FakeManager:
     def active_proxy(self):
         return self.proxy
 
+    async def serving_proxy(self):
+        return self.proxy
+
+    def active_binding(self):
+        return ("live", 0)
+
     def active_target(self):
         return "live"
 

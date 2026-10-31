@@ -138,7 +138,7 @@ def test_path_absence_is_measured_by_git_not_the_filesystem(tmp_path):
     ``Path.exists()`` therefore reports the module as still present on a
     developer worktree while CI, which never imported it, stays green.
     """
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=60)
     deleted = tmp_path / "src/osprey/services/machine_state/__pycache__"
     deleted.mkdir(parents=True)
     (deleted / "reader.cpython-313.pyc").write_bytes(b"\x00machine_state stale bytecode")
@@ -1174,6 +1174,7 @@ def _baseline_reachable() -> bool:
         cwd=REPO_ROOT,
         capture_output=True,
         check=False,
+        timeout=60,
     )
     return proc.returncode == 0
 

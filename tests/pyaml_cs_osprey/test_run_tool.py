@@ -3,7 +3,8 @@
 The call holds the target's run lock, joining the process's hold, so a second
 run is busy and a missing guarded-run directory stops it before the tool is
 called. Before the first write of each address its value is read, and it is
-recorded once the runtime sent or landed that write; nothing is written back. A completed run, a stop, an exception and a Ctrl-C each report
+listed unless the runtime showed that write never went out; nothing is written
+back. A completed run, a stop, an exception and a Ctrl-C each report
 the setpoints the run moved with their values before the call: on the returned
 ``ToolRun`` or, on an escaping exception, as ``moved_setpoints``. A Ctrl-C stops
 every tool of the process's run that takes a callback, from any thread.
@@ -281,6 +282,15 @@ class _Tool:
         return True
 
 
+class _AttributeRefusingError(Exception):
+    """An exception type that refuses every attribute it does not declare."""
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if not name.startswith("__"):
+            raise AttributeError(f"{type(self).__name__} takes no new attributes")
+        super().__setattr__(name, value)
+
+
 class TestOutcomes:
     """The method's return value or exception decides the outcome; nothing is written back."""
 
@@ -388,6 +398,20 @@ class TestOutcomes:
         assert info.value.moved_setpoints == {"A": 1.0}  # type: ignore[attr-defined]
         assert machine.values["A"] == 5.0
         assert machine.writes == [("A", 5.0, {})]
+
+    def test_an_exception_that_refuses_attributes_still_carries_what_it_moved(
+        self, machine: _Machine
+    ) -> None:
+        """An exception type whose ``__setattr__`` refuses new names still gets the record."""
+
+        def tool() -> None:
+            machine.set("A", 5.0)
+            raise _AttributeRefusingError("boom")
+
+        with pytest.raises(_AttributeRefusingError) as info:
+            run_tool(tool)
+        assert info.value.moved_setpoints == {"A": 1.0}  # type: ignore[attr-defined]
+        assert machine.values["A"] == 5.0
 
     def test_a_refused_write_reraises_osprey_write_refused_with_what_it_moved(
         self, machine: _Machine

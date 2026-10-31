@@ -39,14 +39,15 @@ from __future__ import annotations
 import collections
 import contextlib
 import logging
-import os
-import signal
 import socket
 import subprocess
 import threading
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import IO
+
+from osprey.deployment import subprocess_capture
+from osprey.deployment.subprocess_capture import StopOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +254,7 @@ class SupervisedChild:
         """The live child's pid, or ``None`` between children or when stopped."""
         with self._lock:
             process = self._process
-        if process is None or process.poll() is not None:
+        if process is None or subprocess_capture.observe_exit(process) is not None:
             return None
         return process.pid
 
@@ -318,11 +319,17 @@ class SupervisedChild:
                     self._active = False
             raise
 
-    def stop(self) -> None:
-        """SIGTERM the child, wait ``grace_s``, then SIGKILL. Idempotent.
+    def stop(self) -> StopOutcome[int]:
+        """SIGTERM the child's process group, wait ``grace_s``, then SIGKILL. Idempotent.
 
-        After this returns no child is alive and none will be started, also
-        when the call lands while a respawn is waiting out its backoff.
+        No child is started after this, also when the call lands while a
+        respawn is waiting out its backoff. The child is reaped by this stop.
+
+        Returns:
+            The stop's outcome. When it is ``gone`` no child is alive;
+            otherwise it names the pids still running after SIGKILL, or the
+            group the process table could not be read for, and a warning says
+            the same. With no child to stop it is an empty, gone outcome.
         """
         with self._lock:
             stop = self._stop
@@ -331,20 +338,18 @@ class SupervisedChild:
             process, self._process = self._process, None
             watcher, self._watcher = self._watcher, None
             tail = self._tail
+        outcome: StopOutcome[int] = StopOutcome()
         if process is not None:
-            if process.poll() is None:
-                _signal_group(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(self._grace_s)
-                except subprocess.TimeoutExpired:
-                    _signal_group(process.pid, signal.SIGKILL)
-                    process.wait()
+            outcome = subprocess_capture.stop_child(process, grace=self._grace_s)
+            if not outcome.gone:
+                logger.warning("%s: %s", self._name, outcome.describe())
             logger.info("%s stopped (pid %s)", self._name, process.pid)
         current = threading.current_thread()
         if watcher is not None and watcher is not current:
             watcher.join(timeout=1)
         if tail is not None and tail is not current:
             tail.join(timeout=1)
+        return outcome
 
     # How a child is started, watched and replaced
 
@@ -397,12 +402,17 @@ class SupervisedChild:
         started: float,
         stop: threading.Event,
     ) -> None:
-        """Reap one child, then decide what follows it.
+        """Observe one child's exit, stop what is left of its group, then decide what follows.
 
-        This thread belongs to *process* alone. When it respawns, the new
-        child gets a thread of its own and this one ends.
+        This thread belongs to *process* alone. It observes the exit without
+        reaping it; once it has taken the exited child from the supervisor,
+        the child's stop reaps it and ends any member of its group still
+        running, so nothing a crashed child started outlives it. The decision
+        that follows reads the observed exit status. When it respawns, the new
+        child gets a thread of its own and this one ends. A child :meth:`stop`
+        took is reaped by that stop.
         """
-        status: int | None = process.wait()
+        status: int | None = subprocess_capture.observe_exit(process, within=None)
         lifetime = self._clock() - started
         if stop.is_set():
             return
@@ -421,6 +431,9 @@ class SupervisedChild:
             lifetime,
             f": {text}" if text else "",
         )
+        outcome = subprocess_capture.stop_child(process, grace=self._grace_s)
+        if not outcome.gone:
+            logger.warning("%s: %s", self._name, outcome.describe())
 
         while True:
             if status in self._never_respawn:
@@ -461,9 +474,3 @@ class SupervisedChild:
         logger.error("%s will not be restarted (%s)", self._name, failure)
         if callback is not None:
             callback()
-
-
-def _signal_group(pid: int, signum: signal.Signals) -> None:
-    """Send *signum* to the process group led by *pid*; a gone group is fine."""
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pid, signum)

@@ -35,10 +35,10 @@ Generations
 The generation is what pins holders: an executor sandbox or an approved write
 that was granted under generation *n* must refuse once the deployment has moved
 past it. It therefore counts **target changes**, not process restarts. A
-same-target respawn — :meth:`ConnectorHostManager.respawn_same_target`, which
-is what the old in-process ``ConnectionError`` → invalidate path becomes in
-child mode — replaces the process and leaves the generation alone, because
-nothing a holder was promised has changed.
+same-target respawn — :meth:`ConnectorHostManager.respawn_same_target`, and
+:meth:`ConnectorHostManager.replace_child`, which recovers a child whose
+connector is lost — replaces the process and leaves the generation alone,
+because nothing a holder was promised has changed.
 
 This manager does not **mint** generations; it is handed them. One deployment
 runs one target and one generation, recorded in the shared control-context
@@ -121,6 +121,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import posture_store
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.ipc import (
     DEFAULT_CALL_DEADLINE_S,
     ROLE_READ_ONLY,
@@ -142,6 +143,7 @@ from osprey_connectors.ipc import (
 )
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
+from osprey_connectors.recovery import RecoveryAction
 from osprey_connectors.types import (
     SIMULATED_TYPES,
     TARGET_LIVE,
@@ -272,28 +274,32 @@ class SwitchError(RuntimeError):
         return payload
 
 
-class NoConnectorHostError(ConnectionError):
-    """No connector host is alive to serve a control-system operation.
+class NoConnectorHostError(ConnectorUnavailableError):
+    """No connector host was alive to serve a control-system operation.
 
     Reachable only by a child dying outside a switch — a failed switch leaves
-    the previous child serving — and it is what every control-system-routed
-    tool refuses with while it lasts (FR-1). Deliberately a
-    :class:`ConnectionError`: the tools' shared handler already treats that as
-    "the connector is gone, drop it and let the next call rebuild", which for a
-    child-served deployment means respawning it on the same target. The refusal
-    is therefore both the honest answer to this call and the trigger for the
-    recovery of the next one.
+    the previous child serving. The call that finds the child dead is refused
+    with it (FR-1), and :meth:`ConnectorHostManager.serving_proxy` has already
+    started one fresh child on the same target by then: ``recovery`` names
+    that restart (``child_replaced``), or its refusal (``respawn_refused``),
+    and the next call is served by the fresh child.
     """
 
-    def __init__(self, target: str, generation: int, detail: str | None = None) -> None:
+    def __init__(
+        self,
+        target: str,
+        generation: int,
+        detail: str | None = None,
+        *,
+        recovery: tuple[dict[str, str], ...] = (),
+    ) -> None:
         self.target = target
         self.generation = generation
         self.detail = detail or (
             f"No connector-host child is serving target {target!r} (generation {generation}): "
-            "the process that held this deployment's control-system connection exited. "
-            "Control-system operations refuse until one is running again."
+            "the process that held this deployment's control-system connection exited."
         )
-        super().__init__(self.detail)
+        super().__init__(self.detail, recovery=recovery)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -998,11 +1004,9 @@ class ConnectorHostManager:
         switch-capable deployment brings the baseline child up, and every call
         after that finds it already there. It starts a child exactly once —
 
-        * **A child that has died is not restarted here.** That is the no-child
-          state, and it is a refusal with a reason (FR-1), not something to
-          paper over on the way to a read. Recovery runs through the error
-          path: the refusal is a :class:`ConnectionError`, the tool handler
-          invalidates the connector, and that is what respawns the child.
+        * **A child that has died is not restarted here.** The call that finds
+          it dead is refused, and the restart is :meth:`serving_proxy`'s, which
+          names it in the refusal.
         * **The baseline start is not probed.** The probe is the gate that
           protects a *working* session from being swapped onto a target that
           cannot answer; on the first start there is no session to protect and
@@ -1054,13 +1058,89 @@ class ConnectorHostManager:
                 cause=(f"the control-system target switch from {self._target!r} to {target!r}"),
             )
 
+    async def serving_proxy(self) -> ConnectorHostProxy:
+        """The live child's proxy, resolved under the lock; a dead child refuses this call.
+
+        Every call a tool makes resolves the child here, so a handle bound to
+        the control system always reaches the child serving it now. A child
+        found dead is restarted once, on the target of record, by starting one
+        when none is live — never by force, so a call that finds the child
+        another call already restarted is served by it — and the call that
+        found it is refused with :class:`NoConnectorHostError`, whose
+        ``recovery`` names the restart or its refusal. Nothing is retried.
+
+        Raises:
+            NoConnectorHostError: No child was live when this call resolved it.
+                A manager that is not started (it never was, or it is shutting
+                down) restarts nothing.
+        """
+        async with self._lock:
+            child = self._live_child()
+            if child is not None:
+                return child.proxy
+            if not self._started:
+                raise NoConnectorHostError(self._target, self._generation)
+            recovery = await self._start_one_if_none_is_live()
+            raise NoConnectorHostError(self._target, self._generation, recovery=(recovery,))
+
+    async def _start_one_if_none_is_live(self) -> dict[str, str]:
+        """Start a child on the target of record when none is live; say what happened.
+
+        Called under the lock. The previous child is gone, so there is nothing
+        to drain and nothing a ``force`` could replace.
+        """
+        try:
+            await self._switch_locked(
+                self._target,
+                cause=f"restarting the connector host on target {self._target!r}",
+            )
+        except SwitchError as error:
+            return {
+                "action": RecoveryAction.RESPAWN_REFUSED,
+                "text": "Starting a fresh connector-host child on the same target failed "
+                f"({error.detail}); control-system calls are refused until one is running.",
+            }
+        return {
+            "action": RecoveryAction.CHILD_REPLACED,
+            "text": "The connector-host child had exited; a fresh one was started on the "
+            "same target. This call was refused and not retried; the next call is served.",
+        }
+
+    async def replace_child(self, proxy: ConnectorHostProxy) -> bool:
+        """Replace the child *proxy* belongs to, once, on the same target.
+
+        Under the lock, so two calls that saw one failure replace one child: a
+        child that is no longer the one serving — another call or a switch
+        already replaced it — is left alone. A live child is replaced by force
+        (it is wedged, or its connector is lost); when none is live, one is
+        started. The generation does not move.
+
+        Returns:
+            ``True`` when a fresh child was started, ``False`` when *proxy*'s
+            child had already been replaced.
+
+        Raises:
+            SwitchError: The fresh child could not be started; the previous
+                child, if it is alive, still serves.
+        """
+        async with self._lock:
+            child = self._live_child()
+            if child is not None and child.proxy is not proxy:
+                return False
+            await self._switch_locked(
+                self._target,
+                cause=f"replacing the connector host on target {self._target!r}",
+                force=child is not None,
+            )
+            return True
+
     async def respawn_same_target(self) -> dict[str, Any]:
         """Replace the child with a fresh one on the same target.
 
-        This is what the in-process ``ConnectionError`` → invalidate path
-        becomes once the connector lives in a child: the process is replaced,
-        the target is not, and the generation therefore does not move — nothing
-        a pinned holder was promised has changed.
+        The process is replaced, the target is not, and the generation
+        therefore does not move — nothing a pinned holder was promised has
+        changed. The session-control reconciler calls it to move a child onto
+        a gateway chosen under a narrowed posture.
         """
         async with self._lock:
             return await self._switch_locked(

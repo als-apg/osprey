@@ -15,7 +15,13 @@ from typing import Any
 import pytest
 
 import osprey_connectors.settle
-from osprey_connectors.errors import ChannelReadFailedError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelReadFailedError,
+    ChannelUnreachableError,
+    ConnectorUnavailableError,
+)
+from osprey_connectors.ipc import ConnectorHostUnresponsiveError
 from osprey_connectors.settle import (
     POLL_INTERVAL_S,
     Landing,
@@ -167,7 +173,7 @@ async def test_a_readback_that_answers_no_value_is_a_settle_read_error(clock: _C
 
 
 async def test_a_readback_read_that_raises_is_a_settle_read_error(clock: _Clock) -> None:
-    down = ConnectionError("down")
+    down = ChannelUnreachableError("Q1:RB", "Q1:RB did not answer: down")
 
     class _Dead:
         async def read_channel(self, address: str) -> _Reading:
@@ -187,6 +193,56 @@ async def test_a_readback_read_that_raises_is_a_settle_read_error(clock: _Clock)
     assert error.__cause__ is down
     assert "Q1:RB" in str(error) and "Q1:SP" in str(error)
     assert clock.pauses == []
+
+
+class _Raising:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    async def read_channel(self, address: str) -> _Reading:
+        del address
+        raise self.error
+
+
+async def test_a_readback_that_is_no_channel_is_a_settle_read_error(clock: _Clock) -> None:
+    missing = ChannelNotFoundError("Q1:RB")
+    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+
+    with pytest.raises(SettleReadError) as info:
+        await settle(_Raising(missing), [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
+
+    assert info.value.causes["Q1:RB"] is missing
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionError("pipe closed"),
+        ConnectorUnavailableError("the transport is gone"),
+        ConnectorHostUnresponsiveError(
+            "child wedged",
+            target="va",
+            execution_mode=None,
+            pid=1,
+            cause="unresponsive",
+            returncode=None,
+        ),
+        TimeoutError("timed out somewhere else"),
+        TypeError("a bug"),
+    ],
+    ids=lambda error: type(error).__name__,
+)
+async def test_anything_but_a_channel_failure_propagates_as_itself(
+    clock: _Clock, error: BaseException
+) -> None:
+    """Only a failure about the readback names it; a lost connector says it was lost."""
+    landing = Landing("Q1:SP", "Q1:RB", 2.0, 0.05)
+
+    with pytest.raises(type(error)) as info:
+        await settle(_Raising(error), [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
+
+    assert info.value is error
+    assert not isinstance(info.value, SettleReadError)
 
 
 def test_settle_read_error_is_part_of_the_api() -> None:

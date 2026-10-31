@@ -21,6 +21,7 @@ that drifts from the model fails here, on the deployment people run.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import os
 from collections.abc import Iterator
@@ -320,12 +321,8 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
     # tier is granted them; the flagship's readonly worker needs both.
     worker_tier = config["services"]["dispatch_worker"]["tier"]
     assert worker_tier == "readonly"
-    previous = Path.cwd()
-    os.chdir(stack)
-    try:
+    with contextlib.chdir(stack):
         mounts = _dispatch_worker_corpus_mounts(config, "services/dispatch_worker")
-    finally:
-        os.chdir(previous)
     assert mounts is not None
     assert (mounts["bundle"] is not None) == (worker_tier in grants["facility_bundle_renders"])
     assert (mounts["mirror"] is not None) == (worker_tier in grants["ariel_mirror_renders"])

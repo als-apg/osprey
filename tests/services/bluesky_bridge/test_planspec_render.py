@@ -384,6 +384,7 @@ def mypy_output(tmp_path_factory: pytest.TempPathFactory) -> str:
         text=True,
         cwd=str(_REPO_ROOT),
         env=env,
+        timeout=300,
     )
     assert "No module named mypy" not in result.stderr, (
         "mypy is not installed in this environment, so the static half of this "

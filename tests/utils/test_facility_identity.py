@@ -119,7 +119,7 @@ def test_reading_the_identity_leaves_the_facility_build_unimported(tmp_path: Pat
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
 
     assert result.stdout.strip() == "False"

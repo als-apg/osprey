@@ -33,14 +33,12 @@ def _write_config(project_path: Path, *, panels: dict | None = None) -> None:
     config: dict = {"deployed_services": [], "services": {}}
     if panels is not None:
         config["web"] = {"panels": panels}
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
 
 
 def _read_panels(project_path: Path) -> dict:
     yaml = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml.load(fh)["web"]["panels"]
+    return yaml.load(project_path / "config.yml")["web"]["panels"]
 
 
 @pytest.fixture

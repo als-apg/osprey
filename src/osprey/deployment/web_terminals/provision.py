@@ -1183,6 +1183,7 @@ def web_stack_compose_cmd(
     *,
     repo_root: Path | str | None = None,
     provider: ComposeProvider | None = None,
+    runtime: str | None = None,
 ) -> list[str]:
     """The web stack's pinned ``<runtime> compose ... -f build/docker-compose.web.yml`` argv.
 
@@ -1219,6 +1220,8 @@ def web_stack_compose_cmd(
         :func:`_resolved_compose_provider`) rather than assuming the docker
         shape — a roster verb has nothing to thread down and must still emit
         the argv its host parses.
+    :param runtime: The runtime to invoke instead of the one ``config``
+        decides; a teardown passes the runtime the last start recorded.
     :raises UnsupportedComposeProviderError: The host's compose provider is not
         one OSPREY can invoke correctly.
     """
@@ -1232,7 +1235,10 @@ def web_stack_compose_cmd(
 
         env_file_args = _env_file_args(root, provider)
     return compose_base_cmd(
-        with_plain_progress(get_runtime_command(config), provider=provider),
+        with_plain_progress(
+            [runtime, "compose"] if runtime else get_runtime_command(config),
+            provider=provider,
+        ),
         [web_compose_file(root)],
         root,
         env_file_args,
@@ -1955,6 +1961,8 @@ def deploy_down_web_terminals(
     provider: ComposeProvider | None = None,
     *,
     repo_root: Path | str | None = None,
+    runtime: str | None = None,
+    project: str | None = None,
 ) -> None:
     """Tear down the web-terminal stack — the mirror of
     :func:`deploy_up_web_terminals`'s second compose invocation.
@@ -1978,7 +1986,8 @@ def deploy_down_web_terminals(
     still run, or a broken web stack would leave the backend services
     running too.
 
-    :param config: Raw deploy config (resolves the pinned compose project).
+    :param config: Raw deploy config, for the repo root, the provider and,
+        when ``project`` is not given, the pinned compose project.
     :param env: Base environment to layer the ``COMPOSE_PROJECT_NAME`` pin
         onto, exactly like the ``up`` path's invocations.
     :param env_file_args: ``["--env-file", ".env"]`` (or ``[]``) argv
@@ -1988,6 +1997,10 @@ def deploy_down_web_terminals(
     :param repo_root: The deployment repo being torn down — the one the caller
         resolved the fragment above against. ``None`` resolves it from
         ``config`` (see :func:`_resolved_repo_root`).
+    :param runtime: The runtime the last start recorded, invoked instead of
+        the one ``config`` decides.
+    :param project: The compose project the last start recorded, pinned
+        instead of the one ``config`` resolves.
     """
     root = _resolved_repo_root(config, repo_root)
     if not web_compose_file(root).exists():
@@ -1995,13 +2008,18 @@ def deploy_down_web_terminals(
     # Below the no-stack early return, like force_recreate_auth_sidecar's: a
     # teardown with nothing to tear down must not fail on the host's provider.
     provider = _resolved_compose_provider(config, provider)
-    down_cmd = web_stack_compose_cmd(config, env_file_args, repo_root=root, provider=provider)
+    down_cmd = web_stack_compose_cmd(
+        config, env_file_args, repo_root=root, provider=provider, runtime=runtime
+    )
     down_cmd.append("down")
     logger.debug(f"Running command:\n    {' '.join(down_cmd)}")
     result = subprocess.run(
         down_cmd,
         env=runtime_env(
-            config, {**env, **compose_provider_env(provider, root)}, ignore_orphans=True
+            config,
+            {**env, **compose_provider_env(provider, root)},
+            ignore_orphans=True,
+            project=project,
         ),
         capture_output=True,
         text=True,

@@ -310,7 +310,9 @@ def test_importing_figure_does_not_import_the_runengine_stack() -> None:
             "import osprey.services.bluesky_bridge.figure, sys; "
             f"assert {module!r} not in sys.modules"
         )
-        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+        )
         if result.returncode != 0:
             failures[module] = result.stderr
 

@@ -1,12 +1,11 @@
 # syntax=docker/dockerfile:1
 # Reference container image for {{ project_name }} — rendered by `osprey build`.
 #
-# `osprey up` builds this for you. To build it by hand, do it from the container
-# repo the build renders for exactly this purpose, one directory above the render
-# this file sits in:
-#   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
-# Run from the deployment repo root (secrets at runtime — no .env ever enters
-# the image):
+# `osprey up` builds this for you. To build it by hand: the build context is the
+# container repo the build renders for exactly this purpose, one directory above
+# the render this file sits in. From the deployment repo root:
+#   docker build -t {{ project_name }} -f build/.image/{{ project_name }}/build/Dockerfile build/.image/{{ project_name }}
+# Then run it (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
@@ -33,8 +32,9 @@
 #                       latest published osprey-framework instead of failing.
 #   OSPREY_PIP_PRE      "1" when OSPREY_PIP_SPEC pins a pre-release: the deps
 #                       layer then resolves with --prerelease=allow, since
-#                       the framework's paired workspace-member betas are
-#                       admitted no other way.
+#                       the framework declares only floors on its workspace
+#                       members and an installer prefers a stable release for
+#                       a requirement that names no pre-release.
 #   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
 #                       project's claude_code.cli_version). Bump deliberately
 #                       — an unpinned upstream release could silently change
@@ -55,11 +55,11 @@
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
-# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and every
-# workspace member ship together from one tag, and an installer prefers a
-# stable release for a requirement that names none (the framework's own member
-# requirements), so the deps layer then resolves as a whole with
-# --prerelease=allow.
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework declares only
+# floors on its workspace members, and an installer prefers a stable release
+# for a requirement that names no pre-release (those floors), so the deps layer
+# then resolves as a whole with --prerelease=allow, which lets it take the
+# newest member pre-releases.
 ARG OSPREY_PIP_PRE=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""

@@ -259,6 +259,9 @@ class SearchToolDescriptor:
         execute: Async function that performs the search
         format_result: Formats raw search results for the agent
         needs_embedder: Whether this tool requires an embedding provider
+        needs_search_calls: Whether this module makes blocking search-time
+            provider calls. When true, the service passes its search-call pool
+            as ``search_calls=``, the bounded pool those calls run on.
         accepts_expansion: Whether this module accepts a resolved vocabulary
             expansion. When true, the service passes `query_expansion=`, a
             `QueryExpansion`, but only when an expansion was actually resolved
@@ -286,6 +289,7 @@ class SearchToolDescriptor:
     execute: Callable[..., Awaitable[Any]]
     format_result: Callable[..., dict[str, Any]]
     needs_embedder: bool = False
+    needs_search_calls: bool = False
     accepts_expansion: bool = False
     accepts_include_images: bool = False
     query_parser: Callable[[str], ParsedKeywordQuery] | None = None

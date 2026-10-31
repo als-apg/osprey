@@ -35,6 +35,7 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    ConnectorInternalError,
 )
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import (
@@ -530,6 +531,24 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
     assert type(caught.value) is TimeoutError
     assert raised_by_child(caught.value)
     assert "SR:GONE did not respond" in str(caught.value)
+
+
+async def test_a_reply_the_parent_cannot_rebuild_fails_that_call_and_keeps_the_proxy(teardown):
+    unrebuildable = ChannelWriteResult("SR:SP", 1.0, WriteOutcome.CONFIRMED)
+    # Set after construction, so the child encodes a value the parent's own
+    # constructor refuses.
+    unrebuildable.outcome = "not-an-outcome"
+    proxy, child = await _proxy_with_child(_echo_handler([unrebuildable, _channel_value(2.5)]))
+    teardown.append((proxy, child))
+
+    with pytest.raises(ConnectorInternalError) as caught:
+        await proxy.write_channel("SR:SP", 1.0)
+    assert caught.value.class_tag == "ChannelWriteResult"
+    assert "not-an-outcome" in str(caught.value)
+    assert proxy.dead_reason is None
+
+    follow_up = await proxy.read_channel("SR:BEND:1:CUR")
+    assert follow_up.value == 2.5
 
 
 # -------------------------------------------------- validate / checked writes

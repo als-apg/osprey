@@ -51,6 +51,7 @@ from tests._guarded_run import held_lock
 from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm
+from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
@@ -67,11 +68,11 @@ pytestmark = [
 # the loss of a single lane.
 MIN_COLLECTED_TESTS = 10
 
-#: The model measured: the example facility's periodic lattice.
-MODEL = "SR"
+#: The model measured: the lane model.
+MODEL = e2e_conftest.LANE_MODEL
 
 #: A channel every container here serves, read to know it is up.
-PROBE = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
+PROBE = e2e_conftest.READINESS_ADDRESS
 
 
 def _repo(parent: Path, name: str) -> Path:

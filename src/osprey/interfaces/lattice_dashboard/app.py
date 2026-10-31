@@ -21,19 +21,18 @@ import asyncio
 import contextlib
 import dataclasses
 import hashlib
-import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.sse import EventSourceResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from starlette.responses import StreamingResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.lattice_dashboard.catalog import (
@@ -43,7 +42,10 @@ from osprey.interfaces.lattice_dashboard.catalog import (
 )
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
 from osprey.interfaces.lattice_dashboard.schema import (
+    BaselineClearedEvent,
     BaselineResponse,
+    BaselineSetEvent,
+    DashboardEvent,
     DataResponse,
     FigureNotCurrent,
     FigureResponse,
@@ -54,7 +56,9 @@ from osprey.interfaces.lattice_dashboard.schema import (
     SelectionModel,
     SettingsResetResponse,
     SettingsResponse,
+    SettingsUpdatedEvent,
     StateResponse,
+    StateUpdatedEvent,
     StatusResponse,
 )
 from osprey.interfaces.lattice_dashboard.state import (
@@ -202,21 +206,30 @@ class _SSEBroadcaster:
     """
 
     def __init__(self) -> None:
-        self._queues: list[asyncio.Queue[dict]] = []
+        self._queues: list[asyncio.Queue[DashboardEvent]] = []
 
-    def subscribe(self) -> asyncio.Queue[dict]:
-        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=64)
+    def subscribe(self) -> asyncio.Queue[DashboardEvent]:
+        q: asyncio.Queue[DashboardEvent] = asyncio.Queue(maxsize=64)
         self._queues.append(q)
         return q
 
-    def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
+    def unsubscribe(self, q: asyncio.Queue[DashboardEvent]) -> None:
         with contextlib.suppress(ValueError):
             self._queues.remove(q)
 
-    def broadcast(self, data: dict) -> None:
+    def broadcast(self, event: DashboardEvent) -> None:
         for q in self._queues:
             with contextlib.suppress(asyncio.QueueFull):
-                q.put_nowait(data)
+                q.put_nowait(event)
+
+
+def _keep_alive(response: Response) -> None:
+    """Ask the client to hold the event stream's connection open.
+
+    A dependency rather than the stream's own body: the stream's headers are
+    fixed before its generator first runs.
+    """
+    response.headers["Connection"] = "keep-alive"
 
 
 # ── Response documentation ────────────────────────────────
@@ -433,7 +446,7 @@ class _Resolver:
             self._resolved = True
             self._pick = None
             reset = self._state.adopt(selection, reset=select)
-            self._broadcaster.broadcast({"type": "state_updated"})
+            self._broadcaster.broadcast(StateUpdatedEvent(type="state_updated"))
             if reset:
                 self._compute.refresh_fast()
             return
@@ -594,7 +607,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
             )
 
         state.set_param(body.family, body.value)
-        broadcaster.broadcast({"type": "state_updated"})
+        broadcaster.broadcast(StateUpdatedEvent(type="state_updated"))
         return state_payload()
 
     # ── Refresh API ───────────────────────────────────────
@@ -648,13 +661,13 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
     @app.post("/api/baseline", response_model=BaselineResponse)
     async def set_baseline() -> dict[str, Any]:
         result = state.set_baseline()
-        broadcaster.broadcast({"type": "baseline_set", "summary": result.get("summary", {})})
+        broadcaster.broadcast(BaselineSetEvent(type="baseline_set", summary=result["summary"]))
         return result
 
     @app.delete("/api/baseline", response_model=StatusResponse)
     async def clear_baseline() -> dict[str, str]:
         state.clear_baseline()
-        broadcaster.broadcast({"type": "baseline_cleared"})
+        broadcaster.broadcast(BaselineClearedEvent(type="baseline_cleared"))
         return {"status": "ok"}
 
     # ── Settings API ──────────────────────────────────────
@@ -666,40 +679,33 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
     @app.put("/api/settings", response_model=SettingsResponse)
     async def update_settings(body: SettingsRequest) -> dict[str, Any]:
         result = state.update_settings(body.settings)
-        broadcaster.broadcast({"type": "settings_updated", "settings": result})
+        broadcaster.broadcast(
+            SettingsUpdatedEvent(type="settings_updated", settings=SettingsResponse(result))
+        )
         return result
 
     @app.delete("/api/settings", response_model=SettingsResetResponse)
     async def reset_settings() -> dict[str, Any]:
         result = state.reset_settings()
-        broadcaster.broadcast({"type": "settings_updated", "settings": result})
+        broadcaster.broadcast(
+            SettingsUpdatedEvent(type="settings_updated", settings=SettingsResponse(result))
+        )
         return {"status": "ok", "settings": result}
 
     # ── SSE stream ────────────────────────────────────────
 
-    @app.get("/api/events")
-    async def sse_stream() -> StreamingResponse:
+    @app.get(
+        "/api/events",
+        response_class=EventSourceResponse,
+        dependencies=[Depends(_keep_alive)],
+    )
+    async def sse_stream() -> AsyncIterable[DashboardEvent]:
         q = broadcaster.subscribe()
-
-        async def event_generator():
-            try:
-                while True:
-                    data = await q.get()
-                    yield f"data: {json.dumps(data)}\n\n"
-            except asyncio.CancelledError:
-                pass
-            finally:
-                broadcaster.unsubscribe(q)
-
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        try:
+            while True:
+                yield await q.get()
+        finally:
+            broadcaster.unsubscribe(q)
 
     # ── Static files / SPA ────────────────────────────────
 

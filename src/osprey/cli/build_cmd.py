@@ -4445,7 +4445,7 @@ def _inject_services(
     type=click.Path(),
     default=None,
     help="Override project_root in the rendered config, for a build whose output "
-    "runs somewhere other than where it was made (e.g. --runtime-root /app/als-assistant)",
+    "runs somewhere other than where it was made (e.g. --runtime-root /app/my-assistant)",
 )
 @click.option(
     "--dev",
@@ -4485,7 +4485,7 @@ def build(
       $ osprey build
 
       # Render another repo's, without cd-ing to it
-      $ osprey build --repo ~/deployments/als-assistant
+      $ osprey build --repo ~/deployments/my-assistant
 
       # CI: no venv, no lifecycle hooks
       $ osprey build --skip-lifecycle --skip-deps

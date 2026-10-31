@@ -33,8 +33,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 #: The panel starts on every one of these; they only describe how much of it
 #: works. ``ok`` — the config parsed clean; ``configuration_warning`` — the
 #: config parsed and the service can run, but a key is wrong;
-#: ``configuration_invalid`` — the config did not parse, or the facility
-#: vocabulary it asked for could not be loaded, so search is dead.
+#: ``configuration_invalid`` — the config did not parse, the facility
+#: vocabulary it asked for could not be loaded, or semantic search is enabled
+#: for a model the database has no embedding table for, so search is dead.
 CONFIG_STATUS_OK = "ok"
 CONFIG_STATUS_WARNING = "configuration_warning"
 CONFIG_STATUS_INVALID = "configuration_invalid"
@@ -397,12 +398,14 @@ def _create_lifespan(config_path: str | Path | None = None):
         state = _resolve_config_state(config_path)
         ariel_config = state.config
 
-        # Set on BOTH paths, so every route can read them with getattr.
+        # Set on BOTH paths, so every route can read them with getattr. The
+        # error list, status and remedy are written once, after the service
+        # opens, because the host can contradict the configuration too.
         app.state.config_path = state.path
         app.state.ariel_config = state.config
-        app.state.config_errors = state.errors
-        app.state.config_status = state.status
-        app.state.config_remedy = state.remedy
+        config_errors = list(state.errors)
+        config_status = state.status
+        config_remedy = state.remedy
 
         # `web.config_panel.enabled: false` takes the settings editor's SERVER
         # surface away, not just its entry in the display menu: GET and PUT
@@ -412,9 +415,6 @@ def _create_lifespan(config_path: str | Path | None = None):
         app.state.config_panel_enabled = state.config_panel_enabled
         # The refusal names the file when an unreadable config closed the panel.
         app.state.config_unreadable_path = state.config_unreadable_path
-
-        if state.errors:
-            logger.warning(_config_banner(state.status, state.errors, state.remedy))
 
         # The panel reads the registry the rest of its process reads: a
         # deployment's registry carries the logbook adapter and the ARIEL
@@ -447,6 +447,7 @@ def _create_lifespan(config_path: str | Path | None = None):
         else:
             try:
                 from osprey.services.ariel_search import create_ariel_service
+                from osprey.services.ariel_search.exceptions import ConfigurationError
 
                 service = await create_ariel_service(ariel_config)
 
@@ -455,6 +456,17 @@ def _create_lifespan(config_path: str | Path | None = None):
                     logger.info(f"ARIEL service ready: {message}")
                 else:
                     logger.warning(f"ARIEL service degraded: {message}")
+
+                # A configuration the host contradicts degrades the search
+                # path only, as a vocabulary error does: browse, entries,
+                # status and publishing keep the service.
+                try:
+                    await service.verify_search_model_table()
+                except ConfigurationError as table_error:
+                    config_errors.append(table_error.message)
+                    if config_status != CONFIG_STATUS_INVALID:
+                        config_remedy = table_error.remedy or REMEDY_NAMED_KEY
+                    config_status = CONFIG_STATUS_INVALID
             except Exception as e:
                 logger.warning(
                     "\n"
@@ -474,13 +486,18 @@ def _create_lifespan(config_path: str | Path | None = None):
                 )
 
         app.state.ariel_service = service
+        app.state.config_errors = config_errors
+        app.state.config_status = config_status
+        app.state.config_remedy = config_remedy
+        if config_errors:
+            logger.warning(_config_banner(config_status, config_errors, config_remedy))
 
         yield
 
         # Cleanup
         logger.info("Shutting down ARIEL Web Interface...")
         if service is not None:
-            await service.__aexit__(None, None, None)
+            await service.aclose()
 
     return lifespan
 

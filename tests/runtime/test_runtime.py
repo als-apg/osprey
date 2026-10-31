@@ -608,6 +608,11 @@ class PerChannelConnector(RecordingConnector):
             outcome=outcome,
             observed_value=value if outcome is WriteOutcome.CONFIRMED else None,
             refusal_reason="WRITES_DISABLED" if outcome is WriteOutcome.REFUSED else None,
+            error_message=(
+                f"Write to '{channel_address}' {outcome}"
+                if outcome in (WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED)
+                else None
+            ),
         )
 
 
@@ -717,12 +722,12 @@ def test_write_observer_sent_on_unrequested():
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
-def test_write_observer_refused_gets_attempt_only():
+def test_write_observer_refused_gets_attempt_then_refused():
     events = _record_observer()
     with _patched_factory(PerChannelConnector({"TEST:PV": WriteOutcome.REFUSED})):
         with pytest.raises(ChannelWriteBlockedError):
             write_channel("TEST:PV", 1.0)
-    assert events == [("TEST:PV", "attempt")]
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "refused")]
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
@@ -815,8 +820,13 @@ def test_write_observer_multi_channel_raises_first_failure():
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             write_channels({"A:PV": 1.0, "B:PV": 2.0})
     assert excinfo.value.channel_address == "A:PV"
-    # A refused channel reached no wire: it gets no outcome notification.
-    assert events == [("A:PV", "attempt"), ("B:PV", "attempt"), ("A:PV", "sent")]
+    # A refused channel reached no wire: its outcome is ``refused``, never sent.
+    assert events == [
+        ("A:PV", "attempt"),
+        ("B:PV", "attempt"),
+        ("A:PV", "sent"),
+        ("B:PV", "refused"),
+    ]
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
@@ -917,7 +927,7 @@ class TestRecordWrites:
                 write_channel("A:PV", 1.0)
         assert records == [("A:PV", "attempt"), ("A:PV", "sent")]
 
-    def test_a_write_the_connector_refuses_records_its_attempt_and_no_outcome(self):
+    def test_a_write_the_connector_refuses_records_its_attempt_and_refused(self):
         connector = PerChannelConnector(
             {"A:PV": WriteOutcome.REFUSED, "B:PV": WriteOutcome.REFUSED}
         )
@@ -926,8 +936,41 @@ class TestRecordWrites:
                 write_channel("A:PV", 1.0)
             with pytest.raises(ChannelWriteBlockedError):
                 write_channels({"A:PV": 1.0, "B:PV": 2.0})
-        assert records == [("A:PV", "attempt"), ("A:PV", "attempt"), ("B:PV", "attempt")]
+        assert records == [
+            ("A:PV", "attempt"),
+            ("A:PV", "refused"),
+            ("A:PV", "attempt"),
+            ("B:PV", "attempt"),
+            ("A:PV", "refused"),
+            ("B:PV", "refused"),
+        ]
         assert not any(phase in ("sent", "landed") for _address, phase in records)
+
+    @pytest.mark.parametrize("refusal", [ChannelLimitsViolationError, ChannelWriteBlockedError])
+    def test_a_refusal_the_connector_raises_midway_marks_only_the_named_channel_refused(
+        self, refusal
+    ):
+        class RaisingConnector(RecordingConnector):
+            async def write_channel(self, channel_address: str, value, **kwargs):
+                if channel_address == "B:PV":
+                    if refusal is ChannelLimitsViolationError:
+                        raise ChannelLimitsViolationError(
+                            channel_address, value, "MAX_EXCEEDED", "above max"
+                        )
+                    raise ChannelWriteBlockedError(
+                        channel_address, "CONTROL_SYSTEM_REFUSED", message="refused"
+                    )
+                return await super().write_channel(channel_address, value, **kwargs)
+
+        with _patched_factory(RaisingConnector()), record_writes() as records:
+            with pytest.raises(refusal):
+                write_channels({"A:PV": 1.0, "B:PV": 2.0, "C:PV": 3.0})
+        assert records == [
+            ("A:PV", "attempt"),
+            ("B:PV", "attempt"),
+            ("C:PV", "attempt"),
+            ("B:PV", "refused"),
+        ]
 
     def test_a_write_the_limits_net_refuses_records_nothing(self):
         import osprey.runtime as runtime

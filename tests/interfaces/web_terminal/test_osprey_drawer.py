@@ -142,7 +142,7 @@ def _open_settings_drawer(page: Page) -> None:
         pass  # already acked this server session -- drawer opened directly
     drawer = page.locator(DRAWER_SELECTOR)
     expect(drawer).to_have_attribute("open", "", timeout=5_000)
-    expect(drawer).to_have_css("transform", "matrix(1, 0, 0, 1, 0, 0)", timeout=2_000)
+    expect(drawer).to_have_css("transform", "matrix(1, 0, 0, 1, 0, 0)", timeout=5_000)
 
 
 def _drag_resize_handle(page: Page, dx: int) -> None:

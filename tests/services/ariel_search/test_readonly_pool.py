@@ -235,6 +235,7 @@ async def test_the_mcp_context_shutdown_closes_both_pools():
 
     assert ingest.closed
     assert readonly.closed
+    assert service._search_calls._closed is True
 
 
 @pytest.mark.asyncio
@@ -244,10 +245,9 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
 
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
-    context = ARIELContext.__new__(ARIELContext)
-    context._service = None
+    context = ARIELContext()
     context._ariel_config = _config()
-    create = AsyncMock(return_value=object())
+    create = AsyncMock(return_value=AsyncMock())
     monkeypatch.setattr("osprey.services.ariel_search.service.create_ariel_service", create)
 
     await context.service()
@@ -267,6 +267,7 @@ async def test_closing_the_capability_singleton_closes_both_pools(monkeypatch):
 
     assert ingest.closed
     assert readonly.closed
+    assert service._search_calls._closed is True
     assert capability._ariel_service_instance is None
 
 
@@ -292,3 +293,4 @@ async def test_a_single_pool_service_still_closes_cleanly(monkeypatch):
             monkeypatch.setattr(capability, "_ariel_service_instance", service)
             await capability.close_ariel_service()
         assert pool.closed
+        assert service._search_calls._closed is True

@@ -30,7 +30,6 @@ would never match a resolved ``/private/var/...`` candidate.
 """
 
 import json
-import os
 import subprocess
 import sys
 import textwrap
@@ -53,6 +52,7 @@ from osprey.services.python_executor.execution.wrapper import (
     ExecutionWrapper,
 )
 from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from tests.services.python_executor._child_env import child_env
 
 _GUARD_BANNER = "OSPREY filesystem guard"
 
@@ -440,12 +440,9 @@ def _run_full_wrapper(project: _Project, user_code: str, mode: str = "readonly")
         encoding="utf-8",
     )
 
-    env = os.environ.copy()
     # osprey must be importable in the child: the wrapper's persistence section
-    # imports its serializer. In production the child inherits the deployment's
-    # environment; here the test's own source tree stands in for it.
-    src_root = str(Path(__file__).resolve().parents[3] / "src")
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [src_root, env.get("PYTHONPATH")]))
+    # imports its serializer.
+    env = child_env()
 
     return subprocess.run(  # fixed argv, generated script
         [sys.executable, str(script)],

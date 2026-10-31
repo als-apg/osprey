@@ -66,8 +66,9 @@ demand})`` waits until each setpoint's readback is within the bound the
 facility file states for it: its ``tolerance``, else on the simulator its
 readback's motion band. A setpoint with neither is not waited on. A readback
 that is not inside its bound within 5 seconds raises ``SettleTimeoutError``,
-and the run fails. A readback that cannot be read, or answers no value, raises
-``SettleReadError``, which names it, and the run fails.
+and the run fails. A readback that cannot be reached, is not a channel, or
+times out raises ``SettleReadError``, which names it, as does one that answers
+no value, and the run fails; a lost connector raises its own error.
 
 .. _executor-measurement-tools:
 
@@ -144,12 +145,14 @@ saved is the one the run left in its own execution folder under the script's
 fixed name; a run that names any other file saves nothing, answers
 ``data_file`` as ``null`` and says why in ``data_file_refused``. Every result
 carries ``moved``, each setpoint the call moved as ``{address, device, before}``
-with its value before the call; a stopped run also carries its ``remainder``
-and, when an error stopped it, ``error``; a killed run's failure names
-``written_channels``. A refusal means no
-setpoint moved; a completed run whose result cannot be read answers
-``execution_error`` with the saved measurement named in ``details.data_file``,
-never a refusal.
+with its value before the call, and ``missing``: ``{}`` for a completed run;
+for a stopped run each setpoint address not measured, or the kind when none is
+left, mapped to the first line of what stopped the run, or ``null`` when
+nothing raised (see
+:doc:`partial-answers`); a killed run's failure names ``written_channels``. A
+refusal means no setpoint moved; a completed run whose result cannot be read
+answers ``execution_error`` with the saved measurement named in
+``details.data_file``, never a refusal.
 
 ``model_response_matrix``
 -------------------------
@@ -178,12 +181,15 @@ converted to the corrector's hardware unit through its wiring calibration; a
 model whose measurement file states none is refused. Each entry is a readback
 change in its hardware unit per setpoint change in its own. The result carries
 ``rows`` and ``columns``, each named by address and device id, each column's
-``step``, the ``matrix`` and ``unsolved``. A corrector whose step has no solve
-has no column; ``unsolved`` maps it to the engine's text. When no corrector
-solves, the call is refused as an ``execution_error`` with every unsolved text,
-and ``details.unsolved`` holds the same map as the result's ``unsolved``. When
-the engine refuses the request itself, the call is refused as a
-``validation_error`` with the engine's text.
+``step``, the ``matrix`` and ``missing``. A corrector whose step has no solve
+has no column; ``missing`` maps it to the engine's text. When no corrector
+solves, the call is refused as ``nothing_answered`` with ``details.missing``
+holding the same map (see :doc:`partial-answers`). When the engine refuses the
+request itself, the call is refused as a ``validation_error`` with the engine's
+text; a defective facility file is refused the same way with the remedy to
+rebuild. When the whole request has no solve, the call fails as an
+``execution_error`` with the engine's text. Any other engine error is an
+``execution_error`` carrying the solve's stderr.
 
 Installation
 ============

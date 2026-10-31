@@ -4,7 +4,9 @@ EPICS/mock -- ``VirtualAcceleratorConnector`` is an unmodified
 must hard-block writes at the connector guard with zero CA I/O, exactly as
 ``tests/connectors/test_writes_enabled.py`` proves for the base class in
 isolation. This test proves the same contract against a real container: the
-blocked write never reaches the IOC (read-back over CA confirms no change),
+blocked write never reaches the IOC (read-back over CA confirms no change
+beyond the motion the served tree declares for the readback under the suite's
+scenarios),
 and the *same* channel accepts the write once writes are enabled -- so the
 blocking is demonstrably the guard, not something else broken.
 
@@ -25,6 +27,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.control_system import WriteOutcome
+from tests.facility.served_tree import assert_unmoved, assert_write_visible
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -71,12 +74,18 @@ def corrector_rb(corrector: e2e_conftest.Corrector) -> str:
 class TestApprovalSmoke:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("va_container", "va_switch_on")
-    async def test_write_blocked_when_writes_disabled_no_ca_io(self, corrector_sp, corrector_rb):
+    async def test_write_blocked_when_writes_disabled_no_ca_io(
+        self, corrector, corrector_sp, corrector_rb
+    ):
+        band = corrector.readback_band
+
         with e2e_conftest.patched_config(**{"control_system.writes": "never"}):
             connector = await e2e_conftest.connect_va()
 
             sp_before = (await connector.read_channel(corrector_sp)).value
             rb_before = (await connector.read_channel(corrector_rb)).value
+
+            assert_write_visible(DEMO_CURRENT, sp_before, band)
 
             result = await connector.write_channel(corrector_sp, DEMO_CURRENT)
 
@@ -98,10 +107,7 @@ class TestApprovalSmoke:
             f"{corrector_sp} changed from {sp_before} to {sp_after} despite the write "
             "being blocked at the connector guard"
         )
-        assert rb_after == pytest.approx(rb_before), (
-            f"{corrector_rb} changed from {rb_before} to {rb_after} despite the write "
-            "being blocked at the connector guard"
-        )
+        assert_unmoved(corrector_rb, rb_before, rb_after, band)
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("va_container", "va_switch_on")

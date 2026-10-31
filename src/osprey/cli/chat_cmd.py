@@ -326,7 +326,7 @@ def chat(
       $ osprey chat
       $ osprey chat --print "what is the stored beam current?"
       $ osprey chat --resume SESSION_ID
-      $ osprey chat --repo ~/als-assistant
+      $ osprey chat --repo ~/my-assistant
     """
 
     import yaml

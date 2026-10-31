@@ -97,3 +97,58 @@ export function hashChangeTarget(params, historyState, knownIds) {
   if (target !== STRUCTURE_MARKER && knownIds && !knownIds.has(target)) return null;
   return target;
 }
+
+// -- facility links ----------------------------------------------------------
+//
+// A knowledge page names a facility channel or device with a markdown link
+// `[label](facility:ADDRESS)`. The concept response lists each link as a span
+// (`facility_references`) carrying the records its target resolves to: a list,
+// empty for a target the facility file does not hold, or null when no facility
+// file was read.
+
+export const FACILITY_SCHEME = 'facility:';
+
+/** @typedef {{kind: string, id: string, unit?: string, description?: string}} FacilityRecordView */
+/**
+ * @typedef {{start: number, end: number, target: string, kinds: string[],
+ *   label: string | null, records: FacilityRecordView[] | null}} FacilityReferenceView
+ */
+
+/**
+ * What the reading pane shows for one facility link.
+ *
+ * marked percent-encodes a destination, so `[x](<facility:A B>)` reaches the
+ * DOM as `facility:A%20B`; the target is decoded before the lookup.
+ *
+ * @param {string} href - the anchor's href, starting with `facility:`
+ * @param {FacilityReferenceView[] | null | undefined} references - the concept
+ *   response's `facility_references`
+ * @returns {{text: string, title: string, dangling: boolean}} the target, the
+ *   hover text, and whether the facility file holds no record for it
+ */
+export function facilityLinkView(href, references) {
+  let text = href.startsWith(FACILITY_SCHEME) ? href.slice(FACILITY_SCHEME.length) : href;
+  try {
+    text = decodeURI(text);
+  } catch {
+    // A malformed escape keeps the target as written.
+  }
+  const span = Array.isArray(references)
+    ? references.find(function (entry) {
+        return entry.target === text;
+      })
+    : undefined;
+  const records = span ? span.records : undefined;
+  if (!Array.isArray(records)) {
+    return { text, title: text + ' · facility file not loaded', dangling: false };
+  }
+  if (records.length === 0) {
+    return { text, title: text + ' · not in the facility file', dangling: true };
+  }
+  const title = records
+    .map(function (record) {
+      return [record.kind, record.unit, record.description].filter(Boolean).join(' · ');
+    })
+    .join('\n');
+  return { text, title, dangling: false };
+}

@@ -14,7 +14,10 @@ import subprocess
 import pytest
 
 from osprey.deployment import container_lifecycle, runtime_helper
-from osprey.deployment.runtime_helper import buildkit_missing
+from osprey.deployment.runtime_helper import _buildkit_switch, buildkit_missing
+
+_TRUE_WORDS = ["1", "t", "T", "TRUE", "true", "True"]
+_FALSE_WORDS = ["0", "f", "F", "FALSE", "false", "False"]
 
 
 def _answer(returncode: int):
@@ -26,6 +29,22 @@ def _answer(returncode: int):
         return subprocess.CompletedProcess(list(argv), returncode, stdout="", stderr="")
 
     return probe, calls
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(word, True) for word in _TRUE_WORDS]
+    + [(word, False) for word in _FALSE_WORDS]
+    + [(None, None), ("", None)],
+)
+def test_buildkit_switch_reads_dockers_words(value, expected) -> None:
+    assert _buildkit_switch(value) is expected
+
+
+@pytest.mark.parametrize("value", ["yes", "on", "2", " 1", "0 ", "tRUE", "no"])
+def test_buildkit_switch_refuses_other_spellings(value) -> None:
+    with pytest.raises(ValueError, match=repr(value)):
+        _buildkit_switch(value)
 
 
 def test_docker_without_buildx_is_refused_with_the_plugin_named(monkeypatch) -> None:
@@ -56,23 +75,45 @@ def test_podman_needs_no_buildkit_probe(monkeypatch) -> None:
     assert calls == []
 
 
-def test_docker_buildkit_zero_is_refused_by_name(monkeypatch) -> None:
+@pytest.mark.parametrize("word", _FALSE_WORDS)
+def test_docker_buildkit_zero_is_refused_by_name(monkeypatch, word) -> None:
     probe, calls = _answer(0)
     monkeypatch.setattr(runtime_helper, "_await_runtime_answer", probe)
 
-    text = buildkit_missing("docker", {"DOCKER_BUILDKIT": "0"})
+    text = buildkit_missing("docker", {"DOCKER_BUILDKIT": word})
 
     assert text is not None
-    assert "DOCKER_BUILDKIT=0" in text
+    assert f"DOCKER_BUILDKIT={word}" in text
+    assert "Unset DOCKER_BUILDKIT and run it again." in text
     assert calls == []
 
 
-def test_docker_buildkit_one_skips_the_probe(monkeypatch) -> None:
+@pytest.mark.parametrize("word", _TRUE_WORDS)
+def test_docker_buildkit_one_skips_the_probe(monkeypatch, word) -> None:
     probe, calls = _answer(1)
     monkeypatch.setattr(runtime_helper, "_await_runtime_answer", probe)
 
-    assert buildkit_missing("docker", {"DOCKER_BUILDKIT": "1"}) is None
+    assert buildkit_missing("docker", {"DOCKER_BUILDKIT": word}) is None
     assert calls == []
+
+
+def test_an_unparseable_switch_is_refused_by_its_spelling(monkeypatch) -> None:
+    probe, calls = _answer(0)
+    monkeypatch.setattr(runtime_helper, "_await_runtime_answer", probe)
+
+    text = buildkit_missing("docker", {"DOCKER_BUILDKIT": "yes"})
+
+    assert text is not None
+    assert "DOCKER_BUILDKIT=yes" in text
+    assert calls == []
+
+
+def test_an_empty_switch_is_unset(monkeypatch) -> None:
+    probe, calls = _answer(0)
+    monkeypatch.setattr(runtime_helper, "_await_runtime_answer", probe)
+
+    assert buildkit_missing("docker", {"DOCKER_BUILDKIT": ""}) is None
+    assert calls == [["docker", "buildx", "version"]]
 
 
 @pytest.mark.parametrize(

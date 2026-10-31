@@ -492,7 +492,7 @@ class TestImportIsolation:
             assert callable(builder.build_from_rows)
             """
         )
-        subprocess.run([sys.executable, "-c", script], check=True)
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=120)
 
     def test_the_package_exports_the_writer_lazily(self):
         from osprey.services.channel_finder import graph_index

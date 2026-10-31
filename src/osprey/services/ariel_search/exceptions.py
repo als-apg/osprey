@@ -299,13 +299,23 @@ class ConfigurationError(ARIELException, _FrameworkConfigurationError):
     """Invalid configuration.
 
     Raised when ARIEL configuration is invalid.
+
+    Attributes:
+        config_key: The configuration key that is invalid.
+        remedy: The operator action that clears the failure, or None when the
+            raiser names none; a surface renders it only when present.
     """
+
+    #: Class-level so a subclass can state one remedy for every instance.
+    remedy: str | None = None
 
     def __init__(
         self,
         message: str,
         config_key: str,
         technical_details: dict | None = None,
+        *,
+        remedy: str | None = None,
     ) -> None:
         """Initialize ConfigurationError.
 
@@ -313,11 +323,16 @@ class ConfigurationError(ARIELException, _FrameworkConfigurationError):
             message: Human-readable error description
             config_key: The configuration key that is invalid
             technical_details: Additional debugging information
+            remedy: The operator action that clears the failure. Stored on the
+                instance only when given, so a subclass's class-level remedy
+                keeps answering.
         """
         details = technical_details or {}
         details["config_key"] = config_key
         super().__init__(message, ErrorCategory.CONFIGURATION, details)
         self.config_key = config_key
+        if remedy is not None:
+            self.remedy = remedy
 
 
 class SearchConfigurationError(ARIELException):

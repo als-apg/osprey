@@ -41,16 +41,16 @@ def repo(tmp_path, monkeypatch):
     contract (the build runs them from the repo root), so the fixture chdirs in.
     """
     import osprey
+    from osprey.cli.build_injectors import _copy_shared_service_partials
 
     repo = tmp_path / "repo"
     packaged = resources.files(osprey).joinpath("templates", "services")
     for service in ("bluesky_web", "bluesky"):
         shutil.copytree(str(packaged / service), repo / "services" / service)
-    # The shared macro partials travel with the template that imports them, by
-    # the same glob the build copies them with (_copy_shared_service_partials) —
-    # naming one here would leave the next partial to fail as a TemplateNotFound.
-    for partial in sorted(Path(str(packaged)).glob("_*.j2")):
-        shutil.copy2(partial, repo / "services" / partial.name)
+    # The shared macro partials travel with the template that imports them,
+    # copied by the build's own helper — naming one here would leave the next
+    # partial to fail as a TemplateNotFound.
+    _copy_shared_service_partials(repo / "services")
     monkeypatch.chdir(repo)
     return repo
 

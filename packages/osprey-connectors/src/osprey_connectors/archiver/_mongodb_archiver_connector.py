@@ -32,6 +32,7 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.connection import read_connection_settings
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.archive import waveform_collection
 
@@ -217,7 +218,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             ImportError: If pymongo is not installed
             ValueError: If required config *keys* are missing — an authoring
                 error in config.yml, not a runtime condition
-            ConnectionError: If the store cannot be reached or authenticated
+            ConnectorUnavailableError: If the store cannot be reached or authenticated
                 against, including when ``auth.password_env`` names a variable that
                 is not set. These are the states a not-yet-deployed project is
                 in, so they carry the deploy hint and reach the agent as a
@@ -320,13 +321,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
         # Get password from environment variable. An unset variable is a
         # deployment state, not a config error: `osprey up` mints the password
         # into the project's .env, so this is what a built-but-never-deployed
-        # project hits. ConnectionError so the agent gets an actionable
-        # connection_error envelope instead of an opaque internal error.
+        # project hits. ConnectorUnavailableError so the agent gets an
+        # actionable connection_error envelope instead of an opaque internal
+        # error.
         password: str | None = None
         if password_env is not None:
             password = os.getenv(password_env)
             if not password:
-                raise ConnectionError(
+                raise ConnectorUnavailableError(
                     f"Environment variable '{password_env}' is not set, so the MongoDB "
                     f"archiver has no password to authenticate with. {DEPLOY_HINT}"
                 )
@@ -365,24 +367,24 @@ class MongoDBArchiverConnector(ArchiverConnector):
             )
 
         except self._ConnectionFailure as e:
-            raise ConnectionError(
+            raise ConnectorUnavailableError(
                 f"Cannot connect to MongoDB at {store}. "
                 f"Please check connectivity and authentication. {DEPLOY_HINT}"
             ) from e
         except self._ConfigurationError as e:
-            raise ConnectionError(f"MongoDB configuration error: {e}") from e
+            raise ConnectorUnavailableError(f"MongoDB configuration error: {e}") from e
         except (TimeoutError, OSError) as e:
             # pymongo loads the CA file while it builds the client, before any ping.
             if ca_bundle is not None and isinstance(e, CA_FILE_ERRORS):
-                raise ConnectionError(
+                raise ConnectorUnavailableError(
                     f"MongoDB TLS setup failed: the CA file named by {_WHERE}.tls.ca_bundle "
                     f"could not be loaded: {e}"
                 ) from e
-            raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
+            raise ConnectorUnavailableError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
         except Exception as e:
-            # Last resort - log and re-raise as ConnectionError
+            # Last resort - log and re-raise as the connector's own loss
             logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
-            raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
+            raise ConnectorUnavailableError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
 
     async def disconnect(self) -> None:
         """Cleanup MongoDB connection."""
@@ -476,9 +478,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
-            ConnectionError: If MongoDB cannot be reached, or the connection is
-                lost mid-query — the caller is expected to drop this connector
-                and reconnect
+            ConnectorUnavailableError: If MongoDB cannot be reached, or the
+                connection is lost mid-query; its supervisor rebuilds the
+                connector
             TypeError: If start_date or end_date are not datetime objects
             ValueError: If channels is empty, data retrieval fails, or a
                 non-raw processing mode is requested for a channel that
@@ -567,14 +569,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
         except TimeoutError as e:
             raise TimeoutError(f"MongoDB query timed out after {timeout}s") from e
         except ConnectionError as e:
-            raise ConnectionError(f"Network connectivity issue with MongoDB: {e}") from e
+            raise ConnectorUnavailableError(f"Network connectivity issue with MongoDB: {e}") from e
         except self._connection_error_types() as e:
             # A pymongo connection-class failure means the store went away
-            # mid-session. Surfacing it as ConnectionError (rather than the
-            # ValueError the generic branch below would produce) is what makes
-            # connector_error_handler invalidate the cached connector, so the
-            # next tool call reconnects instead of reusing a dead client.
-            raise ConnectionError(f"Lost connection to MongoDB: {e}") from e
+            # mid-session: the connector is unavailable (not the ValueError
+            # the generic branch below would produce), and the supervisor
+            # rebuilds an unavailable archiver, so the next tool call
+            # reconnects instead of reusing a dead client.
+            raise ConnectorUnavailableError(f"Lost connection to MongoDB: {e}") from e
         except (ValueError, TypeError) as e:
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
         except Exception as e:

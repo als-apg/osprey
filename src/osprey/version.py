@@ -126,7 +126,8 @@ def _pep440_from_describe(described: str) -> str | None:
     is run from the source tree or from a wheel built out of it.
 
     Args:
-        described: Output of ``git describe --tags --long --dirty``, e.g.
+        described: Output of ``git describe --tags --long``, with ``-dirty``
+            appended for a tree with tracked changes, e.g.
             ``v2026.6.2-783-g83fda5e60`` or ``v2026.6.2-0-g1234567-dirty``.
 
     Returns:
@@ -164,39 +165,57 @@ def _version_from_git() -> str | None:
     if not _anchored_at_osprey_source():
         return None
 
-    try:
-        completed = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(_SOURCE_ROOT),
-                "describe",
-                "--tags",
-                "--long",
-                "--dirty",
-                # Full node, sliced below. git's default abbreviation width
-                # scales with the size of the clone, so left to it the same
-                # commit reports g1234567a here and g1234567ab elsewhere.
-                "--abbrev=40",
-                "--match",
-                "v[0-9]*",
-            ],
-            capture_output=True,
-            text=True,
-            env={
-                name: value for name, value in os.environ.items() if name not in _GIT_REPOSITORY_ENV
-            },
-            timeout=_GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        # No git binary on this host, or the call timed out. Fall through.
-        return None
+    def _git(*args: str) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                ["git", *args],
+                capture_output=True,
+                text=True,
+                env={
+                    name: value
+                    for name, value in os.environ.items()
+                    if name not in _GIT_REPOSITORY_ENV
+                },
+                timeout=_GIT_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            # No git binary on this host, or the call timed out. Fall through.
+            return None
 
-    if completed.returncode != 0:
+    # Asking the version writes nothing in the checkout, so a probe killed at its
+    # deadline leaves no lock behind. ``describe --dirty`` refreshes and writes the
+    # index; the status call reads the same answer without writing.
+    described = _git(
+        "-C",
+        str(_SOURCE_ROOT),
+        "describe",
+        "--tags",
+        "--long",
+        # Full node, sliced below. git's default abbreviation width
+        # scales with the size of the clone, so left to it the same
+        # commit reports g1234567a here and g1234567ab elsewhere.
+        "--abbrev=40",
+        "--match",
+        "v[0-9]*",
+    )
+    if described is None or described.returncode != 0:
         # A shallow clone or a repo with no matching tag reaches here.
         return None
-    return _pep440_from_describe(completed.stdout.strip())
+
+    status = _git(
+        "--no-optional-locks",
+        "-C",
+        str(_SOURCE_ROOT),
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+    )
+    if status is None or status.returncode != 0:
+        return None
+
+    dirty = any(line.strip() for line in status.stdout.splitlines())
+    return _pep440_from_describe(described.stdout.strip() + ("-dirty" if dirty else ""))
 
 
 def _version_from_stamp() -> str | None:

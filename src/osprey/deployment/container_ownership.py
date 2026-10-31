@@ -10,10 +10,10 @@ One rule, read by every surface that grades or lists a deployment's containers
 
 The project a row is labelled for is its :data:`PROJECT_LABEL`, or, when that
 is absent, the :data:`COMPOSE_PROJECT_LABEL` compose stamps on every container
-it creates. Every OSPREY compose call pins the compose project to
-:func:`~osprey.deployment.compose_generator.resolve_project_name`, so the
-compose label names this deployment on every container compose created for it,
-including one whose template writes no OSPREY label.
+it creates. Every OSPREY compose call pins the compose project the start
+recorded (:mod:`~osprey.deployment.deployment_record`), so the compose label
+names this deployment on every container compose created for it, including one
+whose template writes no OSPREY label.
 
 Rows are decoded runtime ``ps --format json`` records in either shape: podman
 emits ``Labels`` as an object and ``Names`` as a list, docker emits a
