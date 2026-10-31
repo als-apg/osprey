@@ -2125,6 +2125,159 @@ describe('tile notice — a docked panel that stops answering says so over its o
   });
 });
 
+describe('which panels are served: PanelState.url, followed by the sidebar', () => {
+  const AVAILABILITY =
+    '../../../src/osprey/interfaces/web_terminal/static/js/panel-availability.js';
+
+  /**
+   * Boot with a mutable answer for the artifacts config endpoint and a stub
+   * whose `open()` is the event stream (re)opening.
+   * @param {() => Response | Promise<Response>} [firstAnswer] - the first read's answer
+   */
+  async function bootFollowing(firstAnswer) {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    const server = { artifacts: /** @type {string | null} */ (null) };
+    let answered = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({ enabled: ['artifacts'], custom: [], visible: ['artifacts'], labels: {} });
+        }
+        if (url === '/api/artifact-server') {
+          if (firstAnswer && !answered) {
+            answered = true;
+            return firstAnswer();
+          }
+          return jsonOk({ url: server.artifacts, available: server.artifacts !== null });
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
+    /** @type {{ onopen?: (() => void) | null }[]} */
+    const sources = [];
+    class FakeEventSource {
+      constructor() {
+        /** @type {(() => void) | null} */
+        this.onopen = null;
+        sources.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const mod = await freshImport();
+    const availability = await import(AVAILABILITY);
+    const calls = { started: 0, stopped: 0 };
+    availability.whilePanelServed(
+      'artifacts',
+      () => (calls.started += 1),
+      () => (calls.stopped += 1)
+    );
+    return {
+      mod,
+      server,
+      calls,
+      open: () => {
+        for (const s of sources) s.onopen?.();
+      },
+    };
+  }
+
+  /** Let every read the page has started land, before saying nothing happened. */
+  const drained = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  /** The Artifacts row. */
+  const row = () =>
+    /** @type {HTMLElement} */ (
+      document.querySelector('.panel-rail-button[data-panel-id="artifacts"]')
+    );
+
+  test('enabled but not launched: a config answer with no url starts nothing', async () => {
+    const { mod, open, calls } = await bootFollowing();
+    await mod.initPanelManager('panel-manager');
+    await drained();
+    open();
+    await drained();
+
+    expect(calls).toEqual({ started: 0, stopped: 0 });
+    expect(row().classList.contains('disabled')).toBe(true);
+  });
+
+  test('a panel the deployment does not enable starts nothing', async () => {
+    const { mod, calls } = await bootFollowing();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) =>
+        url === '/api/panels'
+          ? jsonOk({ enabled: [], custom: [], visible: [], labels: {} })
+          : jsonOk({ status: 'ok' })
+      )
+    );
+    await mod.initPanelManager('panel-manager');
+    await drained();
+
+    expect(calls).toEqual({ started: 0, stopped: 0 });
+  });
+
+  test('a served panel starts its followers once its config answers', async () => {
+    const { mod, server, calls, open } = await bootFollowing();
+    server.artifacts = '/panel/artifacts';
+    await mod.initPanelManager('panel-manager');
+    await settled(() => expect(calls.started).toBe(1));
+
+    open();
+    open();
+    await drained();
+
+    expect(calls).toEqual({ started: 1, stopped: 0 });
+    expect(row().classList.contains('disabled')).toBe(false);
+  });
+
+  test('a config read that failed at boot starts them when a retry answers', async () => {
+    const { mod, server, calls } = await bootFollowing(() => {
+      throw new Error('offline');
+    });
+    server.artifacts = '/panel/artifacts';
+    await mod.initPanelManager('panel-manager');
+    await drained();
+    expect(calls.started).toBe(0);
+
+    await vi.waitFor(() => expect(calls.started).toBe(1), { timeout: 3000, interval: 20 });
+  });
+
+  test('a reopened stream starts a panel the restarted hub now serves', async () => {
+    const { mod, server, calls, open } = await bootFollowing();
+    await mod.initPanelManager('panel-manager');
+    await drained();
+    open();
+    await drained();
+    expect(calls.started).toBe(0);
+
+    server.artifacts = '/panel/artifacts';
+    open();
+
+    await settled(() => expect(calls.started).toBe(1));
+    await settled(() => expect(row().classList.contains('disabled')).toBe(false));
+  });
+
+  test('a reopened stream stops a panel the restarted hub no longer serves', async () => {
+    const { mod, server, calls, open } = await bootFollowing();
+    server.artifacts = '/panel/artifacts';
+    await mod.initPanelManager('panel-manager');
+    await settled(() => expect(calls.started).toBe(1));
+    open();
+    await drained();
+
+    server.artifacts = null;
+    open();
+
+    await settled(() => expect(calls.stopped).toBe(1));
+    expect(row().classList.contains('disabled')).toBe(true);
+  });
+});
+
 describe('SSE reconnect resync — membership re-converges from /api/panels', () => {
   /**
    * Boot against a MUTABLE server state and an EventSource stub whose

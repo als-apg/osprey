@@ -12,8 +12,10 @@
  *
  * Seams: control-target-chip.js is mocked (the chip element, its subscribers
  * and its reading are what this module reads; the chip's own suite pins how it
- * derives them) and `fetch` is stubbed per test. Module state is isolated by
- * vi.resetModules() + dynamic import per test and the module's own teardown.
+ * derives them) and `fetch` is stubbed per test. The SYSTEM panel is served
+ * unless a test says otherwise, through the real panel-availability.js. Module
+ * state is isolated by vi.resetModules() + dynamic import per test and the
+ * module's own teardown.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -21,6 +23,7 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import { byId, qs } from '../_support/dom.mjs';
 
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/sidebar-target.js';
+const AVAILABILITY = '../../../src/osprey/interfaces/web_terminal/static/js/panel-availability.js';
 
 /** The chip as this module sees it: its element, its reading, its subscribers. */
 const chip = vi.hoisted(() => ({
@@ -43,6 +46,8 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/control-target-ch
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-target.js')} */
 let mod;
+/** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/panel-availability.js')} */
+let availability;
 /** @type {ReturnType<typeof vi.fn>} */
 let fetchMock;
 
@@ -100,6 +105,8 @@ beforeEach(async () => {
   Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   stubHealth(reply({ results: [{ status: 'ok' }], interval_s: 30 }));
   mod = await import(MODULE);
+  availability = await import(AVAILABILITY);
+  availability.setPanelServed('system-health', true);
 });
 
 afterEach(() => {
@@ -341,16 +348,97 @@ describe('polling', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  test('a 404 hides the dot and nothing is read again', async () => {
+  test('a 404 from a served panel reads as unreachable and the reads go on', async () => {
     stubHealth(reply({ detail: 'Not Found' }, 404));
+    mountWithoutChip();
+    mod.initSidebarTarget();
+    await settle();
+
+    expect(dot().hidden).toBe(false);
+    expect(dot().getAttribute('aria-label')).toBe('Service health: unreachable');
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ---- following the SYSTEM panel ------------------------------------------- */
+
+describe('while the SYSTEM panel is served', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    availability.setPanelServed('system-health', false);
+    mountWithoutChip();
+  });
+
+  test('absent: the dot is hidden and nothing is ever read', async () => {
     mod.initSidebarTarget();
     await settle();
 
     expect(dot().hidden).toBe(true);
-
     await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('appearing shows the dot and starts the reads, without a reload', async () => {
+    mod.initSidebarTarget();
+    await settle();
+
+    availability.setPanelServed('system-health', true);
+    await settle();
+
+    expect(dot().hidden).toBe(false);
+    expect(dot().classList.contains('ok')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('leaving hides the dot and stops the reads, a read in flight included', async () => {
+    availability.setPanelServed('system-health', true);
+    mod.initSidebarTarget();
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    /** @type {(answer: unknown) => void} */
+    let answer = () => {};
+    stubHealth(() => new Promise((resolve) => (answer = resolve)));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    availability.setPanelServed('system-health', false);
+    answer(reply({ results: [{ status: 'error' }], interval_s: 30 }));
+    await settle();
+
+    expect(dot().hidden).toBe(true);
+    expect(dot().classList.contains('err')).toBe(false);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('coming back starts from checking, with one chain of reads', async () => {
+    availability.setPanelServed('system-health', true);
+    mod.initSidebarTarget();
+    await settle();
+    availability.setPanelServed('system-health', false);
+    availability.setPanelServed('system-health', true);
+    await settle();
+
+    fetchMock.mockClear();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('after teardown a change of the panel reaches nothing', async () => {
+    mod.initSidebarTarget();
+    mod.teardownSidebarTarget();
+
+    availability.setPanelServed('system-health', true);
+    await settle();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(healthEl()).toBeNull();
   });
 });
 

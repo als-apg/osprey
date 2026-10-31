@@ -40,7 +40,8 @@ import { initControlTargetPopover } from './control-target-popover.js';
 import { initFeedback } from './feedback-boot.js';
 import { initSidebar } from './sidebar.js';
 import { initSidebarTarget } from './sidebar-target.js';
-import { initSidebarArtifacts } from './sidebar-artifacts.js';
+import { initSidebarArtifacts, teardownSidebarArtifacts } from './sidebar-artifacts.js';
+import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -100,14 +101,10 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init dock workspace:', err);
   }
-  // The sidebar's Artifacts and Script runs lists. Their rows are page-owned,
-  // so they exist already; the lists follow every later sidebar render
-  // through `osprey-sidebar-rendered`.
-  try {
-    initSidebarArtifacts();
-  } catch (err) {
-    console.error('Failed to init the sidebar artifact lists:', err);
-  }
+  // The sidebar's Artifacts and Script runs lists, while the panel behind them
+  // is served. Their rows are page-owned, so they exist already; the lists
+  // follow every later sidebar render through `osprey-sidebar-rendered`.
+  whilePanelServed('artifacts', initSidebarArtifacts, teardownSidebarArtifacts);
   initKeyboardShortcuts();
   initCommandPalette();
   try {

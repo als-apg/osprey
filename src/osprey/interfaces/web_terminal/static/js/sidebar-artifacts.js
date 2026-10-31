@@ -38,6 +38,9 @@
  * (tile-header-contrib.js), and lends the tile's ⋯ menu the artifact verbs,
  * which the iframe runs on `osprey-artifact-action`.
  *
+ * The shell runs this module exactly while the artifacts panel is served (app.js,
+ * panel-availability.js): a panel with no backend answers none of these routes.
+ *
  * The DOM is the sidebar skeleton of index.html and sidebar.js. Each slot is
  * looked up when it is drawn and a missing one is skipped, so on a page
  * without the skeleton the module runs and draws nothing.
@@ -67,10 +70,13 @@ import {
 } from './sidebar-artifact-listing.js';
 import {
   artifactRows,
+  drawCounts,
   drawnOrder,
+  each,
   fillArtifactMenu,
   rowIn,
   runRows,
+  undrawLists,
 } from './sidebar-artifact-rows.js';
 import { headerItems, menuItems, openArtifact, saveArtifact } from './artifacts-pane-header.js';
 
@@ -134,6 +140,8 @@ let active = false;
 let lastHeader = '';
 /** Elements already wired, so a re-render never stacks listeners. */
 let wired = new WeakSet();
+/** The session and mode owners are subscribed to once, across every restart. */
+let followingOwners = false;
 
 /** @returns {string | null} the session both listings are scoped to */
 function scopeSessionId() {
@@ -168,24 +176,27 @@ export function initSidebarArtifacts() {
   document.addEventListener('osprey-sidebar-rendered', render, { signal });
   window.addEventListener('message', onMessage, { signal });
   stream = createEventSource(EVENTS_PATH, { onMessage: onFrame, onOpen: onStreamOpen });
-  onSessionChange(() => {
-    if (!active) return;
-    state.allSessions = false;
-    render();
-    void refresh();
-  });
-  onModeChange(() => {
-    if (active) render();
-  });
+  if (!followingOwners) {
+    followingOwners = true;
+    onSessionChange(() => {
+      if (!active) return;
+      state.allSessions = false;
+      render();
+      void refresh();
+    });
+    onModeChange(() => {
+      if (active) render();
+    });
+  }
   setServiceMenuExtras(ARTIFACTS_PANEL_ID, menuExtras);
   void restoreFocus();
   render();
 }
 
 /**
- * Stop everything initSidebarArtifacts started and forget the lists. The
- * session and mode subscriptions cannot be removed from their owners; they
- * check `active` and do nothing once this has run.
+ * Stop everything initSidebarArtifacts started, forget the lists and take what
+ * they drew off the page. The session and mode subscriptions cannot be removed
+ * from their owners; they check `active` and do nothing once this has run.
  */
 export function teardownSidebarArtifacts() {
   if (!active) return;
@@ -202,6 +213,14 @@ export function teardownSidebarArtifacts() {
   state = freshState();
   lastHeader = '';
   wired = new WeakSet();
+  undraw();
+}
+
+/** Put the skeleton back as index.html ships it: no rows, no counts, no filter. */
+function undraw() {
+  undrawLists([...ARTIFACT_LIST_IDS, RUNS_LIST_ID], ARTIFACTS_PANEL_ID);
+  drawControls(false);
+  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null, null), onHeaderAction);
 }
 
 /**
@@ -428,6 +447,7 @@ function pagerPosition(shown) {
  * @param {string} id
  */
 function onHeaderAction(id) {
+  if (!active) return;
   const shown = currentShown();
   if (!shown) return;
   if (id === 'prev') void step(-1);
@@ -469,7 +489,7 @@ function render() {
     );
   }
   drawList(RUNS_LIST_ID, runs, () => runRows(runs.entries, rowsState(runs)));
-  drawCounts();
+  drawCounts(artifacts, runs, ARTIFACTS_PANEL_ID);
   drawControls(filterShown);
   const header = headerItems(shown, pagerPosition(shown));
   const key = JSON.stringify(header);
@@ -520,29 +540,6 @@ function nearEnd(list) {
   return list.scrollHeight - list.scrollTop - list.clientHeight <= NEAR_END_PX;
 }
 
-/** The counts on the Artifacts row, in the flyout and on the Script runs row. */
-function drawCounts() {
-  const { artifacts, runs } = lists();
-  each('[data-art-count]', (el) => showCount(el, artifacts));
-  each('[data-runs-count]', (el) => showCount(el, runs));
-  // The collapsed sidebar names its rows in tooltips; these carry the count.
-  each(`.osprey-nav-row[data-panel-id="${ARTIFACTS_PANEL_ID}"]`, (row) => {
-    row.dataset.tip = `Artifacts · ${artifacts.total}`;
-  });
-  each('#sidebar-runs-toggle', (row) => {
-    row.dataset.tip = `Script runs · ${runs.total}`;
-  });
-}
-
-/**
- * @param {HTMLElement} el
- * @param {Listing} listing
- */
-function showCount(el, listing) {
-  el.textContent = String(listing.total);
-  el.hidden = !listing.loaded || listing.total === 0;
-}
-
 /**
  * The row actions, in the row and in the flyout alike: the filter field and
  * its toggle, the scope mark on ⋯, and the ⋯ menu's Group by radios and
@@ -571,17 +568,6 @@ function drawControls(filterShown) {
   );
   const allSessions = menu.querySelector('[data-art-all-sessions]');
   allSessions?.setAttribute('aria-checked', String(state.allSessions));
-}
-
-/**
- * Run `fn` on every element of the page that matches.
- * @param {string} selector
- * @param {(el: HTMLElement) => void} fn
- */
-function each(selector, fn) {
-  for (const el of document.querySelectorAll(selector)) {
-    if (el instanceof HTMLElement) fn(el);
-  }
 }
 
 // ---- Input ----

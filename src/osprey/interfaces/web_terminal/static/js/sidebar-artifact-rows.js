@@ -303,3 +303,63 @@ function menuItem(role, iconName, label) {
   item.append(icon(iconName), document.createTextNode(label));
   return item;
 }
+
+/**
+ * Run `fn` on every element of the page that matches.
+ * @param {string} selector
+ * @param {(el: HTMLElement) => void} fn
+ */
+export function each(selector, fn) {
+  for (const el of document.querySelectorAll(selector)) {
+    if (el instanceof HTMLElement) fn(el);
+  }
+}
+
+/**
+ * The counts on the Artifacts row, in the flyout and on the Script runs row.
+ * @param {import('./sidebar-artifact-listing.js').Listing} artifacts
+ * @param {import('./sidebar-artifact-listing.js').Listing} runs
+ * @param {string} panelId - the artifacts panel, whose row carries the count
+ */
+export function drawCounts(artifacts, runs, panelId) {
+  each('[data-art-count]', (el) => showCount(el, artifacts));
+  each('[data-runs-count]', (el) => showCount(el, runs));
+  // The collapsed sidebar names its rows in tooltips; these carry the count.
+  each(`.osprey-nav-row[data-panel-id="${panelId}"]`, (row) => {
+    row.dataset.tip = `Artifacts · ${artifacts.total}`;
+  });
+  each('#sidebar-runs-toggle', (row) => {
+    row.dataset.tip = `Script runs · ${runs.total}`;
+  });
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {import('./sidebar-artifact-listing.js').Listing} listing
+ */
+function showCount(el, listing) {
+  el.textContent = String(listing.total);
+  el.hidden = !listing.loaded || listing.total === 0;
+}
+
+/**
+ * Take the lists' rows and counts off the page.
+ * @param {string[]} listIds
+ * @param {string} panelId - the artifacts panel, whose row carries the count
+ */
+export function undrawLists(listIds, panelId) {
+  for (const listId of listIds) {
+    const list = document.getElementById(listId);
+    list?.replaceChildren();
+    list?.removeAttribute('aria-busy');
+  }
+  each('[data-art-count], [data-runs-count]', (el) => {
+    el.hidden = true;
+  });
+  each(`.osprey-nav-row[data-panel-id="${panelId}"]`, (row) => {
+    row.dataset.tip = 'Artifacts';
+  });
+  each('#sidebar-runs-toggle', (row) => {
+    row.dataset.tip = 'Script runs';
+  });
+}

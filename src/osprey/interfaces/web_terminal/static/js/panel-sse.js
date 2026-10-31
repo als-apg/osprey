@@ -33,7 +33,12 @@ import {
 } from './panel-agent-attention.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
-import { ensureRailMembership, addPanel, applyRailOrder } from './panel-lifecycle.js';
+import {
+  ensureRailMembership,
+  addPanel,
+  applyRailOrder,
+  rereadPanelConfig,
+} from './panel-lifecycle.js';
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
 import { isPoppedOut, focusPopout } from './popout.js';
@@ -131,6 +136,7 @@ export function subscribePanelEvents(sseDeps) {
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
   // action itself already happened. Untagged frames behave exactly as before.
+  let streamOpened = false;
   createEventSource('/api/files/events', {
     // prefixed via createEventSource (api.js)
     // SSE has no replay: anything broadcast while this client was
@@ -143,6 +149,10 @@ export function subscribePanelEvents(sseDeps) {
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
+      // The first open follows the config reads of this page's boot. A later
+      // one may be a different hub: what each panel is served at is read again.
+      if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
+      streamOpened = true;
     },
     onMessage: (raw) => {
       try {

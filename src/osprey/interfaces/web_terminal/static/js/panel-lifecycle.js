@@ -22,6 +22,7 @@
 
 import { apiRequest, fetchJSON } from './api.js';
 import { setKnownServicePanels, setPanelReachable } from './dock-iframe.js';
+import { setPanelServed } from './panel-availability.js';
 import {
   PANELS,
   TERMINAL_RAIL_ID,
@@ -99,6 +100,18 @@ export function freshPanelState() {
     misses: 0,
     missSince: null,
   };
+}
+
+/**
+ * Set where a panel is served, or `null` for nowhere: the one write of
+ * `PanelState.url`, so the page's followers of it (panel-availability.js) hear
+ * every change.
+ * @param {string} panelId
+ * @param {string | null} url
+ */
+export function publishPanelUrl(panelId, url) {
+  ctx().panelState[panelId].url = url;
+  setPanelServed(panelId, url !== null);
 }
 
 /**
@@ -211,7 +224,7 @@ export function addPanel(spec) {
   const { panelState } = ctx();
   if (panelState[spec.id]) {
     // Re-registration: update url so subsequent navigation stays consistent
-    if (spec.url) panelState[spec.id].url = spec.url;
+    if (spec.url) publishPanelUrl(spec.id, spec.url);
     return;
   }
 
@@ -235,9 +248,8 @@ export function addPanel(spec) {
 
   // Seed url and health, mirroring the custom-panel block in initPanelManager
   if (spec.url) {
-    const ps = panelState[spec.id];
-    ps.url = spec.url;
-    ps.configLoaded = true;
+    publishPanelUrl(spec.id, spec.url);
+    panelState[spec.id].configLoaded = true;
     if (!spec.healthEndpoint) {
       assumeHealthy(normalized);
     } else {
@@ -306,29 +318,73 @@ export async function initPanel(panel) {
     if (state.url) return;
     config = await readConfig(panel.configEndpoint);
   }
-  // Artifact server returns { url }, ARIEL returns { url, available }
-  if (config?.url && (config.available === undefined || config.available)) {
-    state.url = config.url;
-  }
+  const url = servedUrl(config);
+  if (url) publishPanelUrl(panel.id, url);
   state.configLoaded = true;
 
   // A sidecar reports its start outcome with its config: a failed one gets
   // its clickable failed entry, a starting one is followed until it settles.
   if (config?.state === 'failed') showFailed(panel, config.message);
   else if (config?.state === 'starting') followStart(panel);
-  else if (state.url) {
-    // External panels (healthEndpoint === null) skip health polling —
-    // mark healthy immediately so the tab is enabled.
-    if (panel.healthEndpoint == null) {
-      // null or undefined → skip polling
-      assumeHealthy(panel);
-    } else {
-      startHealthPolling(panel);
-    }
-  }
+  else if (state.url) followLiveness(panel);
   // Re-evaluate on every settle, including the no-url case: this panel may be
   // the default that another panel's health poll was waiting on.
   c.ensureActive();
+}
+
+/**
+ * The url a config answer says the panel is served at. The artifact server
+ * returns { url }, ARIEL returns { url, available }.
+ * @param {any} config
+ * @returns {string | null}
+ */
+function servedUrl(config) {
+  return config?.url && (config.available === undefined || config.available) ? config.url : null;
+}
+
+/**
+ * Start tracking a served panel's liveness. External panels (healthEndpoint
+ * null or undefined) skip health polling: mark them healthy at once so the tab
+ * is enabled.
+ * @param {Panel} panel
+ */
+function followLiveness(panel) {
+  if (panel.healthEndpoint == null) assumeHealthy(panel);
+  else startHealthPolling(panel);
+}
+
+/**
+ * Read a panel's config again once the hub may have restarted (the event
+ * stream reopened), since the answer {@link initPanel} took as final holds only
+ * for that hub. A panel that gained a url starts up; one that lost it stops:
+ * its entry goes back to `.disabled` and a tile it holds carries the notice. A
+ * sidecar is skipped: its own start and health paths already follow it.
+ * @param {Panel} panel
+ */
+export async function rereadPanelConfig(panel) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (!state || !panel.configEndpoint || panel.startEndpoint) return;
+  const config = await readConfig(panel.configEndpoint);
+  if (config === undefined) return; // no answer: the next reopen asks again
+  const url = servedUrl(config);
+  if (Boolean(url) === Boolean(state.url)) return;
+  if (url) {
+    publishPanelUrl(panel.id, url);
+    setPanelReachable(panel.id, true);
+    if (state.iframe) state.iframe.src = buildEmbedSrc(url);
+    followLiveness(panel);
+    c.ensureActive();
+    return;
+  }
+  stopHealthPolling(state);
+  publishPanelUrl(panel.id, null);
+  state.healthy = false;
+  if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
+  state.misses = 0;
+  state.missSince = null;
+  setEntryEnabled(c.getRailEl(), panel.id, false);
+  setPanelReachable(panel.id, false, clockTime(Date.now()));
 }
 
 // ---- Health Polling ----
@@ -389,7 +445,7 @@ function onHealthSettled(panel, wasHealthy) {
       .then((config) => {
         if (config?.state !== 'failed') return;
         stopHealthPolling(state);
-        state.url = null;
+        publishPanelUrl(panel.id, null);
         state.healthy = false;
         showFailed(panel, config.message);
       })
@@ -494,7 +550,7 @@ function settleStart(panel, answer, lastMessage) {
     showFailed(panel, lastMessage);
     return;
   }
-  state.url = answer.url;
+  publishPanelUrl(panel.id, answer.url);
   if (state.iframe) state.iframe.src = buildEmbedSrc(answer.url);
   stopHealthPolling(state);
   startHealthPolling(panel);

@@ -275,6 +275,64 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-osprey-storage-scope');
 });
 
+/* ---- stopping and starting again ---------------------------------------- */
+
+describe('teardown and a later start', () => {
+  test('takes the rows, counts and filter off the page', async () => {
+    await boot();
+    expect(ids('sidebar-artifacts-list')).not.toEqual([]);
+
+    mod.teardownSidebarArtifacts();
+
+    expect(document.getElementById('sidebar-artifacts-list')?.children.length).toBe(0);
+    expect(document.getElementById('sidebar-runs-list')?.children.length).toBe(0);
+    for (const el of document.querySelectorAll('[data-art-count], [data-runs-count]')) {
+      expect(/** @type {HTMLElement} */ (el).hidden).toBe(true);
+    }
+    const row = /** @type {HTMLElement} */ (
+      document.querySelector('.osprey-nav-row[data-panel-id="artifacts"]')
+    );
+    expect(row.dataset.tip).toBe('Artifacts');
+    expect(mocks.contributeLocal.mock.lastCall?.[1][0]).toMatchObject({
+      root: 'Artifacts',
+      leaf: '',
+    });
+  });
+
+  test('closes the stream and leaves no retry behind', async () => {
+    await boot();
+    vi.useFakeTimers();
+    const fail = () => {
+      const source = /** @type {any} */ (events.opened.at(-1));
+      source.readyState = 2;
+      source.onerror?.();
+      return source;
+    };
+    // A refused stream retries by itself: that retry is what has to end.
+    fail();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(events.opened.length).toBe(2);
+
+    const source = fail();
+    mod.teardownSidebarArtifacts();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+    expect(source.closed).toBe(true);
+    expect(events.opened.length).toBe(2);
+  });
+
+  test('a start after a teardown reads and follows again, once per change', async () => {
+    await boot();
+    mod.teardownSidebarArtifacts();
+    await boot();
+
+    expect(ids('sidebar-artifacts-list')).not.toEqual([]);
+    expect(events.opened.length).toBe(2);
+    // One subscription, however many starts: a second would refetch twice.
+    expect(mocks.sessionListeners.length).toBe(1);
+  });
+});
+
 /* ---- fetching ---------------------------------------------------------- */
 
 describe('fetching', () => {

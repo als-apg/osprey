@@ -88,6 +88,7 @@ import {
   ensureRailMembership,
   initPanel,
   assumeHealthy,
+  publishPanelUrl,
   startHealthPolling,
   retryPanelStart,
 } from './panel-lifecycle.js';
@@ -590,7 +591,7 @@ export async function initPanelManager(panelId) {
     for (const cp of panelConfig.custom) {
       const ps = panelState[cp.id];
       if (ps && cp.url) {
-        ps.url = cp.url;
+        publishPanelUrl(cp.id, cp.url);
         ps.configLoaded = true;
         if (!cp.healthEndpoint) {
           assumeHealthy(cp);

@@ -24,15 +24,18 @@
  *
  * HEALTH is the worst outcome across the SYSTEM panel's checks, read from the
  * panel's proxy (`GET /panel/system-health/checks`) on the sidecar's own
- * cadence: one dot, with its word on the dot's label. A deployment that does
- * not serve the SYSTEM panel answers that route 404; the dot then hides and
- * nothing is polled again.
+ * cadence: one dot, with its word on the dot's label. The dot shows and the
+ * reads run exactly while the SYSTEM panel is served (panel-availability.js).
  */
 
 import { worstStatus } from '/design-system/js/check-status.js';
 import { icon } from '/design-system/js/icons.js';
 import { withPrefix } from './api.js';
+import { whilePanelServed } from './panel-availability.js';
 import { getChipElement, subscribe, targetReading } from './control-target-chip.js';
+
+/** The panel the dot reports on. */
+const SYSTEM_PANEL_ID = 'system-health';
 
 /** The SYSTEM panel's check report, through the terminal's panel proxy. */
 export const HEALTH_API = '/panel/system-health/checks';
@@ -90,13 +93,15 @@ let decorations = [];
 /** The last health envelope: null before any answer, undefined after a failed read. */
 /** @type {unknown} */
 let healthReport = null;
-let healthServed = true;
+let healthServed = false;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let healthTimer = null;
 /** Bumped by teardown, so a read still in flight then lands nowhere. */
 let healthEpoch = 0;
 /** @type {(() => void) | null} */
 let unsubscribeChip = null;
+/** @type {(() => void) | null} */
+let unfollowPanel = null;
 
 /** @returns {HTMLElement} the health dot */
 function buildHealthDot() {
@@ -174,12 +179,6 @@ async function pollHealth() {
   try {
     const response = await fetch(withPrefix(HEALTH_API), { cache: 'no-store' });
     if (epoch !== healthEpoch) return;
-    if (response.status === 404) {
-      // No SYSTEM panel on this deployment: nothing to show, nothing to poll.
-      healthServed = false;
-      paintHealth();
-      return;
-    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     report = await response.json();
   } catch {
@@ -191,10 +190,28 @@ async function pollHealth() {
   healthTimer = setTimeout(pollHealth, nextHealthDelayS() * 1000);
 }
 
+/** The SYSTEM panel is served: show the dot and start reading. */
+function startHealth() {
+  healthServed = true;
+  paintHealth();
+  void pollHealth();
+}
+
+/** The SYSTEM panel is not served: hide the dot and stop reading. */
+function stopHealth() {
+  healthEpoch += 1;
+  clearTimeout(healthTimer ?? undefined);
+  healthTimer = null;
+  healthReport = null;
+  healthServed = false;
+  paintHealth();
+}
+
 /**
  * Lay out the control-system block around the chip mounted in
  * `#sidebar-target` (or, with no picker, the health dot alone) and start the
- * health reads. Call once, after the chip's init. No-op without the block.
+ * health reads while the SYSTEM panel is served. Call once, after the chip's
+ * init. No-op without the block.
  * @returns {void}
  */
 export function initSidebarTarget() {
@@ -212,7 +229,7 @@ export function initSidebarTarget() {
     host.dataset.target = 'none';
   }
   paintHealth();
-  void pollHealth();
+  unfollowPanel = whilePanelServed(SYSTEM_PANEL_ID, startHealth, stopHealth);
 }
 
 /**
@@ -221,15 +238,13 @@ export function initSidebarTarget() {
  * @returns {void}
  */
 export function teardownSidebarTarget() {
-  healthEpoch += 1;
-  clearTimeout(healthTimer ?? undefined);
-  healthTimer = null;
+  unfollowPanel?.();
+  unfollowPanel = null;
+  stopHealth();
   unsubscribeChip?.();
   unsubscribeChip = null;
   for (const node of decorations) node.remove();
   decorations = [];
   healthDot?.remove();
   healthDot = null;
-  healthReport = null;
-  healthServed = true;
 }
