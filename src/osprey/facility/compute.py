@@ -614,7 +614,12 @@ def _places(run: _Run, positions: Mapping[str, _Position], spans: Sequence[_Span
             device["place"] = span.place
             _place_from(device, origin if span.place == stated and origin in _DECIDED else "span")
             continue
-        if origin == "imported" and span is not None and not stated.startswith(f"{span.place}/"):
+        if (
+            origin == "imported"
+            and span is not None
+            and position is not None
+            and not stated.startswith(f"{span.place}/")
+        ):
             run.stop(
                 "place-conflict",
                 "device",

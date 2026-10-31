@@ -98,9 +98,10 @@ def place_devices(
 
     devices: dict[str, _Device] = {}
     for slot in slots:
-        model = models.get(slot.system)
-        if model is None or model.places is None:
+        slot_model = models.get(slot.system)
+        if slot_model is None or slot_model.places is None:
             continue
+        model = slot_model
         device = devices.setdefault(slot.device, _Device(slot.system))
         if slot.family not in device.families:
             device.families.append(slot.family)
