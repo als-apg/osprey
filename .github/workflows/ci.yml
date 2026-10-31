@@ -1458,6 +1458,7 @@ jobs:
           tests/interfaces/web_terminal/test_osprey_drawer.py \
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
+          tests/interfaces/web_terminal/test_sidebar_resize_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \

@@ -3,15 +3,16 @@
 /* ---- Sidebar ----
 
    The labelled sidebar (index.html `nav#sidebar`) sits on the canvas, not on
-   a card: 232 px with labels, 56 px with icons only (html[data-sidebar=
-   "collapsed"], collapsible.js, stamped before first paint by
-   sidebar-boot.js). Its rows, buttons and popovers are the design system's
-   primitives (primitives.css); this block only lays them out for the shell,
-   scoped under the shell's own classes, and never restyles an `.osprey-*`
-   class globally. Sizes, gaps and the token per surface follow the layout F
-   mockup. */
+   a card: 232 px with labels (180–400 px by its resize handle), 56 px with
+   icons only (html[data-sidebar="collapsed"], collapsible.js, stamped before
+   first paint by sidebar-boot.js). Its rows, buttons and popovers are the
+   design system's primitives (primitives.css); this block only lays them out
+   for the shell, scoped under the shell's own classes, and never restyles an
+   `.osprey-*` class globally. Sizes, gaps and the token per surface follow
+   the layout F mockup. */
 
 .sidebar {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -19,6 +20,40 @@
   padding: calc(var(--wt-gutter) + var(--space-1)) var(--space-1) var(--wt-gutter) var(--space-2);
   color: var(--text-secondary);
   overflow-x: hidden;
+}
+
+/* The resize handle (sidebar-resize.js): a 6 px hit area on the sidebar's
+   right edge, outside the flex flow, that shows a 2 px line on hover and an
+   accent line while focused or dragged. */
+.sidebar > .sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--duration-instant) ease;
+}
+
+.sidebar-resize:hover::after {
+  background: var(--border-default);
+}
+
+.sidebar-resize:focus-visible::after,
+.sidebar-resize.dragging::after {
+  background: var(--color-accent);
 }
 
 /* Height budget: the head, the control-system block, search, the groups and
@@ -1599,12 +1634,14 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 /* ---- Main layout ---- */
 
 /* The canvas under the cards: the sidebar column beside the workspace. --sbw
-   follows html[data-sidebar], so the width animates with the toggle. The
+   follows html[data-sidebar], so the width animates with the toggle; the
+   labelled width is the handle's --sidebar-user-width when one is set, and a
+   drag (html[data-sidebar-resizing]) does not animate. The
    workspace keeps half a gutter round the dock; each card keeps the other
    half (dockview-overrides.css), so cards stand 8 px apart and 8 px from
    every edge. */
 .shell-body {
-  --sbw: var(--wt-sidebar-width);
+  --sbw: var(--sidebar-user-width, var(--wt-sidebar-width));
   height: 100vh;
   display: grid;
   grid-template-columns: var(--sbw) minmax(0, 1fr);
@@ -1615,6 +1652,15 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 html[data-sidebar="collapsed"] .shell-body {
   --sbw: var(--wt-sidebar-collapsed-width);
+}
+
+html[data-sidebar-resizing] .shell-body {
+  transition: none;
+}
+
+html[data-sidebar-resizing] {
+  cursor: col-resize;
+  user-select: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

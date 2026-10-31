@@ -277,6 +277,13 @@
           <span class="osprey-nav-label">More</span>
         </button>
       </div>
+      {#- The resize handle (sidebar-resize.js): placed on the right edge by
+          terminal.css, last so it comes last in the tab order. -#}
+      <div class="sidebar-resize" id="sidebar-resize" role="separator" tabindex="0"
+           aria-orientation="vertical" aria-controls="sidebar" aria-label="Sidebar width"
+           aria-valuemin="180" aria-valuemax="400" aria-valuenow="232"
+           data-tip="Resize sidebar" data-tip-place="right"
+           data-tip-detail="Drag to set the sidebar's width, or past its edge to show icons only; double-click resets it"></div>
     </nav>
 
     <!-- Dockview workspace: fills the column beside the sidebar. #dock-root is
