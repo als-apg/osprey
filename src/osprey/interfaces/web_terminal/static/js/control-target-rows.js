@@ -121,7 +121,7 @@ export function renderCard(row, state, ctx) {
   const title = el('div', 'ctc-card-title');
   title.dataset.targetKind = kind;
   title.dataset.state = word;
-  title.append(dot());
+  title.append(machineGlyph());
   title.append(el('span', 'ctc-name', displayName(row, kind)));
   const info = infoAffordance(row, kind);
   if (info) title.append(info);
@@ -154,7 +154,7 @@ export function renderCard(row, state, ctx) {
 }
 
 /**
- * One other machine's row, on the design system's popover row: its dot and
+ * One other machine's row, on the design system's popover row: its glyph and
  * name, what writing there means, its writes switch, and Switch to. The row
  * holds controls of its own, so it is a plain row rather than a menu item.
  * @param {any} row
@@ -174,7 +174,7 @@ export function renderRow(row, state, ctx) {
   const name = el('div', 'ctc-name-line');
   name.dataset.targetKind = kind;
   name.dataset.state = word;
-  name.append(dot());
+  name.append(machineGlyph());
   name.append(el('span', 'ctc-name', displayName(row, kind)));
   const info = infoAffordance(row, kind);
   if (info) name.append(info);
@@ -197,12 +197,12 @@ export function renderRow(row, state, ctx) {
 }
 
 /**
- * A machine's dot: the design system's status dot, shaped and coloured by
- * the `data-target-kind` and `data-state` of the line that holds it.
+ * A machine's mark, drawn by the stylesheet from the `data-target-kind` of the
+ * line that holds it.
  * @returns {HTMLElement}
  */
-function dot() {
-  const node = el('span', 'osprey-dot ctc-dot');
+function machineGlyph() {
+  const node = el('span', 'ctc-machine-glyph');
   node.setAttribute('aria-hidden', 'true');
   return node;
 }

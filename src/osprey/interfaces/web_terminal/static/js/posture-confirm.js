@@ -61,6 +61,7 @@ export function isConfirmUp() {
  *          live: string|null, confirmLabel: string,
  *          skipKeyBase?: string|null,
  *          targetKind?: string|null,
+ *          to?: string|null,
  *          focus?: 'confirm'|'cancel',
  *          onConfirm: (ui: ConfirmUi) => void,
  *          onDismiss?: () => void}} spec
@@ -68,9 +69,9 @@ export function isConfirmUp() {
  *   `'confirm'` (the default) or `'cancel'`, for a question whose safe answer
  *   is the one a stray Enter should give. `targetKind` is the machine kind
  *   the dialog is about (`real` | `rehearsal` | `simulator`), set on the
- *   dialog as `data-target-kind` so the stylesheet tones its banner and its
- *   confirm button — red for the real machine, amber for the rehearsal — from
- *   the same attribute the chip keys on. A dialog about no machine has none.
+ *   dialog as `data-target-kind`; `to` is the position the move lands on
+ *   (`off` | `asked` | `allowed`), set as `data-to`. The stylesheet tones the
+ *   banner and the confirm button from them. A dialog about no machine has neither.
  */
 export function showConfirm(spec) {
   dismissConfirm();
@@ -86,6 +87,7 @@ export function showConfirm(spec) {
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-labelledby', 'posture-modal-title');
   if (spec.targetKind) dialog.dataset.targetKind = spec.targetKind;
+  if (spec.to) dialog.dataset.to = spec.to;
 
   const heading = el('div', 'posture-modal-title', spec.title);
   heading.id = 'posture-modal-title';

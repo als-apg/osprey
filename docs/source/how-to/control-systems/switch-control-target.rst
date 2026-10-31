@@ -555,7 +555,7 @@ The switch would be a hazard if it were quiet. It is not:
   queue start, a patch or an execution all carry the line too, so its absence is
   never something you learn to read as safe. The live machine is named as
   ``Live — writes move hardware`` with the gateway the deployment
-  actually holds; the stand-in as ``Rehearsal — nothing moves``, in amber; the
+  actually holds; the stand-in as ``Rehearsal — nothing moves``; the
   simulator as ``virtual accelerator (simulation)``. If the target cannot be read at all, the
   line says so explicitly instead of disappearing. (The web terminal names the
   same machines by what they are --- *Live*, *Rehearsal*, *Simulator*,

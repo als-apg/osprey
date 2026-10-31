@@ -361,6 +361,23 @@ function buildChip() {
   return el;
 }
 
+/**
+ * Write the state phrase with its leading "writes " in a span of its own: the
+ * sidebar block hides that word, and the element's text keeps the whole phrase.
+ * @param {HTMLElement} node
+ * @param {string} phrase
+ */
+function paintState(node, phrase) {
+  const lead = 'writes ';
+  if (!phrase.startsWith(lead)) {
+    node.textContent = phrase;
+    return;
+  }
+  const word = span('ctc-state-lead');
+  word.textContent = lead;
+  node.replaceChildren(word, phrase.slice(lead.length));
+}
+
 /** @param {string} cls @returns {HTMLElement} */
 function span(cls) {
   const el = document.createElement('span');
@@ -1000,7 +1017,7 @@ function render() {
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the deployment is on until the
       // switch actually lands.
-      stateEl.textContent = reading.state;
+      paintState(stateEl, reading.state);
       chip.title = row.label || row.target;
       chip.setAttribute(
         'aria-label',

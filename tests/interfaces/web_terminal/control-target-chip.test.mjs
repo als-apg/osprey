@@ -363,6 +363,13 @@ describe('mount', () => {
     expect(chip.querySelector('.ctc-caret')?.textContent).toBe('▾');
   });
 
+  test("wraps the state phrase's lead word, so its text stays whole and the block can hide it", async () => {
+    await boot();
+    const state = /** @type {HTMLElement} */ (chipEl()?.querySelector('.ctc-state'));
+    expect(state.querySelector('.ctc-state-lead')?.textContent).toBe('writes ');
+    expect(state.textContent).toMatch(/^writes \w+$/);
+  });
+
   test('reads and paints without waiting for any session to be settled', async () => {
     // The roster is a fact about the deployment: one record says where its
     // control system points. A chip that waited for a session id would never

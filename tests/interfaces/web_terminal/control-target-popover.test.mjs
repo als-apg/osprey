@@ -584,7 +584,7 @@ describe('beside the sidebar', () => {
 /* ---- the design-system primitives ---------------------------------------- */
 
 describe('built on the design-system primitives', () => {
-  test('titles, separators, rows, dots, switches and buttons', async () => {
+  test('titles, separators, rows, glyphs, switches and buttons', async () => {
     await bootOpen();
     const pop = /** @type {HTMLElement} */ (popEl());
     const titles = [...pop.querySelectorAll(':scope > .osprey-popover-title')].map(
@@ -595,8 +595,8 @@ describe('built on the design-system primitives', () => {
 
     const row = /** @type {HTMLElement} */ (rowEl('live'));
     expect(row.classList.contains('osprey-popover-item')).toBe(true);
-    expect(row.querySelector('.ctc-name-line > .osprey-dot')).not.toBeNull();
-    expect(cardEl()?.querySelector('.ctc-card-title > .osprey-dot')).not.toBeNull();
+    expect(row.querySelector('.ctc-name-line > .ctc-machine-glyph')).not.toBeNull();
+    expect(cardEl()?.querySelector('.ctc-card-title > .ctc-machine-glyph')).not.toBeNull();
     expect(groupEl('live')?.closest('.ctc-switchwrap')).not.toBeNull();
     expect(allOffEl().classList.contains('osprey-btn')).toBe(true);
   });
@@ -1063,12 +1063,15 @@ describe('turning writes off and on', () => {
     expect(body).toContain('Writes to Live will still prompt');
   });
 
-  test('the simulator turns on without the hardware notice', async () => {
+  test('the simulator turns on with its own banner, toned by where the move lands', async () => {
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     optionEl('va', 'asked')?.click();
     await flush();
     expect(confirmTitle()).toBe('Set writes to asked on Simulator?');
-    expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
+    expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
+      'Simulator — nothing moves'
+    );
+    expect(inConfirm('.posture-modal').dataset.to).toBe('asked');
   });
 
   test('cancelling the confirm changes nothing and leaves the popover open', async () => {

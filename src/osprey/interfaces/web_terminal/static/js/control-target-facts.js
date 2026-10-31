@@ -508,16 +508,15 @@ export function reachException(reachability) {
 
 /**
  * The banner a confirm carries ({@link KIND_BANNERS}): the real machine's
- * "writes move hardware", the rehearsal's "nothing moves", nothing for the
- * simulator. It says what a write does to the machine; whether the write
+ * "writes move hardware", the others' "nothing moves". It says what a write does to the machine; whether the write
  * prompts first is the confirm's body, from the position. What limits apply is
  * deployment configuration this module cannot see, so it makes no claim about
- * them. The dialog's `data-target-kind` decides its tone (red, amber).
+ * them. The stylesheet tones it from the dialog's `data-to` and `data-target-kind`.
  * @param {string} kind
  * @returns {string|null}
  */
 function hardwareNote(kind) {
-  return kind === KIND_SIMULATOR ? null : KIND_BANNERS[kind] || null;
+  return KIND_BANNERS[kind] || null;
 }
 
 /**
@@ -555,7 +554,7 @@ export function identTitle(row) {
  * @param {string} kind
  * @param {'asked'|'allowed'} [to]  the position the move arrives at
  * @returns {{title: string, body: ConfirmRun[][], live: string|null,
- *            confirmLabel: string, targetKind: string}}
+ *            confirmLabel: string, targetKind: string, to: string|null}}
  */
 export function turnOnConfirm(row, kind, to = 'asked') {
   const name = displayName(row, kind);
@@ -573,6 +572,7 @@ export function turnOnConfirm(row, kind, to = 'asked') {
     live: hardwareNote(kind),
     confirmLabel: `Set writes to ${position}`,
     targetKind: kind,
+    to: position,
   };
 }
 
@@ -599,7 +599,7 @@ const ARRIVAL_ENDINGS = {
  * @param {string} kind
  * @param {'off'|'asked'|'allowed'|'locked'} word  stateWord's answer for the row
  * @returns {{title: string, body: ConfirmRun[][], live: string|null,
- *            confirmLabel: string, targetKind: string}}
+ *            confirmLabel: string, targetKind: string, to: string|null}}
  */
 export function switchConfirm(row, kind, word) {
   const armed = word === 'asked' || word === 'allowed';
@@ -617,6 +617,7 @@ export function switchConfirm(row, kind, word) {
     live: armed ? hardwareNote(kind) : null,
     confirmLabel: 'Switch',
     targetKind: kind,
+    to: known ? word : null,
   };
 }
 

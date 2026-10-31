@@ -144,7 +144,7 @@ const ARMED = /** @type {const} */ (['asked', 'allowed']);
 const CONFIRM_BANNERS = {
   real: 'Live — writes move hardware',
   rehearsal: 'Rehearsal — nothing moves',
-  simulator: null,
+  simulator: 'Simulator — nothing moves',
 };
 
 describe('turnOnConfirm', () => {
@@ -159,6 +159,7 @@ describe('turnOnConfirm', () => {
       expect(textOf(spec.body)).toContain(`Writes to ${name} will still prompt before each one`);
       expect(textOf(spec.body)).not.toContain('no prompt');
       expect(spec.confirmLabel).toBe('Set writes to asked');
+      expect(spec.to).toBe('asked');
       expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
       expect(spec.targetKind).toBe(kind);
     });
@@ -169,6 +170,7 @@ describe('turnOnConfirm', () => {
       expect(textOf(spec.body)).toContain(`Writes to ${name} will run with no prompt.`);
       expect(textOf(spec.body)).not.toContain('still prompt');
       expect(spec.confirmLabel).toBe('Set writes to allowed');
+      expect(spec.to).toBe('allowed');
       expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
       expect(spec.targetKind).toBe(kind);
     });
@@ -216,7 +218,7 @@ describe('switchConfirm', () => {
       expect(spec.live).toBe('Live — writes move hardware');
     }
     expect(switchConfirm(row, 'rehearsal', 'allowed').live).toBe('Rehearsal — nothing moves');
-    expect(switchConfirm(row, 'simulator', 'allowed').live).toBeNull();
+    expect(switchConfirm(row, 'simulator', 'allowed').live).toBe('Simulator — nothing moves');
   });
 
   test('promises reads alone, with no banner, on a word that cannot write', () => {
