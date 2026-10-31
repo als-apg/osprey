@@ -235,3 +235,7 @@ def test_the_copied_application_is_not_a_convention_artifact(repo: Path) -> None
     assert not [
         name for name in unselected_convention_artifacts(repo, ()) if name.startswith("apps")
     ]
+
+
+def test_vendor_files_are_ignored_by_git(repo: Path) -> None:
+    assert "\n/apps/*/panel/vendor/\n" in (repo / ".gitignore").read_text(encoding="utf-8")

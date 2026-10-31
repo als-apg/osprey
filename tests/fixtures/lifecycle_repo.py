@@ -2161,6 +2161,10 @@ GITIGNORE = """\
 # way — for the seconds it exists it is a second copy of files already tracked.
 /.osprey-replaced-source-zone/
 
+# APPLICATION VENDOR FILES — fetched by `osprey build` into each application's
+# panel from its `vendor:` list. Build output inside the source zone.
+/apps/*/panel/vendor/
+
 # SECRETS — provider keys you set plus the tokens `osprey up` mints, and the
 # lock file the write-back path creates beside them. Two exceptions carry no
 # values a host may not share: .env.example, the documented variable list, and
