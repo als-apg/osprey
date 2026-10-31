@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.utils.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, STATE_ZONE_DIRS
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
@@ -118,6 +118,10 @@ def _repo_gitignore() -> str:
 # and the next `osprey init` puts its contents back. Never committed either
 # way — for the seconds it exists it is a second copy of files already tracked.
 /{HELD_SOURCE_ZONE_DIRNAME}/
+
+# APPLICATION VENDOR FILES — fetched by `osprey build` into each application's
+# panel from its `vendor:` list. Build output inside the source zone.
+/{APPS_DIRNAME}/*/panel/vendor/
 
 # SECRETS — provider keys you set plus the tokens `osprey up` mints, and the
 # lock file the write-back path creates beside them. Two exceptions carry no
