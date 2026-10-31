@@ -114,9 +114,10 @@ Layout shell
 The web terminal uses one shell in the Simple view and in the Expert view:
 
 - A sidebar on the canvas at the left. It is ``--wt-sidebar-width`` (232 px)
-  with labels, or ``--wt-sidebar-collapsed-width`` (56 px) with icons only.
-  The state is ``data-sidebar`` on ``<html>``. ``sidebar-boot.js`` sets it
-  before the first paint.
+  with labels, 180–400 px by the handle on its right edge, or
+  ``--wt-sidebar-collapsed-width`` (56 px) with icons only. The state is
+  ``data-sidebar`` on ``<html>``. ``sidebar-boot.js`` sets it, and the
+  stored width, before the first paint.
 - From top to bottom, the sidebar holds the OSPREY mark and the collapse
   toggle, the control-system block, search, the ``Workspace`` and ``Tools``
   sections, and a footer with Docs, Feedback and More. Only the

@@ -113,7 +113,9 @@ describe('sidebar footer markup', () => {
 
     expect(footer.parentElement).toBe(sidebar);
     expect(footer.previousElementSibling?.id).toBe('panel-rail');
-    expect(sidebar.lastElementChild).toBe(footer);
+    // Only the resize handle, which sits outside the flow, may follow it.
+    expect(footer.nextElementSibling?.id ?? null).toBe('sidebar-resize');
+    expect(sidebar.lastElementChild?.id).toBe('sidebar-resize');
     // The two ways it could wrongly become a panel row: nested in the list
     // that createRail() re-places, or wearing the row class the renderer owns.
     expect(sidebar.querySelector('#panel-rail .sidebar-foot')).toBeNull();

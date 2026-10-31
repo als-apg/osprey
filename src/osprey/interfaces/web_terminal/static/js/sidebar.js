@@ -10,8 +10,10 @@
  *     them from icons.js, the one source of the chrome's paths.
  *   - WIDTH. The labels toggle and Cmd/Ctrl+\ (collapsible.js), stored under
  *     `scopedStorageKey('osprey-sidebar')` — the key sidebar-boot.js reads
- *     before first paint. The rows' tips come from the page's one tooltip
- *     layer (`data-tip`, `data-tip-detail`, tooltip.js; started in app.js).
+ *     before first paint; the handle on the right edge sets the labelled
+ *     width (sidebar-resize.js). The rows' tips come from the page's one
+ *     tooltip layer (`data-tip`, `data-tip-detail`, tooltip.js; started in
+ *     app.js).
  *   - DISCLOSURE. The Artifacts and Script runs rows open and close their
  *     lists (`aria-expanded` on the row, `hidden` on the list). Which lists are
  *     open is kept per user under `scopedStorageKey('osprey-sidebar-open')`, a
@@ -45,6 +47,7 @@ import { isMacPlatform } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { initSidebarResize } from './sidebar-resize.js';
 
 /** The width's storage key, shared with sidebar-boot.js (pre-paint). */
 export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
@@ -344,6 +347,7 @@ export function initSidebar() {
     storageKey: SIDEBAR_STORAGE_KEY,
     toggle: document.getElementById('sidebar-toggle'),
   });
+  initSidebarResize({ handle: document.getElementById('sidebar-resize'), collapsible });
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
