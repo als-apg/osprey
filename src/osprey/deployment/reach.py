@@ -966,6 +966,15 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             "nothing in a render container dials it"
         ),
     ),
+    "app_runtime": ReachContract(
+        service="app_runtime",
+        no_client_reach=True,
+        note=(
+            "the template every application container renders through; a "
+            "terminal reaches an application's panel through the panel proxy, "
+            "at the loopback URL projected onto its own services row"
+        ),
+    ),
     "agent_record": ReachContract(
         service="agent_record",
         no_client_reach=True,

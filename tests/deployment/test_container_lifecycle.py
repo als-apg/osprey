@@ -3489,11 +3489,13 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
 
     # The history page is derived from the config rather than deployed by name,
     # so it joins the gate through its predicate (test_history_service.py);
-    # agent-record is derived and always deployed, so it joins unconditionally.
+    # agent-record is derived and always deployed, so it joins unconditionally;
+    # a projected application runtime joins by its row (_projected_services).
     assert on_project_image == {
         *container_lifecycle._PROJECT_IMAGE_SERVICES,
         HISTORY_SERVICE,
         container_lifecycle.AGENT_RECORD_TEMPLATE_DIR,
+        "app_runtime",
     }
 
 

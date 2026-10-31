@@ -1,0 +1,33 @@
+# An application container (`runtime: osprey` in the application's app.yml):
+# the application's own code, run on the PROJECT image (<project>:local) that
+# `osprey up` builds from the project root. `osprey build` installs the
+# application's package into that image beside the framework, so the command
+# below runs it with nothing else to install. OSPREY_WORKER_IMAGE overrides
+# with a prebuilt/published image. There is deliberately NO `build:` block: the
+# project image is built once by `osprey up`, and a second `build:` for the
+# same tag would race it.
+#
+# One file renders every such container: the render names the container's
+# `services.<key>` block `service` and its key `service_key`, and the panel's
+# roster grant, when this container serves the panel, `panel_grant`.
+
+services:
+  app_runtime:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run the same application on one
+    # host.
+    container_name: golden-project-app-runtime
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    # No `env_file:`: the container is handed the variables named below and
+    # nothing else of the deployment's env chain, so no provider key or other
+    # service's secret reaches application code. Each is interpolated into
+    # this document, so a changed value recreates the container.
+    environment:
+      TZ: UTC
+    networks:
+      - osprey-network
+
+networks:
+  osprey-network:
