@@ -3583,15 +3583,35 @@ def service_audit_identities(config):
     # name, so its identity follows the same predicate that renders it.
     if history_page_deployed(config):
         identities.append(HISTORY_SERVICE)
+    identities.extend(deployed_app_audit_identities(config))
+    return list(dict.fromkeys(identities))
+
+
+def deployed_app_audit_identities(config):
+    """``services.<key>.audit_identity`` of every deployed service, to the application holding it.
+
+    The projected half of :func:`service_audit_identities`, kept apart so the
+    roster gates can name the application a colliding user would impersonate.
+    The owner is the block's ``app`` (an application's containers share its one
+    identity), else the service key.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: ``{identity: application}``, in mapping order
+    :rtype: dict[str, str]
+    """
+    deployed = {str(name) for name in (config or {}).get("deployed_services") or []}
     services = (config or {}).get("services") or {}
+    owners: dict[str, str] = {}
     if isinstance(services, Mapping):
         for key, block in services.items():
             if str(key) not in deployed or not isinstance(block, Mapping):
                 continue
             identity = block.get("audit_identity")
             if isinstance(identity, str) and identity:
-                identities.append(identity)
-    return list(dict.fromkeys(identities))
+                app = block.get("app")
+                owners.setdefault(identity, app if isinstance(app, str) and app else str(key))
+    return owners
 
 
 #: Filename of the marker the build writes at the root of the control-context
