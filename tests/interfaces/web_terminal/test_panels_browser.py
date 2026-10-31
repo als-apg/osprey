@@ -294,15 +294,29 @@ def _dock_groups(page: Page) -> list[dict]:
     return page.evaluate(_GROUPS_JS)
 
 
+def _title_case(label: str) -> str:
+    """The sidebar's reading of a panel label (panel-catalog.js ``titleCase``).
+
+    An all-caps label such as ``DATA VIZ`` is shown as ``Data Viz``; a label
+    with any lower-case letter is the deployment's own spelling and is kept.
+    Tests name panels the way the server does, so every tile and row lookup
+    goes through this to match what the page renders.
+    """
+    if label != label.upper():
+        return label
+    return re.sub(r"(^|[\s-])(\w)", lambda m: m.group(1) + m.group(2).upper(), label.lower())
+
+
 def _service_tab(page: Page, label: str):
     """A dockview tile-strip whose accessible name equals ``label`` exactly.
 
     The strip has no visible text, so the name is the handle. Matched as a raw
     attribute (not ``get_by_label``, which only resolves labelable form
     controls, never an aria-label on a plain div) and exactly, so one service
-    label like "Artifacts" cannot substring-match a longer one.
+    label like "Artifacts" cannot substring-match a longer one. The name is the
+    title-cased label the page renders (see ``_title_case``).
     """
-    strip = page.locator(f'.tile-tab[aria-label="{label}"]')
+    strip = page.locator(f'.tile-tab[aria-label="{_title_case(label)}"]')
     return page.locator(".dv-tab").filter(has=strip)
 
 
