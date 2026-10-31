@@ -41,7 +41,6 @@ import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -592,14 +591,6 @@ def test_the_default_factory_is_the_packages_own_and_opens_nothing(cfg: TeamsBri
 
 
 # --- one stop event ----------------------------------------------------------
-
-
-@pytest.fixture
-def _restore_signal_handlers() -> Iterator[None]:
-    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
-    yield
-    for sig, handler in saved.items():
-        signal.signal(sig, handler)
 
 
 @pytest.mark.usefixtures("_restore_signal_handlers")

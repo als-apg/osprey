@@ -115,14 +115,14 @@ async def test_capabilities_no_registry_import():
     """Capabilities does NOT import from osprey.registry (main framework)."""
     import ast
     import inspect
+    from pathlib import Path
 
     from osprey.mcp_server.ariel.tools import capabilities
 
     # Read the source file directly rather than via inspect.getsource, whose
     # linecache/bytecode-lineno slicing can drift under a transient .py/.pyc skew.
     source_path = inspect.getsourcefile(capabilities) or inspect.getfile(capabilities)
-    with open(source_path, encoding="utf-8") as fh:
-        source = fh.read()
+    source = Path(source_path).read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     for node in ast.walk(tree):

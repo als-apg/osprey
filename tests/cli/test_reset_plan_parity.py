@@ -118,7 +118,7 @@ def container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(
         "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
+        lambda config=None, **_: (True, ""),
     )
 
 
@@ -150,7 +150,7 @@ def no_survivor_check(monkeypatch: pytest.MonkeyPatch) -> None:
     in ``tmp_path``. What it guards is pinned in ``tests/cli/test_init_verb.py``;
     it is not this file's subject.
     """
-    monkeypatch.setattr(init_cmd, "_surviving_project_resources", lambda repo_root, runtime: [])
+    monkeypatch.setattr(init_cmd, "_surviving_project_resources", lambda runtime, project: [])
 
 
 def run_init_reset(target: Path) -> Result:

@@ -1,17 +1,20 @@
 """The ``container`` health probe — deployed-container state and healthcheck.
 
-Checks one deployed service's containers. It builds the runtime's ``ps``
-command via :mod:`osprey.deployment.runtime_helper` — passing the probe's config
-so the ``container_runtime`` the project configured is the one queried, rather
-than whatever auto-detection finds first — runs it off the event loop
-with :func:`asyncio.create_subprocess_exec`, and maps the matched containers'
-state — and their healthcheck status, when the runtime reports one — to a
+Checks one deployed service's containers. It reads the deployment record in
+the repo the config names (:func:`~osprey.deployment.compose_generator.resolve_repo_root`),
+builds the ``ps`` command of the runtime the last start recorded via
+:mod:`osprey.deployment.runtime_helper`, runs it off the event loop with
+:func:`asyncio.create_subprocess_exec`, and maps the matched containers' state —
+and their healthcheck status, when the runtime reports one — to a
 :class:`~osprey.health.models.CheckResult`. For a single matched container:
 
 - ``running`` (and not unhealthy) → ``ok``;
 - ``running`` but the runtime reports it ``unhealthy`` → ``warning``;
 - any other state → ``warning`` carrying the observed state;
 - no matching container → ``warning`` "not deployed";
+- no deployment record → ``warning`` saying nothing has been deployed from
+  this repo, and a record that cannot be read → ``warning`` naming its path;
+  either way nothing is queried;
 - no container runtime installed or running (:class:`RuntimeError` or
   :class:`FileNotFoundError`) → a single ``skip`` row "no container runtime
   available";
@@ -20,8 +23,9 @@ state — and their healthcheck status, when the runtime reports one — to a
   deployment's containers cannot be told from another's.
 
 Which containers are graded is decided by
-:func:`osprey.deployment.container_ownership.deployment_containers`: a container
-labelled for this project is ours, one labelled for another OSPREY or compose
+:func:`osprey.deployment.container_ownership.deployment_containers` for the
+compose project the last start recorded: a container labelled for this project
+is ours, one labelled for another OSPREY or compose
 project never is, and an unlabelled one is ours when a name matches the target
 by whole name segments. The target's last dotted segment is matched against
 each container's names after the ``<project>-`` prefix and against its compose
@@ -49,10 +53,13 @@ import contextlib
 import json
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.container_ownership import deployment_containers, first_container_name
+from osprey.deployment.deployment_record import NOTHING_DEPLOYED, read_deployment_record
+from osprey.deployment.errors import DeploymentRecordError
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.health.models import CheckResult, Status
 from osprey_connectors.config import get_full_configuration
@@ -69,14 +76,15 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
 
     Args:
         spec: Parsed check parameters (see the module docstring for keys).
-        ctx: Shared per-run handles. Only ``ctx.config`` is read — it selects the
-            container runtime to query and names the project whose containers
-            are graded; the control-system connector is never needed here.
+        ctx: Shared per-run handles. Only ``ctx.config`` is read — it locates
+            the repo whose deployment record names the runtime to query and the
+            project whose containers are graded; the control-system connector
+            is never needed here.
 
     Returns:
         A :class:`CheckResult` per the state/healthcheck mapping documented at
         the module level; a ``skip`` row when no container runtime or no config
-        is available.
+        is available; a ``warning`` row when there is no readable record.
     """
     category = str(spec.get("category", _DEFAULT_CATEGORY))
     target = spec.get("container") or spec.get("service")
@@ -95,17 +103,6 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     start = time.perf_counter()
     config = _probe_config(ctx)
 
-    try:
-        ps_cmd = get_ps_command(config, all_containers=True)
-    except (RuntimeError, FileNotFoundError) as exc:
-        return CheckResult(
-            name=name,
-            category=category,
-            status=Status.SKIP,
-            message="no container runtime available",
-            details=str(exc),
-        )
-
     if config is None:
         return CheckResult(
             name=name,
@@ -114,6 +111,23 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             message="config unavailable",
             details="cannot tell this deployment's containers from another's",
         )
+
+    try:
+        record = read_deployment_record(Path(resolve_repo_root(config)))
+    except DeploymentRecordError as exc:
+        return CheckResult(
+            name=name,
+            category=category,
+            status=Status.WARNING,
+            message="the deployment record is unreadable",
+            details=str(exc),
+        )
+    if record is None:
+        return CheckResult(
+            name=name, category=category, status=Status.WARNING, message=NOTHING_DEPLOYED
+        )
+
+    ps_cmd = get_ps_command(config, all_containers=True, runtime=record.runtime)
 
     try:
         stdout, returncode = await _run_ps(ps_cmd, timeout_s)
@@ -147,7 +161,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
         )
 
     matching = deployment_containers(
-        _parse_ps_json(stdout), project_name=resolve_project_name(config), services=(short,)
+        _parse_ps_json(stdout), project_name=record.compose_project, services=(short,)
     ).for_service(short)
     if not matching:
         return CheckResult(

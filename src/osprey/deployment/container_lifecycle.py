@@ -50,6 +50,11 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.compose_watch import watched_compose_up
 from osprey.deployment.deploy_summary import log_endpoint_summary
+from osprey.deployment.deployment_record import (
+    DeploymentRecord,
+    read_deployment_record,
+    write_deployment_record,
+)
 from osprey.deployment.dotenv import (
     atomic_write,
     compose_unsafe_vars,
@@ -59,6 +64,7 @@ from osprey.deployment.dotenv import (
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     ComposeInterpolationError,
+    DeploymentRecordError,
     DevModeUnavailableError,
     NoRenderedBuildError,
 )
@@ -2786,7 +2792,7 @@ def _write_env_merged_for_compose(repo_root: Path | str) -> Path:
     return write_env_merged(root, root / ENV_MERGED_RELPATH)
 
 
-def _compose_provider(config: dict | None) -> ComposeProvider:
+def _compose_provider(config: dict | None, *, runtime: str | None = None) -> ComposeProvider:
     """Which compose implementation this deployment's invocations are shaped for.
 
     Resolved here rather than passed in from the CLI, because the answer is a
@@ -2803,11 +2809,14 @@ def _compose_provider(config: dict | None) -> ComposeProvider:
     resolve against the wrong directory.
 
     :param config: The deploy config, for the runtime it names.
+    :param runtime: The runtime to probe instead of the one ``config`` names;
+        an observer passes the runtime the last start recorded.
     :return: The provider to shape argv and environment for.
     :raises UnsupportedComposeProviderError: The host's compose provider is not
         one OSPREY can invoke correctly.
     """
-    return detect_compose_provider(get_runtime_command(config), config).provider
+    base = [runtime, "compose"] if runtime else get_runtime_command(config)
+    return detect_compose_provider(base, config).provider
 
 
 def _env_file_args(
@@ -4680,7 +4689,8 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     the shared active set exactly as the sandbox does.
 
     :returns: The archive composite
-        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`).
+        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`); the
+        caller closes it.
     :raises RuntimeError: The render carries no simulator view.
     :raises ViewSchemaError: The render's view is from an older build.
     """
@@ -5009,84 +5019,84 @@ def _stage_archiver_store(
     # builds the archive composite, one solve per physics model, and charging
     # that time against the store's start-up allowance would make a slow solve
     # look like an unreachable server.
-    archive = _archiver_seed_inputs(config, project_dir)
-    fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
+    with _archiver_seed_inputs(config, project_dir) as archive:
+        fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
 
-    store_hint = f"{store['username']}@{store['host']}:{store['port']}"
-    with archiver_collection(store) as collection:
-        _wait_for_archiver_store(
-            collection, time.monotonic() + _ARCHIVER_HEALTH_TIMEOUT_S, store_hint
-        )
-        comparison = compare_fingerprint(collection, fingerprint)
+        store_hint = f"{store['username']}@{store['host']}:{store['port']}"
+        with archiver_collection(store) as collection:
+            _wait_for_archiver_store(
+                collection, time.monotonic() + _ARCHIVER_HEALTH_TIMEOUT_S, store_hint
+            )
+            comparison = compare_fingerprint(collection, fingerprint)
 
-        if comparison.state is SeedState.MATCH:
-            _report_step("archive already seeded, skipping the base seed")
-            if scenarios_activated:
-                # Rare enough (once per deployment) that holding this idle
-                # client across the rewrite costs nothing worth restructuring for.
-                _reapply_active_scenarios(config, project_dir)
-            return
-
-        if comparison.state is SeedState.MISMATCH:
-            _report_knob_diff(comparison)
-            if keep_base:
-                logger.warning(
-                    "Keeping the existing base (--keep-archiver-base). The stored history "
-                    "still describes the OLD knobs, so archiver reads will not match what "
-                    "this profile declares."
-                )
+            if comparison.state is SeedState.MATCH:
+                _report_step("archive already seeded, skipping the base seed")
+                if scenarios_activated:
+                    # Rare enough (once per deployment) that holding this idle
+                    # client across the rewrite costs nothing worth restructuring for.
+                    _reapply_active_scenarios(config, project_dir)
                 return
-            _report_fact(
-                "Rebuilding the base series. Recorded history is discarded with it. The "
-                "recorder's samples share the collection being dropped. Pass "
-                "--keep-archiver-base to skip this."
-            )
 
-        if _ARCHIVER_RECORDER_DEPLOY_NAME in (config.get("deployed_services") or []):
-            stop_cmd = base_cmd + ["stop", _ARCHIVER_RECORDER_SERVICE]
-            logger.debug(f"Running command:\n    {' '.join(stop_cmd)}")
-            quiesce = run_captured(
-                stop_cmd,
-                env=run_env,
-                spool_name="archiver-recorder-stop",
-                repo_root=project_dir,
-                check=False,
-            )
-            _report_step("archiver recorder quiesced")
-            # Not fatal — the rebuild is still the right thing to do — but a
-            # recorder that would not stop is writing into the collection about
-            # to be dropped, so the breach of the quiesce invariant has to be
-            # visible rather than swallowed by a return code nobody reads.
-            if quiesce.returncode != 0:
-                logger.warning(
-                    f"Could not stop `{_ARCHIVER_RECORDER_SERVICE}` (exit "
-                    f"{quiesce.returncode}). If it is still running it may write "
-                    "samples into the collection being rebuilt; check "
-                    "`osprey status` if the reseeded archive looks wrong."
+            if comparison.state is SeedState.MISMATCH:
+                _report_knob_diff(comparison)
+                if keep_base:
+                    logger.warning(
+                        "Keeping the existing base (--keep-archiver-base). The stored history "
+                        "still describes the OLD knobs, so archiver reads will not match what "
+                        "this profile declares."
+                    )
+                    return
+                _report_fact(
+                    "Rebuilding the base series. Recorded history is discarded with it. The "
+                    "recorder's samples share the collection being dropped. Pass "
+                    "--keep-archiver-base to skip this."
                 )
 
-        # Both collections, still inside the quiesce: the recorder writes traces
-        # into the waveform sibling as well, and a base rebuilt beside a stale
-        # waveform history would serve two worlds.
-        collection.drop()
-        waveform_store = {**store, "collection": waveform_collection(store["collection"])}
-        with archiver_collection(waveform_store) as waveforms:
-            waveforms.drop()
-        # Before the work, not after it: this is the only warning an operator
-        # gets that the next thing to happen is measured in minutes.
-        _report_step(
-            f"seeding the archive base: {len(archive.addresses):,} channels over "
-            f"{knobs.retention_days} days (minutes on a first deploy)"
-        )
-        report = seed_base(
-            collection,
-            archive,
-            knobs,
-            t0=datetime.now(UTC),
-            compression=compression,
-            progress=_seed_progress_reporter(),
-        )
-        _report_step(f"archive base: {report.describe()}")
+            if _ARCHIVER_RECORDER_DEPLOY_NAME in (config.get("deployed_services") or []):
+                stop_cmd = base_cmd + ["stop", _ARCHIVER_RECORDER_SERVICE]
+                logger.debug(f"Running command:\n    {' '.join(stop_cmd)}")
+                quiesce = run_captured(
+                    stop_cmd,
+                    env=run_env,
+                    spool_name="archiver-recorder-stop",
+                    repo_root=project_dir,
+                    check=False,
+                )
+                _report_step("archiver recorder quiesced")
+                # Not fatal — the rebuild is still the right thing to do — but a
+                # recorder that would not stop is writing into the collection about
+                # to be dropped, so the breach of the quiesce invariant has to be
+                # visible rather than swallowed by a return code nobody reads.
+                if quiesce.returncode != 0:
+                    logger.warning(
+                        f"Could not stop `{_ARCHIVER_RECORDER_SERVICE}` (exit "
+                        f"{quiesce.returncode}). If it is still running it may write "
+                        "samples into the collection being rebuilt; check "
+                        "`osprey status` if the reseeded archive looks wrong."
+                    )
+
+            # Both collections, still inside the quiesce: the recorder writes traces
+            # into the waveform sibling as well, and a base rebuilt beside a stale
+            # waveform history would serve two worlds.
+            collection.drop()
+            waveform_store = {**store, "collection": waveform_collection(store["collection"])}
+            with archiver_collection(waveform_store) as waveforms:
+                waveforms.drop()
+            # Before the work, not after it: this is the only warning an operator
+            # gets that the next thing to happen is measured in minutes.
+            _report_step(
+                f"seeding the archive base: {len(archive.addresses):,} channels over "
+                f"{knobs.retention_days} days (minutes on a first deploy)"
+            )
+            report = seed_base(
+                collection,
+                archive,
+                knobs,
+                t0=datetime.now(UTC),
+                compression=compression,
+                progress=_seed_progress_reporter(),
+            )
+            _report_step(f"archive base: {report.describe()}")
 
     # Outside the store connection: re-applying opens its own, and holding this
     # one across it would keep an idle client alive for the whole rewrite.
@@ -6450,6 +6460,15 @@ def _start_stack(
     # containers as if they were this one's.
     _refuse_foreign_checkout(config, repo_root)
 
+    # Written before the first step that touches this project's containers: a start
+    # refused earlier leaves the previous record, and any start that gets this far —
+    # attached or detached, refused later or not — has recorded the runtime and
+    # project it acts on.
+    write_deployment_record(
+        Path(repo_root),
+        DeploymentRecord(get_runtime_command(config)[0], resolve_project_name(config)),
+    )
+
     # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
     # or dropped from the roster keeps running on the host network, holding
     # every port of the index it used to serve, and the plain path's
@@ -7533,10 +7552,13 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     never reported here. Read through ``ps --format json`` and the health
     probe's parsers, so Docker's NDJSON and podman's array are one answer.
 
-    Advisory by contract: a runtime that will not answer, a listing that will
-    not parse, or a render that cannot be read all yield the empty list. The
-    card is the last thing a successful verb prints, and it must not be what
-    fails it.
+    Asked through the runtime the deployment record names, the one the last
+    start drove.
+
+    Advisory by contract: no deployment record, a record that cannot be read, a
+    runtime that will not answer, or a listing that will not parse all yield
+    the empty list. The card is the last thing a successful verb prints, and it
+    must not be what fails it.
 
     :param repo_root: The deployment repo whose containers are asked after.
     :return: Container names as the runtime reports them, sorted; empty when
@@ -7546,13 +7568,10 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
 
     root = Path(repo_root)
     try:
-        config_path = as_built_config_path(root)
-        config = (
-            load_project_config(str(config_path), wrap_errors=True)
-            if config_path.is_file()
-            else None
-        )
-        runtime = get_runtime_command(config)[0]
+        record = read_deployment_record(root)
+        if record is None:
+            return []
+        runtime = record.runtime
         listing = subprocess.run(
             [runtime, "ps", "-a", "--filter", _repo_label_filter(root), "--format", "json"],
             capture_output=True,
@@ -7577,7 +7596,17 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     return sorted(names)
 
 
-def _down_by_label(config: dict | None, repo_root: Path) -> None:
+#: Why a ``down`` sweeps by label when ``build/`` holds no compose files.
+_NO_COMPOSE_FILES = f"compose files in {BUILD_DIRNAME}/"
+
+
+def _down_by_label(
+    config: dict | None,
+    repo_root: Path,
+    *,
+    runtime: str | None = None,
+    missing: str = _NO_COMPOSE_FILES,
+) -> None:
     """Stop this repo's containers by label, when ``build/`` cannot say which.
 
     The recovery path for a deployment whose ``build/`` was wiped (or never
@@ -7606,14 +7635,19 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
             only. ``None`` when ``build/`` holds no config at all, which is the
             case this path most exists for.
         repo_root: The deployment repo whose containers are to be stopped.
+        runtime: The runtime the last start recorded. ``None`` when there is
+            no record, and the runtime is the one ``config`` selects.
+        missing: What the ``down`` lacked that sent it here, as the facts
+            this path reports name it.
 
     Raises:
         RuntimeError: When the runtime cannot list, stop or remove them.
     """
-    # get_runtime_command answers with a COMPOSE argv (["docker", "compose"]);
-    # the label sweep is plain-runtime work, so it takes the binary off the
-    # front rather than resolving a runtime a second way.
-    runtime = get_runtime_command(config)[0]
+    if runtime is None:
+        # get_runtime_command answers with a COMPOSE argv (["docker", "compose"]);
+        # the label sweep is plain-runtime work, so it takes the binary off the
+        # front rather than resolving a runtime a second way.
+        runtime = get_runtime_command(config)[0]
     label_filter = _repo_label_filter(repo_root)
 
     listing = subprocess.run(
@@ -7630,10 +7664,9 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
 
     container_ids = listing.stdout.split()
     if not container_ids:
-        _report_fact(
-            f"nothing to stop: no compose files in {BUILD_DIRNAME}/ and no containers "
-            "labelled for this repo"
-        )
+        _report_fact(f"nothing to stop: no {missing} and no containers labelled for this repo")
+        if missing != _NO_COMPOSE_FILES:
+            return
         # The caveat stays in the transcript at the level it always had: the
         # label is applied at CREATE time, so a stack started before this
         # repo's containers were labelled is invisible to the sweep above.
@@ -7648,7 +7681,7 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
         return
 
     _report_fact(
-        f"no compose files in {BUILD_DIRNAME}/; stopping the {len(container_ids)} "
+        f"no {missing}; stopping the {len(container_ids)} "
         "container(s) labelled for this repo instead (volumes and the compose "
         "network are kept)"
     )
@@ -7673,7 +7706,9 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
     _report_step(f"removed {len(container_ids)} labelled container(s)")
 
 
-def down_deployment(repo_root: Path | str) -> None:
+def down_deployment(
+    repo_root: Path | str, *, runtime: str | None = None, project: str | None = None
+) -> None:
     """Stop a deployment repo's stack, keeping every volume.
 
     The four-zone stop path, and the mirror of :func:`up_as_built`: it acts on
@@ -7702,18 +7737,45 @@ def down_deployment(repo_root: Path | str) -> None:
     :func:`restart_deployment` needs to still be here afterwards to start the
     stack again.
 
+    The stop acts on what the last start drove: the runtime and compose project
+    the deployment record holds, whatever the setting or a later rebuild says
+    now. With no record nothing names a compose project to stop, so only the
+    label sweep runs. A caller that already holds the pair — a reset stopping
+    the project its plan printed — passes both, and the record is not read.
+
     Args:
         repo_root: The deployment repo — the directory holding ``profile.yml``.
+        runtime: The runtime to stop with, given together with ``project``.
+        project: The compose project to stop, given together with ``runtime``.
 
     Raises:
-        RuntimeError: When the compose ``down``, or the label sweep standing in
-            for it, fails.
+        DeploymentRecordError: The record is read and is unreadable; the
+            message names ``osprey reset`` as the remedy.
+        ValueError: Only one of ``runtime`` and ``project`` is given.
+        RuntimeError: When the runtime does not answer, or the compose
+            ``down``, or the label sweep standing in for it, fails.
     """
     repo_root = Path(repo_root)
+    if (runtime is None) != (project is None):
+        raise ValueError("runtime and project are given together or not at all")
     config_path = as_built_config_path(repo_root)
     config = (
         load_project_config(str(config_path), wrap_errors=True) if config_path.is_file() else None
     )
+    if runtime is None or project is None:
+        try:
+            record = read_deployment_record(repo_root)
+        except DeploymentRecordError as exc:
+            raise DeploymentRecordError(f"{exc} — osprey reset removes it") from exc
+        if record is None:
+            _down_by_label(config, repo_root, missing="deployment record")
+            _hand_record_back_to_host(config, repo_root)
+            return
+        runtime, project = record.runtime, record.compose_project
+
+    is_running, error_msg = verify_runtime_is_running(config, runtime=runtime)
+    if not is_running:
+        raise RuntimeError(error_msg)
     compose_files = as_built_compose_files(config, repo_root) if config else []
 
     if config and _web_terminals_enabled(config):
@@ -7724,11 +7786,15 @@ def down_deployment(repo_root: Path | str) -> None:
         # same refusal is raised again below — this only keeps it from
         # pre-empting the fallback.
         try:
+            provider = _compose_provider(config, runtime=runtime)
             deploy_down_web_terminals(
                 config,
                 os.environ.copy(),
-                _env_file_args(repo_root, _compose_provider(config)),
+                _env_file_args(repo_root, provider),
+                provider=provider,
                 repo_root=repo_root,
+                runtime=runtime,
+                project=project,
             )
         except UnsupportedComposeProviderError as exc:
             logger.warning(
@@ -7739,14 +7805,14 @@ def down_deployment(repo_root: Path | str) -> None:
             )
 
     if not compose_files:
-        _down_by_label(config, repo_root)
+        _down_by_label(config, repo_root, runtime=runtime)
         _hand_record_back_to_host(config, repo_root)
         return
 
-    provider = _compose_provider(config)
+    provider = _compose_provider(config, runtime=runtime)
 
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config), provider=provider),
+        with_plain_progress([runtime, "compose"], provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -7761,7 +7827,11 @@ def down_deployment(repo_root: Path | str) -> None:
     # `down` targets the shared "services" project rather than this deploy's.
     result = run_captured(
         cmd,
-        env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)}),
+        env=runtime_env(
+            config,
+            {**os.environ, **compose_provider_env(provider, repo_root)},
+            project=project,
+        ),
         spool_name="compose-down",
         repo_root=repo_root,
         check=False,

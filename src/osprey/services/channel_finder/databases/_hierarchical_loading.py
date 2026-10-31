@@ -65,9 +65,6 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
         # Validate configuration
         self._validate_hierarchy_config()
 
-        # Parse default separators from naming pattern
-        self.default_separators = self._parse_naming_pattern_separators()
-
         # Build flat channel map for validation and lookup
         self.channel_map = self._build_channel_map()
 
@@ -408,42 +405,3 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
 
         path_parts.append(f"['{level_name.upper()}']")
         return "".join(path_parts)
-
-    def _parse_naming_pattern_separators(self) -> dict[tuple[str, str], str]:
-        """
-        Extract default separators between levels from naming pattern.
-
-        The naming pattern defines how levels are joined with separators.
-        This method extracts those separators for use as defaults.
-
-        Returns:
-            Dict mapping (level, next_level) tuples to separator strings
-
-        Example:
-            Pattern: "{system}-{subsystem}:{device}_{signal}"
-            Returns: {
-                ('system', 'subsystem'): '-',
-                ('subsystem', 'device'): ':',
-                ('device', 'signal'): '_'
-            }
-        """
-        import re
-
-        separators = {}
-        pattern = self.naming_pattern
-
-        # Find all {level} placeholders and text between them
-        matches = list(re.finditer(r"\{(\w+)\}", pattern))
-
-        for i in range(len(matches) - 1):
-            current_level = matches[i].group(1)
-            next_level = matches[i + 1].group(1)
-
-            # Extract text between placeholders (the separator)
-            start = matches[i].end()
-            end = matches[i + 1].start()
-            separator = pattern[start:end]
-
-            separators[(current_level, next_level)] = separator
-
-        return separators

@@ -34,15 +34,13 @@ def _write_config(project_path: Path) -> None:
         "deployed_services": ["postgresql"],
         "services": {"postgresql": {}},
     }
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
     """Reload config.yml as a plain dict."""
     yaml = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml.load(fh)
+    return yaml.load(project_path / "config.yml")
 
 
 def test_inject_bluesky_default_config(tmp_path: Path) -> None:
@@ -350,8 +348,7 @@ def test_inject_bluesky_device_page_size_written_to_both_lanes(tmp_path: Path) -
     yaml = YAML()
     config = _read_config(project_path)
     config["control_system"] = {"type": "virtual_accelerator"}
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
 
     _inject_bluesky(BlueskyConfig(second_lane=True, device_page_size=250), project_path)
 

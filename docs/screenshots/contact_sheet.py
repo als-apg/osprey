@@ -436,7 +436,7 @@ def hermetic_hub() -> Iterator[HermeticHub]:
     servers stop and both the project directory and its
     ``~/.claude/projects/<encoded>/`` session directory are removed.
     """
-    from osprey.cli.project_utils import encode_claude_project_path
+    from osprey.agent_runner.project_paths import encode_claude_project_path
     from osprey.interfaces._serving import run_app_server
     from osprey.registry.web import panel_url_state_attr
 

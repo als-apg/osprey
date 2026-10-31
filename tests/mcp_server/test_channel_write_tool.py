@@ -33,6 +33,7 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors_tests._harness import (
     FIXTURE_IDENTITY,
     isolate_verdict_environment,
@@ -625,7 +626,11 @@ async def test_mixed_batch_reports_one_outcome_per_channel(tmp_path, monkeypatch
             channel="PV:MISMATCH", value=2.0, outcome="mismatch", observed_value=0.0
         ),
         _make_write_result(
-            channel="PV:REFUSED", value=3.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+            channel="PV:REFUSED",
+            value=3.0,
+            outcome="refused",
+            refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:REFUSED' refused by the reference monitor (WRITES_DISABLED)",
         ),
         _make_write_result(channel="PV:NOCHECK", value=4.0, outcome="unrequested"),
     ]
@@ -753,7 +758,10 @@ async def test_lone_unconfirmed_write_returns(tmp_path, monkeypatch, outcome):
     """An unconfirmed or unchecked write reached the channel, so it reports."""
     _prepare(tmp_path, monkeypatch)
 
-    result = _make_write_result(channel="TEST:PV", value=42.0, outcome=outcome)
+    message = "Write to 'TEST:PV' not acknowledged" if outcome == "unconfirmed" else None
+    result = _make_write_result(
+        channel="TEST:PV", value=42.0, outcome=outcome, error_message=message
+    )
     data, _ = await _run_single(result)
 
     assert data["status"] == "success"
@@ -764,9 +772,9 @@ async def test_all_refused_is_write_refused(tmp_path, monkeypatch):
     """All-refused batch yields a typed write_refused envelope.
 
     The connector refused every write (nothing was sent to the control system).
-    The tool must raise ChannelWriteBlockedError so the error handler classifies
-    it as write_refused — NOT the generic internal_error a bare RuntimeError
-    would produce.
+    The tool raises the nothing-answered carrier with the refusal as its cause,
+    so the error handler answers with the refusal's own write_refused envelope,
+    the rows added under details.results.
     """
     _prepare(tmp_path, monkeypatch)
 
@@ -871,12 +879,19 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
     assert "standin" in message
 
 
-async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
-    """All-failed batch (attempted, not refused) preserves internal_error.
+def _row_facts(rows):
+    return [(row["channel"], row["outcome"], row["refusal_reason"], row["error"]) for row in rows]
 
-    The writes were sent to the control system and it did not take them. That
-    is an I/O failure, not a policy refusal, so it must keep the RuntimeError ->
-    internal_error classification rather than becoming write_refused.
+
+def _result_facts(results):
+    return [(r.channel_address, str(r.outcome), r.refusal_reason, r.error_message) for r in results]
+
+
+async def test_all_failed_is_nothing_answered(tmp_path, monkeypatch):
+    """Every write was sent and none taken: nothing answered, each row's text kept.
+
+    An I/O failure is not a policy refusal, so it is not write_refused; the
+    rows carry what the control system said about each write.
     """
     _prepare(tmp_path, monkeypatch)
 
@@ -893,7 +908,7 @@ async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
 
     with _patched(mock_connector):
         fn = _get_channel_write()
-        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        with assert_raises_error(error_type="nothing_answered") as _exc_ctx:
             await fn(
                 operations=[
                     {"channel": "PV:A", "value": 1.0},
@@ -901,16 +916,17 @@ async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
                 ]
             )
 
-    data = _exc_ctx["envelope"]
-    assert "caput failed: timeout" in data["error_message"]
-    assert "caput failed: no connection" in data["error_message"]
+    details = _exc_ctx["envelope"]["details"]
+    assert _row_facts(details["results"]) == _result_facts(results)
+    assert "missing" not in details
 
 
-async def test_refused_and_failed_batch_raises_internal_error(tmp_path, monkeypatch):
+async def test_refused_and_failed_batch_is_nothing_answered(tmp_path, monkeypatch):
     """Nothing reached a channel, but one write was attempted: not a pure refusal.
 
     Calling a batch that contains a real I/O failure a policy refusal would send
-    the operator to the limits database for a problem that lives on the wire.
+    the operator to the limits database for a problem that lives on the wire;
+    both rows say what happened to their own write.
     """
     _prepare(tmp_path, monkeypatch)
 
@@ -931,7 +947,7 @@ async def test_refused_and_failed_batch_raises_internal_error(tmp_path, monkeypa
 
     with _patched(mock_connector):
         fn = _get_channel_write()
-        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        with assert_raises_error(error_type="nothing_answered") as _exc_ctx:
             await fn(
                 operations=[
                     {"channel": "PV:A", "value": 1.0},
@@ -939,7 +955,9 @@ async def test_refused_and_failed_batch_raises_internal_error(tmp_path, monkeypa
                 ]
             )
 
-    assert "caput failed: timeout" in _exc_ctx["envelope"]["error_message"]
+    details = _exc_ctx["envelope"]["details"]
+    assert _row_facts(details["results"]) == _result_facts(results)
+    assert "missing" not in details
 
 
 async def test_partial_refusal_reports_per_op(tmp_path, monkeypatch):
@@ -984,10 +1002,19 @@ async def test_executed_channels_name_only_what_reached_a_channel(tmp_path, monk
         _make_write_result(
             channel="PV:MISMATCH", value=2.0, outcome="mismatch", observed_value=0.0
         ),
-        _make_write_result(channel="PV:UNCONFIRMED", value=3.0, outcome="unconfirmed"),
+        _make_write_result(
+            channel="PV:UNCONFIRMED",
+            value=3.0,
+            outcome="unconfirmed",
+            error_message="Write to 'PV:UNCONFIRMED' sent; the confirming re-read timed out",
+        ),
         _make_write_result(channel="PV:UNREQUESTED", value=4.0, outcome="unrequested"),
         _make_write_result(
-            channel="PV:REFUSED", value=5.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+            channel="PV:REFUSED",
+            value=5.0,
+            outcome="refused",
+            refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:REFUSED' refused by the reference monitor (WRITES_DISABLED)",
         ),
         _make_write_result(
             channel="PV:FAILED", value=6.0, outcome="failed", error_message="caput failed"
@@ -1009,7 +1036,11 @@ async def test_no_activity_highlight_when_nothing_executed(tmp_path, monkeypatch
     _prepare(tmp_path, monkeypatch)
 
     result = _make_write_result(
-        channel="PV:A", value=1.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+        channel="PV:A",
+        value=1.0,
+        outcome="refused",
+        refusal_reason="WRITES_DISABLED",
+        error_message="Write to 'PV:A' refused by the reference monitor (WRITES_DISABLED)",
     )
     connector = AsyncMock()
     connector.write_channel.return_value = result
@@ -1428,7 +1459,7 @@ async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypa
 
     _prepare(tmp_path, monkeypatch)
     connector = AsyncMock()
-    connector.read_multiple_channels.side_effect = ConnectionError("dead IOC")
+    connector.read_multiple_channels.side_effect = ChannelUnreachableError("TEST:PV", "dead IOC")
     connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)
     with call_scope("toolu_dead", None) as call:
         with _patched(connector):
@@ -1436,7 +1467,7 @@ async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypa
 
     assert extract_response_dict(raw)["status"] == "success"
     connector.write_channel.assert_awaited_once()
-    assert call.facts["old_values"] == {"TEST:PV": {"error": "ConnectionError"}}
+    assert call.facts["old_values"] == {"TEST:PV": {"error": "ChannelUnreachableError"}}
 
 
 async def test_the_verdict_and_old_values_need_no_setting(tmp_path, monkeypatch):

@@ -1,6 +1,21 @@
 {
   "components": {
     "schemas": {
+      "BaselineClearedEvent": {
+        "description": "The comparison baseline was cleared.",
+        "properties": {
+          "type": {
+            "const": "baseline_cleared",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "BaselineClearedEvent",
+        "type": "object"
+      },
       "BaselineResponse": {
         "description": "The comparison baseline: the overrides and summary it was set at.",
         "properties": {
@@ -27,6 +42,27 @@
           "set_at"
         ],
         "title": "BaselineResponse",
+        "type": "object"
+      },
+      "BaselineSetEvent": {
+        "description": "The comparison baseline was set at this summary.",
+        "properties": {
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          },
+          "type": {
+            "const": "baseline_set",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "summary"
+        ],
+        "title": "BaselineSetEvent",
         "type": "object"
       },
       "CapabilitiesModel": {
@@ -126,6 +162,31 @@
         "title": "FamilyModel",
         "type": "object"
       },
+      "FigureErrorEvent": {
+        "description": "A figure's worker failed, and why.",
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "const": "figure_error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "error"
+        ],
+        "title": "FigureErrorEvent",
+        "type": "object"
+      },
       "FigureNotCurrent": {
         "description": "Why there is no figure for the inputs on screen (404).",
         "properties": {
@@ -170,6 +231,26 @@
         "title": "FigureNotCurrent",
         "type": "object"
       },
+      "FigureReadyEvent": {
+        "description": "A figure of the inputs on screen is in the store.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "const": "figure_ready",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "title": "FigureReadyEvent",
+        "type": "object"
+      },
       "FigureResponse": {
         "description": "A figure of the inputs on screen, as a Plotly figure.",
         "properties": {
@@ -194,6 +275,32 @@
           "figure"
         ],
         "title": "FigureResponse",
+        "type": "object"
+      },
+      "FigureStatusEvent": {
+        "description": "A figure's worker was launched.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "const": "computing",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "figure_status",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "status"
+        ],
+        "title": "FigureStatusEvent",
         "type": "object"
       },
       "FigureStatusModel": {
@@ -523,6 +630,25 @@
         "title": "SettingsResponse",
         "type": "object"
       },
+      "SettingsUpdatedEvent": {
+        "description": "The computation settings changed.",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/SettingsResponse"
+          },
+          "type": {
+            "const": "settings_updated",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "settings"
+        ],
+        "title": "SettingsUpdatedEvent",
+        "type": "object"
+      },
       "StateResponse": {
         "description": "The dashboard state for the inputs on screen.",
         "properties": {
@@ -591,6 +717,21 @@
           "notice"
         ],
         "title": "StateResponse",
+        "type": "object"
+      },
+      "StateUpdatedEvent": {
+        "description": "The dashboard state changed; re-read ``/api/state``.",
+        "properties": {
+          "type": {
+            "const": "state_updated",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "StateUpdatedEvent",
         "type": "object"
       },
       "StatusResponse": {
@@ -773,8 +914,67 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "discriminator": {
+                          "mapping": {
+                            "baseline_cleared": "#/components/schemas/BaselineClearedEvent",
+                            "baseline_set": "#/components/schemas/BaselineSetEvent",
+                            "figure_error": "#/components/schemas/FigureErrorEvent",
+                            "figure_ready": "#/components/schemas/FigureReadyEvent",
+                            "figure_status": "#/components/schemas/FigureStatusEvent",
+                            "settings_updated": "#/components/schemas/SettingsUpdatedEvent",
+                            "state_updated": "#/components/schemas/StateUpdatedEvent"
+                          },
+                          "propertyName": "type"
+                        },
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/StateUpdatedEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/FigureStatusEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/FigureReadyEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/FigureErrorEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/SettingsUpdatedEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/BaselineSetEvent"
+                          },
+                          {
+                            "$ref": "#/components/schemas/BaselineClearedEvent"
+                          }
+                        ],
+                        "title": "Streamitem Sse Stream Api Events Get"
+                      },
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"

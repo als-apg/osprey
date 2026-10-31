@@ -10,8 +10,9 @@ the golden.
 The project is staged as the live-container suite stages it
 (``stage_va_project`` in ``tests/va/e2e/conftest.py``): the example facility's
 simulator view, rendered with the suite's synthetic additions. Its state
-directory starts empty but for ``nominal``, and ``osprey sim apply still``
-then makes the active set ``nominal`` and ``still``, under which no captured
+directory starts in the suite's set (``SUITE_SCENARIOS``), and ``osprey sim
+apply still``, run as the suite runs it, then makes the active set
+``nominal``, the suite's scenarios and ``still``, under which no captured
 address moves; the capture asserts every one has a motion envelope of zero
 before it reads. The container is booted as the suite boots it
 (``boot_va_container``), from the image the suite runs:

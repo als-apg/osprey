@@ -30,8 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
-from osprey.mcp_server.errors import make_error
-from osprey.simulation.response import RESULT_TAG
+from osprey.mcp_server.errors import MISSING_KEY, make_error, refuse_nothing_answered
+from osprey.simulation.response import CAUSES, RESULT_TAG
 
 logger = logging.getLogger("osprey.mcp_server.tools.model_response_matrix")
 
@@ -58,7 +58,7 @@ _EXECUTION_MODE = "readonly"
 _PLANES = ("x", "y")
 
 #: The keys of a child's result line for a solve.
-_SOLVED_KEYS = frozenset({"rows", "columns", "matrix", "unsolved"})
+_SOLVED_KEYS = frozenset({"rows", "columns", "matrix", MISSING_KEY})
 
 #: The unit statement every result carries.
 _UNIT = "each entry is a readback change in its hardware unit per setpoint change in its own"
@@ -309,7 +309,9 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "refused" in value or value.keys() >= _SOLVED_KEYS:
+    if "refused" in value:
+        return value if value.get("cause") in CAUSES else None
+    if value.keys() >= _SOLVED_KEYS:
         return value
     return None
 
@@ -330,7 +332,7 @@ def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
             for address in line["columns"]
         ],
         "matrix": line["matrix"],
-        "unsolved": line["unsolved"],
+        MISSING_KEY: line[MISSING_KEY],
     }
 
 
@@ -354,11 +356,16 @@ async def model_response_matrix(
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
         device}`` per monitor readback), ``columns`` (``{address, device,
         step}`` per solved corrector, ``step`` in its hardware unit),
-        ``matrix`` (one list per row) and ``unsolved`` (each corrector whose
+        ``matrix`` (one list per row) and ``missing`` (each corrector whose
         step has no solve, mapped to the engine's text). When no corrector
-        solves, the call is refused with every unsolved text and
-        ``details.unsolved`` holding the same map; when the engine refuses
-        the request, the call is refused with the engine's text.
+        solves, the call is refused as ``nothing_answered`` with
+        ``details.missing`` holding the same map (docs: Reference → Contracts →
+        Partial Answers).
+        When the engine refuses the request, the call is refused with the
+        engine's text; when the facility file is defective, it is refused
+        with the rebuild remedy; when the whole request has no solve, it
+        fails with the engine's text. Any other engine error is a failure
+        carrying its stderr.
     """
     from osprey.mcp_server.python_executor import executor
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY
@@ -394,19 +401,24 @@ async def model_response_matrix(
             ["Read stderr for the reason."],
             details={"model": request.model, "stderr": (result.stderr or "")[-2000:]},
         )
-    if "refused" in line:
+    if line.get("cause") == "solve":
         make_error(
-            "validation_error",
-            f"the response of {request.model} was refused: {line['refused']}",
+            "execution_error",
+            f"the response of {request.model} has no solve: {line['refused']}",
             [],
             details={"model": request.model},
         )
-    if not line["columns"]:
+    if "refused" in line:
+        remedy = ["Fix the facility file and run `osprey build`."]
         make_error(
-            "execution_error",
-            f"the response of {request.model} has no solve: {'; '.join(line['unsolved'].values())}",
-            [f"Name other correctors, or check {STEP_KEY} in measurement/{request.model}.yaml."],
-            details={"model": request.model, "unsolved": line["unsolved"]},
+            "validation_error",
+            f"the response of {request.model} was refused: {line['refused']}",
+            remedy if line["cause"] == "facility" else [],
+            details={"model": request.model},
+        )
+    if not line["columns"]:
+        refuse_nothing_answered(
+            TOOL_NAME, "correctors", line[MISSING_KEY], details={"model": request.model}
         )
     return json.dumps(_label(request, line))
 

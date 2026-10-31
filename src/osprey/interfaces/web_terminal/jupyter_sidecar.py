@@ -70,6 +70,7 @@ from typing import IO, Any
 
 import nbformat
 
+from osprey.deployment import subprocess_capture
 from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
@@ -654,15 +655,15 @@ class JupyterSidecar:
         logger.info("%s launched (pid %s)", _NAME, self._process.pid)
 
     def _watch_exit(self, process: subprocess.Popen[bytes], tail: _StderrTail) -> None:
-        """Reap *process*; report an exit that :meth:`stop` did not cause.
+        """Observe *process*'s exit without reaping it; report one :meth:`stop` did not cause.
 
-        The stderr pipe is inherited by every kernel, so its end of stream
-        cannot stand in for the exit: an orphaned kernel keeps it open.
-        ``wait()`` is what says the sidecar is gone. The report is skipped
-        while the sidecar was still coming up, because :meth:`wait_ready`
-        raises with the same tail and its caller logs that.
+        :meth:`stop` reaps. The stderr pipe is inherited by every kernel, so
+        its end of stream cannot stand in for the exit: an orphaned kernel
+        keeps it open. The observed exit is what says the sidecar is gone. The
+        report is skipped while the sidecar was still coming up, because
+        :meth:`wait_ready` raises with the same tail and its caller logs that.
         """
-        status = process.wait()
+        status = subprocess_capture.observe_exit(process, within=None)
         if self._stopping.is_set():
             return
         tail.join(timeout=1)
@@ -717,7 +718,7 @@ class JupyterSidecar:
         while True:
             if self._stopping.is_set():
                 raise RuntimeError(f"{_NAME} was stopped before it was ready")
-            status = process.poll()
+            status = subprocess_capture.observe_exit(process)
             if status is not None:
                 if self._tail is not None:
                     self._tail.join(timeout=1)
@@ -742,13 +743,11 @@ class JupyterSidecar:
         runtime_dir = self._runtime_dir
         process, self._process = self._process, None
         if process is not None:
-            if process.poll() is None:
-                _signal_group(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(_STOP_GRACE)
-                except subprocess.TimeoutExpired:
-                    _signal_group(process.pid, signal.SIGKILL)
-                    process.wait()
+            # The sidecar leads its group, so its pid names it; the stop is the
+            # one reaper of the sidecar, whether it is running or has exited.
+            outcome = subprocess_capture.stop_child(process, grace=_STOP_GRACE)
+            if not outcome.gone:
+                logger.warning("%s: %s", _NAME, outcome.describe())
             # The stderr pipe is left to the tail thread: closing it here
             # blocks on the reader, and a kernel the group signal did not
             # reach (kernels start their own session) can hold the write end
@@ -834,9 +833,3 @@ def _signal_pid(pid: int, signum: signal.Signals) -> None:
     """Send *signum* to *pid*; a process already gone is fine."""
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signum)
-
-
-def _signal_group(pid: int, signum: signal.Signals) -> None:
-    """Send *signum* to the process group led by *pid*; a gone group is fine."""
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(pid, signum)

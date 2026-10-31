@@ -65,6 +65,7 @@ def _repo_root() -> Path:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
     except (OSError, subprocess.CalledProcessError):
         pytest.skip("not a git checkout")
@@ -81,6 +82,7 @@ def test_packaged_seed_is_not_git_ignored() -> None:
             ["git", "check-ignore", "-q", str(path)],
             cwd=root,
             check=False,
+            timeout=60,
         )
         assert result.returncode == 1, (
             f"{path} is git-ignored (git check-ignore exit {result.returncode}); "

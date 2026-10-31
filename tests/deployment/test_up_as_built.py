@@ -42,6 +42,12 @@ from osprey.deployment.compose_generator import (
     LABELS_OVERRIDE_FILENAME,
     REPO_ID_LABEL,
     repo_identity,
+    resolve_project_name,
+)
+from osprey.deployment.deployment_record import (
+    DeploymentRecord,
+    read_deployment_record,
+    write_deployment_record,
 )
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
@@ -231,6 +237,66 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
     ]
     env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
     assert env_files[-1] == str(lifecycle_repo / ".env")
+
+
+def _built_project(repo: Path) -> str:
+    """The compose project the build in *repo* names, read the way a start reads it."""
+    from osprey_connectors.config import load_project_config
+
+    return resolve_project_name(
+        load_project_config(str(container_lifecycle.as_built_config_path(repo)))
+    )
+
+
+def test_a_start_records_the_runtime_and_project_it_drove(lifecycle_repo, started):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
+        up_argv(started)[0], _built_project(lifecycle_repo)
+    )
+
+
+def test_a_start_refused_before_any_container_step_leaves_the_previous_record(
+    lifecycle_repo, started, monkeypatch
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    previous = DeploymentRecord("podman", "an-earlier-project")
+    write_deployment_record(lifecycle_repo, previous)
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config: (False, "x")
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert not started
+    assert read_deployment_record(lifecycle_repo) == previous
+
+
+@pytest.mark.usefixtures("started")
+def test_a_start_refused_by_a_later_preflight_has_recorded_what_it_would_drive(
+    lifecycle_repo, monkeypatch
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    write_deployment_record(lifecycle_repo, DeploymentRecord("podman", "an-earlier-project"))
+
+    def _port_held(*_):
+        raise RuntimeError("port held")
+
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", _port_held)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
+        "docker", _built_project(lifecycle_repo)
+    )
 
 
 def test_up_is_correct_from_a_subdirectory(lifecycle_repo, started, monkeypatch):

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import subprocess
 import sys
 import textwrap
@@ -32,8 +31,7 @@ from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from tests._guarded_run import held_lock, lock_path
 from tests.mcp_server.conftest import get_tool_fn
-
-_SRC_ROOT = Path(__file__).resolve().parents[3] / "src"
+from tests.services.python_executor._child_env import child_env
 
 #: How long a wrapped child gets to finish.
 CHILD_TIMEOUT_S = 120.0
@@ -642,12 +640,9 @@ class _Sandbox:
             ExecutionWrapper(execution_mode="readwrite").create_wrapper(code, self.folder),
             encoding="utf-8",
         )
-        env = os.environ.copy()
+        env = child_env(self.site)
         for name in ("OSPREY_CONFIG", "CONFIG_FILE"):
             env.pop(name, None)
-        env["PYTHONPATH"] = os.pathsep.join(
-            filter(None, [str(self.site), str(_SRC_ROOT), env.get("PYTHONPATH")])
-        )
         env["APPROVED_CALL_VALUES"] = str(self.values_path)
         env["OSPREY_EXECUTION_MODE"] = "readwrite"
         env["OSPREY_CONTROL_TARGET"] = "live"

@@ -59,6 +59,14 @@ def test_pyat_declares_the_orbit_solve_error():
     assert pyat.SOLVE_ERRORS == (OrbitSolveError,)
 
 
+def test_pyat_declares_its_request_refusal():
+    pytest.importorskip("lume_pyat")
+    from osprey.simulation.engines import pyat
+
+    assert pyat.REFUSAL_ERRORS == (pyat.RequestRefused,)
+    assert issubclass(pyat.RequestRefused, ValueError)
+
+
 def _engine_import(module: str) -> bool:
     if module in ("lume_pyat", "at"):
         return True

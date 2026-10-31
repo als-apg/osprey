@@ -22,7 +22,12 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ConnectorInternalError,
+    RefusalReason,
+)
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
 
@@ -250,6 +255,22 @@ def test_write_result_carries_an_array_observed_value():
     assert frame.value.observed_value.tolist() == [1.0, 2.0, 3.0]
 
 
+@pytest.mark.parametrize("reason", list(RefusalReason))
+def test_a_refusal_reason_crosses_ipc_as_its_member(reason):
+    """The parent rebuilds a refused result with the reason's member, not a bare string."""
+    result = ChannelWriteResult(
+        channel_address="SR:R",
+        value_written=1,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason=reason,
+        error_message="refused",
+    )
+    frame = _round_trip(frames.encode_result("req-rr", result))
+
+    assert frame.value.refusal_reason is reason
+    assert frame.value.refusal_reason.refuser == reason.refuser
+
+
 def test_write_result_list_round_trips():
     results = [
         ChannelWriteResult(
@@ -433,14 +454,15 @@ def test_a_typed_exception_round_trips_with_every_spec_field(original):
     assert exceptions.exception_fields(frame.exception) == exceptions.exception_fields(original)
 
 
-def test_unknown_class_tag_fails_closed_to_connection_error():
+def test_unknown_class_tag_fails_closed_to_the_contract_fault():
     class SomeChildOnlyError(Exception):
         pass
 
     frame = _round_trip(frames.encode_error("req-u", SomeChildOnlyError("libca segfaulted")))
 
     assert frame.class_tag == "SomeChildOnlyError"
-    assert type(frame.exception) is ConnectionError
+    assert type(frame.exception) is ConnectorInternalError
+    assert frame.exception.class_tag == "SomeChildOnlyError"
     # Fail closed, but never silently: the original tag and message both survive.
     assert "SomeChildOnlyError" in str(frame.exception)
     assert "libca segfaulted" in str(frame.exception)
@@ -688,6 +710,41 @@ MALFORMED_FRAMES = [
         id="unknown-frame-kind",
     ),
 ]
+
+
+UNREBUILDABLE_REPLIES = [
+    pytest.param(
+        {
+            _TAG: "ChannelWriteResult",
+            "fields": {"channel_address": "SR:Q", "value_written": 1.0, "outcome": "nope"},
+        },
+        "ChannelWriteResult",
+        id="value-refused-by-its-constructor",
+    ),
+    pytest.param(
+        {_TAG: "dict", "items": [["SR:Q", {_TAG: "ChannelValue", "fields": {"bogus": 1}}]]},
+        "ChannelValue",
+        id="nested-value-with-a-field-the-class-lacks",
+    ),
+]
+
+
+@pytest.mark.parametrize(("value", "class_tag"), UNREBUILDABLE_REPLIES)
+def test_a_reply_the_parent_cannot_rebuild_fails_only_that_call(value, class_tag):
+    reader = frames.FrameReader()
+    unrebuildable = _doctored(_result(), _set("value", value))
+    follow_up = frames.encode_result("req-next", 2)
+
+    frame, next_frame = reader.feed(unrebuildable + follow_up)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.request_id == "req-bad"
+    assert frame.class_tag == class_tag
+    assert type(frame.exception) is ConnectorInternalError
+    assert frame.exception.class_tag == class_tag
+    assert class_tag in str(frame.exception)
+    # The stream is intact: the next reply decodes as sent.
+    assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
 
 
 @pytest.mark.parametrize(("build", "message"), MALFORMED_FRAMES)

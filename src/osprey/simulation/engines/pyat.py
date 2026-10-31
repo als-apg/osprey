@@ -58,6 +58,8 @@ if TYPE_CHECKING:
 __all__ = [
     "ElementStop",
     "Prepared",
+    "REFUSAL_ERRORS",
+    "RequestRefused",
     "ResponseMatrix",
     "SOLVE_ERRORS",
     "build",
@@ -81,6 +83,15 @@ SOLVES: tuple[str, ...] = ("periodic", "single_pass")
 # Stand-in until lume-base states SolveError, the base of every LUME engine's no-solve exception.
 #: The exceptions with which this engine says a request has no solve.
 SOLVE_ERRORS: tuple[type[Exception], ...] = (OrbitSolveError,)
+
+
+class RequestRefused(ValueError):
+    """A request this engine does not answer: its text names what to change."""
+
+
+# Stand-in until lume-base states the base of every LUME engine's request refusal.
+#: The exceptions with which this engine says a request is not one it answers.
+REFUSAL_ERRORS: tuple[type[Exception], ...] = (RequestRefused,)
 
 #: Each ``twiss_in`` key and the lengths it may take; the first length is
 #: the one ``prepare`` normalises to.
@@ -1005,9 +1016,10 @@ def response_matrix(
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
             refuses, or a monitor element the deck does not hold exactly once.
-        ValueError: a corrector is not a wired setpoint naming an element, is
-            named twice, or has no finite non-zero step; a monitor record
-            cannot be built as a reading.
+        RequestRefused: a corrector is not a wired setpoint naming an
+            element, is named twice, or has no finite non-zero step.
+        ValueError: a monitor record cannot be built as a reading, a defect
+            of the wiring rather than of the request.
     """
     import numpy as np
     from lume_pyat.simulator import PyATSimulator
@@ -1051,12 +1063,14 @@ def response_matrix(
             else variable_from_wiring(record, deck_energy_gev=deck_energy_gev)
         )
         if not isinstance(variable, CalibratedSetpoint):
-            raise ValueError(f"corrector {address} is not a wired setpoint on an element")
+            raise RequestRefused(f"corrector {address} is not a wired setpoint on an element")
         if any(variable.name == other.name for other, _ in columns):
-            raise ValueError(f"corrector {address} is named twice")
+            raise RequestRefused(f"corrector {address} is named twice")
         width = step.get(address)
         if width is None or not math.isfinite(float(width)) or float(width) == 0.0:
-            raise ValueError(f"corrector {address} has step {width!r}; give a finite non-zero step")
+            raise RequestRefused(
+                f"corrector {address} has step {width!r}; give a finite non-zero step"
+            )
         columns.append((variable, float(width)))
 
     simulator = (

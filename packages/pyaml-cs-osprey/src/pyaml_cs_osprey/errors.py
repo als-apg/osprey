@@ -28,6 +28,7 @@ from pyaml.common.exception import PyAMLException
 
 from osprey.runtime import ControlTargetChangedError, guarded_run
 from osprey_connectors.errors import (
+    ChannelError,
     ChannelLimitsViolationError,
     ChannelReadFailedError,
     ChannelWriteBlockedError,
@@ -150,7 +151,7 @@ def map_write_error(
         The mapped exception, with ``exc`` set as its ``__cause__``; raise it
         with ``raise map_write_error(exc) from exc``.
     """
-    channel = getattr(exc, "channel_address", None) or address
+    channel = (exc.channel_address if isinstance(exc, ChannelError) else None) or address
     reason = _write_reason(exc)
     mapped: OspreyWriteRefused | OspreyWriteFailed
     refusals = (ChannelLimitsViolationError, ChannelWriteBlockedError, ControlTargetChangedError)

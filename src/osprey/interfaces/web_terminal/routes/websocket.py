@@ -857,6 +857,13 @@ async def _spawn_pooled_pty(
     return spawned
 
 
+#: Close code of a ``/ws/terminal`` refused because the deployment offers no
+#: Expert view (``web.expert_view: false``). In the 4000-4999 application
+#: range beside the hand-off's 4409; 4403 reads as "forbidden" the way HTTP's
+#: 403 does.
+WS_CLOSE_EXPERT_VIEW_OFF = 4403
+
+
 @router.websocket("/ws/terminal")
 async def terminal_ws(websocket: WebSocket):
     """WebSocket bridge for terminal I/O with session pool support.
@@ -902,10 +909,26 @@ async def terminal_ws(websocket: WebSocket):
     transcript directory being consulted. The same frame,
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
     that it found no such conversation and quits.
+
+    A deployment with ``web.expert_view: false`` offers no Expert view, and
+    this socket is the Expert view's PTY session: it is refused before
+    anything is looked up or spawned, with an ``error`` frame naming the key
+    and close code :data:`WS_CLOSE_EXPERT_VIEW_OFF`. The page never opens it
+    there; the refusal is what stops a hand-made client.
     """
     await websocket.accept()
 
     app = websocket.app
+    if not getattr(app.state, "web_expert_view", True):
+        # Imported here for the routes -> app cycle routes/panels.py avoids too.
+        from osprey.interfaces.web_terminal.app import EXPERT_VIEW_REFUSAL
+
+        logger.info("Refusing /ws/terminal: web.expert_view is false")
+        with suppress(Exception):
+            await websocket.send_text(json.dumps({"type": "error", "message": EXPERT_VIEW_REFUSAL}))
+            await websocket.close(code=WS_CLOSE_EXPERT_VIEW_OFF)
+        return
+
     registry = app.state.pty_registry
     base_shell_command = app.state.shell_command
     discovery = SessionDiscovery(app.state.project_cwd)

@@ -59,7 +59,8 @@ import pytest
 
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.search.qmd import ARIEL_COLLECTION
-from tests._container_support import is_docker_available
+from tests._container_support import ContainerExitedError, is_docker_available
+from tests.integration import _qmd_ariel_support
 from tests.integration._qmd_ariel_support import (
     DEFAULT_QMD_SIDECAR_IMAGE,
     QMD_IMAGE_ENV,
@@ -80,6 +81,7 @@ from tests.integration._qmd_ariel_support import (
     sidecar_log_mark,
     start_qmd_sidecar,
     wait_for_indexed,
+    wait_for_reindex_settled,
     write_vocabulary_file,
 )
 
@@ -458,17 +460,26 @@ async def sidecar_repository(sidecar_world: _World):
 
 
 async def _search(world, repository, client, query=SAFE_TOKEN, **kwargs):
-    """Run the real search module against the real sidecar."""
+    """Run the real search module against the real sidecar.
+
+    The search-call pool lives for this one call and is closed when it returns;
+    a ``search_calls`` the caller passes wins.
+    """
     from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.qmd import hybrid_search
 
-    return await hybrid_search(
-        query,
-        repository,
-        ARIELConfig.from_dict(world.config_dict),
-        client=client,
-        **kwargs,
-    )
+    pool = SearchCallPool()
+    try:
+        return await hybrid_search(
+            query,
+            repository,
+            ARIELConfig.from_dict(world.config_dict),
+            client=client,
+            **{"search_calls": pool, **kwargs},
+        )
+    finally:
+        pool.close()
 
 
 def _ids(results) -> set[str]:
@@ -598,6 +609,121 @@ class TestReindexSettles:
     )
     async def test_settle_rule(self, log, since, settled):
         assert reindex_settled(log, since) is settled
+
+
+class _ScriptedSidecar:
+    """A sidecar container whose log follows a script, one step per state read.
+
+    The wait reads the container once per round (``reload()``), so each round
+    shows the next log and pending count; the last step repeats once reached.
+    """
+
+    def __init__(self, steps: list[tuple[str, int]], *, status: str = "running") -> None:
+        self._steps = steps
+        self.rounds = 0
+        self.status = status
+        self.attrs = {"State": {"ExitCode": 1 if status == "exited" else 0}}
+
+    @property
+    def _step(self) -> tuple[str, int]:
+        return self._steps[min(self.rounds, len(self._steps) - 1)]
+
+    @property
+    def pending(self) -> int:
+        return self._step[1]
+
+    def get_wrapped_container(self) -> _ScriptedSidecar:
+        return self
+
+    def reload(self) -> None:
+        self.rounds += 1
+
+    def logs(self, tail: int | None = None) -> bytes:
+        lines = self._step[0].splitlines(keepends=True)
+        return "".join(lines if tail is None else lines[-tail:]).encode()
+
+
+@dataclass
+class _ScriptedClient:
+    """A ``QMDClient`` stand-in whose ``status().pending`` follows the sidecar."""
+
+    sidecar: _ScriptedSidecar
+
+    def status(self) -> Any:
+        return type("Status", (), {"pending": self.sidecar.pending})()
+
+
+#: The silence budget the wait runs on here, in seconds: small enough that a
+#: wait that does not see progress fails quickly.
+_SILENCE_BUDGET = 0.05
+
+
+def _embed_round(n: int) -> str:
+    return f"2026-01-01T00:00:{5 + n:02d}Z [qmd-sidecar] embedding chunk {n}\n"
+
+
+class TestReindexWait:
+    """How the wait on a re-index ends, against a sidecar that follows a script.
+
+    No container: the stub serves the entrypoint's own lines through the same
+    surface a started container offers, so the wait runs its real rounds.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fast_clock(self, monkeypatch):
+        monkeypatch.setattr(_qmd_ariel_support, "SIDECAR_REINDEX_TIMEOUT", _SILENCE_BUDGET)
+        monkeypatch.setattr("tests._container_support.time.sleep", lambda _s: None)
+
+    async def test_returns_once_the_touch_update_finished_and_nothing_is_pending(self):
+        sidecar = _ScriptedSidecar(
+            [
+                (_STARTED, 0),
+                (_STARTED + _ADVANCED + _TRIGGERED, 2),
+                (_STARTED + _ADVANCED + _TRIGGERED + _FINISHED, 1),
+                (_STARTED + _ADVANCED + _TRIGGERED + _FINISHED, 0),
+            ]
+        )
+
+        wait_for_reindex_settled(_ScriptedClient(sidecar), sidecar, since=len(_STARTED))
+
+        assert sidecar.rounds == 3
+
+    async def test_an_advancing_log_outlives_the_silence_budget(self):
+        in_flight = _STARTED + _ADVANCED + _TRIGGERED
+        started = time.monotonic()
+
+        class _Embedding(_ScriptedSidecar):
+            """In flight for several silence budgets, its log growing every round."""
+
+            def reload(self) -> None:
+                super().reload()
+                if time.monotonic() - started > 4 * _SILENCE_BUDGET:
+                    self._steps = [(in_flight + _embed_round(0) + _FINISHED, 0)]
+                    self.rounds = 0
+                else:
+                    self._steps[0] = (self._steps[0][0] + _embed_round(self.rounds), 3)
+
+        sidecar = _Embedding([(in_flight, 3)])
+
+        wait_for_reindex_settled(_ScriptedClient(sidecar), sidecar, since=len(_STARTED))
+
+        assert time.monotonic() - started > 4 * _SILENCE_BUDGET
+
+    async def test_pending_vectors_fail_once_the_log_goes_quiet(self):
+        settled = _STARTED + _ADVANCED + _TRIGGERED + _FINISHED
+        sidecar = _ScriptedSidecar([(settled, 3)])
+
+        with pytest.raises(AssertionError, match=r"3 document\(s\) still have no vectors"):
+            wait_for_reindex_settled(_ScriptedClient(sidecar), sidecar, since=len(_STARTED))
+
+    async def test_an_exited_sidecar_ends_the_wait_at_once(self, monkeypatch):
+        monkeypatch.setattr(_qmd_ariel_support, "SIDECAR_REINDEX_TIMEOUT", 3600.0)
+        sidecar = _ScriptedSidecar([(_STARTED + _ADVANCED + _TRIGGERED, 2)], status="exited")
+
+        with pytest.raises(ContainerExitedError):
+            wait_for_reindex_settled(_ScriptedClient(sidecar), sidecar, since=len(_STARTED))
+
+        assert sidecar.rounds == 1
 
 
 class TestSidecarIsReal:

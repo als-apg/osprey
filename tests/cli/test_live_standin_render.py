@@ -48,6 +48,7 @@ import yaml
 from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
+from osprey.deployment.deployment_record import DeploymentRecord
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
@@ -129,37 +130,31 @@ def _set_live_standin(repo: Path, port: int | None) -> None:
     rather than a no-op the day the preset starts shipping the key.
     """
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if port is None:
         block.pop("live_standin", None)
     else:
         block["live_standin"] = port
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _set_config_entries(repo: Path, entries: dict[str, Any]) -> None:
     """Add dotted entries to the repo profile's own ``config:`` block."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for key, value in entries.items():
         profile["config"][key] = value
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
     """Remove whole top-level blocks from the repo's profile."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for name in names:
         profile.pop(name, None)
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _build(repo: Path) -> Path:
@@ -547,7 +542,11 @@ async def test_live_standin_render_grows_a_container_health_row(
     stands up. Fed the REAL rendered config rather than a hand-built one, since
     the list is exactly what the build is being asked about.
     """
-    monkeypatch.setattr(containers_mod, "get_runtime_command", lambda *_a, **_k: ["docker"])
+    monkeypatch.setattr(
+        containers_mod,
+        "read_deployment_record",
+        lambda _root: DeploymentRecord("docker", "standin"),
+    )
 
     async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
         return _FakeProc(b"Docker version 27.0.0")

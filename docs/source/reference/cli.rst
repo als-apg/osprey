@@ -155,9 +155,9 @@ away, optionally in the background or in development mode.
 .. code-block:: bash
 
    osprey init --list-presets
-   osprey init als-assistant --preset control-assistant
+   osprey init my-assistant --preset control-assistant
    osprey init demo --preset control-assistant --up -d --dev
-   osprey init als-assistant --revalidate
+   osprey init my-assistant --revalidate
 
 osprey set
 ==========
@@ -253,7 +253,7 @@ is reported the same way — as a note, never a refusal.
 
    osprey validate
    osprey validate tiers/readonly.yml
-   osprey validate --repo ~/als-assistant
+   osprey validate --repo ~/my-assistant
 
 osprey config
 =============
@@ -395,7 +395,7 @@ a build whose output runs somewhere other than where it was made.
 .. code-block:: bash
 
    osprey build
-   osprey build --repo ~/deployments/als-assistant
+   osprey build --repo ~/deployments/my-assistant
    osprey build --skip-lifecycle --skip-deps          # CI: no venv, no hooks
 
 Lifecycle verbs
@@ -474,7 +474,9 @@ osprey restart
 
 Stop and start this deployment again. Takes the same options as ``up``:
 ``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
-``--keep-archiver-base``.
+``--keep-archiver-base``. The stop half acts on the runtime and compose project
+the last ``osprey up`` recorded; the start half picks the runtime the setting
+selects now.
 
 osprey status
 -------------
@@ -516,7 +518,7 @@ osprey reset
 Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/``.
+out of ``.env``, and deletes ``build/`` and ``var/deployment.json``.
 
 What survives, the plan lists before you confirm:
 
@@ -905,7 +907,7 @@ the build as it stands.
    osprey chat
    osprey chat --print "what is the stored beam current?"
    osprey chat --resume abc123
-   osprey chat --repo ~/als-assistant
+   osprey chat --repo ~/my-assistant
 
 osprey query
 ============
@@ -938,7 +940,7 @@ provider is not configured).
 .. code-block:: bash
 
    osprey query "What PVs are used for beam current?"
-   osprey query --repo ~/als-assistant "List vacuum sections"
+   osprey query --repo ~/my-assistant "List vacuum sections"
    osprey query --json "Summarise recent alarms"
 
 osprey eject
@@ -1052,8 +1054,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
    on stderr; the exit code is unchanged.
-   A knowledge page under ``data/facility/knowledge`` whose ``device_id`` is no
-   device id of the facility file prints one
+   Each link of a knowledge page under ``data/facility/knowledge`` that the
+   facility file does not hold, a ``device_id`` that is no device id or a
+   ``facility:`` link in the body that names no channel or device, prints one
    ``facility: link-dangling: page <path> — …; fix: …`` warning, in
    ``osprey build`` and in this command; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at

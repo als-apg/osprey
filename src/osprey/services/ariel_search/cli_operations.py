@@ -732,7 +732,10 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         caller never has to reach the database to learn what the vocabulary is
         doing. The healthy paths also carry ``last_ingestion``: the ISO-8601
         timestamp of the newest successful ingestion run, or ``None`` when the
-        store has never been ingested.
+        store has never been ingested, and ``errors``: one line per
+        configuration the host contradicts (semantic search enabled with no
+        embedding table for its model), each naming its fix; a non-empty list
+        makes the status ``unhealthy``.
 
         On the healthy paths ``enhancement_modules`` is one table over the
         registered modules, each carrying ``enabled`` alongside its
@@ -760,6 +763,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.config import registered_ariel_names
+    from osprey.services.ariel_search.exceptions import ConfigurationError
 
     # Computed first and unconditionally: the vocabulary line must survive a
     # database that is down and a config that will not parse. The same parse
@@ -780,6 +784,15 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         service = await create_ariel_service(config)
         async with service:
             healthy, message = await service.health_check()
+            # A configuration the host contradicts is one error line; the
+            # rest of the report still assembles.
+            errors: list[str] = []
+            try:
+                await service.verify_search_model_table()
+            except ConfigurationError as refusal:
+                errors.append(
+                    f"{refusal.message}. {refusal.remedy}" if refusal.remedy else refusal.message
+                )
             markers: dict[str, str] = {}
             caption_marker = caption_model_id(config)
             if caption_marker is not None:
@@ -822,8 +835,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
             attachments["picture_search_unavailable"] = _picture_search_unavailable(config, health)
 
             return {
-                "status": "healthy" if healthy else "unhealthy",
+                "status": "healthy" if healthy and not errors else "unhealthy",
                 "message": message,
+                "errors": errors,
                 "database": {
                     "uri": (
                         config.database.uri.split("@")[-1]
@@ -2722,6 +2736,7 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
         Result dict, or ``{"error": ...}`` when the search could not run.
     """
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.exceptions import ConfigurationError
     from osprey.services.ariel_search.models import normalize_search_mode
 
     if not config_dict:
@@ -2760,6 +2775,9 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
                 "reasoning": result.reasoning,
                 "entries": [_entry_summary(e) for e in entries],
             }
+    except ConfigurationError as e:
+        # A configuration refusal names its own fix.
+        return {"error": f"{e.message}. {e.remedy}" if e.remedy else e.message}
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "connect" in msg.lower():

@@ -2231,8 +2231,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
 
     # -- execution_method: subprocess (the only backend OSPREY ships) --------
     yaml = YAML()
-    with open(project_dir / "config.yml") as fh:
-        config = yaml.load(fh)
+    config = yaml.load(project_dir / "config.yml")
     assert config["execution"]["execution_method"] == "subprocess", (
         "the rendered config must name the backend that actually runs agent "
         "Python; the deploy config overrides nothing here"
@@ -3572,8 +3571,8 @@ def test_service_build_args_carry_the_prerelease_flag_only_for_a_prerelease_pin(
     suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """A beta pin renders ``OSPREY_PIP_PRE: "1"`` beside ``OSPREY_VERSION`` so
-    the recipe's pip resolve admits the paired connectors beta; a stable pin
-    renders nothing, keeping the resolve strict. The context key comes from
+    the recipe's pip resolve admits a connectors pre-release for the
+    framework's floor; a stable pin renders nothing, keeping the resolve strict. The context key comes from
     ``_inject_project_metadata`` (see :class:`TestImagePinVersion`)."""
     beta = yaml.safe_load(
         _render_service_template(
@@ -6438,6 +6437,7 @@ def _head_dispatcher_render() -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         ).stdout
     except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - env-dependent
         pytest.skip(f"cannot read the committed template: {exc}")

@@ -22,7 +22,7 @@ K_B = -0.456
 SLICES = [{"element": "A", "weight": 2}, {"element": "B", "weight": 1}]
 ENGINE = {"attribute": "PolynomB", "index": 1}
 CALIBRATION = {"curve": {"linear": {"gain": GAIN, "offset": OFFSET}}}
-SLOTS = ("direction", "unit", "default", "value_range")
+SLOTS = ("direction", "unit", "default", "value_range", "role", "plane", "refresh")
 
 
 def _save_deck(path: Path) -> None:
@@ -78,7 +78,11 @@ def _files(*extra_wiring: dict[str, Any], models: list[dict[str, Any]] | None = 
             *extra_wiring,
         ],
     }
-    plug = {"name": "plug", "engine": "pyat", "wiring": [{"address": "T:X"}]}
+    plug = {
+        "name": "plug",
+        "engine": "pyat",
+        "wiring": [{"address": "T:X", "element": "BPM1", "engine": {"axis": "x"}}],
+    }
     return {
         "records/devices.yaml": [{"id": "SR/Q1", "class": "Quadrupole"}],
         "records/channels.yaml": channels,
@@ -174,7 +178,7 @@ class TestProvenance:
             written = sorted(slot for slot in SLOTS if slot in record)
             assert _filled_defaults(record) == written, record_id
 
-    def test_the_setpoint_records_all_four(self, filled):
+    def test_the_setpoint_records_all_seven(self, filled):
         assert _filled_defaults(filled["SR/Q1:SP"]) == sorted(SLOTS)
 
     def test_a_deck_less_model_gets_direction_unit_and_range(self, filled):
@@ -182,7 +186,25 @@ class TestProvenance:
         assert (record["direction"], record["unit"]) == ("read", "mm")
         assert "default" not in record
         assert "value_range" not in record
-        assert record["provenance"]["defaults"] == ["direction", "unit"]
+        assert record["provenance"]["defaults"] == ["direction", "plane", "refresh", "role", "unit"]
+        assert (record["role"], record["plane"], record["refresh"]) == ("monitor", "x", "pass")
+
+
+class TestDescription:
+    def test_each_record_carries_what_the_engine_says_it_is(self, filled):
+        described = {
+            record_id: (filled[record_id]["role"], filled[record_id]["refresh"])
+            for record_id in ("SR/Q1:SP", "SR/Q1:RB", "SR/U:RB")
+        }
+        assert described == {
+            "SR/Q1:SP": ("setpoint", "pass"),
+            "SR/Q1:RB": ("readback", "pass"),
+            "SR/U:RB": ("readback", "pass"),
+        }
+
+    def test_a_record_steering_no_plane_carries_a_null_plane(self, filled):
+        assert "plane" in filled["SR/Q1:SP"]
+        assert filled["SR/Q1:SP"]["plane"] is None
 
 
 class TestStops:
@@ -267,6 +289,61 @@ class TestStops:
         ]
         assert "no_such_engine" in _lines(result)[0]
 
+    def test_a_record_the_engine_cannot_describe_stops_on_the_record(self, tmp_path):
+        files = _files()
+        files["models.yaml"][0]["wiring"][2] = {"address": "U:RB", "element": "B"}
+        result = _run(tmp_path, files)
+        assert [(e.kind, e.record_kind, e.record_id, e.sources) for e in result.errors] == [
+            ("engine-invalid", "wiring", "SR/U:RB", ("models.yaml",))
+        ]
+        assert _lines(result) == [
+            "facility: engine-invalid: wiring SR/U:RB — U:RB is no setpoint, monitor, readback "
+            "or optics output; fix: name an element, slices or an engine block the engine describes"
+        ]
+        setpoint = _records(result)["SR/Q1:SP"]
+        assert "default" in setpoint
+        assert setpoint["role"] == "setpoint"
+
+    def test_an_engine_that_contradicts_the_file_stops(self, tmp_path, monkeypatch):
+        from osprey.simulation.engines import pyat
+
+        describe = pyat.describe
+
+        def write_as_readback(record: Any) -> Any:
+            found = dict(describe(record))
+            if record.get("direction") == "write":
+                found["role"] = "readback"
+            return found
+
+        monkeypatch.setattr(pyat, "describe", write_as_readback)
+        result = _run(tmp_path, _files())
+        assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
+            ("engine-invalid", "model", "SR")
+        ]
+        assert result.errors[0].remedy == "make the engine's describe() call Q1:SP a setpoint"
+
+    def test_an_engine_without_describe_stops_the_model(self, tmp_path, monkeypatch):
+        from osprey.simulation.engines import pyat
+
+        monkeypatch.delattr(pyat, "describe")
+        files = _files()
+        files["models.yaml"] = files["models.yaml"][:1]
+        result = _run(tmp_path, files)
+        assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
+            ("engine-invalid", "model", "SR")
+        ]
+        assert result.errors[0].remedy == "add describe() to the engine plug-in"
+
+    def test_a_deck_less_physics_model_with_an_unregistered_engine_is_engine_missing(
+        self, tmp_path
+    ):
+        files = _files()
+        files["models.yaml"][1]["engine"] = "no_such_engine"
+        result = _run(tmp_path, files)
+        assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
+            ("engine-missing", "model", "plug")
+        ]
+
 
 class TestEntryPoint:
     def test_the_engine_is_found_through_the_entry_point_group(self, tmp_path, monkeypatch):
@@ -289,3 +366,19 @@ def test_an_authored_computed_slot_is_never_overwritten() -> None:
         RuntimeError, match=r"wiring w1 already carries computed slots \['default'\]"
     ):
         wiring_module._fill_record(record, {"role": "setpoint"}, None, 0.0)
+
+
+@pytest.mark.parametrize(
+    ("slot", "value"), [("role", "monitor"), ("plane", "x"), ("refresh", "pass")]
+)
+def test_an_authored_description_slot_is_refused(tmp_path: Path, slot: str, value: str) -> None:
+    files = _files()
+    files["models.yaml"][0]["wiring"][2] = {
+        "address": "U:RB",
+        "element": "B",
+        "engine": ENGINE,
+        slot: value,
+    }
+    result = _run(tmp_path, files)
+    assert [(e.kind, e.record_id) for e in result.errors] == [("source-invalid", "SR/U:RB")]
+    assert f"`{slot}` is computed by the build" in _lines(result)[0]

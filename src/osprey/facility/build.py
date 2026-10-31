@@ -5,7 +5,7 @@
     wiring       the computed slots of every wiring record    (wiring.py)
     compute      positions, places, ordinals, deck checks     (compute.py)
     measurement  each measurement file against its model      (validate.py)
-    knowledge    pages linked to a device the file lacks      (knowledge_links.py)
+    knowledge    pages whose links name what the file lacks   (knowledge_links.py)
 
 and returns the facility file, or raises the first error of the first stage
 that fails. Nothing is written to disk. ``build_facility_with_warnings``

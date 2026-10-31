@@ -35,15 +35,13 @@ def _write_config(project_path: Path, *, extra: dict | None = None) -> None:
     }
     if extra:
         config.update(extra)
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
     """Reload config.yml as a plain dict."""
     yaml = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml.load(fh)
+    return yaml.load(project_path / "config.yml")
 
 
 def test_inject_bluesky_web_copies_template_dir(tmp_path: Path) -> None:

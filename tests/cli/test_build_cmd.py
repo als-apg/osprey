@@ -2070,8 +2070,7 @@ class TestEventsPanelUrlDerivation:
         from ruamel.yaml import YAML
 
         yaml = YAML()
-        with open(project_path / "config.yml", "w") as fh:
-            yaml.dump({"deployed_services": [], "services": {}}, fh)
+        yaml.dump({"deployed_services": [], "services": {}}, project_path / "config.yml")
 
     def _dispatch(self, dispatcher_port: int = 8020, **overrides: object):
         from osprey.cli.build_profile import DispatchConfig
@@ -2148,8 +2147,7 @@ class TestEventsPanelUrlDerivation:
             "services": {},
             "web": {"panels": {"events": {"path": "/custom-route"}}},
         }
-        with open(project_path / "config.yml", "w") as fh:
-            yaml.dump(config_pre, fh)
+        yaml.dump(config_pre, project_path / "config.yml")
 
         self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
 
@@ -2177,8 +2175,7 @@ class TestEventsPanelUrlDerivation:
             "services": {},
             "web": {"panels": {"events": {"url": "http://custom-host:7777/dashboard"}}},
         }
-        with open(project_path / "config.yml", "w") as fh:
-            yaml.dump(config_pre, fh)
+        yaml.dump(config_pre, project_path / "config.yml")
 
         self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
 
@@ -2684,8 +2681,7 @@ class TestCopyServiceTemplates:
         from ruamel.yaml import YAML
 
         yaml_rt = YAML()
-        with open(project_path / "config.yml", "w") as fh:
-            yaml_rt.dump(config, fh)
+        yaml_rt.dump(config, project_path / "config.yml")
 
     def test_declared_but_not_deployed_service_is_bundled(self, tmp_path: Path) -> None:
         """qmd declared under `services:` but absent from
@@ -2872,8 +2868,7 @@ class TestInjectVAArchiver:
         config: dict = {"deployed_services": [], "services": {}}
         config.update(overrides)
         yaml_rt = YAML()
-        with open(project_path / "config.yml", "w") as fh:
-            yaml_rt.dump(config, fh)
+        yaml_rt.dump(config, project_path / "config.yml")
 
     def _project(self, tmp_path: Path, **overrides: object) -> Path:
         project_path = tmp_path / "project"

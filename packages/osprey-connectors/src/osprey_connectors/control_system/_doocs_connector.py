@@ -24,6 +24,7 @@ from osprey_connectors.control_system._base import (
     values_match,
 )
 from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import DOOCS
 
@@ -56,7 +57,7 @@ class DOOCSConnector(ControlSystemConnector):
             ImportError: If doocs4py is not installed
             ValueError: If the block still carries ``timeout``, or if
                 ``timeout_s`` is not a positive, finite number
-            ConnectionError: If the ENS does not answer
+            ConnectorUnavailableError: If the ENS does not answer
         """
         # Import doocs4py here and give clear error if not installed
         try:
@@ -81,11 +82,13 @@ class DOOCSConnector(ControlSystemConnector):
                 asyncio.to_thread(self._doocs4py.names, "*"), self._timeout_s
             )
         except TimeoutError:
-            raise ConnectionError(
+            raise ConnectorUnavailableError(
                 f"DOOCS connector: the ENS did not answer within {self._timeout_s}s"
             ) from None
         except Exception as exc:
-            raise ConnectionError(f"DOOCS connector failed to connect to the ENS: {exc}") from exc
+            raise ConnectorUnavailableError(
+                f"DOOCS connector failed to connect to the ENS: {exc}"
+            ) from exc
         facilities = [f[1] for f in names]
         logger.debug(
             f"DOOCS connector: ENS connection successful. Available FACILITIEs: {len(facilities)}"
@@ -123,7 +126,7 @@ class DOOCSConnector(ControlSystemConnector):
             ChannelValue with current value, timestamp, and metadata
 
         Raises:
-            ConnectionError: If channel cannot be connected
+            ChannelUnreachableError: If the property cannot be read
             TimeoutError: If operation times out
         """
 
@@ -140,19 +143,22 @@ class DOOCSConnector(ControlSystemConnector):
     def _read_channel_sync(self, address: str) -> ChannelValue:
         """Synchronous DOOCS read (runs in thread pool).
 
-        A failure of the ``get`` itself is reported as :class:`ConnectionError`
-        naming the property, with doocs4py's own error kept as the cause — the
-        word this method's caller already documents, and the one the MCP error
-        envelope answers by retiring the connector. The unwrapping below is
-        outside the guard: a reading that cannot be unwrapped is not a property
-        that cannot be reached.
+        A failure of the ``get`` itself is reported as
+        :class:`~osprey_connectors.errors.ChannelUnreachableError` naming the
+        property, with doocs4py's own error kept as the cause: a doocs4py call
+        holds no session, so a failed ``get`` is that property's, and nothing
+        about the connector is replaced for it. The unwrapping below is outside
+        the guard: a reading that cannot be unwrapped is not a property that
+        cannot be reached.
         """
         try:
             data = self._doocs4py.get(address)  # EqData
         except TimeoutError:
             raise
         except Exception as exc:
-            raise ConnectionError(f"Failed to read DOOCS property '{address}': {exc}") from exc
+            raise ChannelUnreachableError(
+                address, f"Failed to read DOOCS property '{address}': {exc}"
+            ) from exc
 
         value = data.get_data()
         macropulse = data.macropulse

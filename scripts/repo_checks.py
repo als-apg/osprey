@@ -15,9 +15,11 @@ from __future__ import annotations
 import dataclasses
 import glob
 import importlib.util
+import os
 import platform
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable, Sequence
@@ -33,6 +35,7 @@ from check_kit import (
     FULL,
     NOT_TOUCHED,
     PATHS,
+    UV_RUN,
     WHOLE,
     Check,
     Context,
@@ -83,6 +86,11 @@ INVARIANT_TESTS = (
 )
 
 LIVE_CA_VENUE = "linux-x86_64"
+DARWIN_VENUE = "darwin"
+
+#: The readonly gate's warm-up module: which stdlib lookups load native code
+#: lazily depends on the OS and the interpreter.
+READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
 
 #: The dock-engine package: its TypeScript sources, the bundle built from them,
 #: its Vitest suite and the cases both runtimes read.
@@ -130,7 +138,7 @@ _REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
 #: new test file runs on macOS until someone reads it.
 _MACOS_REPEATS_UBUNTU = (
     # In-process `osprey build --skip-deps` renders, which install nothing;
-    # the build's OS-touching steps stay covered by files kept on macOS.
+    # the build's directory swap stays on macOS in test_build_swap.py.
     "tests/cli/test_answer_provenance_render.py",
     "tests/cli/test_build_cmd.py",
     "tests/cli/test_build_config_edit_session.py",
@@ -139,6 +147,8 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/cli/test_build_hierarchy_embedding.py",
     "tests/cli/test_build_preset.py",
     "tests/cli/test_build_profile_ariel_sync.py",
+    "tests/cli/test_build_zero_arg.py",
+    "tests/cli/test_channel_finder_graph_tools.py",
     "tests/cli/test_claude_code_integration.py",
     "tests/cli/test_claude_regen.py",
     "tests/cli/test_config_records_environment.py",
@@ -155,6 +165,7 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/cli/test_init_revalidate.py",
     "tests/cli/test_init_revalidate_fill.py",
     "tests/cli/test_init_revalidate_write_keys.py",
+    "tests/cli/test_interpreter_role_split.py",
     "tests/cli/test_json_contracts.py",
     "tests/cli/test_killswitch_on_tier.py",
     "tests/cli/test_layer_emission.py",
@@ -162,6 +173,8 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/cli/test_live_standin_render.py",
     "tests/cli/test_login_tiers_render.py",
     "tests/cli/test_mml_build_recipes.py",
+    "tests/cli/test_model_warnings_report.py",
+    "tests/cli/test_port_base_both_halves.py",
     "tests/cli/test_posture_floor.py",
     "tests/cli/test_posture_render_matrix.py",
     "tests/cli/test_preset_drift.py",
@@ -170,11 +183,13 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/cli/test_profile_data_root.py",
     "tests/cli/test_profile_to_claude_contract.py",
     "tests/cli/test_profile_va_archiver_block.py",
+    "tests/cli/test_rendered_identity_literals.py",
     "tests/cli/test_renders_projection.py",
     "tests/cli/test_set_config_dotted.py",
     "tests/cli/test_set_verb.py",
     "tests/cli/test_source_zone_materialization.py",
     "tests/cli/test_store_file_deny.py",
+    "tests/cli/test_terminology_tables.py",
     "tests/cli/test_tier_app_presets.py",
     "tests/cli/test_va_build_step.py",
     "tests/cli/test_va_default_config.py",
@@ -193,23 +208,35 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/facility/test_knowledge_links.py",
     "tests/facility/test_simulator_view.py",
     "tests/integration/test_data_checksum_stability.py",
+    "tests/integration/test_profile_roundtrip.py",
     "tests/test_e2e_ariel_db_pin.py",
     # Facility logic in process; pyAT is only compared against itself here,
     # while the fixed-reference replays stay on macOS.
+    "tests/connectors/test_archiver_scenario_signatures.py",
+    "tests/facility/test_cf_index_middle_layer.py",
     "tests/facility/test_demo_seed_rules.py",
     "tests/facility/test_injector_sources.py",
     "tests/facility/test_layer_mml.py",
+    "tests/facility/test_layer_mml_decks.py",
     "tests/facility/test_layer_mml_identity.py",
     "tests/facility/test_layer_mml_import.py",
     "tests/facility/test_layer_mml_tune.py",
     "tests/facility/test_layer_mml_wiring.py",
     "tests/facility/test_line_sources.py",
+    "tests/facility/test_minimal_trees.py",
     "tests/facility/test_mml_layer_seed_once.py",
+    "tests/facility/test_served_models.py",
+    "tests/services/channel_finder/graph_index/test_build.py",
     "tests/simulation/test_single_pass_plugin.py",
+    "tests/simulation/test_waveform_equivalence.py",
+    "tests/templates/test_pyat_specialist.py",
     # Scans of the source tree: AST, text, git ls-files, import graphs.
+    "tests/benchmark/test_matrix_lanes.py",
     "tests/cli/test_lifecycle_invariants.py",
+    "tests/cli/test_printed_copy_style.py",
     "tests/config/test_bluesky_keys_retired.py",
     "tests/config/test_facility_keys_retired.py",
+    "tests/config/test_injected_keys_are_manifest_rows.py",
     "tests/config/test_simulation_keys_retired.py",
     "tests/connectors/test_framework_connectors_compat.py",
     "tests/connectors/test_public_api.py",
@@ -218,24 +245,39 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/test_runtime_env_digest.py",
     "tests/docs/test_shipped_identity_literals.py",
+    "tests/infrastructure/test_import_time_audit.py",
+    "tests/interfaces/test_js_module_tests.py",
+    "tests/mcp_server/test_channel_finder_tool_vocabulary.py",
+    "tests/registry/test_tool_classification_drift.py",
     "tests/scripts/test_check.py",
     "tests/scripts/test_config_key_guard.py",
+    "tests/services/ariel_search/test_import_graph.py",
     "tests/services/facility_knowledge/test_import_isolation.py",
     "tests/test_no_legacy_symbols.py",
     "tests/test_retired_store_words.py",
     # Logic over a faked runtime, subprocess or clock, or a POSIX-wide protocol.
+    "tests/cli/test_lifecycle_promotions.py",
     "tests/connectors/test_mock_connector.py",
     "tests/deployment/test_container_lifecycle.py",
     "tests/deployment/test_down_restart_gates.py",
     "tests/deployment/test_status_sections.py",
     "tests/deployment/test_up_as_built.py",
+    "tests/hooks/test_approval_outcome.py",
     "tests/hooks/test_approval_queue_enrichment.py",
     "tests/hooks/test_hook_agreement.py",
+    "tests/hooks/test_store_path_pattern.py",
+    "tests/integration/test_write_verdict_surfaces.py",
+    "tests/interfaces/ariel/test_routes.py",
     "tests/interfaces/web_terminal/test_config_routes.py",
     "tests/interfaces/web_terminal/test_facility_timezone_stamp.py",
+    "tests/interfaces/web_terminal/test_proxy.py",
+    "tests/interfaces/web_terminal/test_tour.py",
     "tests/mcp_server/python_executor/test_sandbox_single_posture.py",
+    "tests/mcp_server/test_bluesky_client_tools.py",
     "tests/mcp_server/test_error_envelope_ipc.py",
     "tests/mcp_server/test_executor_token_regression.py",
+    "tests/mcp_server/test_fastmcp_contract.py",
+    "tests/pty/test_stub_coverage.py",
     "tests/services/ariel_search/test_image_lane.py",
     "tests/services/ariel_search/test_ingestion.py",
     "tests/services/bluesky_bridge/test_plan_validation.py",
@@ -245,11 +287,14 @@ _MACOS_REPEATS_UBUNTU = (
     "tests/utils/test_import_env_hygiene.py",
     "tests/va/test_suite_still_scenario.py",
     # Chromium only: the engine is the same on both hosts.
+    "tests/interfaces/ariel/test_embedded_nav.py",
     "tests/interfaces/artifacts/test_opaque_origin_browser.py",
     "tests/interfaces/design_system/test_osprey_drawer.py",
-    # Shell run as PID 1 in a Linux image: ubuntu is the faithful host.
+    "tests/interfaces/web_terminal/test_panels_browser.py",
+    # Shell a Linux image runs, as PID 1 or a RUN step: ubuntu is the faithful host.
     "tests/cli/test_dockerfile_template.py",
     "tests/deployment/test_entrypoint_script.py",
+    "tests/deployment/test_image_member_install.py",
 )
 
 UNIT_SELECTION = UnitSelection(
@@ -556,8 +601,7 @@ def _package_command(*_run: object) -> list[list[str]]:
 
 #: Prints the keys of the documentation's ``redirects`` table, space separated.
 REDIRECT_KEYS_PROBE = (
-    "uv",
-    "run",
+    *UV_RUN,
     "python",
     "-c",
     "import os, runpy; os.chdir('docs/source'); "
@@ -627,7 +671,7 @@ def _check_tracked_ignored(_context: Context) -> int:
 
 
 #: Run in the documentation directory; needs the docs extra, as the build does.
-DOCS_CLEAN = ("uv", "run", "make", "clean")
+DOCS_CLEAN = (*UV_RUN, "make", "clean")
 
 
 def _prune_bytecode(_context: Context) -> int:
@@ -657,18 +701,23 @@ def _clean_docs_build(_context: Context) -> int:
 # Needs and venues
 
 #: Importable only in a venv synced with the docs extra.
-DOCS_EXTRA_PROBE = ("uv", "run", "python", "-c", "import myst_parser")
+DOCS_EXTRA_PROBE = (*UV_RUN, "python", "-c", "import myst_parser")
 
 #: Importable only in a venv synced with the virtual-accelerator extra, on its
 #: platform. The modules are the ones the live gate requires.
-LIVE_CA_PROBE = ("uv", "run", "python", "-c", "import pcaspy, p4p, lume_pva_apg")
+LIVE_CA_PROBE = (*UV_RUN, "python", "-c", "import pcaspy, p4p, lume_pva_apg")
+
+#: Prints the directory whose ``claude`` reports the pin, or the product's
+#: refusal on stderr.
+CLAUDE_PIN_PROBE = (*UV_RUN, "python", "scripts/pinned_claude.py")
+
+#: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
+JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
-#: ``--frozen``: the need probes run before the lockfile check, and a plain
-#: ``uv run`` would re-lock a stale lockfile and hand that check a current one.
-WORKFLOW_LINT_PROBE = ("uv", "run", "--frozen", "shellcheck", "--version")
+WORKFLOW_LINT_PROBE = (*UV_RUN, "shellcheck", "--version")
 
 
 def _need_uv() -> str | None:
@@ -692,10 +741,57 @@ def _need_workflow_linters() -> str | None:
     return "the workflow linters are not installed: run uv sync --extra dev"
 
 
+def _probe(argv: Sequence[str]) -> tuple[int, str, str]:
+    """Run a probe and return its exit status, stdout and stderr."""
+    try:
+        done = subprocess.run(list(argv), cwd=kit.ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        return 127, "", ""
+    return done.returncode, done.stdout, done.stderr
+
+
+def _need_claude_pin() -> str | None:
+    """Met when a ``claude`` reporting the pin is found; its directory then goes
+    first on ``PATH``, so every check this command starts runs it."""
+    status, out, err = _probe(CLAUDE_PIN_PROBE)
+    if status != 0:
+        return " ".join(err.split()) or f"{shlex.join(CLAUDE_PIN_PROBE)} exited {status}"
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    if not lines or not Path(lines[-1]).is_dir():
+        return f"{shlex.join(CLAUDE_PIN_PROBE)} printed no directory"
+    directory = lines[-1]
+    os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
+    kit.say(f"claude-pin: {directory} first on PATH")
+    return None
+
+
+def _js_deps_current() -> ModuleType:
+    """The lockfile compare, loaded by path: scripts/ is not a package."""
+    spec = importlib.util.spec_from_file_location("js_deps_current", JS_DEPS_CURRENT)
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load {JS_DEPS_CURRENT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _need_node() -> str | None:
-    if shutil.which("node") and shutil.which("npm") and (kit.ROOT / "node_modules").is_dir():
+    """Met when ``node_modules`` holds what ``package-lock.json`` pins; runs
+    ``npm ci`` when it does not."""
+    if not (shutil.which("node") and shutil.which("npm")):
+        return "the Node toolchain is not installed: install Node, then run npm ci"
+    first_difference = _js_deps_current().first_difference
+    difference = first_difference(kit.ROOT)
+    if difference is None:
         return None
-    return "the Node toolchain is not installed: install Node, then run npm ci"
+    kit.say(f"node: {difference}; npm ci")
+    status = kit.run(("npm", "ci"))
+    if status != 0:
+        return f"npm ci failed (exit {status}): {difference}"
+    again = first_difference(kit.ROOT)
+    if again is not None:
+        return f"node_modules still differs from package-lock.json after npm ci: {again}"
+    return None
 
 
 def _need_history() -> str | None:
@@ -727,6 +823,7 @@ NEEDS = {
     "uv": _need_uv,
     "gitleaks": _need_gitleaks,
     "node": _need_node,
+    "claude-pin": _need_claude_pin,
     "history": _need_history,
     "docs-extra": _need_docs_extra,
     "graphviz": _need_graphviz,
@@ -740,7 +837,14 @@ def _on_live_ca_venue() -> bool:
     return sys.platform == "linux" and platform.machine() in ("x86_64", "aarch64")
 
 
-VENUES = {LIVE_CA_VENUE: Venue(_on_live_ca_venue, "needs linux x86_64 or aarch64")}
+def _on_darwin_venue() -> bool:
+    return sys.platform == "darwin"
+
+
+VENUES = {
+    LIVE_CA_VENUE: Venue(_on_live_ca_venue, "needs linux x86_64 or aarch64"),
+    DARWIN_VENUE: Venue(_on_darwin_venue, "needs macOS"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -752,24 +856,24 @@ CHECKS: tuple[Check, ...] = (
         "ruff",
         "invariant",
         BOTH,
-        ("uv", "run", "ruff", "check", "."),
+        (*UV_RUN, "ruff", "check", "."),
         needs=("uv",),
-        fix=(("uv", "run", "ruff", "check", ".", "--fix"),),
+        fix=((*UV_RUN, "ruff", "check", ".", "--fix"),),
         annotate=GITHUB_FORMAT,
     ),
     Check(
         "ruff-format",
         "invariant",
         BOTH,
-        ("uv", "run", "ruff", "format", "--check", "."),
+        (*UV_RUN, "ruff", "format", "--check", "."),
         needs=("uv",),
-        fix=(("uv", "run", "ruff", "format", "."),),
+        fix=((*UV_RUN, "ruff", "format", "."),),
     ),
     Check(
         "config-keys",
         "invariant",
         BOTH,
-        ("uv", "run", "python", "scripts/check_config_keys.py", "--back-test"),
+        (*UV_RUN, "python", "scripts/check_config_keys.py", "--back-test"),
         needs=("uv", "history"),
     ),
     Check(
@@ -821,7 +925,7 @@ CHECKS: tuple[Check, ...] = (
         "invariant-tests",
         "invariant",
         BOTH,
-        ("uv", "run", "pytest", *INVARIANT_TESTS),
+        (*UV_RUN, "pytest", *INVARIANT_TESTS),
         needs=("uv",),
         report="junit-pytest",
     ),
@@ -829,7 +933,7 @@ CHECKS: tuple[Check, ...] = (
         "mypy",
         "static",
         BOTH,
-        ("uv", "run", "python", "scripts/mypy_gate.py"),
+        (*UV_RUN, "python", "scripts/mypy_gate.py"),
         scope=("*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
     ),
@@ -837,7 +941,7 @@ CHECKS: tuple[Check, ...] = (
         "import-contracts",
         "static",
         BOTH,
-        ("uv", "run", "lint-imports"),
+        (*UV_RUN, "lint-imports"),
         scope=("*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
     ),
@@ -845,7 +949,7 @@ CHECKS: tuple[Check, ...] = (
         "private-imports",
         "static",
         BOTH,
-        ("uv", "run", "ruff", "check", "--preview", "--select=PLC2701", "."),
+        (*UV_RUN, "ruff", "check", "--preview", "--select=PLC2701", "."),
         scope=("*.py", "pyproject.toml"),
         needs=("uv",),
         annotate=GITHUB_FORMAT,
@@ -872,7 +976,7 @@ CHECKS: tuple[Check, ...] = (
         "actionlint",
         "static",
         BOTH,
-        ("uv", "run", "actionlint"),
+        (*UV_RUN, "actionlint"),
         scope=(".github/workflows/**",),
         needs=("uv", "workflow-linters"),
     ),
@@ -883,8 +987,8 @@ CHECKS: tuple[Check, ...] = (
         "pytest",
         "tests",
         BOTH,
-        ("uv", "run", "pytest"),
-        needs=("uv",),
+        (*UV_RUN, "pytest"),
+        needs=("uv", "claude-pin"),
         bound_s=5400,
         report="junit-pytest",
         tier_flags={
@@ -893,6 +997,8 @@ CHECKS: tuple[Check, ...] = (
         },
         empty_exit=5,
         named_suffixes=(".py",),
+        named_node_ids=True,
+        named_dirs=_is_pytest_file,
         selector=_select_pytest,
         command=_pytest_command,
         prepare=_prune_bytecode,
@@ -903,7 +1009,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest-pty",
         "tests",
         FULL,
-        ("uv", "run", "pytest", "tests/pty/", "-m", "pty"),
+        (*UV_RUN, "pytest", "tests/pty/", "-m", "pty"),
         scope=("tests/pty/**", "src/osprey/cli/**"),
         needs=("uv",),
         bound_s=600,
@@ -918,7 +1024,7 @@ CHECKS: tuple[Check, ...] = (
         "pytest-wallclock",
         "tests",
         FULL,
-        ("uv", "run", "pytest", "tests/integration", "-m", "wallclock"),
+        (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
         scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("uv",),
         bound_s=900,
@@ -926,11 +1032,36 @@ CHECKS: tuple[Check, ...] = (
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
     ),
+    # The readonly gate refuses every shared-library load once user code starts,
+    # so a stdlib lookup that loads native code lazily must be warmed before it
+    # closes. The sweep runs the warm-ups on the tree's interpreter; this runs
+    # them under 3.14 on macOS in a throwaway environment.
+    Check(
+        "readonly-warmups-py314",
+        "tests",
+        FULL,
+        (
+            *UV_RUN,
+            "--isolated",
+            "--python",
+            "3.14",
+            "--extra",
+            "dev",
+            "pytest",
+            READONLY_WARMUPS_TEST_FILE,
+            "-v",
+        ),
+        scope=(READONLY_WARMUPS_TEST_FILE, "src/osprey/runtime/**"),
+        needs=("uv",),
+        venue=DARWIN_VENUE,
+        bound_s=900,
+        report="junit-pytest",
+    ),
     Check(
         "live-ca",
         "tests",
         FULL,
-        ("uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"),
+        (*UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"),
         scope=(
             "tests/va/test_apply_fault.py",
             "tests/va/test_lume_pva_seam.py",
@@ -975,7 +1106,7 @@ CHECKS: tuple[Check, ...] = (
         "docs",
         "build",
         FULL,
-        ("uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"),
+        (*UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"),
         scope=("docs/**", "*.rst", "*.md"),
         needs=("uv", "docs-extra", "graphviz"),
         workdir=DOCS_DIR,
@@ -988,7 +1119,7 @@ CHECKS: tuple[Check, ...] = (
         "linkcheck",
         "build",
         FULL,
-        ("uv", "run", "make", "linkcheck"),
+        (*UV_RUN, "make", "linkcheck"),
         scope=("docs/**",),
         needs=("uv", "docs-extra"),
         workdir=DOCS_DIR,
@@ -1134,6 +1265,11 @@ LANES: tuple[Lane, ...] = (
         "qmd-sidecar-e2e",
         "containers",
         ("tests/integration/test_qmd_models_mount.py", "tests/e2e/test_deploy_lifecycle.py"),
+    ),
+    Lane(
+        "qmd-cache-warmup",
+        "main-branch cache",
+        ("src/osprey/templates/services/qmd/**", ".github/actions/build-qmd-image/**"),
     ),
     _e2e("jupyter-panel-e2e", "test_jupyter_panel_lifecycle.py"),
     _va(

@@ -8,6 +8,7 @@ from pyaml.common.exception import PyAMLException
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelNotFoundError,
     ChannelReadFailedError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
@@ -131,6 +132,19 @@ def test_switch_in_progress_is_refused() -> None:
     assert isinstance(mapped, OspreyWriteRefused)
     assert mapped.__cause__ is original
     assert "switch_in_progress:1234" in mapped.reason
+
+
+def test_a_channel_error_names_its_own_channel() -> None:
+    mapped = map_write_error(ChannelNotFoundError(ADDR), address="SOME:OTHER:ADDRESS")
+    assert mapped.channel_address == ADDR
+
+
+def test_an_error_with_no_channel_uses_the_address() -> None:
+    original = ControlTargetChangedError("control target moved to 'production' (generation 4)")
+    # Only a ChannelError names a channel; an attribute of that name elsewhere is not one.
+    original.channel_address = "NOT:A:CHANNEL:FIELD"  # type: ignore[attr-defined]
+    mapped = map_write_error(original, address=ADDR)
+    assert mapped.channel_address == ADDR
 
 
 @pytest.mark.parametrize("reason", ["FAILED", "MISMATCH", "UNCONFIRMED"])

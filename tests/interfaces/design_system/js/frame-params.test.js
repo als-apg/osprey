@@ -19,6 +19,7 @@ import { test, expect, describe, afterEach, vi } from 'vitest';
 
 import {
   applyEmbedded,
+  expertViewOffered,
   isEmbedded,
   onModeChange,
   pickUiMode,
@@ -295,5 +296,43 @@ describe('pickUiMode', () => {
     pickUiMode('expert');
 
     expect(postSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('web.expert_view: false (data-expert-view="off" on <html>)', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-expert-view');
+    document.documentElement.removeAttribute('data-ui-mode');
+    window.localStorage.removeItem('osprey-ui-mode');
+    vi.restoreAllMocks();
+  });
+
+  test('expertViewOffered reads the attribute and defaults to offered', () => {
+    expect(expertViewOffered()).toBe(true);
+    document.documentElement.setAttribute('data-expert-view', 'off');
+    expect(expertViewOffered()).toBe(false);
+  });
+
+  test('a pick of expert neither persists nor broadcasts', () => {
+    document.documentElement.setAttribute('data-expert-view', 'off');
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+
+    pickUiMode('expert');
+
+    expect(window.localStorage.getItem('osprey-ui-mode')).toBeNull();
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  test('a broadcast of expert is received as simple', () => {
+    document.documentElement.setAttribute('data-expert-view', 'off');
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const callback = vi.fn();
+    onModeChange(callback);
+
+    deliverMessage({ type: 'osprey-mode-change', mode: 'expert' });
+
+    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
+    expect(callback).not.toHaveBeenCalled();
   });
 });

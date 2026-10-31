@@ -306,9 +306,10 @@ The ``get_ariel_search_service()`` function provides a singleton
 
 **Lifecycle:** The singleton is created once per process. In the web
 interface, the ``create_app()`` factory manages its own service instance
-through the FastAPI lifespan. For cleanup in tests, use
-``close_ariel_service()`` (closes the connection pool) or
-``reset_ariel_service()`` (resets without closing).
+through the FastAPI lifespan. The web lifespan, the MCP server's shutdown and
+``close_ariel_service()`` all end the service with ``ARIELSearchService.aclose()``,
+which ends its search-call threads and closes its connection pools.
+``reset_ariel_service()`` drops the singleton without closing it.
 
 **Source:** :file:`src/osprey/services/ariel_search/capability.py`
 

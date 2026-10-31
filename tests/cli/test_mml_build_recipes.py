@@ -174,11 +174,14 @@ def clear_authored(runner: CliRunner, repo: Path, exports: Sequence[str]) -> tup
     """Obey the stop ``facility import mml`` makes over a preset's authored sources.
 
     The verb stops before it reads an export while an authored record source is
-    present, and prints the ``rm`` line of each. Every path removed here was
-    named by one of those lines, one path per line.
+    present, and prints the ``rm`` line of each. Every path returned here was
+    named by one of those lines, one path per line. The preset's knowledge
+    pages link the records of the machine it ships, which the import replaces,
+    so they are removed with that machine; the ``knowledge`` directory stays,
+    empty, because the profile binds it.
 
     Returns:
-        The removed paths, in the order they were printed.
+        The paths the stop named and this removed, in the order they were printed.
     """
     stopped = runner.invoke(
         cli, ["facility", "import", "mml", *exports, "--repo", str(repo)], catch_exceptions=False
@@ -192,6 +195,10 @@ def clear_authored(runner: CliRunner, repo: Path, exports: Sequence[str]) -> tup
     for line in lines[1:]:
         (named,) = remove_named(repo, line)
         removed.append(named)
+    knowledge = repo / FACILITY_DIR / "knowledge"
+    if knowledge.is_dir():
+        shutil.rmtree(knowledge)
+        knowledge.mkdir()
     return tuple(removed)
 
 
