@@ -19,6 +19,11 @@
  *                pre-paint, and applies whatever the hub broadcasts --
  *                matched by origin, or by source (its parent) on an opaque
  *                page, where localStorage is unavailable and is skipped.
+ *                A page the web terminal popped out into its own window
+ *                (`?popout=true`, frame-params.js) is a follower too, whatever
+ *                role it asks for: the hub that opened it keeps posting its
+ *                theme to the window, and the stored preference the page
+ *                first-painted from is that hub's own.
  *
  * Family model: a THEMES entry is `{id, label, mode, family}` -- a family
  * is a `{light, dark}` pair (e.g. the built-in 'main' family, or the
@@ -71,6 +76,7 @@
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { isPopout } from '/design-system/js/frame-params.js';
 
 import {
   DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY,
@@ -616,7 +622,7 @@ function _attachMediaQueryListener() {
  * @param {{role?: 'hub'|'follower'}} [options]
  */
 export function initTheme({ role = 'follower' } = {}) {
-  _role = role === 'hub' ? 'hub' : 'follower';
+  _role = role === 'hub' && !isPopout() ? 'hub' : 'follower';
 
   const queryTheme = _readQueryTheme();
   const attrTheme = document.documentElement.getAttribute('data-theme');

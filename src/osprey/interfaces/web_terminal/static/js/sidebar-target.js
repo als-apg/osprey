@@ -4,39 +4,33 @@
  * The block under the OSPREY mark that answers, at one place in every view,
  * "where does a write land, would it be refused, and is anything wrong": the
  * control-target chip (control-target-chip.js, mounted into
- * `#sidebar-target`), dressed as the block — a crosshair glyph carrying the
- * chip's state dot, the `Control system` eyebrow and a ⇕ caret above the
- * chip's own name and write state — and, under them, a meta line with the
- * facility's service health and its clock.
+ * `#sidebar-target`), dressed as one row — a crosshair glyph carrying the
+ * chip's state dot, the chip's own name and writes pill, the facility's
+ * service health dot and a ⇕ caret.
  *
  * Everything the chip says stays the chip's: this module never writes its
- * name, its state, its attributes or its accessible name, it only adds
- * decoration (aria-hidden) and reads {@link targetReading} for the one place
- * the words are repeated, the tooltip of the collapsed sidebar
- * (`Simulator · writes on · 15:11 Los Angeles`). The meta line is part of the
- * chip button, so the whole block is one control that opens the popover; the
- * chip's `aria-describedby` points at it so the health and the time are read
- * out with it.
+ * name, its state or its accessible name. It adds decoration (aria-hidden),
+ * the health dot, and the chip's tooltip text, which repeats
+ * {@link targetReading}: `data-tip` is the machine's name and
+ * `data-tip-detail` says the rest (`Control system: Simulator, writes on`).
+ * The design system's tooltip layer shows the detail alone while the sidebar
+ * shows its labels, both when it is collapsed, and nothing while the chip's
+ * popover is open. The health dot is part of the chip button, so the whole
+ * row is one control that opens the popover; the chip's `aria-describedby`
+ * points at the dot so the health is read out with it.
  *
  * Where the deployment has no control-target picker (`html[data-control-target
- * ="off"]`), no chip mounts and the meta line stands alone in the block.
+ * ="off"]`), no chip mounts and the health dot stands alone in the block.
  *
  * HEALTH is the worst outcome across the SYSTEM panel's checks, read from the
  * panel's proxy (`GET /panel/system-health/checks`) on the sidecar's own
  * cadence: one dot, with its word on the dot's label. A deployment that does
- * not serve the SYSTEM panel answers that route 404; the dot then leaves the
- * line and nothing is polled again.
- *
- * THE CLOCK is the facility's (facility-time.js), hour and minute, followed by
- * the facility zone's city (`15:11 Los Angeles`). Where the page names no zone
- * the browser knows, facility-time.js falls back to the viewer's own zone and
- * names it itself (`15:11 PST`). It ticks on the minute.
+ * not serve the SYSTEM panel answers that route 404; the dot then hides and
+ * nothing is polled again.
  */
 
 import { worstStatus } from '/design-system/js/check-status.js';
-import { facilityZone, formatFacilityTime } from '/design-system/js/facility-time.js';
 import { icon } from '/design-system/js/icons.js';
-import { hideTooltip } from '/design-system/js/tooltip.js';
 import { withPrefix } from './api.js';
 import { getChipElement, subscribe, targetReading } from './control-target-chip.js';
 
@@ -50,7 +44,7 @@ const HEALTH_WARMING_INTERVAL_S = 3;
 /** Floor on the cadence, so a misconfigured interval cannot become a busy loop. */
 const HEALTH_MIN_INTERVAL_S = 5;
 
-const META_ID = 'sidebar-target-meta';
+const HEALTH_ID = 'sidebar-target-health';
 
 /**
  * One reading of the health report: a tone for the dot and a word for it.
@@ -88,75 +82,47 @@ export function readHealth(report) {
   return { tone: 'ok', word: 'ok' };
 }
 
-/**
- * The facility clock as the block shows it: hour and minute on the facility
- * clock and the facility zone's city, or facility-time.js's own zone name when
- * it fell back to the viewer's zone.
- * @param {Date|number} [now]
- * @returns {string}
- */
-export function clockText(now = Date.now()) {
-  const time = formatFacilityTime(now, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  const zone = facilityZone();
-  if (!zone.facility) return time;
-  const city = (zone.id.split('/').pop() ?? zone.id).replaceAll('_', ' ');
-  return `${time} ${city}`;
-}
-
-/** @type {HTMLElement | null} */
-let meta = null;
 /** @type {HTMLElement | null} */
 let healthDot = null;
-/** @type {HTMLElement | null} */
-let clockEl = null;
+/** The glyph and caret this module put on the chip, so teardown can take them off. */
+/** @type {Element[]} */
+let decorations = [];
 /** The last health envelope: null before any answer, undefined after a failed read. */
 /** @type {unknown} */
 let healthReport = null;
 let healthServed = true;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let healthTimer = null;
-/** @type {ReturnType<typeof setTimeout> | null} */
-let clockTimer = null;
 /** Bumped by teardown, so a read still in flight then lands nowhere. */
 let healthEpoch = 0;
 /** @type {(() => void) | null} */
 let unsubscribeChip = null;
-/** @type {MutationObserver | null} */
-let expandedObserver = null;
 
-/** @returns {HTMLElement} the meta line: health dot and clock */
-function buildMeta() {
-  const line = document.createElement('span');
-  line.className = 'sidebar-target-meta';
-  line.id = META_ID;
-  healthDot = document.createElement('span');
-  healthDot.className = 'osprey-dot sidebar-health';
-  healthDot.setAttribute('role', 'img');
-  clockEl = document.createElement('span');
-  clockEl.className = 'sidebar-target-clock';
-  line.append(healthDot, clockEl);
-  return line;
+/** @returns {HTMLElement} the health dot */
+function buildHealthDot() {
+  const dot = document.createElement('span');
+  dot.className = 'osprey-dot sidebar-health';
+  dot.id = HEALTH_ID;
+  dot.setAttribute('role', 'img');
+  return dot;
 }
 
 /**
- * Dress the chip as the block: glyph (carrying the chip's own state dot,
- * placed over it by the stylesheet), eyebrow and caret, all decorative, and
- * the meta line as the chip's description.
+ * Dress the chip as the block's one row: the glyph (carrying the chip's own
+ * state dot, placed over it by the stylesheet) first, the health dot and the
+ * caret last, and the health dot as the chip's description.
  * @param {HTMLElement} chip
- * @param {HTMLElement} line
+ * @param {HTMLElement} dot
  */
-function decorateChip(chip, line) {
+function decorateChip(chip, dot) {
   const glyph = icon('crosshair');
   glyph.classList.add('sidebar-target-glyph');
-  const eyebrow = document.createElement('span');
-  eyebrow.className = 'sidebar-target-eyebrow';
-  eyebrow.setAttribute('aria-hidden', 'true');
-  eyebrow.textContent = 'Control system';
   const caret = icon('chevrons-ud');
   caret.classList.add('sidebar-target-caret');
-  chip.prepend(glyph, eyebrow, caret);
-  chip.append(line);
-  chip.setAttribute('aria-describedby', META_ID);
+  chip.prepend(glyph);
+  chip.append(dot, caret);
+  chip.setAttribute('aria-describedby', HEALTH_ID);
+  decorations = [glyph, caret];
 }
 
 /** Repaint the health dot from the last report. */
@@ -171,28 +137,18 @@ function paintHealth() {
   healthDot.title = `Service health: ${reading.word}`;
 }
 
-/**
- * Keep the collapsed sidebar's tooltip on the chip current, and off while the
- * chip's popover is open (the popover then stands where the tooltip would).
- */
+/** Keep the chip's tooltip text in step with the chip's reading. */
 function paintTip() {
   const chip = getChipElement();
   if (!chip) return;
   const reading = targetReading();
-  if (!reading || chip.getAttribute('aria-expanded') === 'true') {
+  if (!reading) {
     delete chip.dataset.tip;
+    delete chip.dataset.tipDetail;
     return;
   }
-  chip.dataset.tip = [reading.name, reading.state, clockEl?.textContent]
-    .filter(Boolean)
-    .join(' · ');
-}
-
-/** Show the time now, then again at the top of every minute. */
-function tickClock() {
-  if (clockEl) clockEl.textContent = clockText();
-  paintTip();
-  clockTimer = setTimeout(tickClock, 60_000 - (Date.now() % 60_000));
+  chip.dataset.tip = reading.name;
+  chip.dataset.tipDetail = `Control system: ${reading.name}, ${reading.state}`;
 }
 
 /** @returns {number} seconds until the next health read */
@@ -237,55 +193,43 @@ async function pollHealth() {
 
 /**
  * Lay out the control-system block around the chip mounted in
- * `#sidebar-target` (or, with no picker, the meta line alone) and start the
- * health reads and the clock. Call once, after the chip's init. No-op without
- * the block.
+ * `#sidebar-target` (or, with no picker, the health dot alone) and start the
+ * health reads. Call once, after the chip's init. No-op without the block.
  * @returns {void}
  */
 export function initSidebarTarget() {
   const host = document.getElementById('sidebar-target');
-  if (!host || meta) return;
-  meta = buildMeta();
+  if (!host || healthDot) return;
+  healthDot = buildHealthDot();
   const chip = getChipElement();
   if (chip && host.contains(chip)) {
-    decorateChip(chip, meta);
+    decorateChip(chip, healthDot);
     unsubscribeChip = subscribe(paintTip);
-    // The chip's aria-expanded follows its popover; the tooltip steps aside
-    // while the popover is open.
-    expandedObserver = new MutationObserver(() => {
-      if (chip.getAttribute('aria-expanded') === 'true') hideTooltip();
-      paintTip();
-    });
-    expandedObserver.observe(chip, { attributes: true, attributeFilter: ['aria-expanded'] });
+    paintTip();
     host.dataset.target = 'chip';
   } else {
-    host.append(meta);
+    host.append(healthDot);
     host.dataset.target = 'none';
   }
   paintHealth();
-  tickClock();
   void pollHealth();
 }
 
 /**
- * Stop the reads and the clock and remove the meta line, for a page that
- * tears the block down (tests).
+ * Stop the reads and take the block's additions back off the page, for a page
+ * that tears the block down (tests).
  * @returns {void}
  */
 export function teardownSidebarTarget() {
   healthEpoch += 1;
   clearTimeout(healthTimer ?? undefined);
-  clearTimeout(clockTimer ?? undefined);
   healthTimer = null;
-  clockTimer = null;
   unsubscribeChip?.();
   unsubscribeChip = null;
-  expandedObserver?.disconnect();
-  expandedObserver = null;
-  meta?.remove();
-  meta = null;
+  for (const node of decorations) node.remove();
+  decorations = [];
+  healthDot?.remove();
   healthDot = null;
-  clockEl = null;
   healthReport = null;
   healthServed = true;
 }

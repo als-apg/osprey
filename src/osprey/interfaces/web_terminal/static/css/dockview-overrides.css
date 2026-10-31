@@ -613,7 +613,9 @@
   color: var(--color-accent);
 }
 
-/* Actions cluster: right-anchored; its close is an `.osprey-icon-btn`.
+/* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
+ * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
+ * primitive gives them their size, washes and disabled look.
  * Present in both ui views: Simple's tiles drag, close and resize exactly as
  * Expert's, so their header bars are live chrome there too. */
 .tile-tab .tile-tab-actions {

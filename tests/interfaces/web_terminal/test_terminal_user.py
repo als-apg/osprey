@@ -2,7 +2,8 @@
 
 ``OSPREY_TERMINAL_USER`` and ``OSPREY_TERMINAL_LANDING_URL`` are read at
 startup and rendered by ``root()`` into the title row of the sidebar's ☰ More
-menu and its logout control; the forwarded role headers are read per request.
+menu and the sidebar footer's Sign out row; the forwarded role headers are
+read per request.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ def _span(body: str, cls: str) -> tuple[str, str] | None:
 
 
 class TestMoreMenuIdentity:
-    """The More menu's title row: who you are, and the way out."""
+    """The More menu's title row says who you are; the footer holds the way out."""
 
     def _body(self, workspace_dir, env):
         cfg = {"watch_dir": str(workspace_dir)}
@@ -56,7 +57,7 @@ class TestMoreMenuIdentity:
             with TestClient(create_app(shell_command=["echo"])) as c:
                 return c.get("/").text
 
-    def test_more_menu_names_the_user_and_holds_the_logout_control(self, workspace_dir):
+    def test_more_menu_names_the_user_and_the_footer_holds_the_logout_control(self, workspace_dir):
         body = self._body(
             workspace_dir,
             {
@@ -74,11 +75,16 @@ class TestMoreMenuIdentity:
         assert avatar is not None and avatar[1] == "A"
         assert 'aria-hidden="true"' in avatar[0]
         # The logout control keeps its id + data-landing-url contract; app.js's
-        # initLogoutButton() and the command palette both find it by id. It
-        # renders once, inside the More menu.
+        # initSignOut() finds it by id. It renders once, as a row of the
+        # sidebar footer above ☰ More, and the More menu no longer holds it.
         assert body.count('id="logout-btn"') == 1
-        assert body.index('id="more-menu"') < body.index('id="logout-btn"')
+        foot = body.index('class="sidebar-foot"')
+        assert foot < body.index('id="logout-btn"') < body.index('id="more-btn"')
+        assert body.index('id="logout-btn"') < body.index('id="more-menu"')
         assert 'data-landing-url="https://facility.example/portal"' in body
+        # With sign-out available, the OSPREY mark opens the same dialog.
+        brand = re.search(r'<a class="sidebar-brand"[^>]*>', body)
+        assert brand is not None and 'aria-haspopup="dialog"' in brand.group(0)
         # The header identity chip is gone with the header.
         assert "header-identity" not in body
 
@@ -91,6 +97,9 @@ class TestMoreMenuIdentity:
         assert 'class="more-menu-user"' not in body
         assert 'id="logout-btn"' not in body
         assert 'id="more-settings"' in body
+        # The OSPREY mark stays a plain home link.
+        brand = re.search(r'<a class="sidebar-brand"[^>]*>', body)
+        assert brand is not None and "aria-haspopup" not in brand.group(0)
 
     def test_deployment_name_is_the_title_row_sub_line(self, workspace_dir):
         """app_name renders as the title row's sub-line under the user name —

@@ -267,6 +267,15 @@ describe('boot wiring: initPanelManager applies the gate', () => {
       'beforeend',
       '<nav id="panel-rail"></nav><div id="panel-manager"><div id="panel-content"></div></div>'
     );
+    // The pop-out seam rolls call on a BroadcastChannel at boot, which the
+    // test environment does not provide.
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        postMessage() {}
+        close() {}
+      }
+    );
   });
 
   afterEach(() => {

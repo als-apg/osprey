@@ -661,10 +661,10 @@ STATIC_JS = Path(__file__).resolve().parents[3] / "src/osprey/interfaces/web_ter
 _IMPORT_RE = re.compile(r"\bfrom\s+'(\.[^']+)'|^\s*import\s+'(\.[^']+)'", re.MULTILINE)
 _COMMENT_RE = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*", re.DOTALL)
 
-#: ``new URL('<specifier>', import.meta.url)`` — how the bar addresses its two
-#: stylesheets. Resolved against the module's own served URL below, which is
-#: what a browser does with it.
-_ASSET_URL_RE = re.compile(r"new URL\('([^']+)',\s*import\.meta\.url\)")
+#: ``new URL('<specifier>', import.meta.url)`` — how the bar addresses its three
+#: stylesheets (a long call wraps onto several lines). Resolved against the
+#: module's own served URL below, which is what a browser does with it.
+_ASSET_URL_RE = re.compile(r"new URL\(\s*'([^']+)',\s*import\.meta\.url\s*\)")
 
 
 def _relative_imports(source: str) -> set[str]:
@@ -876,9 +876,9 @@ def test_every_module_the_bar_imports_is_served_through_the_proxy(
 def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
     proxied: TestClient, sidecar: JupyterSidecar
 ) -> None:
-    """Both ``new URL(…, import.meta.url)`` hops land on the hub's own files.
+    """All three ``new URL(…, import.meta.url)`` hops land on the hub's own files.
 
-    The module derives its two stylesheets from its own URL rather than from an
+    The module derives its stylesheets from its own URL rather than from an
     injected literal, which is what makes the per-user mount free — and what
     makes the hops themselves unassertable anywhere but here, against the real
     served address.
@@ -886,12 +886,13 @@ def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
     module_url = f"{sidecar.base_url}terminal-static/js/{LAB_BAR_MODULE}"
     specifiers = _ASSET_URL_RE.findall((STATIC_JS / LAB_BAR_MODULE).read_text(encoding="utf-8"))
 
-    assert len(specifiers) == 2
+    assert len(specifiers) == 3
 
     resolved = {urljoin(module_url, specifier) for specifier in specifiers}
     assert resolved == {
         f"{sidecar.base_url}terminal-static/css/terminal.css",
         f"{sidecar.base_url}design-system/css/tokens.css",
+        f"{sidecar.base_url}design-system/css/primitives.css",
     }
 
     for url in sorted(resolved):

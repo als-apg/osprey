@@ -7,8 +7,8 @@
  * clicked the display menu's View segment, "Log out" clicked the identity
  * menu's button — so they have to work on a page that has neither. The mode
  * pick goes through the same function the display menu's own row calls; Log
- * out reads the landing URL the server stamps on `<html>` and runs logout.js's
- * flow itself.
+ * out reads the landing URL the server stamps on `<html>`, asks with the
+ * sign-out dialog (sign-out.js) and runs logout.js's flow on confirm.
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
@@ -102,8 +102,33 @@ describe('Log out', () => {
     expect(paletteLabels()).toContain('Log out');
     paletteRow('Log out')?.click();
 
+    // It asks first: nothing is sent until the dialog is confirmed.
+    const dialog = document.querySelector('.posture-modal-overlay:not([data-closing])');
+    if (!dialog) throw new Error('the sign-out dialog did not open');
+    expect(dialog.querySelector('.posture-modal-title')?.textContent).toBe('Sign out of OSPREY?');
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/terminal/logout', expect.anything());
+
+    const confirm = dialog.querySelector('.posture-modal-confirm');
+    if (!(confirm instanceof HTMLButtonElement)) throw new Error('the dialog has no confirm');
+    confirm.click();
+
     await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/landing'));
     expect(fetchMock).toHaveBeenCalledWith('/api/terminal/logout', { method: 'POST' });
+  });
+
+  test('Cancel in the dialog signs nobody out', async () => {
+    document.documentElement.dataset.landingUrl = '/landing';
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await openPalette();
+    paletteRow('Log out')?.click();
+    const cancel = document.querySelector('.posture-modal-cancel');
+    if (!(cancel instanceof HTMLButtonElement)) throw new Error('the sign-out dialog did not open');
+    cancel.click();
+
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/terminal/logout', expect.anything());
   });
 
   test('is not offered where the server stamped no landing URL', async () => {

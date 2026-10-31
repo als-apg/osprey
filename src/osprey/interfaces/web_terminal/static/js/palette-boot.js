@@ -15,7 +15,7 @@
  * the terminal/session actions there rather than offering picks that would act
  * on a surface the operator cannot see. Everything else — settings search, the
  * panel verbs including "Open … in a new tile", the Layouts group, popping a
- * panel out to its own browser tab, the drawer tabs, the safety reference,
+ * panel out to its own window, the drawer tabs, the safety reference,
  * opening the activity log in a new tab — is the same in both views.
  */
 
@@ -29,8 +29,8 @@ import {
   showPanel,
   activateTab,
   applyMenuPreset,
-  popoutPanel,
 } from './panel-manager.js';
+import { popOutPanel } from './popout.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
@@ -38,7 +38,7 @@ import { CONFIG_TAB_ID } from './config-tab.js';
 import { startNewSession } from './sessions.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
-import { logout } from './logout.js';
+import { confirmSignOut } from './sign-out.js';
 import { expertViewOffered, pickUiMode } from '/design-system/js/frame-params.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
@@ -152,14 +152,13 @@ function buildPaletteDeps() {
   });
   // Logout only exists in multi-user deployments: the server stamps the
   // landing URL on <html> when it renders a logout at all. Read from there,
-  // not from a logout button, so this row does not depend on any chrome.
+  // not from a logout button, so this row does not depend on any chrome. It
+  // asks first, like every other way to sign out.
   const landingUrl = document.documentElement.dataset.landingUrl;
   if (landingUrl) {
     actions.push({
       label: 'Log out',
-      run: () => {
-        void logout(landingUrl);
-      },
+      run: () => confirmSignOut({ landingUrl }),
     });
   }
 
@@ -173,10 +172,10 @@ function buildPaletteDeps() {
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
     // getPopoutPanels is already narrowed to rail members whose standalone URL
-    // resolved, and INCLUDES the active panel — the context menu's "Open in a
-    // new window" reads the same way.
+    // resolved and whose window is not already open — the context menu's
+    // "Pop out" row reads the same way.
     getPopoutPanels,
-    popoutPanel,
+    popoutPanel: popOutPanel,
     actions,
   };
 

@@ -9,7 +9,7 @@ import {
   startExpert,
   stopTerminal,
 } from './terminal.js';
-import { logout } from './logout.js';
+import { confirmSignOut } from './sign-out.js';
 import {
   initPanelManager,
   broadcastMode,
@@ -41,6 +41,7 @@ import { initFeedback } from './feedback-boot.js';
 import { initSidebar } from './sidebar.js';
 import { initSidebarTarget } from './sidebar-target.js';
 import { initSidebarArtifacts } from './sidebar-artifacts.js';
+import { initTooltips } from '/design-system/js/tooltip.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -74,9 +75,18 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init artifact links:', err);
   }
-  // The sidebar shell — width toggle (Cmd/Ctrl+\), tooltips, list disclosure,
-  // the Agent row — before the panel manager renders its rows into it.
+  // The sidebar shell — width toggle (Cmd/Ctrl+\), list disclosure, the Agent
+  // row — before the panel manager renders its rows into it.
   initSidebar();
+  // One tooltip layer for the whole page. A sidebar row whose label shows
+  // needs only its explanation; every other tip carries label and detail.
+  initTooltips(document.body, {
+    mode: (el) =>
+      el.closest('#sidebar') &&
+      document.documentElement.getAttribute('data-sidebar') !== 'collapsed'
+        ? 'detail'
+        : 'label+detail',
+  });
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
   initHeaderContrib();
@@ -106,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('Failed to init the More menu:', err);
   }
   initNewSessionButton();
-  initLogoutButton();
+  initSignOut();
   initUiModeFollowUps();
   initControlSystemBlock();
   initFeedbackDialog();
@@ -129,8 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
  * writes, mounts beside it. A deployment without the picker
  * (`html[data-control-target="off"]`, stamped by the server) mounts neither
  * and reads nothing from the posture route; the block then shows the health
- * dot and the facility clock alone. Guarded: a failure here costs the block,
- * not the rest of boot.
+ * dot alone. Guarded: a failure here costs the block, not the rest of boot.
  */
 function initControlSystemBlock() {
   try {
@@ -162,24 +171,35 @@ function initNewSessionButton() {
   });
 }
 
-/* ---- Logout Button ---- */
+/* ---- Sign out ---- */
 
 /**
- * Sign out renders in the More menu as `#logout-btn`, present only when the
- * server rendered a user and a non-empty `landing_url` (multi-user
- * deployments). Plain `osprey web` never emits it, so this is a no-op there.
- * The flow itself is logout.js's, shared with the command palette, which
- * offers Log out with no button on the page.
+ * Sign out renders in the sidebar footer as `#logout-btn`, present only when
+ * the server rendered a user and a non-empty `landing_url` (multi-user
+ * deployments); the same condition stamps `data-landing-url` on <html>. With
+ * it, the OSPREY mark (`a.sidebar-brand`) opens the same sign-out dialog
+ * instead of following its home link. Plain `osprey web` emits neither, so
+ * this is a no-op there and the mark stays a plain link. The dialog and the
+ * flow are sign-out.js's and logout.js's, shared with the command palette.
  *
  * Exported for testability (see app-logout.test.mjs) — the module's
- * DOMContentLoaded bootstrap never fires the button wiring on its own once
- * that event has already passed, e.g. in a test environment.
+ * DOMContentLoaded bootstrap never fires the wiring on its own once that
+ * event has already passed, e.g. in a test environment.
  */
-export function initLogoutButton() {
+export function initSignOut() {
   const btn = /** @type {HTMLButtonElement|null} */ (document.getElementById('logout-btn'));
-  const landingUrl = btn?.dataset.landingUrl;
-  if (!btn || !landingUrl) return;
-  btn.addEventListener('click', () => logout(landingUrl, btn));
+  const rowLanding = btn?.dataset.landingUrl;
+  if (btn && rowLanding) {
+    btn.addEventListener('click', () => confirmSignOut({ landingUrl: rowLanding, button: btn }));
+  }
+  const landingUrl = document.documentElement.dataset.landingUrl;
+  const brand = document.querySelector('a.sidebar-brand');
+  if (brand && landingUrl) {
+    brand.addEventListener('click', (event) => {
+      event.preventDefault();
+      confirmSignOut({ landingUrl });
+    });
+  }
 }
 
 /* ---- UI Mode Toggle (Expert / Simple) ---- */

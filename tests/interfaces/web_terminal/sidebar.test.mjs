@@ -8,7 +8,8 @@
  * platform's key hints, the labels toggle (collapsible.js, under the scoped
  * `osprey-sidebar` key sidebar-boot.js reads), the Artifacts and Script runs
  * disclosures (kept under the scoped `osprey-sidebar-open` key), the collapsed
- * sidebar's Artifacts flyout, and the Agent row's waiting badge.
+ * sidebar's Artifacts flyout, the Agent row's waiting badge, and the fades of
+ * a group that scrolls.
  *
  * The fixture is the sidebar block and the flyout from index.html, copied with
  * the one Jinja expression (the brand's href) written out. Nothing is mocked:
@@ -41,7 +42,8 @@ const SIDEBAR_HTML = `
           <span class="sidebar-brand-word">OSPREY</span>
         </a>
         <button class="osprey-icon-btn" id="sidebar-toggle" type="button"
-                aria-label="Hide sidebar labels" aria-expanded="true" aria-controls="sidebar" data-tip="Show labels">
+                aria-label="Hide sidebar labels" aria-expanded="true" aria-controls="sidebar"
+                data-tip-detail="Switch between the full sidebar and icons only">
           <svg class="osprey-ic" data-icon="panel-left" aria-hidden="true"></svg>
         </button>
       </div>
@@ -50,16 +52,21 @@ const SIDEBAR_HTML = `
 
       <button class="osprey-search" id="command-palette-btn" type="button"
               aria-label="Open command palette" data-tip="Search"
-              title="Search settings, panels &amp; actions">
+              data-tip-detail="Search settings, panels and actions">
         <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
         <span class="sidebar-search-label">Search</span>
         <kbd class="osprey-kbd" data-chord="K" aria-hidden="true">&#8984;K</kbd>
       </button>
 
       <div class="sidebar-sections" id="panel-rail" role="list">
-        <div class="sidebar-group sidebar-scroll" id="sidebar-workspace" data-group="workspace"
-             role="listitem" aria-labelledby="sidebar-workspace-label">
-          <div class="osprey-section-label" id="sidebar-workspace-label">Workspace</div>
+        <div class="sidebar-group" data-group="workspace" role="listitem"
+             aria-labelledby="sidebar-workspace-label">
+          <div class="osprey-section-label sidebar-group-head">
+            <span class="sidebar-group-name" id="sidebar-workspace-label">Workspace</span>
+            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
+                    aria-expanded="false" aria-label="Workspace group options"
+                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          </div>
 
           <button class="osprey-nav-row panel-rail-button disabled" id="sidebar-agent-row"
                   data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent">
@@ -97,7 +104,8 @@ const SIDEBAR_HTML = `
 
           <div class="sidebar-row" id="sidebar-runs-row">
             <button class="osprey-nav-row parent" id="sidebar-runs-toggle" type="button"
-                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs" data-tip="Script runs">
+                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs"
+                    data-tip="Script runs" data-tip-detail="Output of scripts the agent ran">
               <svg class="osprey-ic osprey-nav-icon" data-icon="bash" aria-hidden="true"></svg>
               <span class="osprey-nav-label">Script runs</span>
               <span class="osprey-nav-badge" data-runs-count hidden></span>
@@ -110,9 +118,15 @@ const SIDEBAR_HTML = `
         </div>
 
         <div class="sidebar-group" data-group="tools" role="listitem" aria-labelledby="sidebar-tools-label">
-          <div class="osprey-section-label" id="sidebar-tools-label">Tools</div>
+          <div class="osprey-section-label sidebar-group-head">
+            <span class="sidebar-group-name" id="sidebar-tools-label">Tools</span>
+            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
+                    aria-expanded="false" aria-label="Tools group options"
+                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          </div>
           <button class="osprey-nav-row add" id="panel-add-btn" type="button" aria-label="Add panel"
-                  aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel">
+                  aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel"
+                  data-tip-detail="Show a hidden panel or add one by URL">
             <svg class="osprey-ic osprey-nav-icon" data-icon="plus" aria-hidden="true"></svg>
             <span class="osprey-nav-label">Add panel</span>
           </button>
@@ -580,5 +594,48 @@ describe('the Agent row', () => {
     agentRow().dataset.tip = 'Agent';
     document.dispatchEvent(new CustomEvent('osprey-sidebar-rendered'));
     expect(agentRow().dataset.tip).toBe('Agent · 2 waiting — click to open');
+  });
+});
+
+/* ---- fades --------------------------------------------------------------- */
+
+describe('fades', () => {
+  /**
+   * Give a scroller the scroll metrics happy-dom does not lay out.
+   * @param {HTMLElement} el
+   * @param {{scrollHeight: number, clientHeight: number, scrollTop: number}} metrics
+   */
+  function scrollMetrics(el, metrics) {
+    for (const [key, value] of Object.entries(metrics)) {
+      Object.defineProperty(el, key, { value, configurable: true, writable: true });
+    }
+  }
+
+  test('a group that scrolls fades at each edge with more to show', async () => {
+    await boot();
+    const workspace = qs(document, '#panel-rail > [data-group="workspace"]');
+
+    scrollMetrics(workspace, { scrollHeight: 400, clientHeight: 200, scrollTop: 0 });
+    workspace.dispatchEvent(new Event('scroll'));
+    expect(workspace.classList.contains('fade')).toBe(true);
+    expect(workspace.classList.contains('fade-top')).toBe(false);
+
+    scrollMetrics(workspace, { scrollHeight: 400, clientHeight: 200, scrollTop: 200 });
+    workspace.dispatchEvent(new Event('scroll'));
+    expect(workspace.classList.contains('fade')).toBe(false);
+    expect(workspace.classList.contains('fade-top')).toBe(true);
+  });
+
+  test('a group a later render adds fades too', async () => {
+    await boot();
+    const added = document.createElement('div');
+    added.className = 'sidebar-group';
+    added.dataset.group = 'g-0123abcd';
+    byId('panel-rail').append(added);
+    document.dispatchEvent(new CustomEvent('osprey-sidebar-rendered'));
+
+    scrollMetrics(added, { scrollHeight: 300, clientHeight: 100, scrollTop: 0 });
+    added.dispatchEvent(new Event('scroll'));
+    expect(added.classList.contains('fade')).toBe(true);
   });
 });

@@ -123,24 +123,29 @@
   <div class="shell-body">
 
     <!-- The sidebar (panel-rail.js renders the panel rows, sidebar.js wires
-         the rest). Only #sidebar-workspace gives up height: the head, the
-         control-system block, search, Tools and the footer never scroll off
-         (terminal.css, "Height budget"). -->
+         the rest). Only the group that holds the Artifacts and Script runs
+         lists gives up height: the head, the control-system block, search,
+         the other groups and the footer never scroll off (terminal.css,
+         "Height budget"). -->
     <nav class="sidebar" id="sidebar" aria-label="Panels">
       <div class="sidebar-head">
-        <a class="sidebar-brand" href="{{ prefixed('/') }}" aria-label="OSPREY">
+        {#- With sign-out available, the mark opens the sign-out dialog
+            (app.js) instead of following its home link. -#}
+        <a class="sidebar-brand" href="{{ prefixed('/') }}" aria-label="OSPREY" data-tip="OSPREY"
+           {% if terminal_user and landing_url %}aria-haspopup="dialog" data-tip-detail="Sign out of OSPREY"{% else %}data-tip-detail="OSPREY home"{% endif %}>
           <svg class="sidebar-brand-mark" viewBox="0 0 16 8" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path fill="currentColor" d="M0 0h2v1h-2zM14 0h2v1h-2zM1 1h3v1h-3zM12 1h3v1h-3zM2 2h4v1h-4zM10 2h4v1h-4zM3 3h4v1h-4zM9 3h4v1h-4zM4 4h8v1h-8zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z"/></svg>
           <span class="sidebar-brand-word">OSPREY</span>
         </a>
         <button class="osprey-icon-btn" id="sidebar-toggle" type="button"
-                aria-label="Hide sidebar labels" aria-expanded="true" aria-controls="sidebar" data-tip="Show labels">
+                aria-label="Hide sidebar labels" aria-expanded="true" aria-controls="sidebar"
+                data-tip-detail="Switch between the full sidebar and icons only">
           <svg class="osprey-ic" data-icon="panel-left" aria-hidden="true"></svg>
         </button>
       </div>
 
       <!-- Control-system block: the control-target chip mounts here
-           (control-target-chip.js) and sidebar-target.js dresses it and adds
-           the health dot and the facility clock. -->
+           (control-target-chip.js) and sidebar-target.js dresses it as one
+           row and adds the health dot. -->
       <div class="sidebar-target" id="sidebar-target"></div>
 
       <!-- Command palette trigger: reads as a search field. Cmd/Ctrl+K,
@@ -148,21 +153,27 @@
            resolves this button by id. Present in BOTH ui modes. -->
       <button class="osprey-search" id="command-palette-btn" type="button"
               aria-label="Open command palette" data-tip="Search"
-              title="Search settings, panels &amp; actions">
+              data-tip-detail="Search settings, panels and actions">
         <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
         <span class="sidebar-search-label">Search</span>
         <kbd class="osprey-kbd" data-chord="K" aria-hidden="true">&#8984;K</kbd>
       </button>
 
-      <!-- The panel rows, in two groups. createRail() (panel-rail.js) fills
-           them and MOVES the page-owned rows below into place on every
-           render, never rebuilding them: the Agent row, the Artifacts row
-           with its lists (sidebar-artifacts.js renders the lists), the Script
-           runs row and "+ Add panel". -->
+      <!-- The panel rows, in the operator's groups (sidebar-groups.js keeps
+           them per user; the two below are the built-in ones). createRail()
+           (panel-rail.js) renders the groups and MOVES the page-owned rows
+           below into place on every render, never rebuilding them: the Agent
+           row, the Artifacts row with its lists (sidebar-artifacts.js renders
+           the lists), the Script runs row and "+ Add panel". -->
       <div class="sidebar-sections" id="panel-rail" role="list">
-        <div class="sidebar-group sidebar-scroll" id="sidebar-workspace" data-group="workspace"
-             role="listitem" aria-labelledby="sidebar-workspace-label">
-          <div class="osprey-section-label" id="sidebar-workspace-label">Workspace</div>
+        <div class="sidebar-group" data-group="workspace" role="listitem"
+             aria-labelledby="sidebar-workspace-label">
+          <div class="osprey-section-label sidebar-group-head">
+            <span class="sidebar-group-name" id="sidebar-workspace-label">Workspace</span>
+            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
+                    aria-expanded="false" aria-label="Workspace group options"
+                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          </div>
 
           <button class="osprey-nav-row panel-rail-button disabled" id="sidebar-agent-row"
                   data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent">
@@ -200,7 +211,8 @@
 
           <div class="sidebar-row" id="sidebar-runs-row">
             <button class="osprey-nav-row parent" id="sidebar-runs-toggle" type="button"
-                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs" data-tip="Script runs">
+                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs"
+                    data-tip="Script runs" data-tip-detail="Output of scripts the agent ran">
               <svg class="osprey-ic osprey-nav-icon" data-icon="bash" aria-hidden="true"></svg>
               <span class="osprey-nav-label">Script runs</span>
               <span class="osprey-nav-badge" data-runs-count hidden></span>
@@ -213,9 +225,15 @@
         </div>
 
         <div class="sidebar-group" data-group="tools" role="listitem" aria-labelledby="sidebar-tools-label">
-          <div class="osprey-section-label" id="sidebar-tools-label">Tools</div>
+          <div class="osprey-section-label sidebar-group-head">
+            <span class="sidebar-group-name" id="sidebar-tools-label">Tools</span>
+            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
+                    aria-expanded="false" aria-label="Tools group options"
+                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          </div>
           <button class="osprey-nav-row add" id="panel-add-btn" type="button" aria-label="Add panel"
-                  aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel">
+                  aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel"
+                  data-tip-detail="Show a hidden panel or add one by URL">
             <svg class="osprey-ic osprey-nav-icon" data-icon="plus" aria-hidden="true"></svg>
             <span class="osprey-nav-label">Add panel</span>
           </button>
@@ -225,20 +243,36 @@
       <!-- Footer. The docs href is filled in at boot from GET
            /api/panels.docs_url; the row stays hidden until it has one
            (rail-utility.js). Feedback opens the feedback dialog
-           (feedback-boot.js). ☰ More opens #more-menu (more-menu.js). -->
+           (feedback-boot.js). Sign out, rendered only where the deployment
+           has a user and somewhere to send them, asks first and then runs
+           logout.js (app.js, sign-out.js). ☰ More opens #more-menu
+           (more-menu.js). -->
       <div class="sidebar-foot">
         <a class="osprey-nav-row" id="panel-docs-link" target="_blank" rel="noopener"
-           title="Documentation" aria-label="Docs" data-tip="Docs" hidden>
+           title="Documentation" aria-label="Docs" data-tip="Docs"
+           data-tip-detail="Open the documentation" hidden>
           <svg class="osprey-ic osprey-nav-icon" data-icon="help" aria-hidden="true"></svg>
           <span class="osprey-nav-label">Docs</span>
         </a>
         <button class="osprey-nav-row" id="panel-feedback-btn" type="button"
-                title="Send feedback" aria-label="Feedback" data-tip="Feedback">
+                title="Send feedback" aria-label="Feedback" data-tip="Feedback"
+                data-tip-detail="Send feedback about this deployment">
           <svg class="osprey-ic osprey-nav-icon" data-icon="message" aria-hidden="true"></svg>
           <span class="osprey-nav-label">Feedback</span>
         </button>
+        {% if terminal_user and landing_url %}
+        <button class="osprey-nav-row" id="logout-btn" type="button" aria-haspopup="dialog"
+                data-landing-url="{{ landing_url }}"
+                aria-label="Sign out {{ terminal_user }} and return to the landing page"
+                data-tip="Sign out"
+                data-tip-detail="End your terminal and agent sessions and return to the landing page">
+          <svg class="osprey-ic osprey-nav-icon" data-icon="logout" aria-hidden="true"></svg>
+          <span class="osprey-nav-label">Sign out</span>
+        </button>
+        {% endif %}
         <button class="osprey-nav-row" id="more-btn" type="button" aria-label="More"
-                aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" data-tip="More">
+                aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" data-tip="More"
+                data-tip-detail="View, appearance, settings and more">
           <svg class="osprey-ic osprey-nav-icon" data-icon="menu" aria-hidden="true"></svg>
           <span class="osprey-nav-label">More</span>
         </button>
@@ -328,9 +362,9 @@
   <div class="osprey-popover panel-add-menu" id="panel-add-menu" role="dialog" aria-label="Add panel" hidden></div>
 
   <!-- ☰ More (more-menu.js). Server-rendered so #more-settings — whose
-       data-drawer-trigger settings-warning-gate.js binds — and #logout-btn
-       — which app.js binds to logout.js — are in the page from the first
-       paint. The theme families are built from theme-manager.js. -->
+       data-drawer-trigger settings-warning-gate.js binds — is in the page
+       from the first paint. The theme families are built from
+       theme-manager.js. -->
   <div class="osprey-popover more-menu" id="more-menu" role="menu" aria-label="More" hidden>
     {#- The deployment name (web.app_name) is a fact about WHERE this is and
         shows with or without a signed-in user; the avatar and the user line
@@ -386,14 +420,6 @@
             aria-haspopup="dialog" aria-controls="about-popover">
       <svg class="osprey-ic" data-icon="info" aria-hidden="true"></svg>About OSPREY
     </button>
-    {% if terminal_user and landing_url %}
-    <div class="osprey-popover-sep" role="separator"></div>
-    <button class="osprey-popover-item danger" id="logout-btn" type="button" role="menuitem"
-            data-landing-url="{{ landing_url }}"
-            aria-label="Sign out {{ terminal_user }} and return to the landing page">
-      <svg class="osprey-ic" data-icon="logout" aria-hidden="true"></svg>Sign out
-    </button>
-    {% endif %}
   </div>
 
   <!-- Keyboard shortcuts (opened from ☰ More). -->

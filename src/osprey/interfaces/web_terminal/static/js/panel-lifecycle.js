@@ -32,6 +32,7 @@ import {
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
 import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
+import { isPoppedOut } from './popout.js';
 import {
   clockTime,
   createRail,
@@ -39,6 +40,7 @@ import {
   placeEntry,
   setActive,
   setEntryEnabled,
+  setEntryPoppedOut,
   setEntryReachable,
   setEntryStatus,
 } from './panel-rail.js';
@@ -117,9 +119,10 @@ function railPanel(panel) {
 /**
  * Destructive full render of the sidebar rows: the Agent row first (the
  * pane is the workspace's anchor), then every MEMBER service panel in the
- * server's rail order — non-members have no row at all. The Agent row is
- * enabled after the render (it never health-polls, so it would stay
- * disabled).
+ * server's rail order, each in the operator's group for it — non-members
+ * have no row at all. The Agent row is enabled after the render (it never
+ * health-polls, so it would stay disabled), and a row whose panel is popped
+ * out gets its mark back, since the render builds rows cold.
  */
 export function renderRail() {
   const railEl = ctx().getRailEl();
@@ -135,6 +138,7 @@ export function renderRail() {
     railOptions()
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
+  for (const id of ctx().memberSet) if (isPoppedOut(id)) setEntryPoppedOut(railEl, id, true);
 }
 
 /**
@@ -151,16 +155,16 @@ export function applyRailOrder(order) {
   const rest = [...c.memberSet].filter((id) => !ordered.includes(id));
   c.memberSet.clear();
   for (const id of [...rest, ...ordered]) c.memberSet.add(id);
-  // Workspace rows keep their fixed places (placeEntry leaves them); moving
-  // each Tools row to the foot in turn puts Tools in `order`.
+  // Each row moves within its own group (the Agent row stays first); moving
+  // every ordered row to the end in turn puts each group in `order`.
   for (const id of ordered) placeEntry(c.getRailEl(), id, null);
 }
 
 /**
  * Re-apply a sidebar row's live state after addEntry (re)built or re-showed it
- * — enabled from the panel's health, and the active accent when this panel is
+ * — enabled from the panel's health, the active accent when this panel is
  * the surfaced one (a "+"-menu reveal activates locally BEFORE the membership
- * echo adds the row).
+ * echo adds the row), and the popped-out mark while its window is open.
  * @param {string} panelId
  */
 function applyEntryState(panelId) {
@@ -174,6 +178,7 @@ function applyEntryState(panelId) {
   if (ps.failedMessage)
     setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
+  if (isPoppedOut(panelId)) setEntryPoppedOut(c.getRailEl(), panelId, true);
 }
 
 /**
@@ -212,7 +217,7 @@ export function addPanel(spec) {
 
   const normalized = {
     id: spec.id,
-    label: spec.label || spec.id.toUpperCase(),
+    label: titleCase(spec.label || spec.id.toUpperCase()),
     configEndpoint: null,
     healthEndpoint: spec.healthEndpoint || null,
     path: spec.path || '/',

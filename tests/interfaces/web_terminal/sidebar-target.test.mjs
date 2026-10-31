@@ -3,29 +3,22 @@
  * The sidebar's control-system block (sidebar-target.js):
  *   npx vitest run tests/interfaces/web_terminal/sidebar-target.test.mjs
  *
- * The block dresses the control-target chip mounted in `#sidebar-target` —
- * decoration only, all of it aria-hidden, with the chip's own words read from
- * `targetReading()` for the collapsed sidebar's tooltip — and adds a meta line
- * with the SYSTEM panel's health and the facility clock. Where no chip mounts
- * (the picker is off), the meta line stands alone in the block.
+ * The block dresses the control-target chip mounted in `#sidebar-target` as
+ * one row — glyph, the chip's own name and writes pill, the SYSTEM panel's
+ * health dot, caret — with the decoration aria-hidden and the chip's own words
+ * read from `targetReading()` for its tooltip text. There is no caption, no
+ * clock and no meta line. Where no chip mounts (the picker is off), the health
+ * dot stands alone in the block.
  *
  * Seams: control-target-chip.js is mocked (the chip element, its subscribers
  * and its reading are what this module reads; the chip's own suite pins how it
- * derives them), `fetch` is stubbed per test, and the facility zone is stamped
- * on <html> through tests/interfaces/_support/facility-zone.mjs. Module state
- * is isolated by vi.resetModules() + dynamic import per test and the module's
- * own teardown.
+ * derives them) and `fetch` is stubbed per test. Module state is isolated by
+ * vi.resetModules() + dynamic import per test and the module's own teardown.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { byId, qs } from '../_support/dom.mjs';
-import {
-  FACILITY_ZONE,
-  VIEWER_ZONE,
-  stampFacilityZone,
-  zoneName,
-} from '../_support/facility-zone.mjs';
 
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/sidebar-target.js';
 
@@ -53,9 +46,6 @@ let mod;
 /** @type {ReturnType<typeof vi.fn>} */
 let fetchMock;
 
-/** A fixed instant, so the clock and the tooltip are deterministic. */
-const AT = Date.UTC(2026, 0, 15, 20, 4);
-
 /** @param {unknown} body @param {number} [status] */
 const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
 
@@ -71,7 +61,7 @@ function mountWithChip() {
     <nav class="sidebar" id="sidebar" aria-label="Panels">
       <div class="sidebar-target" id="sidebar-target">
         <div class="ctc-anchor">
-          <button class="control-target-chip" type="button" aria-haspopup="true"
+          <button class="control-target-chip" type="button" aria-haspopup="dialog"
                   aria-expanded="false" aria-label="Control target: Simulator, writes on">
             <span class="ctc-dot"></span><span class="ctc-short">Simulator</span><span class="ctc-sep">·</span><span class="ctc-state">writes on</span><span class="ctc-caret">▾</span>
           </button>
@@ -98,34 +88,15 @@ async function settle() {
 }
 
 const host = () => byId('sidebar-target');
-const meta = () => document.getElementById('sidebar-target-meta');
 const dot = () => qs(document, '.sidebar-health');
-const clock = () => qs(document, '.sidebar-target-clock');
+const healthEl = () => document.getElementById('sidebar-target-health');
 const chipEl = () => /** @type {HTMLElement} */ (chip.el);
-
-/** The `HH:MM` the block shows in *zone*, computed with Intl directly. */
-function wallClock(
-  /** @type {string} */ zone,
-  /** @type {Intl.DateTimeFormatOptions} */ extra = {}
-) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZone: zone,
-    ...extra,
-  }).format(AT);
-}
-
-/** The city a zone id names, as the block spells it. @param {string} zone */
-const cityOf = (zone) => (zone.split('/').pop() ?? zone).replaceAll('_', ' ');
 
 beforeEach(async () => {
   vi.resetModules();
   chip.el = null;
   chip.reading = null;
   chip.listeners.clear();
-  stampFacilityZone(FACILITY_ZONE);
   Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   stubHealth(reply({ results: [{ status: 'ok' }], interval_s: 30 }));
   mod = await import(MODULE);
@@ -135,7 +106,6 @@ afterEach(() => {
   mod.teardownSidebarTarget();
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  stampFacilityZone(null);
   document.body.innerHTML = '';
 });
 
@@ -184,46 +154,31 @@ describe('readHealth', () => {
   });
 });
 
-/* ---- clockText ------------------------------------------------------------ */
-
-describe('clockText', () => {
-  test("shows the facility's hour and minute and its zone's city", () => {
-    expect(mod.clockText(AT)).toBe(`${wallClock(FACILITY_ZONE)} ${cityOf(FACILITY_ZONE)}`);
-  });
-
-  test("spells a city's underscores as spaces", () => {
-    stampFacilityZone('America/Los_Angeles');
-    expect(mod.clockText(AT)).toBe(`${wallClock('America/Los_Angeles')} Los Angeles`);
-  });
-
-  test("falls back to the viewer's zone and names it", () => {
-    stampFacilityZone(null);
-    const text = mod.clockText(AT);
-    expect(text).toBe(wallClock(VIEWER_ZONE, { timeZoneName: 'short' }));
-    expect(text).toContain(zoneName(VIEWER_ZONE, AT));
-  });
-});
-
 /* ---- the block with a chip ------------------------------------------------ */
 
 describe('with the chip mounted', () => {
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(AT);
     mountWithChip();
   });
 
-  test('dresses the chip with decoration only', async () => {
+  test('dresses the chip as one row: glyph first, health dot and caret last', async () => {
     mod.initSidebarTarget();
     await settle();
     const button = chipEl();
+    const children = [...button.children];
 
-    const [glyph, eyebrow, caret] = [...button.children];
+    const glyph = children[0];
+    const [health, caret] = children.slice(-2);
     expect(glyph.classList.contains('sidebar-target-glyph')).toBe(true);
-    expect(eyebrow.classList.contains('sidebar-target-eyebrow')).toBe(true);
-    expect(eyebrow.textContent).toBe('Control system');
+    expect(health).toBe(dot());
     expect(caret.classList.contains('sidebar-target-caret')).toBe(true);
-    for (const el of [glyph, eyebrow, caret]) expect(el.getAttribute('aria-hidden')).toBe('true');
+    for (const el of [glyph, caret]) expect(el.getAttribute('aria-hidden')).toBe('true');
+
+    // No caption and no clock: the row is the glyph, the chip's words, the
+    // health dot and the caret.
+    expect(button.querySelector('.sidebar-target-eyebrow')).toBeNull();
+    expect(button.querySelector('.sidebar-target-clock')).toBeNull();
+    expect(button.textContent).not.toContain('Control system');
 
     // The chip's own words and name are the chip's.
     expect(qs(button, '.ctc-short').textContent).toBe('Simulator');
@@ -232,46 +187,40 @@ describe('with the chip mounted', () => {
     expect(host().dataset.target).toBe('chip');
   });
 
-  test('puts the meta line inside the chip and describes the chip with it', async () => {
+  test('describes the chip with the health dot', async () => {
     mod.initSidebarTarget();
     await settle();
-    const line = /** @type {HTMLElement} */ (meta());
 
-    expect(line.parentElement).toBe(chipEl());
-    expect(chipEl().lastElementChild).toBe(line);
-    expect(chipEl().getAttribute('aria-describedby')).toBe('sidebar-target-meta');
-    expect(line.querySelector('.osprey-dot.sidebar-health')).not.toBeNull();
-    expect(clock().textContent).toBe(mod.clockText(AT));
+    expect(healthEl()?.parentElement).toBe(chipEl());
+    expect(chipEl().getAttribute('aria-describedby')).toBe('sidebar-target-health');
   });
 
-  test("the tooltip repeats the chip's reading and the clock", async () => {
+  test("the tooltip text repeats the chip's reading", async () => {
     mod.initSidebarTarget();
     await settle();
-    expect(chipEl().dataset.tip).toBe(`Simulator · writes on · ${mod.clockText(AT)}`);
+    expect(chipEl().dataset.tip).toBe('Simulator');
+    expect(chipEl().dataset.tipDetail).toBe('Control system: Simulator, writes on');
 
     // A chip render reaches the tooltip through the chip's subscribers.
     chip.reading = { name: 'Real machine', state: 'switching…', kind: 'real', word: 'on' };
     for (const fn of chip.listeners) fn();
-    expect(chipEl().dataset.tip).toBe(`Real machine · switching… · ${mod.clockText(AT)}`);
+    expect(chipEl().dataset.tip).toBe('Real machine');
+    expect(chipEl().dataset.tipDetail).toBe('Control system: Real machine, switching…');
 
     // Nothing read yet: no tooltip rather than a half one.
     chip.reading = null;
     for (const fn of chip.listeners) fn();
     expect(chipEl().dataset.tip).toBeUndefined();
+    expect(chipEl().dataset.tipDetail).toBeUndefined();
   });
 
-  test('the tooltip steps aside while the popover is open', async () => {
+  test('the tooltip text stays while the popover is open: the tooltip layer steps aside', async () => {
     mod.initSidebarTarget();
     await settle();
-    expect(chipEl().dataset.tip).toBeDefined();
 
     chipEl().setAttribute('aria-expanded', 'true');
-    await vi.waitFor(() => expect(chipEl().dataset.tip).toBeUndefined());
-
-    chipEl().setAttribute('aria-expanded', 'false');
-    await vi.waitFor(() =>
-      expect(chipEl().dataset.tip).toBe(`Simulator · writes on · ${mod.clockText(AT)}`)
-    );
+    await settle();
+    expect(chipEl().dataset.tip).toBe('Simulator');
   });
 
   test('paints the health dot from the report', async () => {
@@ -305,7 +254,7 @@ describe('with the chip mounted', () => {
     await settle();
 
     expect(chipEl().querySelector('.sidebar-target-glyph')).toBeNull();
-    expect(meta()?.parentElement).toBe(host());
+    expect(healthEl()?.parentElement).toBe(host());
     expect(host().dataset.target).toBe('none');
   });
 });
@@ -317,23 +266,22 @@ describe('without a chip', () => {
     mountWithoutChip();
   });
 
-  test('the meta line stands alone in the block', async () => {
+  test('the health dot stands alone in the block', async () => {
     mod.initSidebarTarget();
     await settle();
 
-    expect(meta()?.parentElement).toBe(host());
+    expect(healthEl()?.parentElement).toBe(host());
     expect(host().dataset.target).toBe('none');
     expect(document.querySelector('[aria-describedby]')).toBeNull();
     expect(dot().classList.contains('ok')).toBe(true);
     expect(dot().getAttribute('aria-label')).toBe('Service health: ok');
-    expect(clock().textContent).not.toBe('');
   });
 
   test('a second init adds nothing', async () => {
     mod.initSidebarTarget();
     mod.initSidebarTarget();
     await settle();
-    expect(document.querySelectorAll('#sidebar-target-meta')).toHaveLength(1);
+    expect(document.querySelectorAll('#sidebar-target-health')).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -341,7 +289,7 @@ describe('without a chip', () => {
     document.body.innerHTML = '<div id="elsewhere"></div>';
     mod.initSidebarTarget();
     await settle();
-    expect(meta()).toBeNull();
+    expect(healthEl()).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -367,7 +315,6 @@ describe('without a chip', () => {
 describe('polling', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(AT);
     mountWithoutChip();
   });
 
@@ -400,22 +347,10 @@ describe('polling', () => {
     await settle();
 
     expect(dot().hidden).toBe(true);
-    // The clock stays: only the health half is missing.
-    expect(clock().textContent).toBe(mod.clockText(AT));
 
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  test('the clock ticks at the top of the minute', async () => {
-    mod.initSidebarTarget();
-    await settle();
-    const before = clock().textContent;
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(clock().textContent).toBe(mod.clockText(AT + 60_000));
-    expect(clock().textContent).not.toBe(before);
   });
 });
 
@@ -424,16 +359,15 @@ describe('polling', () => {
 describe('teardownSidebarTarget', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(AT);
   });
 
-  test('removes the meta line and stops the reads and the clock', async () => {
+  test('removes the health dot and stops the reads', async () => {
     mountWithoutChip();
     mod.initSidebarTarget();
     await settle();
 
     mod.teardownSidebarTarget();
-    expect(meta()).toBeNull();
+    expect(healthEl()).toBeNull();
 
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     await settle();
@@ -451,12 +385,12 @@ describe('teardownSidebarTarget', () => {
     release(reply({ results: [{ status: 'error' }] }));
     await settle();
 
-    expect(meta()).toBeNull();
+    expect(healthEl()).toBeNull();
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  test('drops the chip subscription, and a fresh init builds the block again', async () => {
+  test('takes the decoration off the chip and drops its subscription', async () => {
     mountWithChip();
     mod.initSidebarTarget();
     await settle();
@@ -464,10 +398,12 @@ describe('teardownSidebarTarget', () => {
 
     mod.teardownSidebarTarget();
     expect(chip.listeners.size).toBe(0);
+    expect(chipEl().querySelector('.sidebar-target-glyph, .sidebar-target-caret')).toBeNull();
+    expect(healthEl()).toBeNull();
 
-    mountWithoutChip();
+    // A fresh init on the same chip dresses it once, not twice.
     mod.initSidebarTarget();
     await settle();
-    expect(meta()?.parentElement).toBe(host());
+    expect(chipEl().querySelectorAll('.sidebar-target-glyph')).toHaveLength(1);
   });
 });

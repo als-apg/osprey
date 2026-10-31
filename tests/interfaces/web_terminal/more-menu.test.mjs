@@ -9,7 +9,8 @@
  * design system's popover.js, and runs the rows no other module owns.
  *
  * The fixture is index.html's `#more-menu` (signed-in variant, rendered for
- * a user `alice` with a landing URL), `#shortcuts-popover` and
+ * a user `alice` with a landing URL; Sign out is a sidebar footer row, not a
+ * row of this menu), `#shortcuts-popover` and
  * `#about-popover`, copied with the Jinja expressions written out, plus a
  * `#sidebar` holding `#more-btn`.
  *
@@ -143,12 +144,6 @@ const FIXTURE = `
             aria-haspopup="dialog" aria-controls="about-popover">
       <svg class="osprey-ic" data-icon="info" aria-hidden="true"></svg>About OSPREY
     </button>
-    <div class="osprey-popover-sep" role="separator"></div>
-    <button class="osprey-popover-item danger" id="logout-btn" type="button" role="menuitem"
-            data-landing-url="/landing"
-            aria-label="Sign out alice and return to the landing page">
-      <svg class="osprey-ic" data-icon="logout" aria-hidden="true"></svg>Sign out
-    </button>
   </div>
 
   <div class="osprey-popover shortcuts-popover" id="shortcuts-popover" role="dialog" aria-label="Keyboard shortcuts" hidden>
@@ -242,7 +237,13 @@ describe('rows', () => {
     }
     expect(row('#more-settings').dataset.drawerTrigger).toBe('settings-drawer');
     for (const more of ['shortcuts', 'tour', 'activity', 'about']) row(`[data-more="${more}"]`);
-    expect(row('#logout-btn').dataset.landingUrl).toBe('/landing');
+  });
+
+  test('has no Sign out row: About is the last row, with no separator after it', () => {
+    boot();
+    expect(menu().querySelector('#logout-btn')).toBeNull();
+    expect(menu().textContent).not.toContain('Sign out');
+    expect(menu().lastElementChild).toBe(row('[data-more="about"]'));
   });
 
   test('builds one radio per theme family, in roster order', () => {
@@ -409,13 +410,6 @@ describe('open and close', () => {
     expect(menu().hidden).toBe(true);
     expect(document.activeElement).toBe(button());
   });
-
-  test('Sign out leaves it open for its own flow', () => {
-    boot();
-    openMenu();
-    row('#logout-btn').click();
-    expect(menu().hidden).toBe(false);
-  });
 });
 
 /* ---- the rows that move the operator elsewhere ------------------------------ */
@@ -502,7 +496,7 @@ describe('keyboard', () => {
     expect(document.activeElement).toBe(row('[data-view="expert"]'));
     pressOnFocused('ArrowUp');
     pressOnFocused('ArrowUp');
-    expect(document.activeElement).toBe(row('#logout-btn'));
+    expect(document.activeElement).toBe(row('[data-more="about"]'));
     pressOnFocused('ArrowDown');
     expect(document.activeElement).toBe(row('[data-view="simple"]'));
   });
@@ -511,7 +505,7 @@ describe('keyboard', () => {
     boot();
     openMenu();
     pressOnFocused('End');
-    expect(document.activeElement).toBe(row('#logout-btn'));
+    expect(document.activeElement).toBe(row('[data-more="about"]'));
     pressOnFocused('Home');
     expect(document.activeElement).toBe(row('[data-view="simple"]'));
   });

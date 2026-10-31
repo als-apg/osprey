@@ -12,9 +12,14 @@
  * on none of panel-manager's private panel state, so they live cleanly on
  * their own.
  *
+ * A panel popped out into its own window (popout.js) is a follower too, with
+ * a WindowProxy where an iframe has a contentWindow: the three state messages
+ * have a window-addressed twin each, and the pop-out URL is built beside the
+ * embed URL so the two query contracts cannot drift.
+ *
  * The hub-role fan-outs that iterate every panel (theme-manager's own theme
  * broadcast; panel-manager's broadcastMode) stay with their owners — this
- * module is only the single-iframe sends those fan-outs and their callers
+ * module is only the single-target sends those fan-outs and their callers
  * use.
  */
 
@@ -22,25 +27,66 @@ import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 
 /**
- * The shared single-iframe send: guard a missing contentWindow (a not-yet-loaded
- * or detached iframe) and swallow the cross-origin postMessage throw. Every
- * host → follower message below funnels through here.
+ * The shared single-window send: swallow the cross-origin postMessage throw.
+ * Every host → follower message below funnels through here, by way of
+ * {@link postToIframe} for a frame.
  *
  * The target origin is the hub's own, so an opaque panel (origin "null") never
  * receives the session id, the mode or a header action: the browser drops a
- * message whose target origin does not match. Only the theme message passes
- * `targetOrigin: '*'` (see sendThemeToIframe).
+ * message whose target origin does not match. Only the theme message to a
+ * frame passes `targetOrigin: '*'` (see sendThemeToIframe).
+ * @param {Window | null} win
+ * @param {object} message
+ * @param {string} [targetOrigin]
+ */
+function postToWindow(win, message, targetOrigin = window.location.origin) {
+  if (!win) return;
+  try {
+    win.postMessage(message, targetOrigin);
+  } catch {
+    /* cross-origin */
+  }
+}
+
+/**
+ * The single-iframe send: guard a missing contentWindow (a not-yet-loaded or
+ * detached iframe), then {@link postToWindow}.
  * @param {HTMLIFrameElement | null} iframe
  * @param {object} message
  * @param {string} [targetOrigin]
  */
 function postToIframe(iframe, message, targetOrigin = window.location.origin) {
-  if (!iframe?.contentWindow) return;
-  try {
-    iframe.contentWindow.postMessage(message, targetOrigin);
-  } catch {
-    /* cross-origin */
-  }
+  postToWindow(iframe?.contentWindow ?? null, message, targetOrigin);
+}
+
+/**
+ * Send the hub's current theme to a popped-out window. A pop-out is always a
+ * first-party page (an opaque panel has no standalone URL to pop out to), so
+ * unlike the frame send this one is addressed to the hub's own origin.
+ * @param {Window | null} win
+ */
+export function sendThemeToWindow(win) {
+  postToWindow(win, { type: 'osprey-theme-change', theme: getTheme() });
+}
+
+/**
+ * Send the hub's active session id to a popped-out window — the window twin
+ * of {@link sendSessionToIframe}, with the same no-session guard.
+ * @param {Window | null} win
+ */
+export function sendSessionToWindow(win) {
+  const sid = getCurrentSessionId();
+  if (!sid) return;
+  postToWindow(win, { type: 'osprey-session-change', session_id: sid });
+}
+
+/**
+ * Send the hub's current UI mode to a popped-out window — the window twin of
+ * {@link sendModeToIframe}.
+ * @param {Window | null} win
+ */
+export function sendModeToWindow(win) {
+  postToWindow(win, { type: 'osprey-mode-change', mode: getMode() });
 }
 
 /**
@@ -185,9 +231,32 @@ export function sendArtifactChangedToIframe(iframe, artifactId, change, artifact
  * @returns {string}
  */
 export function buildEmbedSrc(targetUrl) {
-  const embedUrl = new URL(targetUrl, window.location.origin);
-  embedUrl.searchParams.set('embedded', 'true');
-  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
-  embedUrl.searchParams.set('mode', getMode());
-  return embedUrl.toString();
+  return stampedUrl(targetUrl, 'embedded');
+}
+
+/**
+ * Build the URL a panel pops out to: the same load-time state as
+ * {@link buildEmbedSrc} under `popout=true` instead of `embedded=true`. The
+ * page keeps its own chrome — there is no tile bar around a window — and the
+ * `popout` flag is what makes it report to the hub (frame-params.js). Never
+ * a token or a cap: a pop-out is a plain first-party page under the
+ * operator's own session.
+ * @param {string} targetUrl
+ * @returns {string}
+ */
+export function buildPopoutSrc(targetUrl) {
+  return stampedUrl(targetUrl, 'popout');
+}
+
+/**
+ * @param {string} targetUrl
+ * @param {'embedded' | 'popout'} flag
+ * @returns {string}
+ */
+function stampedUrl(targetUrl, flag) {
+  const url = new URL(targetUrl, window.location.origin);
+  url.searchParams.set(flag, 'true');
+  url.searchParams.set('theme', /** @type {string} */ (getTheme()));
+  url.searchParams.set('mode', getMode());
+  return url.toString();
 }

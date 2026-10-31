@@ -68,6 +68,7 @@ import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -830,13 +831,12 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        # The unified bar: visible title + close, no grip badge (popout stays
-        # rail-only).
+        # The unified bar: visible title + pop out + close, no grip badge.
         tab = _service_tab(page, "DATA VIZ")
         expect(tab.locator(".tile-tab-grip")).to_have_count(0)
         expect(tab.locator(".tile-tab-title")).to_have_text("DATA VIZ")
         expect(tab.locator(".tile-tab-close")).to_have_count(1)
-        expect(tab.locator(".tile-tab-popout")).to_have_count(0)
+        expect(tab.locator(".tile-tab-popout")).to_have_count(1)
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
@@ -2283,16 +2283,16 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             == content_top
         ), "tile content shifted on hover"
 
-        # A service tile carries the unified bar: visible title + close, no
-        # grip badge (popout stays a rail-entry affordance). The artifacts
-        # tile's visible title is its breadcrumb root while the crumb shows.
+        # A service tile carries the unified bar: visible title + pop out +
+        # close, no grip badge. The artifacts tile's visible title is its
+        # breadcrumb root while the crumb shows.
         ws = _service_tab(page, "Artifacts")
         expect(ws.locator(".tile-tab-grip")).to_have_count(0)
         expect(
             ws.locator(".osprey-crumb-root:visible, .tile-tab-title:visible").first
         ).to_have_text("Artifacts")
         expect(ws.locator(".tile-tab-close")).to_have_count(1)
-        expect(ws.locator(".tile-tab-popout")).to_have_count(0)
+        expect(ws.locator(".tile-tab-popout")).to_have_count(1)
 
         # Same bar height as the terminal's — one header system, one size.
         svc_h = _strip_height(page, terminal=False)
@@ -2837,12 +2837,13 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
 
 
 def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
-    """Right-clicking a healthy rail entry opens the menu with all four verbs.
+    """Right-clicking a healthy rail entry opens the menu with every verb.
 
     The popover is body-level and viewport-positioned (it has to escape the
     rail's own overflow), names the panel in its accessible name, and carries
     the verbs in words with the rail's glyphs kept as trailing decoration. The
-    membership verb is the only destructive one and is styled apart.
+    group moves sit in a section of their own, and the membership verb is the
+    only destructive one and is styled apart.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2858,14 +2859,16 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         menu = _open_rail_menu(page, "data-viz")
 
         assert _menu_labels(page) == [
-            "Focus DATA VIZ",
+            "Focus Data Viz",
             "Open in a new tile",
-            "Open in a new window",
+            "Pop out",
+            "Move to Workspace",
+            "Move to new group…",
             "Remove from rail",
         ], _menu_labels(page)
         expect(menu).to_have_attribute("role", "menu")
         expect(menu).to_have_attribute("aria-label", "DATA VIZ actions")
-        expect(menu.locator(".rail-context-divider")).to_have_count(1)
+        expect(menu.locator(".rail-context-divider")).to_have_count(2)
         expect(menu.locator(".rail-context-glyph")).to_have_count(3)
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
             re.compile(r"Remove from rail")
@@ -2914,7 +2917,7 @@ def test_rail_context_menu_keyboard_open_and_escape_restores_focus(tmp_path, chr
         # Exactly one popover, and the keyboard user lands on its first row.
         expect(_context_menu(page)).to_have_count(1, timeout=5_000)
         assert page.evaluate("() => document.activeElement?.textContent ?? ''").startswith(
-            "Focus DATA VIZ"
+            "Focus Data Viz"
         )
 
         page.keyboard.press("Escape")
@@ -2996,7 +2999,7 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
 
 
 def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
-    """The new-window row renders inert while the panel has no standalone URL.
+    """The Pop out row renders inert while the panel has no standalone URL.
 
     A panel's URL and its health arrive together at boot (one with no URL never
     polls, so it never enables), which is why the entry is force-enabled here:
@@ -3022,7 +3025,7 @@ def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromiu
         )
 
         menu = _open_rail_menu(page, "artifacts")
-        popout = _menu_row(page, "Open in a new window")
+        popout = _menu_row(page, "Pop out")
         expect(popout).to_have_attribute("aria-disabled", "true")
         # Every other row stays live — the gate is per-verb, not per-menu.
         expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(1)
@@ -3109,7 +3112,9 @@ def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
         assert _menu_labels(page) == [
             "Focus Artifacts",
             "Open in a new tile",
-            "Open in a new window",
+            "Pop out",
+            "Move to Tools",
+            "Move to new group…",
             "Remove from rail",
         ], _menu_labels(page)
 
@@ -3200,11 +3205,13 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             tab.locator(".tile-tab-title").click(button="right")
             menu = _context_menu(page)
             expect(menu).to_have_count(1, timeout=5_000)
-            expect(menu).to_have_attribute("aria-label", "SEARCHY actions")
+            expect(menu).to_have_attribute("aria-label", "Searchy actions")
             assert _menu_labels(page) == [
-                "Focus SEARCHY",
+                "Focus Searchy",
                 "Open in a new tile",
-                "Open in a new window",
+                "Pop out",
+                "Move to Workspace",
+                "Move to new group…",
                 "Remove from rail",
             ], _menu_labels(page)
 
@@ -3468,7 +3475,7 @@ def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path,
 
         # Assert - the keystrokes landed AND re-filtered the list.
         expect(_palette_input(page)).to_have_value("ariel")
-        expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
 
         page.close()
@@ -3497,19 +3504,19 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
         _open_palette(page)
         _palette_query(page, "ariel")
 
-        expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
         # The query really narrowed the list, so the absences below mean the
         # rows do not exist rather than that everything is still on screen.
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
-        expect(_palette_row(page, "Open ARIEL in a new tile")).to_have_count(0)
+        expect(_palette_row(page, "Open Ariel in a new tile")).to_have_count(0)
         # Focus is the same story as the new tile: the active panel is not
         # offered a verb that would do nothing.
-        expect(_palette_row(page, "Focus ARIEL")).to_have_count(0)
+        expect(_palette_row(page, "Focus Ariel")).to_have_count(0)
 
         # The new-tile verb itself is alive here - it just skips the active panel.
         _palette_query(page, "tile")
         expect(_palette_row(page, "Open Artifacts in a new tile")).to_have_count(1, timeout=5_000)
-        expect(_palette_row(page, "Open ARIEL in a new tile")).to_have_count(0)
+        expect(_palette_row(page, "Open Ariel in a new tile")).to_have_count(0)
 
         page.close()
 
@@ -3530,7 +3537,7 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
         _open_palette(page)
         _palette_query(page, "logbook")
 
-        expect(_palette_row(page, "Open ARIEL in a new window")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
         # A word ARIEL's own rows are the only ones carrying: Artifacts, the
         # other rail member, is filtered out entirely.
         expect(_palette_row(page, "Artifacts")).to_have_count(0)
@@ -3539,12 +3546,14 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
 
 
 def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_browser):
-    """FR8: running the popout row opens a real page on same-origin /panel/ariel.
+    """FR8: running the Pop out row opens a real page on same-origin /panel/ariel.
 
     happy-dom can only prove ``window.open`` was called with some string. What
     matters to the operator is the page that opens: the proxied, root-relative
     standalone URL resolved against the terminal's own origin - never the
-    panel's internal address, which the browser cannot reach.
+    panel's internal address, which the browser cannot reach - carrying the
+    pop-out params (``popout=true``, the theme and the mode) and never
+    ``embedded``, so the page keeps its own chrome and reports to the hub.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3554,15 +3563,20 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
         _wait_for_ariel_ready(page)
         _open_palette(page)
         _palette_query(page, "ariel window")
-        row = _palette_row(page, "Open ARIEL in a new window")
+        row = _palette_row(page, "Pop out Ariel")
         expect(row).to_have_count(1, timeout=5_000)
 
         with page.context.expect_page() as popup_info:
             row.click()
         popup = popup_info.value
-        popup.wait_for_url(re.compile(r"/panel/ariel$"), timeout=10_000)
+        popup.wait_for_url(re.compile(r"/panel/ariel\?.*popout=true"), timeout=10_000)
 
-        assert popup.url == f"{base_url}/panel/ariel", popup.url
+        opened = urlsplit(popup.url)
+        query = parse_qs(opened.query)
+        assert f"{opened.scheme}://{opened.netloc}{opened.path}" == f"{base_url}/panel/ariel"
+        assert query.get("popout") == ["true"], popup.url
+        assert "embedded" not in query, popup.url
+        assert "theme" in query and "mode" in query, popup.url
 
         popup.close()
         page.close()

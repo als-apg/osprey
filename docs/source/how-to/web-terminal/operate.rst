@@ -51,7 +51,8 @@ The window has a sidebar on the left and two panes:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
   **Workspace** and **Tools** sections, and a footer with **Docs**,
-  **Feedback** (see :doc:`send-feedback`) and **☰ More**. See
+  **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
+  deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
 - **Agent** (right) — a real terminal running the OSPREY agent in Expert view,
   or the operator chat in Simple view. It survives reconnects, and you can
@@ -171,9 +172,15 @@ The control-target chip
 
 The sidebar carries a block that answers, at a glance, the question every write
 depends on: *if the agent writes now, which machine does it land on, and may
-it?* It reads like this::
+it?* It is one row: an icon with the machine's dot, the machine's name, the
+write state, a dot for the health of the deployment's services, and an arrow.
+It reads like this::
 
-   ● Rehearsal · writes on ▾
+   ⌖ Rehearsal  writes on  •  ⇕
+
+Put the pointer on the block to see the same facts as one sentence, for
+example *Control system: Rehearsal, writes on*. Put the pointer on the small
+health dot to see the health of the services.
 
 The first part names the machine this deployment stands on, by what it **is**:
 
@@ -202,8 +209,11 @@ the next write would get:
 A switch is one login's. Two logins on the same machine each have their own,
 and one login's on or off never changes the other's writes.
 
-Click the chip and a popover opens on **every** control target the deployment
-configures, not only the one you are standing on.
+Click the chip and a popover opens next to the sidebar on **every** control
+target the deployment configures, not only the one you are standing on. A
+click outside the popover, Escape, or a change of the window or sidebar width
+closes it. When a confirm dialog is open over the popover, the first Escape
+closes only the dialog.
 
 The machine you are on, and the others
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -413,27 +423,70 @@ The sidebar
 The sidebar is on the left in both views. From top to bottom, it shows:
 
 - The OSPREY mark and the label toggle.
-- The control-target block. It shows the machine that this deployment writes
-  to, and if the agent can write to it. Click the block to open the
+- The control-target block. It is one row that shows the machine that this
+  deployment writes to, if the agent can write to it, and the health of the
+  services. Click the block to open the
   :ref:`control-target popover <web-terminal-session-posture>`.
 - **Search**. It opens the command palette. The shortcut is ⌘K on macOS and
   Ctrl+K on other systems.
-- The **Workspace** section:
+- The groups of panel rows. At first there are two, **Workspace** and
+  **Tools**:
 
-  - **Agent** opens the agent pane, or moves the focus to it. When the pane is
-    closed, the row shows a hollow dot. When the agent waits for your answer,
-    the row shows the number of open questions.
-  - **Artifacts** opens the work pane and lists the artifacts of the agent.
-    Click a row to show that artifact in the work pane.
-  - **Script runs** lists the run records.
-  - **Events** shows only when the deployment enables the events panel.
+  - **Workspace** starts with these rows:
 
-- The **Tools** section: all other panels that this deployment enables, in
-  your order, then **+ Add panel**. See :doc:`panels`.
-- The footer: **Docs**, **Feedback** and **☰ More**.
+    - **Agent** opens the agent pane, or moves the focus to it. When the pane
+      is closed, the row shows a hollow dot. When the agent waits for your
+      answer, the row shows the number of open questions. **Agent** is always
+      the first row of the first group.
+    - **Artifacts** opens the work pane and lists the artifacts of the agent.
+      Click a row to show that artifact in the work pane.
+    - **Script runs** lists the run records. It is always below **Artifacts**.
+    - **Events** shows only when the deployment enables the events panel.
 
-When the window is short, only the Workspace section scrolls. The Tools
-section and the footer always stay on the screen.
+  - **Tools** starts with all other panels that this deployment enables.
+
+  In each group, the rows are in your order. **+ Add panel** is always the
+  last row of the last group. See :doc:`panels`.
+- The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
+  out** shows only on a multi-user deployment. See
+  :ref:`web-terminal-sign-out`.
+
+When the window is short, only the group that holds **Artifacts** and
+**Script runs** scrolls. The other groups and the footer always stay on the
+screen.
+
+.. _web-terminal-sidebar-groups:
+
+Arrange the groups
+~~~~~~~~~~~~~~~~~~
+
+You can rename the groups, add your own groups, and move rows between them.
+
+To change a group, put the pointer on its name and click **⋯**. The menu has
+these items:
+
+- **Rename**. Type the new name and press Enter. Press Escape to keep the old
+  name. A name can have up to 40 characters. An empty name keeps the old one.
+- **New group below**. This adds an empty group below this group and opens
+  its name for editing.
+- **Move up** and **Move down**. These move the group in the sidebar.
+- **Delete group**. This item shows only for a group that you added. The
+  rows of the group go back to **Tools**. You cannot delete **Workspace** or
+  **Tools**, but you can rename them.
+
+To move a row to a different group, do one of these:
+
+- Right-click the row and pick **Move to** and the name of the group. Pick
+  **Move to new group…** to put the row in a new group below its current
+  group. Then type the name of the new group.
+- Drag the row into the other group. Release it where it must go.
+
+You can move each row except **Agent**. **Script runs** moves with
+**Artifacts**. A group without rows shows "No panels — move one here from a
+row's menu".
+
+Your groups are kept in this browser, for your user only. They do not change
+the sidebar of other users.
 
 Hide the labels
 ~~~~~~~~~~~~~~~
@@ -450,19 +503,81 @@ or press the same keys.
    to the sidebar. In the terminal, Ctrl+\\ sends SIGQUIT to the running
    program. To hide or show the labels in this state, click the toggle.
 
+.. _web-terminal-pop-out:
+
+Pop a pane out
+~~~~~~~~~~~~~~
+
+You can move a panel out of the workspace into its own browser window. This
+works for each service panel, Artifacts included. The agent pane stays in the
+workspace.
+
+To pop a panel out, do one of these:
+
+- Click the **Pop out** button in the header of its tile, left of the close
+  button.
+- Right-click its row in the sidebar and pick **Pop out**.
+- Open the command palette and run **Pop out <panel>**.
+
+The panel opens in a new window the size of its tile. Its tile leaves the
+workspace, and its sidebar row shows a window glyph. The window follows the
+theme, the view and the session of the terminal. The agent can still show you
+the panel: a focus from the agent brings the window to the front.
+
+While the panel is popped out:
+
+- A click on its sidebar row brings the window to the front.
+- Its row menu offers **Bring back** in place of **Pop out**.
+- A layout change in the workspace does not open a tile for it.
+
+To bring the panel back, close the window, or pick **Bring back** from its
+row menu. The tile returns next to the active tile.
+
+When you reload the terminal, the open windows stay open and connect to the
+reloaded page again. When you close the terminal tab, the windows stay open
+as normal pages, and they no longer follow the terminal.
+
+.. note::
+
+   If the browser blocks pop-ups for this site, the terminal shows
+   *Pop-ups are blocked for this site.* and the tile stays. Allow pop-ups for
+   the site in the browser, then try again.
+
+   A panel that runs at an opaque origin (a page the agent wrote) cannot be
+   popped out. Its **Pop out** button and row are disabled.
+
 The More menu
 ~~~~~~~~~~~~~
 
 **☰ More** shows your user name and role at the top. It holds the **View**
-(**Simple** or **Expert**), the theme (see :doc:`theming`), **Settings**, the
-tour and **Sign out**. The same items are in both views.
+(**Simple** or **Expert**), the theme (see :doc:`theming`), **Settings** and
+the tour. The same items are in both views.
+
+.. _web-terminal-sign-out:
+
+Sign out
+~~~~~~~~
+
+On a multi-user deployment, the sidebar footer has a **Sign out** row above
+**☰ More**. To sign out:
+
+1. Click **Sign out**. You can also click the OSPREY mark at the top of the
+   sidebar, or pick **Log out** in the command palette.
+2. Read the dialog. It asks *Sign out of OSPREY?* and tells you that your
+   terminal and agent sessions end, and that the agent stops what it does.
+3. Click **Sign out** to sign out. Click **Cancel** or press Escape to stay.
+
+When you sign out, the browser goes to the landing page of the deployment. A
+deployment for one user has no **Sign out** row, and the OSPREY mark goes to
+the start page.
 
 Where your preferences live
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The browser remembers the theme, the view (Expert or Simple), the sidebar
-labels, the open lists in the sidebar, and the panel layout. A different
-browser or a different machine starts from the defaults of the deployment.
+labels, the open lists in the sidebar, the sidebar groups, and the panel
+layout. A different browser or a different machine starts from the defaults
+of the deployment.
 The browser keeps one panel layout for each view: Simple starts from one panel
 next to the console, and Expert starts from the full workspace.
 

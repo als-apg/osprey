@@ -50,7 +50,11 @@
     toggle: document.getElementById('ref-sidebar-toggle'),
     controls: 'ref-sidebar',
   });
-  initTooltips(document.getElementById('ref-sidebar'), { when: () => region.isCollapsed() });
+  // The page's tooltips: an expanded specimen sidebar row shows only its
+  // explanation, everything else a label over its explanation.
+  initTooltips(document.body, {
+    mode: (el) => (el.closest('#ref-sidebar') && !region.isCollapsed() ? 'detail' : 'label+detail'),
+  });
 </script>
 
 <style>
@@ -262,10 +266,10 @@
             <kbd class="osprey-kbd">⌘K</kbd>
           </label>
           <div class="osprey-section-label">Workspace</div>
-          <button class="osprey-nav-row" type="button" data-tip="Agent" aria-label="Agent">
+          <button class="osprey-nav-row" type="button" data-tip="Agent" data-tip-detail="Chat with the agent, approve its actions and run commands" aria-label="Agent">
             <span data-icon="agent" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Agent</span><span class="osprey-dot ok"></span>
           </button>
-          <button class="osprey-nav-row parent" type="button" aria-current="page" aria-expanded="true" data-tip="Artifacts" aria-label="Artifacts">
+          <button class="osprey-nav-row parent" type="button" aria-current="page" aria-expanded="true" data-tip="Artifacts" data-tip-detail="Files, plots and notebooks the agent produced" aria-label="Artifacts">
             <span data-icon="layers" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Artifacts</span><span class="osprey-nav-badge">2</span><span data-icon="chevron-right" data-icon-class="osprey-nav-disc"></span>
           </button>
           <div class="ref-kids" role="listbox" aria-label="Artifacts">
@@ -275,7 +279,7 @@
             <button class="osprey-list-row" type="button" role="option" aria-selected="false"><span data-icon="chart-line"></span><span class="osprey-list-title">Damped betatron oscillation</span><time>02:31</time></button>
           </div>
           <div class="osprey-section-label">Tools</div>
-          <button class="osprey-nav-row" type="button" data-tip="Jupyter" aria-label="Jupyter">
+          <button class="osprey-nav-row" type="button" data-tip="Jupyter" data-tip-detail="JupyterLab with kernels that follow the terminal session" aria-label="Jupyter">
             <span data-icon="notebook" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Jupyter</span>
           </button>
           <button class="osprey-nav-row add" type="button" data-tip="Add panel" aria-label="Add panel">
@@ -289,9 +293,9 @@
               <span class="osprey-crumb-sep"><span data-icon="chevron-right"></span></span>
               <span class="osprey-crumb-leaf">SR lattice betatron tunes</span>
             </div>
-            <button class="osprey-icon-btn" type="button" aria-label="Previous artifact" disabled><span data-icon="chevron-left"></span></button>
+            <button class="osprey-icon-btn" type="button" aria-label="Previous artifact" title="Previous artifact" data-tip-place="below" disabled><span data-icon="chevron-left"></span></button>
             <span class="osprey-count">1</span>
-            <button class="osprey-icon-btn" type="button" aria-label="Next artifact"><span data-icon="chevron-right"></span></button>
+            <button class="osprey-icon-btn" type="button" aria-label="Next artifact" title="Next artifact" data-tip-detail="Open the next artifact in the list" data-tip-place="below"><span data-icon="chevron-right"></span></button>
             <span class="osprey-head-sep"></span>
             <button class="osprey-btn primary" type="button"><span data-icon="maximize"></span><span class="osprey-btn-label">Open full size</span></button>
             <button class="osprey-btn" type="button"><span data-icon="save"></span><span class="osprey-btn-label">Save</span></button>

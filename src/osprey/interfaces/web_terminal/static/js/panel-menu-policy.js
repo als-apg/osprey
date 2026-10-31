@@ -55,6 +55,15 @@ import { startNewSession } from './sessions.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry, entryIds } from './panel-rail.js';
 import { showUndoNotice } from './undo-notice.js';
+import { bringBackPanel, canPopOut, focusPopout, isPoppedOut, popOutPanel } from './popout.js';
+import {
+  NEW_GROUP_LABEL,
+  addGroup,
+  groupOf,
+  loadGroups,
+  moveToGroup,
+  startGroupRename,
+} from './sidebar-groups.js';
 
 /**
  * The panel-manager state and actions this module's closures act through. Every
@@ -68,8 +77,6 @@ import { showUndoNotice } from './undo-notice.js';
  * @property {(id: string) => void} showPanel - reveal a NON-member through the visibility POST path
  * @property {(id: string) => void} retireTile - vacate a surfaced tile LOCALLY (membership survives)
  * @property {(id: string) => string} labelOf - the panel's catalog label
- * @property {(id: string) => string | null} getPanelStandaloneUrl - null until the config fetch resolves
- * @property {(id: string) => void} popoutPanel - open the standalone url in a new browser tab
  * @property {(id: string) => void} retryStart - start a failed sidecar panel again
  */
 
@@ -120,6 +127,12 @@ export function railOptions() {
         ctx().retryStart(id);
         return;
       }
+      // A popped-out panel's row brings its window to the front; the tile
+      // stays concealed until the window closes.
+      if (isPoppedOut(id)) {
+        focusPopout(id);
+        return;
+      }
       // Clicking the row whose tile is ALREADY surfaced retires that tile — a
       // toggle shortcut equivalent to the tile header's own "×". It stays a
       // LOCAL layout change: membership survives, so a second click brings
@@ -148,12 +161,12 @@ export function railOptions() {
     onDragStart: (/** @type {string} */ id, /** @type {DataTransfer | null} */ dt) =>
       id === TERMINAL_RAIL_ID || isFailed(id) ? false : railDragStart(id, dt),
     onDragEnd: () => railDragEnd(),
-    // The same drag, dropped among the Tools rows instead of the workspace,
-    // reorders them. The Workspace rows keep their places.
+    // The same drag, dropped among the sidebar's rows instead of the
+    // workspace, reorders them within a group, or moves the row into another
+    // group first (panel-rail.js). The Agent row keeps its place.
     onReorder: (/** @type {string} */ id, /** @type {string | null} */ before) => {
       void setRailOrder(id, before);
     },
-    reorderable: (/** @type {string} */ id) => id !== TERMINAL_RAIL_ID,
   };
 }
 
@@ -347,21 +360,29 @@ export function setServiceMenuExtras(panelId, fn) {
  * the panel's tile header so the two surfaces cannot drift apart, and followed
  * by the rows registered through {@link setServiceMenuExtras}.
  *
- * Policy carried over from the retired corner glyphs: "Open in a new window"
- * stays inert until the panel's standalone URL resolves. The rows are the same
- * in both ui views.
+ * "Pop out" stays inert until the panel can open in a window of its own: its
+ * standalone URL has resolved, and it is not an opaque-origin panel. A
+ * popped-out panel offers "Bring back" in its place and no "Open in a new
+ * tile", because the panel has no tile while its window is open. The rows
+ * are the same in both ui views.
+ *
+ * A member's rows also move its sidebar row between the sidebar's groups:
+ * "Move to <group>" for every other group, then "Move to new group…".
  *
  * Only a tile header can belong to a panel that is NOT a rail member — a tile
  * an agent's focus opened off the rail. Its rows keep it
- * there: Focus and the move to a new tile act on the tile alone, and the
- * membership row is "Pin to rail", which adds it where any new member goes.
+ * there: Focus and the move to a new tile act on the tile alone, the
+ * membership row is "Pin to rail", which adds it where any new member goes,
+ * and there is no sidebar row to move.
  * @param {string} id
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildServiceMenuItems(id) {
   const label = ctx().labelOf(id);
   const member = ctx().isMember(id);
+  const popped = isPoppedOut(id);
   const extras = serviceMenuExtras.get(id)?.() ?? [];
+  const newTile = { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) };
   return [
     // Focus is the ACTIVATION half of the row click only. A click on the row
     // whose tile is already surfaced retires that tile; a row that says
@@ -369,13 +390,17 @@ export function buildServiceMenuItems(id) {
     // does, so on the already-active panel this row is deliberately a no-op.
     // Off the rail it is focused without the report a member's focus sends.
     { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
-    { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) },
-    {
-      label: 'Open in a new window',
-      glyph: '↗',
-      disabled: ctx().getPanelStandaloneUrl(id) === null,
-      run: () => ctx().popoutPanel(id),
-    },
+    ...(popped ? [] : [newTile]),
+    popped
+      ? { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(id) }
+      : {
+          label: 'Pop out',
+          glyph: '↗',
+          // False until the config resolves a URL, and for an opaque-origin panel.
+          disabled: !canPopOut(id),
+          run: () => popOutPanel(id),
+        },
+    ...(member ? groupMoveItems(id) : []),
     { divider: true },
     // The one server-side membership change in the menu.
     member
@@ -395,6 +420,38 @@ export function buildServiceMenuItems(id) {
         },
     ...(extras.length ? [{ divider: true }, ...extras] : []),
   ];
+}
+
+/**
+ * The rows that move a member's sidebar row to another group, under a
+ * divider: "Move to <group>" for every group but its own, in sidebar order,
+ * then "Move to new group…".
+ * @param {string} id
+ * @returns {import('./panel-context-menu.js').MenuItem[]}
+ */
+function groupMoveItems(id) {
+  const here = groupOf(id);
+  const others = loadGroups().groups.filter((group) => group.id !== here);
+  return [
+    { divider: true },
+    ...others.map((group) => ({
+      label: `Move to ${group.label}`,
+      run: () => moveToGroup(id, group.id),
+    })),
+    { label: 'Move to new group…', run: () => moveToNewGroup(id) },
+  ];
+}
+
+/**
+ * Make a group directly after the row's own, move the row into it, and open
+ * the new group's name for editing, so the operator names the group with the
+ * row already in it.
+ * @param {string} id
+ */
+function moveToNewGroup(id) {
+  const created = addGroup(NEW_GROUP_LABEL, groupOf(id));
+  moveToGroup(id, created);
+  startGroupRename(ctx().getRailEl(), created);
 }
 
 /**

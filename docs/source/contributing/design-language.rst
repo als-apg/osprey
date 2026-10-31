@@ -152,8 +152,10 @@ Load it after ``base.css``. Their behaviour is in five modules in
      - Menus and flyouts. ``openPopover()`` places a popover beside the
        sidebar or under its opener.
    * - ``.osprey-tooltip``, ``tooltip.js``
-     - One tooltip layer for the whole page. The shell shows it only while the
-       sidebar is collapsed.
+     - One tooltip layer for the whole page. It shows a label and a one-line
+       explanation (``data-tip``, ``title``, ``data-tip-detail``) 450 ms after
+       the pointer arrives. A sidebar row that shows its label gets only the
+       explanation.
    * - ``collapsible.js``, ``sidebar-boot.js``
      - The collapse state, its storage, and the pre-paint stamp.
    * - ``icons.js``

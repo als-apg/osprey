@@ -4,8 +4,9 @@
  *   npx vitest run tests/interfaces/web_terminal/panel-rail.test.mjs
  *
  * panel-rail.js is a pure DOM module: it places the sidebar's panel rows in
- * two groups (Workspace and Tools) and exposes imperative mutators (active /
- * enabled / attention / non-destructive append, place & remove) that
+ * the operator's groups (sidebar-groups.js: Workspace and Tools until the
+ * operator changes them) and exposes imperative mutators (active / enabled /
+ * attention / popped out / non-destructive append, place & remove) that
  * panel-manager's state machine drives. These tests pin that DOM contract —
  * selectors, data-* attributes, class hooks, callback wiring — the same
  * contract the Playwright browser suite selects on.
@@ -20,7 +21,9 @@
  *
  * Two fixtures: a bare element (no skeleton, so the module builds the groups
  * and plain rows itself) and the `#panel-rail` subtree sliced verbatim out of
- * the shipped index.html (page-owned rows adopted, never rebuilt).
+ * the shipped index.html (page-owned rows adopted, never rebuilt). The groups
+ * model is the real one, kept in this test's localStorage, which is cleared
+ * before every test.
  *
  * Imported by RELATIVE path — this module lives under web_terminal; the
  * design-system glyphs come through the /design-system/js/* alias. The
@@ -43,11 +46,16 @@ import {
   setEntryEnabled,
   setEntryAttention,
   setEntryStatus,
-  setEntryReachable,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
+import {
+  addGroup,
+  groupOf,
+  moveToGroup,
+  removeGroup,
+  renameGroup,
+  reorderGroup,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/sidebar-groups.js';
 import { icon } from '/design-system/js/icons.js';
-import { hideTooltip, initTooltips } from '/design-system/js/tooltip.js';
-import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const STATIC_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static');
 const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
@@ -106,13 +114,26 @@ function group(rail, name) {
   );
 }
 
-/** The direct children of a group, by id / data-panel-id / heading.
+/** The direct children of a group, by heading / id / data-panel-id; the
+ *  empty line reads `empty` while it shows and is left out while hidden.
  *  @param {HTMLElement} groupEl @returns {string[]} */
 function childKeys(groupEl) {
-  return [...groupEl.children].map((el) =>
-    el.classList.contains('osprey-section-label')
-      ? `label:${el.textContent}`
-      : el.id || String(el.getAttribute('data-panel-id'))
+  return [...groupEl.children].flatMap((el) => {
+    if (el.classList.contains('osprey-section-label')) {
+      return [`label:${el.querySelector('.sidebar-group-name')?.textContent}`];
+    }
+    if (el.hasAttribute('data-group-empty')) {
+      return /** @type {HTMLElement} */ (el).hidden ? [] : ['empty'];
+    }
+    return [el.id || String(el.getAttribute('data-panel-id'))];
+  });
+}
+
+/** The group ids of a rail, top to bottom.
+ *  @param {HTMLElement} rail @returns {(string | null)[]} */
+function groupOrder(rail) {
+  return [...rail.querySelectorAll(':scope > .sidebar-group')].map((g) =>
+    g.getAttribute('data-group')
   );
 }
 
@@ -133,6 +154,12 @@ function countRenders() {
   return seen;
 }
 
+// The groups live in this browser's storage; every test starts from the
+// default Workspace and Tools.
+beforeEach(() => {
+  localStorage.clear();
+});
+
 describe('createRail', () => {
   /** @type {HTMLElement} */
   let rail;
@@ -145,7 +172,7 @@ describe('createRail', () => {
     expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder']);
   });
 
-  test('marks the container as a list of two labelled groups', () => {
+  test('marks the container as a list of labelled groups, the built-in two by default', () => {
     createRail(rail, PANELS);
     expect(rail.getAttribute('role')).toBe('list');
     const groups = [...rail.children];
@@ -153,14 +180,19 @@ describe('createRail', () => {
     for (const g of groups) {
       expect(g.classList.contains('sidebar-group')).toBe(true);
       expect(g.getAttribute('role')).toBe('listitem');
-      const label = /** @type {HTMLElement} */ (g.firstElementChild);
-      expect(label.classList.contains('osprey-section-label')).toBe(true);
-      expect(g.getAttribute('aria-labelledby')).toBe(label.id);
+      const heading = /** @type {HTMLElement} */ (g.firstElementChild);
+      expect(heading.classList.contains('osprey-section-label')).toBe(true);
+      const name = /** @type {HTMLElement} */ (heading.querySelector('.sidebar-group-name'));
+      expect(g.getAttribute('aria-labelledby')).toBe(name.id);
+      expect(heading.querySelector('button.osprey-mini[data-group-menu]')).not.toBeNull();
     }
-    expect(groups.map((g) => g.firstElementChild?.textContent)).toEqual(['Workspace', 'Tools']);
+    expect(groups.map((g) => g.querySelector('.sidebar-group-name')?.textContent)).toEqual([
+      'Workspace',
+      'Tools',
+    ]);
   });
 
-  test('a Workspace panel sits under Workspace, every other one under Tools', () => {
+  test('Artifacts sits under Workspace and every other panel under Tools until moved', () => {
     createRail(rail, PANELS);
     expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'artifacts']);
     expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'channel-finder']);
@@ -214,6 +246,15 @@ describe('createRail', () => {
     expect(entry.getAttribute('title')).toBe('Ariel · right-click for actions');
     expect(entry.getAttribute('aria-label')).toBe('Ariel');
     expect(entry.dataset.tip).toBe('Ariel');
+  });
+
+  test("a row's tooltip detail is the panel's sentence; a custom panel has none", () => {
+    createRail(rail, [
+      { id: 'ariel', label: 'Ariel' },
+      { id: 'my-dashboard', label: 'My dashboard' },
+    ]);
+    expect(row(rail, 'ariel').dataset.tipDetail).toBe('Search the electronic logbook');
+    expect(row(rail, 'my-dashboard').hasAttribute('data-tip-detail')).toBe(false);
   });
 
   test('label is set via textContent (no HTML injection)', () => {
@@ -285,17 +326,31 @@ describe('page-owned rows', () => {
       expect(el).not.toBeNull();
     }
     expect(agentRow.getAttribute('data-panel-id')).toBe('terminal');
-    expect(group(rail, 'workspace').id).toBe('sidebar-workspace');
+    expect(groupOrder(rail)).toEqual(['workspace', 'tools']);
   });
 
-  test('Workspace keeps its fixed order and Tools follows the rail order, then + Add panel', () => {
+  test('the shipped groups and headings are adopted, never rebuilt', () => {
+    const workspace = group(rail, 'workspace');
+    const heading = /** @type {HTMLElement} */ (workspace.firstElementChild);
+    createRail(rail, ALL);
+    renameGroup('workspace', 'Operations');
+
+    expect(group(rail, 'workspace')).toBe(workspace);
+    expect(workspace.firstElementChild).toBe(heading);
+    const name = /** @type {HTMLElement} */ (heading.querySelector('.sidebar-group-name'));
+    expect(name.id).toBe('sidebar-workspace-label');
+    expect(name.textContent).toBe('Operations');
+    expect(workspace.getAttribute('aria-labelledby')).toBe('sidebar-workspace-label');
+  });
+
+  test('the Agent row leads the first group, and each group keeps the rail order', () => {
     createRail(rail, ALL);
     expect(childKeys(group(rail, 'workspace'))).toEqual([
       'label:Workspace',
       'sidebar-agent-row',
+      'events',
       'sidebar-artifacts-row',
       'sidebar-runs-row',
-      'events',
     ]);
     expect(childKeys(group(rail, 'tools'))).toEqual([
       'label:Tools',
@@ -303,7 +358,57 @@ describe('page-owned rows', () => {
       'lattice',
       'panel-add-btn',
     ]);
-    expect(entryIds(rail)).toEqual(['terminal', 'artifacts', 'events', 'ariel', 'lattice']);
+    expect(entryIds(rail)).toEqual(['terminal', 'events', 'artifacts', 'ariel', 'lattice']);
+  });
+
+  test('the Artifacts row moves to another group as the same node, Script runs with it', () => {
+    const kids = document.getElementById('sidebar-artifacts-kids');
+    createRail(rail, ALL);
+    setActive(rail, 'artifacts');
+
+    moveToGroup('artifacts', 'tools');
+
+    expect(childKeys(group(rail, 'workspace'))).toEqual([
+      'label:Workspace',
+      'sidebar-agent-row',
+      'events',
+    ]);
+    expect(childKeys(group(rail, 'tools'))).toEqual([
+      'label:Tools',
+      'ariel',
+      'lattice',
+      'sidebar-artifacts-row',
+      'sidebar-runs-row',
+      'panel-add-btn',
+    ]);
+    expect(getEntry(rail, 'artifacts')).toBe(artifactsButton);
+    expect(document.getElementById('sidebar-artifacts-kids')).toBe(kids);
+    expect(artifactsButton.classList.contains('active')).toBe(true);
+  });
+
+  test('+ Add panel closes the last group, whichever group that is', () => {
+    createRail(rail, ALL);
+    const id = addGroup('Beamline');
+    expect(childKeys(group(rail, id))).toEqual(['label:Beamline', 'empty', 'panel-add-btn']);
+
+    reorderGroup('workspace', 'down');
+    reorderGroup('workspace', 'down');
+    expect(groupOrder(rail)).toEqual(['tools', id, 'workspace']);
+    expect(group(rail, 'workspace').lastElementChild).toBe(addButton);
+  });
+
+  test('a group whose rows are all parked shows its empty line', () => {
+    createRail(rail, [{ id: 'ariel', label: 'Ariel' }]);
+    // The parked rows stay in their group, hidden, so it reads as empty.
+    expect(childKeys(group(rail, 'workspace'))).toEqual([
+      'label:Workspace',
+      'empty',
+      'sidebar-agent-row',
+      'sidebar-artifacts-row',
+      'sidebar-runs-row',
+    ]);
+    expect([agentRow, artifactsRow, runsRow].every((el) => el.hidden)).toBe(true);
+    expect(childKeys(group(rail, 'tools'))).toEqual(['label:Tools', 'ariel', 'panel-add-btn']);
   });
 
   test('the page-owned nodes are adopted, never rebuilt, across renders', () => {
@@ -409,7 +514,7 @@ describe('page-owned rows', () => {
     ]);
   });
 
-  test('a built Workspace row added at runtime takes its fixed place', () => {
+  test('a built row added at runtime joins the foot of its group', () => {
     createRail(rail, [
       { id: 'terminal', label: 'Agent' },
       { id: 'artifacts', label: 'Artifacts' },
@@ -447,6 +552,121 @@ describe('page-owned rows', () => {
     setEntryStatus(rail, 'terminal', { failed: false, message: null });
     expect(agentRow.title).toBe('Agent · right-click for actions');
     expect(agentRow.hasAttribute('data-title-base')).toBe(false);
+  });
+});
+
+/**
+ * The groups come from the operator's model (sidebar-groups.js). A change to
+ * the model moves the rows at once — the same nodes, with their live state —
+ * and announces a render, so the modules that fill the page-owned rows follow.
+ */
+describe('groups', () => {
+  const ROWS = [
+    { id: 'terminal', label: 'Agent' },
+    { id: 'artifacts', label: 'Artifacts' },
+    { id: 'ariel', label: 'Ariel' },
+    { id: 'events', label: 'Events' },
+    { id: 'lattice', label: 'Lattice' },
+    { id: 'okf', label: 'Knowledge' },
+  ];
+  /** @type {HTMLElement} */
+  let rail;
+  beforeEach(() => {
+    rail = freshRail();
+  });
+
+  test('the groups render in the model order, a group of the operator’s own among them', () => {
+    const id = addGroup('Beamline', 'workspace');
+    renameGroup('tools', 'Instruments');
+    createRail(rail, ROWS);
+
+    expect(groupOrder(rail)).toEqual(['workspace', id, 'tools']);
+    expect(childKeys(group(rail, id))).toEqual(['label:Beamline', 'empty']);
+    expect(childKeys(group(rail, 'tools'))).toEqual([
+      'label:Instruments',
+      'ariel',
+      'lattice',
+      'okf',
+    ]);
+  });
+
+  test('a moved row joins its new group in rail order, as the same node with its state', () => {
+    createRail(rail, ROWS);
+    const okf = row(rail, 'okf');
+    setActive(rail, 'okf');
+    setEntryEnabled(rail, 'okf', true);
+    const renders = countRenders();
+
+    moveToGroup('okf', 'workspace');
+    moveToGroup('ariel', 'workspace');
+    renders.stop();
+
+    expect(childKeys(group(rail, 'workspace'))).toEqual([
+      'label:Workspace',
+      'terminal',
+      'artifacts',
+      'ariel',
+      'events',
+      'okf',
+    ]);
+    expect(row(rail, 'okf')).toBe(okf);
+    expect(okf.classList.contains('active')).toBe(true);
+    expect(okf.classList.contains('disabled')).toBe(false);
+    expect(renders.count).toBe(2);
+  });
+
+  test('a group that loses its last row shows its empty line, and hides it again', () => {
+    const id = addGroup('Beamline');
+    createRail(rail, ROWS);
+    moveToGroup('lattice', id);
+    expect(childKeys(group(rail, id))).toEqual(['label:Beamline', 'lattice']);
+
+    moveToGroup('lattice', 'tools');
+    expect(childKeys(group(rail, id))).toEqual(['label:Beamline', 'empty']);
+    const line = /** @type {HTMLElement} */ (group(rail, id).querySelector('[data-group-empty]'));
+    expect(line.classList.contains('osprey-list-empty')).toBe(true);
+    expect(line.textContent).toBe("No panels — move one here from a row's menu");
+  });
+
+  test('the Agent row stays first in whichever group is first', () => {
+    createRail(rail, ROWS);
+    reorderGroup('tools', 'up');
+
+    expect(groupOrder(rail)).toEqual(['tools', 'workspace']);
+    expect(childKeys(group(rail, 'tools'))).toEqual([
+      'label:Tools',
+      'terminal',
+      'ariel',
+      'lattice',
+      'okf',
+    ]);
+    expect(childKeys(group(rail, 'workspace'))).toEqual(['label:Workspace', 'artifacts', 'events']);
+    expect(entryIds(rail)[0]).toBe('terminal');
+  });
+
+  test('a deleted group gives its rows back to Tools and leaves the rail', () => {
+    const id = addGroup('Beamline');
+    createRail(rail, ROWS);
+    moveToGroup('artifacts', id);
+    moveToGroup('lattice', id);
+
+    removeGroup(id);
+
+    expect(groupOrder(rail)).toEqual(['workspace', 'tools']);
+    expect(childKeys(group(rail, 'tools'))).toEqual([
+      'label:Tools',
+      'artifacts',
+      'ariel',
+      'lattice',
+      'okf',
+    ]);
+  });
+
+  test('a rail no longer in the document stops following the groups', () => {
+    createRail(rail, ROWS);
+    rail.remove();
+    moveToGroup('ariel', 'workspace');
+    expect(group(rail, 'tools').contains(getEntry(rail, 'ariel'))).toBe(true);
   });
 });
 
@@ -704,11 +924,12 @@ describe('drag from the sidebar (onDragStart / onDragEnd)', () => {
 });
 
 /**
- * Reordering moves Tools rows among themselves, vertically. Workspace rows
- * keep the sidebar's fixed order: they are neither dragged nor targets, and a
- * Tools row the caller marks fixed (`reorderable` false) is neither either.
+ * A row dragged within the sidebar reorders its group, or moves to another
+ * group and takes its place there. The Agent row is pinned: it is neither
+ * dragged nor a target, and a row the caller marks fixed (`reorderable`
+ * false) is neither either.
  */
-describe('reorder among the Tools rows (onReorder)', () => {
+describe('reorder and move by drag (onReorder)', () => {
   const ROW = [
     { id: 'terminal', label: 'Agent' },
     { id: 'artifacts', label: 'Artifacts' },
@@ -721,6 +942,29 @@ describe('reorder among the Tools rows (onReorder)', () => {
   let rail;
   /** @type {[string, string | null][]} */
   let moves;
+
+  /**
+   * happy-dom has no layout: stack every heading (24 px) and every row in
+   * view (40 px) top to bottom, in DOM order. Every row shares one column,
+   * so x never decides anything. With the default groups that puts the
+   * Workspace heading at 0, the Agent row at 24, Artifacts at 64, the Tools
+   * heading at 104, then ariel 128, channel-finder 168, lattice 208 and
+   * okf 248.
+   */
+  function layOut() {
+    let top = 0;
+    for (const g of rail.querySelectorAll(':scope > .sidebar-group')) {
+      for (const el of g.children) {
+        const node = /** @type {HTMLElement} */ (el);
+        if (node.hidden) continue;
+        const height = node.classList.contains('osprey-section-label') ? 24 : 40;
+        const rect = /** @type {DOMRect} */ ({ top, height, left: 0, width: 200 });
+        node.getBoundingClientRect = () => rect;
+        top += height;
+      }
+    }
+  }
+
   beforeEach(() => {
     rail = freshRail();
     moves = [];
@@ -729,13 +973,7 @@ describe('reorder among the Tools rows (onReorder)', () => {
       onReorder: (id, before) => moves.push([id, before]),
       reorderable: (id) => id !== 'okf',
     });
-    // happy-dom has no layout: stack the rows 40px apart, top to bottom —
-    // terminal 0, artifacts 40, ariel 80, channel-finder 120, lattice 160,
-    // okf 200. Every row shares one column, so x never decides anything.
-    ROW.forEach(({ id }, i) => {
-      row(rail, id).getBoundingClientRect = () =>
-        /** @type {DOMRect} */ ({ top: i * 40, height: 40, left: 0, width: 200 });
-    });
+    layOut();
   });
 
   /** @param {string} type @param {number} y  pointer height over the sidebar */
@@ -762,71 +1000,105 @@ describe('reorder among the Tools rows (onReorder)', () => {
     ]);
   }
 
-  test('dropping above a Tools row moves the dragged one above it', () => {
+  test('dropping above a row of its own group moves the dragged one above it', () => {
     grab('lattice');
-    const over = pointerEvent('dragover', 90); // upper half of ariel (80–120)
+    const over = pointerEvent('dragover', 140); // upper half of ariel (128–168)
     rail.dispatchEvent(over);
     expect(over.defaultPrevented).toBe(true);
     expect(marked()).toEqual([['ariel', 'before']]);
 
-    rail.dispatchEvent(pointerEvent('drop', 90));
+    rail.dispatchEvent(pointerEvent('drop', 140));
     expect(moves).toEqual([['lattice', 'ariel']]);
+    expect(groupOf('lattice')).toBe('tools');
     expect(marked()).toEqual([]);
   });
 
-  test('dropping past the last movable row moves the dragged one to the foot', () => {
+  test('dropping past the last row puts the dragged one at the foot of its group', () => {
     grab('ariel');
-    rail.dispatchEvent(pointerEvent('dragover', 230)); // over the fixed okf row
-    expect(marked()).toEqual([['lattice', 'after']]);
-    rail.dispatchEvent(pointerEvent('drop', 230));
+    rail.dispatchEvent(pointerEvent('dragover', 280)); // over the fixed okf row
+    expect(marked()).toEqual([['okf', 'after']]);
+    rail.dispatchEvent(pointerEvent('drop', 280));
     expect(moves).toEqual([['ariel', null]]);
   });
 
-  test('a Workspace row is never a target: above the Agent row lands at the head of Tools', () => {
+  test("a drop on a group's heading lands at the head of that group", () => {
     grab('channel-finder');
-    rail.dispatchEvent(pointerEvent('dragover', 5));
+    rail.dispatchEvent(pointerEvent('dragover', 110));
     expect(marked()).toEqual([['ariel', 'before']]);
-    rail.dispatchEvent(pointerEvent('drop', 5));
+    rail.dispatchEvent(pointerEvent('drop', 110));
     expect(moves).toEqual([['channel-finder', 'ariel']]);
+  });
+
+  test('a drop into another group moves the row there first, then places it', () => {
+    grab('lattice');
+    rail.dispatchEvent(pointerEvent('dragover', 70)); // upper half of artifacts (64–104)
+    expect(marked()).toEqual([['artifacts', 'before']]);
+
+    rail.dispatchEvent(pointerEvent('drop', 70));
+    expect(groupOf('lattice')).toBe('workspace');
+    expect(group(rail, 'workspace').contains(row(rail, 'lattice'))).toBe(true);
+    expect(moves).toEqual([['lattice', 'artifacts']]);
+  });
+
+  test('a drop at the foot of another group moves the row there, last', () => {
+    grab('ariel');
+    rail.dispatchEvent(pointerEvent('dragover', 100)); // below the middle of artifacts
+    expect(marked()).toEqual([['artifacts', 'after']]);
+
+    rail.dispatchEvent(pointerEvent('drop', 100));
+    expect(groupOf('ariel')).toBe('workspace');
+    expect(moves).toEqual([['ariel', null]]);
+  });
+
+  test('the Agent row is never a target: a drop above it lands after it', () => {
+    grab('lattice');
+    rail.dispatchEvent(pointerEvent('dragover', 30));
+    expect(marked()).toEqual([['artifacts', 'before']]);
+  });
+
+  test('an empty group takes a drop, under its empty line', () => {
+    const id = addGroup('Beamline');
+    layOut(); // the Beamline heading at 288, its empty line at 312
+    const line = /** @type {HTMLElement} */ (group(rail, id).querySelector('[data-group-empty]'));
+    grab('ariel');
+
+    rail.dispatchEvent(pointerEvent('dragover', 320));
+    expect(line.classList.contains('drop-after')).toBe(true);
+
+    rail.dispatchEvent(pointerEvent('drop', 320));
+    expect(groupOf('ariel')).toBe(id);
+    expect(moves).toEqual([['ariel', null]]);
+    expect(line.hidden).toBe(true);
   });
 
   test('a drop that leaves the row where it is reports no move', () => {
     grab('channel-finder');
-    rail.dispatchEvent(pointerEvent('dragover', 125)); // just below its own top
+    rail.dispatchEvent(pointerEvent('dragover', 175)); // just below its own top
     expect(marked()).toEqual([]);
-    rail.dispatchEvent(pointerEvent('drop', 125));
+    rail.dispatchEvent(pointerEvent('drop', 175));
     expect(moves).toEqual([]);
   });
 
-  test.each(['terminal', 'artifacts'])('the Workspace row %s cannot be reordered', (id) => {
+  test.each(['terminal', 'okf'])('the fixed row %s cannot be dragged into a reorder', (id) => {
     grab(id);
-    const over = pointerEvent('dragover', 150);
+    const over = pointerEvent('dragover', 140);
     rail.dispatchEvent(over);
     expect(over.defaultPrevented).toBe(false);
-    rail.dispatchEvent(pointerEvent('drop', 150));
-    expect(moves).toEqual([]);
-  });
-
-  test('a Tools row the caller fixes cannot be reordered', () => {
-    grab('okf');
-    const over = pointerEvent('dragover', 90);
-    rail.dispatchEvent(over);
-    expect(over.defaultPrevented).toBe(false);
-    rail.dispatchEvent(pointerEvent('drop', 90));
+    rail.dispatchEvent(pointerEvent('drop', 140));
     expect(moves).toEqual([]);
   });
 
   test('a drag that did not start on a row is left alone', () => {
-    const over = pointerEvent('dragover', 90);
+    const over = pointerEvent('dragover', 140);
     rail.dispatchEvent(over);
     expect(over.defaultPrevented).toBe(false);
-    rail.dispatchEvent(pointerEvent('drop', 90));
+    rail.dispatchEvent(pointerEvent('drop', 140));
     expect(moves).toEqual([]);
   });
 
   test('the drop reads the pointer height only', () => {
     grab('lattice');
-    const ev = pointerEvent('drop', 90);
+    const ev = pointerEvent('drop', 140);
     Object.assign(ev, { clientX: 9999 });
     rail.dispatchEvent(ev);
     expect(moves).toEqual([['lattice', 'ariel']]);
@@ -834,7 +1106,7 @@ describe('reorder among the Tools rows (onReorder)', () => {
 
   test('dragend clears the insertion line', () => {
     grab('lattice');
-    rail.dispatchEvent(pointerEvent('dragover', 90));
+    rail.dispatchEvent(pointerEvent('dragover', 140));
     row(rail, 'lattice').dispatchEvent(new Event('dragend', { bubbles: true }));
     expect(marked()).toEqual([]);
   });
@@ -846,12 +1118,9 @@ describe('reorder among the Tools rows (onReorder)', () => {
       onDragStart: () => true,
       onReorder: (id, before) => later.push([id, before]),
     });
-    ROW.forEach(({ id }, i) => {
-      row(rail, id).getBoundingClientRect = () =>
-        /** @type {DOMRect} */ ({ top: i * 40, height: 40, left: 0, width: 200 });
-    });
+    layOut();
     grab('okf');
-    rail.dispatchEvent(pointerEvent('drop', 90));
+    rail.dispatchEvent(pointerEvent('drop', 140));
     expect(moves).toEqual([]);
     expect(later).toEqual([['okf', 'ariel']]);
   });
@@ -898,7 +1167,7 @@ describe('addEntry (non-destructive)', () => {
     expect(activated).toEqual(['lattice']);
   });
 
-  test('a Workspace row added at runtime takes its fixed place, not the foot', () => {
+  test('the Agent row added at runtime takes the head of the first group, not the foot', () => {
     createRail(rail, [
       { id: 'events', label: 'Events' },
       { id: 'ariel', label: 'Ariel' },
@@ -936,8 +1205,9 @@ describe('removeEntry', () => {
 });
 
 /**
- * placeEntry moves Tools rows only. Workspace rows keep the sidebar's fixed
- * order, and `+ Add panel` stays the last row of Tools.
+ * placeEntry is the client half of the server's rail-order move: the row
+ * moves in the rail order, so it moves within its own group. The Agent row
+ * stays first, and `+ Add panel` stays the last row of the last group.
  */
 describe('placeEntry', () => {
   /** @type {HTMLElement} */
@@ -956,30 +1226,50 @@ describe('placeEntry', () => {
   /** @returns {string[]} */
   const tools = () => childKeys(group(rail, 'tools'));
 
-  test('moves a Tools row directly above another', () => {
+  test('moves a row directly above another of its group', () => {
     placeEntry(rail, 'lattice', 'ariel');
     expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
   });
 
-  test('a null beforeId puts the row at the foot of Tools, above + Add panel', () => {
+  test('a null beforeId puts the row at the foot of its group, above + Add panel', () => {
     placeEntry(rail, 'ariel', null);
     expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
   });
 
-  test('a beforeId with no row is the foot of Tools too', () => {
+  test('a beforeId with no row is the foot too', () => {
     placeEntry(rail, 'ariel', 'nope');
     expect(tools()).toEqual(['label:Tools', 'channel-finder', 'lattice', 'ariel', 'panel-add-btn']);
   });
 
-  test('a beforeId in Workspace puts the row at the head of Tools', () => {
+  test('a beforeId in an earlier group puts the row at the head of its own group', () => {
     placeEntry(rail, 'lattice', 'artifacts');
     expect(tools()).toEqual(['label:Tools', 'lattice', 'ariel', 'channel-finder', 'panel-add-btn']);
   });
 
-  test('a Workspace row never moves', () => {
+  test('the Agent row never moves, and no row leaves its group', () => {
     placeEntry(rail, 'terminal', null);
-    placeEntry(rail, 'artifacts', 'ariel');
+    placeEntry(rail, 'artifacts', 'lattice');
     expect(entryIds(rail)).toEqual(['terminal', 'artifacts', 'ariel', 'channel-finder', 'lattice']);
+    expect(childKeys(group(rail, 'workspace'))).toEqual([
+      'label:Workspace',
+      'sidebar-agent-row',
+      'sidebar-artifacts-row',
+      'sidebar-runs-row',
+    ]);
+  });
+
+  test('the rows of a group keep the rail order, rows that join it included', () => {
+    placeEntry(rail, 'lattice', 'ariel');
+    moveToGroup('channel-finder', 'workspace');
+    moveToGroup('lattice', 'workspace');
+    expect(childKeys(group(rail, 'workspace'))).toEqual([
+      'label:Workspace',
+      'sidebar-agent-row',
+      'sidebar-artifacts-row',
+      'sidebar-runs-row',
+      'lattice',
+      'channel-finder',
+    ]);
   });
 
   test('an unknown id is a no-op', () => {
@@ -997,421 +1287,5 @@ describe('placeEntry', () => {
     expect(getEntry(rail, 'lattice')).toBe(lattice);
     expect(lattice.classList.contains('active')).toBe(true);
     expect(lattice.classList.contains('disabled')).toBe(false);
-  });
-});
-
-describe('setActive', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  beforeEach(() => {
-    rail = freshRail();
-    createRail(rail, PANELS);
-  });
-
-  test('marks exactly one row active and current', () => {
-    setActive(rail, 'ariel');
-    expect(row(rail, 'ariel').classList.contains('active')).toBe(true);
-    expect(row(rail, 'ariel').getAttribute('aria-current')).toBe('page');
-    expect(row(rail, 'artifacts').classList.contains('active')).toBe(false);
-    expect(row(rail, 'artifacts').hasAttribute('aria-current')).toBe(false);
-  });
-
-  test('switching active clears the previous one', () => {
-    setActive(rail, 'artifacts');
-    setActive(rail, 'channel-finder');
-    expect(row(rail, 'artifacts').classList.contains('active')).toBe(false);
-    expect(row(rail, 'artifacts').hasAttribute('aria-current')).toBe(false);
-    expect(row(rail, 'channel-finder').classList.contains('active')).toBe(true);
-  });
-
-  test('a null / unknown id clears active on every row', () => {
-    setActive(rail, 'artifacts');
-    setActive(rail, null);
-    expect(rail.querySelectorAll('.panel-rail-button.active').length).toBe(0);
-    expect(rail.querySelectorAll('[aria-current]').length).toBe(0);
-  });
-});
-
-describe('setEntryEnabled', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  beforeEach(() => {
-    rail = freshRail();
-    createRail(rail, PANELS);
-  });
-
-  test('setEntryEnabled toggles the disabled class', () => {
-    setEntryEnabled(rail, 'artifacts', true);
-    expect(row(rail, 'artifacts').classList.contains('disabled')).toBe(false);
-    setEntryEnabled(rail, 'artifacts', false);
-    expect(row(rail, 'artifacts').classList.contains('disabled')).toBe(true);
-  });
-
-  test('is a no-op for an unknown id', () => {
-    expect(() => setEntryEnabled(rail, 'nope', true)).not.toThrow();
-  });
-});
-
-describe('setEntryAttention', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  beforeEach(() => {
-    rail = freshRail();
-    createRail(rail, PANELS);
-  });
-
-  test('on sets the persistent attention class and fires the transient flash', () => {
-    expect(setEntryAttention(rail, 'ariel', true)).toBe(true);
-    const entry = row(rail, 'ariel');
-    expect(entry.classList.contains('agent-attention')).toBe(true);
-    expect(entry.classList.contains('agent-flash')).toBe(true);
-  });
-
-  test('off clears the attention without force-stopping an in-flight flash', () => {
-    setEntryAttention(rail, 'ariel', true);
-    expect(setEntryAttention(rail, 'ariel', false)).toBe(true);
-    const entry = row(rail, 'ariel');
-    expect(entry.classList.contains('agent-attention')).toBe(false);
-    // No animationend has fired in happy-dom, so the flash class must survive.
-    expect(entry.classList.contains('agent-flash')).toBe(true);
-  });
-
-  test('returns false, scrolls nothing and does not throw for an unknown id', () => {
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-    expect(() => setEntryAttention(rail, 'nope', true)).not.toThrow();
-    expect(setEntryAttention(rail, 'nope', true)).toBe(false);
-    expect(scrollSpy).not.toHaveBeenCalled();
-    scrollSpy.mockRestore();
-  });
-
-  test('on draws one hidden-from-AT dot after the label; off removes it', () => {
-    const entry = row(rail, 'ariel');
-    const childrenBefore = [...entry.children];
-
-    setEntryAttention(rail, 'ariel', true);
-    setEntryAttention(rail, 'ariel', true);
-    const dots = entry.querySelectorAll('[data-attention-badge]');
-    expect(dots.length).toBe(1);
-    const dot = /** @type {HTMLElement} */ (dots[0]);
-    expect(dot.classList.contains('osprey-nav-badge')).toBe(true);
-    expect(dot.classList.contains('sidebar-attention')).toBe(true);
-    expect(dot.getAttribute('aria-hidden')).toBe('true');
-    expect(dot.previousElementSibling?.classList.contains('osprey-nav-label')).toBe(true);
-
-    setEntryAttention(rail, 'ariel', false);
-    expect([...entry.children]).toEqual(childrenBefore);
-  });
-
-  test('without a time, a badge and its clear leave the row attributes as they were', () => {
-    const entry = row(rail, 'ariel');
-    const attrsBefore = entry.getAttributeNames().sort();
-
-    setEntryAttention(rail, 'ariel', true);
-    setEntryAttention(rail, 'ariel', false);
-
-    expect(entry.getAttributeNames().sort()).toEqual(attrsBefore);
-  });
-
-  test('a badged-then-cleared row leaves no tooltip stash behind', () => {
-    const entry = row(rail, 'ariel');
-    setEntryAttention(rail, 'ariel', true, 1_755_000_000);
-    expect(entry.hasAttribute('data-title-base')).toBe(true);
-
-    setEntryAttention(rail, 'ariel', false);
-    expect(entry.hasAttribute('data-title-base')).toBe(false);
-  });
-});
-
-/**
- * A sidebar taller than its viewport can put a row off-screen, where a badge
- * reports nothing at all. Setting the badge must surface the row; clearing it
- * must not move the sidebar under the operator.
- *
- * happy-dom implements scrollIntoView as a no-op on Element.prototype, so the
- * spy below observes real calls rather than installing a missing method.
- */
-describe('setEntryAttention scrolls a badged row into view', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  /** @type {import('vitest').MockInstance} */
-  let scrollSpy;
-
-  beforeEach(() => {
-    rail = freshRail();
-    createRail(rail, PANELS);
-    scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  test('setting the badge surfaces the row without disturbing a visible sidebar', () => {
-    setEntryAttention(rail, 'ariel', true);
-
-    expect(scrollSpy).toHaveBeenCalledTimes(1);
-    // `nearest` is the whole point: a row already in view must not scroll.
-    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest' });
-    expect(scrollSpy.mock.instances[0]).toBe(getEntry(rail, 'ariel'));
-  });
-
-  test('clearing the badge does not scroll', () => {
-    setEntryAttention(rail, 'ariel', true);
-    scrollSpy.mockClear();
-
-    setEntryAttention(rail, 'ariel', false);
-    expect(scrollSpy).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * The badge says a panel was touched; the tooltip says WHEN. The time comes
- * from the event's own server `ts` (epoch seconds, as the agent_activity SSE
- * frames carry it) — never from the client clock, which would report when the
- * browser rendered rather than when the agent acted.
- */
-describe('setEntryAttention tooltip time', () => {
-  /** @type {HTMLElement} */
-  let rail;
-
-  // Two fixed server timestamps an hour apart. Rendering is asserted against
-  // an Intl computation in the stamped facility zone rather than a literal so
-  // the suite is not hostage to the runner's timezone or locale; the FORMAT is
-  // pinned separately. FACILITY_ZONE reads a different clock from the runner,
-  // so the time names its zone.
-  const TS = 1_755_000_000;
-  const TS_LATER = TS + 3600;
-
-  /** @param {number} ts @returns {string} */
-  const expectedTime = (ts) =>
-    new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZone: FACILITY_ZONE,
-      timeZoneName: 'short',
-    }).format(ts * 1000);
-
-  beforeEach(() => {
-    stampFacilityZone(FACILITY_ZONE);
-    rail = freshRail();
-    createRail(rail, PANELS);
-  });
-
-  afterEach(() => stampFacilityZone(null));
-
-  test('a viewer already on the facility clock reads the time without a zone name', () => {
-    stampFacilityZone(VIEWER_ZONE);
-    setEntryAttention(rail, 'ariel', true, TS);
-    const plain = new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZone: VIEWER_ZONE,
-    }).format(TS * 1000);
-    expect(row(rail, 'ariel').title).toBe(`Ariel · agent touched ${plain}`);
-  });
-
-  test('a badge with a server ts appends the touch time to the tooltip', () => {
-    setEntryAttention(rail, 'ariel', true, TS);
-    expect(row(rail, 'ariel').title).toBe(`Ariel · agent touched ${expectedTime(TS)}`);
-  });
-
-  test('the rendered time is hour and minute only — no seconds', () => {
-    setEntryAttention(rail, 'ariel', true, TS);
-    const suffix = String(row(rail, 'ariel').title).split('· agent touched ')[1];
-    expect(suffix).toMatch(/\d{1,2}:\d{2}/);
-    expect((suffix.match(/:/g) ?? []).length).toBe(1);
-  });
-
-  test('a second event replaces the time rather than appending a second suffix', () => {
-    setEntryAttention(rail, 'ariel', true, TS);
-    setEntryAttention(rail, 'ariel', true, TS_LATER);
-
-    const title = String(row(rail, 'ariel').title);
-    expect(title).toBe(`Ariel · agent touched ${expectedTime(TS_LATER)}`);
-    expect((title.match(/agent touched/g) ?? []).length).toBe(1);
-  });
-
-  test('clearing the badge restores the base tooltip exactly', () => {
-    setEntryAttention(rail, 'ariel', true, TS);
-    setEntryAttention(rail, 'ariel', false);
-
-    expect(row(rail, 'ariel').title).toBe('Ariel');
-  });
-
-  test('a later badge with no ts drops the stale time instead of keeping it', () => {
-    setEntryAttention(rail, 'ariel', true, TS);
-    setEntryAttention(rail, 'ariel', true);
-
-    expect(row(rail, 'ariel').title).toBe('Ariel');
-  });
-
-  test('no ts leaves the tooltip untouched (the pre-existing 3-arg contract)', () => {
-    setEntryAttention(rail, 'ariel', true);
-    expect(row(rail, 'ariel').title).toBe('Ariel');
-    expect(row(rail, 'ariel').classList.contains('agent-attention')).toBe(true);
-  });
-
-  test('a non-finite ts is refused rather than rendered as "Invalid Date"', () => {
-    for (const bad of [NaN, Infinity]) {
-      setEntryAttention(rail, 'ariel', true, bad);
-      expect(row(rail, 'ariel').title).toBe('Ariel');
-    }
-  });
-
-  test('the badge borrows and returns a hinted tooltip intact', () => {
-    // The stash is what the badge restores; a row advertising its menu must
-    // get that advertisement back, not just the bare label.
-    rail = freshRail();
-    createRail(rail, [{ id: 'ariel', label: 'Ariel', hint: 'right-click for actions' }]);
-
-    setEntryAttention(rail, 'ariel', true, TS);
-    expect(row(rail, 'ariel').title).toBe(
-      `Ariel · right-click for actions · agent touched ${expectedTime(TS)}`
-    );
-
-    setEntryAttention(rail, 'ariel', false);
-    expect(row(rail, 'ariel').title).toBe('Ariel · right-click for actions');
-  });
-
-  test('a badge composed while the collapsed tip shows keeps the base title', () => {
-    // The tooltip layer parks the native title while it shows the row's tip;
-    // reading the empty `title` then would lose "Ariel" from the composition.
-    initTooltips(rail);
-    const entry = row(rail, 'ariel');
-    entry.dispatchEvent(new Event('pointerover', { bubbles: true }));
-    expect(entry.hasAttribute('title')).toBe(false);
-
-    setEntryAttention(rail, 'ariel', true, TS);
-    expect(entry.hasAttribute('title')).toBe(false);
-
-    hideTooltip();
-    expect(entry.title).toBe(`Ariel · agent touched ${expectedTime(TS)}`);
-    setEntryAttention(rail, 'ariel', false);
-    expect(entry.title).toBe('Ariel');
-  });
-
-  test('the suffix never reaches the accessible name', () => {
-    // aria-label is the row's identity; a churning timestamp inside it would
-    // make the sidebar re-announce panels to a screen reader on every event.
-    setEntryAttention(rail, 'ariel', true, TS);
-    expect(row(rail, 'ariel').getAttribute('aria-label')).toBe('Ariel');
-  });
-});
-
-/**
- * Coarse reachability: a row whose backend answered before but has stopped
- * is dimmed without going inert, and its tooltip says since when. The poll
- * logic that decides WHEN is panel-lifecycle's (pinned in panel-manager.test.mjs).
- */
-describe('setEntryReachable', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  const SINCE = new Date(2026, 0, 5, 9, 12).getTime();
-  // On the facility clock, which reads differently from the runner's, so the
-  // time names its zone.
-  const since = new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: FACILITY_ZONE,
-    timeZoneName: 'short',
-  }).format(SINCE);
-
-  beforeEach(() => {
-    stampFacilityZone(FACILITY_ZONE);
-    rail = freshRail();
-    createRail(rail, [{ id: 'ariel', label: 'Ariel', hint: 'right-click for actions' }]);
-  });
-
-  afterEach(() => stampFacilityZone(null));
-
-  test('unreachable dims without disabling, and the tooltip says since when', () => {
-    expect(setEntryReachable(rail, 'ariel', false, SINCE)).toBe(true);
-    const entry = row(rail, 'ariel');
-    expect(entry.classList.contains('unreachable')).toBe(true);
-    expect(entry.classList.contains('disabled')).toBe(true); // the cold boot state, untouched
-    expect(entry.title).toBe(`not answering since ${since}`);
-
-    setEntryReachable(rail, 'ariel', true);
-    expect(entry.classList.contains('unreachable')).toBe(false);
-    expect(entry.title).toBe('Ariel · right-click for actions');
-    expect(entry.hasAttribute('data-title-base')).toBe(false);
-  });
-
-  test('the notice outranks a badge time, and each clears without losing the other', () => {
-    const entry = row(rail, 'ariel');
-    setEntryAttention(rail, 'ariel', true, 1_755_000_000);
-    const badged = entry.title;
-
-    setEntryReachable(rail, 'ariel', false, SINCE);
-    expect(entry.title).toBe(`not answering since ${since}`);
-
-    setEntryReachable(rail, 'ariel', true);
-    expect(entry.title).toBe(badged);
-
-    setEntryAttention(rail, 'ariel', false);
-    expect(entry.title).toBe('Ariel · right-click for actions');
-  });
-
-  test('returns false for an unknown id', () => {
-    expect(setEntryReachable(rail, 'nope', false, SINCE)).toBe(false);
-  });
-});
-
-/**
- * A sidecar that failed to start is the one status the sidebar names: its row
- * is dimmed but clickable (the click is the retry), and its tooltip is the
- * server's sentence, verbatim.
- */
-describe('setEntryStatus', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  const MESSAGE = 'JUPYTER failed to start: boom';
-  const JUPYTER = { id: 'jupyter', label: 'Jupyter', hint: 'right-click for actions' };
-
-  beforeEach(() => {
-    rail = freshRail();
-  });
-
-  test("a failed row is clickable and carries the server's message as its tooltip", () => {
-    const onActivate = vi.fn();
-    createRail(rail, [JUPYTER], { onActivate });
-
-    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
-
-    const entry = row(rail, 'jupyter');
-    expect(entry.classList.contains('failed')).toBe(true);
-    expect(entry.classList.contains('disabled')).toBe(false);
-    expect(entry.title).toBe(MESSAGE);
-    expect(entry.getAttribute('aria-description')).toBe(MESSAGE);
-    entry.click();
-    expect(onActivate).toHaveBeenCalledWith('jupyter');
-  });
-
-  test('clearing the status restores the base tooltip', () => {
-    createRail(rail, [JUPYTER]);
-    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
-
-    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
-
-    const entry = row(rail, 'jupyter');
-    expect(entry.classList.contains('failed')).toBe(false);
-    expect(entry.title).toBe('Jupyter · right-click for actions');
-    expect(entry.hasAttribute('aria-description')).toBe(false);
-    expect(entry.hasAttribute('data-title-base')).toBe(false);
-  });
-
-  test('a message set under an attention badge survives the badge clearing', () => {
-    createRail(rail, [JUPYTER]);
-    setEntryAttention(rail, 'jupyter', true, 1_755_000_000);
-
-    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
-    const entry = row(rail, 'jupyter');
-    expect(entry.title.startsWith(`${MESSAGE} · agent touched `)).toBe(true);
-
-    setEntryAttention(rail, 'jupyter', false);
-    expect(entry.title).toBe(MESSAGE);
-
-    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
-    expect(entry.title).toBe('Jupyter · right-click for actions');
   });
 });

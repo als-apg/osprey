@@ -261,13 +261,13 @@ const STEPS = [
     ],
   },
   {
-    // With no control target the block holds only the clock: nothing to tour.
+    // With no control target the block holds only the health dot: nothing to tour.
     anchor: () =>
       document.documentElement.dataset.controlTarget === 'off'
         ? null
         : document.querySelector('#sidebar-target'),
     activate: () => toggleOpen('.control-target-chip'),
-    extras: () => [document.querySelector('.ctc-popover.open')],
+    extras: () => [document.querySelector('#control-target-popover:not([hidden])')],
     place: 'right',
     title: 'Your control target',
     body: () => {
@@ -351,7 +351,7 @@ const STEPS = [
       strong(panelLabel('ariel', 'Ariel')),
       ' searches the electronic logbook. Ask the agent what happened on a shift, or search it yourself here.',
     ],
-    foot: 'Tip: right-click any sidebar row → “Open in a new window” for a standalone version.',
+    foot: 'Tip: right-click any sidebar row → “Pop out” to move the panel into its own window.',
   },
   {
     anchor: () => document.querySelector('#panel-feedback-btn'),

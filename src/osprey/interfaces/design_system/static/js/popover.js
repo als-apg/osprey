@@ -28,11 +28,15 @@
  *
  * Close: on a pointer press outside every open popover and its opener, on
  * Escape, on window resize, and on window blur (a click into a panel iframe
- * never reaches this document). Closing a popover also closes the popovers
- * opened from it. The opener gets `aria-expanded="false"`, and when focus was
- * inside the popover it returns to the opener, so it never stays on a hidden
- * element. (A click into an iframe has already made the iframe the active
- * element, so the blur close does not pull focus back out of it.)
+ * never reaches this document). A popover opened with `ignore` (a CSS
+ * selector) also stays open for a press inside any element matching it: a
+ * dialog the popover raised above itself, such as a confirm overlay, is not
+ * "outside" the popover that asked the question. Closing a popover also closes
+ * the popovers opened from it. The opener gets `aria-expanded="false"`, and
+ * when focus was inside the popover it returns to the opener, so it never
+ * stays on a hidden element. (A click into an iframe has already made the
+ * iframe the active element, so the blur close does not pull focus back out
+ * of it.)
  *
  * Menu: in a popover that is, or whose first child is, a `[role="menu"]`,
  * ArrowUp / ArrowDown (wrapping), Home and End move focus between its visible,
@@ -53,6 +57,8 @@ import { hideTooltip } from './tooltip.js';
  * @typedef {object} PopoverOptions
  * @property {Placement} [place] where to put the popover; default 'below-end'
  * @property {Element} [edge] the element whose right edge 'beside-*' uses
+ * @property {string} [ignore] a selector; a press inside a matching element
+ *   does not count as outside this popover. Default: none.
  */
 
 const GAP_BESIDE = 8;
@@ -64,6 +70,9 @@ const MENU_KEYS = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
 
 /** @type {WeakMap<HTMLElement, HTMLElement>} popover → the element that opened it */
 const openers = new WeakMap();
+
+/** @type {WeakMap<HTMLElement, string>} popover → its `ignore` selector */
+const ignores = new WeakMap();
 
 /** @type {Set<HTMLElement>} popovers opened here and not yet closed */
 const opened = new Set();
@@ -176,6 +185,8 @@ export function openPopover(pop, anchor, options = {}) {
   const parent = /** @type {HTMLElement | null} */ (anchor.closest('.osprey-popover'));
   closeAllPopovers(parent ? withAncestors(parent) : []);
   openers.set(pop, anchor);
+  if (options.ignore) ignores.set(pop, options.ignore);
+  else ignores.delete(pop);
   opened.add(pop);
   if (pop.id) anchor.setAttribute('aria-controls', pop.id);
   anchor.setAttribute('aria-expanded', 'true');
@@ -239,11 +250,17 @@ function listen() {
     'pointerdown',
     (event) => {
       const target = /** @type {Node | null} */ (event.target);
+      const element = target instanceof Element ? target : (target?.parentElement ?? null);
       /** @type {HTMLElement[]} */
       const keep = [];
       for (const pop of openPopovers()) {
         const opener = openers.get(pop);
-        const hit = !!target && (pop.contains(target) || (!!opener && opener.contains(target)));
+        const ignore = ignores.get(pop);
+        const hit =
+          !!target &&
+          (pop.contains(target) ||
+            (!!opener && opener.contains(target)) ||
+            (!!ignore && !!element?.closest(ignore)));
         if (hit) keep.push(...withAncestors(pop));
       }
       closeAllPopovers(keep);

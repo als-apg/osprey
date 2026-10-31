@@ -36,6 +36,7 @@ import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
 import { ensureRailMembership, addPanel, applyRailOrder } from './panel-lifecycle.js';
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
+import { isPoppedOut, focusPopout } from './popout.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -155,15 +156,22 @@ export function subscribePanelEvents(sseDeps) {
           // settle may fill the slot.
           c.endWorkspaceSuppression();
           if (data.url) c.navigate(data.panel, data.url);
-          // An AGENT switch is polite: focus the panel's own tile, or open one
-          // beside the operator's — never take a tile away (applyAgentSwitch).
-          // Human focus is never broadcast (the server mirrors it silently and
-          // the gesturing client applies it locally), so an unattributed frame
-          // can only come from an out-of-contract caller; it keeps the plain
-          // activation. The attribution runs after the switch so a just-added
-          // entry can flash and the tile glow measures the tile the switch
-          // actually surfaced.
-          if (data.source === 'agent') {
+          // A panel living in its own pop-out window has no tile to focus or
+          // open: the window comes to the front instead, and an agent switch
+          // still flashes the rail entry so the operator sees who asked.
+          if (isPoppedOut(data.panel)) {
+            focusPopout(data.panel);
+            if (data.source === 'agent') flashAgentTile(data.panel);
+          } else if (data.source === 'agent') {
+            // An AGENT switch is polite: focus the panel's own tile, or open
+            // one beside the operator's — never take a tile away
+            // (applyAgentSwitch). Human focus is never broadcast (the server
+            // mirrors it silently and the gesturing client applies it
+            // locally), so an unattributed frame can only come from an
+            // out-of-contract caller; it keeps the plain activation. The
+            // attribution runs after the switch so a just-added entry can
+            // flash and the tile glow measures the tile the switch actually
+            // surfaced.
             applyAgentSwitch(data.panel);
             flashAgentTile(data.panel);
           } else {

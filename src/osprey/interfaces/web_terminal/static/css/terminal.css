@@ -21,12 +21,14 @@
   overflow-x: hidden;
 }
 
-/* Height budget: the head, the control-system block, search, Tools and the
-   footer never shrink. Only the Workspace section gives up height: an open
-   list shrinks below its 8-row cap to a floor of two rows (row 28 + list
-   padding 6 + two rows 52, + the filter 28 while it shows), then the section
-   scrolls. #panel-rail holds both groups, so it hands the shrink on to
-   #sidebar-workspace and keeps the Tools group whole. */
+/* Height budget: the head, the control-system block, search, the groups and
+   the footer never shrink, except for the one group that holds the
+   disclosing rows (Artifacts and Script runs, which always sit together, so
+   only one group ever holds them). In that group an open list shrinks below
+   its 8-row cap to a floor of two rows (row 28 + list padding 6 + two rows
+   52, + the filter 28 while it shows), then the group scrolls. #panel-rail
+   holds the groups and hands the shrink on to that one, keeping the others
+   whole. */
 .sidebar > * {
   flex: none;
 }
@@ -42,71 +44,75 @@
   flex: none;
 }
 
-.sidebar-sections > #sidebar-workspace {
+.sidebar-sections > .sidebar-group:first-child {
+  padding-top: var(--space-4);
+}
+
+.sidebar-sections > .sidebar-group:has(> .sidebar-row:not([hidden]) > .sidebar-kids) {
   flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--space-4) 0 var(--space-1);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   overflow-anchor: none;
 }
 
-#sidebar-workspace > * {
+.sidebar-group > * {
   flex: none;
 }
 
-html:not([data-sidebar="collapsed"]) #sidebar-workspace .sidebar-row:not([hidden]):has(> .sidebar-kids:not([hidden])) {
+html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden]):has(> .sidebar-kids:not([hidden])) {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
   min-height: 86px;
 }
 
-html:not([data-sidebar="collapsed"]) #sidebar-workspace .sidebar-row:not([hidden]):has(> .sidebar-kids:not([hidden]) > [data-art-filter]:not([hidden])) {
+html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden]):has(> .sidebar-kids:not([hidden]) > [data-art-filter]:not([hidden])) {
   min-height: 114px;
 }
 
-#sidebar-workspace .sidebar-row > .osprey-nav-row {
+.sidebar-group > .sidebar-row > .osprey-nav-row {
   flex: none;
 }
 
-html:not([data-sidebar="collapsed"]) #sidebar-workspace .sidebar-row > .sidebar-kids:not([hidden]) {
+html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-kids:not([hidden]) {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
   min-height: 0;
 }
 
-#sidebar-workspace .sidebar-kids > :not(.sidebar-kids-list) {
+.sidebar-group > .sidebar-row .sidebar-kids > :not(.sidebar-kids-list) {
   flex: none;
 }
 
-#sidebar-workspace .sidebar-kids-list {
+.sidebar-group > .sidebar-row .sidebar-kids-list {
   flex: 0 1 auto;
   min-height: 52px;
 }
 
-/* A scrolled section fades at whichever edge has more (sidebar.js sets
-   .fade / .fade-top), so its first row never looks cut by the search field
-   above: it reads as scrolled. */
-#sidebar-workspace {
+/* A scrolled group fades at whichever edge has more (sidebar.js sets .fade /
+   .fade-top, which only a group that scrolls ever gets), so its first row
+   never looks cut by the search field or the group above: it reads as
+   scrolled. */
+.sidebar-group {
   --fade-top: 0px;
   --fade-bottom: 0px;
 }
 
-#sidebar-workspace.fade {
+.sidebar-group.fade {
   --fade-bottom: 24px;
 }
 
-#sidebar-workspace.fade-top {
+.sidebar-group.fade-top {
   --fade-top: 20px;
 }
 
-#sidebar-workspace.fade,
-#sidebar-workspace.fade-top {
+.sidebar-group.fade,
+.sidebar-group.fade-top {
   mask-image: linear-gradient(to bottom, transparent, currentColor var(--fade-top),
     currentColor calc(100% - var(--fade-bottom)), transparent);
 }
@@ -159,11 +165,74 @@ html:not([data-sidebar="collapsed"]) #sidebar-workspace .sidebar-row > .sidebar-
   padding: var(--space-2) 0 var(--space-1);
 }
 
+/* ---- Group headings (sidebar-groups.js) ----
+
+   The group's name, then its ⋯ button, shown on hover and on focus (and
+   always on a screen with no hover). Rename swaps the name for a field in
+   place. */
+.sidebar-group-head {
+  gap: var(--space-1);
+  padding-right: var(--space-1);
+}
+
+.sidebar-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-group-head [data-group-menu] {
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.sidebar-group-head:is(:hover, :focus-within) [data-group-menu],
+.sidebar-group-head [data-group-menu][aria-expanded="true"] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .sidebar-group-head [data-group-menu] {
+    opacity: 1;
+  }
+}
+
+.sidebar-group-rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface-focus);
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-well);
+}
+
+/* Icons only: no names to edit, and no empty line to read. */
+html[data-sidebar="collapsed"] .sidebar :is(
+  [data-group-menu],
+  .sidebar-group-rename,
+  .sidebar-group-empty,
+  .osprey-nav-trail
+) {
+  display: none;
+}
+
 .sidebar-foot {
   margin-top: auto;
   display: grid;
   padding: var(--space-2) 0 var(--space-1);
   border-top: 1px solid var(--surface-hairline);
+}
+
+/* Sign out (app.js, logout.js): locked while the logout request is out. */
+.sidebar-foot #logout-btn[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.6;
 }
 
 /* ---- Panel rows: health and drag states (panel-rail.js) ---- */
@@ -187,8 +256,27 @@ html:not([data-sidebar="collapsed"]) #sidebar-workspace .sidebar-row > .sidebar-
   box-shadow: inset 0 2px 0 var(--color-accent);
 }
 
-.sidebar .panel-rail-button.drop-after {
+/* A drop at the foot of a group: the line goes under its last row, or under
+   its empty line. */
+.sidebar :is(.panel-rail-button, .sidebar-row, .sidebar-group-empty).drop-after {
   box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+/* Popped out (panel-rail.js setEntryPoppedOut): the panel runs in its own
+   window, so the row carries a trailing window glyph and a quieter label. */
+.sidebar .panel-rail-button .osprey-nav-trail {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.sidebar .panel-rail-button .osprey-nav-trail .osprey-ic {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar .panel-rail-button.popped-out .osprey-nav-label {
+  color: var(--text-secondary);
 }
 
 /* The attention badge is the row's own dot (panel-rail.js), not
@@ -396,18 +484,18 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
 /* ---- Control-system block (sidebar-target.js around the chip) ----
 
    The chip IS the block: one button, tinted by the machine's kind while
-   writes are on (the same kind-to-colour map as the chip's dot), with the
-   glyph, eyebrow, caret and the health/clock line laid out on a grid. Every
-   rule is scoped to `.sidebar-target`, so the chip a JupyterLab page draws
-   from this same file keeps its own look. */
+   writes are on (the same kind-to-colour map as the chip's dot), laid out as
+   one row — glyph, name, writes pill, health dot, caret. Every rule is scoped
+   to `.sidebar-target`, so the chip a JupyterLab page draws from this same
+   file keeps its own look. */
 .sidebar-target {
   margin: var(--space-2) 0;
 }
 
-/* Room for the block before the chip's first read lands, so nothing below it
-   moves when it does. */
+/* Room for the block's one row before the chip's first read lands, so
+   nothing below it moves when it does. */
 html:not([data-control-target="off"]) .sidebar-target {
-  min-height: 84px;
+  min-height: 40px;
 }
 
 .sidebar-target .control-target-chip {
@@ -415,15 +503,13 @@ html:not([data-control-target="off"]) .sidebar-target {
   flex: 1;
   min-width: 0;
   height: auto;
+  min-height: 40px;
   display: grid;
-  grid-template-columns: 20px auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    "glyph eyebrow eyebrow caret"
-    ". name state state"
-    ". meta meta meta";
+  grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
+  grid-template-areas: "glyph name state health caret";
   align-items: center;
-  gap: 2px var(--space-2);
-  padding: var(--space-2);
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
   font-family: inherit;
   font-size: var(--text-lg);
   text-align: left;
@@ -480,14 +566,6 @@ html:not([data-control-target="off"]) .sidebar-target {
   box-shadow: 0 0 0 2px var(--surface-card);
 }
 
-.sidebar-target-eyebrow {
-  grid-area: eyebrow;
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
 .sidebar-target-caret {
   grid-area: caret;
   color: var(--text-muted);
@@ -497,7 +575,6 @@ html:not([data-control-target="off"]) .sidebar-target {
   grid-area: name;
   min-width: 0;
   max-width: none;
-  font-size: var(--text-xl);
   font-weight: var(--weight-semibold);
   letter-spacing: normal;
   color: var(--text-primary);
@@ -520,39 +597,24 @@ html:not([data-control-target="off"]) .sidebar-target {
   display: none;
 }
 
-.sidebar-target-meta {
-  grid-area: meta;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-md);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.sidebar-target-meta .osprey-dot {
+.sidebar-target .sidebar-health {
+  grid-area: health;
   width: 6px;
   height: 6px;
 }
 
-.sidebar-target-meta .osprey-dot.warn {
+.sidebar-target .sidebar-health.warn {
   background: var(--color-warning);
 }
 
-/* No picker on this deployment: the health and clock line stands alone. */
-.sidebar-target[data-target="none"] > .sidebar-target-meta {
-  padding: 0 var(--space-2);
+.sidebar-target .sidebar-health[hidden] {
+  display: none;
 }
 
-/* The popover opens fixed beside the sidebar (control-target-popover.js
-   writes left/top), not under the chip, and on the surface and layer every
-   other sidebar popover uses. */
-.sidebar .ctc-popover {
-  position: fixed;
-  right: auto;
-  background: var(--surface-card);
-  z-index: var(--z-dropdown);
+/* No picker on this deployment: the health dot stands alone. */
+.sidebar-target[data-target="none"] > .sidebar-health:not([hidden]) {
+  display: block;
+  margin: 0 var(--space-3);
 }
 
 /* ---- Collapsed sidebar: icons only, labels as tooltips ---- */
@@ -630,10 +692,6 @@ html[data-sidebar="collapsed"] .sidebar .osprey-nav-badge.sidebar-attention {
   background: var(--color-accent);
 }
 
-html[data-sidebar="collapsed"] .sidebar-target {
-  min-height: 40px;
-}
-
 html[data-sidebar="collapsed"] .sidebar-target[data-target="none"] {
   display: none;
 }
@@ -652,11 +710,10 @@ html[data-sidebar="collapsed"] .sidebar-target .control-target-chip {
 }
 
 html[data-sidebar="collapsed"] .sidebar-target :is(
-  .sidebar-target-eyebrow,
   .sidebar-target-caret,
+  .sidebar-health,
   .ctc-short,
-  .ctc-state,
-  .sidebar-target-meta
+  .ctc-state
 ) {
   display: none;
 }
@@ -710,11 +767,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 .more-menu-sub {
   flex-basis: 100%;
   padding-left: 32px;
-}
-
-.more-menu #logout-btn[aria-busy="true"] {
-  cursor: progress;
-  opacity: 0.6;
 }
 
 .shortcuts-popover {
@@ -796,7 +848,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-row-actions {
+  .sidebar-row-actions,
+  .sidebar-group-head [data-group-menu] {
     transition: none;
   }
 }
@@ -813,14 +866,13 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
    `data-state` (on | off | locked), `data-enforceable`, `data-pending` — so no
    colour name and no state word lives in the JS.
 
-   The popover is the identity menu's idiom (absolute, anchored under its
-   trigger, --z-sticky, a 120ms fade), turned into a table of the targets this
-   session may sit on. */
+   The popover is a design-system `.osprey-popover` (primitives.css) that
+   popover.js places at <body> level, turned into a table of the targets this
+   session may sit on; `.ctc-popover` scopes its own rules below. */
 
-/* Positioning context for the popover: the chip and its menu travel together
-   inside the header action cluster. */
+/* The chip's wrapper inside its host: what hides while there is nothing to
+   say. */
 .ctc-anchor {
-  position: relative;
   display: flex;
 }
 
@@ -1000,46 +1052,39 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   50% { opacity: 0.35; }
 }
 
-@keyframes ctc-menu-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   [data-pending="true"] > .ctc-dot { animation: none; }
-  .ctc-popover.open { animation: none; }
 }
 
 /* ---- The popover ----
 
-   These base rules are JupyterLab's control-target bar
-   (control-target-lab-bar.js loads this file there): right-anchored under the
-   chip. The sidebar places it beside itself and sets its surface and layer
-   (`.sidebar .ctc-popover`, above). The confirm overlay sits a full layer
-   above either (--z-modal, at the bottom of this file), so a confirm never
-   hides the rows it is about and the popover can stay open beneath it. */
+   The surface, layer, border, radius, shadow and the `hidden` rule are the
+   design system's `.osprey-popover`; popover.js places it beside the sidebar
+   or below a chip on a page bar (the JupyterLab bar loads this file and the
+   primitives). The confirm overlay sits a layer above it (--z-modal, at the
+   bottom of this file), so a confirm never hides the rows it is about and the
+   popover can stay open beneath it.
+
+   The primitive scrolls a tall popover; this one does not, because each name's
+   ⓘ bubble is positioned inside it and a scrolling box would cut the bubble
+   off at its edge. */
 .ctc-popover {
-  display: none;
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
-  width: 420px;
-  padding: var(--space-3);
+  display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  width: 420px;
+  max-height: none;
+  overflow: visible;
   font-family: var(--font-display);
   font-size: var(--text-md);
   color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
-  z-index: var(--z-sticky);
 }
 
-.ctc-popover.open {
-  display: flex;
-  animation: ctc-menu-in var(--duration-fast) ease;
+.ctc-popover > .ctc-banner,
+.ctc-popover > .ctc-card,
+.ctc-popover > .ctc-outcome,
+.ctc-popover > .ctc-foot {
+  margin: 0 var(--space-1);
 }
 
 /* The one abnormal banner across the top. Absent in the plain case — absence
@@ -1066,8 +1111,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 /* ---- The card: the machine the agent stands on ----
 
    "Where am I" is the first thing read, so it is not the middle row of an
-   equal list: it is a card, with the name, the consequence line, and the
-   writes switch. The accent tint is the same one the old active row wore —
+   equal list: it is a card under the popover's "The agent is on" title, with
+   the name, the consequence line, and the writes switch. The accent tint is
    quiet, not a warning. */
 .ctc-card {
   display: grid;
@@ -1075,19 +1120,10 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   row-gap: 3px;
   column-gap: 10px;
   align-items: center;
-  padding: 9px 10px 10px;
+  padding: var(--space-2);
   background: var(--accent-tint-04);
   border: 1px solid var(--border-accent);
-  border-radius: var(--radius-md);
-}
-
-.ctc-card-eyebrow {
-  grid-column: 1 / -1;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--color-accent-light);
+  border-radius: var(--radius-lg);
 }
 
 .ctc-card-title {
@@ -1158,35 +1194,26 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
    Three columns owned by the list, subgridded per row so the switches line up
    as a column: who it is and what writing there means, the writes switch,
-   and Switch to. */
-.ctc-list-title {
-  padding: 2px 2px 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
+   and Switch to. Each row is the design system's popover row (its padding,
+   radius, type and hover wash), grown to fit its second and third lines; it
+   holds controls of its own, so the row itself is not a pointer target. */
 .ctc-rows {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content max-content;
-  column-gap: 8px;
+  column-gap: var(--space-2);
 }
 
-.ctc-row {
+.ctc-popover .ctc-row {
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   align-items: center;
+  width: auto;
+  height: auto;
   min-height: 32px;
-  padding: 4px 2px;
-  border-bottom: 1px solid var(--border-default);
-}
-
-.ctc-row:last-child {
-  border-bottom: 0;
+  padding-block: var(--space-1);
+  font-size: var(--text-md);
+  cursor: default;
 }
 
 .ctc-ident {
@@ -1221,8 +1248,10 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 /* ---- The writes switch ----
 
    One widget instead of pill + verb: the position is the state, the word
-   beside it is the glance copy, and the click is the gesture. On takes the
-   colour of what a write there would mean, read from the card's or row's
+   beside it is the glance copy, and the click is the gesture. The track and
+   knob are the design system's `.osprey-switch`, inside the `.ctc-toggle`
+   button that carries `role=switch` and `aria-checked`. On takes the colour
+   of what a write there would mean, read from the card's or row's
    `data-target-kind` — the error tone on the real machine, amber on the
    rehearsal, success on the simulator; off is the neutral resting position (a
    toggle's off must read as resting, not as a warning). Locked keeps the
@@ -1265,32 +1294,14 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 }
 
 .ctc-toggle {
-  position: relative;
-  width: 30px;
-  height: 16px;
+  display: inline-flex;
   flex-shrink: 0;
+  margin: 0;
   padding: 0;
-  background: var(--neutral-tint-12);
-  border: 1px solid var(--border-default);
+  border: 0;
   border-radius: var(--radius-full);
+  background: none;
   cursor: pointer;
-  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
-}
-
-.ctc-toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: transform var(--duration-fast) ease, background var(--duration-fast) ease;
-}
-
-.ctc-toggle:hover:not(:disabled) {
-  border-color: var(--text-secondary);
 }
 
 .ctc-toggle:focus-visible {
@@ -1298,34 +1309,29 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   outline-offset: 2px;
 }
 
-.ctc-toggle[aria-checked="true"]::after {
-  transform: translateX(14px);
-  background: #fff; /* hygiene-allow-color: knob on the saturated error/warning/success track — white in every theme, like a native switch */
+.ctc-toggle:hover:not(:disabled) > .osprey-switch {
+  box-shadow: inset 0 0 0 1px var(--text-secondary);
 }
 
-[data-target-kind="real"] .ctc-toggle[aria-checked="true"] {
+[data-target-kind="real"] .ctc-toggle[aria-checked="true"] > .osprey-switch {
   background: var(--color-error);
-  border-color: var(--color-error);
 }
 
-[data-target-kind="rehearsal"] .ctc-toggle[aria-checked="true"] {
+[data-target-kind="rehearsal"] .ctc-toggle[aria-checked="true"] > .osprey-switch {
   background: var(--color-warning);
-  border-color: var(--color-warning);
 }
 
-[data-target-kind="simulator"] .ctc-toggle[aria-checked="true"] {
+[data-target-kind="simulator"] .ctc-toggle[aria-checked="true"] > .osprey-switch {
   background: var(--color-success);
-  border-color: var(--color-success);
 }
 
-.ctc-toggle[data-pending="on"] {
-  border-style: dashed;
-  border-color: var(--text-secondary);
+.ctc-toggle[data-pending="on"] > .osprey-switch {
+  outline: 1px dashed var(--text-secondary);
+  outline-offset: 1px;
 }
 
-.ctc-toggle[data-pending="on"]::after {
-  transform: translateX(7px);
-  background: var(--text-primary);
+.ctc-toggle[data-pending="on"] > .osprey-switch::after {
+  transform: translateX(6px);
   opacity: 0.7;
 }
 
@@ -1336,12 +1342,13 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 /* Locked: the knob is a lock glyph, not a position — no position is honest
    when no click here moves it. */
-.ctc-toggle:disabled::after {
+.ctc-toggle:disabled > .osprey-switch::after {
   content: "\1F512";
   font-size: var(--text-2xs);
   line-height: var(--leading-tight);
   text-align: center;
   background: transparent;
+  box-shadow: none;
   color: var(--text-secondary);
 }
 
@@ -1382,35 +1389,12 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   justify-content: flex-end;
 }
 
-.ctc-switch {
-  height: 22px;
-  padding: 0 10px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-}
-
-.ctc-switch:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-08);
-}
-
-/* Switching onto a real machine hovers to the error tone: the confirm that
-   follows is the safety gesture, and the button that opens it should already
-   look like the one that does. */
+/* Switch to is the design system's primary button. Switching onto a real
+   machine hovers to the error tone: the confirm that follows is the safety
+   gesture, and the button that opens it should already look like the one
+   that does. */
 .ctc-row[data-target-kind="real"] .ctc-switch:hover:not(:disabled) {
-  border-color: var(--error-tint-40);
-  background: var(--error-tint-08);
+  background: var(--color-error);
 }
 
 /* Deliberately quiet, `not set up` above all: on a stock deployment the live
@@ -1428,34 +1412,15 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 6px 2px 0;
-  border-top: 1px solid var(--border-default);
+  padding: var(--space-1) 0;
 }
 
-/* Turn all writes off: it only ever stops writes, so it applies on click
-   without a confirm, and it hovers warning rather than error. */
-.ctc-all-off {
-  height: 22px;
-  padding: 0 10px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
+/* Turn all writes off, on the design system's button: it only ever stops
+   writes, so it applies on click without a confirm, and it hovers warning
+   rather than error. */
 .ctc-all-off:hover:not(:disabled) {
   color: var(--color-warning);
   border-color: var(--color-warning);
-}
-
-.ctc-all-off:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 /* The popover's scope, said once. Everything above is per session and per

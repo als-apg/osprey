@@ -70,6 +70,7 @@ import {
 } from './dock-workspace.js';
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { flashElement } from '/design-system/js/highlight.js';
+import { isPoppedOut } from './popout.js';
 
 /**
  * One tracked service panel: its cached iframe (created/owned by panel-manager),
@@ -398,6 +399,23 @@ function redockVisiblePanels() {
   }
   pruneOrphanPlaceholders(api);
   syncGeometry();
+  placeholdersAppliedHandler?.();
+}
+
+/**
+ * Handler run after every layout apply, once the placeholders are final —
+ * registered by panel-manager, which fills a restored placeholder with its
+ * panel's iframe. A stored layout brings back a placeholder for every tile
+ * that was open, but only the landing panel's activation creates an iframe;
+ * without this the other restored tiles would stay empty cards until their
+ * sidebar rows are clicked.
+ * @type {(() => void) | null}
+ */
+let placeholdersAppliedHandler = null;
+
+/** @param {(() => void) | null} fn */
+export function setPlaceholdersAppliedHandler(fn) {
+  placeholdersAppliedHandler = fn;
 }
 
 /** The service-id universe panel-manager knows, or null before it has loaded.
@@ -445,13 +463,16 @@ export function setKnownServicePanels(ids) {
 
 /**
  * Remove placeholder panels that must not hold a tile: services neither known
- * to panel-manager nor managed here (removed from the deployment), and — once
- * the membership set is seeded — services no longer in the rail that are not
+ * to panel-manager nor managed here (removed from the deployment); once the
+ * membership set is seeded, services no longer in the rail that are not
  * currently being shown locally (a restored placeholder for a removed panel is
- * a ghost tile under the one-panel-per-tile model). The `managed` visible flag
- * covers the window where a just-added panel's membership POST has not echoed
- * back into the server set yet. No-op until setKnownServicePanels has run —
- * before the registry loads, "unknown" would just mean "not fetched yet".
+ * a ghost tile under the one-panel-per-tile model); and services living in
+ * their own pop-out window (a layout stored before the pop-out and restored
+ * after the window was adopted would put an empty tile back). The `managed`
+ * visible flag covers the window where a just-added panel's membership POST
+ * has not echoed back into the server set yet. No-op until
+ * setKnownServicePanels has run — before the registry loads, "unknown" would
+ * just mean "not fetched yet".
  * @param {any} api
  */
 function pruneOrphanPlaceholders(api) {
@@ -463,7 +484,7 @@ function pruneOrphanPlaceholders(api) {
     const sid = id.slice(PLACEHOLDER_PREFIX.length);
     const unknown = !knownServiceIds.has(sid) && !managed.has(sid);
     const closed = !!serverVisibleIds && !serverVisibleIds.has(sid) && !managed.get(sid)?.visible;
-    if (!unknown && !closed) continue;
+    if (!unknown && !closed && !isPoppedOut(sid)) continue;
     try {
       api.removePanel(panel);
     } catch (err) {
