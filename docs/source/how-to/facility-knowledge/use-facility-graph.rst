@@ -393,7 +393,7 @@ deploy no services of their own — so they have to be told which port that
 store is published on. Per-user web terminal containers run with
 ``network_mode: host``, so a container's ``localhost`` *is* the deployment
 host, and the build copies the bolt port from the hosting deployment's own
-render into each tier and app. The corpus is the one thing about the store a
+render into each login. The corpus is the one thing about the store a
 render is *not* told: ``services.graphdb.ttl_path`` names the graph view
 every render writes for itself, so each render keeps the key as its own and
 the build derives that render's search index from it.
@@ -401,10 +401,10 @@ the build derives that render's search index from it.
 Two consequences worth knowing before you move anything:
 
 * **Move the port on the hosting deployment and every render follows.** A
-  tier or app built beside its deployment is told the store's bolt port from the
+  login built beside its deployment is told the store's bolt port from the
   deployment's own render — the same way it is told the qmd sidecar's port,
   the Postgres the logbook lives in and the rest (:doc:`/how-to/build-profiles`) — so
-  nothing in a tier or app file restates it, and one that restates it
+  nothing in a login file restates it, and one that restates it
   with a different number is refused at build time.
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
   publishes the store there and not on ``localhost``, so the renders would no

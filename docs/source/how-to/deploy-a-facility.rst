@@ -46,8 +46,7 @@ scaffolding that goes with it:
    demo-facility/
    ├── profile.yml                       the manifest you own — edit this
    ├── data/                             channel databases, knowledge, lattice
-   ├── tiers/                            one delta per access level of the agent
-   ├── apps/                             one file per app on the shared cards
+   ├── tiers/                            one file per login, shared cards included
    ├── services/facility-mcp/            the facility's own container
    ├── scripts/verify.sh                 the post-deploy health check
    ├── .env                              the deployment's secrets
@@ -180,7 +179,7 @@ Step 1 — Create the facility repository
 
 The command writes the whole repository, runs ``git init`` at its root, and
 commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the three tiers and three apps it wrote, the two env files,
+data directory, the six login files it wrote in ``tiers/``, the two env files,
 and the README.
 
 The folder name is read once, here. ``osprey init`` records it in
@@ -215,9 +214,9 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
 * from ``agents:`` — ``logbook-search`` and ``logbook-deep-research``. Both
   query a logbook database at runtime, and this facility does not deploy one.
 * for the same reason, the ``logbook`` line under ``modules.web_terminals.shared``
-  in ``config:``, plus ``apps/logbook.yml``. That card is the logbook app, and
-  it needs the logbook database this facility does not run. The ``knowledge``
-  app stays: it reads the graph store this facility keeps.
+  in ``config:``, plus ``tiers/logbook.yml``. That card is the shared logbook
+  login, and it needs the logbook database this facility does not run. The
+  ``knowledge`` login stays: it reads the graph store this facility keeps.
 * from ``web_panels:`` — ``ariel``, ``events`` and ``bluesky``.
 * from ``config:`` — the ``claude_code.servers.bluesky.enabled`` line and every
   ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they
@@ -303,8 +302,8 @@ host, set real passwords in ``.env`` (or rotate with ``osprey users passwd``)
 and serve TLS — :doc:`web-terminal/multi-user/login` walks through both, and through single
 sign-on if your site runs one.
 
-Nothing else in the block needs editing. Each tier a user names is a file in
-``tiers/``, each name under ``shared:`` a file in ``apps/``, and ``osprey build``
+Nothing else in the block needs editing. Each tier a user names and each name
+under ``shared:`` is a file in ``tiers/``, and ``osprey build``
 renders every one to ``build/<project_name>-<name>`` (here
 ``build/demo-facility-readonly``). Renaming the deployment moves every render
 with it, and there is no second copy of the name to keep in step.
@@ -516,7 +515,7 @@ them from a mirror instead; leave the key out and the pipeline names the public
 images, which is what a runner with internet access wants.
 
 ``image_source: local`` says the deploy host builds the web-terminal images
-itself from the rendered tier and app projects, rather than pulling them from a
+itself from the rendered login projects, rather than pulling them from a
 registry.
 
 With ``registry``, the host pulls them under names derived from this block's
@@ -774,7 +773,7 @@ The deployment's name on the host is ``project_name:`` in ``profile.yml``, not
 the folder the repository sits in. Moving or renaming the folder changes
 nothing. Changing ``project_name:`` renames the deployment, and everything
 named from it follows: the compose project, the volumes, the images, the web
-containers and the tier and app renders. Stop the stack under its old name first,
+containers and the login renders. Stop the stack under its old name first,
 because ``osprey down`` addresses the name the current ``build/`` was rendered
 with:
 
