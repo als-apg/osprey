@@ -58,6 +58,9 @@ DEFAULT_GENERATION = 1
 #: passes on the one machine it was written on.
 FIXTURE_IDENTITY = "test-operator"
 
+#: The switch positions that arm a machine, in the order a seed applies them.
+_ARMED = ("asked", "allowed")
+
 
 # -- paths ------------------------------------------------------------------
 
@@ -195,14 +198,15 @@ def write_control_context(
             ``None`` for an ownerless record free to be claimed, or an
             :class:`control_context.Owner` built with :func:`owner`.
         last_switch: The terminus of the last switch request, verbatim.
-        switch: Which machines are switched on, ``{target: "on"}``. When
-            every value is ``"on"`` for a known target, and *posture* is a
-            mapping, this goes through the person's gesture
-            (:func:`control_context.set_switch`): targets on disk but not
-            named are turned off and the named ones on, so the epoch is the
-            one the production writer stamped or kept. Anything else — a
-            degraded value, an unknown key, a verbatim *posture* — is written
-            to the field VERBATIM on top of that epoch. ``None`` leaves the
+        switch: Which machines are armed and how, ``{target: "asked"}`` or
+            ``{target: "allowed"}``. When every value is one of those words
+            for a known target, and *posture* is a mapping, this goes through
+            the person's gesture (:func:`control_context.set_switch`): targets
+            on disk but not named are turned off and the named ones moved, so
+            the epoch is the one the production writer stamped or kept.
+            Anything else — a degraded value, the legacy ``"on"`` a hand-built
+            record may still spell, an unknown key, a verbatim *posture* — is
+            written to the field VERBATIM on top of that epoch. ``None`` leaves the
             switch to the production rule: :func:`control_context.write_record`
             keeps the one on disk, which on a fresh root is empty.
 
@@ -227,8 +231,8 @@ def write_control_context(
     control_context.write_record(record, path=path)
     control_context.invalidate_cache()
     if switch is not None:
-        if all(key in CONTROL_TARGETS and value == "on" for key, value in switch.items()):
-            _set_switch_to(path, set(switch))
+        if all(key in CONTROL_TARGETS and value in _ARMED for key, value in switch.items()):
+            _set_switch_to(path, dict(switch))
         else:
             # Through the production writer first, so the epoch is the one it
             # stamped or kept; the degraded switch lands verbatim on top.
@@ -239,25 +243,28 @@ def write_control_context(
     return path
 
 
-def _set_switch_to(path: Path, wanted: set[str]) -> None:
-    """Make the record's switch exactly *wanted* through the person's gesture.
+def _set_switch_to(path: Path, wanted: Mapping[str, str]) -> None:
+    """Make the record's switch exactly *wanted* (target to word) through the person's gesture.
 
     Per-target turn-offs and turn-ons only: neither moves an existing epoch,
     which a turn-off of every machine would.
     """
     current, _status = control_context.read_record_status(path=path)
-    stale = sorted(set(current.switch) - wanted) if current is not None else []
+    stale = sorted(set(current.switch) - set(wanted)) if current is not None else []
     if stale:
         control_context.set_switch(stale, "off", path=path)
-    if wanted:
+    for position in _ARMED:
+        names = sorted(target for target, word in wanted.items() if word == position)
+        if not names:
+            continue
         control_context.invalidate_cache()
         current = control_context.read_record(path=path)
         epoch = current.switch_epoch if current is not None else None
         try:
-            control_context.set_switch(sorted(wanted), "on", epoch=epoch or 0, path=path)
+            control_context.set_switch(names, position, epoch=epoch or 0, path=path)
         except control_context.StoppedSince as stamped:
             # An epoch-less record: the refusal stamped one; retry with it.
-            control_context.set_switch(sorted(wanted), "on", epoch=stamped.epoch, path=path)
+            control_context.set_switch(names, position, epoch=stamped.epoch, path=path)
 
 
 def write_server_report(

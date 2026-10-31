@@ -158,7 +158,7 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 7)
-    assert stored.switch == {"live": "on"}
+    assert stored.switch == {"live": "asked"}
     assert stored.posture == {"va": "sandbox", "standin": "sandbox"}
     assert stored.owner == terminal_identity()
 

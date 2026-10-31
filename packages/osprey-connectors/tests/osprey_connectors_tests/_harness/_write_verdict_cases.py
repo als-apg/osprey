@@ -3,15 +3,22 @@
 ``_harness/fixtures/write_verdict_cases.json`` is one list of rows, each naming a
 verdict (``write`` or ``backstop``), its inputs — section, target, owner, the
 launch-pin flag, the environment, the host record and the control-context tree
-— and the expected answer. Every row is JSON only, so the package verdict and
-the hook's stdlib twin read the same table; ``applies_to`` names which of the
-two a row drives.
+— and the expected answer: ``allowed``, ``reason`` and, on a write allow,
+``position`` (``asked`` or ``allowed``; :func:`expected_position` hands it to the
+surface projections). Every row is JSON only, so the package verdict and the
+hook's stdlib twin read the same table; ``applies_to`` names which of the two a
+row drives.
+
+A row's ``switch`` is what the file holds: the stored words ``asked`` and
+``allowed``, with ``off``, an unknown value or the legacy ``on`` only on the rows
+about those spellings.
 
 Staging is environment and files only (never a patched package internal), so a
 row stages the same way for either side:
 
 * the host record is written under ``OSPREY_AGENT_DATA_ROOT`` through
-  :func:`osprey_connectors_tests._harness._control_context_fixtures.write_control_context`;
+  :func:`osprey_connectors_tests._harness._control_context_fixtures.write_control_context`,
+  and its ``switch`` laid over that file verbatim;
 * a tree is a directory bound through ``OSPREY_CONTROL_CONTEXT_TREE``, with one
   record per owner;
 * a controls server's report (``report``: ``server`` ``live`` or ``dead``, and
@@ -102,7 +109,8 @@ _ROW_KEYS = frozenset(
     }
 )
 _REQUIRED_KEYS = frozenset({"id", "applies_to", "verdict", "expect"})
-_EXPECT_KEYS = frozenset({"allowed", "reason", "target", "kind"})
+_EXPECT_KEYS = frozenset({"allowed", "reason", "target", "kind", "position"})
+_POSITIONS = frozenset({"asked", "allowed"})
 _RECORD_STATUSES = frozenset({"ok", "corrupt", "foreign_schema"})
 _TREE_RECORD_STATUSES = frozenset({"ok", "corrupt", "foreign_schema", "dir_only", "planted_link"})
 _TREE_BINDS = frozenset({"provisioned", "unprovisioned", "relative"})
@@ -242,6 +250,12 @@ def _check_row(row: Any) -> None:
         raise CaseTableError(f"{case_id}: the verdict never answers {reason!r}")
     if expect.get("kind") is not None and expect["kind"] not in _KINDS:
         raise CaseTableError(f"{case_id}: kind must be one of {sorted(_KINDS)}")
+    position = expect.get("position")
+    if expect["allowed"] and row["verdict"] == "write":
+        if position not in _POSITIONS:
+            raise CaseTableError(f"{case_id}: a write allow states position {sorted(_POSITIONS)}")
+    elif position is not None:
+        raise CaseTableError(f"{case_id}: only a write allow has a position")
 
 
 def check_coverage(cases: list[Case]) -> None:
@@ -322,6 +336,16 @@ def owner_argument(case: Case, no_owner: Any = NO_OWNER) -> dict[str, Any]:
     return {"owner": case.owner}
 
 
+def expected_position(case: Case) -> str | None:
+    """The position *case* expects: ``asked`` or ``allowed`` on a write allow, else ``None``.
+
+    A refusal or a backstop row may leave the key out; the loader has already
+    refused any other value there.
+    """
+    position: str | None = case.expect.get("position")
+    return position
+
+
 # -- staging ----------------------------------------------------------------
 
 
@@ -343,20 +367,25 @@ def case_environment(monkeypatch, tmp_path) -> Iterator[None]:
 
 
 def _stage_host_record(root: Path, record: Mapping[str, Any]) -> None:
-    path = write_control_context(root, switch=record.get("switch"), owned_by=None)
+    path = write_control_context(root, owned_by=None)
     if record["status"] == "corrupt":
         write_payload(path, "{not json")
         return
-    if record["status"] == "foreign_schema" or "posture" in record:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if record["status"] == "foreign_schema":
-            payload["schema"] = 2
-        if "posture" in record:
-            # An old narrowing, laid over the mirror verbatim: no writer stores
-            # one any more, so a row about a file written before the mirror has
-            # to put it there by hand.
-            payload["posture"] = record["posture"]
-        write_payload(path, payload)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    # Verbatim over the epoch the writer stamped, so a legacy ``on``, an unknown
+    # value or a stored ``off`` reaches the reader as written: the gesture takes
+    # none of them.
+    switch = dict(record.get("switch") or {})
+    payload["switch"] = switch
+    payload["posture"] = control_context.posture_mirror(switch)
+    if record["status"] == "foreign_schema":
+        payload["schema"] = 2
+    if "posture" in record:
+        # An old narrowing, laid over the mirror verbatim: no writer stores
+        # one any more, so a row about a file written before the mirror has
+        # to put it there by hand.
+        payload["posture"] = record["posture"]
+    write_payload(path, payload)
 
 
 def _tree_payload(record: Mapping[str, Any]) -> dict[str, Any]:

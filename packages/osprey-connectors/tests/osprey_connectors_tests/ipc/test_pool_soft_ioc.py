@@ -59,7 +59,11 @@ def _gateways(address: str, port) -> dict:
 
 
 #: The switch each ``arm`` turns on: both machines, the live one alone, or none.
-_SWITCHED_ON = {"both": {"live": "on", "standin": "on"}, "live": {"live": "on"}, "none": None}
+_SWITCHED_ON = {
+    "both": {"live": "asked", "standin": "asked"},
+    "live": {"live": "asked"},
+    "none": None,
+}
 
 
 def _control_system(machine_port: int) -> dict:
@@ -194,7 +198,7 @@ async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment,
         assert live.report["writes_enabled"] is False
 
         record = control_context.read_record()
-        control_context.set_switch(["live"], "on", epoch=record.switch_epoch)
+        control_context.set_switch(["live"], "asked", epoch=record.switch_epoch)
         control_context.invalidate_cache()
         lagging = await live.write_channel(setpoint, 7.0, confirm=True, timeout=CA_TIMEOUT_S)
 

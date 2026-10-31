@@ -344,7 +344,7 @@ def test_turning_on_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, c
                 "data-state", "on", timeout=TIMEOUT
             )
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            assert recorded_switch().get(POSTURE_TARGET) == "on", recorded_switch()
+            assert recorded_switch().get(POSTURE_TARGET) == "asked", recorded_switch()
         finally:
             page.close()
 
@@ -815,7 +815,7 @@ def test_a_stop_the_store_cannot_record_says_not_taken_and_stays_on(
 
             _record, status = control_context.read_record_status()
             assert status == "ok", status
-            assert recorded_switch().get(POSTURE_TARGET) == "on", recorded_switch()
+            assert recorded_switch().get(POSTURE_TARGET) == "asked", recorded_switch()
             assert write_verdict_for(app, POSTURE_TARGET).allowed
             assert_chip_matches_verdict(page, app)
         finally:

@@ -41,7 +41,8 @@ from osprey.deployment.web_terminals.roster import (
 #: Where the map is rendered in a shared container's config.
 LOGIN_TIERS_KEY = "login_tiers"
 
-Tier = Literal["allowed", "never"]
+#: A package before the three-valued tier yields only the outer two.
+Tier = Literal["never", "asked", "allowed"]
 
 
 def _entry_login(entry: Any) -> tuple[str | None, dict[str, Any]]:

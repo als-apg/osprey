@@ -41,8 +41,8 @@ on safely:
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
   an input: :meth:`ControlContext.to_payload` writes ``sandbox`` for every
-  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose switch is
-  not ``"on"`` (:func:`posture_mirror`), whatever the record it was built
+  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose position
+  is off (:func:`posture_mirror`), whatever the record it was built
   from carried, and no write decision reads it back. A file written before
   the mirror may still hold an old narrowing; it is parsed by the posture
   store's grammar (rule 2 there) and ignored by the verdict.
@@ -55,11 +55,14 @@ on safely:
   same posture, a new ``last_switch``. That is the whole of how a refusal is
   reported.
 * ``switch`` → ``{}``, every machine's writes off. A per-target map of which
-  only ``"on"`` leaves survive; any other value is dropped on parse, so a
-  degraded switch can only refuse.
+  only ``"asked"`` and ``"allowed"`` leaves survive, and a target absent from
+  it is off. The legacy ``"on"`` reads as ``"asked"``, and any write stores the
+  whole map in the new spelling; any other value is dropped on parse, so a
+  degraded switch can only refuse. :func:`switch_position` is the one reader of
+  the map.
 * ``switch_epoch`` → ``None``, a record written before epochs existed. An
   epoch is a ``time.time_ns()`` stamp that only moves forward; the person who
-  turns a switch on names the epoch they saw, so a stop or a lost record in
+  widens a switch names the epoch they saw, so a stop or a lost record in
   between makes their gesture stale. ``None`` is never "older" than anything.
 
 The schema stays :data:`SCHEMA_VERSION` with the two switch fields added:
@@ -161,6 +164,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "STATE_DIR_NAME",
     "SWITCH_APPLIED",
+    "SWITCH_POSITIONS",
     "SWITCH_REFUSED",
     "ControlContext",
     "Owner",
@@ -187,6 +191,7 @@ __all__ = [
     "set_switch",
     "state_dir",
     "sweep_dead",
+    "switch_position",
     "terminus",
     "write_json_atomic",
     "unchanged_detail",
@@ -251,9 +256,16 @@ _CACHE: dict[str, tuple[tuple[int, int, int], Any]] = {}
 #: stale, because every read re-stats before it trusts what it holds.
 _CACHE_MAX_ENTRIES = 128
 
-#: The one switch value that arms a machine. Every other value a payload
+#: A machine's three positions. ``off`` is never stored: it is a target absent
+#: from the map.
+_SWITCH_OFF: Literal["off"] = "off"
+_SWITCH_ASKED: Literal["asked"] = "asked"
+_SWITCH_ALLOWED: Literal["allowed"] = "allowed"
+
+#: The word a record written before the three positions arms a machine with.
+#: Read, and taken by :func:`set_switch`, as :data:`_SWITCH_ASKED`; never written. Every other value a payload
 #: carries under ``switch`` is dropped on parse (rule 2).
-_SWITCH_ON = "on"
+_SWITCH_LEGACY_ON = "on"
 
 #: The record lock's file, beside the record: ``<record path>`` plus this.
 #: Rule 3. Not one of the PID-named families, so :func:`sweep_dead` never
@@ -316,8 +328,9 @@ class ControlContext:
             ever stored, and no write decision reads it.
         last_switch: The terminus of the last switch request, verbatim, or
             ``None`` when no request has reached one.
-        switch: Which machines the person has switched writes on for,
-            ``{target: "on"}``; an absent target is off. :func:`write_record`
+        switch: The position the person has put each machine at,
+            ``{target: "asked" | "allowed"}``; an absent target is off, and
+            :func:`switch_position` is how it is read. :func:`write_record`
             never changes it — it keeps whatever the file on disk says.
         switch_epoch: The ``time.time_ns()`` stamp of the last stop or loss
             of the record, or ``None`` for a record written before epochs
@@ -357,19 +370,38 @@ def posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
-    :data:`~osprey_connectors.types.CONTROL_TARGETS` whose switch is not
-    ``"on"``, so an old reader of the field refuses every machine the person
-    has not turned on. Derived on every write and never read by a write
-    decision: the switch is the state, this is its shadow in the old grammar.
+    :data:`~osprey_connectors.types.CONTROL_TARGETS` at off, so an old reader
+    of the field refuses every machine the person has not turned on; ``asked``
+    and ``allowed`` both store no entry, which is how the old grammar spells
+    "writes". Derived on every write and never read by a write decision: the
+    switch is the state, this is its shadow in the old grammar.
 
     Args:
-        switch: The record's switch, ``{target: "on"}``.
+        switch: The record's switch, ``{target: "asked" | "allowed"}``.
     """
     return {
         target: posture_store.POSTURE_SANDBOX
         for target in CONTROL_TARGETS
-        if switch.get(target) != _SWITCH_ON
+        if _switch_word(switch.get(target)) is None
     }
+
+
+def switch_position(
+    record: ControlContext | None, target: str
+) -> Literal["off", "asked", "allowed"]:
+    """Where the person has put *target* — the one reader of the ``switch`` map.
+
+    Never raises. No record, a target absent from the map and an unknown value
+    all read as off; a hand-built record still spelling ``"on"`` reads as asked,
+    as a parsed one does.
+
+    Args:
+        record: The record, or ``None`` when there is none.
+        target: The machine.
+    """
+    if record is None:
+        return _SWITCH_OFF
+    return _switch_word(record.switch.get(target)) or _SWITCH_OFF
 
 
 def claimed(record: ControlContext, baseline: str) -> ControlContext:
@@ -475,19 +507,37 @@ def parse_posture(value: Any) -> dict[str, str]:
     return posture_store.parse_posture_value(value)
 
 
+def _switch_word(value: Any) -> Literal["asked", "allowed"] | None:
+    """One stored ``switch`` value as the word it arms with, or ``None`` for off.
+
+    Rule 2: an exact match, no folding and no trimming. The legacy ``"on"``
+    is ``"asked"``.
+    """
+    if not isinstance(value, str):
+        return None
+    if value == _SWITCH_LEGACY_ON:
+        return _SWITCH_ASKED
+    if value == _SWITCH_ASKED:
+        return _SWITCH_ASKED
+    if value == _SWITCH_ALLOWED:
+        return _SWITCH_ALLOWED
+    return None
+
+
 def _parse_switch(value: Any) -> dict[str, str]:
-    """One ``switch`` value as ``{target: "on"}`` — rule 2: only ``"on"`` arms.
+    """One ``switch`` value as ``{target: "asked" | "allowed"}`` (rule 2).
 
     Keys are kept whether or not they name a known target, so a turn-off of
     every machine can see and clear them; a reader only ever asks about the
-    target it is writing to.
+    target it is writing to. Because every write stores what this returned, a
+    map spelling ``"on"`` is rewritten in the new words by the next write.
     """
     if not isinstance(value, dict):
         return {}
     return {
-        key: _SWITCH_ON
+        key: word
         for key, state in value.items()
-        if isinstance(key, str) and isinstance(state, str) and state == _SWITCH_ON
+        if isinstance(key, str) and (word := _switch_word(state)) is not None
     }
 
 
@@ -818,7 +868,7 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
     with the on-disk ``switch`` and ``switch_epoch`` in place of its own: no
     caller of this function changes either, whatever it read before. A file
     that is missing or unreadable is replaced with the switch empty and a
-    fresh ``time.time_ns()`` epoch, never 0, so a turn-on begun before the
+    fresh ``time.time_ns()`` epoch, never 0, so a widening begun before the
     record was lost names an older epoch and is refused.
 
     It does not check who owns the record: the owner decides what it is
@@ -855,19 +905,25 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
 #: The keyword a person's gesture uses for "every machine": only ever off.
 _ALL_TARGETS = "all"
 
-#: The gesture's two states. ``"on"`` is also the only value stored (rule 2).
-_SWITCH_STATES = (_SWITCH_ON, "off")
+#: A machine's three positions, narrowest first: a later one widens an earlier
+#: one. The gesture's words and every reader's order. ``"off"`` is not stored
+#: (rule 2).
+SWITCH_POSITIONS: tuple[Literal["off"], Literal["asked"], Literal["allowed"]] = (
+    _SWITCH_OFF,
+    _SWITCH_ASKED,
+    _SWITCH_ALLOWED,
+)
 
 
 class StoppedSince(Exception):
-    """A turn-on refused because a stop, or a lost record, came after it began.
+    """A widening refused because a stop, or a lost record, came after it began.
 
-    Rule 3: a person turning a machine on names the epoch they saw. A record
-    whose epoch differs from it — newer or older —, a record that has no epoch,
-    and no record at all each mean that what they saw is no longer what is on
-    disk, so nothing is armed. The chip retries on its own, with :attr:`epoch`,
-    only when :attr:`stamped`; otherwise it re-renders and needs a new click, so
-    a turn-on that raced a stop stays off.
+    Rule 3: a person widening a machine names the epoch they saw. A record
+    whose epoch differs from it — newer or older —, a gesture that names none,
+    a record that has no epoch, and no record at all each mean that what they
+    saw is no longer what is on disk, so nothing is armed. The chip retries on
+    its own, with :attr:`epoch`, only when :attr:`stamped`; otherwise it
+    re-renders and needs a new click, so a widening that raced a stop stays off.
 
     Not a ``RuntimeError``: a caller that answers ``RuntimeError`` with "the
     store is unavailable" must not answer a stale gesture the same way.
@@ -893,12 +949,13 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
 
     Raises:
         ValueError: Anything that is not ``"all"`` or a non-empty sequence of
-            names; ``"all"`` with ``"on"``; a turn-on of a name outside
+            names; ``"all"`` with anything but ``"off"``; ``"asked"`` or
+            ``"allowed"`` for a name outside
             :data:`~osprey_connectors.types.CONTROL_TARGETS`.
     """
     if targets == _ALL_TARGETS:
-        if state == _SWITCH_ON:
-            raise ValueError('set_switch("all", "on"): machines are turned on one at a time')
+        if state != _SWITCH_OFF:
+            raise ValueError(f'set_switch("all", {state!r}): machines are turned on one at a time')
         return None
     if isinstance(targets, str) or not isinstance(targets, Sequence):
         raise ValueError(
@@ -909,16 +966,21 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
         raise ValueError(
             f"set_switch targets must be a non-empty sequence of names, not {targets!r}"
         )
-    if state == _SWITCH_ON:
+    if state != _SWITCH_OFF:
         unknown = [name for name in names if name not in CONTROL_TARGETS]
         if unknown:
             raise ValueError(f"set_switch cannot turn on unknown targets {unknown!r}")
     return names
 
 
+def _widens(state: str, position: str) -> bool:
+    """Whether moving a machine at *position* to *state* widens it."""
+    return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
+
+
 def set_switch(
     targets: Sequence[str] | Literal["all"],
-    state: Literal["on", "off"],
+    state: Literal["off", "on", "asked", "allowed"],
     *,
     epoch: int | None = None,
     path: Path | None = None,
@@ -929,16 +991,21 @@ def set_switch(
     same private writer :func:`write_record` uses, so no other write lands
     between what this compared and what it stored.
 
-    * ``"on"`` arms each named target. It requires *epoch*, the
-      ``switch_epoch`` the person saw, and succeeds only when it equals the
-      record's epoch — a compare-and-swap. It raises :class:`StoppedSince`
-      carrying the on-disk epoch when the two differ (newer or older), when the
-      record has no epoch (one is stamped and ``stamped`` is set, so the
-      retried gesture succeeds), or when there is no usable record.
-    * ``"off"`` disarms each named target — any key, known target or not —
-      and never refuses.
+    Each named target's move is classified inside the lock, against the map
+    on disk, so a move believed to be a narrowing that raced a stop is judged
+    a widening and refused.
+
+    * A **widening** (one name moving up off → asked → allowed gates the whole
+      call) requires *epoch*, the ``switch_epoch`` the person saw, and succeeds
+      only when it equals the record's epoch — a compare-and-swap. It raises
+      :class:`StoppedSince` carrying the on-disk epoch when the two differ
+      (newer or older) or *epoch* is ``None``, when the record has no epoch
+      (one is stamped and ``stamped`` is set, so the retried gesture succeeds),
+      or when there is no usable record.
+    * A **narrowing or a no-op** applies unconditionally and never refuses.
+      ``"off"`` clears each named key, known target or not.
     * ``"all"`` (with ``"off"``) clears every key and moves the epoch to
-      ``max(old + 1, time.time_ns())``, which makes every turn-on begun
+      ``max(old + 1, time.time_ns())``, which makes every widening begun
       before it stale.
 
     Only a stop moves an existing epoch; a gesture on an epoch-less record
@@ -946,27 +1013,35 @@ def set_switch(
 
     Args:
         targets: The machines, or ``"all"``.
-        state: ``"on"`` or ``"off"``.
-        epoch: The epoch a turn-on was begun against. Ignored for ``"off"``.
+        state: ``"off"``, ``"asked"`` or ``"allowed"``; the legacy ``"on"``
+            is taken as ``"asked"`` and never stored.
+        epoch: The epoch the gesture was begun against. Ignored when nothing
+            widens.
         path: Write this file instead of :func:`record_path`.
 
     Returns:
-        The record as stored, or ``None`` when ``"off"``/``"all"`` found no
+        The record as stored, or ``None`` when a non-widening gesture found no
         usable record — nothing is on, so nothing was written.
 
     Raises:
-        ValueError: ``("all", "on")``, ``"on"`` without *epoch*, an unknown
-            *state*, or malformed *targets*. Nothing is written.
-        StoppedSince: A turn-on that is stale, as above.
+        ValueError: ``"all"`` with anything but ``"off"``, an unknown *state*,
+            malformed *targets*, or an *epoch* that is neither ``None`` nor an
+            integer. Nothing is written.
+        StoppedSince: A widening that is stale, as above.
         RuntimeError: The agent-data root does not resolve, or the record
             stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
-    if state not in _SWITCH_STATES:
-        raise ValueError(f'set_switch state must be "on" or "off", not {state!r}')
+    if state == _SWITCH_LEGACY_ON:
+        # A framework released before the three positions sends "on".
+        state = _SWITCH_ASKED
+    if state not in SWITCH_POSITIONS:
+        raise ValueError(f"set_switch state must be one of {SWITCH_POSITIONS}, not {state!r}")
     names = _gesture_targets(targets, state)
-    if state == _SWITCH_ON and (isinstance(epoch, bool) or not isinstance(epoch, int)):
-        raise ValueError('set_switch(..., "on") requires the epoch the turn-on was begun against')
+    if state != _SWITCH_OFF and (
+        epoch is not None and (isinstance(epoch, bool) or not isinstance(epoch, int))
+    ):
+        raise ValueError(f"set_switch epoch must be an integer or None, not {epoch!r}")
     target_path = record_path() if path is None else path
     if target_path is None:
         raise RuntimeError(
@@ -975,7 +1050,7 @@ def set_switch(
     with _record_lock(target_path):
         current, _status = _read(target_path)
         if current is None:
-            if state == _SWITCH_ON:
+            if state != _SWITCH_OFF:
                 raise StoppedSince(epoch=None)
             return None
         on_disk_epoch = current.switch_epoch
@@ -985,18 +1060,21 @@ def set_switch(
                 switch={},
                 switch_epoch=max((on_disk_epoch or 0) + 1, time.time_ns()),
             )
-        elif state == _SWITCH_ON:
-            if on_disk_epoch is None:
-                stamped = replace(current, switch_epoch=time.time_ns())
-                _write_record_unlocked(stamped, target_path)
-                raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
-            if epoch != on_disk_epoch:
-                raise StoppedSince(epoch=on_disk_epoch)
-            stored = replace(current, switch={**current.switch, **dict.fromkeys(names, _SWITCH_ON)})
         else:
+            if any(_widens(state, switch_position(current, name)) for name in names):
+                if on_disk_epoch is None:
+                    stamped = replace(current, switch_epoch=time.time_ns())
+                    _write_record_unlocked(stamped, target_path)
+                    raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
+                if epoch != on_disk_epoch:
+                    raise StoppedSince(epoch=on_disk_epoch)
+            if state == _SWITCH_OFF:
+                switch = {key: value for key, value in current.switch.items() if key not in names}
+            else:
+                switch = {**current.switch, **dict.fromkeys(names, state)}
             stored = replace(
                 current,
-                switch={key: value for key, value in current.switch.items() if key not in names},
+                switch=switch,
                 switch_epoch=time.time_ns() if on_disk_epoch is None else on_disk_epoch,
             )
         _write_record_unlocked(stored, target_path)

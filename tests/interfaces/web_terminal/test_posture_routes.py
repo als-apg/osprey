@@ -338,7 +338,7 @@ class TestTheGesture:
             "switch_epoch": wire_now(),
         }
         assert isinstance(response.json()["switch_epoch"], str)
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_off_disarms_only_that_machine(self, client):
         assert turn_on(client, "standin").status_code == 200
@@ -348,7 +348,7 @@ class TestTheGesture:
 
         assert response.status_code == 200, response.text
         assert response.json() == {"target": "standin", "state": "off", "switch_epoch": wire_now()}
-        assert switch_now() == {"va": "on"}
+        assert switch_now() == {"va": "asked"}
 
     def test_all_off_clears_every_machine_and_moves_the_epoch(self, client):
         assert turn_on(client, "standin").status_code == 200
@@ -386,7 +386,7 @@ class TestTheGesture:
     def test_a_session_less_gesture_is_accepted(self, client):
         """The Lab page's bar posts with no session; the switch is the login's."""
         assert turn_on(client, "standin", session_id=None).status_code == 200
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_the_gesture_moves_neither_target_nor_generation(self, client):
         before = read_record()
@@ -445,7 +445,7 @@ class TestOffIsNeverRefused:
         client.app.state.control_context_follows = holder
 
         assert turn_on(client, "va").status_code == 200
-        assert switch_now() == {"va": "on"}
+        assert switch_now() == {"va": "asked"}
         assert read_record().owner == holder
 
     def test_neither_gesture_needs_the_owner_primitive(self, client):
@@ -584,7 +584,7 @@ class TestEpoch:
 
         second = post_switch(client, epoch=detail["epoch"])
         assert second.status_code == 200, second.text
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_a_stale_epoch_is_an_unstamped_409_carrying_the_records(self, client):
         on_disk = epoch_now()
@@ -640,7 +640,7 @@ class TestEpoch:
 
         assert response.status_code == 200, response.text
         assert response.json()["switch_epoch"] == str(ns)
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_the_server_never_retries(self, client, monkeypatch):
         calls = []
@@ -702,7 +702,7 @@ class TestNoUsableRecord:
         with patch.object(control_context, "_write_record_unlocked", side_effect=error):
             response = post_switch(client, target="standin", state="off")
         assert_envelope(response, 503, reason="not_taken", taken=False, phrase=STOP_SENTENCE)
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_a_failed_write_of_on_is_not_taken_with_the_record_phrase(self, client):
         with patch.object(
@@ -853,13 +853,13 @@ class TestTheSwitchIsTheLogins:
         assert post_switch(client, target="all", state="off").status_code == 200
 
         pin_identity(monkeypatch, "alice")
-        assert switch_now() == {"standin": "on"}
+        assert switch_now() == {"standin": "asked"}
 
     def test_on_survives_a_restart(self, make_client):
         with make_client() as first:
             assert turn_on(first, "standin").status_code == 200
         with make_client() as second:
-            assert switch_now() == {"standin": "on"}
+            assert switch_now() == {"standin": "asked"}
             assert post_switch(second, target="standin", state="off").status_code == 200
         assert switch_now() == {}
 
@@ -919,7 +919,7 @@ class TestTheSwitchIsTheLogins:
         assert moved.status_code == 202, moved.text
         record = read_record()
         assert (record.target, record.generation) == ("va", before.generation + 1)
-        assert switch_now() == {"live": "on"}
+        assert switch_now() == {"live": "asked"}
         assert epoch_now() == epoch
 
 
