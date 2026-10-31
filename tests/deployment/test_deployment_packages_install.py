@@ -397,10 +397,10 @@ def test_every_image_context_carries_the_wheels_and_installs_them(tmp_path: Path
         assert not re.search(re.escape(str(tmp_path)), dockerfile)
 
 
-def test_a_skip_deps_build_counts_the_environment_packages_as_shipped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``--skip-deps`` judges the kinds over the same list the plan merges."""
+def _skip_deps_build_with_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **declared: list[str]
+) -> Any:
+    """``osprey build --skip-deps`` with kind ``halo`` registered by ``halo-kind``."""
     from osprey.cli.build_cmd import build as build_command
     from osprey.cli.init_cmd import init
 
@@ -411,9 +411,51 @@ def test_a_skip_deps_build_counts_the_environment_packages_as_shipped(
     created = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
     assert created.exit_code == 0, created.output
     profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
-    profile.setdefault("environment", {})["packages"] = ["halo-kind>=1"]
+    if "packages" in declared:
+        profile.setdefault("environment", {})["packages"] = declared["packages"]
+    if "dependencies" in declared:
+        profile["dependencies"] = declared["dependencies"]
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
+    return runner.invoke(build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+
+def test_a_skip_deps_build_judges_the_kinds_over_what_its_image_installs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``--skip-deps`` installs the dependencies only: environment packages do not ship."""
+    result = _skip_deps_build_with_kind(tmp_path, monkeypatch, packages=["halo-kind>=1"])
+
+    assert result.exit_code != 0
+    # The build reports a refusal through its logger, not on stdout.
+    assert "'halo'" in caplog.text
+    assert "halo-kind" in caplog.text
+    assert "not among the packages the project image installs" in caplog.text
+
+
+def test_a_skip_deps_build_ships_a_kind_named_in_the_dependencies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _skip_deps_build_with_kind(tmp_path, monkeypatch, dependencies=["halo-kind>=1"])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_a_skip_deps_build_names_a_distribution_once(tmp_path: Path) -> None:
+    from osprey.cli.build_cmd import build as build_command
+    from osprey.cli.init_cmd import init
+
+    repo = tmp_path / "pkgs"
+    runner = CliRunner()
+    created = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
+    assert created.exit_code == 0, created.output
+    _deployment(repo)
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["dependencies"] = ["./kinds/ring", "ring-kind"]
     (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
 
     result = runner.invoke(build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
     assert result.exit_code == 0, result.output
+
+    dockerfile = (repo / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
+    primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
+    assert '"$OSPREY_PIP_SPEC" ring-kind==0.2.0 knob-app==0.1.0 --refresh-package' in primer
