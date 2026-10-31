@@ -475,7 +475,7 @@ this page, says where the name comes from and what it does not cover.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1496 1079" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
   <title id="safety-chain-title">Five ways to change something on the machine through the connector, and what stands in the way of each</title>
-  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, the login's tier, and that login's write switch for each machine, one record per login — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: may this login write to this machine (tier, owner, switch), and does a human approve, which the operator answers at the terminal prompt; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process, holding the machine's lock while it runs; a pyAML tool — one of pyAML's tuning routines, code OSPREY ships rather than code the agent wrote — runs on the Python server too: its prompt lists every setpoint the call steps, and it runs as a guarded run, holding the machine's lock, and its result lists each setpoint it moved with its value before the call; a run that stops leaves the machine where it stopped; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's tier and switch; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell; a cell may not load a control-system client library, for reads as for writes, and reads and writes through osprey.runtime instead. All five end at the connector, which asks the write verdict on every put — read-only run, tier, target, owner, record, switch, launch pin, first refusal wins — and every refusal ends in an osprey-refusal trailer naming its reason; a run started with writes held off is told to run again. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A Phoebus drive, possible only where a deployment enables the phoebus server and sets phoebus.agent_access to read_write, is not drawn: it passes the write verdict and the approval prompt, and the Phoebus product then writes the value through its own connections rather than through the connector, so the connector's verdict, its limits and its read-back do not apply to it. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a tier allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. The approval prompt attributes a write to a person and does not contain code already running in the container; the terminal's server and the dispatch worker keep their credentials out of that code's reach, so it cannot answer the prompt in the operator's name. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on writes nothing; an external-worker lane runs on the facility's own RunEngine and devices, outside the tier and the switch, where the name on an item is attribution.</desc>
+  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, the login's tier, and that login's write switch for each machine, one record per login — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: may this login write to this machine (tier, owner, and the switch's position: off, asked or allowed), and does a human approve — at asked the operator answers the terminal prompt, at allowed the write runs without one; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process, holding the machine's lock while it runs; a pyAML tool — one of pyAML's tuning routines, code OSPREY ships rather than code the agent wrote — runs on the Python server too: its prompt lists every setpoint the call steps, and it runs as a guarded run, holding the machine's lock, and its result lists each setpoint it moved with its value before the call; a run that stops leaves the machine where it stopped; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's tier and switch; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell; a cell may not load a control-system client library, for reads as for writes, and reads and writes through osprey.runtime instead. All five end at the connector, which asks the write verdict on every put — read-only run, tier, target, owner, record, switch, launch pin, first refusal wins — and every refusal ends in an osprey-refusal trailer naming its reason; a run started with writes held off is told to run again. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A Phoebus drive, possible only where a deployment enables the phoebus server and sets phoebus.agent_access to read_write, is not drawn: it passes the write verdict and the approval prompt, and the Phoebus product then writes the value through its own connections rather than through the connector, so the connector's verdict, its limits and its read-back do not apply to it. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a tier allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. The approval prompt attributes a write to a person and does not contain code already running in the container; the terminal's server and the dispatch worker keep their credentials out of that code's reach, so it cannot answer the prompt in the operator's name. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on writes nothing; an external-worker lane runs on the facility's own RunEngine and devices, outside the tier and the switch, where the name on an item is attribution.</desc>
   <defs>
     <marker id="safety-chain-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
@@ -554,10 +554,10 @@ this page, says where the name comes from and what it does not cover.</p>
   <rect class="mask" x="1116" y="252" width="340" height="64" rx="6"/>
   <rect class="nb-foc" x="1116" y="252" width="340" height="64" rx="6"/>
   <text class="tn" x="1286" y="274" text-anchor="middle">Does a human approve?</text>
-  <text class="ts" x="1286" y="290" text-anchor="middle">the operator answers a prompt at the terminal</text>
-  <text class="ts" x="1286" y="303" text-anchor="middle">for Python, the exact code is shown in a review notebook</text>
+  <text class="ts" x="1286" y="290" text-anchor="middle">asked: the operator answers a prompt at the terminal</text>
+  <text class="ts" x="1286" y="303" text-anchor="middle">allowed: no prompt, the switch record approves</text>
 
-  <text class="ts" x="56" y="354">how often approval is asked is set per tool: always · only when the request could write (the check reads the request itself) · never</text>
+  <text class="ts" x="56" y="354">for a governed write the switch's position decides: asked prompts (Python code is shown in a review notebook) · allowed runs unprompted · other tools keep their own policy</text>
   <text class="ts" x="56" y="368">on a never tier, channel writes, pyAML tools and plan queueing are denied outright and Python is always asked · stopping a plan never is</text>
 
   <!-- approval → servers -->
@@ -663,7 +663,7 @@ this page, says where the name comes from and what it does not cover.</p>
   <rect class="nb" x="828" y="617" width="300" height="97" rx="6"/>
   <text class="tn" x="978" y="639" text-anchor="middle">before and during a run</text>
   <text class="ts" x="978" y="657" text-anchor="middle">every channel the plan declares must answer first</text>
-  <text class="ts" x="978" y="670" text-anchor="middle">each write: owner's switch on? within limits?</text>
+  <text class="ts" x="978" y="670" text-anchor="middle">each write: owner's switch not off? within limits?</text>
   <text class="ts" x="978" y="683" text-anchor="middle">the name on the item rides into the plan's task</text>
   <text class="ts" x="978" y="696" text-anchor="middle">each write judged against that person's switch</text>
   <line class="e" x1="978" y1="714" x2="978" y2="757" marker-end="url(#safety-chain-arr)"/>
@@ -736,25 +736,24 @@ is always asked. Stopping a plan is never refused.</p></li>
 limits database: that the channel is in it, that it may be written, and the allowed range.
 The step size is left to the connector, the only layer that can read the channel first.
 Channel writes only.</p></li>
-<li><p><strong>Does a human approve?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_approval</span></code>) — the operator answers a prompt at the
-terminal. How often it asks is set per tool: <code class="docutils literal notranslate"><span class="pre">always</span></code>, <code class="docutils literal notranslate"><span class="pre">selective</span></code>, or <code class="docutils literal notranslate"><span class="pre">skip</span></code>. Under
-<code class="docutils literal notranslate"><span class="pre">selective</span></code> the check reads the request itself and asks only when a Python run is
-read-write or its code contains a write; a channel write is always asked. When a Python run
+<li><p><strong>Does a human approve?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_approval</span></code>) — for a governed write the switch’s
+position decides: at <em>asked</em> the operator answers a prompt at the terminal, at <em>allowed</em>
+the write runs unprompted on a record naming the switch. Every other tool keeps its own
+policy: <code class="docutils literal notranslate"><span class="pre">always</span></code>, <code class="docutils literal notranslate"><span class="pre">selective</span></code>, or <code class="docutils literal notranslate"><span class="pre">skip</span></code>. When a Python run
 needs approval, the exact code is saved as a <strong>Pre-Execution Review</strong> notebook in the
 artifact gallery and linked from the prompt, so the operator can read what is about to run.
 The approval is the terminal prompt; the gallery only shows the code.</p>
-<p><strong>What a prompt guarantees (stage 1).</strong> Where the policy asks, a channel write, a Phoebus
-drive, queueing or starting a plan, and a read-write Python run go ahead only on the record
-the prompt left for that call; a call the prompt never saw is refused by the server that
+<p><strong>What a prompt guarantees (stage 1).</strong> A governed write, and a Phoebus drive where its
+policy asks, go ahead only on the record the hook left for that call; a call the hook
+never saw is refused by the server that
 would carry it out. That is all it claims: the record is checked on the agent’s own host,
 by processes of the agent’s own user, so it binds every tool path and does not contain code
 already running there (see <a class="reference internal" href="#architecture-safety-chain-residual"><span class="std std-ref">What the switch does not close</span></a>). Python code that names the store holding the machine’s switch is asked
-under every policy and refused where nothing can ask — under <code class="docutils literal notranslate"><span class="pre">skip</span></code>, with approval off,
-or in a dispatch run. The executor checks it again before the code runs, read-only runs
-included.</p>
+in every position and refused where nothing can ask, as in a dispatch run. The executor
+checks it again before the code runs, read-only runs included.</p>
 </li>
 </ol>
-<p>Which machine the deployment points at, and whether the login’s switch is on for it, come
+<p>Which machine the deployment points at, and the login’s switch position for it, come
 from the records the deployment keeps — one per login — read fresh on every call, so a
 flip reaches the agent’s next tool call. The tier is rendered at build time and takes a
 rebuild to change. See <a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> for the switch and
@@ -787,7 +786,7 @@ connector.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1280 728" role="img" aria-labelledby="write-sequence-title write-sequence-desc">
   <title id="write-sequence-title">Control-system write, end to end</title>
-  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the OSPREY agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the write verdict (tier, owner, switch) and limits and ask the operator for approval before the control-system MCP writes through the connector and confirms the write landed.</desc>
+  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the OSPREY agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the write verdict (tier, owner, and the switch's position: off, asked or allowed) and limits; at asked they ask the operator for approval, at allowed they let the write through without a prompt, with the switch record standing as its approval, before the control-system MCP writes through the connector and confirms the write landed.</desc>
   <defs>
     <marker id="write-sequence-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -849,18 +848,20 @@ connector.</p>
   <text class="ta" x="640" y="357" text-anchor="middle">channel_write(…, 1.7 A)</text>
 
   <path class="e" d="M748,400 H780 Q788,400 788,408 V416 Q788,424 780,424 H752" marker-end="url(#write-sequence-arr)"/>
-  <text class="ta" x="796" y="412">writes_check → allowed</text>
+  <text class="ta" x="796" y="412">writes_check → switch asked</text>
 
   <path class="e" d="M748,432 H780 Q788,432 788,440 V448 Q788,456 780,456 H752" marker-end="url(#write-sequence-arr)"/>
   <text class="ta" x="796" y="444">limits → within range</text>
 
   <line class="e" x1="740" y1="464" x2="124" y2="464" marker-end="url(#write-sequence-arr)"/>
-  <rect class="mask" x="168" y="444" width="112" height="12" rx="2"/>
-  <text class="ta" x="224" y="453" text-anchor="middle">approve? write 1.7 A</text>
+  <rect class="mask" x="152" y="444" width="144" height="12" rx="2"/>
+  <text class="ta" x="224" y="453" text-anchor="middle">asked: approve? write 1.7 A</text>
 
   <line class="e e-dash" x1="120" y1="496" x2="740" y2="496" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="196" y="476" width="56" height="12" rx="2"/>
   <text class="ta" x="224" y="485" text-anchor="middle">approved</text>
+  <text class="ta" x="796" y="478">at allowed: no prompt,</text>
+  <text class="ta" x="796" y="490">the switch record approves</text>
 
   <line class="e" x1="748" y1="528" x2="948" y2="528" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="820" y="508" width="56" height="12" rx="2"/>
@@ -982,7 +983,7 @@ BLUESKY panel’s <strong>Start</strong> button and the terminal’s queue bar a
 <p>A cell is run by a person, so no tool call and none of the checks are involved. What guards it
 are the deployment’s settings, which the notebook kernel carries. Before every cell the kernel
 re-reads which machine the deployment points at, and the connector asks the verdict on every
-write, so a flip of the switch reaches a cell already running. A cell reaches
+write, so moving the switch to off reaches a cell already running. A cell reaches
 the machine through <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>: importing a control-system client library, or loading
 one through <code class="docutils literal notranslate"><span class="pre">ctypes</span></code> or <code class="docutils literal notranslate"><span class="pre">cffi</span></code>, is refused whatever the chip says, for reads as for writes,
 so a cell written the ordinary way reads and writes through the connector. The block is
@@ -1145,8 +1146,8 @@ containers themselves; the prompt is the record that a person intended the write
 <p><strong>The same-uid residual.</strong> The switch’s record is written by the terminal’s server, and the
 agent, its Python runs and its notebook kernels run as the same Unix user. OSPREY closes what
 it can reach: the agent’s file tools are denied the record’s store, a shell is denied on every
-<code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier (lifting it fails the build), Python code that names the store needs approval
-and is refused where nothing can ask, and every writer other than the person’s own route
+<code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier (lifting it fails the build), Python code that names the store
+needs approval and is refused where nothing can ask, and every writer other than the person’s own route
 leaves the switch as it found it. Code in the executor running as that user, assembling the
 path at run time, can still reach it. A writer the agent cannot reach — the record in its
 own user or container — is the structural close, and is left to the sandboxing work (SBX).</p>

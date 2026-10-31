@@ -628,10 +628,10 @@ header opens a popover with a <strong>Switch to</strong> button per machine. The
 asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
 would be. See <a class="reference internal" href="#from-the-web-terminal">From the Web Terminal</a>.</p>
-<p>Whether writes are <em>allowed</em> follows it too. Your write switch is per machine
+<p>Whether writes may run follows it too. Your write switch is per machine
 and starts off on each, so a setpoint the simulator took is refused on the real
-machine until you turn that machine on from the chip
-(<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). Moving the deployment never turns a switch on. Ask
+machine until you arm that machine from the chip
+(<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). Moving the deployment never arms a switch. Ask
 <code class="docutils literal notranslate"><span class="pre">control_target</span></code> if you want to know before you move: every row carries its
 own <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>.</p>
 <p>The archive does not follow the switch — archive reads keep the deployment’s one
@@ -769,9 +769,9 @@ a row.</p>
 <p>Each machine carries:</p>
 <ul class="simple">
 <li><p><strong>A writes switch</strong> — your login’s switch for that machine, and the control
-that changes it, in one widget. Turning writes off applies as you click and
-nothing refuses it; turning them on asks first. A switch that is off and
-cannot be turned on is disabled, with the reason on hover.</p></li>
+that changes it, in one widget: <em>off</em>, <em>asked</em> or <em>allowed</em>. Narrowing
+applies as you click and nothing refuses it; widening asks first. A position
+your tier or a lock forbids is disabled, with the reason on hover.</p></li>
 <li><p><strong>A small ⓘ</strong> after the name — what writing to this machine means (<em>Writes
 move hardware</em>, or one of the <em>nothing moves</em> lines), the endpoint, and the
 controls server’s own technical label, shown on hover or keyboard focus.</p></li>
@@ -791,8 +791,8 @@ is one login’s: two logins on one machine never change each other’s writes.
 <a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> walks the whole surface, including what the
 chip cannot lift and who can.</p>
 <p>One process holds the deployment’s control context at a time, and only that
-one moves the deployment. A second web terminal of the same login turns
-switches on and off as the first does, but its <strong>Switch to</strong> buttons give way
+one moves the deployment. A second web terminal of the same login moves
+switches as the first does, but its <strong>Switch to</strong> buttons give way
 to a phrase naming the holder.</p>
 </section>
 </section>
@@ -933,7 +933,7 @@ than presented as current.</p></td>
 <td><p>Whether writes are permitted on <strong>this target</strong>, whether this target is
 the real machine, and the channel a switch would prove it with. Two rows
 of the same deployment can disagree about the first one: the switch is
-per machine, so the simulator may be on beside a real machine that is off.</p></td>
+per machine, so the simulator may be armed beside a real machine that is off.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">limits_strict</span></code></p></td>
 <td><p>Whether <strong>this target</strong> runs exclusive limits — limits checking on and
@@ -1106,7 +1106,7 @@ is about a week later.</p></li>
 <li><p><strong>The target is visible in the Web Terminal</strong> activity stream as
 work happens, and on the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the header, which names the machine the
 deployment stands on and the write state on <em>that</em> machine —
-<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">on</span></code>, <code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Real</span> <span class="pre">machine</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">locked</span></code>. The write
+<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">allowed</span></code>, <code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Real</span> <span class="pre">machine</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">locked</span></code>. The write
 state is per machine, so a deployment can arm its simulator and leave the
 live machine read-only; the chip is where that shows. The terminal tells the
 chip when the record moves, so it repaints as soon as a switch lands, whoever

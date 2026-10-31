@@ -586,7 +586,8 @@ its path), so every render keeps what it carried.
 Your deployment’s own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
-<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> in every layer (<a class="reference internal" href="contracts/connectors.html#write-safety-upgrade"><span class="std std-ref">Upgrading from a deployment-wide write flag</span></a>). Prints
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> in every layer (<a class="reference internal" href="contracts/connectors.html#write-safety-upgrade"><span class="std std-ref">Upgrading from a deployment-wide write flag</span></a>), and
+retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.</p>
 <p>The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
@@ -636,9 +637,10 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.system.timezone<span class="o">=</span>America/Los_Angeles
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.epics.gateways.read_only.address<span class="o">=</span>gw.example.org
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--repo<span class="w"> </span>~/my-assistant<span class="w"> </span>config.control_system.writes<span class="o">=</span>allowed
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--repo<span class="w"> </span>~/my-assistant<span class="w"> </span>config.control_system.writes<span class="o">=</span>never
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> only lowers the write ceiling; raise it in the profile or tier file.</p>
 </section>
 <section id="osprey-validate">
 <h2>osprey validate<a class="headerlink" href="#osprey-validate" title="Link to this heading">#</a></h2>
@@ -879,10 +881,11 @@ selects now.</p>
 <p>Show what this deployment is doing. It reads and reports — it starts nothing,
 stops nothing and renders nothing — so it is safe to run against a live stack at
 any time.</p>
-<p>Four sections. <strong>Build</strong> says whether <code class="docutils literal notranslate"><span class="pre">build/</span></code> still matches <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
+<p>Five sections. <strong>Build</strong> says whether <code class="docutils literal notranslate"><span class="pre">build/</span></code> still matches <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
 the same check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses on, and which version of osprey rendered it.
 <strong>Containers</strong> is what the container runtime reports, not what compose thinks
 should exist. <strong>Endpoints</strong> is where the services are declared to answer.
+<strong>Writes</strong> lists each login’s tier and switch positions.
 <strong>Agent</strong> is the provider, whether its credential can be found, and whether the
 rendered agent files still match the config.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--agents</span></code> — Also show the per-subagent model assignments.</p>

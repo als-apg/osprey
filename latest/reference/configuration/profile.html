@@ -703,9 +703,9 @@ setting.</p>
 <span class="w">  </span><span class="c1"># Control system: which backend the deployment talks to. Required — see</span>
 <span class="w">  </span><span class="c1"># the posture floor below.</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
-<span class="w">  </span><span class="c1"># The tier key: may this render write at all. `allowed` or `never`</span>
-<span class="w">  </span><span class="c1"># (silence is `never`); each login still turns a machine on from the chip.</span>
-<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span>
+<span class="w">  </span><span class="c1"># The tier key: how far a login&#39;s switch may go. `never`, `asked` or</span>
+<span class="w">  </span><span class="c1"># `allowed` (silence is `never`); each login still arms a machine from the chip.</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span>
 <span class="w">  </span><span class="c1"># Limits checking. This pair is the deployment&#39;s, and every type</span>
 <span class="w">  </span><span class="c1"># inherits it: `exclusive` = only channels in the limits file can be</span>
 <span class="w">  </span><span class="c1"># written, `optional` = channels in the file are held to their limits and</span>
@@ -727,7 +727,7 @@ setting.</p>
 <span class="w">  </span><span class="c1"># just a display label.</span>
 <span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
 
-<span class="w">  </span><span class="c1"># Approval policy</span>
+<span class="w">  </span><span class="c1"># Approval policy for the tools the write switch does not govern</span>
 <span class="w">  </span><span class="nt">approval.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">approval.default_policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
 </pre></div>
@@ -913,11 +913,11 @@ archiver factory picks the history the deployment reports</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">approval.enabled</span></code></p></td>
 <td><p>the <code class="docutils literal notranslate"><span class="pre">approval</span></code> hook is in the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list; this key is
-whether it prompts at all</p></td>
+whether it prompts for a tool the write switch does not govern</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">approval.default_policy</span></code></p></td>
 <td><p>the <code class="docutils literal notranslate"><span class="pre">approval</span></code> hook is in the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list; this key is
-what it does with a tool nothing named</p></td>
+what it does with an ungoverned tool nothing named</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hooks.debug</span></code></p></td>
 <td><p>always</p></td>
@@ -1155,11 +1155,11 @@ writes-check hook instead.) A <code class="docutils literal notranslate"><span c
 <code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;mcp__controls__channel_write&quot;]</span></code> still renders that deny —
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.</p>
-<p>An <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier renders differently. The login’s switch decides each write
+<p>An armed tier renders differently. The login’s switch decides each write
 at run time, so nothing is denied up front. A write tool whose rule carries
 both the writes-check hook and an approval hook leaves <code class="docutils literal notranslate"><span class="pre">ask</span></code>: with the switch
 off, writes-check refuses it before any operator is offered an approval for a
-write the switch forbids; with it on, the approval hook asks. A tool missing
+write the switch forbids; at <em>asked</em>, the approval hook asks. A tool missing
 either hook keeps its static <code class="docutils literal notranslate"><span class="pre">ask</span></code>. The boundary is carried per call by the
 safety hook and by the connector behind it (<a class="reference internal" href="../contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). The
 static deny is the stronger of the two, so reach for a <code class="docutils literal notranslate"><span class="pre">never</span></code> tier whenever

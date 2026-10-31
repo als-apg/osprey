@@ -543,7 +543,7 @@ per line:</p>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
 <span class="w">  </span><span class="c1"># The FIRST guard in the write-safety chain: while `never`, every hardware</span>
 <span class="w">  </span><span class="c1"># write is refused before the limits check or the approval prompt is even</span>
-<span class="w">  </span><span class="c1"># consulted. Set it `allowed`, rebuild, and the two hooks below take over.</span>
+<span class="w">  </span><span class="c1"># consulted. Set it `asked`, rebuild, and the two hooks below take over.</span>
 <span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">never</span>
 <span class="w">  </span><span class="c1"># ...</span>
 <span class="w">  </span><span class="c1"># The SECOND guard: every write is checked against the records in</span>
@@ -551,9 +551,9 @@ per line:</p>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="c1"># ...</span>
 <span class="w">  </span><span class="c1"># The THIRD guard: a write that passed the master switch and the limits check</span>
-<span class="w">  </span><span class="c1"># still pauses for a yes/no prompt. Applied by the approval hook, so it</span>
-<span class="w">  </span><span class="c1"># reaches only hook-wired tools; everything else is gated by the rendered</span>
-<span class="w">  </span><span class="c1"># settings.json permissions.</span>
+<span class="w">  </span><span class="c1"># still pauses for a yes/no prompt, unless the switch is at `allowed`.</span>
+<span class="w">  </span><span class="c1"># Applied by the approval hook, so it reaches only hook-wired tools;</span>
+<span class="w">  </span><span class="c1"># everything else is gated by the rendered settings.json permissions.</span>
 <span class="w">  </span><span class="nt">approval.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="c1"># ...</span>
 </pre></div>
@@ -658,8 +658,8 @@ write switch for the machine on every call. See
 <a class="reference internal" href="../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>.</p></li>
 <li><p><strong>Limits</strong> (<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook) — the value is checked against per-channel
 bounds and writable flags in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>.</p></li>
-<li><p><strong>Approval</strong> (<code class="docutils literal notranslate"><span class="pre">approval</span></code> hook) — a write that passes both still pauses
-for your explicit yes/no before anything is executed.</p></li>
+<li><p><strong>Approval</strong> (<code class="docutils literal notranslate"><span class="pre">approval</span></code> hook) — at <em>asked</em>, a write that passes both
+still pauses for your explicit yes/no before anything is executed.</p></li>
 </ol>
 <p>Safety is not optional equipment here: the three hooks are declared in your
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Remove any one of them and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses the render
@@ -673,7 +673,7 @@ guarded. Only a read-only deployment may drop them.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
-<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span><span class="w">   </span><span class="c1"># ← was never</span>
+<span class="w">  </span><span class="nt">control_system.writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span><span class="w">   </span><span class="c1"># ← was never</span>
 </pre></div>
 </div>
 <p>Then re-render and relaunch:</p>
@@ -684,8 +684,8 @@ osprey<span class="w"> </span>web
 <p>Do <strong>not</strong> edit <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> instead — that file is generated output,
 and your edit would vanish on the next build.</p>
 <p>The deployment now <em>may</em> write, but your switch is still off. Click the
-control-target chip in the header (<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">off</span></code>) and turn the
-simulator’s writes on (<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). A write asked for
+control-target chip in the header (<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">Simulator</span> <span class="pre">·</span> <span class="pre">writes</span> <span class="pre">off</span></code>) and move the
+simulator to <em>asked</em> (<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). A write asked for
 with the switch off is refused with a line telling you to do exactly that.</p>
 </section>
 <section id="step-8-write-with-the-guards-watching">
@@ -694,7 +694,7 @@ with the switch off is refused with a line telling you to do exactly that.</p>
 holds three records: two writable quadrupole setpoints with bounds, and one
 read-only measurement. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes them into the render’s limits
 database, <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>, which is what the guards read.
-With the simulator’s writes on, all three remaining behaviors are now observable.</p>
+With the simulator at <em>asked</em>, all three remaining behaviors are now observable.</p>
 <p><strong>A write inside its limits</strong> — pauses for your approval:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
 </pre></div>
@@ -702,7 +702,7 @@ With the simulator’s writes on, all three remaining behaviors are now observab
 <p>150 sits inside the 0–300 range declared for this channel, so the limits
 check passes and the approval prompt appears in the terminal, naming the
 channel and value. Approve it, and the simulator accepts the write.
-Nothing is ever written without this step.</p>
+At <em>asked</em>, nothing is ever written without this step.</p>
 <p><strong>A write outside its limits</strong> — blocked:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 500
 </pre></div>

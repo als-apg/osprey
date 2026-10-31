@@ -577,7 +577,9 @@ run: <code class="docutils literal notranslate"><span class="pre">allowed</span>
 <code class="docutils literal notranslate"><span class="pre">hook_approval</span></code> has three words of its own, all on the same
 <code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code>: <code class="docutils literal notranslate"><span class="pre">ask</span></code> when the hook put the call in front of an approver,
 then <code class="docutils literal notranslate"><span class="pre">approved</span></code> when the harness reported that the call ran, or <code class="docutils literal notranslate"><span class="pre">denied</span></code>
-when the turn ended without it — declined or interrupted.</p>
+when the turn ended without it — declined or interrupted. A write the
+switch’s <em>allowed</em> position let run has no <code class="docutils literal notranslate"><span class="pre">ask</span></code>: its <code class="docutils literal notranslate"><span class="pre">approved</span></code> names
+<code class="docutils literal notranslate"><span class="pre">approver=write_switch</span></code> in <code class="docutils literal notranslate"><span class="pre">detail</span></code>.</p>
 <p>Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves <code class="docutils literal notranslate"><span class="pre">http_mutation</span></code>
 entries next to the config edits. One asymmetry worth knowing
@@ -656,7 +658,7 @@ write was aimed at (<code class="docutils literal notranslate"><span class="pre"
 the same way the refusal message names it; on the web surfaces, the
 login the request came from — see <a class="reference internal" href="#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a>.
 An MCP server’s own record adds <code class="docutils literal notranslate"><span class="pre">approval=approved</span> <span class="pre">approver=&lt;who&gt;</span></code>
-when an approval prompt let the call through, and a control-target
+when an approval (a person’s or the switch’s) let the call through, and a control-target
 switch adds <code class="docutils literal notranslate"><span class="pre">from_target=</span></code> and <code class="docutils literal notranslate"><span class="pre">to_target=</span></code>. A control-system write
 adds the account and host the control system sees it from, and the
 person behind a dispatched run or a queued plan; see
@@ -958,8 +960,9 @@ the default record shape:</p>
 <td><p>The MCP server’s tool prefix, and the <code class="docutils literal notranslate"><span class="pre">mcp__&lt;prefix&gt;__&lt;tool&gt;</span></code> name</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">approval</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;outcome&quot;:</span> <span class="pre">&quot;approved&quot;,</span> <span class="pre">&quot;approver&quot;,</span> <span class="pre">&quot;permission_mode&quot;}</span></code> when an
-approval prompt let the call through, else <code class="docutils literal notranslate"><span class="pre">null</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;outcome&quot;:</span> <span class="pre">&quot;approved&quot;,</span> <span class="pre">&quot;approver&quot;,</span> <span class="pre">&quot;permission_mode&quot;,</span> <span class="pre">&quot;position&quot;}</span></code>
+when an approval let the call through, else <code class="docutils literal notranslate"><span class="pre">null</span></code>; <code class="docutils literal notranslate"><span class="pre">position</span></code> is
+the switch position a governed call ran under, else <code class="docutils literal notranslate"><span class="pre">null</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">target</span></code>, <code class="docutils literal notranslate"><span class="pre">generation</span></code></p></td>
 <td><p>The control target and its generation when the call started</p></td>

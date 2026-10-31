@@ -595,9 +595,9 @@ change.</p></li>
 patterns. In <code class="docutils literal notranslate"><span class="pre">readonly</span></code> mode, detected writes cause immediate
 rejection.</p></li>
 <li><p><strong>Approved-call check</strong> (<code class="docutils literal notranslate"><span class="pre">_check_approved_call</span></code>)—before it spawns a
-<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run of a guarded tool (<code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>,
-<code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>) whose approval policy asks, the executor reads the
-record the approval prompt left for this tool call. The call’s
+<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run of a governed tool (<code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>), the executor reads the record the approval hook left
+for this tool call, a person’s or the switch’s. The call’s
 <code class="docutils literal notranslate"><span class="pre">approved_target</span></code> must equal what the prompt recorded and name the
 run’s own control target; for <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> the call’s <code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code>
 must equal the recorded view digest as well. Without a record,
@@ -607,8 +607,7 @@ not <code class="docutils literal notranslate"><span class="pre">true</span></co
 mapping) runs nothing and carries <code class="docutils literal notranslate"><span class="pre">failure_kind:</span> <span class="pre">approval_config_invalid</span></code>.
 Nothing of the record reaches the subprocess, which evaluates no approval
 policy itself. A call that reaches the server without passing the
-approval hook gets no read-write run on a deployment whose policy asks; such a
-deployment states <code class="docutils literal notranslate"><span class="pre">approval.enabled:</span> <span class="pre">false</span></code>.</p></li>
+approval hook gets no read-write run, whatever <code class="docutils literal notranslate"><span class="pre">approval.enabled</span></code> says.</p></li>
 <li><p><strong>Readonly runtime guard</strong>—the declared mode is exported into the
 subprocess as <code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE</span></code>. In a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run every
 entry point listed under <a class="reference internal" href="#python-executor-write-surface"><span class="std std-ref">What counts as a control-system write</span></a> is
@@ -768,7 +767,7 @@ constructed; a channel it holds no record for is refused rather than trusted.</p
 The connector reads PVAccess but does not write it yet, so a raw put is the
 one PVAccess write route a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run has, and refusing it would take
 PVAccess writes away from every deployment. These keep the posture they had
-before the raw-put block: the approval hook asks for the run, and in an
+before the raw-put block: the approval hook gates the run, and in an
 executor run with the limits database on each put is validated before it
 reaches the network (a <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> or a builder callable carries no value to
 check and is refused). A run with limits off lets them through. They move to
@@ -994,8 +993,8 @@ run. A refused run gets the verdict’s phrase and its trailer, for example:</p>
 </div>
 <p>A run whose target cannot be identified is refused <code class="docutils literal notranslate"><span class="pre">target_unknown</span></code> rather
 than granted the most permissive answer. The agent is told to re-run as
-<code class="docutils literal notranslate"><span class="pre">readonly</span></code> — reads are untouched — or to ask the operator to turn writes
-on from the chip. The phrase names no config key: the deployment’s
+<code class="docutils literal notranslate"><span class="pre">readonly</span></code> — reads are untouched — or to ask the operator to move the
+switch from the chip. The phrase names no config key: the deployment’s
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not what the operator changes here.</p>
 <p>A run that has already started cannot be <em>widened</em>: it keeps the launch pin it
 started under, and a write it attempts on a machine it was launched with writes
@@ -1057,9 +1056,9 @@ Python code itself and invokes the <code class="docutils literal notranslate"><s
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. The OSPREY agent
-requests user confirmation before calling <code class="docutils literal notranslate"><span class="pre">execute</span></code> with
-<code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code>—there is no separate approval API.</p>
+<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. At <em>asked</em>, a
+call to <code class="docutils literal notranslate"><span class="pre">execute</span></code> with <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code> prompts the user
+first—there is no separate approval API.</p>
 </div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>

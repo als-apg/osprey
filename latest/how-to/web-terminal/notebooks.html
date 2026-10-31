@@ -604,8 +604,8 @@ with:</p>
 <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OSPREY_LAUNCH_POSTURE&quot;</span><span class="p">]</span>             <span class="c1"># what this cell may write</span>
 </pre></div>
 </div>
-<p><strong>Nothing restarts.</strong> Switch the control target from the chip, or turn writes
-on or off, and the next cell you run is routed by the new state.</p>
+<p><strong>Nothing restarts.</strong> Switch the control target from the chip, or move the
+write switch, and the next cell you run is routed by the new state.</p>
 <p>Inside the web terminal the header chip is the only place to do that; the
 JUPYTER tab carries no chip of its own. A notebook opened in its own window —
 popped out of the terminal, or opened at its own address — has no header above
@@ -617,7 +617,7 @@ knowing:</p>
 <ul class="simple">
 <li><p><strong>Turning writes off lands at once.</strong> The connector re-reads the write
 posture on every write, so the running cell’s very next write is refused.</p></li>
-<li><p><strong>Turning writes on waits for the next cell.</strong> A cell can never write more
+<li><p><strong>Widening waits for the next cell.</strong> A cell can never write more
 than it was allowed when it started, so widening cannot reach it.</p></li>
 <li><p><strong>Switching the machine waits for the next cell</strong> as well, so a switch never
 lands halfway through your work.</p></li>
@@ -625,7 +625,7 @@ lands halfway through your work.</p></li>
 <p>Re-run the cell to pick up either of the last two, and the refusal says which
 one you are in:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>The control target changed while this cell ran. Re-run the cell.
-Writes are off for this cell. Turn writes on from the chip, then re-run the cell.
+Writes are off for this cell. Set the machine to asked or allowed on the chip, then re-run the cell.
 </pre></div>
 </div>
 <p>A switch takes a moment to reach the machines, and a cell run in that window is
@@ -671,7 +671,7 @@ nothing is loaded, and the cell prints one line above the traceback:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Client libraries are not available in a notebook. Read and write through osprey.runtime.read_channel / write_channel instead.
 </pre></div>
 </div>
-<p>Turning writes on does not change that answer. Replace the import with the
+<p>No switch position changes that answer. Replace the import with the
 runtime’s calls, which take the same address and value:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Refused:</span>
 <span class="c1">#   from epics import caget, caput</span>
@@ -724,7 +724,7 @@ Sharing a notebook means handing over the file.</p>
 <p>Output an agent or a kernel writes can no longer run script inside the
 console’s JupyterLab. The page’s policy admits only the scripts the terminal
 served itself, because script in an output would run on the console’s origin
-and could switch writes on.</p>
+and could move the write switch.</p>
 <p>No longer run:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">IPython.display.Javascript</span></code> and <code class="docutils literal notranslate"><span class="pre">application/javascript</span></code> outputs.</p></li>

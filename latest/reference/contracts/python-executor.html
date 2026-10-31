@@ -551,9 +551,9 @@ tools to the <code class="docutils literal notranslate"><span class="pre">python
 <section id="pyaml-measure">
 <h3><code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code><a class="headerlink" href="#pyaml-measure" title="Link to this heading">#</a></h3>
 <p>Steps setpoints on the control target through pyAML and writes them back. Every
-call for a kind the model’s measurement file lists asks for approval; any other
-call reaches the tool unasked and is refused there. With writes off it is denied
-like every write tool.
+call for a kind the model’s measurement file lists asks for approval at the
+switch’s <em>asked</em> position; any other call reaches the tool unasked and is
+refused there. With writes off it is denied like every write tool.
 The prompt lists every setpoint the call steps; a call stepping more than 500
 is refused without asking.</p>
 <div class="pst-scrollable-table-container"><table class="table" id="id2">
@@ -616,8 +616,8 @@ integrated strength: the sum of its members’ magnet-by-magnet columns. The
 build writes <code class="docutils literal notranslate"><span class="pre">trm.json</span></code> or <code class="docutils literal notranslate"><span class="pre">crm.json</span></code> whenever every member of the group has
 a modelled column; a group with an unmodelled member has none, and its group
 step is refused.</p>
-<p>The run starts only on the view the build recorded and the approval prompt
-showed (<code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code>), and every write runs under the target’s run
+<p>The run starts only on the view the build recorded and the approval record
+names (<code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code>), and every write runs under the target’s run
 lock; nothing is written back. The result
 names every row, column and step by address and device id and carries the
 view’s <code class="docutils literal notranslate"><span class="pre">sha256</span></code>, the <code class="docutils literal notranslate"><span class="pre">shape</span></code>, <code class="docutils literal notranslate"><span class="pre">data_file</span></code> and <code class="docutils literal notranslate"><span class="pre">artifact_id</span></code>. The file

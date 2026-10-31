@@ -633,8 +633,8 @@ small set of tools:</p>
 BLUESKY’s Plans view.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">queue_add</span></code> — queues the pinned draft; on an armed queue that runs
 it. <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> — arms a stopped queue. Both ask for your
-approval, and both are switched off entirely while the project’s
-control-system writes are disabled.</p></li>
+approval at the switch’s <em>asked</em> position, and both are switched off
+entirely while the project’s control-system writes are disabled.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">queue_stop</span></code> / <code class="docutils literal notranslate"><span class="pre">stop_run</span></code> — the two halts. Never switched off.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">queue_list</span></code> / <code class="docutils literal notranslate"><span class="pre">queue_status</span></code> / <code class="docutils literal notranslate"><span class="pre">list_runs</span></code> / <code class="docutils literal notranslate"><span class="pre">get_run_data</span></code>
 — read what is queued, running, and measured.</p></li>
@@ -740,7 +740,7 @@ is the everyday case.</p></td>
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> tools are denied outright — it cannot queue or start
 anything, even on an idle queue. Its halts and its read tools are never
 taken away.</p>
-<p class="sd-card-text">On an <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier, each lane is bound at build time to one machine,
+<p class="sd-card-text">On an armed tier, each lane is bound at build time to one machine,
 and the write verdict for that machine is asked on every call
 (<a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). With your switch for the lane’s machine off,
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code> and the verdict’s
@@ -749,11 +749,11 @@ unarmed, with <code class="docutils literal notranslate"><span class="pre">write
 refused only where adding would mean executing.</p>
 <p class="sd-card-text">In a deployed control room the agent holds the launch token only where the
 deployment grants it, and it is granted <strong>per lane</strong>: to a tier whose
-<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> is <code class="docutils literal notranslate"><span class="pre">allowed</span></code> and that also runs the bluesky MCP
+<code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> is not <code class="docutils literal notranslate"><span class="pre">never</span></code> and that also runs the bluesky MCP
 server. The token is a ceiling; your switch still decides each write.
 Where it is granted, the agent’s
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
-is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
+(or your <em>allowed</em> switch) is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
 <code class="docutils literal notranslate"><span class="pre">launch_token_invalid</span></code> and the start stays with you, from the BLUESKY
 queue panel’s own <strong>Start</strong> button.</p>
 <p class="sd-card-text">What you approve when you approve a start is <strong>the queue you were shown</strong>.

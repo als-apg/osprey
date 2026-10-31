@@ -629,7 +629,7 @@ physics runs behind either.</p>
 <strong>already deploys</strong> it: the preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a
 compose service, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
-to switch on.</p>
+to enable.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">   </span><span class="c1"># brings up the Virtual Accelerator with the rest of the stack</span>
 osprey<span class="w"> </span>web<span class="w">         </span><span class="c1"># the agent talks to real Channel Access</span>
 </pre></div>
@@ -894,21 +894,21 @@ runs). Both mounts are automatic for the deployed service.</p>
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
 <p>Channels with a record in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
-in-range write goes through. The mandatory write-approval flow applies
+in-range write goes through. The write switch’s positions apply
 unchanged — the Virtual Accelerator connector inherits the same write-safety
 wiring as the EPICS connector.</p>
 <section id="write-to-the-simulator-without-arming-the-machine">
 <h3>Write to the simulator without arming the machine<a class="headerlink" href="#write-to-the-simulator-without-arming-the-machine" title="Link to this heading">#</a></h3>
 <p>Writes are decided per login and per machine, and this is the page where that
-matters most. The tier key says whether a login may write at all:</p>
+matters most. The tier key says how far a login may write:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span><span class="w">       </span><span class="c1"># or never; silence is never</span>
+<span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span><span class="w">         </span><span class="c1"># never | asked | allowed; silence is never</span>
 </pre></div>
 </div>
 <p>The tier is target-blind. Which machine a write reaches is the person’s own
-switch, turned on per machine from the
-<a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>, and every switch
-starts off. Turn the simulator on and leave the real machine off, and the same
+switch, set per machine from the
+<a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>, and every machine
+starts off. Arm the simulator and leave the real machine off, and the same
 write tool that moves the simulator is refused on the machine after a switch
 (<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>), with no config edit and no rebuild. The rule is
 on <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>.</p>

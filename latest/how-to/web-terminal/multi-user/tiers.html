@@ -552,14 +552,14 @@ running — see <a class="reference internal" href="index.html"><span class="doc
 </details><section id="two-questions-decide-a-tier">
 <h2>Two questions decide a tier<a class="headerlink" href="#two-questions-decide-a-tier" title="Link to this heading">#</a></h2>
 <p>A tier is the answer to two independent questions.</p>
-<p><strong>May this login write at all?</strong> That is the tier key,
-<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">allowed</span> <span class="pre">|</span> <span class="pre">never</span></code> (<a class="reference internal" href="../../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>). On
-<code class="docutils literal notranslate"><span class="pre">never</span></code> every write surface refuses — channel writes, read-write Python
-execution, plan arming, all of it. On <code class="docutils literal notranslate"><span class="pre">allowed</span></code> the login may write to any
-machine the deployment configures, but only where its own switch is on: every
-switch starts off, and the person turns one machine on from the chip. A write
-is then still <em>supervised</em>: it passes the writes-check hook, the per-channel
-limits, and a human approval prompt before the connector executes it.</p>
+<p><strong>How far may this login write?</strong> That is the tier key,
+<code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span> <span class="pre">|</span> <span class="pre">asked</span> <span class="pre">|</span> <span class="pre">allowed</span></code> (<a class="reference internal" href="../../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Who May Write</span></a>),
+the furthest position the login’s switch may take. On <code class="docutils literal notranslate"><span class="pre">never</span></code> every write
+surface refuses — channel writes, read-write Python execution, plan arming, all
+of it. Otherwise the login may write to any machine the deployment configures,
+but only where its own switch is armed: every machine starts at off, and the
+person moves one from the chip. A write still passes the writes-check hook and
+the per-channel limits, and at <em>asked</em> a human approval prompt.</p>
 <p><strong>May this session change the deployment it runs in?</strong> That is a different
 capability altogether — the ability to rewrite the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every terminal
 of this tier runs under, through the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool, the web
@@ -583,15 +583,19 @@ takes this away from every tier built on it, and hands it back to exactly one.</
 <td><p><strong>readonly</strong></p></td>
 <td><p>—</p></td>
 </tr>
-<tr class="row-odd"><th class="stub"><p><strong>Writes allowed</strong> (switch per machine, supervised)</p></th>
+<tr class="row-odd"><th class="stub"><p><strong>Writes asked</strong> (switch per machine, every write prompts)</p></th>
 <td><p><strong>readwrite</strong></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><th class="stub"><p><strong>Writes allowed</strong> (switch per machine, may run unprompted)</p></th>
+<td><p>—</p></td>
 <td><p><strong>admin</strong></p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The empty cell is not forbidden by anything in OSPREY — a tier file could be
-written for it — the preset simply does not ship one.</p>
+<p>The empty cells are not forbidden by anything in OSPREY — a tier file could be
+written for any of them — the preset simply does not ship one.</p>
 </section>
 <section id="the-three-tiers-the-preset-ships">
 <span id="multi-user-tiers"></span><h2>The three tiers the preset ships<a class="headerlink" href="#the-three-tiers-the-preset-ships" title="Link to this heading">#</a></h2>
@@ -620,15 +624,15 @@ the scaffold gallery is readable but not writable</p></td>
 <td><p>Chat-first <code class="docutils literal notranslate"><span class="pre">simple</span></code> layout, without the EVENTS and BLUESKY panels</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>readwrite</strong> (alice)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">allowed</span></code>. Alice writes to a machine once she turns its switch on
-from the chip, and nowhere else. A channel write still passes the
+<td><p><code class="docutils literal notranslate"><span class="pre">asked</span></code>. Alice writes to a machine once she moves its switch to
+<em>asked</em> from the chip, and nowhere else. A channel write still passes the
 writes-check hook, the per-channel limits, and a human approval prompt
 before it executes</p></td>
 <td><p>No — the same floor as readonly</p></td>
 <td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace with the EVENTS and BLUESKY panels</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>admin</strong> (carol)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">allowed</span></code>, on exactly the terms above</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">allowed</span></code>: as above, and the switch may also go to <em>allowed</em></p></td>
 <td><p>Yes, and only here: the <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> skill, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code>
 tool, the web Config panel, and the gallery’s edit, create and delete
 surfaces</p></td>
@@ -679,14 +683,14 @@ rebuilding.</p>
 <tbody>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">never</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">asked</span></code></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">allowed</span></code></p></td>
-<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">allowed</span></code></p></td>
-<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">allowed</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">asked</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_write</span></code></p></td>
 <td><p class="sd-card-text">kill-switch deny</p></td>
-<td><p class="sd-card-text">ask + approval hook; refused <code class="docutils literal notranslate"><span class="pre">switch_off</span></code> where the switch is off</p></td>
-<td><p class="sd-card-text">as readwrite</p></td>
+<td><p class="sd-card-text">approval hook prompts at asked; refused <code class="docutils literal notranslate"><span class="pre">switch_off</span></code> at off</p></td>
+<td><p class="sd-card-text">as readwrite; runs unprompted at allowed</p></td>
 <td><p class="sd-card-text">as readwrite</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text">Bluesky arming tools</p></td>
@@ -719,19 +723,25 @@ rebuilding.</p>
 <td><p class="sd-card-text">enabled</p></td>
 <td><p class="sd-card-text">403 (read OK)</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text">Control-target chip: <em>Turn writes on</em> for a machine</p></td>
+<tr class="row-odd"><td><p class="sd-card-text">Control-target chip: move a machine to <em>asked</em></p></td>
 <td><p class="sd-card-text">locked (<em>kept read-only by the deployment</em>)</p></td>
 <td><p class="sd-card-text">confirm modal</p></td>
 <td><p class="sd-card-text">as readwrite</p></td>
 <td><p class="sd-card-text">confirm modal</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> owner in the container</p></td>
+<tr class="row-even"><td><p class="sd-card-text">Control-target chip: move a machine to <em>allowed</em></p></td>
+<td><p class="sd-card-text">locked</p></td>
+<td><p class="sd-card-text">disabled (<em>your tier caps writes at asked</em>)</p></td>
+<td><p class="sd-card-text">confirm modal, every time</p></td>
+<td><p class="sd-card-text">disabled</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> owner in the container</p></td>
 <td><p class="sd-card-text">root</p></td>
 <td><p class="sd-card-text">root</p></td>
 <td><p class="sd-card-text">osprey</p></td>
 <td><p class="sd-card-text">root</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">The protected set</span></a></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">The protected set</span></a></p></td>
 <td><p class="sd-card-text">refused</p></td>
 <td><p class="sd-card-text">refused</p></td>
 <td><p class="sd-card-text">refused</p></td>
@@ -752,7 +762,7 @@ file.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
   <title id="tier-render-title">A tier is a file under tiers/, rendered</title>
-  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each tier file under tiers/ holds only its differences — readonly sets control_system.writes to never, readwrite sets it to allowed, admin sets it to allowed and lifts the floor. osprey build merges every delta over the base and renders one project per tier, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each tier file under tiers/ holds only its differences — readonly sets control_system.writes to never, readwrite sets it to asked (the switch goes no further than asked), admin sets it to allowed and lifts the floor. osprey build merges every delta over the base and renders one project per tier, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
   <defs>
     <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -783,6 +793,11 @@ file.</p>
   <text class="ts" x="132" y="62" text-anchor="middle">the floor every tier inherits</text>
   <text class="ts" x="132" y="78" text-anchor="middle">setup_patch denied · Config panel off</text>
   <text class="ts" x="132" y="92" text-anchor="middle">gallery read-only</text>
+  <!-- admin is drawn first in source order; its box sits at the bottom -->
+  <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
+  <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
+  <text class="tn" x="132" y="263" text-anchor="middle">tiers/admin.yml</text>
+  <text class="ts" x="132" y="279" text-anchor="middle">writes: allowed · lifts the floor</text>
   <rect class="mask" x="24" y="124" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="124" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="143" text-anchor="middle">tiers/readonly.yml</text>
@@ -790,11 +805,7 @@ file.</p>
   <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="203" text-anchor="middle">tiers/readwrite.yml</text>
-  <text class="ts" x="132" y="219" text-anchor="middle">writes: allowed · switch per machine</text>
-  <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
-  <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
-  <text class="tn" x="132" y="263" text-anchor="middle">tiers/admin.yml</text>
-  <text class="ts" x="132" y="279" text-anchor="middle">writes: allowed · lifts the floor</text>
+  <text class="ts" x="132" y="219" text-anchor="middle">writes: asked · switch up to asked</text>
   <!-- the build -->
   <rect class="mask" x="392" y="136" width="184" height="56" rx="6"/>
   <rect class="nb-foc" x="392" y="136" width="184" height="56" rx="6"/>
@@ -819,7 +830,7 @@ file.</p>
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The base profile carries the floor — the three
 deployment-editing surfaces switched off — and a tier adds what it needs on
 top: <code class="docutils literal notranslate"><span class="pre">readonly.yml</span></code> sets <code class="docutils literal notranslate"><span class="pre">control_system.writes:</span> <span class="pre">never</span></code>, <code class="docutils literal notranslate"><span class="pre">readwrite.yml</span></code>
-sets it <code class="docutils literal notranslate"><span class="pre">allowed</span></code>, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> does the same and lifts the floor.
+sets it <code class="docutils literal notranslate"><span class="pre">asked</span></code>, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> sets it <code class="docutils literal notranslate"><span class="pre">allowed</span></code> and lifts the floor.
 A tier adds lists by name and its config keys win; it never subtracts and never
 carries a deployment fact such as services, data or ports. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 lays each tier over the base and renders it into its own project, and
@@ -911,12 +922,12 @@ write-gated tools into a deny list that the agent runtime checks before any
 OSPREY code runs, and no tier setting can subtract from that list. Tools a
 project adds under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are not in that list in any
 render — they are refused by the writes-check hook, which is Layer 2.</p>
-<p>An <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier cannot get that static deny: the switch changes at run time,
+<p>An armed tier cannot get that static deny: the switch changes at run time,
 so the boundary is carried per call instead — the safety hook asks the verdict,
 and the connector asks it again behind it. Layer 1 is the stronger guarantee,
 which is why the read-only tier, and not a write-capable one, is the one to hand
 out when the requirement is “this login can never move anything”. A shell is
-denied on an <code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier, and lifting it fails the build.</p>
+denied on an armed tier, and lifting it fails the build.</p>
 <p><strong>Layer 2</strong> is the set of gates that give the agent a readable refusal —
 <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> denied by the floor, the Config panel and gallery refusing
 with a 403, the Python executor refusing to write into the render zone in
@@ -956,7 +967,7 @@ alice’s and bob’s terminals and ask both agents to do the same two things:</
 reading. Both sessions answer identically: reads are ungated on both tiers.</p>
 <p><strong>Write.</strong> Ask each agent to change a setpoint on the simulator. In alice’s
 session the write is refused: her switch is off, and the refusal says to turn
-it on from the chip. She turns the simulator’s writes on, asks again, and the
+it on from the chip. She moves the simulator to <em>asked</em>, asks again, and the
 write goes to a human approval prompt, then executes. In bob’s session the
 same request is <strong>refused</strong> whatever he does: the write tool is denied in his
 project’s rendered permissions, and his chip has no switch to turn on.</p>

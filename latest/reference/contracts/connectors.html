@@ -675,24 +675,30 @@ confirmed only when the values are known to agree.</p>
 <span id="write-safety-config"></span><h3>Who May Write<a class="headerlink" href="#who-may-write" title="Link to this heading">#</a></h3>
 <p>Three facts decide a write. This section is the contract every other page
 points to.</p>
-<p><strong>The tier key</strong> says whether a login may write at all:</p>
+<p><strong>The tier key</strong> is the furthest position a login may put its switch at:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">allowed</span><span class="w">          </span><span class="c1"># or never; silence is never</span>
+<span class="w">  </span><span class="nt">writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">asked</span><span class="w">            </span><span class="c1"># never | asked | allowed; silence is never</span>
 </pre></div>
 </div>
 <p>It is spelled in <code class="docutils literal notranslate"><span class="pre">tiers/*.yml</span></code>, in the deployment root for the root or
 single-user render, and in <code class="docutils literal notranslate"><span class="pre">apps/*.yml</span></code>, where it is always <code class="docutils literal notranslate"><span class="pre">never</span></code>. A tier
-overrides the root. Only the string <code class="docutils literal notranslate"><span class="pre">allowed</span></code> arms; any other value, and no
-key at all, reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. The tier is a ceiling, not a selection: an
-<code class="docutils literal notranslate"><span class="pre">allowed</span></code> tier may write to every machine the deployment configures, and the
-switch picks which. Connector blocks carry transport facts only. On a
-<code class="docutils literal notranslate"><span class="pre">never</span></code> render the build denies the write tools outright, so they are
-refused before any per-call check.</p>
-<p><strong>The switch</strong> is one login’s, per machine, and off until that login turns it
-on from <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target chip</span></a>. It is
-read on every write, so a flip reaches a session already running. Turning it
-off is never refused. A demoted login’s “on” stays on disk and does nothing
-while its tier is <code class="docutils literal notranslate"><span class="pre">never</span></code>.</p>
+overrides the root. Only <code class="docutils literal notranslate"><span class="pre">asked</span></code> and <code class="docutils literal notranslate"><span class="pre">allowed</span></code> arm; any other value, and no
+key at all, reads <code class="docutils literal notranslate"><span class="pre">never</span></code>. The tier is a ceiling, not a selection: an armed
+tier may write to every machine the deployment configures, and the switch picks
+which and how. Connector blocks carry transport facts only. On a <code class="docutils literal notranslate"><span class="pre">never</span></code>
+render the build denies the write tools outright, so they are refused before
+any per-call check.</p>
+<p><strong>The switch</strong> is one login’s, per machine, set from <a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target
+chip</span></a> to <em>off</em> (writes refused, the default),
+<em>asked</em> (every governed write prompts a person) or <em>allowed</em> (governed writes
+run unprompted). It is read on every write, so a move reaches a session already
+running. Moving it to off is never refused. A position past the tier acts as
+the tier, and arms again when the tier is restored.</p>
+<p><strong>The governed set</strong> is the tools the position decides for: <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>,
+write-mode <code class="docutils literal notranslate"><span class="pre">execute</span></code> and <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>, <code class="docutils literal notranslate"><span class="pre">queue_add</span></code>,
+<code class="docutils literal notranslate"><span class="pre">queue_start</span></code>, and every declared facility write tool wired to both the
+writes check and the approval hook. <code class="docutils literal notranslate"><span class="pre">approval.*</span></code> keys have no say over them;
+every other tool keeps its <code class="docutils literal notranslate"><span class="pre">approval.tools.&lt;tool&gt;</span></code> policy.</p>
 <p><strong>The verdict</strong> combines them. One total order of terms; the first that
 refuses names the reason:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -714,7 +720,7 @@ refuses names the reason:</p>
 </tr>
 <tr class="row-odd"><td><p>2</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">tier_never</span></code></p></td>
-<td><p>the render’s tier is not <code class="docutils literal notranslate"><span class="pre">allowed</span></code>.</p></td>
+<td><p>the render’s tier is <code class="docutils literal notranslate"><span class="pre">never</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p>3</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">target_unknown</span></code></p></td>
@@ -733,11 +739,11 @@ or mapped <code class="docutils literal notranslate"><span class="pre">never</sp
 <tr class="row-odd"><td><p>6</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">record_unavailable</span></code></p></td>
 <td><p>the owner’s switch record cannot be read. An absent record is not
-unavailable: it is every switch off.</p></td>
+unavailable: it is every switch at <code class="docutils literal notranslate"><span class="pre">off</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p>7</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">switch_off</span></code></p></td>
-<td><p>the owner’s switch is not on for this machine.</p></td>
+<td><p>the owner’s switch is at <code class="docutils literal notranslate"><span class="pre">off</span></code> for this machine.</p></td>
 </tr>
 <tr class="row-odd"><td><p>8</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">launch_pinned</span></code></p></td>
@@ -748,7 +754,7 @@ unavailable: it is every switch off.</p></td>
 </div>
 <p>Two reasons come from outside the verdict: the EPICS connector refuses
 <code class="docutils literal notranslate"><span class="pre">switching</span></code> while its write gateway has not yet followed the switch, and the
-chip refuses a turn-on with <code class="docutils literal notranslate"><span class="pre">stopped_since</span></code> when a stop landed after it
+chip refuses a widening with <code class="docutils literal notranslate"><span class="pre">stopped_since</span></code> when a stop landed after it
 began. The package’s verdict, the connector and the stdlib hook twin share the
 order above, so a write is refused for the same reason on every side.</p>
 <p><strong>Refusal reasons and their trailer.</strong> Every refusal a write path returns
@@ -785,10 +791,10 @@ spells both the retired and the new key is refused. The retired keys are
 refused from 2026.11.0.</p></li>
 <li><p><strong>A render built before this release</strong> is not reread with the old rule: at
 run time it has no tier key and reads <code class="docutils literal notranslate"><span class="pre">never</span></code> until it is rebuilt.</p></li>
-<li><p><strong>Every switch starts off.</strong> After the rebuild, nothing writes until a login
-turns a machine on from the chip. A scheduled dispatch job or a queue item
-with no owner no longer writes at all.</p></li>
-<li><p><strong>A shell on a write tier is refused at build.</strong> On an <code class="docutils literal notranslate"><span class="pre">allowed</span></code> render, a
+<li><p><strong>Every machine starts at off.</strong> After the rebuild, nothing writes until a
+login moves a machine’s switch from the chip. A scheduled dispatch job or a
+queue item with no owner no longer writes at all.</p></li>
+<li><p><strong>A shell on a write tier is refused at build.</strong> On an armed render, a
 <code class="docutils literal notranslate"><span class="pre">claude_code.permissions.remove_deny</span></code> that lifts <code class="docutils literal notranslate"><span class="pre">Bash</span></code> or <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>
 fails the build: a shell reaches the switch and the connectors around every
 gate. On a <code class="docutils literal notranslate"><span class="pre">never</span></code> render it stays a warning.</p></li>
@@ -801,7 +807,7 @@ real machine’s switch, and warns; move them to
 <code class="docutils literal notranslate"><span class="pre">mcp_servers.&lt;server&gt;.writes</span></code>.</p></li>
 <li><p><strong>Shared containers read a login→tier map.</strong> The Bluesky queue and dispatch
 workers carry every login’s job, so the build renders
-<code class="docutils literal notranslate"><span class="pre">control_system.login_tiers</span></code> (<code class="docutils literal notranslate"><span class="pre">{login:</span> <span class="pre">allowed</span> <span class="pre">|</span> <span class="pre">never}</span></code>) into their
+<code class="docutils literal notranslate"><span class="pre">control_system.login_tiers</span></code> (<code class="docutils literal notranslate"><span class="pre">{login:</span> <span class="pre">never</span> <span class="pre">|</span> <span class="pre">asked</span> <span class="pre">|</span> <span class="pre">allowed}</span></code>) into their
 config from the roster. A write there needs the container’s tier, the
 owner’s mapped tier and the owner’s switch; an owner the map does not name
 is refused <code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code>. Nothing at run time writes the map: rebuild
