@@ -44,6 +44,7 @@ from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     FIXED_SERVICE_AUDIT_IDENTITIES,
     configured_ariel_mirror_path,
+    deployed_app_audit_identities,
     guarded_run_relpath,
     repo_identity,
     repo_relative_mount_source,
@@ -1399,7 +1400,7 @@ def render_web_terminals(
     # a sidecar it returns and the audit gate refuses the same name as a
     # directory. Reversing these two would leave the charset gate unreachable.
     _check_roster_charset(services, auth_tls_ctx)
-    _check_roster_audit_identities(services)
+    _check_roster_audit_identities(services, deployed_app_audit_identities(config))
     _check_roster_env_var_collisions(services, auth_tls_ctx)
     _check_roster_control_identities(
         authored_people(web_terminals), claim=auth_tls_ctx["auth_oidc_claim"] or ""
@@ -3212,7 +3213,9 @@ _RESERVED_AUDIT_IDENTITY_RE = re.compile(
 )
 
 
-def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
+def _check_roster_audit_identities(
+    services: list[dict[str, Any]], app_identities: Mapping[str, str] | None = None
+) -> None:
     """Fail-closed render gate: a roster name may not name a service's own directories.
 
     Unconditional on ``auth.method``, unlike :func:`_check_roster_charset`.
@@ -3249,14 +3252,34 @@ def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
     A render-time refusal rather than a lint finding because lint is skippable
     (``--no-lint``) and the consequence is a mount, not a warning.
 
+    A deployed application's ``audit_identity`` is a service's own identity
+    in the same sense: its containers write facts as it, under
+    ``var/spool/<identity>/``.
+
     Args:
         services: The resolved per-user service entries (each with a ``user``).
+        app_identities: Every deployed application's audit identity, to the
+            application holding it
+            (:func:`~osprey.deployment.compose_generator.deployed_app_audit_identities`).
 
     Raises:
         ValueError: If any roster name is a service's own identity, or is
             not usable as a single path segment. The message names every
             offender.
     """
+    app_identities = app_identities or {}
+    taken = [
+        f"{service['user']!r} (application {app_identities[service['user']]!r})"
+        for service in services
+        if service["user"] in app_identities
+    ]
+    if taken:
+        raise ValueError(
+            f"modules.web_terminals.users {', '.join(taken)} take a deployed "
+            "application's audit identity. Each user's container binds "
+            "var/spool/<user>/ and var/state/<user>/ read-write, so such a user could "
+            "write facts as that application and read its state. Rename the roster entry."
+        )
     reserved = [
         service["user"]
         for service in services

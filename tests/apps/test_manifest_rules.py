@@ -516,3 +516,31 @@ def test_deployment_packages_enumerates_apps_and_local_dependencies(tmp_path: Pa
 
 def test_deployment_packages_without_apps_or_dependencies_is_empty(tmp_path: Path) -> None:
     assert deployment_packages(tmp_path, []) == []
+
+
+# --- audit identity ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("identity", ["sidecar", "dispatch-worker-2", "operator"])
+def test_an_audit_identity_a_service_keeps_for_itself_is_refused(identity: str) -> None:
+    err = _refused([_manifest(audit_identity=identity)])
+    assert _rules(err) == ["audit_identity_reserved"]
+    assert err.field == "audit_identity"
+
+
+def test_two_applications_may_not_share_an_audit_identity() -> None:
+    dial = _manifest(
+        {"name": "dial", "audit_identity": "knob", "containers": {"dial": {"runtime": "osprey"}}}
+    )
+    err = _refused([_manifest(), dial])
+    assert _rules(err) == ["audit_identity_unique"]
+    assert err.app == "dial" and "'knob'" in str(err)
+
+
+def test_an_audit_identity_a_roster_user_holds_is_refused() -> None:
+    reserved = Reserved(
+        frozenset(), frozenset(), frozenset(), frozenset(), roster_users=frozenset({"knob"})
+    )
+    err = _refused([_manifest()], reserved=reserved)
+    assert _rules(err) == ["audit_identity_roster"]
+    assert "roster" in str(err)

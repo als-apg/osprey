@@ -41,6 +41,7 @@ from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
+    deployed_app_audit_identities,
     resolve_project_name,
 )
 from osprey.deployment.web_terminals.ports import (
@@ -219,7 +220,7 @@ def lint_web_terminals(
     findings.extend(_check_empty_users(users))
     findings.extend(_check_duplicate_users(users))
     findings.extend(_check_username_charset(users))
-    findings.extend(_check_reserved_audit_identities(users))
+    findings.extend(_check_reserved_audit_identities(users, deployed_app_audit_identities(root)))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
     findings.extend(_check_user_tour(users))
@@ -5018,7 +5019,9 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
     return findings
 
 
-def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
+def _check_reserved_audit_identities(
+    users: list[Any], app_identities: Mapping[str, str] | None = None
+) -> list[Finding]:
     """A roster name may not be a service's own identity.
 
     Every container writes under ``var/spool/<identity>/`` and
@@ -5039,10 +5042,29 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
     usable path segment at all, which still names a spool bind source under
     ``auth.method: none`` — is already reported unconditionally by
     :func:`_check_username_charset`.
+
+    A deployed application's audit identity (*app_identities*, identity to
+    application) is refused the same way: its containers write facts as it.
     """
+    app_identities = app_identities or {}
     findings: list[Finding] = []
     for user in users:
         name = _roster_entry_name(user)
+        if name is not None and name in app_identities:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.reserved_audit_identity",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} takes the audit "
+                        f"identity of application {app_identities[name]!r}. Each user's "
+                        "container binds var/spool/<user>/ and var/state/<user>/ "
+                        "read-write, so this user could write facts as that application "
+                        "and read its state. Rename the roster entry"
+                    ),
+                )
+            )
+            continue
         if name is None or not _RESERVED_AUDIT_IDENTITY_RE.fullmatch(name):
             continue
         findings.append(
