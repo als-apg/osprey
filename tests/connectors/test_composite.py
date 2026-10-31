@@ -104,6 +104,8 @@ def _stub_build(model, wiring, deck, settings, active=None):
     del model, deck
     if settings and settings.get("fail"):
         raise RuntimeError(settings["fail"])
+    if (active or {}).get("Q1/dB1"):
+        raise RuntimeError("no closed orbit")
     return StubModel(list(wiring), active or {})
 
 
@@ -694,6 +696,32 @@ def test_a_refused_batch_puts_the_stuck_demand_back(tmp_path: Path) -> None:
 
     assert composite.held(["M:STUCK:SP"]) == {"M:STUCK:SP": 1.0}
     assert composite.get("M:STUCK:SP") == 1.0
+
+
+def test_a_scenario_whose_seed_fails_the_build_is_named_in_the_status(tmp_path: Path) -> None:
+    scenarios = [
+        {"name": "seeded", "faults": {"M": {"writes": {"Q1/dB1": 50.0}}}},
+        {"name": "cooler", "overrides": {"T:SP": 4.0}},
+    ]
+    composite = _composite(tmp_path, scenarios=scenarios)
+
+    activate(tmp_path / "state", "seeded", "cooler")
+
+    assert composite.status("M") == "scenario seeded: no closed orbit"
+    assert math.isnan(composite.get("M:RB"))
+    activate(tmp_path / "state")
+    assert composite.status("M") == "ok"
+
+
+def test_a_build_failing_with_no_scenario_names_none(tmp_path: Path) -> None:
+    scenarios = [{"name": "cooler", "overrides": {"T:SP": 4.0}}]
+    composite = _composite(
+        tmp_path, scenarios=scenarios, settings={"fail": "the deck has no stable orbit"}
+    )
+
+    activate(tmp_path / "state", "cooler")
+
+    assert composite.status("M") == "the deck has no stable orbit"
 
 
 def test_a_failed_child_is_rebuilt_on_a_scenario_change(tmp_path: Path) -> None:

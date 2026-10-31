@@ -195,7 +195,7 @@ def test_an_unstable_active_quadrupole_fails_sr_with_the_solve_error(
     composite = _composite(demo_view)
 
     assert raised
-    assert composite.status("SR") == str(raised[-1])
+    assert composite.status("SR") == f"scenario unstable-quad: {raised[-1]}"
     assert composite.output_severity([BPM_X, QUADRUPOLE]) == {
         BPM_X: {"condition": "udf"},
         QUADRUPOLE: {"condition": "udf"},
@@ -288,7 +288,9 @@ def test_an_applied_line_fault_that_loses_the_beam_fails_line(
     failed = _composite(view)
 
     assert result.exit_code == 0, result.output
-    assert LOST.match(failed.status("LINE")), failed.status("LINE")
+    status = failed.status("LINE")
+    assert status.startswith("scenario line-loss: "), status
+    assert LOST.match(status.removeprefix("scenario line-loss: ")), status
     assert failed.status("SR") == "ok"
 
 
