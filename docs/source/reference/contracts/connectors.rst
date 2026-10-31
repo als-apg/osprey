@@ -220,27 +220,34 @@ Who May Write
 Three facts decide a write. This section is the contract every other page
 points to.
 
-**The tier key** says whether a login may write at all:
+**The tier key** is the furthest position a login may put its switch at:
 
 .. code-block:: yaml
 
    control_system:
-     writes: allowed          # or never; silence is never
+     writes: asked            # never | asked | allowed; silence is never
 
 It is spelled in ``tiers/*.yml``, in the deployment root for the root or
 single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
-overrides the root. Only the string ``allowed`` arms; any other value, and no
-key at all, reads ``never``. The tier is a ceiling, not a selection: an
-``allowed`` tier may write to every machine the deployment configures, and the
-switch picks which. Connector blocks carry transport facts only. On a
-``never`` render the build denies the write tools outright, so they are
-refused before any per-call check.
+overrides the root. Only ``asked`` and ``allowed`` arm; any other value, and no
+key at all, reads ``never``. The tier is a ceiling, not a selection: an armed
+tier may write to every machine the deployment configures, and the switch picks
+which and how. Connector blocks carry transport facts only. On a ``never``
+render the build denies the write tools outright, so they are refused before
+any per-call check.
 
-**The switch** is one login's, per machine, and off until that login turns it
-on from :ref:`the control-target chip <web-terminal-session-posture>`. It is
-read on every write, so a flip reaches a session already running. Turning it
-off is never refused. A demoted login's "on" stays on disk and does nothing
-while its tier is ``never``.
+**The switch** is one login's, per machine, set from :ref:`the control-target
+chip <web-terminal-session-posture>` to *off* (writes refused, the default),
+*asked* (every governed write prompts a person) or *allowed* (governed writes
+run unprompted). It is read on every write, so a move reaches a session already
+running. Moving it to off is never refused. A position past the tier acts as
+the tier, and arms again when the tier is restored.
+
+**The governed set** is the tools the position decides for: ``channel_write``,
+write-mode ``execute`` and ``execute_file``, ``pyaml_measure``, ``queue_add``,
+``queue_start``, and every declared facility write tool wired to both the
+writes check and the approval hook. ``approval.*`` keys have no say over them;
+every other tool keeps its ``approval.tools.<tool>`` policy.
 
 **The verdict** combines them. One total order of terms; the first that
 refuses names the reason:
@@ -257,7 +264,7 @@ refuses names the reason:
      - the run is read-only.
    * - 2
      - ``tier_never``
-     - the render's tier is not ``allowed``.
+     - the render's tier is ``never``.
    * - 3
      - ``target_unknown``
      - the machine does not resolve in this deployment.
@@ -272,17 +279,17 @@ refuses names the reason:
    * - 6
      - ``record_unavailable``
      - the owner's switch record cannot be read. An absent record is not
-       unavailable: it is every switch off.
+       unavailable: it is every switch at ``off``.
    * - 7
      - ``switch_off``
-     - the owner's switch is not on for this machine.
+     - the owner's switch is at ``off`` for this machine.
    * - 8
      - ``launch_pinned``
      - the run was started with writes held off for this machine.
 
 Two reasons come from outside the verdict: the EPICS connector refuses
 ``switching`` while its write gateway has not yet followed the switch, and the
-chip refuses a turn-on with ``stopped_since`` when a stop landed after it
+chip refuses a widening with ``stopped_since`` when a stop landed after it
 began. The package's verdict, the connector and the stdlib hook twin share the
 order above, so a write is refused for the same reason on every side.
 
@@ -324,10 +331,10 @@ Earlier releases armed writes per connector type, with
   refused from 2026.11.0.
 - **A render built before this release** is not reread with the old rule: at
   run time it has no tier key and reads ``never`` until it is rebuilt.
-- **Every switch starts off.** After the rebuild, nothing writes until a login
-  turns a machine on from the chip. A scheduled dispatch job or a queue item
-  with no owner no longer writes at all.
-- **A shell on a write tier is refused at build.** On an ``allowed`` render, a
+- **Every machine starts at off.** After the rebuild, nothing writes until a
+  login moves a machine's switch from the chip. A scheduled dispatch job or a
+  queue item with no owner no longer writes at all.
+- **A shell on a write tier is refused at build.** On an armed render, a
   ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
   fails the build: a shell reaches the switch and the connectors around every
   gate. On a ``never`` render it stays a warning.
@@ -340,7 +347,7 @@ Earlier releases armed writes per connector type, with
   ``mcp_servers.<server>.writes``.
 - **Shared containers read a login→tier map.** The Bluesky queue and dispatch
   workers carry every login's job, so the build renders
-  ``control_system.login_tiers`` (``{login: allowed | never}``) into their
+  ``control_system.login_tiers`` (``{login: never | asked | allowed}``) into their
   config from the roster. A write there needs the container's tier, the
   owner's mapped tier and the owner's switch; an owner the map does not name
   is refused ``owner_unknown``. Nothing at run time writes the map: rebuild

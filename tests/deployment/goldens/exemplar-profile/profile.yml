@@ -408,21 +408,19 @@ config:
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
-  # still pauses for a yes/no prompt. Applied by the approval hook, so it
-  # reaches only hook-wired tools; the health check, channel-finder queries and
-  # most workspace tools are gated by the rendered settings.json permissions.
+  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+  # Applied by the approval hook, so it reaches only hook-wired tools; the
+  # health check, channel-finder queries and most workspace tools are gated by
+  # the rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed below. "always" is fail-closed:
   # reads need their own "skip" entry to run unprompted.
   approval.default_policy: always
-  # Per-tool policies: always (prompt every time), skip (no prompt), or
-  # selective (content-aware, for `execute` only; other tools read it as
-  # always).
-  approval.tools.channel_write: always
+  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool
+  # the write switch governs, channel writes and Python execution among them,
+  # takes no entry here: the slider on the control-target chip decides for it.
   approval.tools.channel_read: skip
   approval.tools.archiver_read: skip
-  # Python execution: content-aware, so a script that only reads runs unprompted.
-  approval.tools.execute: selective
   # The agent's own config-editing tool: a config change needs approval.
   approval.tools.setup_patch: always
   # Creating a logbook entry always asks first.

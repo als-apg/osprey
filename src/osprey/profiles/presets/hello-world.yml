@@ -138,7 +138,7 @@ config:
   control_system.connector.virtual_accelerator.serving: in_process
   # The FIRST guard in the write-safety chain: while `never`, every hardware
   # write is refused before the limits check or the approval prompt is even
-  # consulted. Set it `allowed`, rebuild, and the two hooks below take over.
+  # consulted. Set it `asked`, rebuild, and the two hooks below take over.
   control_system.writes: never
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
@@ -176,21 +176,18 @@ config:
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
-  # still pauses for a yes/no prompt. Applied by the approval hook, so it
-  # reaches only hook-wired tools; everything else is gated by the rendered
-  # settings.json permissions.
+  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+  # Applied by the approval hook, so it reaches only hook-wired tools;
+  # everything else is gated by the rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed below. "always" is fail-closed:
   # reads need their own "skip" entry to run unprompted.
   approval.default_policy: always
-  # Per-tool policies: always (prompt every time), skip (no prompt), or
-  # selective (content-aware, for `execute` only; other tools read it as
-  # always).
-  approval.tools.channel_write: always
+  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool
+  # the write switch governs, channel writes and Python execution among them,
+  # takes no entry here: the slider on the control-target chip decides for it.
   approval.tools.channel_read: skip
   approval.tools.archiver_read: skip
-  # Python execution: content-aware, so a script that only reads runs unprompted.
-  approval.tools.execute: selective
   # The agent's own config-editing tool: a config change needs approval.
   approval.tools.setup_patch: always
   # The panel rail is the operator's own view. Adding or removing a panel, and

@@ -9,16 +9,23 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
+import hashlib
 import json
 import os
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from osprey_connectors.control_context import _record_path_under
 from osprey_connectors.types import baseline_target
-from osprey_connectors_tests._harness import write_control_context, write_server_report
+from osprey_connectors_tests._harness import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 from tests._guarded_run import (
     PLANTED_REFUSED,
     held_lock,
@@ -26,6 +33,7 @@ from tests._guarded_run import (
     lock_path,
     plant_kind,
 )
+from tests.hooks.conftest import hook_audit_records, pending_review_items
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
@@ -2398,3 +2406,319 @@ def test_the_hook_restates_the_view_writers_names(hook_module):
     approval = hook_module("osprey_approval")
     assert approval._PYAML_VIEW_ROOT == ("data", view.PYAML_DIR)
     assert approval._PYAML_CONFIGURATION_FILE == view.CONFIGURATION_FILE
+
+
+# ---------------------------------------------------------------------------
+# The write switch's position decides for a governed tool
+# ---------------------------------------------------------------------------
+
+GOVERNED_PREFIXES = ["mcp__controls__", "mcp__python__", "mcp__bluesky__", "mcp__phoebus__"]
+
+#: A render whose governed set is the framework's; `phoebus_drive` keeps its policy.
+GOVERNED_HOOK_CONFIG = {
+    "server_prefixes": GOVERNED_PREFIXES,
+    "approval_prefixes": GOVERNED_PREFIXES,
+    "write_tools": [
+        "mcp__controls__channel_write",
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+        "mcp__python__pyaml_measure",
+        "mcp__bluesky__queue_add",
+        "mcp__bluesky__queue_start",
+        "mcp__phoebus__phoebus_drive",
+    ],
+    "governed_tools": [
+        "mcp__controls__channel_write",
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+        "mcp__python__pyaml_measure",
+        "mcp__bluesky__queue_add",
+        "mcp__bluesky__queue_start",
+    ],
+    "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
+}
+
+CHANNEL_WRITE = "mcp__controls__channel_write"
+CHANNEL_WRITE_CALL = {"operations": [{"channel": "TEST:PV", "value": 1.0}]}
+EXECUTE = "mcp__python__execute"
+READONLY_CODE = {"code": "x = 1\n", "execution_mode": "readonly"}
+READWRITE_CODE = {"code": "x = 1\n", "execution_mode": "readwrite"}
+STORE_CODE = {"code": "print('control_context.json')\n", "execution_mode": "readonly"}
+PHOEBUS_DRIVE = "mcp__phoebus__phoebus_drive"
+PHOEBUS_CALL = {"widget": "QF_setpoint", "verb": "set", "value": "1.5"}
+QUEUE_ADD = "mcp__bluesky__queue_add"
+QUEUE_START = "mcp__bluesky__queue_start"
+
+#: Policies that would each let a call through unasked, or always ask.
+PERMISSIVE_APPROVAL = [
+    pytest.param({"enabled": False}, id="disabled"),
+    pytest.param({"enabled": True, "default_policy": "skip"}, id="skip"),
+]
+
+
+class _Governed:
+    """One deployment on the simulator, at a chosen switch position."""
+
+    def __init__(self, root, state, tmp_path, hook_runner):
+        self.root = root
+        self.state = state
+        self.tmp_path = tmp_path
+        self.hook_runner = hook_runner
+
+    def run(self, tool, call, position, approval=None, *, hook_config=None, tool_use_id="toolu_g"):
+        write_control_context(
+            self.root,
+            target="va",
+            switch={"va": position, "live": position} if position != "off" else None,
+        )
+        config = self.tmp_path / "config.yml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    "approval": approval or {"enabled": True, "default_policy": "always"},
+                    "control_system": WRITES_ALLOWED_SECTION,
+                }
+            )
+        )
+        return self.hook_runner(
+            "osprey_approval.py",
+            tool,
+            call,
+            config_path=config,
+            cwd=self.tmp_path,
+            hook_config=hook_config or GOVERNED_HOOK_CONFIG,
+            hook_input_extra={
+                "hook_event_name": "PreToolUse",
+                "tool_use_id": tool_use_id,
+                "session_id": "conv-g",
+                "permission_mode": "default",
+            },
+        )
+
+    def stamp(self, tool_use_id="toolu_g"):
+        path = self.state / f"approval_ask_{tool_use_id}.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def window_stamps(self):
+        return sorted(self.state.glob("write_approval_*.json"))
+
+    def audit_entries(self):
+        return hook_audit_records(self.tmp_path, "hook_approval")
+
+
+@pytest.fixture
+def governed(tmp_path, hook_runner, monkeypatch):
+    pin_identity(monkeypatch)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return _Governed(root, state, tmp_path, hook_runner)
+
+
+@pytest.fixture
+def dispatch_run(governed, monkeypatch):
+    """A scheduled job of the pinned identity's, as the dispatcher stamps it."""
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", pin_identity(monkeypatch))
+    return governed
+
+
+@pytest.mark.parametrize("approval", PERMISSIVE_APPROVAL)
+def test_asked_prompts_whatever_the_approval_policy_says(governed, approval):
+    result = governed.run(CHANNEL_WRITE, CHANNEL_WRITE_CALL, "asked", approval)
+
+    assert _decision(result) == "ask"
+    stamp = governed.stamp()
+    assert stamp["position"] == "asked"
+    assert stamp["approver"] == "human"
+    assert "answered_at" not in stamp
+
+
+@pytest.mark.parametrize("position", ["off", "asked", "allowed"])
+@pytest.mark.parametrize(
+    "approval",
+    [
+        pytest.param({"enabled": True, "default_policy": "always"}, id="always"),
+        pytest.param({"enabled": False}, id="disabled"),
+    ],
+)
+def test_a_read_only_execute_runs_unprompted_in_every_position(governed, position, approval):
+    result = governed.run(EXECUTE, READONLY_CODE, position, approval)
+
+    assert _decision(result) == "allow"
+    assert governed.stamp() is None
+    assert governed.audit_entries() == []
+
+
+def test_a_read_only_execute_spelling_a_write_is_still_put_to_a_person(governed):
+    call = {"code": "write_channel('A', 1)\n", "execution_mode": "readonly"}
+
+    assert _decision(governed.run(EXECUTE, call, "allowed")) == "ask"
+
+
+def test_allowed_channel_write_runs_with_the_records_an_ask_leaves(governed):
+    result = governed.run(CHANNEL_WRITE, CHANNEL_WRITE_CALL, "allowed", {"enabled": False})
+
+    assert _decision(result) == "allow"
+    stamp = governed.stamp()
+    assert stamp["approver"] == "write_switch"
+    assert stamp["position"] == "allowed"
+    assert isinstance(stamp["answered_at"], float)
+    assert len(governed.window_stamps()) == 1
+    [record] = governed.audit_entries()
+    assert (record["decision"], record["reason"]) == ("approved", "switch")
+    assert record["detail"] == "approver=write_switch position=allowed"
+    assert record["subject"] == CHANNEL_WRITE
+
+
+def test_allowed_execute_carries_its_binding_and_opens_no_review(governed, tmp_path):
+    result = governed.run(EXECUTE, READWRITE_CODE, "allowed")
+
+    assert _decision(result) == "allow"
+    assert _updated(result)["approved_target"] == "va"
+    stamp = governed.stamp()
+    assert stamp["approved_target"] == "va"
+    assert "review_artifact_id" not in stamp
+    assert not pending_review_items(tmp_path)
+
+
+def test_allowed_execute_replaces_a_binding_the_agent_sent(governed):
+    call = {**READWRITE_CODE, "approved_target": "live"}
+
+    assert _updated(governed.run(EXECUTE, call, "allowed"))["approved_target"] == "va"
+
+
+def test_allowed_measure_carries_target_and_view_digest(governed, tmp_path):
+    _plant_view(tmp_path)
+    hook_config = {**GOVERNED_HOOK_CONFIG, "measurement": {"SR": _measurement_block()}}
+
+    result = governed.run(
+        "mcp__python__pyaml_measure", {"kind": "orm"}, "allowed", hook_config=hook_config
+    )
+
+    assert _decision(result) == "allow"
+    updated = _updated(result)
+    assert updated["approved_target"] == "va"
+    assert updated["approved_view_sha256"] == hashlib.sha256(_VIEW_BYTES).hexdigest()
+    assert governed.stamp()["approved_view_sha256"] == updated["approved_view_sha256"]
+
+
+def test_a_measurement_refused_for_length_is_denied_at_allowed(governed, tmp_path):
+    _plant_view(tmp_path)
+    long_group = [f"SR:HCM:{index:03d}:SP" for index in range(501)]
+    block = _measurement_block(groups={**_measurement_block()["groups"], "hcor": long_group})
+    hook_config = {**GOVERNED_HOOK_CONFIG, "measurement": {"SR": block}}
+
+    result = governed.run(
+        "mcp__python__pyaml_measure", {"kind": "orm"}, "allowed", hook_config=hook_config
+    )
+
+    assert _decision(result) == "deny"
+    assert governed.stamp() is None
+
+
+@pytest.mark.parametrize("position", ["asked", "allowed"])
+def test_store_naming_code_asks_in_every_position_under_any_policy(governed, position):
+    result = governed.run(EXECUTE, STORE_CODE, position, {"enabled": False})
+
+    assert _decision(result) == "ask"
+    assert governed.stamp()["approver"] == "human"
+
+
+def test_store_naming_code_asks_with_the_switch_off(governed):
+    assert _decision(governed.run(EXECUTE, STORE_CODE, "off", {"enabled": False})) == "ask"
+
+
+def test_store_naming_code_is_denied_in_a_dispatch_run(dispatch_run):
+    result = dispatch_run.run(EXECUTE, STORE_CODE, "allowed")
+
+    assert _decision(result) == "deny"
+    assert dispatch_run.stamp() is None
+
+
+def test_a_refused_governed_write_defers(governed):
+    assert governed.run(CHANNEL_WRITE, CHANNEL_WRITE_CALL, "off") is None
+    assert governed.stamp() is None
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [("skip", "allow"), ("always", "ask")],
+)
+def test_phoebus_drive_at_allowed_follows_its_policy(governed, policy, expected):
+    approval = {"enabled": True, "default_policy": "always", "tools": {"phoebus_drive": policy}}
+
+    result = governed.run(PHOEBUS_DRIVE, PHOEBUS_CALL, "allowed", approval)
+
+    assert _decision(result) == expected
+    if expected == "ask":
+        stamp = governed.stamp()
+        assert stamp["approver"] == "human"
+        assert "position" not in stamp
+
+
+def test_phoebus_drive_still_defers_when_refused(governed):
+    assert governed.run(PHOEBUS_DRIVE, PHOEBUS_CALL, "off") is None
+
+
+def test_a_dispatch_run_at_allowed_sends_an_ask_carrying_the_binding(dispatch_run):
+    result = dispatch_run.run(EXECUTE, READWRITE_CODE, "allowed")
+
+    assert _decision(result) == "ask"
+    assert _updated(result)["approved_target"] == "va"
+    stamp = dispatch_run.stamp()
+    assert stamp["approver"] == "dispatch_policy"
+    assert stamp["position"] == "allowed"
+    assert stamp["approved_target"] == "va"
+    [record] = dispatch_run.audit_entries()
+    assert (record["decision"], record["reason"]) == ("approved", "switch")
+    assert record["detail"] == "approver=dispatch_policy position=allowed"
+
+
+def test_a_dispatch_run_at_asked_stamps_the_position_it_was_put_under(dispatch_run):
+    result = dispatch_run.run(EXECUTE, READWRITE_CODE, "asked")
+
+    assert _decision(result) == "ask"
+    stamp = dispatch_run.stamp()
+    assert (stamp["approver"], stamp["position"]) == ("dispatch_policy", "asked")
+
+
+@pytest.mark.parametrize(("position", "expected"), [("allowed", "allow"), ("asked", "ask")])
+def test_queue_add_follows_the_position(governed, position, expected):
+    result = governed.run(QUEUE_ADD, {"draft_revision": 3}, position)
+
+    assert _decision(result) == expected
+    assert governed.stamp()["position"] == position
+
+
+def test_queue_add_keeps_its_prompt_when_refused_and_never_defers(governed):
+    assert _decision(governed.run(QUEUE_ADD, {"draft_revision": 3}, "off")) == "ask"
+
+
+def test_queue_start_at_allowed_withdraws_a_token_no_prompt_showed(
+    governed, monkeypatch, hook_module
+):
+    """A token left by an earlier prompt would bind this start to a queue nobody saw."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", "sess-g")
+    approval = hook_module("osprey_approval")
+    stale = governed.state / approval.queue_start_approval_filename("sess-g", None)
+    stale.write_text(json.dumps({"lane": "", "plan_queue_uid": "uid-old", "ts": 1.0}))
+
+    result = governed.run(QUEUE_START, {}, "allowed")
+
+    assert _decision(result) == "allow"
+    assert json.loads(stale.read_text())["plan_queue_uid"] is None
+
+
+def test_an_ungoverned_render_keeps_the_policy_path(governed):
+    """A render with no governed list leaves every tool to its policy."""
+    hook_config = {k: v for k, v in GOVERNED_HOOK_CONFIG.items() if k != "governed_tools"}
+
+    result = governed.run(
+        CHANNEL_WRITE, CHANNEL_WRITE_CALL, "allowed", {"enabled": False}, hook_config=hook_config
+    )
+
+    assert _decision(result) == "allow"
+    assert governed.stamp() is None

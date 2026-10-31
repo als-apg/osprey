@@ -251,7 +251,7 @@ def test_the_middleware_reads_a_stamp_only_the_hook_wrote(hook_runner, deploymen
 
     _ask(hook_runner, deployment, "toolu_cross")
 
-    assert audit_middleware._approval_answered("toolu_cross") == ("human", "default")
+    assert audit_middleware._approval_answered("toolu_cross") == ("human", "default", None)
     assert audit_middleware._approval_answered("toolu_absent") is None
     # Read, never consumed: the hook's PostToolUse owns the stamp.
     assert [path.name for path in deployment.ask_stamps()] == ["approval_ask_toolu_cross.json"]
@@ -296,3 +296,53 @@ def test_the_note_is_withheld_where_the_prompt_was_not_put_to_a_person(hook_runn
 
     assert _after(hook_runner, deployment, "PostToolUse", "toolu_mode") is None
     assert deployment.ledger()[-1]["decision"] == "approved"
+
+
+# ---------------------------------------------------------------------------
+# A call the write switch approved
+# ---------------------------------------------------------------------------
+
+GOVERNED_HOOK_CONFIG = {**HOOK_CONFIG, "governed_tools": [CHANNEL_WRITE]}
+
+
+def _allow_by_switch(hook_runner, deployment, tool_use_id):
+    write_control_context(deployment.cwd / "agent_data", target="va", switch={"va": "allowed"})
+    result = hook_runner(
+        HOOK,
+        CHANNEL_WRITE,
+        WRITE_INPUT,
+        config_path=deployment.config_path,
+        cwd=deployment.cwd,
+        hook_config=GOVERNED_HOOK_CONFIG,
+        hook_input_extra=_event("PreToolUse", tool_use_id, permission_mode="default"),
+    )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+def test_the_switch_approval_note_is_withheld(hook_module):
+    approval = hook_module("osprey_approval")
+
+    stamp = {"approver": "write_switch", "permission_mode": "default", "position": "allowed"}
+    assert approval._approved_call_note(stamp) is None
+
+
+def test_stop_files_an_unrun_switch_approval_as_approved_not_executed(hook_runner, deployment):
+    _allow_by_switch(hook_runner, deployment, "toolu_unrun")
+
+    assert _stop(hook_runner, deployment) is None
+
+    switch, closed = deployment.ledger()
+    assert (switch["decision"], switch["reason"]) == ("approved", "switch")
+    assert (closed["decision"], closed["reason"]) == ("approved", "not_executed")
+    assert closed["detail"] == "approver=write_switch position=allowed"
+    assert closed["tool_use_id"] == "toolu_unrun"
+    assert deployment.ask_stamps() == []
+
+
+def test_a_switch_approval_that_ran_gives_the_model_no_note(hook_runner, deployment):
+    _allow_by_switch(hook_runner, deployment, "toolu_ran")
+
+    assert _after(hook_runner, deployment, "PostToolUse", "toolu_ran") is None
+
+    assert deployment.ledger()[-1]["reason"] == "executed"
+    assert deployment.ask_stamps() == []

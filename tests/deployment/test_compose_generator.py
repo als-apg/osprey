@@ -2269,14 +2269,14 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset's root sets control_system.writes: allowed
+    # The control-assistant preset's root sets control_system.writes: asked
     # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
-    assert config["control_system"]["writes"] == "allowed", (
+    assert config["control_system"]["writes"] == "asked", (
         "this assertion block assumes the control-assistant preset's "
-        "control_system.writes: allowed default -- if that default ever changes, this "
+        "control_system.writes: asked default -- if that default ever changes, this "
         "test's premise for asserting the channel_limits.json mount changes too"
     )
     assert "CONFIG_FILE: /app/project/config.yml" in rendered
@@ -2292,7 +2292,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert (
         "./build/data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
     ), (
-        "control_system.writes: allowed (preset default) must mount "
+        "control_system.writes: asked (preset default) must mount "
         "channel_limits.json under the same /app/project root as config.yml, "
         "from the build zone the deployed config is read from"
     )

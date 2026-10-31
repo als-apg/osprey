@@ -27,6 +27,7 @@ from osprey.port_layout import (
 )
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey_connectors.types import WRITES_KEY
 from tests._renders import app_render, tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
@@ -4808,6 +4809,122 @@ def test_lint_write_hole_stays_closed_through_a_nested_spelling(tmp_path) -> Non
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
+@pytest.mark.parametrize(
+    ("tier_word", "root_word"),
+    [
+        ("asked", "allowed"),
+        ("allowed", "asked"),
+        ("asked", "never"),
+        ("never", "asked"),
+        ("never", "allowed"),
+    ],
+)
+def test_lint_a_tier_word_over_a_root_word_is_not_a_write_hole(
+    tmp_path, tier_word, root_word
+) -> None:
+    """An authored arming word claims no read-only posture, and an authored `never`
+    is the last layer, so it wins: the chain resolves to what the tier wrote."""
+    # Arrange
+    config = _write_posture_config(tmp_path, {WRITES_KEY: tier_word}, **{WRITES_KEY: root_word})
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+@pytest.mark.parametrize("resolved", ["allowed", "asked"])
+def test_lint_write_hole_names_the_word_the_chain_resolves_to(
+    tmp_path, monkeypatch, resolved
+) -> None:
+    """The guard's one reachable shape: the chain disagrees with the authored `never`.
+    The merge cannot produce it today, so the chain is stated here directly."""
+    # Arrange
+    config = _write_posture_config(tmp_path, {WRITES_KEY: "never"})
+    chain = lint._TierLayers(
+        layers=({WRITES_KEY: resolved},),
+        authored={WRITES_KEY: "never"},
+        source=f"{TIERS_DIRNAME}/tier.yml",
+        is_delta=True,
+    )
+    monkeypatch.setattr(lint, "_profile_tier_layers", lambda *_a, **_k: chain)
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    [finding] = [f for f in findings if f.code == _WRITE_HOLE_CODE]
+    assert finding.severity == "error"
+    assert f"sets {WRITES_KEY}: never" in finding.message
+    assert f"resolves {WRITES_KEY}: {resolved} from" in finding.message
+
+
+def test_lint_write_hole_skips_an_authored_word_that_is_not_never(tmp_path, monkeypatch) -> None:
+    """`asked` is not a read-only claim, whatever the rest of the chain says."""
+    # Arrange
+    config = _write_posture_config(tmp_path, {WRITES_KEY: "asked"})
+    chain = lint._TierLayers(
+        layers=({WRITES_KEY: "allowed"},),
+        authored={WRITES_KEY: "asked"},
+        source=f"{TIERS_DIRNAME}/tier.yml",
+        is_delta=True,
+    )
+    monkeypatch.setattr(lint, "_profile_tier_layers", lambda *_a, **_k: chain)
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+@pytest.mark.parametrize(
+    ("layers", "expected"),
+    [
+        pytest.param((), False, id="no-layers"),
+        pytest.param(({}, {}), False, id="silent-chain-is-never"),
+        pytest.param(({WRITES_KEY: "allowed"},), True, id="allowed"),
+        pytest.param(({WRITES_KEY: "asked"},), True, id="asked"),
+        pytest.param(({WRITES_KEY: "never"},), False, id="never"),
+        pytest.param(({WRITES_KEY: "asked"}, {WRITES_KEY: "never"}), False, id="never-last"),
+        pytest.param(({WRITES_KEY: "never"}, {WRITES_KEY: "asked"}), True, id="asked-last"),
+        pytest.param(({WRITES_KEY: "asked"}, {}), True, id="silent-layer-inherits"),
+        pytest.param(({WRITES_KEY: True},), False, id="raw-non-string-is-never"),
+        pytest.param(({WRITES_KEY: "on"},), False, id="retired-word-is-never"),
+        pytest.param(
+            ({"control_system.writes_enabled": True},), True, id="retired-leaf-reads-allowed"
+        ),
+    ],
+)
+def test_layers_allow_writes_reads_the_resolved_word(layers, expected) -> None:
+    assert lint._layers_allow_writes(*layers) is expected
+
+
+@pytest.mark.parametrize(
+    ("layer", "expected"),
+    [
+        ({WRITES_KEY: "never"}, "never"),
+        ({WRITES_KEY: "asked"}, "asked"),
+        ({WRITES_KEY: "allowed"}, "allowed"),
+        ({}, None),
+    ],
+)
+def test_layer_writes_returns_the_word_the_layer_states(layer, expected) -> None:
+    assert lint._layer_writes(layer) == expected
+
+
+def test_lint_app_render_refuses_asked() -> None:
+    """Only the literal `never` is an app's pin: `asked` arms."""
+    # Arrange / Act
+    findings = lint.lint_app_render({"config": {WRITES_KEY: "asked"}, "hooks": []})
+
+    # Assert
+    [finding] = findings
+    assert finding.code == "web_terminals.app_render_holds_privilege"
+    assert f"{WRITES_KEY} is not pinned to never" in finding.message
+
+
 def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
     """A rendered config.yml is one composed document with no authored layer
     left in it, so every key in it reads as written down and there is no
@@ -5874,6 +5991,32 @@ def test_lint_live_writer_inheriting_the_global_flag_is_a_warn(tmp_path) -> None
 
     # Assert
     assert len(findings) == 1, findings
+
+
+@pytest.mark.parametrize("word", ["allowed", "asked"])
+def test_lint_live_writer_acknowledgment_runs_for_both_arming_words(tmp_path, word) -> None:
+    """Both words reach the real machine; the WARN names the one the render holds."""
+    # Arrange
+    config = _live_writer_config(tmp_path, {"control_system.type": "epics", WRITES_KEY: word})
+
+    # Act
+    findings = _live_writer_findings(lint_profile_config(config, profile_root=tmp_path))
+
+    # Assert
+    [finding] = findings
+    assert finding.severity == "warn"
+    assert f"{WRITES_KEY}: {word} reaches the live machine" in finding.message
+
+
+def test_lint_live_writer_on_a_never_tier_reports_nothing(tmp_path) -> None:
+    # Arrange
+    config = _live_writer_config(tmp_path, {"control_system.type": "epics", WRITES_KEY: "never"})
+
+    # Act
+    findings = _live_writer_findings(lint_profile_config(config, profile_root=tmp_path))
+
+    # Assert
+    assert findings == []
 
 
 def test_lint_live_writer_with_control_identity_reports_nothing(tmp_path) -> None:

@@ -17,6 +17,7 @@ on the parser.
 from __future__ import annotations
 
 import copy
+import functools
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors import yaml_loader
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
+    TIER_WORDS,
     baseline_target,
     configured_targets,
     resolve_control_system_type,
@@ -331,8 +333,8 @@ def _normalize_retired_roster_keys(raw: dict[str, Any], source: str) -> dict[str
 
 # ── Retired write-posture spellings ──────────────────────────────────────────
 #
-# A login tier's write ceiling is one key, ``control_system.writes: allowed |
-# never``. The posture it replaces — the flat ``control_system.writes_enabled``
+# A login tier's write ceiling is one key, ``control_system.writes: never |
+# asked | allowed``. The posture it replaces — the flat ``control_system.writes_enabled``
 # and every ``control_system.connector.<type>.writes_enabled`` — is read for one
 # release window by rewriting it here, at the single parse point, so the merge,
 # the hash and the render all read the new key. The window closes at
@@ -355,8 +357,10 @@ RETIRED_WRITES_LEAF = "writes_enabled"
 _WRITES_LABEL = f"{_CONTROL_SYSTEM}.{WRITES_KEY_LEAF}"
 _FLAT_RETIRED_LABEL = f"{_CONTROL_SYSTEM}.{RETIRED_WRITES_LEAF}"
 
-_ALLOWED = "allowed"
-_NEVER = "never"
+_NEVER, _ASKED, _ALLOWED = TIER_WORDS
+
+#: The tier key's words that arm anything; an app may spell neither.
+_ARMING_WORDS = (_ASKED, _ALLOWED)
 
 #: The document kind an app file is read as (``LAYER_DIR_KINDS``' word).
 _APP_KIND = "app"
@@ -713,13 +717,13 @@ def _tier_key_values(mapping: dict, prefix: tuple[str, ...] = ()) -> Iterator[An
 
 
 def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | None = None) -> None:
-    """Refuse a ``control_system.writes`` that is not the string ``allowed`` or ``never``.
+    """Refuse a ``control_system.writes`` that is not ``never``, ``asked`` or ``allowed``.
 
     Runs after :func:`normalize_retired_write_keys` on every document it
     sees — files, text and the ``--set`` layer — so a value it wrote is
     checked too. Only the exact lowercase strings pass: a boolean, ``null``,
-    ``"Allowed"`` or ``"yes"`` is refused rather than read as either tier. An
-    app (kind from *path*, as for the normalizer) may only spell ``never``.
+    ``"Allowed"`` or ``"yes"`` is refused rather than read as a tier. An app
+    (kind from *path*, as for the normalizer) may only spell ``never``.
 
     Args:
         raw: One raw profile mapping; not changed.
@@ -727,7 +731,7 @@ def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | No
         path: The file the document was read from, when there is one.
 
     Raises:
-        BuildProfileError: On any other value, or ``allowed`` in an app.
+        BuildProfileError: On any other value, or an arming word in an app.
     """
     config = raw.get("config")
     if not isinstance(config, dict):
@@ -736,13 +740,15 @@ def validate_tier_key_value(raw: dict[str, Any], source: str, *, path: Path | No
     if not values:
         return
     for value in values:
-        if not (isinstance(value, str) and value in (_ALLOWED, _NEVER)):
+        if not (isinstance(value, str) and value in TIER_WORDS):
             raise BuildProfileError(
-                f"{source}: `{_WRITES_LABEL}` must be `{_ALLOWED}` or `{_NEVER}`, got {value!r}"
+                f"{source}: `{_WRITES_LABEL}` must be `{_NEVER}`, `{_ASKED}` or `{_ALLOWED}`, "
+                f"got {value!r}"
             )
-    if _ALLOWED in values and _document_kind(path) == _APP_KIND:
+    arming = next((value for value in values if value != _NEVER), None)
+    if arming is not None and _document_kind(path) == _APP_KIND:
         raise BuildProfileError(
-            f"{source}: an app cannot spell `{_WRITES_LABEL}: {_ALLOWED}` — "
+            f"{source}: an app cannot spell `{_WRITES_LABEL}: {arming}` — "
             f"an app is always `{_WRITES_LABEL}: {_NEVER}`; set the tier key in "
             "the profile or a tier instead"
         )
@@ -815,6 +821,174 @@ def normalize_retired_write_keys(
     return raw
 
 
+# ── Retired per-tool policies for the governed tools ────────────────────────
+#
+# The write switch's slider (off / asked / allowed) decides whether a governed
+# write asks a person first, so ``approval.tools.<tool>`` for one of those tools
+# states a second answer nothing reads. It is dropped here, at the single parse
+# point, with one warning per document, until
+# ``build_profile_load.RETIRED_APPROVAL_POLICY_REFUSED_FROM`` (a test tripwire,
+# as for the write keys). Every other tool keeps its policy.
+
+#: Where the per-tool policies live under ``config:``, as path segments.
+APPROVAL_TOOLS_PATH = ("approval", "tools")
+
+#: The warning's dedupe key: one line per document, however many tools it names.
+_APPROVAL_POLICY_LABEL = ".".join(APPROVAL_TOOLS_PATH)
+
+#: The hook presets a facility server attaches to every tool that together make
+#: its writes the switch's to decide (the registry's ``rule_carries_both_write_hooks``).
+_BOTH_WRITE_PRESETS = frozenset({"writes_check", "approval"})
+
+
+@functools.cache
+def _framework_governed_tools() -> frozenset[str]:
+    """Bare names of every framework tool the switch decides for, enabled by default or not.
+
+    Read from the registry's one producer (``governed_write_tools``) over every
+    framework server's own hook rules, so a tool that joins or leaves the
+    governed set there joins or leaves it here. Imported lazily: the registry
+    is a heavier module than this parse point otherwise needs.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, _hook_rule_to_dict, governed_write_tools
+
+    servers = [
+        {"enabled": True, "hooks_pre": [_hook_rule_to_dict(rule) for rule in sdef.hooks_pre]}
+        for sdef in FRAMEWORK_SERVERS.values()
+    ]
+    return frozenset(tool.rsplit("__", 1)[-1] for tool in governed_write_tools(servers))
+
+
+def _declared_governed_tools(raw: dict[str, Any]) -> set[str]:
+    """Bare names of the tools *raw*'s own ``mcp_servers`` hand to the switch.
+
+    A server's ``writes:`` tools (and the warning-window tools gated beside
+    them) carry both write hooks; a server whose ``hooks.pre_tool_use`` names
+    both ``writes_check`` and ``approval`` carries them on every tool, so each
+    tool its ``permissions`` name is governed. Malformed entries are skipped:
+    the loader refuses them with its own message.
+    """
+    servers = raw.get("mcp_servers")
+    if not isinstance(servers, dict):
+        return set()
+    from osprey.registry.mcp import _declared_write_rule_tools
+
+    tools: set[str] = set()
+    for name, spec in servers.items():
+        if not isinstance(name, str) or not isinstance(spec, dict):
+            continue
+        perms = spec.get("permissions")
+        perms = perms if isinstance(perms, dict) else {}
+        perms = {
+            k: [e for e in v if isinstance(e, str)] if isinstance(v, list) else []
+            for k, v in perms.items()
+            if k in ("allow", "ask")
+        }
+        writes = spec.get("writes")
+        if isinstance(writes, list):
+            declared = tuple(str(tool) for tool in writes if isinstance(tool, str))
+            tools.update(_declared_write_rule_tools(name, declared, perms))
+        hooks = spec.get("hooks")
+        presets = hooks.get("pre_tool_use") if isinstance(hooks, dict) else None
+        if isinstance(presets, list) and set(presets) >= _BOTH_WRITE_PRESETS:
+            prefix = f"mcp__{name}__"
+            for entry in (*perms.get("allow", []), *perms.get("ask", [])):
+                tool = entry.removeprefix(prefix)
+                if tool and not set("*.|()[]") & set(tool):
+                    tools.add(tool)
+    return tools
+
+
+def governed_policy_tools(raw: dict[str, Any]) -> frozenset[str]:
+    """The bare tool names whose ``approval.tools`` policy *raw* may no longer state.
+
+    The framework's governed tools plus the ones this same document's servers
+    declare (:func:`_declared_governed_tools`). A tier or app declares no
+    servers, so the framework set is what applies there.
+    """
+    return _framework_governed_tools() | _declared_governed_tools(raw)
+
+
+def governed_policy_spellings(
+    config: dict, governed: frozenset[str], prefix: tuple[str, ...] = ()
+) -> list[tuple[dict, str, str, tuple[tuple[dict, str], ...]]]:
+    """Every ``approval.tools.<tool>`` under *config* for a tool in *governed*.
+
+    Each hit is ``(container, key, tool, parents)``: the mapping holding the
+    key, the key as spelled there (dotted, nested or mixed), the bare tool, and
+    the ``(mapping, key)`` chain from *config* down to the container, so a
+    caller can prune what the removal empties.
+    """
+    hits: list[tuple[dict, str, str, tuple[tuple[dict, str], ...]]] = []
+    depth = len(APPROVAL_TOOLS_PATH)
+    for key, value in list(config.items()):
+        if not isinstance(key, str):
+            continue
+        path = prefix + tuple(key.split("."))
+        if len(path) == depth + 1 and path[:depth] == APPROVAL_TOOLS_PATH:
+            if path[depth] in governed:
+                hits.append((config, key, path[depth], ()))
+        elif (
+            len(path) <= depth
+            and path == APPROVAL_TOOLS_PATH[: len(path)]
+            and isinstance(value, dict)
+        ):
+            for container, inner, tool, parents in governed_policy_spellings(value, governed, path):
+                hits.append((container, inner, tool, ((config, key), *parents)))
+    return hits
+
+
+def normalize_retired_approval_policies(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``approval.tools.<tool>`` for every governed tool under ``config:``, in place.
+
+    The governed set is :func:`governed_policy_tools` of *raw*. A silent
+    document is untouched and quiet; one that spells any such policy loses
+    those keys (and any ``approval.tools`` / ``approval`` mapping the removal
+    empties) and logs one warning per *source* naming the slider and the three
+    consequences. Every other tool's policy, and every other ``approval.*``
+    key, survives.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    config = raw.get("config")
+    if not isinstance(config, dict):
+        return raw
+    hits = governed_policy_spellings(config, governed_policy_tools(raw))
+    if not hits:
+        return raw
+    for container, key, _tool, parents in hits:
+        container.pop(key, None)
+        node: dict = container
+        for parent, parent_key in reversed(parents):
+            if node or parent.get(parent_key) is not node:
+                break
+            del parent[parent_key]
+            node = parent
+    tools = sorted({tool for _c, _k, tool, _p in hits})
+    _warn_retired(source, _APPROVAL_POLICY_LABEL, retired_approval_policy_message(tools))
+    return raw
+
+
+def retired_approval_policy_message(tools: list[str]) -> str:
+    """The warning (and revalidate report) for the dropped policies of *tools*."""
+    spelled = ", ".join(f"`{_APPROVAL_POLICY_LABEL}.{tool}`" for tool in tools)
+    return (
+        f"{spelled} dropped: the write switch's slider on the control-target chip "
+        "(off / asked / allowed) decides whether a governed write asks, so a "
+        "per-tool policy for it is no longer read. Three consequences: a `skip` "
+        "policy no longer runs it unprompted (it prompts at asked; pick allowed on "
+        "an allowed tier for that); an `always` policy no longer prompts at "
+        "allowed (an `execute: always` loses its prompt on read-only code); and "
+        "`approval.enabled: false` no longer silences governed tools (it still "
+        "silences every other tool)"
+    )
+
+
 def _read_profile_document(path: Path, source: str | None = None) -> Any:
     """Read one raw profile-YAML document.
 
@@ -864,6 +1038,7 @@ def _parse_profile_document(text: str, source: str, *, path: Path | None = None)
         _normalize_empty_collections(raw)
         _normalize_retired_roster_keys(raw, source)
         normalize_retired_write_keys(raw, source, path=path)
+        normalize_retired_approval_policies(raw, source)
     elif path is not None:
         _RETIRED_WRITE_ORIGINS.pop(Path(path).resolve(), None)
     return raw

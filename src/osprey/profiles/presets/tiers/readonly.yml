@@ -16,8 +16,9 @@
 # that somehow reaches it. Reads, the channel finder, the archiver, logbook
 # search and the bluesky panels all work unchanged.
 #
-# The write-capable counterpart is the `readwrite` tier, armed on the simulator
-# alone, with the `admin` tier beside it.
+# This is the bottom of the ceiling's three words, `never`, `asked` and
+# `allowed`. The write-capable counterparts are the `readwrite` tier at `asked`
+# and the `admin` tier at `allowed`.
 
 name: Control Assistant (Read-Only)
 
@@ -25,7 +26,7 @@ name: Control Assistant (Read-Only)
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
   # The axis this tier hard-pins. `never` wins over the deployment's own
-  # `allowed`, since a tier's key beats the root's, so no session of this
+  # ceiling, since a tier's key beats the root's, so no session of this
   # tier writes to any machine the deployment configures.
   control_system.writes: never
   # Pared-down operator layout: chat only, workspace hidden until the agent

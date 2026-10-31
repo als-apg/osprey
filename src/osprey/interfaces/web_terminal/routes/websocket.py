@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
@@ -71,8 +71,9 @@ router = APIRouter()
 
 # ── Per-target runtime posture ───────────────────────────────────────────────
 #
-# The write switch is the person's: one ``on``/``off`` per machine, in the
-# ``switch`` field of the login's own control-context record, written only by
+# The write switch is the person's: one position per machine (``off``, ``asked``
+# — a person approves each write — or ``allowed`` — the position approves it),
+# in the ``switch`` field of the login's own control-context record, written only by
 # :func:`osprey_connectors.control_context.set_switch` and read live by every
 # write path through the write verdict. It is deliberately *not* a config
 # edit — config is a build-time input that reaches the agent only through a
@@ -82,12 +83,13 @@ router = APIRouter()
 # The GET roster reports each machine's switch and the write verdict a new call
 # by the login would meet (C-GET); it carries no narrowing.
 
-#: The switch state that arms a machine; the other is ``"off"``.
-SWITCH_ON = "on"
+#: The switch position that arms nothing, and the one no waiver may reach.
+SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
+SWITCH_ALLOWED = control_context.SWITCH_POSITIONS[-1]
 
-#: The stored words that read as :data:`SWITCH_ON`: ``"on"``, and the upcoming
-#: connectors release's ``"asked"`` and ``"allowed"``. Any other word is off.
-ARMED_SWITCH_WORDS = frozenset({SWITCH_ON, "asked", "allowed"})
+#: The positions in widening order. The login's ceiling compares on the same
+#: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
+_POSITION_RANK = {position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)}
 
 
 #: The one spelling of a switch epoch on the wire: a canonical decimal string.
@@ -120,12 +122,16 @@ class PostureRequest(BaseModel):
     ``target`` names one configured control target, or :data:`ALL_TARGETS`
     (only with ``off``). A plain string for the reason given on
     :class:`TargetRequest`.
+
+    ``waived`` says the person's confirm was skipped by "Don't ask again". It
+    is strict for the reason ``state`` is: it goes in the audit line as sent.
     """
 
     session_id: str | None = None
     target: str
-    state: Literal["on", "off"]
+    state: Literal["off", "asked", "allowed"]
     epoch: str | None = None
+    waived: StrictBool = False
 
     @field_validator("epoch", mode="before")
     @classmethod
@@ -1981,10 +1987,13 @@ STOP_NOT_TAKEN_PHRASE = (
 
 #: Route outcomes of ``POST /api/terminal/posture`` that are not write-verdict
 #: reasons. They are answers about the request — a turn-on of everything, a
-#: machine this render does not describe, a record that did not take the
-#: gesture — so they stay out of :data:`osprey_connectors.refusals.REASONS`.
+#: machine this render does not describe, a waiver the move may not carry, a
+#: position above the login's ceiling, a record that did not take the gesture —
+#: so they stay out of :data:`osprey_connectors.refusals.REASONS`.
 POSTURE_REASON_BULK_ON = "bulk_on_refused"
 POSTURE_REASON_UNKNOWN_TARGET = "unknown_target"
+POSTURE_REASON_WAIVER = "waiver_not_allowed"
+POSTURE_REASON_TIER_CAPS = "tier_caps"
 POSTURE_REASON_NOT_TAKEN = "not_taken"
 POSTURE_REASON_INVALID_SESSION = "invalid_session_id"
 
@@ -1994,47 +2003,97 @@ POSTURE_REASON_INVALID_SESSION = "invalid_session_id"
 _TURN_ON_LOCKS = frozenset({"readonly_run", "tier_never"})
 
 #: The optional keys a posture refusal may carry beside ``reason`` (C-POST).
-_POSTURE_REFUSAL_FIELDS = frozenset({"phrase", "epoch", "stamped", "taken"})
+_POSTURE_REFUSAL_FIELDS = frozenset({"phrase", "epoch", "stamped", "taken", "ceiling"})
 
 
 @dataclass(frozen=True)
 class _PostureRequestFacts:
     """Everything ``POST /api/terminal/posture`` decides on before it writes.
 
-    Read in one worker-thread hop: the render parse, the record status and the
-    turn-on's lock verdict. The switch write itself is a second hop and is a
-    compare-and-swap on the record, so nothing decided here can be overtaken by
-    a stop that lands in between.
+    Read in one worker-thread hop: the render parse, the record and a
+    widening's lock verdict and ceiling. The switch write itself is a second
+    hop and is a compare-and-swap on the record, so nothing decided here can be
+    overtaken by a stop that lands in between.
     """
 
     #: Target names this render configures — the 400's vocabulary.
     configured: tuple[str, ...]
     #: How reading the login's record ended: ``ok``, ``missing``, ``unreadable``.
     record_status: str
-    #: The verdict that locks a turn-on (:data:`_TURN_ON_LOCKS`), else ``None``.
+    #: The verdict that locks a widening (:data:`_TURN_ON_LOCKS`), else ``None``.
     lock: posture_store.WriteVerdict | None
+    #: Where the machine stands now; ``None`` for all-off or an unreadable record.
+    before: str | None = None
+    #: The login's ceiling (:func:`_login_tier`) for a widening, else ``None``.
+    ceiling: str | None = None
+    #: The machine's kind when the render configures it, else ``None``.
+    kind: str | None = None
+
+
+def _widens(state: str, before: str | None) -> bool:
+    """Whether moving a machine at *before* to *state* widens it.
+
+    An unknown *before* reads as off, so a move up from it meets the locks; a
+    stop never widens. *state* is a request word, so one the ranks do not know
+    is judged an arming word: the locks apply to it too.
+    """
+    if state == SWITCH_OFF:
+        return False
+    return _POSITION_RANK.get(state, 1) > _POSITION_RANK.get(before or SWITCH_OFF, 0)
 
 
 def _posture_post_facts(
     config_path: Path | None, target: str, state: str, login: str
 ) -> _PostureRequestFacts:
-    """Read the render, the record status and a turn-on's lock. BLOCKING.
+    """Read the render, the record, and a widening's lock and ceiling. BLOCKING.
 
     The lock is :func:`~osprey_connectors.posture_store.write_verdict` for
     *login* with the launch pin ignored — the pin is a fact about a run, not
     about the switch — and only its :data:`_TURN_ON_LOCKS` refuse: asked of a
     machine whose switch is still off, the verdict would otherwise always
-    answer ``switch_off``.
+    answer ``switch_off``. A narrowing or a no-op reads neither, because the
+    locks never stand between a person and less.
     """
     section = _section_of(_rendered_config(config_path))
     configured = _configured_target_names(section)
-    _record, status = control_context.read_record_status()
+    record, status = control_context.read_record_status()
+    before = None
+    if target != ALL_TARGETS and status != "unreadable":
+        before = control_context.switch_position(record, target)
     lock = None
-    if state == SWITCH_ON and target in configured:
-        verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
-        if verdict.reason in _TURN_ON_LOCKS:
-            lock = verdict
-    return _PostureRequestFacts(configured=configured, record_status=status, lock=lock)
+    ceiling = None
+    kind = None
+    if target in configured:
+        kind = published_machine_kind(target)
+        if _widens(state, before):
+            ceiling = _login_tier(section, login)
+            verdict = posture_store.write_verdict(
+                section, target, owner=login, ignore_launch_pin=True
+            )
+            if verdict.reason in _TURN_ON_LOCKS:
+                lock = verdict
+    return _PostureRequestFacts(
+        configured=configured,
+        record_status=status,
+        lock=lock,
+        before=before,
+        ceiling=ceiling,
+        kind=kind,
+    )
+
+
+def _posture_gesture(login: str, target: str, before: str | None, to: str, waived: bool) -> str:
+    """The audit detail of one gesture: who moved which machine from where to where.
+
+    ``from=none`` is the ``None`` of :attr:`_PostureRequestFacts.before`. All-off
+    is one gesture over every machine, so it names ``targets=all`` and files one line.
+    """
+    machine = "" if target == ALL_TARGETS else f" target={target}"
+    machines = f" targets={ALL_TARGETS}" if target == ALL_TARGETS else ""
+    return (
+        f"login={login}{machine} from={before or 'none'} to={to}{machines} "
+        f"waived={str(waived).lower()}"
+    )
 
 
 def _refuse_posture(
@@ -2048,7 +2107,7 @@ def _refuse_posture(
     """File one refusal line for a posture gesture and build its C-POST answer.
 
     The posture route's own envelope, ``{detail: {reason, phrase?, epoch?,
-    stamped?, taken?}}`` — never the target route's ``{error, message}``, which
+    stamped?, taken?, ceiling?}}`` — never the target route's ``{error, message}``, which
     :func:`_refuse_gesture` keeps. Returned rather than raised, like that
     helper, so the control flow visibly leaves at the caller's ``raise``.
 
@@ -2080,11 +2139,11 @@ def _posture_not_taken(
 
     A stop answers ``not_taken`` with :data:`STOP_NOT_TAKEN_PHRASE` whether the
     record is missing, unreadable or unwritable: the operator must not read a
-    failed stop as "writes are refused". A turn-on over no usable record
+    failed stop as "writes are refused". Any other move over no usable record
     answers ``record_unavailable``; one whose write failed answers
     ``not_taken`` with that same phrase.
     """
-    if state != SWITCH_ON:
+    if state == SWITCH_OFF:
         phrase = STOP_NOT_TAKEN_PHRASE
     else:
         phrase = refusal_phrase("record_unavailable")
@@ -2123,7 +2182,7 @@ def _push_control_context(app: Any) -> None:
 
 @router.post("/api/terminal/posture")
 async def set_terminal_posture(body: PostureRequest, request: Request):
-    """Turn this login's write switch on or off for one machine, or off for all.
+    """Move this login's write switch for one machine, or turn all of them off.
 
     The switch is the login's, in its own control-context record, and
     :func:`~osprey_connectors.control_context.set_switch` is its one writer: a
@@ -2132,17 +2191,23 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     exactly like the holder — the switch is the person's, not the terminal's.
     **Nothing is respawned**: every write path reads the switch at write time.
 
-    The ladder, in order (every non-200 is ``{detail: {reason, ...}}``):
+    A move is a **widening** when it ranks above where the machine stands; only
+    a widening meets the 403s and the epoch. The ladder, in order (every non-200
+    is ``{detail: {reason, ...}}``):
 
     * **400** ``invalid_session_id`` (a session id outside the key grammar),
-      ``bulk_on_refused`` (``all`` with ``on``), ``unknown_target``.
-    * **403** ``tier_never`` / ``readonly_run`` with ``phrase`` — a turn-on the
+      ``bulk_on_refused`` (``all`` with anything but ``off``), ``unknown_target``,
+      ``waiver_not_allowed`` (``waived`` on a move to ``allowed`` or on a real
+      machine; a stop has no confirm to waive and is not refused for one).
+    * **403** ``tier_caps`` with ``ceiling`` and no phrase — a position above
+      the login's ceiling; the chip composes that sentence from ``locks.tier``.
+    * **403** ``tier_never`` / ``readonly_run`` with ``phrase`` — a widening the
       verdict locks. A stop is never refused for tier, read-only run, follower
       or an execution in flight.
-    * **503** — no usable record: a turn-on answers ``record_unavailable``, a
-      stop ``not_taken`` with :data:`STOP_NOT_TAKEN_PHRASE`; a record that
-      could not be written answers ``not_taken`` (``taken: false``).
-    * **409** ``stopped_since`` with ``epoch`` and ``stamped`` — the turn-on's
+    * **503** — no usable record: a stop answers ``not_taken`` with
+      :data:`STOP_NOT_TAKEN_PHRASE`, any other move ``record_unavailable``; a
+      record that could not be written answers ``not_taken`` (``taken: false``).
+    * **409** ``stopped_since`` with ``epoch`` and ``stamped`` — the widening's
       epoch is not the record's. A null epoch is sent as ``0``, so an
       epoch-less record is stamped and the chip retries once with ``epoch``.
       The server never retries.
@@ -2153,8 +2218,8 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     Every epoch on this route, in and out, is a decimal string
     (:func:`wire_epoch`); it is compared as an integer only here.
 
-    Every outcome files one audit line naming the login, the machine(s), the
-    state and the outcome; a session-less gesture is the Lab bar's surface.
+    Every outcome files one audit line (:func:`_posture_gesture`) and the
+    outcome; a session-less gesture is the Lab bar's surface.
     """
     session_id = body.session_id
     try:
@@ -2167,9 +2232,9 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
 
     app = request.app
     login = acting_identity()
-    gesture = f"login={login} target={body.target} state={body.state}"
 
-    if body.target == ALL_TARGETS and body.state == SWITCH_ON:
+    if body.target == ALL_TARGETS and body.state != SWITCH_OFF:
+        gesture = _posture_gesture(login, body.target, None, body.state, body.waived)
         raise _refuse_posture(
             session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_BULK_ON
         )
@@ -2177,10 +2242,32 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     facts: _PostureRequestFacts = await run_in_threadpool(
         _posture_post_facts, app.state.config_path, body.target, body.state, login
     )
+    gesture = _posture_gesture(login, body.target, facts.before, body.state, body.waived)
 
     if body.target != ALL_TARGETS and body.target not in facts.configured:
         raise _refuse_posture(
             session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_UNKNOWN_TARGET
+        )
+
+    if (
+        body.waived
+        and body.state != SWITCH_OFF
+        and (body.state == SWITCH_ALLOWED or facts.kind == "real")
+    ):
+        raise _refuse_posture(
+            session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_WAIVER
+        )
+
+    # ``never`` and ``unknown`` have no rank: the first is the lock below, and
+    # nothing locks the second here.
+    ceiling_rank = _POSITION_RANK.get(facts.ceiling or "")
+    if ceiling_rank is not None and _POSITION_RANK[body.state] > ceiling_rank:
+        raise _refuse_posture(
+            session_id,
+            status_code=403,
+            gesture=gesture,
+            reason=POSTURE_REASON_TIER_CAPS,
+            ceiling=facts.ceiling,
         )
 
     if facts.lock is not None:
@@ -2237,15 +2324,14 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     _push_control_context(app)
     from osprey.audit.envelope import DECISION_ALLOWED
 
-    on = ",".join(sorted(t for t, s in stored.switch.items() if s in ARMED_SWITCH_WORDS)) or "none"
     _record_control_gesture(
         session_id,
         subject=AUDIT_SUBJECT_POSTURE_SET,
         decision=DECISION_ALLOWED,
         reason="switch_set",
-        detail=f"{gesture} outcome=switch_set on={on}",
+        detail=f"{gesture} outcome=switch_set",
     )
-    logger.info("Switch %s for %s by %s; on now: %s", body.state, body.target, login, on)
+    logger.info("Switch %s for %s by %s", body.state, body.target, login)
     return {
         "target": body.target,
         "state": body.state,
@@ -2806,20 +2892,22 @@ TIER_UNKNOWN = "unknown"
 
 
 def _login_tier(section: Any, login: str) -> str:
-    """The write tier that governs *login* here: ``allowed``, ``never`` or ``unknown``.
+    """The login's write ceiling here: ``never``, ``asked``, ``allowed`` or ``unknown``.
 
-    The deployment's tier (:func:`~osprey_connectors.types.tier_writes`) first,
-    then the login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`)
-    — the two tier terms of the write verdict, in its order. A rung that does
-    not apply leaves the deployment's answer. Never raises.
+    The two tier terms of the write verdict first, in its order: the
+    deployment's tier (:func:`~osprey_connectors.types.tier_writes`), then the
+    login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`).
+    Otherwise the verdict's own ceiling
+    (:func:`~osprey_connectors.posture_store.write_ceiling`). Never raises.
     """
     try:
         from osprey_connectors.types import tier_writes
 
-        deployment = tier_writes(None if section is _UNREADABLE_SECTION else section)
-        if deployment != "allowed":
+        readable = None if section is _UNREADABLE_SECTION else section
+        if tier_writes(readable) == "never":
             return "never"
         rung = posture_store.owner_tier_term(section, login)
+        ceiling = posture_store.write_ceiling(readable, login)
     except Exception:  # an unreadable tier is not an allowed one
         logger.warning("Could not read the write tier for login %s", login)
         return TIER_UNKNOWN
@@ -2827,7 +2915,7 @@ def _login_tier(section: Any, login: str) -> str:
         return "never"
     if rung == "unknown":
         return TIER_UNKNOWN
-    return "allowed"
+    return ceiling
 
 
 def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVerdict:
@@ -2846,15 +2934,11 @@ def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVe
 
 
 def _switch_state(record: Any, status: str, target: str) -> str | None:
-    """The login's switch for *target*: ``on``, ``off``, or ``None`` when unreadable.
+    """The login's stored position for *target*, or ``None`` when unreadable.
 
     An absent record is every switch off; only an unreadable one is unknown.
     """
-    if status == "unreadable":
-        return None
-    if record is not None and record.switch.get(target) in ARMED_SWITCH_WORDS:
-        return SWITCH_ON
-    return "off"
+    return None if status == "unreadable" else control_context.switch_position(record, target)
 
 
 def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
@@ -2936,6 +3020,9 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
                 "reason": reason,
                 "reason_detail": reason_detail,
                 "switch": _switch_state(record, record_status, target),
+                # Whether the next write prompts: the effective position, so a
+                # stored ``allowed`` capped at ``asked`` answers true.
+                "prompt": verdict.position == "asked",
                 "write_allowed": allowed,
                 "write_reason": verdict.reason,
                 "write_phrase": (
@@ -2959,10 +3046,13 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         # read-only when a record simply failed to resolve.
         "readonly_run": readonly_run,
         "switch_epoch": None if record is None else wire_epoch(record.switch_epoch),
-        # What enables "Turn all off": any machine on in this login's record,
-        # configured here or not — a machine a later render dropped is still on.
-        "any_on": record is not None
-        and any(state in ARMED_SWITCH_WORDS for state in record.switch.values()),
+        # What enables "Turn all off": any machine armed in this login's record,
+        # configured here or not — a machine a later render dropped is still armed.
+        "any_armed": record is not None
+        and any(
+            control_context.switch_position(record, target) != SWITCH_OFF
+            for target in record.switch
+        ),
         "locks": {"readonly_run": readonly_run, "tier": _login_tier(section, login)},
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
@@ -3038,10 +3128,11 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     * ``switch_epoch`` — the record's epoch as a decimal string, which the chip
       sends back unchanged with a turn-on (C-POST); ``null`` for no record or an
       epoch-less one.
-    * ``any_on`` — whether any machine is on in this login's record,
+    * ``any_armed`` — whether any machine is armed in this login's record,
       configured here or not; it enables "Turn all off".
     * ``locks`` — ``{readonly_run, tier}``: the two locks no chip gesture
-      lifts. ``tier`` is ``allowed``, ``never`` or ``unknown`` for this login.
+      lifts. ``tier`` is this login's ceiling and its one home: ``never``,
+      ``asked``, ``allowed`` or ``unknown``.
     * ``last_switch`` — the record's terminus, passed through whole with
       ``age_s`` added, and ``last_posture_realign``, the fleet's, with any
       pending realignment winning over a settled one.

@@ -158,8 +158,8 @@ def test_a_tier_render_is_stamped_with_the_deployment_preset(built, name):
     assert tier["build_args"]["profile_path"] == str(repo / "tiers" / f"{name}.yml")
 
 
-#: The write ceiling each bundled tier pins over the exemplar's ``allowed``.
-_TIER_WRITES = {"readonly": "never", "readwrite": "allowed", "admin": "allowed"}
+#: The write ceiling each bundled tier pins over the exemplar's ``asked``.
+_TIER_WRITES = {"readonly": "never", "readwrite": "asked", "admin": "allowed"}
 
 
 @pytest.mark.parametrize("name", TIERS)

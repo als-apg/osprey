@@ -541,9 +541,8 @@ def test_session_key_is_the_audit_id(monkeypatch):
 # * a read-only run                   -> ``readonly-run``
 # * an unidentified target            -> ``target-null``
 #
-# The twin's ``tier_writes`` keeps its retired-leaf fallback for as long as the
-# package's ``types.tier_writes`` does: the case table's
-# ``tier-absent-old-armed-*`` rows drive both sides, so the two leave together.
+# The retired ``writes_enabled`` leaves are read by neither side: the case
+# table's ``tier-absent-old-armed-*`` rows drive both.
 
 
 def test_the_tier_key_decides_when_present():
@@ -552,6 +551,72 @@ def test_the_tier_key_decides_when_present():
         reader.TIER_ALLOWED
     )
     assert reader.tier_writes({"writes": "never", "writes_enabled": True}) == reader.TIER_NEVER
+
+
+@pytest.mark.parametrize(
+    ("value", "word", "arms"),
+    [
+        ("never", "never", False),
+        ("asked", "asked", True),
+        ("allowed", "allowed", True),
+        # The switch's retired word is no tier word.
+        ("on", "never", False),
+        ("Asked", "never", False),
+        (True, "never", False),
+        (None, "never", False),
+    ],
+    ids=repr,
+)
+def test_the_tier_has_three_words_and_two_of_them_arm(value, word, arms):
+    assert reader.tier_writes({"writes": value}) == word
+    assert reader.tier_allows({"writes": value}) is arms
+
+
+def test_the_tier_constants_are_the_three_words():
+    assert (reader.TIER_NEVER, reader.TIER_ASKED, reader.TIER_ALLOWED) == (
+        "never",
+        "asked",
+        "allowed",
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "parsed"),
+    [
+        ({"live": "asked", "va": "allowed"}, {"live": "asked", "va": "allowed"}),
+        # The retired spelling reads as the prompting position, never the free one.
+        ({"live": "on"}, {"live": "asked"}),
+        ({"live": "off", "va": "ON", "standin": True}, {}),
+        ({"unknown-machine": "allowed"}, {"unknown-machine": "allowed"}),
+        ({7: "asked"}, {}),
+        ("on", {}),
+        (None, {}),
+    ],
+    ids=repr,
+)
+def test_parse_switch_keeps_the_arming_words(value, parsed):
+    assert reader.parse_switch(value) == parsed
+
+
+@pytest.mark.parametrize(
+    ("record", "target", "position"),
+    [
+        ({"switch": {"live": "asked"}}, "live", "asked"),
+        ({"switch": {"live": "allowed"}}, "live", "allowed"),
+        ({"switch": {"live": "on"}}, "live", "asked"),
+        ({"switch": {"live": "ON"}}, "live", "off"),
+        ({"switch": {"va": "allowed"}}, "live", "off"),
+        ({"switch": {}}, "live", "off"),
+        ({"switch": None}, "live", "off"),
+        ({"target": "live"}, "live", "off"),
+        ({"switch": {"live": "allowed"}}, None, "off"),
+        ({"switch": {"live": "allowed"}}, ["live"], "off"),
+        (None, "live", "off"),
+    ],
+    ids=repr,
+)
+def test_switch_position_answers_a_word_and_never_raises(record, target, position):
+    assert reader.switch_position(record, target) == position
 
 
 def test_is_readonly_run_is_a_value_comparison(monkeypatch):
@@ -643,31 +708,3 @@ def test_module_imports_no_third_party_dependencies():
         "sys",
         "osprey_hook_log",
     }, top_level_roots
-
-
-# ---------------------------------------------------------------------------
-# the switch words: the upcoming connectors release's arm like "on"
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("word", ["on", "asked", "allowed"])
-def test_every_armed_switch_word_reads_as_on(word):
-    assert reader.parse_switch({"va": word, "live": "off"}) == {"va": reader.SWITCH_ON}
-
-
-@pytest.mark.parametrize("word", ["off", "ON", "allow", "", 1, None])
-def test_any_other_switch_word_reads_off(word):
-    assert reader.parse_switch({"va": word}) == {}
-
-
-@pytest.mark.parametrize("word", ["asked", "allowed", "bogus"])
-def test_a_stored_switch_word_gets_the_verdict_on_or_off_gets(state_dir, word):
-    section = {"type": "mock", "writes": "allowed"}
-    expected = "on" if word in ("asked", "allowed") else "off"
-    write_record(state_dir, target="va", switch={"va": expected})
-    baseline = reader.write_verdict(section, "va")
-
-    write_record(state_dir, target="va", switch={"va": word})
-
-    assert reader.write_verdict(section, "va") == baseline
-    assert baseline.allowed is (expected == "on")

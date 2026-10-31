@@ -613,23 +613,28 @@ def _request_meta(context: MiddlewareContext[Any]) -> dict[str, Any]:
     return {}
 
 
-def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None] | None:
-    """``(approver, permission_mode)`` when an approval prompt let this call through.
+def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None, str | None] | None:
+    """``(approver, permission_mode, position)`` when an approval let this call through.
 
     The approval hook leaves an ask stamp named by the call's tool-use id
-    before the prompt is shown; the call reaching this server means the
-    prompt was answered yes. Read only, never consumed: the hook's
-    ``PostToolUse`` owns the stamp's removal. ``None`` without a stamp, and on
-    any error.
+    before the prompt is shown, or as it lets a call the write switch's
+    ``allowed`` position approved run with nobody asked; the call reaching
+    this server means the call was approved. *approver* is ``human``,
+    ``write_switch`` or ``dispatch_policy``; *position* is the switch position
+    the governed call ran under (``asked`` or ``allowed``), ``None`` on a
+    non-governed ask. Read only, never consumed: the hook's ``PostToolUse``
+    owns the stamp's removal. ``None`` without a stamp, and on any error.
     """
     stamp = approval_ask_stamp(tool_use_id)
     if stamp is None:
         return None
     approver = stamp.get("approver")
     mode = stamp.get("permission_mode")
+    position = stamp.get("position")
     return (
         approver if isinstance(approver, str) and approver else "unknown",
         mode if isinstance(mode, str) else None,
+        position if isinstance(position, str) and position else None,
     )
 
 
@@ -706,7 +711,12 @@ def _file_tool_call(
         approval = (
             None
             if answered is None
-            else {"outcome": "approved", "approver": answered[0], "permission_mode": answered[1]}
+            else {
+                "outcome": "approved",
+                "approver": answered[0],
+                "permission_mode": answered[1],
+                "position": answered[2],
+            }
         )
         target, generation = binding
         facts = dict(call.facts) if call is not None else {}

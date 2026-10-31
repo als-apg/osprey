@@ -100,12 +100,12 @@ class TestExecutorStampsThePin:
         monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_TIER))
 
     def test_a_switched_on_target_launches_writes(self, data_root):
-        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        write_control_context(data_root, target="standin", switch={"standin": "asked"})
 
         assert host_executor._launch_posture("standin") == "standin=writes"
 
     def test_a_switched_off_target_launches_sandboxed(self, data_root):
-        write_control_context(data_root, target="standin", switch={"va": "on"})
+        write_control_context(data_root, target="standin", switch={"va": "asked"})
 
         assert host_executor._launch_posture("standin") == "standin=sandbox"
 
@@ -116,13 +116,13 @@ class TestExecutorStampsThePin:
 
     def test_a_tier_that_allows_nothing_launches_sandboxed(self, data_root, monkeypatch):
         monkeypatch.setattr(posture, "control_system_section", lambda: {"type": "epics"})
-        write_control_context(data_root, target="live", switch={"live": "on"})
+        write_control_context(data_root, target="live", switch={"live": "asked"})
 
         assert host_executor._launch_posture("live") == "live=sandbox"
 
     def test_the_pin_this_process_inherited_is_ignored(self, data_root, monkeypatch):
         """The pin is asked with the pin ignored, so it never merely echoes itself."""
-        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        write_control_context(data_root, target="standin", switch={"standin": "asked"})
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
 
         assert host_executor._launch_posture("standin") == "standin=writes"
@@ -138,7 +138,7 @@ class TestExecutorStampsThePin:
         both ends name one directory.
         """
         identity = pin_identity(monkeypatch)
-        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        write_control_context(data_root, target="standin", switch={"standin": "asked"})
 
         stamp = host_executor._launch_posture("standin")
 
@@ -149,7 +149,7 @@ class TestExecutorStampsThePin:
 
     def test_an_unknowable_target_is_pinned_sandboxed_everywhere(self, data_root):
         """No machine to ask the verdict about: every target, sandboxed."""
-        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        write_control_context(data_root, target="standin", switch={"standin": "asked"})
 
         assert host_executor._launch_posture(None) == "*=sandbox"
 
@@ -197,7 +197,7 @@ class TestASwitchAgainstARunningSandbox:
     def test_an_off_record_refuses_the_next_write_of_a_running_sandbox(
         self, data_root, monkeypatch
     ):
-        write_control_context(data_root, target="standin", switch={"standin": "on"})
+        write_control_context(data_root, target="standin", switch={"standin": "asked"})
         assert self._launch(monkeypatch, "standin") == "standin=writes"
         assert self._next_write("standin").allowed is True
 
@@ -208,10 +208,10 @@ class TestASwitchAgainstARunningSandbox:
         assert verdict.reason == "switch_off"
 
     def test_turning_it_on_reaches_only_the_next_run(self, data_root, monkeypatch):
-        write_control_context(data_root, target="standin", switch={"va": "on"})
+        write_control_context(data_root, target="standin", switch={"va": "asked"})
         assert self._launch(monkeypatch, "standin") == "standin=sandbox"
 
-        turn_switch("standin", "on")
+        turn_switch("standin", "asked")
 
         # The run already going stays held off by its pin ...
         verdict = self._next_write("standin")

@@ -184,14 +184,22 @@ Restore the starting state once, at the very end.
 Only when the operator explicitly asks to show the human-in-the-loop gate, and only
 on a deployment where writes are armed. Ask before running it, every time.
 
+Whether a write prompts is the login's switch, not the deployment's config. The
+tier sets the ceiling — `never`, `asked` or `allowed` — and the operator sets each
+machine's switch from the control-target chip to one of three positions: **off**
+refuses the write, **asked** puts the approval prompt in front of a person, and
+**allowed** runs the write without one. The beat needs the machine at asked; if it
+is at allowed, ask the operator to move it to asked first rather than writing
+unprompted in front of the audience.
+
 A write demo is a real machine action — it is the one beat here with consequences.
 Pick a channel the operator names, let the approval prompt appear, and let *them*
 answer it. That prompt, appearing unbidden in front of the audience, is the whole
 point; never pre-approve or bypass it to keep the demo moving.
 
-If writes are not armed, say so — "this deployment is read-only, so the write would
-be refused before it reached the machine" is itself a good thing for an audience to
-hear — and skip the beat.
+If writes are not armed (a `never` tier, or the machine's switch at off), say so —
+"this deployment is read-only, so the write would be refused before it reached the
+machine" is itself a good thing for an audience to hear — and skip the beat.
 
 ## Anti-patterns
 

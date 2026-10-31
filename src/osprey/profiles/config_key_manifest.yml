@@ -948,17 +948,6 @@ keys:
     default: {}
   # A tool's policy follows what the tool does, not which deployment serves it, so every
   # preset that lists a tool lists it at one policy; an unlisted tool falls to default_policy.
-  approval.tools.channel_write:
-    same-value: true
-    evidence: 'approval\.tools\.channel_write'
-    note: >-
-      Anchored for the same reason as channel_read below: `channel_write`
-      names the MCP tool as well as the policy key, and the literal has now
-      spread past the vacuity ceiling -- a bare match no longer proves a
-      reader exists. The anchored form cites the settings-panel schema and
-      the config-writer default that actually serve this key.
-    default: derived
-    default_note: falls through to approval.default_policy
   approval.tools.channel_read:
     same-value: true
     evidence: 'approval\.tools\.channel_read'
@@ -970,7 +959,6 @@ keys:
     default: derived
     default_note: falls through to approval.default_policy
   approval.tools.archiver_read: {same-value: true, evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.execute: {same-value: true, covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
   approval.tools.setup_patch: {same-value: true, evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
   # The logbook write pair is stated by control-assistant and by the `logbook`
   # app, and parity compares root presets only, so neither carries a same-value
@@ -1062,8 +1050,8 @@ keys:
   control_system.writes:
     evidence: 'WRITES_KEY_LEAF = "writes"'
     note: >-
-      The tier's write ceiling, `allowed` or `never`. The build writes it where
-      a retired posture key stood, at the single parse point in
+      The tier's write ceiling: `never`, `asked` or `allowed`. The build writes
+      it where a retired posture key stood, at the single parse point in
       `build_profile_document`, and the verdict reads it as the tier half of
       `write_verdict`.
     default: never
@@ -1073,7 +1061,7 @@ keys:
     evidence: 'LOGIN_TIERS_KEY = "login_tiers"'
     note: >-
       The login→tier map a shared container reads for the owner of a job:
-      `{login: allowed | never}`. The build derives it from the roster and each
+      `{login: never | asked | allowed}`. The build derives it from the roster and each
       person's render (`build_login_tiers`) and stages it only into the shared
       containers' configs — the Bluesky queue's and the dispatch worker's — so
       the root render, every terminal-served render and every image render
@@ -3427,6 +3415,10 @@ deleted:
 - control_system.write_verification.default_tolerance_percent
   # Ledger 33
 - approval.tools.channel_limits
+  # The write switch's slider decides for a governed tool, so no preset, tier
+  # or app spells a per-tool policy for one.
+- approval.tools.channel_write
+- approval.tools.execute
   # Ledger 7 / 9 / 10 / 11 / 15
 - channel_finder.pipelines.in_context.processing
   # The in_context index is the build's flat file; there is no loader choice.
@@ -4009,7 +4001,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 364
+  expected_union_size: 362
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

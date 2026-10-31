@@ -408,13 +408,13 @@ config:
   # `osprey set config.archiver.type=<the archiver that records it>` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: virtual_accelerator
-  # Write posture, the FIRST guard in the write-safety chain: while `never`,
-  # every hardware write is refused before the limits check or the approval
-  # prompt is consulted. `allowed` here because the baseline is the simulator,
-  # which cannot move a magnet; the read-only tier pins it `never`. Under
-  # `allowed`, each login's own write switch for each machine decides the next
-  # write, so allowing writes arms no machine by itself.
-  control_system.writes: allowed
+  # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
+  # every hardware write before the limits check or the approval prompt is
+  # consulted, `asked` lets a login's write switch reach the position that
+  # prompts, and `allowed` also the position that does not. This preset ships
+  # `asked`; the read-only tier pins `never`, the admin tier `allowed`. Each
+  # login's own switch for each machine decides, so a ceiling arms nothing.
+  control_system.writes: asked
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
@@ -651,21 +651,19 @@ config:
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
-  # still pauses for a yes/no prompt. Applied by the approval hook, so it
-  # reaches only hook-wired tools; the health check, channel-finder queries and
-  # most workspace tools are gated by the rendered settings.json permissions.
+  # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+  # Applied by the approval hook, so it reaches only hook-wired tools; the
+  # health check, channel-finder queries and most workspace tools are gated by
+  # the rendered settings.json permissions.
   approval.enabled: true
   # Policy for any hook-wired tool not listed below. "always" is fail-closed:
   # reads need their own "skip" entry to run unprompted.
   approval.default_policy: always
-  # Per-tool policies: always (prompt every time), skip (no prompt), or
-  # selective (content-aware, for `execute` only; other tools read it as
-  # always).
-  approval.tools.channel_write: always
+  # Per-tool policies: always (prompt every time) or skip (no prompt). A tool
+  # the write switch governs, channel writes and Python execution among them,
+  # takes no entry here: the slider on the control-target chip decides for it.
   approval.tools.channel_read: skip
   approval.tools.archiver_read: skip
-  # Python execution: content-aware, so a script that only reads runs unprompted.
-  approval.tools.execute: selective
   # The agent's own config-editing tool: a config change needs approval.
   approval.tools.setup_patch: always
   # Creating a logbook entry always asks first.
@@ -1586,7 +1584,7 @@ name: Als Exemplar (readonly)
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
   # The axis this tier hard-pins. `never` wins over the deployment's own
-  # `allowed`, since a tier's key beats the root's, so no session of this
+  # ceiling, since a tier's key beats the root's, so no session of this
   # tier writes to any machine the deployment configures.
   control_system.writes: never
   # Pared-down operator layout: chat only, workspace hidden until the agent
@@ -1636,7 +1634,7 @@ web_panels:
 config:
   # The tier boundary, pinned rather than left to the deployment's root, so
   # a root that says `never` does not take this tier's writes away.
-  control_system.writes: allowed
+  control_system.writes: asked
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason control_system.writes is.
@@ -1686,8 +1684,8 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The admin tier carries readwrite's control posture exactly: writes
-  # allowed, each machine's write still decided by the login's own switch.
+  # The top of `never`, `asked` and `allowed`, one above readwrite's `asked`;
+  # each machine's write is still decided by the login's own switch.
   # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
   control_system.writes: allowed

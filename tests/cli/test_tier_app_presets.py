@@ -17,12 +17,12 @@ deployment's own profile:
 
 * ``readonly`` — simple chat-first surface; every write surface refuses on
   every target; built without the EVENTS/BLUESKY panels.
-* ``readwrite`` — expert workspace; ``control_system.writes: allowed``, so a
+* ``readwrite`` — expert workspace; ``control_system.writes: asked``, so a
   session may write to every machine the deployment configures; channel writes
   pass the ordinary safety chain (writes-check, limits, human approval); adds
   the EVENTS/BLUESKY panels.
-* ``admin`` — readwrite's write posture over the MACHINE and its operator
-  panels, plus the privileges the deployment floors off: the ``setup_patch``
+* ``admin`` — readwrite's MACHINE and operator panels at the ceiling above it,
+  ``control_system.writes: allowed``, plus the privileges the deployment floors off: the ``setup_patch``
   tool, the web Config panel, the scaffold gallery's editors, and the
   ``setup-mode`` skill that drives them.
 
@@ -36,7 +36,7 @@ owns its own lists and runs on the deployment's services:
 
 The tier contract has two halves, and both are asserted wholesale below rather
 than key-by-key. The MACHINE axes separate readonly from readwrite: enforcement
-(``control_system.writes``, ``never`` against ``allowed``), surface (``web.ui_mode``), and the
+(``control_system.writes``, ``never`` against ``asked``), surface (``web.ui_mode``), and the
 write-oriented panels (EVENTS + BLUESKY, added by every write-armed tier and
 absent from readonly). The DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
@@ -200,7 +200,7 @@ def test_tier_opens_with_its_preset_comment(tier: str) -> None:
     ("tier", "writes", "ui_mode"),
     [
         ("readonly", "never", "simple"),
-        ("readwrite", "allowed", "expert"),
+        ("readwrite", "asked", "expert"),
         ("admin", "allowed", "expert"),
     ],
 )
@@ -511,7 +511,7 @@ def test_no_stem_is_both_a_tier_and_an_app() -> None:
 # ---------------------------------------------------------------------------
 
 # The enforcement axis the control-system tiers differ on: the tier key, one
-# deployment-wide word (``allowed`` or ``never``) a render holds for every
+# deployment-wide word (``never``, ``asked`` or ``allowed``) a render holds for every
 # machine. A loaded layer carries it whichever spelling the shipped file is on,
 # because the normalizer rewrites the retired ``writes_enabled`` leaves to it.
 WRITES_KEY = TIER_WRITES_KEY
@@ -1116,13 +1116,13 @@ class TestControlAssistantTiersAndApps:
         profile = layers["tiers/readwrite"]
         assert profile.name == "Control Assistant (Read-Write)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) == "allowed"
+        assert profile.config.get(WRITES_KEY) == "asked"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         assert "control_system" not in _own_config("tiers", "readwrite")
 
     def test_admin_lifts_the_deployment_floor(self, layers: dict[str, BuildProfile]) -> None:
-        """The admin tier is readwrite plus deployment editing, not a fourth
-        write posture: it holds the same ``control_system.writes`` and
+        """The admin tier is readwrite plus deployment editing at the ceiling
+        above it: it holds ``control_system.writes: allowed`` and
         ``ui_mode: expert``, and adds the three keys that lift the floor.
 
         ``remove_deny`` rather than a bare absence of the deny is the whole
@@ -1177,24 +1177,24 @@ class TestControlAssistantTiersAndApps:
             assert layer.config.get(GALLERY_WRITE_KEY) is False, key
             assert ADMIN_ONLY_SKILL not in layer.skills, key
 
-    def test_admin_differs_from_readwrite_only_on_the_deployment_axis(
+    def test_admin_differs_from_readwrite_only_on_the_ceiling_and_the_deployment_axis(
         self, layers: dict[str, BuildProfile]
     ) -> None:
-        """Admin sits directly on top of readwrite: same machine posture, plus
-        deployment editing. Asserted wholesale so a fourth difference cannot
+        """Admin sits directly on top of readwrite: the ceiling above it, plus
+        deployment editing. Asserted wholesale so a further difference cannot
         creep in unnoticed.
 
-        The deployment axes — subtracted before the comparison — are the whole
-        difference. The EVENTS/BLUESKY panels are deliberately NOT among them:
+        The ceiling and the deployment axes — subtracted before the comparison —
+        are the whole difference. The EVENTS/BLUESKY panels are deliberately NOT among them:
         the admin tier is a full operator desk plus deployment editing, so it
         adds the same write-oriented panels readwrite does (asserted with the
         artifact lists — ``web_panels`` is a list, not config, so it never
         appears in the config comparison below)."""
         rw_cfg = dict(layers["tiers/readwrite"].config)
         ad_cfg = dict(layers["tiers/admin"].config)
-        # Shared machine posture: both tiers are expert desks armed on the
-        # simulator and read-only on both hardware-shaped targets.
-        assert rw_cfg[WRITES_KEY] == "allowed" and ad_cfg[WRITES_KEY] == "allowed"
+        # The ceiling: only admin offers the position that does not prompt.
+        # Both tiers are otherwise the same expert desk over the same machines.
+        assert rw_cfg.pop(WRITES_KEY) == "asked" and ad_cfg.pop(WRITES_KEY) == "allowed"
         assert rw_cfg[UI_MODE_KEY] == "expert" and ad_cfg[UI_MODE_KEY] == "expert"
         # Deployment axis 1 — the agent's tool. The deployment's deny reaches
         # BOTH tiers identically; what makes admin different is the subtraction.
@@ -1236,11 +1236,11 @@ class TestControlAssistantTiersAndApps:
         ro_cfg = dict(layers["tiers/readonly"].config)
         rw_cfg = dict(layers["tiers/readwrite"].config)
         # Axis 1 — enforcement: the write posture, one word on the tier key,
-        # `never` against `allowed`. No retired per-type leaf survives the
+        # `never` against `asked`. No retired per-type leaf survives the
         # load, so nothing else about the posture can differ. The deployment's
         # per-type limits block rides along on every tier by design.
         assert ro_cfg.pop(WRITES_KEY) == "never"
-        assert rw_cfg.pop(WRITES_KEY) == "allowed"
+        assert rw_cfg.pop(WRITES_KEY) == "asked"
         assert not _posture_keys(ro_cfg) and not _posture_keys(rw_cfg)
         # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
@@ -1710,14 +1710,15 @@ def _pinned_rows_match_the_shipped_set(pinned: dict) -> None:
 #: Every shipped deployment, tier and app appears, so a new one has to state
 #: its posture here before it ships rather than inheriting a silent one.
 PINNED_WRITE_POSTURE: dict[str, str] = {
-    # The hosting preset arms writes; the read-only tier is what takes them
-    # back, and this row is what makes that tier's `never` load-bearing.
-    "control-assistant": "allowed",
+    # The hosting preset arms writes at the prompting position; the read-only
+    # tier is what takes them back, and this row is what makes that tier's
+    # `never` load-bearing.
+    "control-assistant": "asked",
     # No `control_system:` posture of its own; nothing has a write path to lose.
     "hello-world": "never",
     # The write-capable tiers.
     "tiers/admin": "allowed",
-    "tiers/readwrite": "allowed",
+    "tiers/readwrite": "asked",
     "tiers/readonly": "never",
     # Every app renders `never`, whatever its host or its file says: the
     # composer pins it.
@@ -1788,20 +1789,19 @@ class TestWritePostureMatrix:
 
         assert configured_targets(section) == configured_targets(hosting)
 
-    def test_the_write_capable_tiers_state_the_posture_the_same_way(
-        self, tmp_path: Path, layers: dict[str, BuildProfile]
+    @pytest.mark.parametrize(("tier", "ceiling"), [("readwrite", "asked"), ("admin", "allowed")])
+    def test_the_write_capable_tiers_state_their_ceiling_and_render_it(
+        self, tmp_path: Path, layers: dict[str, BuildProfile], tier: str, ceiling: str
     ) -> None:
-        """readwrite and admin differ on deployment editing and on nothing about
-        the machine: both state ``allowed`` and both render it."""
+        """Only admin offers the position that does not prompt: readwrite's
+        ceiling is ``asked``, and each states its word in the tier key."""
         assert layers["tiers/readwrite"].name == "Control Assistant (Read-Write)"
-        for tier in ("readwrite", "admin"):
-            own = _own_config("tiers", tier)
-            assert _stated_writes(own) == "allowed", tier
-            assert "control_system" not in own, tier
+        own = _own_config("tiers", tier)
+        assert _stated_writes(own) == ceiling
+        assert "control_system" not in own
 
-            (tmp_path / tier).mkdir()
-            section = _rendered_section(tmp_path / tier, f"tiers/{tier}", layers, "control_system")
-            assert tier_writes(section) == "allowed", tier
+        section = _rendered_section(tmp_path, f"tiers/{tier}", layers, "control_system")
+        assert tier_writes(section) == ceiling
 
     @pytest.mark.parametrize("tier", ["readonly", "readwrite"])
     def test_the_reference_deployments_tiers_carry_the_bundled_posture(self, tier: str) -> None:

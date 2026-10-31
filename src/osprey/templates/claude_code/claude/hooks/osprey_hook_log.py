@@ -148,6 +148,19 @@ def is_write_tool(tool_name, write_tools):
     return False
 
 
+def is_governed(tool_name):
+    """Does the write switch's position decide for *tool_name*?
+
+    Reads ``governed_tools`` from the generated config, matching entries the way
+    :func:`is_write_tool` does. There is no fallback list: with the config
+    unreadable nothing is governed, so a call takes the policy path and is put
+    to a person, and a call that path lets through unprompted is refused by its
+    server for want of a record. That is the conservative side of a degraded
+    render, not a hole; a literal here would be one more copy of the set to drift.
+    """
+    return is_write_tool(tool_name, load_hook_config().get("governed_tools"))
+
+
 def is_write_call(tool_name, tool_input, short_name=None):
     """Does *this call* write, judged from the tool name and its arguments?
 
@@ -989,14 +1002,16 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
     """Record one hook decision on the agent record, through the spool.
 
     Call this at a deny or an ask, before the ``sys.exit(0)`` that carries the
-    decision. Allows are not recorded here: the hook layer refuses and defers,
-    and the MCP middleware already records the calls it admits.
+    decision, and for the answer to an approval: the call an asked prompt let run,
+    or the call the write switch approved with nobody asked. Other allows are not
+    recorded here: the hook layer refuses and defers, and the MCP middleware
+    already records the calls it admits.
 
     :param hook_name: The hook's own name, exactly as given to :func:`log_hook`.
     :param hook_input: The parsed stdin payload: it anchors the repo and names
         the conversation (``session_id``) and the tool call (``tool_use_id``).
-    :param decision: :data:`AUDIT_DECISION_REFUSED` or :data:`AUDIT_DECISION_ASK`
-        (or an ask's answer).
+    :param decision: :data:`AUDIT_DECISION_REFUSED`, :data:`AUDIT_DECISION_ASK`,
+        :data:`AUDIT_DECISION_APPROVED` or :data:`AUDIT_DECISION_DENIED`.
     :param subject: What was acted on — a tool name, a path. An identifier.
     :param reason: Short machine-ish reason (``posture``, ``writes_disabled``).
     :param detail: Optional supplementary context. Identifiers and config keys

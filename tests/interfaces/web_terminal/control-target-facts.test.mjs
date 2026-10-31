@@ -112,17 +112,19 @@ describe('kind words', () => {
 /* ---- state words (C-GET) ------------------------------------------------- */
 
 describe('statePhrase', () => {
-  test('reads on / off / locked', () => {
-    expect(statePhrase('on')).toBe('writes on');
+  test('reads off / asked / allowed / locked', () => {
     expect(statePhrase('off')).toBe('writes off');
+    expect(statePhrase('asked')).toBe('writes asked');
+    expect(statePhrase('allowed')).toBe('writes allowed');
     expect(statePhrase('locked')).toBe('writes locked');
   });
 
   test('no state word is "sandbox", and the old words promise nothing', () => {
-    for (const word of ['on', 'off', 'locked', 'writes', 'sandbox', 'read-only', '']) {
+    for (const word of ['off', 'asked', 'allowed', 'locked', 'writes', 'sandbox', '']) {
       expect(statePhrase(word)).not.toMatch(/sandbox/i);
     }
     // The retired vocabulary falls to the word that promises nothing.
+    expect(statePhrase('on')).toBe('writes locked');
     expect(statePhrase('writes')).toBe('writes locked');
     expect(statePhrase('sandbox')).toBe('writes locked');
   });
@@ -136,73 +138,143 @@ const textOf = (body) =>
     .map((line) => line.map((run) => (typeof run === 'string' ? run : run.em)).join(''))
     .join('\n');
 
+/** The two armed positions, typed as the functions take them. */
+const ARMED = /** @type {const} */ (['asked', 'allowed']);
+
+/** The banner each kind's confirm carries. */
+/** @type {Record<string, string|null>} */
+const CONFIRM_BANNERS = {
+  real: 'Real machine — writes move hardware',
+  rehearsal: 'Rehearsal — nothing moves',
+  simulator: null,
+};
+
 describe('turnOnConfirm', () => {
-  test('is scoped to the login and carries the turn-on sentence', () => {
-    const spec = turnOnConfirm({ target: 'standin', machine_kind: 'rehearsal' }, 'rehearsal');
-    const text = textOf(spec.body);
-    expect(text).not.toContain('every session on this deployment');
-    expect(text).toContain('your login');
-    expect(text).toContain(TURN_ON_SENTENCE);
-    expect(spec.title).toBe('Turn writes on for Rehearsal?');
+  // Every cell of the matrix: both armed positions on all three machine kinds.
+  describe.each(KINDS)('on the %s', (kind) => {
+    const row = { target: 'one', machine_kind: kind };
+    const name = KIND_WORDS[kind];
+
+    test('a move to asked names the machine and says writes still prompt', () => {
+      const spec = turnOnConfirm(row, kind, 'asked');
+      expect(spec.title).toBe(`Set writes to asked on ${name}?`);
+      expect(textOf(spec.body)).toContain(`Writes to ${name} will still prompt before each one`);
+      expect(textOf(spec.body)).not.toContain('no prompt');
+      expect(spec.confirmLabel).toBe('Set writes to asked');
+      expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
+      expect(spec.targetKind).toBe(kind);
+    });
+
+    test('a move to allowed names the machine and says no prompt', () => {
+      const spec = turnOnConfirm(row, kind, 'allowed');
+      expect(spec.title).toBe(`Set writes to allowed on ${name}?`);
+      expect(textOf(spec.body)).toContain(`Writes to ${name} will run with no prompt.`);
+      expect(textOf(spec.body)).not.toContain('still prompt');
+      expect(spec.confirmLabel).toBe('Set writes to allowed');
+      expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
+      expect(spec.targetKind).toBe(kind);
+    });
+
+    test.each(ARMED)('a move to %s keeps the login scope', (to) => {
+      const text = textOf(turnOnConfirm(row, kind, to).body);
+      expect(text).not.toContain('every session on this deployment');
+      expect(text).toContain('your login');
+      expect(text).toContain(TURN_ON_SENTENCE);
+    });
   });
 
-  test('the rehearsal’s confirm says nothing moves, tagged for the amber tone', () => {
-    const spec = turnOnConfirm({ target: 'standin' }, 'rehearsal');
-    expect(spec.live).toBe('Rehearsal — nothing moves');
-    expect(spec.targetKind).toBe('rehearsal');
+  test('the deployment’s configured name is the machine it names', () => {
+    const row = { target: 'live', display_name: 'Storage ring' };
+    const spec = turnOnConfirm(row, 'real', 'allowed');
+    expect(spec.title).toBe('Set writes to allowed on Storage ring?');
+    expect(textOf(spec.body)).toContain('Writes to Storage ring will run with no prompt.');
   });
 
-  test('the real machine’s confirm says writes move hardware, tagged red', () => {
-    const spec = turnOnConfirm({ target: 'live' }, 'real');
-    expect(spec.live).toBe('Real machine — writes move hardware');
-    expect(spec.targetKind).toBe('real');
-  });
-
-  test('the simulator’s confirm carries no banner', () => {
-    const spec = turnOnConfirm({ target: 'va' }, 'simulator');
-    expect(spec.live).toBeNull();
-    expect(spec.targetKind).toBe('simulator');
+  test('a move naming no position is the quieter promise', () => {
+    // The position lands in the title, so nothing but `allowed` may read as it.
+    expect(turnOnConfirm({ target: 'va' }, 'simulator').title).toBe(
+      'Set writes to asked on Simulator?'
+    );
   });
 });
 
 describe('switchConfirm', () => {
+  const row = { target: 'live', endpoint: 'gw:5064' };
+
   test('names the state it arrives in with the chip’s words', () => {
-    const row = { target: 'live', endpoint: 'gw:5064' };
-    expect(textOf(switchConfirm(row, 'real', 'on').body)).toContain('Writes are on there.');
-    expect(textOf(switchConfirm(row, 'real', 'off').body)).toContain('Writes are off there');
-    expect(textOf(switchConfirm(row, 'real', 'locked').body)).toContain('Writes are locked there.');
-    expect(switchConfirm(row, 'real', 'on').live).toBe('Real machine — writes move hardware');
-    expect(switchConfirm(row, 'real', 'off').live).toBeNull();
-    expect(switchConfirm(row, 'real', 'on').targetKind).toBe('real');
+    /** @param {'off'|'asked'|'allowed'|'locked'} word */
+    const text = (word) => textOf(switchConfirm(row, 'real', word).body);
+    expect(text('asked')).toContain('Writes are asked there — each one prompts first.');
+    expect(text('allowed')).toContain('Writes are allowed there — they run with no prompt.');
+    expect(text('off')).toContain('Writes are off there');
+    expect(text('locked')).toContain('Writes are locked there.');
+    expect(switchConfirm(row, 'real', 'asked').targetKind).toBe('real');
+  });
+
+  test('says writes go there and carries the banner on both armed words', () => {
+    for (const word of ARMED) {
+      const spec = switchConfirm(row, 'real', word);
+      expect(textOf(spec.body)).toContain('All control reads and writes go to gw:5064.');
+      expect(spec.live).toBe('Real machine — writes move hardware');
+    }
+    expect(switchConfirm(row, 'rehearsal', 'allowed').live).toBe('Rehearsal — nothing moves');
+    expect(switchConfirm(row, 'simulator', 'allowed').live).toBeNull();
+  });
+
+  test('promises reads alone, with no banner, on a word that cannot write', () => {
+    for (const word of ['off', 'locked', 'on']) {
+      const spec = switchConfirm(row, 'real', /** @type {any} */ (word));
+      expect(textOf(spec.body)).toContain('All control reads go to gw:5064.');
+      expect(spec.live).toBeNull();
+    }
+    // The retired word arrives nowhere: it reads as the word that promises nothing.
+    expect(textOf(switchConfirm(row, 'real', /** @type {any} */ ('on')).body)).toContain(
+      'Writes are locked there.'
+    );
   });
 });
 
 describe('confirmSkippable', () => {
-  test('no real-machine turn-on is ever waivable', () => {
-    expect(confirmSkippable('writes-on', 'real')).toBe(false);
-    // Any kind this module does not know is the real machine — including
-    // every word of the retired vocabulary.
-    for (const kind of ['live', 'standin', 'va', '', 'something-new']) {
-      expect(confirmSkippable('writes-on', kind)).toBe(false);
+  test('a move to allowed is never waivable, on any machine', () => {
+    for (const kind of [...KINDS, 'live', '']) {
+      expect(confirmSkippable('writes-allowed', kind)).toBe(false);
     }
   });
 
-  test('the rehearsal and the simulator keep the waiver', () => {
-    expect(confirmSkippable('writes-on', 'rehearsal')).toBe(true);
-    expect(confirmSkippable('writes-on', 'simulator')).toBe(true);
+  test('no real-machine move to asked is ever waivable', () => {
+    expect(confirmSkippable('writes-asked', 'real')).toBe(false);
+    // Any kind this module does not know is the real machine — including
+    // every word of the retired vocabulary.
+    for (const kind of ['live', 'standin', 'va', '', 'something-new']) {
+      expect(confirmSkippable('writes-asked', kind)).toBe(false);
+    }
+  });
+
+  test('a move to asked on the rehearsal or the simulator keeps the waiver', () => {
+    expect(confirmSkippable('writes-asked', 'rehearsal')).toBe(true);
+    expect(confirmSkippable('writes-asked', 'simulator')).toBe(true);
+  });
+
+  test('a gesture this module does not know is not waivable', () => {
+    for (const kind of KINDS) {
+      for (const gesture of ['writes-on', '']) {
+        expect(confirmSkippable(/** @type {any} */ (gesture), kind)).toBe(false);
+      }
+    }
   });
 
   test('a target switch may be waived on any machine', () => {
     for (const kind of KINDS) expect(confirmSkippable('switch', kind)).toBe(true);
   });
 
-  test('a turn-on waiver is remembered per kind, so a demoted stand-in asks again', () => {
-    const rehearsal = confirmSkipKeyBase('writes-on', {
+  test('a move-to-asked waiver is remembered per kind, so a demoted stand-in asks again', () => {
+    const rehearsal = confirmSkipKeyBase('writes-asked', {
       target: 'standin',
       machine_kind: 'rehearsal',
     });
-    const real = confirmSkipKeyBase('writes-on', { target: 'standin', machine_kind: 'real' });
-    expect(rehearsal).not.toBe(real);
+    const real = confirmSkipKeyBase('writes-asked', { target: 'standin', machine_kind: 'real' });
+    expect(rehearsal).toBe('osprey-ctc-skip-confirm:writes-asked:standin:rehearsal');
+    expect(real).toBe('osprey-ctc-skip-confirm:writes-asked:standin:real');
     expect(confirmSkipKeyBase('switch', { target: 'standin', machine_kind: 'real' })).toBe(
       'osprey-ctc-skip-confirm:switch:standin'
     );
@@ -232,14 +304,16 @@ describe('lockReason', () => {
     ...o,
   });
 
-  test('an off switch and an on switch that writes are not locked', () => {
+  test('an off switch and an armed switch that writes are not locked', () => {
     expect(lockReason(rowOf(), stateOf())).toBeNull();
-    expect(
-      lockReason(
-        rowOf({ switch: 'on', write_allowed: true, write_reason: null, write_phrase: null }),
-        stateOf()
-      )
-    ).toBeNull();
+    for (const position of ['asked', 'allowed']) {
+      expect(
+        lockReason(
+          rowOf({ switch: position, write_allowed: true, write_reason: null, write_phrase: null }),
+          stateOf()
+        )
+      ).toBeNull();
+    }
   });
 
   test('a follower is not locked out of its own switch', () => {
@@ -251,19 +325,19 @@ describe('lockReason', () => {
       const state = stateOf({ owner });
       expect(lockReason(rowOf(), state)).toBeNull();
       expect(
-        lockReason(rowOf({ switch: 'on', write_allowed: true, write_reason: null }), state)
+        lockReason(rowOf({ switch: 'asked', write_allowed: true, write_reason: null }), state)
       ).toBeNull();
       // ...while target switching stays the holder's.
       expect(contextWritable(state)).toBe(false);
     }
   });
 
-  test('an on switch the verdict refuses shows the verdict’s phrase', () => {
+  test('an armed switch the verdict refuses shows the verdict’s phrase', () => {
     const phrase =
       "Writes are refused because this login's write tier does not allow them; ask the deployment admin.";
     expect(
       lockReason(
-        rowOf({ switch: 'on', write_reason: 'tier_never', write_phrase: phrase }),
+        rowOf({ switch: 'asked', write_reason: 'tier_never', write_phrase: phrase }),
         stateOf()
       )
     ).toBe(phrase);
@@ -281,6 +355,10 @@ describe('lockReason', () => {
     expect(lockReason(rowOf({ switch: null, write_phrase: null }), stateOf())).toBe(
       'the write switch cannot be read'
     );
+    // The retired word is not a position.
+    expect(lockReason(rowOf({ switch: 'on', write_phrase: null }), stateOf())).toBe(
+      'the write switch cannot be read'
+    );
   });
 
   test('the published locks hold an off switch off', () => {
@@ -288,6 +366,50 @@ describe('lockReason', () => {
       'the whole deployment is running read-only'
     );
     expect(lockReason(rowOf(), stateOf({ locks: { readonly_run: false, tier: 'never' } }))).toBe(
+      "this login's write tier does not allow writes"
+    );
+  });
+
+  describe('a tier capped at asked', () => {
+    const capped = stateOf({ locks: { readonly_run: false, tier: 'asked' } });
+    const stored = rowOf({
+      switch: 'allowed',
+      write_allowed: true,
+      write_reason: null,
+      write_phrase: null,
+    });
+
+    test('caps allowed and names the ceiling', () => {
+      expect(lockReason(rowOf(), capped, 'allowed')).toBe('your tier caps writes at asked');
+      expect(lockReason(stored, capped, 'allowed')).toBe('your tier caps writes at asked');
+    });
+
+    test('leaves asked open, so the row itself is not locked', () => {
+      expect(lockReason(rowOf(), capped, 'asked')).toBeNull();
+      expect(lockReason(rowOf(), capped)).toBeNull();
+      expect(lockReason(stored, capped)).toBeNull();
+    });
+
+    test('the refusal for the same move reads the same sentence', () => {
+      expect(REASON_PHRASES.tier_caps).toBe(lockReason(rowOf(), capped, 'allowed'));
+    });
+
+    test('a wider lock is named first', () => {
+      const readonly = stateOf({ locks: { readonly_run: true, tier: 'asked' } });
+      expect(lockReason(rowOf(), readonly, 'allowed')).toBe(
+        'the whole deployment is running read-only'
+      );
+    });
+  });
+
+  test('only asked caps allowed', () => {
+    for (const tier of ['allowed', 'unknown', undefined]) {
+      const state = stateOf({ locks: { readonly_run: false, tier } });
+      expect(lockReason(rowOf(), state, 'allowed')).toBeNull();
+    }
+    // `never` is a lock on both positions, in its own sentence.
+    const never = stateOf({ locks: { readonly_run: false, tier: 'never' } });
+    expect(lockReason(rowOf(), never, 'allowed')).toBe(
       "this login's write tier does not allow writes"
     );
   });
@@ -609,6 +731,13 @@ describe('contextWritable', () => {
     // The code's own phrase is kind-neutral on purpose: who is holding it is
     // contextHolderWords' answer, not this map's.
     expect(REASON_PHRASES.context_owned_elsewhere).toBe('held elsewhere');
+  });
+});
+
+describe('REASON_PHRASES', () => {
+  test('the two refusals the route sends with no phrase have one', () => {
+    expect(REASON_PHRASES.tier_caps).toBe('your tier caps writes at asked');
+    expect(REASON_PHRASES.waiver_not_allowed).toBe('this move always confirms');
   });
 });
 

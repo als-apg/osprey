@@ -337,6 +337,31 @@ def _built_exemplar(tmp_path_factory) -> Path:
     return repo
 
 
+@pytest.fixture(scope="module")
+def _asked_exemplar(tmp_path_factory) -> Path:
+    """The exemplar repo built as shipped, ``asked`` authored in the readwrite tier."""
+    import os
+
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
+
+    base = tmp_path_factory.mktemp("asked-dispatch-tier")
+    with preserved_environ():
+        os.environ["OSPREY_AUDIT_IDENTITY"] = "builder"
+        repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
+        tier_file = repo / "tiers" / "readwrite.yml"
+        text = tier_file.read_text(encoding="utf-8")
+        # The shipped stance (FR4): the readwrite tier and the root say `asked`.
+        assert text.count("\n  control_system.writes: asked\n") == 1
+        assert text.count("\n  control_system.writes:") == 1
+        result = invoke_build_in(repo)
+    assert result.exit_code == 0, result.output
+    return repo
+
+
 class TestFlagshipExemplar:
     """The flagship preset runs its workers at ``readonly``; nothing else changes."""
 
@@ -352,6 +377,20 @@ class TestFlagshipExemplar:
     def test_hello_world_has_no_dispatch_tier(self) -> None:
         profile = _emitted_profile("hello-world")
         assert "tier" not in (profile.get("dispatch") or {})
+
+    @pytest.mark.slow
+    def test_worker_config_carries_the_three_valued_map(self, _asked_exemplar: Path) -> None:
+        """The worker runs read-only; the map beside that says each login's own tier."""
+        worker = _asked_exemplar / "build" / "services" / "dispatch_worker" / "config.yml"
+        section = YAML(typ="safe").load(worker.read_text(encoding="utf-8"))["control_system"]
+
+        assert section["writes"] == "never"
+        assert section["login_tiers"] == {
+            "alice": "asked",
+            "bob": "never",
+            "carol": "allowed",
+            "builder": "asked",
+        }
 
     @pytest.mark.slow
     def test_built_worker_runs_the_readonly_render(self, _built_exemplar: Path) -> None:
