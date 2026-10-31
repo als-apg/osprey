@@ -685,6 +685,16 @@ class RefreshEnum(str, Enum):
     """
 
 
+class WiringMarkEnum(str, Enum):
+    """
+    A mark a model's engine sets on a wiring record.
+    """
+    command = "command"
+    """
+    Written as a command rather than a setting; only a written record carries it.
+    """
+
+
 class ValueTypeEnum(str, Enum):
     """
     The type of the value a channel carries.
@@ -1558,6 +1568,7 @@ class Wiring(ConfiguredBaseModel):
     role: Optional[WiringRoleEnum] = Field(default=None, description="""Computed; what the model's engine says the record is.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
     plane: Optional[PlaneEnum] = Field(default=None, description="""Computed; the plane the engine says the record steers or reads, null for none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     refresh: Optional[RefreshEnum] = Field(default=None, description="""Computed; when the engine recomputes the record's value.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
+    marks: Optional[list[WiringMarkEnum]] = Field(default=None, description="""Computed; the marks the engine sets on the record, absent for none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 
 

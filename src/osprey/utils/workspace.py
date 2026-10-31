@@ -65,18 +65,19 @@ STATE_DIR_NAME = "var"
 #: CLI's repo walk and the hook library's anchor both look for.
 PROFILE_FILENAME = "profile.yml"
 
-#: Directory beside ``profile.yml`` (or in the bundled presets) holding tiers:
-#: access levels of the deployment's own agent.
+#: Directory beside ``profile.yml`` (or in the bundled presets) holding the
+#: logins: one file per login of the deployment's agent.
 TIERS_DIRNAME: Final = "tiers"
 
-#: Directory beside ``profile.yml`` (or in the bundled presets) holding apps:
-#: separate agents built from the same deployment.
+#: Directory beside ``profile.yml`` holding the applications, one
+#: ``apps/<name>/`` directory each. Not a layer directory: no file in it is a
+#: login.
 APPS_DIRNAME: Final = "apps"
 
 #: Each live layer directory -> the kind word its files are read as. The
 #: listing order is the order every layer listing follows. Spelled here, below
 #: ``cli``, because the hook library and the runtime read the layout too.
-LAYER_DIR_KINDS: Mapping[str, str] = MappingProxyType({TIERS_DIRNAME: "tier", APPS_DIRNAME: "app"})
+LAYER_DIR_KINDS: Mapping[str, str] = MappingProxyType({TIERS_DIRNAME: "tier"})
 
 #: Each retired layer directory -> the live directory its files are read as,
 #: with one warning naming the move. Closing the deprecation window is deleting
@@ -91,7 +92,7 @@ LAYER_DIRNAMES: tuple[str, ...] = (*LAYER_DIR_KINDS, *RETIRED_LAYER_DIRS)
 
 
 def layer_dir_kind(dirname: str) -> str | None:
-    """The kind word (``"tier"`` or ``"app"``) a layer directory's files are read as.
+    """The kind word (``"tier"``) a layer directory's files are read as.
 
     A retired directory answers with its successor's kind; any other name is
     not a layer directory and answers ``None``.

@@ -3282,7 +3282,7 @@ keys:
   modules.web_terminals.landing.groups:
     deployment-data: true
     evidence: 'groups_raw = list\(_DEFAULT_LANDING_GROUPS\)'
-    default: [{type: users}, {type: apps}]
+    default: [{type: users}, {type: shared}]
   modules.web_terminals.landing.groups.names:
     rendered: false
     evidence: 'entry\.get\("names"\) == "hidden"'
@@ -3972,23 +3972,26 @@ render_contexts:
   presets:
   - src/osprey/profiles/presets/hello-world.yml
   - src/osprey/profiles/presets/control-assistant.yml
-  apps:
-  - src/osprey/profiles/presets/apps/*.yml
+  shared:
+  - src/osprey/profiles/presets/tiers/logbook.yml
+  - src/osprey/profiles/presets/tiers/knowledge.yml
+  - src/osprey/profiles/presets/tiers/channel-finder.yml
   host: src/osprey/profiles/presets/control-assistant.yml
   note_presets: >-
     The two ROOT presets, the documents an operator starts from. Parity
     (`all-templates`, `same-value`) is a claim about these alone. The bundled
     tiers (`tiers/*.yml`) are deliberately absent: a tier is a delta over its
     root, so every key it carries is either inherited from the root — already
-    in the union — or a tier-scoped override of one.
-  note_apps: >-
-    Every bundled app, composed over `host` (which must be one of `presets`)
-    exactly as `osprey build` composes `apps/<name>.yml` beside a profile that
-    extends the host. An app is a complete agent definition, not a delta, so a
-    key only an app states — a server switch the host leaves at its default,
-    the title-bar picker, the per-type write pins — has its writer here. The
-    apps are union sources and governed-set subjects; they are never parity
-    subjects.
+    in the union — or a tier-scoped override of one. The `lists: own` logins
+    are listed under `shared` instead.
+  note_shared: >-
+    Every bundled `lists: own` login the host's `shared:` names, composed over
+    `host` (which must be one of `presets`) exactly as `osprey build` composes
+    `tiers/<name>.yml` beside a profile that extends the host. Such a login is
+    a complete agent definition, not a delta, so a key only it states — a
+    server switch the host leaves at its default, the title-bar picker, the
+    per-type write pins — has its writer here. They are union sources and
+    governed-set subjects; they are never parity subjects.
   # Guard self-test: one key from inside each conditional branch must appear in
   # the union, otherwise the matrix has silently stopped covering that branch.
   # Re-mapped when the app templates were deleted — the branches these name are
@@ -4052,18 +4055,18 @@ governed_sets:
       finding.
     approval_hook_marker: osprey_approval.py
   claims:
-    # Each claim is an app composed over render_contexts.host, measured from the
-    # render a build of `apps/<name>.yml` writes. The workspace server runs in
-    # every app, so setup_patch and the three panel-rail verbs are governed in
-    # each; setup_patch is also on every app render's deny list.
+    # Each claim is a shared login composed over render_contexts.host, measured
+    # from the render a build of `tiers/<name>.yml` writes. The workspace server
+    # runs in every shared login, so setup_patch and the three panel-rail verbs
+    # are governed in each; setup_patch is also on every shared render's deny list.
     logbook:
-      preset: src/osprey/profiles/presets/apps/logbook.yml
+      preset: src/osprey/profiles/presets/tiers/logbook.yml
       comment_claim: "Creating a logbook entry is this agent's only write of any kind, and it is approval-gated like every other write. Publishing is the half that reaches the facility's logbook, so it is gated too."
       exhaustive: true
       tools: [entry_create, entry_publish, setup_patch, add_panel_to_rail,
               remove_panel_from_rail, register_panel]
     channel-finder:
-      preset: src/osprey/profiles/presets/apps/channel-finder.yml
+      preset: src/osprey/profiles/presets/tiers/channel-finder.yml
       comment_claim: "It cannot read a channel's value, move hardware, run Python, or search the logbook."
       exhaustive: true
       tools: [setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel]

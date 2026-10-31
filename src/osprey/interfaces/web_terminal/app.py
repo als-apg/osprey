@@ -37,6 +37,7 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.web_auth import set_panel_agent_routes
 from osprey.interfaces.web_terminal.bar_items_store import (
     BarLayoutInvalid,
     BarVocabulary,
@@ -63,6 +64,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
+from osprey.interfaces.web_terminal.routes.proxy import configured_agent_routes
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -83,6 +85,7 @@ from osprey.profiles.web_panels import (
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 from osprey.utils.seconds import positive_seconds
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.types import WRITES_KEY
 
 if TYPE_CHECKING:
     import socket
@@ -1445,7 +1448,8 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         ValueError: When a declared panel id is one no request for that panel
             could be routed or forwarded with (:func:`panel_id_refusal`). The
             message names the config key, the id and the class, because the
-            operator who wrote the id is the only one who can change it.
+            operator who wrote the id is the only one who can change it. Also a
+            block that spells the retired ``arm_writes``, naming the tier key.
     """
     try:
         from osprey_connectors.workspace import load_osprey_config
@@ -1485,6 +1489,15 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         if refusal is not None:
             raise ValueError(refusal)
 
+        # An application is armed by the login's write tier, never by a second
+        # key on its panel: a block still spelling one, on or off, is refused
+        # rather than read as a grant it no longer is.
+        if isinstance(spec, dict) and "arm_writes" in spec:
+            raise ValueError(
+                f"web.panels.{panel_id}.arm_writes is retired: an application panel "
+                f"is armed for writes by the login's `{WRITES_KEY}` tier"
+            )
+
         # One predicate for builtin and custom blocks alike: the build writes
         # `enabled` onto every block from the profile's `web_panels` selection,
         # so a block this render carries for a tab it does not select is off.
@@ -1493,34 +1506,99 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         if panel_id in BUILTIN_PANELS:
             enabled.add(panel_id)
         elif isinstance(spec, dict):
-            custom.append(
-                {
-                    "id": panel_id,
-                    "label": spec.get("label", panel_id.upper()),
-                    "url": spec.get("url", ""),
-                    "healthEndpoint": spec.get("health_endpoint"),
-                    "path": _substitute_url_prefix(spec.get("path", "/")),
-                    # Trust marker: this panel was declared in config (a trusted
-                    # input), not registered at runtime via POST /api/panels/register.
-                    # Only the config loader stamps it, so credential injection
-                    # (routes/proxy.py) and id reservation (routes/panels.py) can key
-                    # off panel *origin* rather than the forgeable id string. Set
-                    # explicitly here — GET /api/panels spreads this dict to the
-                    # browser, so only deliberately-placed fields are exposed.
-                    "configDefined": True,
-                    # Path suffixes whose JSON responses get the proxy's
-                    # root-absolute-literal rewrite (see routes/proxy.py) —
-                    # for backends whose SPA bootstraps its API base from a
-                    # JSON config endpoint.
-                    "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
-                    # Root-absolute prefixes rewritten in this panel's responses on top
-                    # of its own `path` (see routes/proxy.py) — for a backend that
-                    # serves a prefix its `path` does not cover.
-                    "rewritePrefixes": spec.get("rewrite_prefixes") or [],
-                }
-            )
+            panel = {
+                "id": panel_id,
+                "label": spec.get("label", panel_id.upper()),
+                "url": spec.get("url", ""),
+                "healthEndpoint": spec.get("health_endpoint"),
+                "path": _substitute_url_prefix(spec.get("path", "/")),
+                # Trust marker: this panel was declared in config (a trusted
+                # input), not registered at runtime via POST /api/panels/register.
+                # Only the config loader stamps it, so credential injection
+                # (routes/proxy.py) and id reservation (routes/panels.py) can key
+                # off panel *origin* rather than the forgeable id string. Set
+                # explicitly here — GET /api/panels spreads this dict to the
+                # browser, so only deliberately-placed fields are exposed.
+                "configDefined": True,
+                # Path suffixes whose JSON responses get the proxy's
+                # root-absolute-literal rewrite (see routes/proxy.py) —
+                # for backends whose SPA bootstraps its API base from a
+                # JSON config endpoint.
+                "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
+                # Root-absolute prefixes rewritten in this panel's responses on top
+                # of its own `path` (see routes/proxy.py) — for a backend that
+                # serves a prefix its `path` does not cover.
+                "rewritePrefixes": spec.get("rewrite_prefixes") or [],
+                # The application this panel serves (armed for writes by the
+                # login's tier, routes/proxy.py) and the exact routes the
+                # panel credential may reach on it.
+                "app": spec.get("app"),
+                "agentRoutes": _panel_agent_routes(str(panel_id), spec.get("agent_routes")),
+            }
+            # The read bound of this panel's proxied requests (see routes/proxy.py).
+            # Absent and ``null`` say different things — absent keeps the shared
+            # client's default, ``null`` asks for no bound — so the key is carried
+            # only when the block writes it.
+            if "read_timeout_s" in spec:
+                panel["readTimeoutS"] = _panel_read_timeout(panel_id, spec["read_timeout_s"])
+            custom.append(panel)
 
     return enabled, custom, default_panel
+
+
+def _panel_agent_routes(panel_id: str, routes: object) -> list[dict[str, str]]:
+    """Validate ``web.panels.<id>.agent_routes`` into ``{method, path}`` entries.
+
+    Each entry is exactly ``{method, path}``: the method is upper-cased, the
+    path is backend-root-relative (leading ``/``, no query) and is composed
+    under ``/panel/<id>`` by the proxy, never here.
+
+    Raises:
+        ValueError: Any entry of another shape, naming the config key.
+    """
+    if routes is None:
+        return []
+    key = f"web.panels.{panel_id}.agent_routes"
+    if not isinstance(routes, list):
+        raise ValueError(f"{key} must be a list of {{method, path}} entries")
+    entries = []
+    for route in routes:
+        if (
+            not isinstance(route, dict)
+            or set(route) != {"method", "path"}
+            or not isinstance(route["method"], str)
+            or not route["method"].strip()
+            or not isinstance(route["path"], str)
+            or not route["path"].startswith("/")
+            or "?" in route["path"]
+            or "#" in route["path"]
+        ):
+            raise ValueError(
+                f"{key}: {route!r} is not a {{method, path}} entry with a "
+                "backend-root-relative path"
+            )
+        entries.append({"method": route["method"].strip().upper(), "path": route["path"]})
+    return entries
+
+
+def _panel_read_timeout(panel_id: str, value: object) -> float | None:
+    """Validate a panel's ``read_timeout_s``: positive seconds, or ``None`` for unbounded.
+
+    Args:
+        panel_id: The panel id, for the refusal message.
+        value: The raw ``web.panels.<id>.read_timeout_s`` value.
+
+    Raises:
+        ValueError: When the value is neither ``null`` nor a positive number.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        raise ValueError(
+            f"web.panels.{panel_id}.read_timeout_s must be a positive number of seconds "
+            f"or null (unbounded), got {value!r}"
+        )
+    return value
 
 
 class _PanelRuntimeConfig(NamedTuple):
@@ -2667,6 +2745,10 @@ def _create_lifespan(
         app.state.enabled_panels = enabled_panels
         app.state.custom_panels = custom_panels
         app.state.default_panel = default_panel
+        # The declared agent routes of the config-defined loopback panels are
+        # what the panel credential may reach under /panel/<id>; stated once
+        # per load, so a route the config drops stops admitting.
+        set_panel_agent_routes(configured_agent_routes(custom_panels))
 
         # Runtime-panel settings + visibility (honors hidden: true,
         # allow_runtime_panels, runtime_panel_allowlist).

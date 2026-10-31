@@ -1,0 +1,1 @@
+A login file (`tiers/<name>.yml`) now refuses the deployment facts (`connector`, `provider`, `port_base`, the service blocks, `artifact_server`, `requires_osprey_version`, `osprey_install`, `python_env`), naming `profile.yml` as their home; a login still picks its `model`. `osprey init --revalidate` lists a tier that spells `provider` as a manual step.

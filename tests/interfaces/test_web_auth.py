@@ -1684,6 +1684,74 @@ def test_panel_register_route_is_not_in_the_unconditional_set() -> None:
     assert web_auth.PANEL_REGISTER_ROUTE not in web_auth.PANEL_TIER_ROUTES
 
 
+#: A configured application panel's declared read route, composed exactly as
+#: the approval hook fetches it: ``GET /panel/<panel id><state_path>``.
+_AGENT_ROUTE = ("GET", "/panel/knob/api/state")
+
+
+def test_declared_agent_route_is_panel_tier_once_configured() -> None:
+    """The hook's exact state URL clears the panel tier only once it is declared.
+
+    Before the terminal loads its panel config the path is one more
+    ``/panel/...`` spelling and stays operator-only; after, the exact pair is
+    panel-tier and the unconditional table is untouched.
+    """
+    assert web_auth.classify(*_AGENT_ROUTE, False) is web_auth.Tier.OPERATOR
+
+    web_auth.set_panel_agent_routes({_AGENT_ROUTE})
+
+    assert web_auth.classify(*_AGENT_ROUTE, False) is web_auth.Tier.PANEL
+    assert web_auth.classify("get", _AGENT_ROUTE[1], False) is web_auth.Tier.PANEL
+    assert set(web_auth.PANEL_TIER_ROUTES) == _EXPECTED_PANEL_ROUTES
+    for method, path in _EXPECTED_OPERATOR_ROUTES:
+        assert web_auth.classify(method, path, False) is web_auth.Tier.OPERATOR
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/panel/knob/api/state"),
+        ("GET", "/panel/knob/api/state/"),
+        ("GET", "/panel/knob/api/state/more"),
+        ("GET", "/panel/knob/api/stat"),
+        ("GET", "/panel/knob/api"),
+        ("GET", "/panel/knob/"),
+        ("GET", "/panel/other/api/state"),
+        ("GET", "/u/alice/panel/knob/api/state"),
+    ],
+)
+def test_agent_routes_match_exactly(method: str, path: str) -> None:
+    """A declared route grants its own pair and nothing that merely resembles it."""
+    web_auth.set_panel_agent_routes({_AGENT_ROUTE})
+
+    assert web_auth.classify(method, path, False) is web_auth.Tier.OPERATOR
+
+
+def test_setting_agent_routes_replaces_the_previous_set() -> None:
+    """Each panel-config load states the whole set; a dropped route stops admitting."""
+    web_auth.set_panel_agent_routes({_AGENT_ROUTE})
+    web_auth.set_panel_agent_routes({("GET", "/panel/other/state")})
+
+    assert web_auth.classify(*_AGENT_ROUTE, False) is web_auth.Tier.OPERATOR
+    assert web_auth.classify("GET", "/panel/other/state", False) is web_auth.Tier.PANEL
+
+
+def test_agent_routes_must_sit_under_the_panel_proxy() -> None:
+    """Only panel-proxy paths may be declared: the table cannot widen through here."""
+    with pytest.raises(ValueError, match="/panel/"):
+        web_auth.set_panel_agent_routes({("POST", "/api/config")})
+    assert web_auth.classify("POST", "/api/config", False) is web_auth.Tier.OPERATOR
+
+
+def test_reset_forgets_agent_routes() -> None:
+    """The per-test reset leaves no declared route behind for the next test."""
+    web_auth.set_panel_agent_routes({_AGENT_ROUTE})
+
+    reset_web_credentials()
+
+    assert web_auth.classify(*_AGENT_ROUTE, False) is web_auth.Tier.OPERATOR
+
+
 @pytest.mark.parametrize(
     "method",
     ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],

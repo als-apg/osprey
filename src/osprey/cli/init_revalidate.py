@@ -65,7 +65,7 @@ import shutil
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
 import yaml
@@ -93,13 +93,13 @@ from .build_profile_document import (
     RETIRED_WRITES_LEAF,
     WRITES_KEY_LEAF,
     _catalog_knobs,
-    _document_kind,
     _kept_flat_leaf,
     _mixed_writes_error,
     _refuse_mixed_roster,
     _RosterSpellings,
     _scan_roster,
     _scan_writes,
+    _tier_key_values,
     _WriteSpellings,
     retired_write_answer,
 )
@@ -118,13 +118,17 @@ _TIER_DIRS_RETIRED_FIRST: tuple[str, ...] = tuple(
 CONTEXT_DIRNAME = "web-terminal-context"
 
 
+#: :attr:`RetiredPreset.kind` of a card that is now a shared login.
+_SHARED = "shared"
+
+
 class RetiredPreset(NamedTuple):
     """One retired per-card preset, as the previous release emitted it."""
 
     kind: str
-    """``tiers`` or ``apps``: what the card is now."""
+    """``tiers`` (a person's tier) or ``shared`` (a shared login): what the card is now."""
     successor: str
-    """The bundled tier or app that replaces it."""
+    """The bundled login, in ``tiers/``, that replaces it."""
     content_hash: str
     """:func:`_content_hash` of the preset's data."""
     text_hash: str
@@ -155,16 +159,45 @@ RETIRED_PRESETS: dict[str, RetiredPreset] = {
         "sha256:a2ae0df9d1108dc3072d450abdaae9e91f8fea135606457928e271b19cc04647",
     ),
     "control-assistant-logbook": RetiredPreset(
-        APPS_DIRNAME,
+        _SHARED,
         "logbook",
         "sha256:87a0465d2273266ff1cd5a1087ed49397e33fb3ecc4408e78ad813cedcbc5bf6",
         "sha256:f5afe72dceb1e5b17ef978dae78173b02a97699264e3974c4cf099de9cced910",
     ),
     "control-assistant-knowledge": RetiredPreset(
-        APPS_DIRNAME,
+        _SHARED,
         "knowledge",
         "sha256:1fd8929fce26154def1b9aabb1115ddd7a9429c06abf80fb399587de03730e75",
         "sha256:c399b55a15895532bbbb591d115d1a6dd8df9f0e3efeb7d00b15a645053bd2e3",
+    ),
+}
+
+
+class MovedLogin(NamedTuple):
+    """A login file ``osprey init`` wrote into ``apps/`` before logins moved to ``tiers/``."""
+
+    content_hash: str
+    """:func:`_content_hash` of the file's data as ``osprey init`` emitted it."""
+    text_hash: str
+    """:func:`_text_hash` of that file's text."""
+
+
+#: The bundled logins ``osprey init`` emitted into ``apps/<name>.yml``, by name,
+#: hashed as it wrote them (shipped shadows named by path). Frozen here because
+#: those files leave the package: one that still hashes to them was never
+#: edited, so re-emitting it from ``tiers/<name>.yml`` loses nothing.
+MOVED_APP_LOGINS: dict[str, MovedLogin] = {
+    "logbook": MovedLogin(
+        "sha256:3112606cd043738e4024400db26d283745fed0b87cdb1d4c8f60ba6f14a2d53a",
+        "sha256:4770797d63a26b848f237c83205b797d86d9d59160d5bb0cef94fab300ac9b8b",
+    ),
+    "knowledge": MovedLogin(
+        "sha256:093a14fb72f1270df22fdf1b80d4ede6a194907c51e1d9652e1d8405e4534d72",
+        "sha256:90d4e76d0450d958eb1b8bdf8547c1b3d97b688f2b675558341b2e78bce1e102",
+    ),
+    "channel-finder": MovedLogin(
+        "sha256:9a1397d6b6f266ebfd16857229e851c9aaa6e2ad3f4d33a0e338facada104c42",
+        "sha256:94e9d2ea21ca44229c30f5ca8583c23d0ba6409d8cd34faa04bd271d6dee2557",
     ),
 }
 
@@ -196,6 +229,9 @@ class RevalidateResult:
     """Differences from the preset ``osprey validate`` now refuses."""
     deviation_marker: str = ""
     """The tag a drift finding is claimed with."""
+    app_drift: list[str] = field(default_factory=list)
+    """Each copied application whose files differ from what ``osprey init`` copied,
+    unclaimed, and each whose preset has moved on since. Reported, never rewritten."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -319,8 +355,8 @@ class _PresetRoster:
 
     shared_lead: list[str] = field(default_factory=list)
     shared_items: dict[str, tuple[str, int]] = field(default_factory=dict)
-    apps_group_lead: list[str] = field(default_factory=list)
-    apps_group: dict[str, str] = field(default_factory=dict)
+    shared_group_lead: list[str] = field(default_factory=list)
+    shared_group: dict[str, str] = field(default_factory=dict)
 
 
 def _comment_block_above(lines: list[str], index: int) -> list[str]:
@@ -333,6 +369,15 @@ def _comment_block_above(lines: list[str], index: int) -> list[str]:
             break
         block.append(stripped)
     return list(reversed(block))
+
+
+#: The landing section shared cards show in, and its retired spelling.
+_SHARED_GROUP_TYPE = "shared"
+_RETIRED_SHARED_GROUP_TYPE = "apps"
+_SHARED_GROUP_LINES = (
+    f"- type: {_SHARED_GROUP_TYPE}",
+    f"- type: {_RETIRED_SHARED_GROUP_TYPE}",
+)
 
 
 def _preset_roster() -> _PresetRoster:
@@ -359,15 +404,15 @@ def _preset_roster() -> _PresetRoster:
                     break
                 if match.group(3):
                     found.shared_items[match.group(2)] = (match.group(3), len(match.group(1)))
-        elif stripped == "- type: apps" and not found.apps_group_lead:
-            found.apps_group_lead = _comment_block_above(lines, i)
-            found.apps_group = {"type": "apps"}
+        elif stripped in _SHARED_GROUP_LINES and not found.shared_group_lead:
+            found.shared_group_lead = _comment_block_above(lines, i)
+            found.shared_group = {"type": _SHARED_GROUP_TYPE}
             indent = len(line) - len(line.lstrip(" ")) + 2
             for item in lines[i + 1 :]:
                 match = re.match(rf"^ {{{indent}}}(\w+): (.+)$", item)
                 if not match:
                     break
-                found.apps_group[match.group(1)] = match.group(2)
+                found.shared_group[match.group(1)] = match.group(2)
     return found
 
 
@@ -514,7 +559,7 @@ class WriteStanza(NamedTuple):
     """
 
     preset: str
-    """The bundled preset (``tiers/<n>``, ``apps/<n>`` or a deployment preset) holding the successor."""
+    """The bundled preset (``tiers/<n>`` or a deployment preset) holding the successor."""
     anchor: str
     """The line below the stanza, stripped; the same in both releases."""
     old_lines: int
@@ -670,7 +715,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:6fdf4ff685e405e1b6b69e269b0384c00368057d5588de99a850de77661367dc",
     ),
     WriteStanza(
-        "apps/logbook",
+        "tiers/logbook",
         "#",
         3,
         "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
@@ -678,15 +723,15 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
     ),
     WriteStanza(
-        "apps/logbook",
+        "tiers/logbook",
         "control_system.writes: never",
         2,
         "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
         1,
-        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+        "sha256:b9c78100d99e0727d05425c92d85d96b59af2bc35f680a150f8be51d51815def",
     ),
     WriteStanza(
-        "apps/knowledge",
+        "tiers/knowledge",
         "#",
         3,
         "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
@@ -694,15 +739,15 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
     ),
     WriteStanza(
-        "apps/knowledge",
+        "tiers/knowledge",
         "control_system.writes: never",
         2,
         "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
         1,
-        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+        "sha256:b9c78100d99e0727d05425c92d85d96b59af2bc35f680a150f8be51d51815def",
     ),
     WriteStanza(
-        "apps/channel-finder",
+        "tiers/channel-finder",
         "#",
         3,
         "sha256:7c4114f59e4681876a8e717a2b4473341cb08217693ec7e6b6a874383d5cea71",
@@ -710,12 +755,12 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:45f8414a6ae749ae66d67bab745ac0e474b11e48197a6c6ee4f523604e6eb3bc",
     ),
     WriteStanza(
-        "apps/channel-finder",
+        "tiers/channel-finder",
         "control_system.writes: never",
         2,
         "sha256:95d2f2142ddaed64959e9ae2e542ce94bc197b53e6b7e8471578f356d70582fd",
         1,
-        "sha256:269e8240b883386a56542b4380304cd348e3b356d9cf50a1c200f874a722c3e4",
+        "sha256:b9c78100d99e0727d05425c92d85d96b59af2bc35f680a150f8be51d51815def",
     ),
 )
 
@@ -758,11 +803,13 @@ def _preset_stanza(stanza: WriteStanza) -> list[str] | None:
     return None
 
 
-def _rewrite_write_keys(document: Any, rel: str, steps: list[str]) -> bool:
+def _rewrite_write_keys(document: Any, rel: str, steps: list[str], *, shared: bool = False) -> bool:
     """Rewrite the retired write-posture keys of one document to the tier key, in place.
 
-    The decision is the parse point's (:func:`retired_write_answer`, ``never``
-    in an app, the kind read from where *rel* lives); the placement is
+    The decision is the parse point's (:func:`retired_write_answer`), except
+    for a shared login (*shared*) and a login file still in ``apps/``, which
+    is moved to ``tiers/`` as one: both are always ``never``, so a shared
+    login's file never says ``allowed``; the placement is
     :func:`~osprey.cli.build_profile_document._place_tier_key`'s, done with the
     comment-keeping helpers: the tier key takes the place of the retired flat
     key the render reads, else goes at the end of a nested ``control_system:``
@@ -785,7 +832,9 @@ def _rewrite_write_keys(document: Any, rel: str, steps: list[str]) -> bool:
     if found.new:
         raise _mixed_writes_error(found, rel)
     answer = (
-        "never" if _document_kind(Path(rel)) == "app" else retired_write_answer(config) or "never"
+        "never"
+        if shared or PurePosixPath(rel).parts[0] == APPS_DIRNAME
+        else retired_write_answer(config) or "never"
     )
 
     kept = _kept_flat_leaf(found)
@@ -1021,21 +1070,42 @@ def _move_users_to_shared(
     return removed
 
 
-def _ensure_apps_group(config: Any, preset: _PresetRoster) -> bool:
-    """Give an explicit ``landing.groups`` the apps section ``shared:`` cards show in."""
+def _rename_apps_groups(config: Any) -> bool:
+    """Respell every ``landing.groups`` entry ``type: apps`` as ``type: shared``, in place.
+
+    The retired spelling is read as ``shared`` for one release; rewriting it
+    here is what keeps a rewritten deployment from showing two sections of
+    shared cards once :func:`_ensure_shared_group` runs.
+    """
+    renamed = False
+    for container, key in _locate(config, ("modules", "web_terminals", "landing", "groups")):
+        groups = container[key]
+        for group in groups if isinstance(groups, list) else []:
+            if isinstance(group, dict) and group.get("type") == _RETIRED_SHARED_GROUP_TYPE:
+                group["type"] = _SHARED_GROUP_TYPE
+                renamed = True
+    return renamed
+
+
+def _ensure_shared_group(config: Any, preset: _PresetRoster) -> bool:
+    """Give an explicit ``landing.groups`` the section ``shared:`` cards show in."""
     for container, key in _locate(config, ("modules", "web_terminals", "landing", "groups")):
         groups = container[key]
         if not isinstance(groups, list) or not groups:
             continue
-        if any(isinstance(g, dict) and g.get("type") == "apps" for g in groups):
+        if any(
+            isinstance(g, dict)
+            and g.get("type") in (_SHARED_GROUP_TYPE, _RETIRED_SHARED_GROUP_TYPE)
+            for g in groups
+        ):
             return False
         group = CommentedMap()
-        for name, value in (preset.apps_group or {"type": "apps"}).items():
+        for name, value in (preset.shared_group or {"type": _SHARED_GROUP_TYPE}).items():
             group[name] = value
         column = _item_column(groups, 0)
         pred = _last_slot(groups, len(groups) - 1)
         groups.append(group)
-        _place_after(pred, groups, len(groups) - 1, column, preset.apps_group_lead)
+        _place_after(pred, groups, len(groups) - 1, column, preset.shared_group_lead)
         return True
     return False
 
@@ -1138,7 +1208,8 @@ def _snapshot(root: Path) -> dict[str, str]:
     """The text of every file this rewrite may touch, by repo-relative path."""
     texts: dict[str, str] = {}
     candidates = [root / PROFILE_FILENAME, root / PROVIDERS_FILENAME]
-    for dirname in (*LAYER_DIRNAMES, "profiles", CONTEXT_DIRNAME):
+    # `apps/` is not a layer directory, but its login files are moved from it.
+    for dirname in (*LAYER_DIRNAMES, APPS_DIRNAME, "profiles", CONTEXT_DIRNAME):
         base = root / dirname
         if base.is_dir():
             candidates.extend(p for p in base.rglob("*") if p.is_file())
@@ -1997,15 +2068,34 @@ def _rewrite_shipped_shadows(document: Any, artifacts: list[str]) -> list[str]:
     return written
 
 
+def _owns_lists(text: str, rel: str) -> bool:
+    """Whether the login file *text* says ``lists: own``."""
+    data = _safe_load(text, rel)
+    return isinstance(data, dict) and data.get("lists") == "own"
+
+
+def _own_list_logins(root: Path) -> list[str]:
+    """The ``tiers/<name>.yml`` files of *root* that say ``lists: own``, repo-relative."""
+    tiers_dir = root / TIERS_DIRNAME
+    if not tiers_dir.is_dir():
+        return []
+    return [
+        f"{TIERS_DIRNAME}/{path.name}"
+        for path in sorted(tiers_dir.glob("*.yml"))
+        if _owns_lists(path.read_text(encoding="utf-8"), f"{TIERS_DIRNAME}/{path.name}")
+    ]
+
+
 def name_shipped_shadows(root: Path) -> list[str]:
     """Name every library-named file the repo at *root* ships by its path, in place.
 
     ``osprey init`` seeds the deployment's own copy of the facility description
     beside a profile that selects the library rule by its bare name; this is
-    what makes the profile, and every app, select the copy instead.
+    what makes the profile, and every ``lists: own`` login, select the copy
+    instead.
 
     Args:
-        root: The repo root; holds ``profile.yml`` and maybe ``apps/``.
+        root: The repo root; holds ``profile.yml`` and maybe ``tiers/``.
 
     Returns:
         The files rewritten, repo-relative.
@@ -2015,10 +2105,7 @@ def name_shipped_shadows(root: Path) -> list[str]:
     shipped = unselected_convention_artifacts(root, frozenset())
     if not shipped:
         return []
-    apps_dir = root / APPS_DIRNAME
-    rels = [PROFILE_FILENAME]
-    if apps_dir.is_dir():
-        rels += [f"{APPS_DIRNAME}/{path.name}" for path in sorted(apps_dir.glob("*.yml"))]
+    rels = [PROFILE_FILENAME, *_own_list_logins(root)]
     changed: list[str] = []
     for rel in rels:
         path = root / rel
@@ -2320,6 +2407,72 @@ def _catalog_stem(build_profile: Any) -> str | None:
     return match.group(1) if match else None
 
 
+def _moved_login_text(
+    root: Path, text: str, rel: str, target: str, profile_name: str, steps: list[str]
+) -> str:
+    """The ``tiers/`` file a login file left in ``apps/`` becomes.
+
+    One that was never edited — it hashes to what ``osprey init`` emitted into
+    ``apps/`` (:data:`MOVED_APP_LOGINS`), or to what it emits into ``tiers/``
+    today, shipped shadows named by path either way — is re-emitted from the
+    bundled login it names, which restamps its provenance. An edited one keeps
+    its lines and gains ``lists: own`` and, unless it spells it,
+    ``control_system.writes: never``; *steps* says how ``osprey validate``
+    reports where it differs from the bundled login.
+    """
+    from .build_profile_emit import emit_layer_delta_yaml
+    from .build_profile_presets import list_tiers
+
+    data = _safe_load(text, rel)
+    source = _layer_source(text, data)
+    bundled = source.rsplit("/", 1)[-1] if source else None
+    if bundled in list_tiers():
+        normalized = shipped_shadow_texts(root, {rel: text})[rel]
+        emitted = shipped_shadow_texts(
+            root,
+            {target: emit_layer_delta_yaml(f"{TIERS_DIRNAME}/{bundled}", profile_name, target)},
+        )[target]
+        hashes = (_content_hash(_safe_load(normalized, rel)), _text_hash(normalized))
+        frozen = MOVED_APP_LOGINS.get(bundled)
+        current = (_content_hash(_safe_load(emitted, target)), _text_hash(emitted))
+        if (frozen is not None and hashes == tuple(frozen)) or hashes == current:
+            return emitted
+
+    moved = (
+        text
+        if isinstance(data, dict) and data.get("lists") == "own"
+        else (_put_knobs(text, rel, {"lists": "own"}))
+    )
+    config = _safe_load(moved, rel).get("config") if isinstance(data, dict) else None
+    if not (isinstance(config, dict) and list(_tier_key_values(config))):
+        moved = _pin_never(moved, rel)
+    note = (
+        f"; `osprey validate` reports where it differs from the bundled `{bundled}` login — "
+        f"claim each difference with a `# DEVIATION:` comment, or take the bundled file with "
+        f"`osprey scaffold tiers --force`"
+        if bundled in list_tiers()
+        else ""
+    )
+    steps.append(
+        f"{rel} has been edited, so it moved to {target} as written, with `lists: own` and "
+        f"`{_TIER_KEY}: never`{note}"
+    )
+    return moved
+
+
+def _pin_never(text: str, rel: str) -> str:
+    """*text* with ``control_system.writes: never`` added at the end of its ``config:``."""
+    document = _load_text(text, rel)
+    if not isinstance(document, CommentedMap):
+        return text
+    config = document.get("config")
+    if not isinstance(config, CommentedMap):
+        document["config"] = CommentedMap({_TIER_KEY: "never"})
+    else:
+        config[_TIER_KEY] = "never"
+    return _dump_text(document)
+
+
 def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResult:
     """Bring the deployment repo at *root* to this OSPREY, in place.
 
@@ -2413,7 +2566,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                     f"catalog, which is gone; a tier is built from {TIERS_DIRNAME}/{name}.yml"
                 )
 
-    # ── Tier files: keep, re-emit, or turn into an app ──────────────────────
+    # ── Tier files: keep, re-emit, or turn into a shared login ──────────────
     layers: dict[str, _Layer] = {}
     for dirname in _TIER_DIRS_RETIRED_FIRST:
         base = root / dirname
@@ -2424,11 +2577,15 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                 f"{TIERS_DIRNAME}/{stem}.yml",
                 path.read_text(encoding="utf-8"),
             )
+    # Login files `osprey init` wrote into apps/ before logins moved to tiers/;
+    # each is moved below, after the write-posture pass.
     apps_dir = root / APPS_DIRNAME
     existing_apps = {p.stem: p for p in sorted(apps_dir.glob("*.yml"))} if apps_dir.is_dir() else {}
 
     profile_name = str(document.get("name") or root.name)
     apps: dict[str, tuple[str, str]] = {}
+    # The file each shared login is written to, by its name.
+    shared_rels: dict[str, str] = {}
     for stem, layer in layers.items():
         data = _safe_load(layer.text, layer.origin)
         source = _layer_source(layer.text, data)
@@ -2437,33 +2594,32 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             continue
         rel = layer.rel
         successor = retired.successor
-        app_rel = f"{APPS_DIRNAME}/{successor}.yml"
+        successor_rel = f"{TIERS_DIRNAME}/{successor}.yml"
         edited = (
             _content_hash(data) != retired.content_hash
             or _text_hash(layer.text) != retired.text_hash
         )
-        if retired.kind == APPS_DIRNAME and not edited and successor in existing_apps:
+        taken = successor != stem and (successor in layers or successor in existing_apps)
+        if retired.kind == _SHARED and not edited and taken:
             steps.append(
-                f"{rel} was made from `{source}` and never edited, but {app_rel} already "
-                f"exists, so it stays a tier. To run it as the `{successor}` app: list "
+                f"{rel} was made from `{source}` and never edited, but {successor_rel} already "
+                f"exists, so it stays a tier. To run it as the `{successor}` shared login: list "
                 f"`{successor}` under `shared:` and remove {rel} and the users pinned to it"
             )
             continue
         if edited:
-            if retired.kind == APPS_DIRNAME:
+            if retired.kind == _SHARED:
                 # The one edit worth naming: a model the card ran on, which the
-                # bundled app does not set, so the app would run the host's.
+                # bundled login does not set, so it stays in the file.
                 model = data.get("model") if isinstance(data, dict) else None
-                carry = (
-                    f"your edits, its `model: {model}` among them, into {app_rel}"
-                    if model
-                    else f"your edits into {app_rel}"
-                )
+                kept = f", its `model: {model}` among them," if model else ""
                 steps.append(
-                    f"{rel} was made from `{source}` and has been edited, so it stays a tier. "
-                    f"To run it as the `{successor}` app: run `osprey scaffold apps`, carry "
-                    f"{carry}, list `{successor}` under `shared:`, and "
-                    f"remove {rel} and the users pinned to it"
+                    f"{rel} was made from `{source}` and has been edited, so it stays a tier "
+                    f"with your edits{kept} in it. To run it as the `{successor}` shared "
+                    f"login: give {successor_rel} `lists: own` and the bundled "
+                    f"`{successor}` login's lists (`osprey scaffold tiers --force` writes "
+                    f"them; carry your edits over), list `{successor}` under `shared:`, and "
+                    f"remove the users pinned to it"
                 )
             else:
                 steps.append(
@@ -2472,13 +2628,15 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                     f"its drift from the bundled `{successor}` tier"
                 )
             continue
-        if retired.kind == APPS_DIRNAME:
-            deletes.add(rel)
-            if app_rel not in writes:
-                writes[app_rel] = emit_layer_delta_yaml(
-                    f"{APPS_DIRNAME}/{successor}", profile_name, app_rel
+        if retired.kind == _SHARED:
+            if rel != successor_rel:
+                deletes.add(rel)
+            if successor_rel not in writes:
+                writes[successor_rel] = emit_layer_delta_yaml(
+                    f"{TIERS_DIRNAME}/{successor}", profile_name, successor_rel
                 )
             apps[stem] = (successor, successor)
+            shared_rels[successor] = successor_rel
         else:
             emitted = emit_layer_delta_yaml(f"{TIERS_DIRNAME}/{successor}", profile_name, rel)
             if stem != successor:
@@ -2488,9 +2646,35 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                 )
             writes[rel] = emitted
 
-    # An app made by an earlier run that stopped before its users moved: the
-    # users still pinned to it move now.
-    tiers_left = {stem for stem, layer in layers.items() if layer.rel not in deletes}
+    # A shared login made by an earlier run that stopped before its users
+    # moved: the users still pinned to it move now.
+    tiers_left = {
+        stem
+        for stem, layer in layers.items()
+        if layer.rel not in deletes and stem not in shared_rels
+    }
+    # The model provider is a deployment fact: a tier that spells one is
+    # refused at build, and which provider the deployment runs is the
+    # operator's call, so the key is named here rather than moved or dropped.
+    for stem in sorted(tiers_left):
+        layer = layers[stem]
+        data = _safe_load(writes.get(layer.rel, layer.text), layer.rel)
+        if isinstance(data, dict) and "provider" in data:
+            steps.append(
+                f"{layer.rel} spells `provider: {data['provider']}`, which a tier may not: "
+                f"the provider lives in {PROFILE_FILENAME}; remove it from {layer.rel} and set "
+                f"it in {PROFILE_FILENAME} if every login should run on it"
+            )
+    for stem, layer in layers.items():
+        if stem in apps or stem in shared_rels or layer.rel in deletes:
+            continue
+        if _owns_lists(layer.text, layer.rel):
+            source = _layer_source(layer.text, _safe_load(layer.text, layer.rel))
+            if source and source not in RETIRED_PRESETS:
+                # A shared login a run already moved (``logbook`` or ``tiers/logbook``).
+                apps[stem] = (stem, source.rsplit("/", 1)[-1])
+                shared_rels[stem] = layer.rel
+                tiers_left.discard(stem)
     for stem, path in existing_apps.items():
         if stem in apps or stem in tiers_left:
             continue
@@ -2498,11 +2682,14 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         text = path.read_text(encoding="utf-8")
         source = _layer_source(text, _safe_load(text, rel))
         if source and source not in RETIRED_PRESETS:
-            # Materialized from a bundled app (``logbook`` or ``apps/logbook``).
+            # Materialized from a bundled login (``logbook`` or ``apps/logbook``).
             apps[stem] = (stem, source.rsplit("/", 1)[-1])
+            shared_rels.setdefault(stem, rel)
 
     # ── The roster ──────────────────────────────────────────────────────────
     config = document.get("config")
+    if isinstance(config, dict):
+        _rename_apps_groups(config)
     pinned_apps = {
         container[key]
         for _label, container, key in _tier_pins(config)
@@ -2512,14 +2699,14 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         roster = _preset_roster()
         removed = _move_users_to_shared(config, apps, roster)
         if removed:
-            _ensure_apps_group(config, roster)
+            _ensure_shared_group(config, roster)
         for user in removed:
             slot = f"{CONTEXT_DIRNAME}/{user}"
             if _context_slot_empty(root / slot):
                 sweeps.append(slot)
             elif (root / slot).exists():
                 steps.append(
-                    f"{slot}/ held context for the {user!r} card, which is now a shared app "
+                    f"{slot}/ held context for the {user!r} card, which is now a shared login "
                     f"with no per-user context; move what you need and delete the folder"
                 )
 
@@ -2530,7 +2717,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                 continue
             if value in apps:
                 steps.append(
-                    f"{rel}: `{label}` names {value!r}, which is now the shared app "
+                    f"{rel}: `{label}` names {value!r}, which is now the shared login "
                     f"`{apps[value][0]}` that everyone on the roster opens; name a tier from "
                     f"{TIERS_DIRNAME}/ instead"
                 )
@@ -2571,7 +2758,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             )
     for name, values in knobs.items():
         if name in apps:
-            rel = f"{APPS_DIRNAME}/{apps[name][0]}.yml"
+            rel = shared_rels.get(apps[name][0], f"{TIERS_DIRNAME}/{apps[name][0]}.yml")
             text = writes.get(rel) or (root / rel).read_text(encoding="utf-8")
         elif name in tiers_left:
             rel = layers[name].rel
@@ -2579,7 +2766,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         else:
             steps.append(
                 f"the `{RETIRED_CATALOG_KEY}:` catalog set {', '.join(sorted(values))} for {name!r}, "
-                f"which has no file in {TIERS_DIRNAME}/ or {APPS_DIRNAME}/; set them at the "
+                f"which has no file in {TIERS_DIRNAME}/; set them at the "
                 f"top of that file once it exists"
             )
             continue
@@ -2597,8 +2784,12 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             documents[rel] = _load_text(text, rel)
     document = documents[PROFILE_FILENAME]
     kept_layers = {layers[stem].rel: layers[stem].text for stem in sorted(tiers_left)}
+    for stem, layer in layers.items():
+        if stem in shared_rels and layer.rel == shared_rels[stem]:
+            kept_layers.setdefault(layer.rel, layer.text)
     for path in existing_apps.values():
         kept_layers.setdefault(f"{APPS_DIRNAME}/{path.name}", path.read_text(encoding="utf-8"))
+    shared_files = set(shared_rels.values())
     for rel, original in kept_layers.items():
         if rel in deletes:
             continue
@@ -2616,18 +2807,39 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                     f"`{_TIER_KEY}: never` by hand"
                 )
             continue
-        rewrote = _rewrite_write_keys(layer_doc, rel, steps)
+        rewrote = _rewrite_write_keys(layer_doc, rel, steps, shared=rel in shared_files)
         rewritten = _rewrite_write_prose(
             _dump_text(layer_doc) if rewrote else text, rel, steps, rewrote=rewrote
         )
         if rewritten != text:
             writes[rel] = rewritten
+    # ── Login files left in apps/: moved to tiers/ ──────────────────────────
+    # After the write-posture pass, so the text compared and moved is the one
+    # that pass left: a moved file always says `never`.
+    moved: dict[str, str] = {}
+    for stem, path in existing_apps.items():
+        rel = f"{APPS_DIRNAME}/{path.name}"
+        moved_rel = f"{TIERS_DIRNAME}/{path.name}"
+        if moved_rel in writes or (stem in layers and layers[stem].rel not in deletes):
+            steps.append(
+                f"{rel} is a login file, but {moved_rel} already exists, so it was not moved; "
+                f"merge the two into {moved_rel} by hand and delete {rel}"
+            )
+            continue
+        kept_text = writes.pop(rel, "") or path.read_text(encoding="utf-8")
+        writes[moved_rel] = _moved_login_text(root, kept_text, rel, moved_rel, profile_name, steps)
+        deletes.add(rel)
+        moved[rel] = moved_rel
+        if shared_rels.get(stem) == rel:
+            shared_rels[stem] = moved_rel
+
     # ── Own skills, agents, rules, output styles, hooks: named ──────────────
-    # Each now renders only where a list names it. profile.yml and every app
-    # name all of them, which is what each render carried before; a tier
-    # inherits profile.yml's lists. A facility hook is the exception: its
-    # declaration wires and copies it, so it is never listed, and each app
-    # declares the host's non-guard hooks it used to inherit.
+    # Each now renders only where a list names it. profile.yml and every
+    # `lists: own` login name all of them, which is what each render carried
+    # before; a tier that adds inherits profile.yml's lists. A facility hook is
+    # the exception: its declaration wires and copies it, so it is never
+    # listed, and each `lists: own` login declares the host's non-guard hooks
+    # it used to inherit.
     from .build_persistence import (
         FACILITY_RULE_NAME,
         FACILITY_RULE_PATH_ENTRY,
@@ -2654,9 +2866,17 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     if shipped or session_hooks:
         if shipped:
             _name_convention_artifacts(document, shipped)
-        app_rels = {f"{APPS_DIRNAME}/{path.name}" for path in existing_apps.values()}
-        app_rels |= {rel for rel in writes if rel.startswith(f"{APPS_DIRNAME}/")}
-        for rel in sorted(app_rels - deletes):
+        own_rels = {
+            rel
+            for rel in (*_own_list_logins(root), *writes)
+            if rel.startswith(f"{TIERS_DIRNAME}/") and rel.endswith(".yml")
+        }
+        own_rels = {
+            rel
+            for rel in own_rels
+            if _owns_lists(writes.get(rel) or (root / rel).read_text(encoding="utf-8"), rel)
+        }
+        for rel in sorted(own_rels - deletes):
             text = writes.get(rel) or (root / rel).read_text(encoding="utf-8")
             named = _name_convention_artifacts_text(text, rel, shipped) if shipped else text
             named = _carry_host_hooks_text(named, rel, session_hooks)
@@ -2708,12 +2928,32 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         shutil.rmtree(root / rel)
 
     renamed = {layer.origin: layer.rel for layer in layers.values() if layer.origin != layer.rel}
+    renamed.update(moved)
     result.diff, result.changed = _diff(before, _snapshot(root), renamed)
     if resolved is not None:
         result.drift_refusals = _drift_refusals(
             root, resolved, preset_hash, plan.content_hash, result.deviation_marker
         )
+    result.app_drift = _app_drift(root, result.deviation_marker)
     return result
+
+
+def _app_drift(root: Path, marker: str) -> list[str]:
+    """The application differences ``osprey validate`` reports, one line each.
+
+    An application's files are the operator's to edit, so a difference is said
+    and never rewritten: the copy stays as it is, and a marker in its
+    ``.provenance`` sidecar claims it. Never fatal: a sidecar that does not
+    parse reports nothing here and refuses where ``osprey validate`` reads it.
+    """
+    from .build_profile_drift import _compare_apps
+    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+
+    try:
+        findings, _stale, notes = _compare_apps(root, marker or DEFAULT_DEVIATION_MARKER)
+    except BuildProfileError:
+        return []
+    return [finding.render() for finding in findings if not finding.marked] + notes
 
 
 def _plan_providers(root: Path) -> Any:

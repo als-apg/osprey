@@ -1,25 +1,17 @@
-# logbook.yml
-# Logbook research app: the ARIEL logbook assistant a deployment offers beside its own agent.
+# Logbook Research — an app this deployment offers on a shared card
 #
-# An app is not an access level of the deployment's agent. It is a second,
-# complete agent definition, opened from a shared card on the landing page by
-# everyone on the roster. Its lists below are the whole selection: nothing is
-# inherited from the deployment's lists and nothing is subtracted from them.
+# A complete agent definition of its own: the lists below are its whole
+# selection, and nothing is inherited from profile.yml's lists or subtracted
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
+# config: keys are laid over profile.yml's. To see the combined result:
+#   osprey validate apps/logbook.yml
 #
-# What an app shares with its deployment is everything that is not the agent:
-# the services (the logbook's Postgres, the qmd search sidecar, the graph
-# store, telemetry), the data tree and the provider. The build tells the
-# app's render where those services are (the Reach Contract,
-# `osprey.deployment.reach`), so the operators and this app look at one
-# logbook. The app's own config keys below are laid over the deployment's.
-# It runs the deployment's model too, unless a top-level `model:` here names
-# another one the deployment's provider serves.
+# Made from the bundled `logbook` app. Everything it sets is written out
+# below and is yours to edit. Nothing is hidden or inherited from the package.
 #
-# Every app render is read-only on the machine whatever its config says: the
-# build pins writes never and adds the writes-check hook itself. The write pin
-# below says the same thing on purpose, so the file reads as what it renders.
-#
-# The other two bundled apps are `knowledge` and `channel-finder`.
+#   emitted by OSPREY 2026.10.0
+#   content hash: sha256:3b02f7e2ed3653f996605d480d563407411d8b4d1aad61490d95e24d46013108
 
 name: Logbook Research
 
@@ -57,7 +49,7 @@ rules:
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
-  - facility          # Facility-level conventions (naming, units, logbook)
+  - rules/facility    # Facility-level conventions (naming, units, logbook)
   - workflows         # Approved workflow patterns (plan, delegate, parallelize)
   - timezone          # Always localise timestamps to facility timezone
 
@@ -116,3 +108,10 @@ config:
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.
   artifact_server.example_artifact: false
+
+# What this file was materialized from. Emitted, not hand-written: `osprey
+# validate` compares it against the installed app and reports every
+# difference as drift. This file is the source of truth either way.
+provenance:
+  preset: logbook
+  preset_hash: sha256:3b02f7e2ed3653f996605d480d563407411d8b4d1aad61490d95e24d46013108

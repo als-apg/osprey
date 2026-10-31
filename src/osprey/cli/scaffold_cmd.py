@@ -36,7 +36,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
@@ -56,13 +56,10 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.config import load_project_config
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
-
-if TYPE_CHECKING:
-    from osprey.cli.scaffold_layers import LayerKind
 
 logger = get_logger("scaffold")
 
@@ -872,10 +869,8 @@ def ci(repo: Path | None, force: bool) -> None:
         raise SystemExit(1)
 
 
-def _scaffold_layer_files(
-    repo: Path | None, from_preset: str | None, force: bool, kind: LayerKind
-) -> None:
-    """The body of ``scaffold tiers`` and ``scaffold apps``; ``kind`` is the folder."""
+def _scaffold_layer_files(repo: Path | None, from_preset: str | None, force: bool) -> None:
+    """The body of ``scaffold tiers``."""
     # Imported here rather than at module scope: these pull the whole
     # build-profile chain in behind them, and every other verb in this group
     # runs without any of it.
@@ -884,7 +879,7 @@ def _scaffold_layer_files(
     from .profile_cmd import _resolve_preset_bundle
     from .scaffold_layers import plan_layer_files, unnamed_by_roster, write_layer_files
 
-    word = LAYER_DIR_KINDS[kind]
+    word = "login"
     # Resolved before anything is emitted: standing outside a repo is a mistake
     # about where the command was run, not a scaffolding failure.
     repo_root = find_repo_root(repo)
@@ -909,7 +904,7 @@ def _scaffold_layer_files(
     preset_name, _bundle = _resolve_preset_bundle(preset)
 
     try:
-        results, texts = plan_layer_files(repo_root, profile.name, preset_name, kind, force=force)
+        results, texts = plan_layer_files(repo_root, profile.name, preset_name, force=force)
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -939,7 +934,7 @@ def _scaffold_layer_files(
 
     # Adopting another preset's files does not deploy them: until this repo's
     # roster names one, it sits unread, and an operator could take it for live.
-    unnamed = unnamed_by_roster(profile, results, kind)
+    unnamed = unnamed_by_roster(profile, results)
     if unnamed:
         console.print(
             f"  [warning]⚠[/warning] not named by this repo's roster, so nothing deploys "
@@ -957,21 +952,22 @@ _FROM_HELP = "Preset whose {} to emit. Default: the preset this repo was created
     "from_preset",
     metavar="PRESET",
     default=None,
-    help=_FROM_HELP.format("tier files"),
+    help=_FROM_HELP.format("login files"),
 )
 @click.option(
     "--force",
     is_flag=True,
-    help="Replace a tier file that exists and differs.",
+    help="Replace a login file that exists and differs.",
 )
 def tiers(repo: Path | None, from_preset: str | None, force: bool) -> None:
-    """Emit the tier files a preset's web-terminal roster names.
+    """Emit the login files a preset's web-terminal roster names.
 
-    Writes tiers/<name>.yml for every tier the preset's roster names, exactly
-    as osprey init does: the bundled tier written out in full, with its
-    comments and a provenance block. A file whose content already matches is
-    left untouched. A file that differs is yours: it is reported, nothing is
-    written, and --force replaces it.
+    Writes tiers/<name>.yml for every login the preset's roster names, each
+    person's tier and each shared login, exactly as osprey init does: the
+    bundled login written out in full, with its comments and a provenance
+    block. A file whose content already matches is left untouched. A file that
+    differs is yours: it is reported, nothing is written, and --force replaces
+    it.
 
     Examples:
 
@@ -980,40 +976,19 @@ def tiers(repo: Path | None, from_preset: str | None, force: bool) -> None:
       $ osprey scaffold tiers --from control-assistant
       $ osprey scaffold tiers --force
     """
-    _scaffold_layer_files(repo, from_preset, force, TIERS_DIRNAME)
+    _scaffold_layer_files(repo, from_preset, force)
 
 
-@scaffold.command(name="apps")
-@repo_option
-@click.option(
-    "--from",
-    "from_preset",
-    metavar="PRESET",
-    default=None,
-    help=_FROM_HELP.format("app files"),
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Replace an app file that exists and differs.",
-)
-def apps(repo: Path | None, from_preset: str | None, force: bool) -> None:
-    """Emit the app files a preset's web-terminal roster shares.
-
-    Writes apps/<name>.yml for every app the preset's roster names under
-    shared:, exactly as osprey init does: the bundled app written out in full,
-    with its comments and a provenance block. A file whose content already
-    matches is left untouched. A file that differs is yours: it is reported,
-    nothing is written, and --force replaces it.
-
-    Examples:
-
-    \b
-      $ osprey scaffold apps
-      $ osprey scaffold apps --from control-assistant
-      $ osprey scaffold apps --force
-    """
-    _scaffold_layer_files(repo, from_preset, force, APPS_DIRNAME)
+@scaffold.command(name="apps", hidden=True, context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def apps(args: tuple[str, ...]) -> None:
+    """Retired: logins live in tiers/, applications are made with `osprey app new`."""
+    del args
+    raise click.UsageError(
+        "`osprey scaffold apps` is retired. Shared logins live in tiers/ now: "
+        "`osprey scaffold tiers` writes them. To make an application, run "
+        "`osprey app new`."
+    )
 
 
 @scaffold.command(name="pull")
@@ -1875,7 +1850,7 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
-    from osprey.deployment.web_terminals.roster import app_titles_in
+    from osprey.deployment.web_terminals.roster import login_titles_in
 
     repo_root = find_repo_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
@@ -1906,13 +1881,13 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
             )
 
     # The preview names the facility by the project name, the name a build
-    # with no authored identity records; each app card is titled by its
-    # apps/<name>.yml `name:`, as the deploy titles it.
+    # with no authored identity records; each shared card is titled by its
+    # tiers/<name>.yml `name:`, as the deploy titles it.
     try:
         artifacts = render_web_terminals(
             config,
             facility_name=str(config.get("project_name") or ""),
-            app_titles=app_titles_in(repo_root / APPS_DIRNAME),
+            shared_titles=login_titles_in(repo_root / TIERS_DIRNAME),
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc

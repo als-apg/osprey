@@ -30,7 +30,6 @@ from osprey.cli.build_profile import (
 from osprey.cli.build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
-    list_apps,
     list_presets,
     list_tiers,
 )
@@ -901,7 +900,7 @@ def test_the_shipped_preset_listings_are_not_empty() -> None:
     """Guards the two parametrizations below against running over nothing."""
     assert {"control-assistant", "hello-world"} <= set(list_presets())
     assert {"readonly", "readwrite", "admin"} <= set(list_tiers())
-    assert {"logbook", "knowledge"} <= set(list_apps())
+    assert {"logbook", "knowledge"} <= set(list_tiers())
 
 
 @pytest.mark.parametrize("preset", list_presets())
@@ -914,7 +913,7 @@ def test_the_shipped_presets_pass_both_refusals(preset: str) -> None:
 
 @pytest.mark.parametrize(
     "layer",
-    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+    [f"tiers/{name}" for name in list_tiers()],
 )
 def test_the_shipped_tiers_and_apps_pass_both_refusals(layer: str) -> None:
     """Every bundled tier and app spells its ``config:`` block in a way the

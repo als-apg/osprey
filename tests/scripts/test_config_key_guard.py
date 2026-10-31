@@ -922,7 +922,7 @@ def test_governed_claims_are_the_logbook_and_channel_finder_apps():
     claims = MANIFEST["governed_sets"]["claims"]
     assert set(claims) == {"logbook", "channel-finder"}
     for name, claim in claims.items():
-        assert claim["preset"] == f"{guard_module.PRESET_DIR}/apps/{name}.yml"
+        assert claim["preset"] == f"{guard_module.PRESET_DIR}/tiers/{name}.yml"
         assert claim["exhaustive"] is True
 
 
@@ -1263,13 +1263,13 @@ APP_ONLY_KEYS = (
 )
 
 
-def test_the_apps_context_composes_every_bundled_app():
-    from osprey.cli.build_profile_presets import list_apps
+def test_the_shared_context_composes_every_bundled_shared_login():
+    shared = {"channel-finder", "knowledge", "logbook"}
 
     guard = make_guard()
-    assert set(guard.resolved_apps()) == set(list_apps())
+    assert set(guard.resolved_apps()) == shared
     rendered = guard.rendered()
-    for name in list_apps():
+    for name in shared:
         assert name in rendered, f"{name} is not a union source under its own name"
 
 
@@ -1283,7 +1283,7 @@ def test_an_app_only_key_has_its_writer_in_the_apps_context(key: str):
 
 def test_dropping_the_apps_context_strands_the_app_only_keys():
     def drop_the_apps(manifest):
-        manifest["render_contexts"]["apps"] = []
+        manifest["render_contexts"]["shared"] = []
 
     guard = make_guard(drop_the_apps)
     guard.check_phantom_keys()
@@ -1331,7 +1331,7 @@ def test_parity_expects_the_root_presets_alone():
 
 def test_an_app_host_outside_the_root_presets_is_refused():
     def host_an_app(manifest):
-        manifest["render_contexts"]["host"] = f"{guard_module.PRESET_DIR}/apps/logbook.yml"
+        manifest["render_contexts"]["host"] = f"{guard_module.PRESET_DIR}/tiers/logbook.yml"
 
     with pytest.raises(ValueError, match="render_contexts.host"):
         make_guard(host_an_app).resolved_apps()

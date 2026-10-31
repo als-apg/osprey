@@ -17,8 +17,10 @@ from osprey.mcp_server.approval_record import (
     APPROVED_FIELDS,
     TOOL_REQUIRED_FIELDS,
     Refusal,
+    Requirements,
     require_approval_record,
     required_fields,
+    requirements,
 )
 from tests._approval_stamp_fixture import ApprovalStamps, use_stamp_dir
 
@@ -307,6 +309,18 @@ class TestTheRequiredFields:
         assert (
             _require("execute", _ASKING, approved={"approved_target": "live"}, guarded_run=True)
             is None
+        )
+
+    def test_the_static_table_names_no_application_tool(self) -> None:
+        assert not any(tool.startswith("mcp__") for tool in TOOL_REQUIRED_FIELDS)
+
+    @pytest.mark.parametrize("tool", _TOOLS)
+    @pytest.mark.parametrize("guarded_run", [False, True])
+    def test_a_built_ins_requirements_are_its_required_fields(
+        self, tool: str, guarded_run: bool
+    ) -> None:
+        assert requirements(tool, {}, guarded_run=guarded_run) == Requirements(
+            required_fields(tool, guarded_run=guarded_run), ()
         )
 
     def test_the_executor_holds_no_spelling_or_rule_of_its_own(self) -> None:

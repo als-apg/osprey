@@ -1,0 +1,1 @@
+A container receives the staged login→tier map and the control-identity module because its service declares `drives_target` / `control_identity`, not because its name is on a list; a projected service's audit identity comes from its `services.<key>.audit_identity`.

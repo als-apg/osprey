@@ -827,7 +827,7 @@ def render_web_terminals(
     terminal_secrets: dict[str, str] | None = None,
     proxy_env_names: tuple[str, ...] = (),
     facility_name: str = "",
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
     agent_record_login_digests: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -1011,12 +1011,12 @@ def render_web_terminals(
             :func:`osprey.deployment.web_terminals.artifacts.resolve_render_inputs`,
             because this function reads no file. ``""`` (the default) emits no
             sign-in name and leaves the landing page its own title.
-        app_titles: Each shared app's title, ``{app name: name:}`` off the
-            repo's ``apps/*.yml``
-            (:func:`osprey.deployment.web_terminals.roster.app_titles_in`),
-            passed in because this function reads no file. It titles the app's
-            landing card, browser tab and sidecar chooser label alike; an app
-            it leaves out is titled by its name.
+        shared_titles: Each shared login's title, ``{login name: name:}`` off
+            the repo's ``tiers/*.yml``
+            (:func:`osprey.deployment.web_terminals.roster.login_titles_in`),
+            passed in because this function reads no file. It titles the
+            login's landing card, browser tab and sidecar chooser label alike; a
+            login it leaves out is titled by its name.
         agent_record_login_digests: The sha256 of each terminal's
             agent-record login file, by identity
             (:func:`osprey.agent_record.credentials.login_digests`), emitted as
@@ -1083,7 +1083,11 @@ def render_web_terminals(
         raise ValueError(REGISTRY_MODE_MISSING_URL)
 
     resolved_users = resolve_cards(
-        web_terminals, registry, strict=True, project_name=project_name, app_titles=app_titles
+        web_terminals,
+        registry,
+        strict=True,
+        project_name=project_name,
+        shared_titles=shared_titles,
     )
     # The other half of what a roster `role:` says. `resolve_cards` above
     # consumed it into each entry's render (which image, which project); this
@@ -2465,11 +2469,15 @@ def _app_card(app_entry: dict[str, Any], token_login_names: frozenset[str]) -> d
     }
 
 
-_APPS_LABEL = "Apps"
-"""Default heading of a ``{type: apps}`` landing group."""
+_SHARED_LABEL = "Shared logins"
+"""Default heading of a ``{type: shared}`` landing group."""
 
-_DEFAULT_LANDING_GROUPS: tuple[dict[str, str], ...] = ({"type": "users"}, {"type": "apps"})
-"""The ``landing.groups`` a deployment that sets none renders: people, then apps."""
+_DEFAULT_LANDING_GROUPS: tuple[dict[str, str], ...] = ({"type": "users"}, {"type": "shared"})
+"""The ``landing.groups`` a deployment that sets none renders: people, then shared logins."""
+
+#: The retired spelling of ``type: shared``, read as it for one release
+#: (lint warns about it; ``osprey init --revalidate`` rewrites it).
+RETIRED_SHARED_GROUP_TYPE = "apps"
 
 
 def _build_groups(
@@ -2487,18 +2495,19 @@ def _build_groups(
 
     * ``{type: users}`` — one card per person on the roster (see
       :func:`_user_groups`), headed ``label`` or ``"Terminals"``.
-    * ``{type: apps}`` — one card per ``shared:`` app, in ``shared:`` order,
-      titled by the app's ``name:`` (see :func:`_app_card`), headed ``label``
-      or ``"Apps"`` and marked ``variant: "tray"``, the cue landing.html.j2
-      renders as an accent-edged panel so the page reads as people, then
-      services.
+    * ``{type: shared}`` — one card per ``shared:`` login, in ``shared:``
+      order, titled by the login file's ``name:`` (see :func:`_app_card`),
+      headed ``label`` or ``"Shared logins"`` and marked ``variant: "tray"``,
+      the cue landing.html.j2 renders as an accent-edged panel so the page
+      reads as people, then services. The retired ``{type: apps}`` is read as
+      it for one release.
     * ``{type: links, label, links}`` — ``links`` passed straight through as
       ``items`` (link cards carry neither a ``sublabel`` nor a posture).
 
     An omitted or empty ``landing.groups`` renders ``[{type: users}, {type:
-    apps}]``. Every group is emitted even when it has no cards; the template's
+    shared}]``. Every group is emitted even when it has no cards; the template's
     empty-items rule is the one place that decides whether a heading appears,
-    so a deployment without ``shared:`` shows no Apps heading. Unrecognized or
+    so a deployment without ``shared:`` shows no shared-logins heading. Unrecognized or
     malformed group entries are dropped rather than raising: lint is the
     authoritative gate on schema well-formedness, this is just the render-time
     adapter.
@@ -2540,10 +2549,10 @@ def _build_groups(
                     sign_in_url=sign_in_url,
                 )
             )
-        elif group_type == "apps":
+        elif group_type in ("shared", RETIRED_SHARED_GROUP_TYPE):
             groups.append(
                 {
-                    "label": label if isinstance(label, str) and label else _APPS_LABEL,
+                    "label": label if isinstance(label, str) and label else _SHARED_LABEL,
                     "items": [_app_card(app, token_login_names) for app in apps],
                     "variant": "tray",
                 }
@@ -2571,7 +2580,7 @@ def _user_groups(
 
     Args:
         people: The person entries of :func:`resolve_cards` output, in
-            roster order; shared app entries are the ``apps`` group's.
+            roster order; shared login entries are the ``shared`` group's.
         default_label: The ``{type: "users"}`` entry's own ``label``. Anything
             that is not a non-empty string falls back to ``"Terminals"``.
         token_login_names: Passed straight to :func:`_user_card`, which turns

@@ -255,12 +255,13 @@ def test_is_denied_matrix(tool, expected):
         ("mcp__plugin_playwright_playwright__browser_click", True),
         ("mcp__claude_ai_Gmail__search", True),
         ("mcp__controls__channel_read", False),
-        ("mcp__pluginx__ping", False),
+        ("mcp__pluginx__ping", True),
     ],
 )
 def test_plugin_and_connector_tools_are_denied(tool, expected):
-    """Every plugin server's and claude.ai connector's tools are refused; a server
-    whose name only resembles the namespace is not."""
+    """Every plugin server's and claude.ai connector's tools are refused. With no
+    rendered app-tool list, as here, a server outside the framework's own is
+    refused too, though its name only resembles the namespace."""
     assert dispatch_api._is_denied(tool) is expected
 
 

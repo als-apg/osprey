@@ -114,6 +114,8 @@ _HOOK_VARS = (
     "OSPREY_CONTROL_OWNER",
     "OSPREY_CONTROL_CONTEXT_TREE",
     "OSPREY_WEB_PORT",
+    # The bearer an application tool's approval prompt reads the panel's state with.
+    "OSPREY_PANEL_TOKEN",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
     # The record: the acting identity's own spool directory, which every
@@ -145,6 +147,7 @@ _SEAM_IMPORTABLE_HOOKS = frozenset(
         "osprey_memory_guard",
         "osprey_notebook_update",
         "osprey_panels_context",
+        "osprey_prompt_render",
         "osprey_safety_file",
         "osprey_workspace_delta",
         "osprey_writes_check",
@@ -222,6 +225,30 @@ def ask_reason(result):
     return output["permissionDecisionReason"]
 
 
+def error_response(error_type, message, suggestions=None):
+    """An OSPREY tool error as PostToolUse sees it.
+
+    A CallToolResult-shaped dict: ``isError=True`` with the structured envelope
+    (``common.make_error``) inside the first text content block.
+    """
+    return {
+        "isError": True,
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "error": True,
+                        "error_type": error_type,
+                        "error_message": message,
+                        "suggestions": suggestions or [],
+                    }
+                ),
+            }
+        ],
+    }
+
+
 def pending_review_items(root):
     """The items in the feedback hook's ``pending_reviews.json`` under *root*, or ``{}``.
 
@@ -261,6 +288,12 @@ def approval(hook_module, monkeypatch):
     for name in ("BLUESKY_BRIDGE_URL", "BLUESKY_VA_BRIDGE_URL", "BLUESKY_LIVE_BRIDGE_URL"):
         monkeypatch.delenv(name, raising=False)
     return module
+
+
+@pytest.fixture
+def error_guidance(hook_module):
+    """The `osprey_error_guidance` module, imported through the test seam."""
+    return hook_module("osprey_error_guidance")
 
 
 @pytest.fixture

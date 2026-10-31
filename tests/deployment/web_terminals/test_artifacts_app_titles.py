@@ -1,10 +1,10 @@
-"""The deploy titles each shared app by its ``apps/<name>.yml`` ``name:``.
+"""The deploy titles each shared card by its login file's ``name:``.
 
-The render opens no file, so an app's title arrives as the ``app_titles``
-input. :func:`resolve_render_inputs` is the deploy's one seam between disk and
-render; it reads the titles off the repo's ``apps/`` directory, so the landing
-card, the browser tab and the sign-in chooser all read the app's own name and
-never fall back to the bare roster name.
+The render opens no file, so a shared login's title arrives as the
+``shared_titles`` input. :func:`resolve_render_inputs` is the deploy's one seam
+between disk and render; it reads the titles off the repo's ``tiers/``
+directory, so the landing card, the browser tab and the sign-in chooser all
+read the login's own name and never fall back to the bare roster name.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def _config() -> dict:
                         "project_path": f"build/{PROJECT}-assistant",
                     },
                     "logbook": {
-                        "kind": "app",
+                        "kind": "tier",
                         "project": f"{PROJECT}-logbook",
                         "project_path": f"build/{PROJECT}-logbook",
                     },
@@ -53,7 +53,7 @@ def _config() -> dict:
 
 
 def _write_app(repo: Path, name: str, body: str) -> None:
-    apps = repo / "apps"
+    apps = repo / "tiers"
     apps.mkdir(parents=True, exist_ok=True)
     (apps / f"{name}.yml").write_text(body, encoding="utf-8")
 
@@ -69,7 +69,7 @@ def test_the_deploy_reads_each_app_title_off_its_app_file(tmp_path: Path) -> Non
 
     inputs = resolve_render_inputs(_config(), tmp_path)
 
-    assert inputs["app_titles"] == {"logbook": "Logbook Research"}
+    assert inputs["shared_titles"] == {"logbook": "Logbook Research"}
 
 
 def test_the_deployed_app_card_tab_and_chooser_carry_the_title(tmp_path: Path) -> None:
@@ -91,8 +91,8 @@ def test_an_app_without_a_title_falls_back_to_its_name(tmp_path: Path) -> None:
 
     inputs = resolve_render_inputs(_config(), tmp_path)
 
-    assert inputs["app_titles"] == {}
+    assert inputs["shared_titles"] == {}
 
 
-def test_a_repo_without_apps_has_no_titles(tmp_path: Path) -> None:
-    assert resolve_render_inputs(_config(), tmp_path)["app_titles"] == {}
+def test_a_repo_without_logins_has_no_titles(tmp_path: Path) -> None:
+    assert resolve_render_inputs(_config(), tmp_path)["shared_titles"] == {}

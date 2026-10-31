@@ -53,6 +53,11 @@ stdin ──► Parse JSON
     NO
      │
      ▼
+  application tool (app_approvals)?  ──YES──► its declaration decides:
+     │                                        DENY with its guidance, or
+    NO                                        skip ──► EXIT (allow), or
+     │                                        ASK bound to what it showed
+     ▼
   Look up policy for tool
   (fallback: default_policy)
      │
@@ -86,6 +91,18 @@ per-target narrowing in the control-context record counts the same way as a
 config disarm, because `osprey_writes_check` reads the same record. A target
 whose write tier is not stated has the tier `never`, so its writes defer here
 like any other refusal; silence never means a prompt.
+
+## Application tools
+
+A tool keyed in `hook_config.json`'s `app_approvals` (by full name) is put to
+the approver as its application declared: an OSPREY header (application, tool,
+target, machine words, "this call writes"), the rendered template and display
+lines over the call's input and the state read from
+`/panel/<panel_id><state_path>`. The call is bound to `approved_target` and the
+declared `bind` fields, and refused, never asked, when its `require` is unmet,
+when the state cannot be read within the pre-flight budget, or when the render
+does not gate the tool as a write. A dispatch job runs no tool that binds
+fetched state or that `dispatch.denied_app_tools` names.
 
 ## Write-approval stamps
 
@@ -179,6 +196,15 @@ try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
     _safety_file = None
+
+# The shared, stdlib-only prompt renderer, a sibling script like the two above.
+# Its control-character escaper is the one every label on this prompt goes
+# through (`_sanitize_label`). Guarded the same way; without it the labels fall
+# back to a stricter escape of their own.
+try:
+    import osprey_prompt_render as _prompt_render
+except Exception:  # pragma: no cover - render without the renderer
+    _prompt_render = None
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
@@ -582,11 +608,6 @@ def _bridge_post_json(base_url: str, path: str, body, timeout: float):
         return None
 
 
-# Unicode code points that render as a line/paragraph break in some terminals
-# in addition to the C0 control range (< 0x20) and DEL (0x7f) escaped below.
-_UNICODE_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
-
-
 def _sanitize_label(text) -> str:
     """Escape control characters in an agent-influenced single-line label.
 
@@ -598,17 +619,21 @@ def _sanitize_label(text) -> str:
     by character content, and `PlanMetadata.name` carries no character
     constraint. An embedded newline would otherwise forge a fake enrichment line
     (e.g. a spoofed "Validation status: PASSED") on the human approval prompt.
-    Escaping the C0 range, DEL, and the unicode line breaks to a visible
-    ``\\xNN`` token keeps every label on one line and makes any tampering legible
-    to the approver rather than silently dropped. The `Plan source` block is
-    deliberately NOT run through this — it is rendered verbatim (and clearly
-    delimited) so the approver sees the real, possibly multi-line, plan body.
+    The prompt renderer's control-character escaper turns every control, format
+    character (a bidi override, a zero-width mark), line or paragraph separator,
+    private-use and unassigned code point into a visible ``\\x`` token carrying
+    its codepoint, which keeps every label on one line, in the order it was
+    written, and makes any tampering legible to the approver rather than silently
+    dropped. Without the renderer beside this hook, every character Python does
+    not call printable is escaped instead — stricter, never weaker. The `Plan
+    source` block is deliberately NOT run through this — it is rendered verbatim
+    (and clearly delimited) so the approver sees the real, possibly multi-line,
+    plan body.
     """
+    if _prompt_render is not None:
+        return str(_prompt_render.escape_control(text))
     return "".join(
-        ch
-        if (ch >= " " and ch != "\x7f" and ch not in _UNICODE_LINE_BREAKS)
-        else f"\\x{ord(ch):02x}"
-        for ch in str(text)
+        ch if (ch == " " or ch.isprintable()) else f"\\x{ord(ch):02x}" for ch in str(text)
     )
 
 
@@ -3240,6 +3265,348 @@ def _bound_input(tool_input, binding) -> dict:
     return {**kept, **binding}
 
 
+# ---------------------------------------------------------------------------
+# Application tools: the declared approval
+# ---------------------------------------------------------------------------
+# An application declares how a call of each of its write tools is put to a
+# person: a prompt template over the call's input and the application's state,
+# the state route that state is read from, and the approved fields the call is
+# bound to. The render writes each declaration into `hook_config.json` under
+# `app_approvals`, keyed by the tool's full name. Every failure on this path
+# refuses the call with the application's own guidance; nothing here degrades
+# to a prompt that shows less than the declaration asked for.
+
+#: The `hook_config.json` key holding every application tool's declaration.
+APP_APPROVALS_KEY = "app_approvals"
+
+#: The rendered config list of application tools a dispatch job never runs.
+_APP_DENIED_IN_JOBS = ("dispatch", "denied_app_tools")
+
+#: The largest state body the prompt reads; a larger one refuses the call.
+_APP_STATE_MAX_BYTES = 256 * 1024
+
+#: The panel token the state fetch presents, as the web terminal exports it.
+_PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environment variable
+_WEB_PORT_ENV = "OSPREY_WEB_PORT"
+
+#: The guidance shown when the declaration carries none of its own.
+_APP_FALLBACK_GUIDANCE = "Check the application's approval declaration and call the tool again."
+
+#: What the header says of every application call: the declaration cannot
+#: suppress it, because the tool is in the render's write set.
+_APP_WRITES_LINE = "This call writes."
+
+
+class _AppRefused(Exception):
+    """An application call is refused before any person is asked.
+
+    Attributes:
+        kind: ``unreachable`` or ``refused``, the guidance text it is shown with.
+        detail: What failed, as one line.
+    """
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+
+
+def _deny_app_call(hook_input, tool_name, reason, audit_reason):
+    """Emit an application call's refusal as a deny and exit 0. Does not return."""
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
+        log_hook("approval", hook_input, status="deny", detail=audit_reason)
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=audit_reason,
+        )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+def _app_guidance(entry, kind) -> str:
+    """The declaration's guidance text for *kind*, or the fallback."""
+    errors = entry.get("errors") if isinstance(entry, dict) else None
+    text = errors.get(kind) if isinstance(errors, dict) else None
+    return text if isinstance(text, str) and text.strip() else _APP_FALLBACK_GUIDANCE
+
+
+def _app_policy(approval_config, tool_name) -> str:
+    """The approval policy of an application tool, keyed by its full name.
+
+    ``approval.tools.<full name>`` when stated, else ``approval.default_policy``,
+    else ``always``: the rule ``ask_capable`` states. Every policy but ``skip``
+    asks; ``selective`` reads as ``always``.
+    """
+    tools = approval_config.get("tools")
+    policy = tools.get(tool_name) if isinstance(tools, dict) else None
+    if policy is None:
+        policy = approval_config.get("default_policy")
+    return str(policy) if policy is not None else "always"
+
+
+def _app_job_refusal(config, tool_name, entry) -> str | None:
+    """Why a dispatch job may not run *tool_name*, or ``None`` when it may.
+
+    A job has no panel token, so a tool that binds the application's state
+    cannot be shown to anyone. The deployment's list of tools denied in jobs is
+    the one the dispatch worker reads; a job whose render carries no readable
+    list runs no application tool.
+    """
+    if entry.get("state_path"):
+        return "it binds the application's live state, which a job cannot read"
+    node = config
+    for key in _APP_DENIED_IN_JOBS:
+        node = node.get(key) if isinstance(node, dict) else None
+    if not isinstance(node, list):
+        return "the render's list of tools denied in jobs (dispatch.denied_app_tools) is unreadable"
+    if tool_name in node:
+        return "the deployment denies it in jobs (dispatch.denied_app_tools)"
+    return None
+
+
+def _app_state(entry, deadline) -> dict:
+    """The application's state for this prompt, fetched through the web terminal.
+
+    ``GET http://127.0.0.1:$OSPREY_WEB_PORT/panel/<panel_id><state_path>`` with
+    the panel token as bearer, within what is left of *deadline*. ``{}`` for a
+    declaration with no state route.
+
+    Raises:
+        _AppRefused: ``unreachable`` for any failure to read a JSON object of at
+            most :data:`_APP_STATE_MAX_BYTES` bytes in time.
+    """
+    state_path = entry.get("state_path")
+    if not state_path:
+        return {}
+    panel_id = entry.get("panel_id")
+    if not isinstance(panel_id, str) or not isinstance(state_path, str):
+        raise _AppRefused("refused", "the declaration names no panel and state route")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", panel_id) or not state_path.startswith("/"):
+        raise _AppRefused("refused", "the declaration's panel or state route is malformed")
+    port = (os.environ.get(_WEB_PORT_ENV) or "").strip()
+    token = (os.environ.get(_PANEL_TOKEN_ENV) or "").strip()
+    if not port.isdigit() or not token:
+        raise _AppRefused("unreachable", "no web terminal to read the application's state from")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise _AppRefused("unreachable", "the prompt's time to read the state is spent")
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/panel/{panel_id}{state_path}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=remaining) as resp:
+            body = resp.read(_APP_STATE_MAX_BYTES + 1)
+    except Exception as exc:
+        raise _AppRefused("unreachable", "the application's state could not be read") from exc
+    if len(body) > _APP_STATE_MAX_BYTES:
+        raise _AppRefused("unreachable", "the application's state is larger than a prompt reads")
+    try:
+        state = json.loads(body)
+    except ValueError as exc:
+        raise _AppRefused("unreachable", "the application's state is not JSON") from exc
+    if not isinstance(state, dict):
+        raise _AppRefused("unreachable", "the application's state is not a JSON object")
+    return state
+
+
+def _approved_field(item) -> str:
+    """The ``approved_*`` field a ``bind`` entry names, refusing any other spelling."""
+    field = item.get("field") if isinstance(item, dict) else None
+    if (
+        not isinstance(field, str)
+        or not field.startswith(APPROVED_FIELD_PREFIX)
+        or field == _APPROVED_TARGET_KEY
+    ):
+        raise _AppRefused("refused", f"the declaration binds {field!r}, not an approved field")
+    return field
+
+
+def _app_binding(entry, tool_input, state, target) -> dict:
+    """The approved fields of this call: the target, then every bound entry.
+
+    A ``state_fields`` entry whose key is absent from the state is not bound;
+    ``require`` decides whether the call may still be asked. Every input digest
+    is required: one over a key the input lacks refuses before the prompt, with
+    the sentence the application SDK refuses the same call with.
+
+    Raises:
+        _AppRefused: ``refused`` for a malformed entry or a digest the input
+            cannot produce.
+    """
+    bind = entry.get("bind") or {}
+    if not isinstance(bind, dict):
+        raise _AppRefused("refused", "the declaration's bind is not a mapping")
+    binding = {_APPROVED_TARGET_KEY: target}
+    for item in bind.get("state_fields") or ():
+        field = _approved_field(item)
+        key = item.get("key")
+        if not isinstance(key, str):
+            raise _AppRefused("refused", f"{field} names no state key")
+        value = state.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            raise _AppRefused("refused", f"the state's {key!r} is not a single value")
+        binding[field] = value
+    for item in bind.get("input_digests") or ():
+        field = _approved_field(item)
+        over = item.get("over")
+        if not isinstance(over, list) or not over or not all(isinstance(k, str) for k in over):
+            raise _AppRefused("refused", f"{field} is over no input keys")
+        missing = [key for key in over if key not in tool_input]
+        if missing:
+            keys = ", ".join(f"`{key}`" for key in missing)
+            raise _AppRefused(
+                "refused", f"`{field}` is bound over {keys}, which the call does not carry"
+            )
+        try:
+            binding[field] = _prompt_render.input_digest(tool_input, over)
+        except Exception as exc:
+            raise _AppRefused("refused", f"{field} cannot be computed from the input") from exc
+    return binding
+
+
+def _app_requirement_unmet(entry, binding) -> str | None:
+    """What of the declaration's ``require`` the binding leaves unmet, or ``None``.
+
+    Every ``all_of`` field bound, and exactly one field of each ``one_of`` group.
+    """
+    require = entry.get("require") or {}
+    if not isinstance(require, dict):
+        return "the declaration's require is not a mapping"
+    all_of = require.get("all_of") or []
+    groups = require.get("one_of") or []
+    if not isinstance(all_of, list) or not isinstance(groups, list):
+        return "the declaration's require is malformed"
+    missing = [name for name in all_of if name not in binding]
+    if missing:
+        return f"{', '.join(map(str, missing))} could not be bound"
+    for group in groups:
+        if not isinstance(group, list) or not group:
+            return "the declaration's require is malformed"
+        bound = [name for name in group if name in binding]
+        if len(bound) != 1:
+            return f"exactly one of {', '.join(map(str, group))} must be bound, not {len(bound)}"
+    return None
+
+
+def _app_prompt(entry, tool_name, tool_input, state, target, hook_input) -> str:
+    """The prompt detail: the header the declaration cannot suppress, then its text."""
+    template = entry.get("prompt")
+    if not isinstance(template, str):
+        raise _AppRefused("refused", "the declaration has no prompt")
+    try:
+        rendered = _prompt_render.render_prompt(template, input=tool_input, state=state)
+        lines_key = entry.get("display_lines_key")
+        lines = _prompt_render.render_display_lines(state.get(lines_key)) if lines_key else []
+    except Exception as exc:
+        raise _AppRefused("refused", f"the prompt cannot be rendered: {exc}") from exc
+    app = _sanitize_label(entry.get("app") or "")
+    header = [
+        f"Application: {app}",
+        f"Tool: {_sanitize_label(tool_name)}",
+        _KIND_WORDS[_target_kind(target, hook_input)],
+        _APP_WRITES_LINE,
+    ]
+    return "\n".join([*header, "", rendered, *lines])
+
+
+def _app_approval(hook_input, tool_name, tool_input, config, approval_config, entry):
+    """Decide an application tool's call from its declaration. Does not return.
+
+    Reached only after the write verdict allowed the call (``main`` defers a
+    refused write before this) and the approval section is valid and on.
+    Refuses, with the application's guidance, a tool outside the render's
+    facility write set, a declaration it cannot read, and a call whose
+    ``require`` is unmet; allows a ``skip`` policy with no stamp; otherwise
+    asks with the call bound to what the prompt showed. A dispatch job is
+    asked the same way, with the dispatch policy as approver, except for a
+    tool a job may not run.
+    """
+    if not isinstance(entry, dict):
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: its approval declaration is malformed. {_APP_FALLBACK_GUIDANCE}",
+            "app_declaration_invalid",
+        )
+    if not is_write_tool(tool_name, load_hook_config().get("facility_write_tools")):
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: the render does not gate it as a write. "
+            f"{_app_guidance(entry, 'refused')}",
+            "app_not_gated",
+        )
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        refusal = _app_job_refusal(config, tool_name, entry)
+        if refusal is not None:
+            _deny_app_call(
+                hook_input,
+                tool_name,
+                f"{tool_name} is not run in a dispatch job: {refusal}.",
+                "app_denied_in_jobs",
+            )
+
+    policy = _app_policy(approval_config, tool_name)
+    if policy == "skip":
+        log_hook("approval", hook_input, status="allow", detail=f"policy=skip tool={tool_name}")
+        json.dump(build_allow_output(), sys.stdout)
+        sys.exit(0)
+
+    try:
+        if _prompt_render is None or _target_state is None:
+            raise _AppRefused("unreachable", "the approval prompt's helpers are missing")
+        state = _app_state(entry, _preview_deadline())
+        kept = _bound_input(tool_input, {})
+        read_record = _record_reader(hook_input)
+        target = _guarded_run_binding(hook_input, read_record)[_APPROVED_TARGET_KEY]
+        binding = _app_binding(entry, kept, state, target)
+        unmet = _app_requirement_unmet(entry, binding)
+        if unmet is not None:
+            raise _AppRefused("refused", unmet)
+        reason = _app_prompt(entry, tool_name, kept, state, target, hook_input)
+    except _AppRefused as refused:
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: {refused.detail}. {_app_guidance(entry, refused.kind)}",
+            f"app_{refused.kind}",
+        )
+    except Exception:
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: its approval prompt failed. {_app_guidance(entry, 'refused')}",
+            "app_refused",
+        )
+
+    log_hook("approval", hook_input, status="ask", detail=f"policy={policy} tool={tool_name}")
+    _emit_ask(
+        build_approval_output(reason, hook_input, read_record, _bound_input(kept, binding)),
+        hook_input,
+        binding,
+    )
+    sys.exit(0)
+
+
 # -- pyaml_measure ------------------------------------------------------------
 #
 # A measurement runs on the pyAML view the build recorded in the render. The
@@ -3524,6 +3891,14 @@ def main():
         log_hook("approval", hook_input, status="allow", detail="enabled=false")
         json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
+
+    # An application tool is decided by its own declaration, keyed by its full
+    # name; none of the short-name policies and describers below apply to it.
+    app_approvals = load_hook_config().get(APP_APPROVALS_KEY)
+    if isinstance(app_approvals, dict) and tool_name in app_approvals:
+        _app_approval(
+            hook_input, tool_name, tool_input, config, approval_config, app_approvals[tool_name]
+        )
 
     # Per-tool policy dispatch (default_policy applies when `tools` is absent
     # or the specific tool isn't listed; production default is "always").

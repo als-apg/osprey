@@ -1,7 +1,7 @@
 """``osprey build`` renders every tier and every app beside the deployment.
 
 One build of the control-assistant exemplar renders ``build/<project>-<name>``
-for each file under ``tiers/`` and ``apps/``, and an image context
+for each login file under ``tiers/``, and an image context
 ``build/.image/<project>-<name>/`` for each of them beside the deployment's own.
 A tier render is the deployment's agent at one access level, so it records the
 deployment's preset; an app render is its own agent over the deployment's
@@ -258,10 +258,10 @@ def test_verify_accepts_every_tier_and_app_render(built, monkeypatch):
     verify_renders(_with_absolute_project_paths(config, repo), entries, repo_root=repo)
 
 
-@pytest.mark.parametrize(("name", "layer_dir"), [("readonly", "tiers"), ("logbook", "apps")])
+@pytest.mark.parametrize(("name", "layer_dir"), [("readonly", "tiers"), ("logbook", "tiers")])
 def test_verify_names_the_layer_file_of_an_absent_render(built, tmp_path, name, layer_dir):
     """A render that is not on disk sends the operator to the build, naming
-    the tier or app file it is built from and the directory it lands in."""
+    the login file it is built from and the directory it lands in."""
     repo = built["repo"]
     config, entries = _resolved(repo)
     config = _with_absolute_project_paths(config, repo)
@@ -302,10 +302,10 @@ def test_verify_names_a_missing_layer_file(built, tmp_path):
     assert str(repo / "tiers" / "ghost.yml") in message
 
 
-def test_shape_problem_speaks_of_tiers_and_apps():
+def test_shape_problem_speaks_of_login_files():
     problem = render_build_profile_shape_problem("control-assistant")
 
     assert problem is not None
     assert "preset" in problem
     assert render_build_profile_shape_problem("tiers/readonly.yml") is None
-    assert render_build_profile_shape_problem("apps/logbook.yml") is None
+    assert render_build_profile_shape_problem("apps/logbook.yml") is not None

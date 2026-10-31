@@ -47,7 +47,7 @@ from osprey.bluesky_bridge_connection import (
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
 from osprey.deployment.control_identity import validate_identity
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
-from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, RENDER_KIND_TIER
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED, RENDER_KIND_TIER
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
@@ -733,7 +733,7 @@ def served_render_names(
     then ``default_tier``, then the roles, then the dispatch tier — each name
     once, at its first appearance. A reader that reports sorts.
 
-    The kind is ``"app"`` for a name only ``shared:`` names and ``"tier"``
+    The kind is ``"shared"`` for a name only ``shared:`` names and ``"tier"``
     for every other: a name that both a tier source and ``shared:`` name is a
     tier here, and the refusal that a card renders from one file reports the
     collision (:func:`resolve_cards`).
@@ -752,7 +752,7 @@ def served_render_names(
             that raised would hide every other one.
 
     Returns:
-        ``{render name: RENDER_KIND_TIER | RENDER_KIND_APP}``.
+        ``{render name: RENDER_KIND_TIER | RENDER_KIND_SHARED}``.
 
     Raises:
         ValueError: Only when *strict*; see above.
@@ -781,7 +781,7 @@ def served_render_names(
         serve(effective_tier(user, roles, default_tier, strict=strict), RENDER_KIND_TIER)
     for entry in roster_entries(subtree, strict=False):
         if is_app_entry(entry):
-            serve(entry.get("name"), RENDER_KIND_APP)
+            serve(entry.get("name"), RENDER_KIND_SHARED)
     serve(default_tier, RENDER_KIND_TIER)
     for tier in roles.values():
         serve(tier, RENDER_KIND_TIER)
@@ -798,10 +798,10 @@ class ServedRender:
     served render asks for, and the entry itself for the rest.
     """
 
-    #: The render's name: a tier or app file's stem.
+    #: The render's name: a login file's stem.
     name: str
-    #: ``RENDER_KIND_TIER`` or ``RENDER_KIND_APP`` — the projection entry's
-    #: own ``kind`` when it states one, else the kind the served set gave it.
+    #: ``RENDER_KIND_TIER`` or ``RENDER_KIND_SHARED`` — how the served set
+    #: uses the render: a person's tier, or a card ``shared:`` names.
     kind: str
     #: The image tag prefix the projection names, or ``None``.
     project: str | None
@@ -841,12 +841,11 @@ def served_renders(config: Any, *, strict: bool = False) -> dict[str, ServedRend
         if not isinstance(entry, Mapping):
             served[name] = None
             continue
-        entry_kind = entry.get("kind")
         project = entry.get("project")
         project_path = entry.get("project_path")
         served[name] = ServedRender(
             name=name,
-            kind=entry_kind if entry_kind in (RENDER_KIND_TIER, RENDER_KIND_APP) else kind,
+            kind=kind,
             project=project if isinstance(project, str) and project else None,
             project_path=project_path if isinstance(project_path, str) and project_path else None,
             entry=entry,
@@ -1977,16 +1976,16 @@ def roster_entries(
     web_terminals: Any,
     *,
     strict: bool = True,
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Every card a ``modules.web_terminals`` subtree runs: people, then apps.
+    """Every card a ``modules.web_terminals`` subtree runs: people, then shared logins.
 
     The people are :func:`roster_people`, byte for byte. After them comes one
     derived entry per name in ``shared:``::
 
-        {"kind": "app", "name": <app>, "app": <app>,
+        {"kind": "app", "name": <login>, "app": <login>,
          "index": INDEX_MAX - <position in shared>,
-         "display_name": <the app's title>, "access": "any"}
+         "display_name": <the login's title>, "access": "any"}
 
     The derived slots count down from the top of the family band, so adding
     people never moves an app and adding an app never moves a person.
@@ -2005,9 +2004,9 @@ def roster_entries(
         web_terminals: The ``modules.web_terminals`` subtree. Anything that is
             not a mapping has no roster.
         strict: Passed to :func:`normalize_users` for the people.
-        app_titles: The app name -> title mapping (each app file's top-level
-            ``name:``; see :func:`app_titles_in`). An app it does not title is
-            shown under its name.
+        shared_titles: The login name -> title mapping (each login file's
+            top-level ``name:``; see :func:`login_titles_in`). A shared login it
+            does not title is shown under its name.
 
     Returns:
         People then app entries, each in authored order.
@@ -2017,7 +2016,7 @@ def roster_entries(
     subtree = as_dict(web_terminals)
     entries = roster_people(subtree, strict=strict)
     shared = subtree.get("shared")
-    titles = app_titles or {}
+    titles = shared_titles or {}
     for position, name in enumerate(shared if isinstance(shared, list) else []):
         if not isinstance(name, str) or not name:
             continue
@@ -2071,22 +2070,23 @@ def refuse_app_card(web_terminals: Any, name: str) -> None:
         raise ValueError(app_card_refusal(name))
 
 
-def app_titles_in(apps_dir: Any) -> dict[str, str]:
-    """Each app file's title, read off the top-level ``name:`` of ``apps_dir/*.yml``.
+def login_titles_in(tiers_dir: Any) -> dict[str, str]:
+    """Each login file's title, read off the top-level ``name:`` of ``tiers_dir/*.yml``.
 
-    The mapping :func:`roster_entries` takes as ``app_titles``. A file that does
-    not parse, or names no string title, is left out (its card falls back to
-    the app name); a missing directory has no titles.
+    The mapping :func:`roster_entries` takes as ``shared_titles``: a shared
+    card is titled by its login file's own ``name:``. A file that does not
+    parse, or names no string title, is left out (its card falls back to the
+    login's name); a missing directory has no titles.
 
     Args:
-        apps_dir: A repo's ``apps/`` directory.
+        tiers_dir: A repo's ``tiers/`` directory.
 
     Returns:
-        ``{app name: title}`` keyed by file stem.
+        ``{login name: title}`` keyed by file stem.
     """
     import yaml
 
-    directory = Path(apps_dir)
+    directory = Path(tiers_dir)
     titles: dict[str, str] = {}
     if not directory.is_dir():
         return titles
@@ -2182,9 +2182,9 @@ class DeploymentEditDoor:
 
 #: Every door onto editing the deployment, in the order guard messages name
 #: them. The one list read by the shared-card rule (through
-#: :func:`tier_privileges`), the app-render composer
-#: (:func:`osprey.cli.build_profile_merge.compose_app_render`), its check
-#: (:func:`osprey.deployment.web_terminals.lint.lint_app_render`) and the
+#: :func:`tier_privileges`), the shared-login seal
+#: (:func:`osprey.cli.build_profile_merge.seal_shared_render`), its check
+#: (:func:`osprey.deployment.web_terminals.lint.lint_shared_render`) and the
 #: headless refusal of a dispatch tier
 #: (:func:`osprey.cli.build_profile_schema.headless_refused_flags`).
 DEPLOYMENT_EDIT_DOORS: tuple[DeploymentEditDoor, ...] = (
@@ -3104,7 +3104,7 @@ def resolve_cards(
     *,
     strict: bool = True,
     project_name: str | None = None,
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve every card the roster runs into its image/project identity.
 
@@ -3168,9 +3168,9 @@ def resolve_cards(
             (only ``url`` is read).
         project_name: The deployment's ``project_name``, which names each
             shared app's render. ``None`` reads the render off the catalog.
-        app_titles: The app name -> title mapping (see :func:`app_titles_in`),
-            passed to :func:`roster_entries` for each app card's
-            ``display_name``.
+        shared_titles: The login name -> title mapping (see
+            :func:`login_titles_in`), passed to :func:`roster_entries` for each
+            shared card's ``display_name``.
         strict: When ``True`` (render/build/seed callers), a config with no
             ``renders`` catalog or no default tier (in any image
             source), a render reference naming a catalog entry that doesn't
@@ -3215,30 +3215,24 @@ def resolve_cards(
         ValueError: See ``strict`` above.
     """
     from osprey.deployment.web_terminals.render_naming import (
-        RENDER_KIND_APP,
         RENDER_KIND_TIER,
         render_kind_conflict,
     )
 
-    entries = roster_entries(web_terminals, strict=strict, app_titles=app_titles)
+    entries = roster_entries(web_terminals, strict=strict, shared_titles=shared_titles)
     normalized = [entry for entry in entries if not is_app_entry(entry)]
     apps = [entry for entry in entries if is_app_entry(entry)]
     app_names = frozenset(entry["name"] for entry in apps)
 
     renders_raw = web_terminals.get("renders")
     renders_catalog: dict[str, Any] = renders_raw if isinstance(renders_raw, dict) else {}
-    # A person's access level is a tier: only tier renders are a people
-    # catalog, and every app render joins the tier-or-app refusal below.
+    # Every login render is a candidate for a person's access level; a name
+    # `shared:` lists joins the tier-or-shared refusal below.
     tier_renders = {
         render_name: render
         for render_name, render in renders_catalog.items()
         if isinstance(render, dict) and render.get("kind") == RENDER_KIND_TIER
     }
-    app_names = app_names | frozenset(
-        render_name
-        for render_name, render in renders_catalog.items()
-        if isinstance(render, dict) and render.get("kind") == RENDER_KIND_APP
-    )
     candidate = web_terminals.get("default_tier")
     default_tier_name = candidate if isinstance(candidate, str) and candidate else None
 
@@ -3311,20 +3305,15 @@ def resolve_cards(
             source,
         )
 
-    # Every name the roster uses as a tier, for the app half of the
-    # tier-or-app refusal: each person's binding, the default, every role's
-    # target, and each tier the build's render projection lists.
+    # Every name the roster uses as a tier, for the shared half of the
+    # tier-or-shared refusal: each person's binding, the default and every
+    # role's target.
     tier_names: set[str] = {
         render_ref_by_name.get(entry["name"]) or default_tier_name or "" for entry in normalized
     }
     if default_tier_name is not None:
         tier_names.add(default_tier_name)
     tier_names.update(target for target in authorization_roles.values() if target)
-    tier_names.update(
-        render_name
-        for render_name, render in renders_catalog.items()
-        if isinstance(render, dict) and render.get("kind") == RENDER_KIND_TIER
-    )
     tier_names.discard("")
 
     resolved: list[dict[str, Any]] = []
@@ -3334,7 +3323,7 @@ def resolve_cards(
         render_ref = render_ref_by_name.get(name) or default_tier_name
 
         if render_ref is not None:
-            conflict = render_kind_conflict(render_ref, RENDER_KIND_TIER, apps=app_names)
+            conflict = render_kind_conflict(render_ref, RENDER_KIND_TIER, shared=app_names)
             if conflict is not None:
                 if strict:
                     raise ValueError(f"user {name!r}: {conflict}")
@@ -3465,7 +3454,7 @@ def _resolve_app_card(
             cannot be named.
     """
     from osprey.deployment.web_terminals.render_naming import (
-        RENDER_KIND_APP,
+        RENDER_KIND_SHARED,
         render_kind_conflict,
         render_project,
     )
@@ -3486,10 +3475,10 @@ def _resolve_app_card(
         "access": app_entry["access"],
     }
 
-    problem = render_kind_conflict(name, RENDER_KIND_APP, tiers=tier_names, apps=app_names)
+    problem = render_kind_conflict(name, RENDER_KIND_SHARED, tiers=tier_names, shared=app_names)
     project: str | None = None
     if problem is None and isinstance(project_name, str) and project_name:
-        project, _ = render_project(project_name, name, kind=RENDER_KIND_APP, tiers=tier_names)
+        project, _ = render_project(project_name, name, kind=RENDER_KIND_SHARED, tiers=tier_names)
     elif problem is None:
         cataloged = catalog_entry.get("project")
         if isinstance(cataloged, str) and cataloged:

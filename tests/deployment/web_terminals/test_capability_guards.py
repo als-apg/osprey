@@ -259,7 +259,7 @@ class TestRenderPrivileges:
 
 
 def _bundled_layer_config(name: str) -> dict[str, Any]:
-    """The ``config:`` block of a bundled tier or app file (``tiers/<n>``, ``apps/<n>``)."""
+    """The ``config:`` block of a bundled login file (``tiers/<n>``)."""
     from osprey.cli.build_profile_presets import _presets_dir
 
     document = yaml.safe_load((_presets_dir() / f"{name}.yml").read_text(encoding="utf-8"))
@@ -267,7 +267,7 @@ def _bundled_layer_config(name: str) -> dict[str, Any]:
 
 
 class TestShippedPresetPrivileges:
-    """The bundled tiers and apps, judged as they resolve over the shipped base."""
+    """The bundled logins, judged as they resolve over the shipped base."""
 
     @pytest.mark.parametrize(
         "layer",
@@ -275,9 +275,9 @@ class TestShippedPresetPrivileges:
             None,
             "tiers/readonly",
             "tiers/readwrite",
-            "apps/logbook",
-            "apps/knowledge",
-            "apps/channel-finder",
+            "tiers/logbook",
+            "tiers/knowledge",
+            "tiers/channel-finder",
         ],
     )
     def test_unprivileged_tiers(self, layer: str | None):
@@ -454,11 +454,11 @@ def _shipped_host_config() -> dict[str, Any]:
 
 
 def _shipped_profile_root() -> Path:
-    """The directory the shipped preset lives in, with its bundled `tiers/` and `apps/`.
+    """The directory the shipped preset lives in, with its bundled `tiers/`.
 
-    A profile carries no catalog: at profile altitude the lint reads the tier
-    and app files beside the profile, so the shipped host is linted against
-    the bundled ones.
+    A profile carries no catalog: at profile altitude the lint reads the login
+    files beside the profile, so the shipped host is linted against the
+    bundled ones.
     """
     from osprey.cli.build_profile_presets import _presets_dir
 
@@ -482,9 +482,9 @@ class TestRenderProfileTextsGuard:
             "tiers/admin.yml",
             "tiers/readonly.yml",
             "tiers/readwrite.yml",
-            "apps/channel-finder.yml",
-            "apps/knowledge.yml",
-            "apps/logbook.yml",
+            "tiers/channel-finder.yml",
+            "tiers/knowledge.yml",
+            "tiers/logbook.yml",
         }
 
     def test_privileged_default_tier_refuses_with_the_remedy(self):
@@ -515,7 +515,7 @@ class TestRenderProfileTextsGuard:
         """`logbook` keeps its shared card — the guard is about privilege, not sharing."""
         config = _shipped_host_config()
         texts = _render_texts(config)
-        assert {"apps/logbook.yml", "apps/knowledge.yml"} <= set(texts)
+        assert {"tiers/logbook.yml", "tiers/knowledge.yml"} <= set(texts)
 
     def test_a_floorless_host_preset_refuses_the_shared_card_too(self):
         """This guard used to be fed one baseline-RELATIVE map for both its

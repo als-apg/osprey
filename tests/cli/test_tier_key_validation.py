@@ -3,8 +3,10 @@
 Every layer is checked at parse, after the retired write keys are rewritten to
 the tier key, so a normalized document is checked too. Anything else — a
 boolean, a differently-cased string, ``yes``, ``null``, a list — is refused
-with an error naming the document and the two values. An app may only spell
-``never``. The ``--set`` layer is checked the same way.
+with an error naming the document and the two values. Whether a login may
+spell ``allowed`` is its audience's question (a login ``shared:`` names may
+not), judged where its render is composed. The ``--set`` layer is checked the
+same way.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import pytest
 from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_document import _parse_profile_document, _read_profile_document
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
 
@@ -43,7 +45,6 @@ _INVALID = {
 _KINDS = {
     "root": None,
     "tier": TIERS_DIRNAME,
-    "app": APPS_DIRNAME,
 }
 
 
@@ -134,12 +135,6 @@ def test_the_two_values_are_accepted(tmp_path, kind, value):
     assert raw["config"]["control_system"]["writes"] == value
 
 
-def test_an_app_may_spell_never(tmp_path):
-    path = _write(tmp_path, APPS_DIRNAME, "config:\n  control_system.writes: never\n")
-    raw = _read_profile_document(path, source="app.yml")
-    assert raw["config"]["control_system.writes"] == "never"
-
-
 @pytest.mark.parametrize(
     "text",
     [
@@ -147,25 +142,22 @@ def test_an_app_may_spell_never(tmp_path):
         "config:\n  control_system.writes: allowed\n",
     ],
 )
-def test_an_app_spelling_allowed_is_refused(tmp_path, text):
-    path = _write(tmp_path, APPS_DIRNAME, text)
-    with pytest.raises(BuildProfileError) as excinfo:
-        _read_profile_document(path, source="apps/viewer.yml")
-    message = str(excinfo.value)
-    assert "apps/viewer.yml" in message
-    assert "`control_system.writes: never`" in message
-    assert "app" in message
+def test_a_login_may_spell_allowed_at_parse(tmp_path, text):
+    """The parse point reads the tier; a shared login's seal refuses it later."""
+    path = _write(tmp_path, TIERS_DIRNAME, text)
+    raw = _read_profile_document(path, source="tiers/viewer.yml")
+    assert doc.validate_tier_key_value(raw, "tiers/viewer.yml") is None
 
 
-def test_a_normalized_app_reads_never_and_passes(tmp_path):
-    """The retired keys in an app normalize to ``never``, which the check then accepts."""
+def test_a_normalized_login_reads_its_retired_answer(tmp_path):
+    """The retired keys in a login normalize to the answer they give, which the check accepts."""
     path = _write(
         tmp_path,
-        APPS_DIRNAME,
+        TIERS_DIRNAME,
         "config:\n  control_system:\n    writes_enabled: true\n",
     )
-    raw = _read_profile_document(path, source="app.yml")
-    assert raw["config"]["control_system"]["writes"] == "never"
+    raw = _read_profile_document(path, source="tiers/viewer.yml")
+    assert raw["config"]["control_system"]["writes"] == "allowed"
 
 
 def test_a_normalized_tier_reads_allowed_and_passes(tmp_path):

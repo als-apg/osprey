@@ -9,6 +9,8 @@ import json
 
 import pytest
 
+from tests.hooks.conftest import error_response
+
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_ERROR_CONFIG = {
     "server_prefixes": [
@@ -20,32 +22,6 @@ DEFAULT_ERROR_CONFIG = {
     ],
     "approval_prefixes": [],
 }
-
-# -- Structured error envelope (matches common.make_error) --
-
-
-def _make_error_response(error_type, message, suggestions=None):
-    """Build the post-migration OSPREY error response: a CallToolResult-shaped
-    dict (``isError=True`` with the structured envelope inside the first
-    text content block) — mirrors what the SDK actually delivers to PostToolUse.
-    """
-    return {
-        "isError": True,
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps(
-                    {
-                        "error": True,
-                        "error_type": error_type,
-                        "error_message": message,
-                        "suggestions": suggestions or [],
-                    }
-                ),
-            }
-        ],
-    }
-
 
 # -- Positive detection tests --
 
@@ -204,7 +180,7 @@ def test_structured_error_injects_class_guidance(
         tool_name,
         tool_input,
         config_path=config,
-        tool_response=_make_error_response(error_type, message),
+        tool_response=error_response(error_type, message),
         hook_config=DEFAULT_ERROR_CONFIG,
     )
 
@@ -238,7 +214,7 @@ def test_switch_and_refusal_types_do_not_fall_through_to_internal(
         "mcp__controls__channel_write",
         {"channel": "SR:TEST:SP", "value": 1.0},
         config_path=config,
-        tool_response=_make_error_response(
+        tool_response=error_response(
             error_type,
             f"rendered as {error_type}",
         ),
@@ -277,7 +253,7 @@ def test_non_osprey_tool_no_output(hook_runner, make_config):
         "some_other_tool",
         {"param": "value"},
         config_path=config,
-        tool_response=_make_error_response("internal_error", "kaboom"),
+        tool_response=error_response("internal_error", "kaboom"),
         hook_config=DEFAULT_ERROR_CONFIG,
     )
 
@@ -346,7 +322,7 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
-        tool_response=_make_error_response(
+        tool_response=error_response(
             "connection_error",
             "Control system unreachable",
         ),
@@ -380,7 +356,7 @@ def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
         "mcp__my_plc__read_sensor",
         {"sensor": "temp_1"},
         config_path=config,
-        tool_response=_make_error_response(
+        tool_response=error_response(
             "connection_error",
             "PLC at 10.0.1.50 unreachable",
         ),
@@ -401,18 +377,6 @@ def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
 # to pin the parts that text cannot show: the exact return tuple, which
 # response shapes are rejected outright, and the contents of the class table.
 # ============================================================================
-
-
-@pytest.fixture
-def error_guidance(hook_module):
-    """The hook module, imported in-process through the conftest seam.
-
-    Called here rather than at module scope: importing a hook mutates
-    ``sys.path`` and touches ``osprey_hook_log``'s config caches, and the audit
-    in ``tests/infrastructure/test_import_time_audit.py`` forbids doing that
-    while a test module is being collected.
-    """
-    return hook_module("osprey_error_guidance")
 
 
 #: The error_type -> class table the hook is expected to ship with, restated
@@ -553,9 +517,9 @@ def test_error_class_map_values_are_documented_classes(error_guidance):
 )
 def test_detect_error_classifies_each_mapped_type(error_guidance, error_type, expected_class):
     """Each mapped error_type resolves to its class, with the envelope message."""
-    response = _make_error_response(error_type, "the failure message")
+    response = error_response(error_type, "the failure message")
 
-    assert error_guidance._detect_error(response) == (expected_class, "the failure message")
+    assert error_guidance._detect_error(response) == (expected_class, "the failure message", None)
 
 
 @pytest.mark.parametrize(
@@ -565,9 +529,9 @@ def test_detect_error_classifies_each_mapped_type(error_guidance, error_type, ex
 )
 def test_detect_error_unmapped_type_falls_back_to_internal(error_guidance, error_type):
     """An error_type outside the table is still reported, as Internal."""
-    response = _make_error_response(error_type, "unrecognised failure")
+    response = error_response(error_type, "unrecognised failure")
 
-    assert error_guidance._detect_error(response) == ("Internal", "unrecognised failure")
+    assert error_guidance._detect_error(response) == ("Internal", "unrecognised failure", None)
 
 
 def test_detect_error_missing_error_type_falls_back_to_internal(error_guidance):
@@ -577,7 +541,7 @@ def test_detect_error_missing_error_type_falls_back_to_internal(error_guidance):
         "content": [{"type": "text", "text": json.dumps({"error": True, "error_message": "boom"})}],
     }
 
-    assert error_guidance._detect_error(response) == ("Internal", "boom")
+    assert error_guidance._detect_error(response) == ("Internal", "boom", None)
 
 
 def test_detect_error_without_message_reports_the_whole_envelope(error_guidance):
@@ -589,7 +553,7 @@ def test_detect_error_without_message_reports_the_whole_envelope(error_guidance)
     envelope = {"error": True, "error_type": "connection_error"}
     response = {"isError": True, "content": [{"type": "text", "text": json.dumps(envelope)}]}
 
-    error_class, message = error_guidance._detect_error(response)
+    error_class, message, _ = error_guidance._detect_error(response)
 
     assert error_class == "Connection"
     assert "connection_error" in message
@@ -619,7 +583,7 @@ def test_detect_error_scans_past_blocks_that_are_not_the_envelope(error_guidance
         ],
     }
 
-    assert error_guidance._detect_error(response) == ("Data", "nothing matched")
+    assert error_guidance._detect_error(response) == ("Data", "nothing matched", None)
 
 
 @pytest.mark.parametrize(
@@ -642,12 +606,16 @@ def test_detect_error_without_envelope_still_reports_internal(error_guidance, co
     """
     response = {"isError": True, "content": content}
 
-    assert error_guidance._detect_error(response) == ("Internal", "Tool returned an error")
+    assert error_guidance._detect_error(response) == ("Internal", "Tool returned an error", None)
 
 
 def test_detect_error_without_content_key_reports_internal(error_guidance):
     """A missing content list is the same case as an empty one."""
-    assert error_guidance._detect_error({"isError": True}) == ("Internal", "Tool returned an error")
+    assert error_guidance._detect_error({"isError": True}) == (
+        "Internal",
+        "Tool returned an error",
+        None,
+    )
 
 
 def test_detect_error_ignores_a_serialised_envelope(error_guidance):
@@ -662,7 +630,7 @@ def test_detect_error_ignores_a_serialised_envelope(error_guidance):
         {"error": True, "error_type": "connection_error", "error_message": "IOC offline"}
     )
 
-    assert error_guidance._detect_error(serialised) == (None, None)
+    assert error_guidance._detect_error(serialised) == (None, None, None)
 
 
 @pytest.mark.parametrize(
@@ -704,7 +672,7 @@ def test_detect_error_ignores_non_error_responses(error_guidance, tool_response)
     CallToolResult protocol, and guessing at its intent would inject error
     guidance into calls that succeeded.
     """
-    assert error_guidance._detect_error(tool_response) == (None, None)
+    assert error_guidance._detect_error(tool_response) == (None, None, None)
 
 
 # ============================================================================

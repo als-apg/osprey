@@ -7,10 +7,11 @@ no independent reader. A rendered config comes from two places, and the
 guard reads both: the framework template
 (``templates/project/config.yml.j2``), which writes only what the BUILD derives,
 and the ``config:`` block of each shipped root preset, which is the operator's
-own document and holds everything else. Each bundled app
-(``presets/apps/*.yml``) is a third kind of document: its ``config:`` is
-composed over a host root preset exactly as a build composes an app render, so
-a key only an app states has its writer in the union. The manifest also records the keys this
+own document and holds everything else. Each bundled shared login
+(``render_contexts.shared``, ``lists: own`` files in ``presets/tiers/``) is a
+third kind of document: its ``config:`` is composed over a host root preset
+exactly as a build composes a shared login's render, so a key only a shared
+login states has its writer in the union. The manifest also records the keys this
 branch deleted, the code sites that went with them, and the assets whose
 continued existence is load-bearing.
 
@@ -400,15 +401,15 @@ class ConfigKeyGuard:
 
     @property
     def app_rels(self) -> list[str]:
-        """Every app file the ``render_contexts.apps`` globs name, sorted."""
+        """Every shared login file the ``render_contexts.shared`` globs name, sorted."""
         found: set[str] = set()
-        for pattern in self.manifest["render_contexts"].get("apps") or []:
+        for pattern in self.manifest["render_contexts"].get("shared") or []:
             found.update(path.relative_to(self.root).as_posix() for path in self.root.glob(pattern))
         return sorted(found)
 
     @property
     def app_host(self) -> str:
-        """The root preset every app is composed over (``render_contexts.host``)."""
+        """The root preset every shared login is composed over (``render_contexts.host``)."""
         return self.manifest["render_contexts"]["host"]
 
     def framework_base(self) -> dict[str, Any]:
@@ -546,19 +547,20 @@ class ConfigKeyGuard:
         return self._stated
 
     def resolved_apps(self) -> dict[str, tuple[Any, dict[str, Any]]]:
-        """app name -> (composed profile, its composed ``config:`` as a nested mapping).
+        """login name -> (composed profile, its composed ``config:`` as a nested mapping).
 
-        Each app is composed through the resolver's app branch, the one
-        ``osprey build`` takes for ``apps/<name>.yml``: a scratch deployment
-        whose ``profile.yml`` extends the host preset, with the app file copied
-        beside it under ``apps/``. The composed ``config:`` is the host's facts
-        with the app's own ``config:`` over them and every write switch pinned
-        off, so a key only an app states (a server switch the host leaves at
+        Each shared login is composed the way ``osprey build`` composes
+        ``tiers/<name>.yml`` named by ``shared:``: a scratch deployment whose
+        ``profile.yml`` extends the host preset and lists the login under
+        ``modules.web_terminals.shared``, with the login file copied beside it
+        under ``tiers/``. The composed ``config:`` is the host's facts with the
+        login's own ``config:`` over them and every write switch pinned off, so
+        a key only a shared login states (a server switch the host leaves at
         its default, the title-bar picker) is written here and nowhere else.
         :func:`layout_port_fill` is applied as for a root preset.
 
-        The app files are read from ``self.root``; the host preset, like every
-        root preset, from the installed package.
+        The login files are read from ``self.root``; the host preset, like
+        every root preset, from the installed package.
         """
         if self._apps is not None:
             return self._apps
@@ -568,7 +570,7 @@ class ConfigKeyGuard:
         from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
         from osprey.port_layout import DEFAULT_PORT_BASE
-        from osprey.utils.workspace import APPS_DIRNAME
+        from osprey.utils.workspace import TIERS_DIRNAME
 
         host = preset_id(self.app_host)
         roots = {preset_id(rel) for rel in self.preset_rels}
@@ -580,13 +582,22 @@ class ConfigKeyGuard:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             (repo / "data").mkdir()
-            (repo / "profile.yml").write_text(yaml.safe_dump({"extends": host, "data": "data"}))
-            (repo / APPS_DIRNAME).mkdir()
+            shared = [preset_id(rel) for rel in self.app_rels]
+            (repo / "profile.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "extends": host,
+                        "data": "data",
+                        "config": {"modules.web_terminals.shared": shared},
+                    }
+                )
+            )
+            (repo / TIERS_DIRNAME).mkdir()
             for rel in self.app_rels:
                 name = preset_id(rel)
                 if name in roots:
-                    raise ValueError(f"app {rel} shares its name with a root preset")
-                target = repo / APPS_DIRNAME / Path(rel).name
+                    raise ValueError(f"shared login {rel} shares its name with a root preset")
+                target = repo / TIERS_DIRNAME / Path(rel).name
                 shutil.copyfile(self.root / rel, target)
                 profile, _root = resolve_build_profile(target, None)
                 overlay = dict(profile.config)
@@ -602,8 +613,8 @@ class ConfigKeyGuard:
         Three kinds of source. ``framework`` is the framework template once per
         matrix cell. Each root preset is its resolved ``config:`` block — the
         half of a rendered config the operator owns, which no template renders.
-        Each app is its ``config:`` composed over the host preset
-        (:meth:`resolved_apps`), under the app's own name.
+        Each shared login is its ``config:`` composed over the host preset
+        (:meth:`resolved_apps`), under the login's own name.
         """
         if self._rendered is not None:
             return self._rendered
@@ -709,11 +720,11 @@ class ConfigKeyGuard:
         framework side. Reading the ``config:`` block alone would resolve every
         preset's servers against a pipeline mode of ``None``.
 
-        For an app it is the host's framework render, host config and app config:
-        the composed profile carries the host's fields except the ones the app
-        file owns (its channel-finder mode, panels and lists), and its composed
-        ``config:`` is the host's facts with the app's over them — the render a
-        build of ``apps/<name>.yml`` writes.
+        For a shared login it is the host's framework render, host config and
+        login config: the composed profile carries the host's fields except the
+        ones the login file owns (its channel-finder mode, panels and lists), and
+        its composed ``config:`` is the host's facts with the login's over them —
+        the render a build of ``tiers/<name>.yml`` writes.
         """
         if name == FRAMEWORK_SOURCE:
             env = self._jinja_env()

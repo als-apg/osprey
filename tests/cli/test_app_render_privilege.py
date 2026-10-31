@@ -1,10 +1,11 @@
-"""An app render holds no deployment-editing privilege, whatever the host sets.
+"""A shared login's render holds no deployment-editing privilege, whatever the host sets.
 
 One door table (:data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS`)
-names every way a render can edit the deployment it runs in. The composer closes
-every door, :func:`~osprey.deployment.web_terminals.lint.lint_app_render` checks
-every door, and init, lint and the build read a render's privileges off one
-per-kind document, :func:`~osprey.cli.build_profile_merge.render_document`.
+names every way a render can edit the deployment it runs in. The seal of a login
+``modules.web_terminals.shared`` names closes every door,
+:func:`~osprey.deployment.web_terminals.lint.lint_shared_render` checks every
+door, and init, lint and the build read a render's privileges off one document,
+:func:`~osprey.cli.build_profile_merge.render_document`.
 """
 
 from __future__ import annotations
@@ -15,10 +16,9 @@ from typing import Any
 
 import pytest
 
-from osprey.cli.build_profile_merge import compose_app_render, render_document
-from osprey.cli.profile_root import ProfileKind
+from osprey.cli.build_profile_merge import render_document
 from osprey.deployment.web_terminals import lint
-from osprey.deployment.web_terminals.lint import lint_app_render, lint_profile_config
+from osprey.deployment.web_terminals.lint import lint_profile_config, lint_shared_render
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
     DEPLOYMENT_EDIT_DOORS,
@@ -30,12 +30,21 @@ from osprey.deployment.web_terminals.roster import (
 from osprey_connectors.errors import BuildProfileError
 
 _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
-_CODE = "web_terminals.app_render_holds_privilege"
+_CODE = "web_terminals.shared_render_holds_privilege"
 _PANEL = "web.config_panel.enabled"
 _GALLERY = "web.scaffold_gallery.write_enabled"
 _DENY = "claude_code.permissions.deny"
 _SHIPPED_APPS = ("logbook", "knowledge", "channel-finder")
 _WRITES = "control_system.writes"
+
+
+def compose_shared(host: dict[str, Any], login: dict[str, Any], rel: str) -> dict[str, Any]:
+    """The render of the `lists: own` login at *rel*, named by the host's ``shared:``."""
+    host = copy.deepcopy(host)
+    config = dict(host.get("config") or {})
+    config["modules.web_terminals.shared"] = [Path(rel).stem]
+    host["config"] = config
+    return render_document(host, {"lists": "own", **copy.deepcopy(login)}, rel)
 
 
 def _pinned_render(**config: Any) -> dict[str, Any]:
@@ -107,7 +116,7 @@ def test_a_host_and_app_opening_every_door_compose_to_no_privilege() -> None:
     }
     app = {"name": "Logbook", "config": {_GALLERY: True}}
 
-    render = compose_app_render(host, app, "apps/logbook.yml")
+    render = compose_shared(host, app, "tiers/logbook.yml")
 
     assert tier_privileges(render["config"]) == ()
     assert render["config"][_PANEL] is False
@@ -118,7 +127,7 @@ def test_a_host_and_app_opening_every_door_compose_to_no_privilege() -> None:
 def test_the_host_floor_denies_survive_the_door_pin() -> None:
     host = {"config": {_DENY: ["mcp__other__tool"]}}
 
-    render = compose_app_render(host, {"name": "Logbook"}, "apps/logbook.yml")
+    render = compose_shared(host, {"name": "Logbook"}, "tiers/logbook.yml")
 
     assert render["config"][_DENY] == ["mcp__other__tool", _SETUP_PATCH]
 
@@ -127,7 +136,7 @@ def test_an_app_that_lifts_the_setup_deny_is_refused_with_the_new_code_message()
     app = {"name": "Logbook", "config": {"claude_code.permissions.remove_deny": [_SETUP_PATCH]}}
 
     with pytest.raises(BuildProfileError, match="must not be able to write or edit the deployment"):
-        compose_app_render({"config": {}}, app, "apps/logbook.yml")
+        compose_shared({"config": {}}, app, "tiers/logbook.yml")
 
 
 # ── the write posture an app render holds ───────────────────────────────────
@@ -145,7 +154,7 @@ def test_an_app_that_lifts_the_setup_deny_is_refused_with_the_new_code_message()
     ids=["silent", "tier-dotted", "tier-nested", "retired-flat", "retired-per-type"],
 )
 def test_every_app_render_pins_never_and_no_retired_leaf(host_config: dict) -> None:
-    render = compose_app_render({"config": host_config}, {"name": "Logbook"}, "apps/logbook.yml")
+    render = compose_shared({"config": host_config}, {"name": "Logbook"}, "tiers/logbook.yml")
 
     config = render["config"]
     assert config[_WRITES] == "never"
@@ -154,7 +163,7 @@ def test_every_app_render_pins_never_and_no_retired_leaf(host_config: dict) -> N
     connector = config.get("control_system.connector")
     if connector is not None:
         assert connector == {"epics": {"timeout_s": 5.0}}
-    assert lint_app_render(render) == []
+    assert lint_shared_render(render) == []
 
 
 def test_an_old_key_app_that_arms_renders_never_with_a_warning(
@@ -166,11 +175,13 @@ def test_an_old_key_app_that_arms_renders_never_with_a_warning(
     }
 
     with caplog.at_level("WARNING"):
-        render = compose_app_render({"config": {}}, app, "apps/arming-logbook.yml")
+        render = compose_shared({"config": {}}, app, "tiers/arming-logbook.yml")
 
     assert render["config"][_WRITES] == "never"
     assert not [k for k in render["config"] if k.endswith("writes_enabled")]
-    warned = [r.getMessage() for r in caplog.records if "apps/arming-logbook.yml" in r.getMessage()]
+    warned = [
+        r.getMessage() for r in caplog.records if "tiers/arming-logbook.yml" in r.getMessage()
+    ]
     assert len(warned) == 1, caplog.text
     assert f"`{_WRITES}: never`" in warned[0]
 
@@ -181,10 +192,10 @@ def test_an_old_key_app_that_does_not_arm_renders_never_silently(
     app = {"name": "Logbook", "config": {"control_system.writes_enabled": False}}
 
     with caplog.at_level("WARNING"):
-        render = compose_app_render({"config": {}}, app, "apps/quiet-logbook.yml")
+        render = compose_shared({"config": {}}, app, "tiers/quiet-logbook.yml")
 
     assert render["config"][_WRITES] == "never"
-    assert "apps/quiet-logbook.yml" not in caplog.text
+    assert "tiers/quiet-logbook.yml" not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -195,24 +206,24 @@ def test_an_old_key_app_that_does_not_arm_renders_never_silently(
 def test_an_app_spelling_allowed_is_refused(app_config: dict) -> None:
     app = {"name": "Logbook", "config": app_config}
 
-    with pytest.raises(BuildProfileError, match="an app is always `control_system.writes: never`"):
-        compose_app_render({"config": {}}, app, "apps/logbook.yml")
+    with pytest.raises(BuildProfileError, match="cannot spell `control_system.writes: allowed`"):
+        compose_shared({"config": {}}, app, "tiers/logbook.yml")
 
 
 def test_an_app_spelling_never_composes() -> None:
     app = {"name": "Logbook", "config": {"control_system": {"writes": "never"}}}
 
-    render = compose_app_render({"config": {}}, app, "apps/logbook.yml")
+    render = compose_shared({"config": {}}, app, "tiers/logbook.yml")
 
     assert render["config"][_WRITES] == "never"
     assert "control_system" not in render["config"]
 
 
-# ── lint_app_render checks every door ───────────────────────────────────────
+# ── lint_shared_render checks every door ────────────────────────────────────
 
 
 def test_a_render_with_every_door_closed_passes() -> None:
-    assert lint_app_render(_pinned_render()) == []
+    assert lint_shared_render(_pinned_render()) == []
 
 
 @pytest.mark.parametrize(
@@ -226,7 +237,7 @@ def test_a_render_with_every_door_closed_passes() -> None:
     ids=["setup-tool", "config-panel", "gallery-writes", "panel-quoted-false"],
 )
 def test_one_open_door_is_refused(render: dict, named: str) -> None:
-    findings = lint_app_render(render)
+    findings = lint_shared_render(render)
 
     assert _codes(findings) == [_CODE]
     assert named in findings[0].message
@@ -237,7 +248,7 @@ def test_a_door_no_spelling_pins_is_refused(door: str) -> None:
     render = _pinned_render()
     del render["config"][door]
 
-    findings = lint_app_render(render)
+    findings = lint_shared_render(render)
 
     assert _codes(findings) == [_CODE]
     assert f"{door} is not pinned to false" in findings[0].message
@@ -246,7 +257,7 @@ def test_a_door_no_spelling_pins_is_refused(door: str) -> None:
 def test_a_second_open_spelling_beside_the_pin_is_refused() -> None:
     render = _pinned_render(web={"config_panel": {"enabled": True}})
 
-    findings = lint_app_render(render)
+    findings = lint_shared_render(render)
 
     assert _codes(findings) == [_CODE]
     assert PRIVILEGE_CONFIG_PANEL in findings[0].message
@@ -255,35 +266,34 @@ def test_a_second_open_spelling_beside_the_pin_is_refused() -> None:
 def test_a_scalar_at_the_door_section_is_refused() -> None:
     render = _pinned_render(**{"web.scaffold_gallery": True})
 
-    findings = lint_app_render(render)
+    findings = lint_shared_render(render)
 
     assert _codes(findings) == [_CODE]
     assert "web.scaffold_gallery is True" in findings[0].message
 
 
 def test_a_hand_edited_render_with_the_panel_on_is_refused() -> None:
-    render = compose_app_render({"config": {}}, {"name": "Logbook"}, "apps/logbook.yml")
+    render = compose_shared({"config": {}}, {"name": "Logbook"}, "tiers/logbook.yml")
     render["config"][_PANEL] = True
 
-    findings = lint_app_render(render)
+    findings = lint_shared_render(render)
 
     assert _codes(findings) == [_CODE]
     assert findings[0].message.startswith(
-        "An app render must not be able to write or edit the deployment, and this one can: "
+        "A shared login's render must not be able to write or edit the deployment, and this "
+        "one can: "
     )
 
 
 # ── one per-kind render document ────────────────────────────────────────────
 
 
-def test_render_document_composes_an_app_and_merges_a_tier() -> None:
+def test_render_document_seals_a_shared_login_and_merges_a_tier() -> None:
     host = {"config": {_DENY: [], _PANEL: True}, "hooks": ["target-state"]}
     layer = {"name": "Layer", "config": {_GALLERY: True}}
 
-    app = render_document(ProfileKind.APP, copy.deepcopy(host), copy.deepcopy(layer), "apps/x.yml")
-    tier = render_document(
-        ProfileKind.TIER, copy.deepcopy(host), copy.deepcopy(layer), "tiers/x.yml"
-    )
+    app = compose_shared(host, layer, "tiers/x.yml")
+    tier = render_document(copy.deepcopy(host), copy.deepcopy(layer), "tiers/x.yml")
 
     assert tier_privileges(app["config"]) == ()
     assert "writes-check" in app["hooks"]
@@ -380,15 +390,22 @@ def test_a_set_edit_on_an_app_build_stays_pinned(pair: str, tmp_path: Path) -> N
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     (repo / "profile.yml").write_text(
-        yaml.safe_dump({"name": "Facility", "data": "data", "config": {_WRITES: "allowed"}}),
+        yaml.safe_dump(
+            {
+                "name": "Facility",
+                "data": "data",
+                "config": {_WRITES: "allowed", "modules.web_terminals.shared": ["logbook"]},
+            }
+        ),
         encoding="utf-8",
     )
-    app = repo / "apps" / "logbook.yml"
+    app = repo / "tiers" / "logbook.yml"
     app.parent.mkdir()
     app.write_text(
         yaml.safe_dump(
             {
                 "name": "Logbook",
+                "lists": "own",
                 "claude_md_template": "CLAUDE.logbook.md.j2",
                 "hooks": [],
                 "config": {"claude_code.servers.controls.enabled": False},
@@ -400,5 +417,5 @@ def test_a_set_edit_on_an_app_build_stays_pinned(pair: str, tmp_path: Path) -> N
     loaded = resolve_build_document(app, None, (), (pair,))
 
     render = {"hooks": loaded.profile.hooks, "config": loaded.profile.config}
-    assert lint_app_render(render) == []
+    assert lint_shared_render(render) == []
     assert loaded.profile.config[_WRITES] == "never"

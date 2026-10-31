@@ -104,7 +104,14 @@ from osprey_connectors.simulation.texture import (
     channel_variable,
     is_float_channel,
 )
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, Model, SimulatorView
+from osprey_connectors.simulation.view import (
+    MONITOR,
+    SEEDS_FILE,
+    SETPOINT,
+    VARIABLES_FILE,
+    Model,
+    SimulatorView,
+)
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 __all__ = [
@@ -138,8 +145,6 @@ _LOG_RECORD_MAX_BYTES = 4096
 UDF = "udf"
 
 _ELLIPSIS = "…"
-_SETPOINT = "setpoint"
-_MONITOR = "monitor"
 _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
@@ -339,7 +344,7 @@ class Composite(LUMEModel):
         )
         groups: dict[str, list[str]] = {}
         for binding in source.bindings:
-            if binding.role == _MONITOR and binding.element is not None:
+            if binding.role == MONITOR and binding.element is not None:
                 groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         return _Child(
@@ -566,7 +571,7 @@ class Composite(LUMEModel):
             if fault is None or channel is None:
                 logger.warning(f"Ignoring channel fault {word!r} on {address!r}")
                 continue
-            if channel.get("role") != _SETPOINT:
+            if channel.get("role") != SETPOINT:
                 faulted[str(address)] = fault
                 continue
             if fault.write:
@@ -685,7 +690,7 @@ class Composite(LUMEModel):
 
     def _is_moving_readback(self, address: str) -> bool:
         channel = self._channels[address]
-        return channel.get("role") != _SETPOINT and is_float_channel(channel)
+        return channel.get("role") != SETPOINT and is_float_channel(channel)
 
     def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, Any]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""

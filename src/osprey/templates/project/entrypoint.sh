@@ -517,6 +517,21 @@ join_mounted_groups() {
 
     join_mounted_group OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}"
     probe_mounted_dir OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}" write
+
+    # An application container's declared state directories: one LIST,
+    # colon-separated, each entry joined and probed under the list's name.
+    # Split by parameter expansion rather than IFS, so neither the helpers'
+    # own reads nor a glob character in a path see a changed shell.
+    _app_rest="${OSPREY_APP_STATE_DIRS:-}"
+    while [ -n "$_app_rest" ]; do
+        _app_dir=${_app_rest%%:*}
+        case "$_app_rest" in
+            *:*) _app_rest=${_app_rest#*:} ;;
+            *) _app_rest='' ;;
+        esac
+        join_mounted_group OSPREY_APP_STATE_DIRS "$_app_dir"
+        probe_mounted_dir OSPREY_APP_STATE_DIRS "$_app_dir" write
+    done
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
@@ -543,7 +558,7 @@ join_mounted_groups() {
 # a container that will not start is worse than one whose state needs a
 # manual chown.
 #
-# NINE deliberate exceptions, pruned by name — every bind whose contents the
+# TEN deliberate exceptions, pruned by name — every bind whose contents the
 # dropped process reaches through GROUP MEMBERSHIP (the join above) and never
 # through ownership, so there is nothing to hand back:
 #
@@ -578,6 +593,9 @@ join_mounted_groups() {
 #                                 deletes under its own uid.
 #   * OSPREY_STATE_DIR            `var/state/<identity>/`: this container's own
 #                                 state, which the host reads.
+#   * OSPREY_APP_STATE_DIRS       `var/state/<identity>/<service>/`, a list: an
+#                                 application container's declared state
+#                                 directories, each pruned like the rest.
 #
 # Chowning any of them rewrites a host directory the operator owns and drops
 # the setgid group that the whole shared-group design rests on; the next
@@ -608,6 +626,17 @@ hand_back_state_zone() {
         # shape, and it gets no clause either: `-path` is an fnmatch PATTERN,
         # so a prune built from a missing path is dead weight in the predicate
         # that reads exactly like a working exclusion.
+        [ -n "$_hb_dir" ] || continue
+        [ -d "$_hb_dir" ] || continue
+        set -- "$@" -path "$_hb_dir" -prune -o
+    done
+    _hb_rest="${OSPREY_APP_STATE_DIRS:-}"
+    while [ -n "$_hb_rest" ]; do
+        _hb_dir=${_hb_rest%%:*}
+        case "$_hb_rest" in
+            *:*) _hb_rest=${_hb_rest#*:} ;;
+            *) _hb_rest='' ;;
+        esac
         [ -n "$_hb_dir" ] || continue
         [ -d "$_hb_dir" ] || continue
         set -- "$@" -path "$_hb_dir" -prune -o

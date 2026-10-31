@@ -380,6 +380,7 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     """
     import hashlib
 
+    from osprey.cli.application_material import app_build_output, application_dirs
     from osprey.cli.build_profile_merge import (
         _fold_source_tree,
         layer_fold_label,
@@ -392,9 +393,11 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
 
     digests: dict[str, str] = {}
 
-    def fold(key: str, label: str, source: Path, *, skip_runtime_output: bool = False) -> None:
+    def fold(
+        key: str, label: str, source: Path, *, skip_runtime_output: bool = False, skip=None
+    ) -> None:
         digest = hashlib.sha256()
-        _fold_source_tree(digest, label, source, skip_runtime_output=skip_runtime_output)
+        _fold_source_tree(digest, label, source, skip_runtime_output=skip_runtime_output, skip=skip)
         digests[f"{MATERIAL_PREFIX}{key}"] = digest.hexdigest()
 
     data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
@@ -427,6 +430,16 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     # operator edited. The same listing, and the same label, the fold uses.
     for _kind, layer in layer_files(profile_dir):
         fold(f"{layer.parent.name}/{layer.name}", layer_fold_label(layer), layer)
+
+    # Per application directory, minus the vendor files the build fetches into
+    # it: the same label and skip the fold uses.
+    for app_dir in application_dirs(profile_dir):
+        fold(
+            f"{app_dir.parent.name}/{app_dir.name}/",
+            f"app:{app_dir.name}",
+            app_dir,
+            skip=app_build_output(app_dir),
+        )
 
     return digests
 

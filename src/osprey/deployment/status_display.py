@@ -1236,18 +1236,25 @@ ARMED_SWITCH_WORDS = frozenset({"on", "asked", "allowed"})
 def _staged_login_tiers(repo_root):
     """The ``control_system`` section that carries the rendered login→tier map, or ``None``.
 
-    Read from the staged config of a tree-bound shared container
-    (``build/services/<svc>/config.yml``), the only place a build writes the
-    map; every copy carries the same one. ``None`` when no staged config
-    carries the leaf or none can be read.
+    Read from the staged config of a container that drives the target
+    (``build/services/<svc>/config.yml``, every service of the as-built config
+    that :func:`~osprey.deployment.compose_generator.drives_target_services`
+    names), the only place a build writes the map; every copy carries the same
+    one. ``None`` when no staged config carries the leaf or none can be read.
     """
-    from osprey.deployment.compose_generator import LOGIN_TIERS_SERVICES, SERVICES_DIR
+    from osprey.deployment.compose_generator import SERVICES_DIR, drives_target_services
     from osprey.deployment.container_lifecycle import as_built_config_path
     from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
     from osprey_connectors import yaml_loader
 
-    services = as_built_config_path(repo_root).parent / SERVICES_DIR
-    for service in sorted(LOGIN_TIERS_SERVICES):
+    as_built = as_built_config_path(repo_root)
+    try:
+        built_config = yaml_loader.safe_load(as_built.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("Could not read the as-built config %s", as_built, exc_info=True)
+        return None
+    services = as_built.parent / SERVICES_DIR
+    for service in drives_target_services(built_config if isinstance(built_config, dict) else {}):
         path = services / service / "config.yml"
         try:
             if not path.is_file():

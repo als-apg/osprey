@@ -64,7 +64,13 @@ class ChannelError(Exception):
     error: it is reported against its channel and nothing is restarted. It has
     no builtin base that another root shares, so no ``except ConnectionError``
     or ``except TimeoutError`` reads it as a lost connector.
+
+    ``commands_fired`` is set in process by a batch command writer when the
+    batch raised: the addresses, in order, that may have gone out. It is
+    ``None`` when no batch writer set it, and it is not a wire field.
     """
+
+    commands_fired: list[str] | None = None
 
     def __init__(self, channel_address: str, message: str):
         self.channel_address = channel_address

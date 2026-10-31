@@ -520,3 +520,116 @@ class TestServerDenylistFloor:
 
         # Assert
         assert _decision(result) == "deny"
+
+
+class TestRenderedAppToolDenylist:
+    """The worker's job denylist: the floor plus the render's ``dispatch.denied_app_tools``.
+
+    The list is read from the rendered config the worker was pointed at. Every case
+    writes its own render and points ``CONFIG_FILE`` at it, so none depends on the
+    host, and checks the result through the hook a real job is built with.
+    """
+
+    JOB_TOOLS = ["mcp__knob__set", "mcp__knob__get", "mcp__controls__channel_read"]
+
+    @staticmethod
+    def _render(tmp_path, monkeypatch, text):
+        config = tmp_path / "build" / "config.yml"
+        config.parent.mkdir(parents=True)
+        config.write_text(text)
+        monkeypatch.setenv("CONFIG_FILE", str(config))
+
+    async def _decisions(self):
+        from osprey.mcp_server.dispatch_worker import dispatch_api
+
+        hook = make_pretooluse_hook(
+            self.JOB_TOOLS, SURFACES, dispatch_api._denied_tools(self.JOB_TOOLS)
+        )
+        return {
+            tool: _decision(await hook(_main_input(tool), "t1", None)) for tool in self.JOB_TOOLS
+        }
+
+    async def test_a_listed_tool_is_denied_and_another_tool_of_its_app_is_not(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange
+        self._render(
+            tmp_path, monkeypatch, "dispatch:\n  denied_app_tools:\n    - mcp__knob__set\n"
+        )
+
+        # Act
+        decisions = await self._decisions()
+
+        # Assert — exactly the listed name, nothing else of the same app
+        assert decisions == {
+            "mcp__knob__set": "deny",
+            "mcp__knob__get": None,
+            "mcp__controls__channel_read": None,
+        }
+
+    async def test_a_missing_list_denies_every_tool_outside_the_framework_servers(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange — a render whose config carries no dispatch section at all
+        self._render(tmp_path, monkeypatch, "control_system:\n  type: mock\n")
+
+        # Act
+        decisions = await self._decisions()
+
+        # Assert
+        assert decisions["mcp__knob__set"] == "deny"
+        assert decisions["mcp__knob__get"] == "deny"
+        assert decisions["mcp__controls__channel_read"] is None
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "dispatch: [unclosed\n",
+            "dispatch: 3\n",
+            "dispatch:\n  denied_app_tools: mcp__knob__set\n",
+            "dispatch:\n  denied_app_tools:\n    - 7\n",
+            "dispatch:\n  denied_app_tools:\n    - mcp__knob__*\n",
+        ],
+        ids=["unparseable", "not-a-mapping", "not-a-list", "not-a-name", "a-wildcard"],
+    )
+    async def test_an_unreadable_list_fails_closed_the_same_way(self, tmp_path, monkeypatch, text):
+        # Arrange
+        self._render(tmp_path, monkeypatch, text)
+
+        # Act
+        decisions = await self._decisions()
+
+        # Assert
+        assert decisions["mcp__knob__set"] == "deny"
+        assert decisions["mcp__controls__channel_read"] is None
+
+    def test_failing_closed_needs_no_render_at_all(self, tmp_path, monkeypatch):
+        # Arrange — the worker was pointed at a config that does not exist
+        from osprey.mcp_server.dispatch_worker import dispatch_api
+
+        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+
+        # Act / Assert
+        assert dispatch_api._is_denied("mcp__knob__set") is True
+        assert dispatch_api._is_denied("mcp__controls__channel_read") is False
+
+    def test_failing_closed_denies_by_the_name_the_agent_cli_forms(self):
+        # Arrange — server segments as they arrive in tool names, already sanitized
+        from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS, dispatch_denied_tools
+
+        # Act
+        denied = dispatch_denied_tools(None, ["my_srv", "channel-finder", "controls"])
+
+        # Assert — one prefix entry per server outside the framework's own
+        assert denied - DISPATCH_DENIED_TOOLS == {"mcp__my_srv__*"}
+
+    def test_a_present_list_extends_the_floor_and_never_replaces_it(self):
+        # Arrange
+        from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS, dispatch_denied_tools
+
+        # Act
+        denied = dispatch_denied_tools(["mcp__knob__set"], ["knob"])
+
+        # Assert
+        assert denied == DISPATCH_DENIED_TOOLS | {"mcp__knob__set"}
+        assert dispatch_denied_tools([], ["knob"]) == DISPATCH_DENIED_TOOLS

@@ -289,6 +289,30 @@ def _channel_write_entry(staged: Staged) -> Any:
     return (True, None), _expected(case)
 
 
+def _app_tool_call(staged: Staged) -> Any:
+    """An application tool server's approved-call check, for an offered tool that asks nobody."""
+    case = staged.case
+    if not _ladder_pin_honoured(case):
+        return OUT_OF_DOMAIN
+    from osprey.apps.sdk import ApprovalRefused, _approval, check_approved_call
+    from osprey.audit.posture import recorded_control_target
+
+    if recorded_control_target() != case.target:
+        return OUT_OF_DOMAIN
+    config = {
+        "control_system": case.section,
+        "approval": {"enabled": True, "tools": {"mcp__surface__act": "skip"}},
+        "apps": {"surface": {"approval": {"act": {"app": "surface"}}}},
+    }
+    staged.monkeypatch.setenv(_approval.APP_NAME_ENV_VAR, "surface")
+    staged.monkeypatch.setattr(_approval, "load_osprey_config", lambda: config)
+    try:
+        check_approved_call("act", {})
+    except ApprovalRefused as error:
+        return (False, _refusal_reason(error)), _expected(case)
+    return (True, None), _expected(case)
+
+
 def _phoebus_drive(staged: Staged) -> Any:
     """phoebus_drive server-side: config section, the deployment baseline."""
     case = staged.case
@@ -649,6 +673,14 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=True,
         project=_control_context_hook,
+    ),
+    Surface(
+        "app-tool-call",
+        "osprey.apps.sdk._approval",
+        "write",
+        stage1=True,
+        reports_reason=True,
+        project=_app_tool_call,
     ),
 )
 

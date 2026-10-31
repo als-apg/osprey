@@ -125,7 +125,7 @@ def _remove_graph_app(project: Path) -> None:
     kept = [line for line in lines if not line.startswith(GRAPH_APP_SHARED_ENTRY + " ")]
     assert len(lines) - len(kept) == 1, "expected exactly one shared `knowledge` entry"
     profile_path.write_text("".join(kept))
-    app_file = project / "apps" / "knowledge.yml"
+    app_file = project / "tiers" / "knowledge.yml"
     assert app_file.is_file()
     app_file.unlink()
 

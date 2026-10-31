@@ -40,11 +40,17 @@ class ActionContext:
         owner: The account the run acts for, ``None`` when it acts for nobody.
         approved_target: The target the run was admitted on; a run is never
             admitted on one target and driven on another.
+        limits_off: Limits checking is explicitly off for ``target``: its
+            limits posture is complete and states ``enabled: false``. A fact
+            of the deployment, never the caller's: the lock refuses a context
+            whose ``limits_off`` is not what the target's posture says
+            (:func:`osprey.runtime.guarded_run.target_limits_off`).
     """
 
     target: str
     owner: str | None
     approved_target: str
+    limits_off: bool = False
 
 
 @dataclass(frozen=True)

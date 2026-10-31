@@ -19,7 +19,7 @@ from osprey.deployment.web_terminals.lint import (
     lint_web_terminals,
 )
 from osprey.port_layout import INDEX_MAX, default_port
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 _BASE = 20000
 _WEB_BASE = default_port("web", 0, base=_BASE)
@@ -28,8 +28,8 @@ _WEB_BASE = default_port("web", 0, base=_BASE)
 def _renders(**tiers: dict) -> dict:
     """The two shared apps every roster here carries, plus *tiers*."""
     return {
-        "logbook": app_render("logbook", "demo-logbook"),
-        "knowledge": app_render("knowledge", "demo-knowledge"),
+        "logbook": tier_render("logbook", "demo-logbook"),
+        "knowledge": tier_render("knowledge", "demo-knowledge"),
         **tiers,
     }
 
@@ -95,8 +95,8 @@ def test_rendered_config_without_renders_projection_does_not_judge_names() -> No
 # --- shared: entries ----------------------------------------------------------
 
 
-def test_unknown_shared_name_is_an_error_naming_scaffold_apps() -> None:
-    """A name with no app behind it has nothing to render, and the remedy says how."""
+def test_unknown_shared_name_is_an_error_naming_scaffold_tiers() -> None:
+    """A name with no login behind it has nothing to render, and the remedy says how."""
     # Arrange
     config = _config(shared=["logbook", "knowledge", "channel-finder"])
 
@@ -108,16 +108,16 @@ def test_unknown_shared_name_is_an_error_naming_scaffold_apps() -> None:
     assert findings[0].severity == "error"
     assert "'channel-finder'" in findings[0].message
     assert "'logbook'" not in findings[0].message
-    assert "`osprey scaffold apps`" in findings[0].message
+    assert "`osprey scaffold tiers`" in findings[0].message
 
 
-def test_profile_altitude_judges_shared_names_against_the_apps_directory(
+def test_profile_altitude_judges_shared_names_against_the_login_files(
     tmp_path: Path,
 ) -> None:
-    """At profile time the apps are the ``apps/<name>.yml`` files beside the profile."""
+    """At profile time the shared logins are the ``tiers/<name>.yml`` files beside the profile."""
     # Arrange
-    (tmp_path / "apps").mkdir()
-    (tmp_path / "apps" / "logbook.yml").write_text("name: Logbook Research\n")
+    (tmp_path / "tiers").mkdir()
+    (tmp_path / "tiers" / "logbook.yml").write_text("name: Logbook Research\nlists: own\n")
     profile_config = {
         "modules.web_terminals": {
             "enabled": True,
@@ -136,11 +136,11 @@ def test_profile_altitude_judges_shared_names_against_the_apps_directory(
     assert len(findings) == 1
     assert "'knowledge'" in findings[0].message
     assert "'logbook'" not in findings[0].message
-    assert "`osprey scaffold apps`" in findings[0].message
+    assert "`osprey scaffold tiers`" in findings[0].message
 
 
-def test_profile_altitude_with_no_apps_directory_reports_every_name(tmp_path: Path) -> None:
-    """No ``apps/`` at all backs no app, so every shared name is unknown."""
+def test_profile_altitude_with_no_tiers_directory_reports_every_name(tmp_path: Path) -> None:
+    """No ``tiers/`` at all backs no login, so every shared name is unknown."""
     # Arrange
     profile_config = {
         "modules.web_terminals": {
