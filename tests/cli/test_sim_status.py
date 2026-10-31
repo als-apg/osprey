@@ -86,7 +86,7 @@ def test_a_failing_sr_scenario_prints_the_engines_error(deployment: Path) -> Non
     result = _status(deployment)
 
     assert result.exit_code == 0, result.output
-    assert f"SR: {SR_ERROR}" in result.output.splitlines()
+    assert f"SR: scenario sr-broken: {SR_ERROR}" in result.output.splitlines()
 
 
 def test_the_printed_log_is_the_file_the_composite_appended_to(deployment: Path) -> None:
