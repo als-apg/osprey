@@ -102,6 +102,18 @@ export function stripQueryMode() {
 }
 
 /**
+ * Whether this page offers the Expert view. False only when the server stamped
+ * `data-expert-view="off"` on `<html>` (the web terminal, from
+ * `web.expert_view: false`); every other page, and every deployment that never
+ * set the key, offers both views. mode-boot.js mirrors this read inline.
+ *
+ * @returns {boolean}
+ */
+export function expertViewOffered() {
+  return document.documentElement.getAttribute('data-expert-view') !== 'off';
+}
+
+/**
  * Pick the Expert/Simple mode: persist the explicit choice, drop a leftover
  * one-shot `?mode=`, then broadcast it to this window for the page's
  * same-origin listener ({@link onModeChange}, every `<osprey-display-menu>`
@@ -117,10 +129,16 @@ export function stripQueryMode() {
  * receivers share `data-ui-mode` as their state and a receive-side compare
  * would silence every listener after the first.
  *
+ * On a page that offers no Expert view ({@link expertViewOffered}) a pick of
+ * `'expert'` does nothing at all — nothing is persisted and nothing is
+ * broadcast — so every caller (the display menu, the command palette, the
+ * chat's hand-off cancel) is covered by this one guard.
+ *
  * @param {'expert'|'simple'} mode
  * @returns {void}
  */
 export function pickUiMode(mode) {
+  if (mode === 'expert' && !expertViewOffered()) return;
   try {
     // Key resolved at write time, not at module load: the scope attribute is
     // a property of the document this call ended up in.
@@ -141,7 +159,8 @@ export function pickUiMode(mode) {
  * `{type: 'osprey-mode-change', mode}` to every embedded frame when the
  * operator flips the header toggle. This helper owns the receive side
  * once — it checks the message origin, normalizes the mode (`'simple'`,
- * anything else → `'expert'`), stamps `data-ui-mode` on `<html>`, then
+ * anything else → `'expert'`, or `'simple'` on a page that offers no Expert
+ * view), stamps `data-ui-mode` on `<html>`, then
  * invokes `callback(mode)` for the page's own follow-up (re-render, tab
  * fixup, ...). Pages whose Simple/Expert deltas are pure CSS pass no
  * callback.
@@ -166,7 +185,8 @@ export function onModeChange(callback) {
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
     if (!e.data || e.data.type !== 'osprey-mode-change' || !e.data.mode) return;
-    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    // A page that offers no Expert view reads every broadcast as Simple.
+    const mode = e.data.mode === 'simple' || !expertViewOffered() ? 'simple' : 'expert';
     let changed = modeChangeVerdicts.get(e);
     if (changed === undefined) {
       changed = document.documentElement.getAttribute('data-ui-mode') !== mode;

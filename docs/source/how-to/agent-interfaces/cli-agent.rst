@@ -144,11 +144,11 @@ as it was last rendered. ``--repo DIRECTORY`` names another one.
 .. code-block:: bash
 
    # The deployment you are standing in
-   cd ~/deployments/als-assistant
+   cd ~/deployments/my-assistant
    osprey query "List vacuum sections"
 
    # A deployment somewhere else
-   osprey query --repo ~/deployments/als-assistant "List vacuum sections"
+   osprey query --repo ~/deployments/my-assistant "List vacuum sections"
 
 When ``profile.yml`` or a file it points at has changed since that build, a
 warning on stderr says so and the query runs anyway. The command exits with
@@ -288,7 +288,7 @@ For a deployment not in the current directory:
 .. code-block:: bash
 
    osprey query \
-     --repo /opt/osprey/als-assistant \
+     --repo /opt/osprey/my-assistant \
      "List all vacuum sections" \
      || exit 1
 

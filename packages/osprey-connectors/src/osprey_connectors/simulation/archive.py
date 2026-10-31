@@ -310,8 +310,8 @@ class ArchiveComposite:
             float channel carries.
         anchor_s: The epoch seconds an ``at_offset`` event is placed from.
         tz: The zone a daily ``at_time`` event is placed in.
-        state: The directory holding ``composite``'s active set, kept as long
-            as the archive is.
+        state: The directory holding ``composite``'s active set, removed by
+            ``close``.
         pulses: Each pulsed waveform channel's ``pulse`` seed, by address: the
             ``driver`` and ``enable`` channels its trace is computed from.
 
@@ -350,6 +350,17 @@ class ArchiveComposite:
         self._state = state
         self._anchor_s = anchor_s
         self._tz = tz
+
+    def close(self) -> None:
+        """Remove the state directory, when the composite holds one; a second call does nothing."""
+        if self._state is not None:
+            self._state.cleanup()
+
+    def __enter__(self) -> ArchiveComposite:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     @property
     def addresses(self) -> list[str]:
@@ -610,32 +621,33 @@ def build(
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
     state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
-    (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
-        "".join(f"{name}\n" for name in names), encoding="utf-8"
-    )
-    composite = Composite(view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False)
-    held = composite.held(archived)
-    failed = {
-        model: status
-        for model in composite.models
-        if (status := composite.status(model)) != STATUS_OK
-    }
-    if failed:
-        state.cleanup()
-        raise RuntimeError(
-            "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
-        )
-
-    events = scenario_events(scenarios, composite.active)
-    pulses = {
-        address: seed["pulse"]
-        for address in archived
-        if channel_values.is_waveform(records[address].get("value_type"))
-        and (seed := view.seed(address)) is not None
-        and seed.get("pulse") is not None
-    }
-
     try:
+        (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
+            "".join(f"{name}\n" for name in names), encoding="utf-8"
+        )
+        composite = Composite(
+            view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False
+        )
+        held = composite.held(archived)
+        failed = {
+            model: status
+            for model in composite.models
+            if (status := composite.status(model)) != STATUS_OK
+        }
+        if failed:
+            raise RuntimeError(
+                "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
+            )
+
+        events = scenario_events(scenarios, composite.active)
+        pulses = {
+            address: seed["pulse"]
+            for address in archived
+            if channel_values.is_waveform(records[address].get("value_type"))
+            and (seed := view.seed(address)) is not None
+            and seed.get("pulse") is not None
+        }
+
         return ArchiveComposite(
             {address: records[address] for address in archived},
             held,
@@ -646,7 +658,7 @@ def build(
             state=state,
             pulses=pulses,
         )
-    except ValueError:
+    except BaseException:
         state.cleanup()
         raise
 

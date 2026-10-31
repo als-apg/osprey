@@ -340,7 +340,7 @@ def test_importing_the_entrypoint_loads_neither_the_server_nor_the_composite() -
         "print(sorted(heavy & set(sys.modules)))\n"
     )
     loaded = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=60
     ).stdout.strip()
 
     assert loaded == "[]"

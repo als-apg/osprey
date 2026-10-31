@@ -90,6 +90,8 @@ def _load_by_path(relative: str, name: str) -> ModuleType:
 check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
 #: The framework's checks module: the unit sweep's selection and the package build.
 framework_checks = check_set.FRAMEWORK
+#: How a check starts a tool in the project's environment, as one shell line.
+CHECK_UV_RUN = shlex.join(framework_checks.UV_RUN)
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -428,8 +430,7 @@ def _expand_run(run: str) -> str:
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
     """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    with CI_YML.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(CI_YML.read_text())
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
 
@@ -1611,8 +1612,11 @@ _HOSTED = [(row, host) for row in LANE_LEAVING_MARKERS for host in row.hosts]
 _HOSTED_IDS = [f"{row.marker}-{host.job}" for row, host in _HOSTED]
 _HOSTS = [host for _, host in _HOSTED]
 
-#: A pytest invocation in a ci.yml run block, in both spellings the file uses.
-_CI_PYTEST_RE = re.compile(r"uv run (?:--no-sync )?pytest\b")
+#: A pytest invocation in a ci.yml run block, in both spellings the file uses,
+#: or in the command a check-command call there resolves to.
+_CI_PYTEST_RE = re.compile(
+    r"(?:uv run (?:--no-sync )?|" + re.escape(f"{CHECK_UV_RUN} ") + r")pytest\b"
+)
 #: Where one shell command ends and the next (or a pipe) begins.
 _SHELL_SEPARATOR_RE = re.compile(r"\|\||&&|[|;]")
 
@@ -2013,6 +2017,107 @@ def test_pty_step_runs_only_where_a_terminal_is_real__mutation_drops_the_gate() 
         test_pty_step_runs_only_where_a_terminal_is_real(mutated)
 
 
+#: The unit-lane step that runs the readonly gate's warm-up module under 3.14 on
+#: macOS, where the stdlib's lazy native loads differ from the ubuntu 3.14 cells.
+READONLY_314_STEP = "Readonly gate under Python 3.14"
+#: The check that step calls, declared in scripts/check.py.
+READONLY_314_CHECK = "readonly-warmups-py314"
+READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
+_MATRIX_TERM_RE = re.compile(r"matrix\.([\w-]+) == '([^']*)'")
+
+
+def _with_check_argv(check_id: str, argv: tuple[str, ...]) -> tuple[Any, ...]:
+    """``check_set.CHECKS`` with *check_id*'s command replaced by *argv*."""
+    return tuple(
+        replace(check, argv=argv) if check.id == check_id else check for check in check_set.CHECKS
+    )
+
+
+def test_readonly_314_step_runs_the_warmups_in_one_macos_cell(
+    raw_workflow: dict[str, Any], checks: tuple[Any, ...] = check_set.CHECKS
+) -> None:
+    """One macOS cell calls the warm-up check; it runs the module alone, serially.
+
+    The condition is a conjunction of one equality per matrix axis, so it names
+    exactly one cell: the pull request's macOS cell, which every other event
+    runs too. The step calls the declared check, whose command names the
+    module and nothing else, with no xdist workers."""
+    step = _find_named_step(raw_workflow, UNIT_TEST_JOB, READONLY_314_STEP)
+    condition = step.get("if", "")
+    terms = [term.strip() for term in condition.split("&&")]
+    pairs = [_MATRIX_TERM_RE.fullmatch(term) for term in terms]
+    assert all(pairs), f"'{READONLY_314_STEP}' if: must be matrix equalities; got {condition!r}"
+    named = {match.group(1): match.group(2) for match in pairs if match}
+    assert len(named) == len(terms), f"an axis is named twice in {condition!r}"
+    assert set(named) == {"os", "python-version", "shard"}, (
+        f"'{READONLY_314_STEP}' must pin os, python-version and shard; got {condition!r}"
+    )
+    cells = _unit_macos_cells(raw_workflow)
+    (pr_cell,) = cells["pull_request"]
+    assert named == pr_cell, f"'{READONLY_314_STEP}' must name the PR macOS cell {pr_cell}"
+    assert pr_cell in cells["other"], f"the other events do not run the PR macOS cell {pr_cell}"
+
+    assert shlex.split(step["run"]) == [
+        "uv",
+        "run",
+        "python",
+        "scripts/check.py",
+        "run",
+        READONLY_314_CHECK,
+    ], f"'{READONLY_314_STEP}' must call the declared check; got {step['run']!r}"
+    (check,) = [check for check in checks if check.id == READONLY_314_CHECK]
+    tokens = list(check.argv)
+    assert tokens[:2] == ["uv", "run"] and "pytest" in tokens, tokens
+    assert tokens[tokens.index("--python") + 1] == "3.14", tokens
+    after_pytest = tokens[tokens.index("pytest") + 1 :]
+    paths = [token for token in after_pytest if not token.startswith("-")]
+    assert paths == [READONLY_WARMUPS_TEST_FILE], f"the check must run only the warm-ups: {paths}"
+    assert (CI_YML.parents[2] / READONLY_WARMUPS_TEST_FILE).is_file()
+    assert not {"-n", "--numprocesses"} & set(after_pytest), tokens
+    assert not any(t.startswith(("-n", "--numprocesses=")) for t in after_pytest), tokens
+
+
+def test_readonly_314_step__mutation_drops_the_gate() -> None:
+    mutated = _load_raw_workflow()
+    del _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_runs_on_every_macos_cell() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    step["if"] = "matrix.os == 'macos-latest' && matrix.shard == 'macos'"
+    with pytest.raises(AssertionError, match="must pin os, python-version and shard"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_spells_pytest_in_the_step() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, READONLY_314_STEP)
+    step["run"] = f"uv run --isolated --python 3.14 --extra dev pytest {READONLY_WARMUPS_TEST_FILE}"
+    with pytest.raises(AssertionError, match="must call the declared check"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(mutated)
+
+
+def test_readonly_314_step__mutation_adds_xdist_workers() -> None:
+    (check,) = [check for check in check_set.CHECKS if check.id == READONLY_314_CHECK]
+    mutated = _with_check_argv(READONLY_314_CHECK, (*check.argv, "-n", "4"))
+    with pytest.raises(AssertionError):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(_load_raw_workflow(), mutated)
+
+
+def test_readonly_314_step__mutation_widens_to_the_directory() -> None:
+    (check,) = [check for check in check_set.CHECKS if check.id == READONLY_314_CHECK]
+    assert READONLY_WARMUPS_TEST_FILE in check.argv, "mutation is stale"
+    argv = tuple(
+        "tests/runtime/" if arg == READONLY_WARMUPS_TEST_FILE else arg for arg in check.argv
+    )
+    mutated = _with_check_argv(READONLY_314_CHECK, argv)
+    with pytest.raises(AssertionError, match="must run only the warm-ups"):
+        test_readonly_314_step_runs_the_warmups_in_one_macos_cell(_load_raw_workflow(), mutated)
+
+
 def _imports_stdlib_pty(source: str) -> bool:
     """Whether *source* imports the stdlib ``pty`` module, at any nesting.
 
@@ -2108,7 +2213,7 @@ SERIAL_MIRROR_TIERS = ("full",)
 
 
 def _script_pytest_lines(source: str) -> list[str]:
-    return [line for line in source.splitlines() if "uv run pytest " in line]
+    return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
 def _repo_source(path: str) -> str:
@@ -2197,14 +2302,14 @@ def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[s
     """The *files* that none of the tier's serial runs for *row* collects
     (empty = every one is reached).
 
-    Each line carrying the row's selection is read from ``uv run pytest`` up to
+    Each line carrying the row's selection is read from the check's pytest up to
     the next shell separator, the way ``_ci_pytest_invocations`` cuts a ci.yml
     command, so a wrapper before it (``run_bounded.py … --``) and a ``; then``
     after it are not read as paths. A line whose only path is ``"$@"`` reaches
     nothing by ``_invocation_reaches``' shell-variable rule: a run over the
     caller's paths owes no fixed file."""
     runs = [
-        _SHELL_SEPARATOR_RE.split(line[line.index("uv run pytest ") :], maxsplit=1)[0]
+        _SHELL_SEPARATOR_RE.split(line[line.index(f"{CHECK_UV_RUN} pytest ") :], maxsplit=1)[0]
         for line in _script_pytest_lines(source)
         if row.select() in line
     ]
@@ -2268,13 +2373,13 @@ def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
 
 
 def test_unreached_by_serial_runs_reads_each_serial_line() -> None:
-    """Each serial line is read from ``uv run pytest`` to the next separator;
+    """Each serial line is read from the check's pytest to the next separator;
     a file under neither line's path is the one reported."""
     row = _row("wallclock")
     source = (
-        "if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration "
+        f"if ! uv run python scripts/run_bounded.py 900 -- {CHECK_UV_RUN} pytest tests/integration "
         "-m wallclock -v; then\n"
-        "uv run pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
+        f"{CHECK_UV_RUN} pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
     )
     files = ["tests/integration/test_x.py", "tests/cli/test_a.py", "tests/elsewhere/test_y.py"]
     assert _unreached_by_serial_runs(source, row, files) == ["tests/elsewhere/test_y.py"]
@@ -3718,9 +3823,11 @@ def test_record_lane_timeout_covers_its_waits__mutation_job_cap_under_step() -> 
 
 
 def test_record_lane_runs_on_every_pull_request_without_a_key(workflow: dict[str, Any]) -> None:
-    """Model-free: no label, no actor guard, no gateway key."""
+    """Model-free: no label, no actor guard, no gateway key; the revalidation
+    dispatch runs it too, as it runs every lane a push skips."""
     job = _jobs(workflow)[RECORD_E2E_JOB]
-    assert job.get("if") == "github.event_name == 'pull_request'", job.get("if")
+    expected = f"(github.event_name == 'pull_request') || {REVALIDATION_ARM}"
+    assert " ".join(str(job.get("if")).split()) == expected, job.get("if")
     assert not _job_declares_secret(workflow, RECORD_E2E_JOB, SECRET_TOKEN), (
         f"'{RECORD_E2E_JOB}' declares the gateway key; it reaches no model"
     )
@@ -4788,7 +4895,8 @@ def test_cli_dependent_lane_installs_the_pinned_claude__mutation_other_action(
 
 
 def test_the_pinned_cli_action_installs_and_verifies_the_one_pinned_version() -> None:
-    """The action installs exactly the framework's pin and fails unless PATH yields it."""
+    """The action installs the pin the gate resolver reads and puts on PATH the
+    directory that resolver finds, so CI and a local gate verify it one way."""
     action = _pinned_cli_action()
     assert action["runs"]["using"] == "composite"
     steps = action["runs"]["steps"]
@@ -4796,13 +4904,12 @@ def test_the_pinned_cli_action_installs_and_verifies_the_one_pinned_version() ->
     (install,) = [s for s in steps if "npm install" in (s.get("run") or "")]
     run = install["run"]
     assert "set -euo pipefail" in run
-    # The pin is read from the one constant that names it, never spelled here.
-    assert "_DEFAULT_CLAUDE_CLI_VERSION" in run
     assert not re.search(r"claude-code@[0-9]", run), "the action spells a version of its own"
     assert 'npm install -g "@anthropic-ai/claude-code@$pin"' in run
-    # Verified, so a registry or PATH surprise fails here and not in a test.
-    assert "claude --version" in run
-    assert "exit 1" in run
+    assert "scripts/pinned_claude.py --pin" in run
+    # The resolver is the verification: it fails the step when nothing reports the pin.
+    assert re.search(r"scripts/pinned_claude\.py\)", run), "the action never resolves the CLI"
+    assert '>> "$GITHUB_PATH"' in run
 
 
 def test_no_lane_reaches_for_the_agent_sdks_bundled_cli() -> None:
@@ -7210,8 +7317,7 @@ VA_TAG_SITES: dict[str, tuple[Path, Callable[[str], str]]] = {
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
-    with path.open() as f:
-        loaded = yaml.safe_load(f)
+    loaded = yaml.safe_load(path.read_text())
     assert loaded is not None, f"{path} parsed to None"
     return loaded
 
@@ -8201,7 +8307,7 @@ def test_the_gate_checks_the_lockfile_before_any_uv_run(gate_source: str | None 
 def test_the_gate_checks_the_lockfile_before_any_uv_run__mutation_moves_it_after_ruff() -> None:
     lines = _tier_source("full", CI_BASE).splitlines()
     lines.remove("uv lock --check")
-    ruff = max(i for i, line in enumerate(lines) if line.startswith("uv run ruff "))
+    ruff = max(i for i, line in enumerate(lines) if line.startswith(f"{CHECK_UV_RUN} ruff "))
     lines.insert(ruff + 1, "uv lock --check")
     with pytest.raises(AssertionError):
         test_the_gate_checks_the_lockfile_before_any_uv_run("\n".join(lines))
@@ -8837,7 +8943,7 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 
 
 # ---------------------------------------------------------------------------
-# Model-spending lanes: `full-ci` on a pull request, on demand on main
+# Model-spending lanes: `full-ci` on a pull request, the revalidation dispatch on main
 # ---------------------------------------------------------------------------
 #
 # Ten jobs drive real Claude sessions through the gateway. Measured on its
@@ -8845,10 +8951,11 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
 # The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
 # the revalidation dispatch — and on nothing else. Both arms are pinned
-# below, and so is the absence of a third: a schedule arm (or a `schedule`
-# trigger on the workflow) spends model tokens with nobody watching and
-# turns red where nobody reads it. Dropping the label clause is the other
-# regression — the lane is back on every push, and so is the bill.
+# below, and so is the absence of a third: ci.yml has no schedule arm and no
+# `schedule` trigger. Main's nightly run is the revalidation dispatch, started
+# by main-full-ci.yml, which spends nothing itself, dispatches only when main
+# has moved, and turns a red into an issue. Dropping the label clause is the
+# other regression — the lane is back on every push, and so is the bill.
 
 SPENDING_LANES = frozenset(
     {
@@ -8971,11 +9078,11 @@ def test_spending_lanes_name_no_base_ref__mutation_adds_an_integration_base() ->
 
 
 def test_workflow_has_no_schedule_trigger(workflow: dict[str, Any]) -> None:
-    """No cron at all: every run of this workflow is one somebody asked for
-    (a push, a pull request, a dispatch), so every red has a reader. A
-    schedule would also be the only trigger that can spend model tokens with
-    nobody in the loop; the lane `if:` checks above pin the arm, this pins
-    the event."""
+    """ci.yml keeps no cron: every run is a push, a pull request or a
+    dispatch. The schedule lives in main-full-ci.yml, which spends nothing
+    itself and dispatches the revalidation run only when main moved, so a
+    cron here would be a second, ungated spender. The lane `if:` checks above
+    pin the arm, this pins the event."""
     assert "schedule" not in workflow[True], "workflow declares a schedule trigger"
 
 
@@ -9151,6 +9258,60 @@ def test_the_tag_gate_blocks_the_publish() -> None:
     assert release["jobs"][RELEASE_GATE_JOB]["permissions"]["actions"] == "read", (
         "reading another workflow's runs needs the actions:read scope"
     )
+
+
+# ---------------------------------------------------------------------------
+# A job's display name says what it tests; its `if:` alone says when it runs
+# ---------------------------------------------------------------------------
+#
+# A check name is read on every PR, but the condition that decides when the job
+# runs lives in its `if:`. A name that restates that condition goes stale the
+# moment the `if:` gains an arm, and then tells the reader something false. The
+# phrases below are trigger-scope wording only; product words such as "dispatch"
+# are deliberately absent.
+
+WORKFLOWS_DIR = CI_YML.parent
+
+_TRIGGER_SCOPE_PHRASE = re.compile(
+    r"PRs? into|\bon main\b|nightly|workflow_dispatch|pull[ _-]request|\bschedul",
+    re.IGNORECASE,
+)
+
+
+def _job_display_names(path: Path, wf: dict[str, Any]) -> dict[tuple[str, str], str]:
+    return {
+        (path.name, job_id): str(job["name"]) for job_id, job in _jobs(wf).items() if "name" in job
+    }
+
+
+def _assert_no_display_name_states_when_it_runs(names: dict[tuple[str, str], str]) -> None:
+    for (file, job_id), name in sorted(names.items()):
+        match = _TRIGGER_SCOPE_PHRASE.search(name)
+        assert match is None, (
+            f"{file}: job {job_id!r} is named {name!r}, which states when it runs "
+            f"({match.group(0)!r}); a job's `if:` is where when lives, its name says what it tests"
+        )
+
+
+def test_no_job_display_name_states_when_it_runs() -> None:
+    """Every job in every workflow is named for what it tests, never for the
+    events that run it."""
+    names: dict[tuple[str, str], str] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        names.update(_job_display_names(path, yaml.safe_load(path.read_text())))
+    assert names, f"no job display names found under {WORKFLOWS_DIR}"
+    _assert_no_display_name_states_when_it_runs(names)
+
+
+def test_no_job_display_name_states_when_it_runs__mutation_names_a_trigger() -> None:
+    """A lifecycle lane named for one trigger while its `if:` also runs it on
+    the revalidation dispatch fails the check."""
+    mutated = _load_workflow()
+    _jobs(mutated)["multi-user-deploy-lifecycle-e2e"]["name"] = (
+        "Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)"
+    )
+    with pytest.raises(AssertionError, match="PRs into"):
+        _assert_no_display_name_states_when_it_runs(_job_display_names(CI_YML, mutated))
 
 
 # ---------------------------------------------------------------------------
@@ -9628,7 +9789,12 @@ def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
         (dist / name).write_text("")
     env = {**os.environ, "VERSION": version}
     return subprocess.run(
-        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     ).returncode
 
 
@@ -9809,7 +9975,12 @@ def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Pat
 
     def run() -> int:
         return subprocess.run(
-            ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+            ["bash", "-c", step["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
         ).returncode
 
     for name in (
@@ -9947,6 +10118,7 @@ def _git_in(cwd: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     )
     return done.stdout.strip()
 
@@ -9971,7 +10143,7 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
     def run(sha: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "TAG_SHA": sha, "TAG_NAME": "v2026.10.0"}
         return subprocess.run(
-            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True
+            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True, timeout=60
         )
 
     assert run(on_main).returncode == 0
@@ -10392,7 +10564,7 @@ def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_gre
 # cannot reach the verdict at all.
 
 LINKCHECK_CHECK = "linkcheck"
-LINKCHECK_COMMAND = "uv run make linkcheck"
+LINKCHECK_COMMAND = f"{CHECK_UV_RUN} make linkcheck"
 LINKCHECK_STEP = "Check for broken links"
 DOCS_BUILD_STEP = "Build documentation"
 DOCS_UPLOAD_STEP = "Upload documentation artifact"
@@ -11441,7 +11613,7 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         (dist / name).write_text("")
     sibling = tmp_path / "sibling"
     script = _release_staging_script(release).replace(RELEASE_SIBLING_DIR, str(sibling))
-    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True)
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True, timeout=60)
     return sorted(p.name for p in sibling.iterdir())
 
 
@@ -11892,6 +12064,246 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
 
 
 # ---------------------------------------------------------------------------
+# The revalidation dispatch runs every lane a push skips
+# ---------------------------------------------------------------------------
+#
+# A push to main runs only the jobs with no `if:`. Every other lane is scoped
+# to pull requests, so main's coverage of those lanes comes from one place:
+# the `revalidate_secret_lanes` dispatch. Each such lane carries the dispatch
+# arm beside its pull-request arm, and the set of lanes that must carry it is
+# derived from the workflow, not listed: a new pull-request-only lane without
+# the arm fails here. The benchmark lanes run on their own dispatch input and
+# the roll-up gate runs on every event, so neither is in the set.
+
+REVALIDATION_ARM = "(github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)"
+#: e2e-tests runs on every dispatch that is not a benchmark run, which
+#: includes the revalidation dispatch.
+_E2E_DISPATCH_ARM = "(github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)"
+
+
+def _lanes_a_push_skips(wf: dict[str, Any]) -> set[str]:
+    """Jobs whose `if:` names no push arm, minus the benchmarks and the gate."""
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if "if" in job
+        and "push" not in str(job["if"])
+        and name not in {BENCHMARKS_JOB, TIER2_JOB, GATE_JOB}
+    }
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(
+    workflow: dict[str, Any],
+) -> None:
+    lanes = _lanes_a_push_skips(workflow)
+    assert len(lanes) > len(SPENDING_LANES), f"derived set looks empty: {sorted(lanes)}"
+    missing = sorted(
+        name
+        for name in lanes
+        if not any(
+            arm in " ".join(str(_jobs(workflow)[name]["if"]).split())
+            for arm in (REVALIDATION_ARM, _E2E_DISPATCH_ARM)
+        )
+    )
+    assert missing == [], f"lanes with no revalidation arm: {missing}"
+
+
+def test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch__mutation_strips_queue() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[QUEUE_JOB]
+    stripped = re.sub(rf"\s*\|\|\s*{re.escape(REVALIDATION_ARM)}", "", str(job["if"]))
+    assert stripped != job["if"], "no revalidation arm on the queue lane — mutation is stale"
+    job["if"] = stripped
+    with pytest.raises(AssertionError, match=QUEUE_JOB):
+        test_every_lane_a_push_skips_runs_on_the_revalidation_dispatch(mutated)
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(
+    workflow: dict[str, Any],
+) -> None:
+    """Under a dispatch `github.event.pull_request.head.sha` is empty, so the
+    pip spec falls back to the run's own sha."""
+    spec = json.dumps(_jobs(workflow)[DOCKERFILE_E2E_JOB])
+    assert "${{ github.event.pull_request.head.sha || github.sha }}" in spec
+    assert "@${{ github.event.pull_request.head.sha }}" not in spec
+
+
+def test_dockerfile_e2e_installs_the_dispatched_sha__mutation_drops_the_fallback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    raw = json.dumps(_jobs(mutated)[DOCKERFILE_E2E_JOB]).replace(" || github.sha", "")
+    _jobs(mutated)[DOCKERFILE_E2E_JOB] = json.loads(raw)
+    with pytest.raises(AssertionError):
+        test_dockerfile_e2e_installs_the_dispatched_sha_when_there_is_no_pull_request(mutated)
+
+
+def _check_pr_lane_exit(wf: dict[str, Any], event: str, revalidate: str, result: str) -> int:
+    """Run the gate's own `check_pr_lane` on one lane result; return its exit code."""
+    run = _gate_run_text(wf)
+    start = run.index("check_pr_lane() {")
+    function = run[start : run.index("\n}\n", start) + 3]
+    env = {**os.environ, "EVENT_NAME": event, "REVALIDATE": revalidate}
+    done = subprocess.run(
+        ["bash", "-ec", f'{function}check_pr_lane "Some lane" "{result}"'],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(workflow: dict[str, Any]) -> None:
+    """A green revalidation run vouches for every lane on its sha, so a lane
+    that skipped there fails the gate. Elsewhere a skip still passes."""
+    env = _find_named_step(workflow, GATE_JOB, "Check all jobs status")["env"]
+    assert env["REVALIDATE"] == "${{ inputs.revalidate_secret_lanes }}"
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "skipped") != 0, (
+        "a skipped lane passes the gate on a revalidation run"
+    )
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "true", "success") == 0
+    assert _check_pr_lane_exit(workflow, "workflow_dispatch", "false", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "push", "", "skipped") == 0
+    assert _check_pr_lane_exit(workflow, "pull_request", "", "failure") != 0
+
+
+def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run__mutation_drops_the_branch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = re.sub(
+        r'if \[\[ "\$2" == "skipped" && .*?\n  elif ', "if ", original, flags=re.DOTALL
+    )
+    assert step["run"] != original, "no revalidation branch in check_pr_lane — mutation is stale"
+    with pytest.raises(AssertionError, match="passes the gate on a revalidation run"):
+        test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(mutated)
+
+
+# ---------------------------------------------------------------------------
+# main-full-ci.yml: the change-gated nightly revalidation of main
+# ---------------------------------------------------------------------------
+#
+# The nightly spends nothing itself: its only `gh workflow run` dispatches
+# ci.yml's revalidation run against main, and only in a step gated on the
+# lookup's `dispatch` answer. Its red reaches a person through the report job,
+# and the lookup module's lane map is the tag gate's map, so a renamed lane
+# fails here rather than in a nightly that silently finds nothing.
+
+MAIN_FULL_CI_YML = CI_YML.parent / "main-full-ci.yml"
+FULL_CI_ON_MAIN_PY = CI_YML.parents[2] / "scripts" / "ci" / "full_ci_on_main.py"
+_DISPATCH_COMMAND = "gh workflow run ci.yml --ref main -f revalidate_secret_lanes=true"
+
+
+def _load_main_full_ci() -> dict[str, Any]:
+    return yaml.safe_load(MAIN_FULL_CI_YML.read_text(encoding="utf-8"))
+
+
+def _full_ci_on_main_lanes() -> dict[str, str]:
+    spec = importlib.util.spec_from_file_location("full_ci_on_main", FULL_CI_ON_MAIN_PY)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.SPENDING_LANES
+
+
+def test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(
+    nightly: dict[str, Any] | None = None,
+) -> None:
+    wf = nightly if nightly is not None else _load_main_full_ci()
+    dispatching = [
+        (name, step)
+        for name, job in wf["jobs"].items()
+        for step in job["steps"]
+        if "gh workflow run" in step.get("run", "")
+    ]
+    assert len(dispatching) == 1, f"expected one `gh workflow run` step; got {len(dispatching)}"
+    job_name, step = dispatching[0]
+    assert step["run"].strip() == _DISPATCH_COMMAND, f"dispatches {step['run'].strip()!r}"
+    assert step.get("if") == "steps.decide.outputs.decision == 'dispatch'", (
+        "the dispatch is not conditioned on the should-dispatch answer"
+    )
+    decide = next(s for s in wf["jobs"][job_name]["steps"] if s.get("id") == "decide")
+    assert "full_ci_on_main.py should-dispatch" in decide["run"]
+    assert wf["jobs"][job_name]["permissions"]["actions"] == "write"
+    triggers = wf[True]
+    assert len(triggers["schedule"]) == 1, "one cron a day"
+    assert "workflow_dispatch" in triggers
+
+
+def test_the_nightly_dispatch__mutation_drops_the_ref() -> None:
+    mutated = _load_main_full_ci()
+    step = mutated["jobs"]["dispatch"]["steps"][-1]
+    step["run"] = step["run"].replace(" --ref main", "")
+    with pytest.raises(AssertionError, match="dispatches"):
+        test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(mutated)
+
+
+def test_the_nightly_dispatch__mutation_drops_the_condition() -> None:
+    mutated = _load_main_full_ci()
+    del mutated["jobs"]["dispatch"]["steps"][-1]["if"]
+    with pytest.raises(AssertionError, match="not conditioned"):
+        test_the_nightly_dispatches_only_the_revalidation_run_and_only_when_main_moved(mutated)
+
+
+def test_a_finished_revalidation_run_files_its_verdict(
+    nightly: dict[str, Any] | None = None,
+) -> None:
+    """A completed dispatch of CI on main runs `report`, which may write issues."""
+    wf = nightly if nightly is not None else _load_main_full_ci()
+    reporting = [
+        job
+        for job in wf["jobs"].values()
+        if any("full_ci_on_main.py report" in s.get("run", "") for s in job["steps"])
+        and "github.event_name == 'workflow_run'" in " ".join(str(job.get("if", "")).split())
+    ]
+    assert len(reporting) == 1, "no job files the verdict of a finished revalidation run"
+    job = reporting[0]
+    condition = " ".join(str(job["if"]).split())
+    assert "github.event_name == 'workflow_run'" in condition
+    assert "github.event.workflow_run.event == 'workflow_dispatch'" in condition
+    assert job["permissions"]["issues"] == "write"
+    assert wf[True]["workflow_run"] == {
+        "workflows": ["CI"],
+        "types": ["completed"],
+        "branches": ["main"],
+    }
+    assert _load_workflow()["name"] == "CI", "workflow_run names a workflow ci.yml no longer is"
+
+
+def test_a_finished_revalidation_run_files_its_verdict__mutation_drops_the_job() -> None:
+    mutated = _load_main_full_ci()
+    del mutated["jobs"]["report"]
+    with pytest.raises(AssertionError, match="no job files the verdict"):
+        test_a_finished_revalidation_run_files_its_verdict(mutated)
+
+
+def test_the_lookup_lane_map_is_the_spending_lane_set(
+    lanes: dict[str, str] | None = None,
+) -> None:
+    """Same pin as the tag gate's map: every spending lane, each prefix naming
+    its own rendered job and no other."""
+    lanes = lanes if lanes is not None else _full_ci_on_main_lanes()
+    assert set(lanes) == set(SPENDING_LANES), (
+        f"full_ci_on_main.py lanes differ from SPENDING_LANES: "
+        f"{sorted(set(lanes) ^ set(SPENDING_LANES))}"
+    )
+    jobs = _jobs(_load_workflow())
+    for lane, prefix in lanes.items():
+        assert jobs[lane]["name"].startswith(prefix), (
+            f"{lane}: full_ci_on_main.py looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+        )
+        others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
+        assert others == [], f"{prefix!r} also matches {others}"
+
+
+def test_the_lookup_lane_map__mutation_renames_a_key() -> None:
+    lanes = dict(_full_ci_on_main_lanes())
+    lanes["scan-agentic"] = lanes.pop("scan-agentic-e2e")
+    with pytest.raises(AssertionError, match="differ from SPENDING_LANES"):
+        test_the_lookup_lane_map_is_the_spending_lane_set(lanes)
+
+
+# ---------------------------------------------------------------------------
 # Connectors compatibility lanes: Lane A runs HEAD connectors under every
 # supported framework release, Lane B runs HEAD framework at its connectors
 # floor, and the nightly runs Lane A and each release's own tests. Each stands
@@ -11922,8 +12334,7 @@ def _compat_matrix_module() -> Any:
 
 
 def _load_nightly() -> dict[str, Any]:
-    with NIGHTLY_YML.open() as f:
-        return yaml.safe_load(f)
+    return yaml.safe_load(NIGHTLY_YML.read_text())
 
 
 @pytest.fixture()
@@ -12236,7 +12647,10 @@ CHECKS_WITHOUT_A_CI_STEP = {
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
 }
 #: The `if:` clause that puts a step on the runners that meet the venue.
-VENUE_RUNNER_CLAUSES = {framework_checks.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
+VENUE_RUNNER_CLAUSES = {
+    framework_checks.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'",
+    framework_checks.DARWIN_VENUE: "matrix.os == 'macos-latest'",
+}
 
 
 @pytest.fixture()

@@ -474,12 +474,18 @@ UI_MODES = ("expert", "simple")
 DEFAULT_UI_MODE = "expert"
 
 
-def resolve_ui_mode(configured: str) -> str:
+def resolve_ui_mode(configured: str, *, expert_view: bool = True) -> str:
     """Resolve the ``web.ui_mode`` config value into a concrete UI mode.
 
     ``configured`` must be one of :data:`UI_MODES` (``"expert"`` or
     ``"simple"``). Anything else — a typo, ``None``, an empty string — is
     logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
+
+    With ``expert_view`` false (``web.expert_view: false``, resolved by
+    :func:`resolve_expert_view`) the answer is ``simple`` whatever
+    ``configured`` says: a deployment that rules the Expert view out cannot
+    open in it. The build refuses a profile that states both, so a stated
+    ``expert`` here is a hand-edited render and is reported.
 
     Mirrors the warn+fallback shape of the ``web.theme`` resolver
     (:func:`~osprey.interfaces.design_system.theme_config.resolve_theme_id`): it never
@@ -488,12 +494,19 @@ def resolve_ui_mode(configured: str) -> str:
 
     Args:
         configured: The raw ``web.ui_mode`` config value.
+        expert_view: Whether this deployment offers the Expert view at all.
 
     Returns:
         A concrete mode string in :data:`UI_MODES` — the value stamped onto
         ``<html data-ui-mode>`` for the pre-paint mode-boot rung, which only
         honors a real mode.
     """
+    if not expert_view:
+        if configured == "expert":
+            logger.warning(
+                "web.ui_mode is 'expert' but web.expert_view is false; opening in 'simple'."
+            )
+        return "simple"
     if configured in UI_MODES:
         return configured
 
@@ -1232,6 +1245,51 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
         coerce_config_flag("web.config_panel.enabled", panel_raw, True),
         coerce_config_flag("web.scaffold_gallery.write_enabled", scaffold_raw, True),
     )
+
+
+#: The refusal every Expert-surface route gives when ``web.expert_view`` is
+#: false. One sentence, so the websocket's error frame and the log say the same.
+EXPERT_VIEW_REFUSAL = (
+    "The Expert view is not offered on this deployment (web.expert_view: false); "
+    "use the Simple view."
+)
+
+
+def resolve_expert_view(config_path: str | Path | None) -> bool:
+    """Whether this deployment offers the Expert view (``web.expert_view``).
+
+    Default ``True``: a deployment that never mentions the key keeps the
+    Expert view, exactly as before the key existed. ``false`` takes the whole
+    Expert surface away — the resolved UI mode is ``simple``
+    (:func:`resolve_ui_mode`), the browser drops every way to flip to Expert,
+    and ``/ws/terminal`` refuses to open a PTY session.
+
+    Read the way :func:`resolve_privilege_gates` reads its gates, because it
+    is one in kind — the server refuses a route on it, not only the page: no
+    file resolved means the default, a resolved file that cannot be read means
+    no Expert view, and a value nobody can interpret takes the default through
+    :func:`coerce_config_flag`.
+
+    Args:
+        config_path: The config file this surface resolved, or ``None``.
+
+    Returns:
+        False when the config says ``false`` or cannot be read.
+    """
+    if config_path is None:
+        return True
+    from osprey_connectors.config import get_config_value
+
+    try:
+        raw = get_config_value("web.expert_view", True, str(config_path))
+    except Exception:
+        logger.error(
+            "Could not read the config file %s; the Expert view is closed until it reads cleanly",
+            config_path,
+            exc_info=True,
+        )
+        return False
+    return coerce_config_flag("web.expert_view", raw, True)
 
 
 def unreadable_config_refusal(path: str | Path) -> str:
@@ -2254,19 +2312,29 @@ def _create_lifespan(
         # authoritative first-paint rung. Read via load_osprey_config (the same
         # top-level `web` section the panel loaders in this file use). Fails open
         # to the default mode on any config-read error.
+        #
+        # `web.expert_view: false` is resolved first because it bounds the
+        # mode: with the Expert view ruled out the mode is `simple` whatever
+        # `web.ui_mode` says, and /ws/terminal refuses to open a PTY session
+        # (routes/websocket.py). Read like the privilege gates below — the
+        # server refuses a route on it — so an unreadable config closes it.
+        app.state.web_expert_view = resolve_expert_view(resolved_config_path)
         try:
             from osprey_connectors.workspace import load_osprey_config
 
             configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
-            app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
+            app.state.web_ui_mode = resolve_ui_mode(
+                configured_ui_mode, expert_view=app.state.web_expert_view
+            )
         except Exception:  # never let config load block startup
+            fallback_ui_mode = DEFAULT_UI_MODE if app.state.web_expert_view else "simple"
             logger.warning(
                 "Could not resolve web.ui_mode (config load failed); "
                 "server-rendering fallback mode %r",
-                DEFAULT_UI_MODE,
+                fallback_ui_mode,
                 exc_info=True,
             )
-            app.state.web_ui_mode = DEFAULT_UI_MODE
+            app.state.web_ui_mode = fallback_ui_mode
 
         # ── Onboarding-tour invite policy ──
         # OSPREY_WEB_TOUR (the per-user roster path) outranks web.tour, the
@@ -2958,6 +3026,7 @@ def create_app(
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
         web_theme_mode = getattr(request.app.state, "web_theme_mode", None)
         web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
+        web_expert_view = bool(getattr(request.app.state, "web_expert_view", True))
         web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
@@ -2997,6 +3066,10 @@ def create_app(
                 "web_theme_id": web_theme_id,
                 "web_theme_mode": web_theme_mode or "",
                 "web_ui_mode": web_ui_mode,
+                # Stamped as data-expert-view="off" only when false: the
+                # pre-paint mode-boot rung and frame-params.js read it to keep
+                # the page out of Expert, whatever ?mode= or storage say.
+                "web_expert_view": web_expert_view,
                 "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,
                 # Namespace for everything this page keeps in localStorage.

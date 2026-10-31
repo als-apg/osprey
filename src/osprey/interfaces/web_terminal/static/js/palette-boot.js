@@ -42,7 +42,7 @@ import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { enterEditMode } from './bar-customize.js';
 import { logout } from './logout.js';
-import { pickUiMode } from '/design-system/js/frame-params.js';
+import { expertViewOffered, pickUiMode } from '/design-system/js/frame-params.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
 
@@ -105,15 +105,19 @@ function buildPaletteDeps() {
     });
   }
 
-  // Always offer the mode the operator is NOT in. The pick is frame-params'
-  // own, the same call the header <osprey-display-menu>'s View row makes, not
-  // a click on that row: the display menu is a bar item the operator may have
+  // Offer the mode the operator is NOT in. The pick is frame-params' own, the
+  // same call the header <osprey-display-menu>'s View row makes, not a click
+  // on that row: the display menu is a bar item the operator may have
   // removed, and the palette must not depend on any bar item being present.
-  const otherMode = simple ? 'expert' : 'simple';
-  actions.push({
-    label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
-    run: () => pickUiMode(otherMode),
-  });
+  // A deployment with no Expert view (web.expert_view: false) has no other
+  // mode to offer.
+  if (expertViewOffered()) {
+    const otherMode = simple ? 'expert' : 'simple';
+    actions.push({
+      label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
+      run: () => pickUiMode(otherMode),
+    });
+  }
 
   // Rearranging the bars is offered in both modes, like the other two ways in
   // (a right-click on either bar and the display menu's projected row): the

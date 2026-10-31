@@ -59,7 +59,6 @@ import os
 import re
 import subprocess
 import textwrap
-import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -89,7 +88,11 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
-from tests._container_support import docker_cli_unavailable_reason_once
+from tests._container_support import (
+    RuntimeContainer,
+    docker_cli_unavailable_reason_once,
+    wait_until_ready,
+)
 from tests.cli.test_tier_app_presets import _build_render_stack
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
@@ -205,7 +208,12 @@ def _build_harness_image(tmp_path: Path) -> tuple[str, bool]:
     dockerfile = _harness_dockerfile()
     tag = f"osprey-bluesky-roster-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
-    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", tag], capture_output=True, timeout=60
+        ).returncode
+        == 0
+    ):
         return tag, False
 
     context = tmp_path / "harness"
@@ -371,34 +379,26 @@ def _entitlements(repo: Path, host_config: dict) -> dict[str, bool]:
     }
 
 
-def _docker_logs(name: str) -> str:
-    result = subprocess.run(
-        ["docker", "logs", "--tail", "40", name], capture_output=True, text=True, timeout=60
-    )
-    return f"--- {name} ---\n{result.stdout}{result.stderr}"
-
-
 def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.0) -> None:
-    """Poll the sidecar's unauthenticated ``/health`` until it answers ``200``.
+    """Wait until the sidecar's unauthenticated ``/health`` answers ``200``.
 
     Bounded rather than a fixed sleep: uvicorn takes a few seconds to import
     the app from the bind-mounted source, less on a warm host, and a fixed
-    delay is either wasted or too short.
+    delay is either wasted or too short. *timeout* is the silence the sidecar
+    is allowed; one that exits ends the wait at once.
     """
-    deadline = time.monotonic() + timeout
-    last = "no attempt made"
-    while time.monotonic() < deadline:
-        try:
-            response = httpx.get(f"{base_url}/health", timeout=5)
-        except httpx.HTTPError as exc:  # not up yet
-            last = repr(exc)
-        else:
-            if response.status_code == 200:
-                return
-            last = f"HTTP {response.status_code}"
-        time.sleep(0.5)
-    raise AssertionError(
-        f"the bluesky-web sidecar never became ready ({last})\n{_docker_logs(container_name)}"
+
+    def probe() -> None:
+        response = httpx.get(f"{base_url}/health", timeout=5)
+        if response.status_code != 200:
+            raise AssertionError(f"/health answered HTTP {response.status_code}")
+
+    wait_until_ready(
+        probe,
+        "bluesky-web sidecar",
+        container=RuntimeContainer(container_name),
+        timeout=timeout,
+        interval=0.5,
     )
 
 

@@ -57,7 +57,6 @@ import os
 import re
 import select
 import signal
-import struct
 import subprocess
 import sys
 import time
@@ -72,12 +71,11 @@ pytestmark = [
     pytest.mark.skipif(os.name != "posix", reason="a pty is a POSIX facility"),
 ]
 
-# Guarded together, and for the same reason: all three are POSIX-only, and an
+# Guarded together, and for the same reason: both are POSIX-only, and an
 # import error is raised at *collection*, which is before any skipif can apply.
-# An unguarded `import fcntl` would turn "this suite does not run on Windows"
+# An unguarded `import termios` would turn "this suite does not run on Windows"
 # into "the whole test session fails to collect on Windows".
 if os.name == "posix":  # pragma: no branch - the skip above covers the other side
-    import fcntl
     import pty
     import termios
 
@@ -352,9 +350,7 @@ class PtyProcess:
     def __init__(self, argv: list[str], cwd: Path, env: dict[str, str], bootstrap: str) -> None:
         self.argv = argv
         self._master, slave = pty.openpty()
-        fcntl.ioctl(
-            slave, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0)
-        )
+        termios.tcsetwinsize(slave, (TERMINAL_ROWS, TERMINAL_COLUMNS))
         self._buffer = bytearray()
         self._master_closed = False
         self._process = subprocess.Popen(  # argv is built here, not by input
@@ -438,12 +434,9 @@ class PtyProcess:
         that no one is going to answer would sit there indefinitely, holding
         its repo copy, its pty and its stub log open.
         """
-        try:
+        with contextlib.suppress(OSError):  # pragma: no cover - already reaped
             self._process.kill()
-        except OSError:  # pragma: no cover - already reaped
-            pass
-        else:
-            self._process.wait()
+        self._process.wait(timeout=30)
         self._close_master()
 
     def finish(self, *, timeout: float = RUN_TIMEOUT) -> PtyRun:
@@ -463,7 +456,7 @@ class PtyProcess:
             exit_code = self._process.wait(timeout=30)
         except subprocess.TimeoutExpired:  # pragma: no cover - defensive
             self._process.kill()
-            exit_code = self._process.wait()
+            exit_code = self._process.wait(timeout=30)
 
         terminal = Terminal()
         terminal.feed(bytes(self._buffer).decode("utf-8", "replace"))

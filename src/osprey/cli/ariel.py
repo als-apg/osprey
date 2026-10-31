@@ -583,6 +583,8 @@ def status_command(output_json: bool) -> None:
 
         output.report(f"ARIEL Status: {result['status']}")
         output.note(result["message"])
+        for error in result.get("errors") or []:
+            output.report(error)
 
         # Outside the guard below on purpose: the vocabulary is read from the
         # config file, so its line is exactly as true with the database down as

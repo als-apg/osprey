@@ -142,6 +142,12 @@ async def test_a_write_to_an_unknown_address_is_not_found():
         await _write([{"channel": UNKNOWN, "value": 1.5}])
 
     envelope = raised["envelope"]
+    (row,) = envelope["details"].pop("results")
+    assert (row["channel"], row["outcome"], row["refusal_reason"]) == (
+        UNKNOWN,
+        "refused",
+        "CHANNEL_NOT_FOUND",
+    )
     assert envelope == {
         "error": True,
         "error_type": "not_found",

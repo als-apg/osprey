@@ -100,7 +100,7 @@ class TestScriptShape:
     def test_posix_syntax(self, script: Path):
         """The gate that catches a typo before an image is built around it."""
         result = subprocess.run(
-            ["/bin/sh", "-n", str(script)], capture_output=True, text=True, check=False
+            ["/bin/sh", "-n", str(script)], capture_output=True, text=True, check=False, timeout=60
         )
         assert result.returncode == 0, result.stderr
 
@@ -286,6 +286,7 @@ def _run(
             "PY_PROGRAM": str(py_program),
             **(extra_env or {}),
         },
+        timeout=60,
     )
     return result, order_log.read_text().split(), py_program
 

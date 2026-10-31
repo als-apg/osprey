@@ -3,7 +3,7 @@
 This is the one way an OSPREY deployment comes into existence. It writes a git
 repository that is the deployment: one directory, four zones.
 
-    als-assistant/
+    my-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  triggers.yml  README.md
     ├── data/  tiers/  apps/  web-terminal-context/
@@ -25,14 +25,14 @@ skeleton, the CI emission, and the initial commit.
 Usage::
 
     osprey init                              # in-place, into an empty directory
-    osprey init als-assistant --preset control-assistant
+    osprey init my-assistant --preset control-assistant
     osprey init demo --preset control-assistant --up -d --dev
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1327,9 +1327,9 @@ def init(
 
     \b
       $ osprey init --list-presets
-      $ osprey init als-assistant --preset control-assistant
+      $ osprey init my-assistant --preset control-assistant
       $ osprey init demo --preset control-assistant --up -d --dev
-      $ osprey init als-assistant --revalidate
+      $ osprey init my-assistant --revalidate
     """
     if revalidate:
         _revalidate(
@@ -1484,6 +1484,12 @@ def init(
 
             from .foreign_refusal import render_foreign_refusal
 
+            # Read before the reset, which removes the deployment record they
+            # read first: the sweep below and its remedy name what the last
+            # start drove.
+            runtime = _runtime_binary(target)
+            project = _reset_project_name(target)
+
             # The condensed form, not `reset_deployment`: the full destruction
             # plan is the text a standalone `osprey reset` asks an operator to
             # confirm against, and nothing is being confirmed here. The chained
@@ -1521,10 +1527,9 @@ def init(
             # and continuing without one walks into the stale-volume refusal
             # further down, whose remedy is `osprey reset`: the very thing that
             # just declined. Stop here and name the actual obstacle instead.
-            runtime = _runtime_binary()
-            survivors = _surviving_project_resources(target, runtime)
+            survivors = _surviving_project_resources(runtime, project)
             if survivors:
-                _abort_incomplete_reset(target, survivors, runtime)
+                _abort_incomplete_reset(target, survivors, runtime, project)
 
         if start:
             _chain_up(ctx, target, detached=detached, dev=dev)
@@ -1595,7 +1600,8 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
 def _reset_project_name(target: Path) -> str:
     """The compose project ``--reset`` sweeps and names in its remedies.
 
-    The ``project_name:`` the repo's profile records — through the host's
+    The project the deployment record names, the one the last start drove.
+    Without a readable record, the ``project_name:`` the repo's profile records — through the host's
     variant overlay when one is selected, which may rename the instance — when
     the profile can be read; otherwise the folder name, normalized the way
     :func:`~osprey.deployment.compose_generator.resolve_project_name` normalizes
@@ -1605,9 +1611,16 @@ def _reset_project_name(target: Path) -> str:
     import yaml
 
     from osprey.deployment.compose_generator import resolve_project_name
+    from osprey.deployment.deployment_record import deployed_project
+    from osprey.deployment.errors import DeploymentRecordError
 
     from .build_profile_resolve import PROFILE_FILENAME
     from .variant_selection import active_variant_overlay
+
+    with suppress(DeploymentRecordError):
+        recorded = deployed_project(target)
+        if recorded is not None:
+            return recorded
 
     declared: object = None
     for layer in (target / PROFILE_FILENAME, active_variant_overlay(target)):
@@ -1626,7 +1639,7 @@ def _reset_project_name(target: Path) -> str:
     )
 
 
-def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
+def _surviving_project_resources(runtime: str, project: str) -> list[str]:
     """Containers and volumes still labelled for this project after a reset.
 
     Read-only, and label-scoped to the compose project rather than to the
@@ -1639,15 +1652,15 @@ def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
     the first.
 
     Args:
-        target: The project directory ``--reset`` was asked to clear.
-        runtime: The container runtime binary this host resolves
+        runtime: The container runtime binary the sweep runs
             (:func:`_runtime_binary`). Passed in rather than resolved here so
             the probe and the refusal that reports its findings can only ever
             name the same binary.
+        project: The compose project to sweep (:func:`_reset_project_name`),
+            read before the reset for the same reason.
     """
     from osprey.deployment.reset import RuntimeProbe
 
-    project = _reset_project_name(target)
     try:
         probe = RuntimeProbe(runtime)
         return [
@@ -1697,25 +1710,33 @@ def _abort_foreign_reset(
     raise click.Abort()
 
 
-def _runtime_binary() -> str:
-    """The container runtime binary this host resolves.
+def _runtime_binary(target: Path) -> str:
+    """The container runtime binary the ``--reset`` sweep runs.
 
-    Resolved once for the ``--reset`` sweep: the probe below runs it and the
-    refusal prints it, and a remedy naming a runtime other than the one that
-    found the resources would not be a command the operator can paste. An
-    unresolvable runtime falls back to ``docker`` — the refusal must still
-    print something to run, and a probe against a runtime that is not there
-    fails the same way either resolution would.
+    The runtime the deployment record names, the one the last start drove;
+    without a readable record, the one this host resolves. Resolved once for
+    the sweep: the probe below runs it and the refusal prints it, and a remedy
+    naming a runtime other than the one that found the resources would not be a
+    command the operator can paste. An unresolvable runtime falls back to
+    ``docker`` — the refusal must still print something to run, and a probe
+    against a runtime that is not there fails the same way either resolution
+    would.
     """
+    from osprey.deployment.deployment_record import deployed_runtime
+    from osprey.deployment.errors import DeploymentRecordError
     from osprey.deployment.runtime_helper import get_runtime_command
 
+    with suppress(DeploymentRecordError):
+        recorded = deployed_runtime(target)
+        if recorded is not None:
+            return recorded
     try:
         return get_runtime_command({})[0]
     except Exception:
         return "docker"
 
 
-def _abort_incomplete_reset(target: Path, survivors: list[str], runtime: str) -> None:
+def _abort_incomplete_reset(target: Path, survivors: list[str], runtime: str, project: str) -> None:
     """Stop a ``--reset`` that could not actually clear the name it was given.
 
     Args:
@@ -1725,8 +1746,8 @@ def _abort_incomplete_reset(target: Path, survivors: list[str], runtime: str) ->
             (:func:`_runtime_binary`), which the printed commands are spelled
             with. The compose project LABEL keeps its ``com.docker.compose``
             name on every runtime — podman-compose writes it too.
+        project: The compose project the sweep read (:func:`_reset_project_name`).
     """
-    project = _reset_project_name(target)
     logger.error(
         "✗ --reset could not clear %s: %d resource(s) of this project remain.\n\n%s\n\n"
         "`osprey reset` removes only what carries this checkout's `com.osprey.repo-id` "

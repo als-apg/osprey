@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors.simulation import DEFAULT_TICK_S
+from tests._live import wait_until
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
@@ -70,12 +71,12 @@ def _apply(project: e2e_conftest.VaProject, *scenarios: str) -> None:
     applied = project.sim_apply(*scenarios)
     assert applied.returncode == 0, applied.stdout + applied.stderr
     written = (project.state_dir / "active_scenarios").read_text(encoding="utf-8")
-    deadline = time.monotonic() + VISIBLE_BOUND_S
-    while _active_inside_container() != written:
-        assert time.monotonic() < deadline, (
-            f"the container never saw the active_scenarios file the host wrote ({written!r})"
-        )
-        time.sleep(POLL_S)
+    wait_until(
+        lambda: _active_inside_container() == written,
+        timeout=VISIBLE_BOUND_S,
+        interval=POLL_S,
+        what=f"the container seeing the active_scenarios file the host wrote ({written!r})",
+    )
 
 
 async def _read(connector: Any) -> float:

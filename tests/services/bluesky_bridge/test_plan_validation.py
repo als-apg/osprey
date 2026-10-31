@@ -902,16 +902,9 @@ _READ_ONLY_BODY = textwrap.dedent(
 
 
 class TestDeclaredPointCountGate:
-    async def test_a_moving_plan_that_declares_its_point_count_passes(self):
-        body = _role_mock_body(
-            _GATE_PARAMS,
-            "def build_plan(devices, params):\n" + _DRIVE_ONE_POINT,
-        )
-        result = await validate_plan(body, plan_name="role_mocks", sample_args=_GATE_SAMPLE_ARGS)
-        assert result.passed is True, result.reasons
-
     async def test_a_moving_plan_whose_run_declares_nothing_is_rejected(self):
-        """Same body, same run — only the declaration is missing. The message
+        """The run the role-mock bodies drive, with only the declaration missing
+        (the declared run passes in `TestDryRunRoleMocks`). The message
         has to hand the author the call that fixes it, not describe a document
         key they never write by hand.
         """

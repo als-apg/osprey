@@ -44,23 +44,22 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
-its element (or slices), engine block and calibration, plus the channel facts
-the build filled in (direction, unit, default, value_range), the ``role``,
-``plane`` and ``refresh`` the model's engine describes it with and, for a
-waveform channel, its ``value_type`` and ``shape``.
+its element (or slices), engine block and calibration, plus the slots the build
+filled from the channel, its limits record and the model's engine (direction,
+unit, default, value_range, role, plane, refresh, marks) and, for a waveform
+channel, its ``value_type`` and ``shape``.
 """
 
 from __future__ import annotations
 
 import copy
 import shutil
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.build import FacilityDocument
-from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation import STILL_ALL, STILL_SCENARIO
@@ -68,7 +67,6 @@ from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
-    COMMAND_MARK,
     DECKS_DIR,
     SCENARIOS_DIR,
     SCENARIOS_FILE,
@@ -131,7 +129,7 @@ _BUILT_IN_STILL = {
 }
 
 #: The keys a wiring entry may carry, in emission order: the wiring record's
-#: own keys, then the engine's description of it.
+#: authored keys, then the slots the build computed.
 _WIRING_ENTRY_KEYS = (
     "id",
     "address",
@@ -146,45 +144,27 @@ _WIRING_ENTRY_KEYS = (
     "role",
     "plane",
     "refresh",
+    "marks",
 )
 
-#: The file a model record comes from when no source states it.
-_MODELS_FILE = "models.yaml"
-
 #: The channels and models last wired and each model's wiring of them, keyed on
-#: the model and the engine that described it: every render of one build
-#: hands in the same document and asks for the same models from several views,
-#: so each model is described by its engine once per build. Keyed on the two
-#: lists the wiring reads rather than on the document, because the pyAML view
-#: hands in a shallow copy of it, which shares them. Two slots: a render's views
-#: wire the build's document while its approval hook wires the render's own
-#: ``facility.json``, and the two alternate in every render.
-_wired: list[tuple[Any, Any, dict[tuple[str, Any], list[dict[str, Any]]]]] = []
+#: the model: every render of one build hands in the same document and asks for
+#: the same models from several views, so each model is wired once per build.
+#: Keyed on the two lists the wiring reads rather than on the document, because
+#: the pyAML view hands in a shallow copy of it, which shares them. Two slots: a
+#: render's views wire the build's document while its approval hook wires the
+#: render's own ``facility.json``, and the two alternate in every render.
+_wired: list[tuple[Any, Any, dict[str, list[dict[str, Any]]]]] = []
 _WIRED_SLOTS = 2
-
-#: The ``entry_points`` last asked for the engine group and its answer. Reading
-#: the group scans every installed distribution's metadata, so it is read once
-#: per ``entry_points``: a replaced one (a test registering an engine) is asked
-#: again.
-_engines: tuple[Callable[..., Any], Any] | None = None
 
 
 def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, Any]]:
     """The wiring entries of one model, in the facility file's record order.
 
     Each entry holds the keys of ``_WIRING_ENTRY_KEYS`` the wiring record
-    carries and, for a physics model, the ``role``, ``plane`` and ``refresh``
-    its engine's ``describe()`` states, and ``marks``: the engine's declared
-    ``RECORD_MARKS`` the description sets ``True``, absent when none is set.
-    Every other key of a description is dropped. Where the wired channel is a
-    waveform, the entry adds the channel's ``value_type`` and ``shape``. A key
-    the record lacks is absent from its entry.
-
-    Each description names a role of the engine's ``RECORD_ROLES`` and is
-    checked against the facility file: a ``write`` record is a ``setpoint``;
-    a record whose address is the pair of a setpoint is a ``readback``; a
-    record naming no element and no slices is an ``output``; only a ``write``
-    record carries the ``command`` mark.
+    carries; where the wired channel is a waveform, the entry adds the
+    channel's ``value_type`` and ``shape``. A key the record lacks is absent
+    from its entry.
 
     Args:
         facility: The in-memory facility file.
@@ -196,105 +176,33 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
 
     Raises:
         KeyError: ``facility`` has no model named ``model``.
-        FacilityBuildError: ``engine-missing`` when the model's engine is not
-            registered; ``engine-invalid`` when it has no ``describe``, a
-            description names a role the engine does not declare, or a
-            description contradicts the facility file.
     """
     for entry in facility.get("models", []):
         if entry["name"] == model:
             break
     else:
         raise KeyError(f"the facility file has no model {model!r}")
-    records = entry.get("wiring", [])
-    engine = _describer(entry) if records and entry.get("engine") != TEXTURE else None
     channels, models = facility.get("channels"), facility.get("models")
     slot = next((s for s in _wired if s[0] is channels and s[1] is models), None)
     if slot is None:
         slot = (channels, models, {})
         _wired[:] = [slot, *_wired[: _WIRED_SLOTS - 1]]
-    wiring = slot[2].get((model, engine))
+    wiring = slot[2].get(model)
     if wiring is None:
-        wiring = slot[2][(model, engine)] = _wire(facility, entry, engine)
+        wiring = slot[2][model] = _wire(facility, entry)
     return copy.deepcopy(wiring)
 
 
-def _wire(
-    facility: FacilityDocument,
-    entry: Mapping[str, Any],
-    engine: _Engine | None,
-) -> list[dict[str, Any]]:
+def _wire(facility: FacilityDocument, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
     channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
-    pairs = _setpoint_pairs(channels.values())
-    wiring: list[dict[str, Any]] = []
-    for record in entry.get("wiring", []):
-        source = dict(record)
-        marks: list[str] = []
-        if engine is not None:
-            description = engine.describe(record)
-            marks = [mark for mark in engine.marks if description.get(mark) is True]
-            _check_role(entry, record, description, engine.roles)
-            _check_description(entry, record, description, marks, pairs)
-            source.update({key: description[key] for key in _DESCRIPTION_KEYS})
-        wiring.append(
-            {
-                **{key: copy.deepcopy(source[key]) for key in _WIRING_ENTRY_KEYS if key in source},
-                **({_MARKS_KEY: marks} if marks else {}),
-                **_waveform(channels.get(str(record["address"]), {})),
-            }
-        )
-    return wiring
-
-
-#: The keys an engine's description gives a wiring entry.
-_DESCRIPTION_KEYS = ("role", "plane", "refresh")
-#: The wiring entry's list of the declared marks its description sets.
-_MARKS_KEY = "marks"
-
-
-class _Engine(NamedTuple):
-    """What a model's engine plug-in states about its wiring records."""
-
-    describe: Callable[[Any], Mapping[str, Any]]
-    roles: tuple[str, ...]
-    marks: tuple[str, ...]
-
-
-def _describer(model: Mapping[str, Any]) -> _Engine:
-    """The ``describe``, record roles and marks of the engine plug-in a model names."""
-    from importlib import metadata
-
-    from osprey.facility.validate import stating_files
-    from osprey.simulation.engines import ENTRY_POINT_GROUP, record_marks, record_roles
-
-    global _engines
-    name = str(model["name"])
-    if _engines is None or _engines[0] is not metadata.entry_points:
-        _engines = (metadata.entry_points, metadata.entry_points(group=ENTRY_POINT_GROUP))
-    engines = _engines[1]
-    engine = model.get("engine")
-    if engine not in engines.names:
-        raise FacilityBuildError(
-            "engine-missing",
-            name,
-            stating_files(model, None, fallback=_MODELS_FILE),
-            "install the engine's package, or name an engine the environment registers",
-            record_kind="model",
-            detail=f"engine {engine} is not registered under {ENTRY_POINT_GROUP}",
-        )
-    plugin = engines[str(engine)].load()
-    describe = getattr(plugin, "describe", None)
-    if describe is None:
-        raise FacilityBuildError(
-            "engine-invalid",
-            name,
-            stating_files(model, None, fallback=_MODELS_FILE),
-            "add describe() to the engine plug-in",
-            record_kind="model",
-            detail=f"engine {engine} states no describe(), so its wiring records carry no role",
-        )
-    return _Engine(describe, record_roles(plugin), record_marks(plugin))
+    return [
+        {
+            **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
+            **_waveform(channels.get(str(record["address"]), {})),
+        }
+        for record in entry.get("wiring", [])
+    ]
 
 
 def served_deck_path(model: Mapping[str, Any]) -> str | None:
@@ -311,83 +219,6 @@ def served_deck_path(model: Mapping[str, Any]) -> str | None:
     if not deck:
         return None
     return f"{DECKS_DIR}/{model['name']}{Path(deck).suffix}"
-
-
-def _setpoint_pairs(channels: Iterable[Mapping[str, Any]]) -> frozenset[str]:
-    """The readbacks the facility file pairs with a setpoint."""
-    return frozenset(
-        str(channel["pair"])
-        for channel in channels
-        if channel.get("role") == "setpoint"
-        and channel.get("pair") is not None
-        and channel["pair"] != channel["id"]
-    )
-
-
-def _check_role(
-    model: Mapping[str, Any],
-    record: Mapping[str, Any],
-    description: Mapping[str, Any],
-    roles: tuple[str, ...],
-) -> None:
-    """Stop when an engine's description names a role the engine does not declare."""
-    from osprey.facility.validate import stating_files
-
-    role = description.get("role")
-    if role in roles:
-        return
-    raise FacilityBuildError(
-        "engine-invalid",
-        str(model["name"]),
-        stating_files(model, None, fallback=_MODELS_FILE),
-        f"declare {role} in the engine's RECORD_ROLES, or describe {record['address']} "
-        f"with one of {', '.join(roles)}",
-        record_kind="model",
-        detail=f"the engine describes {record['address']} as a {role}, a role it does not declare",
-    )
-
-
-def _check_description(
-    model: Mapping[str, Any],
-    record: Mapping[str, Any],
-    description: Mapping[str, Any],
-    marks: list[str],
-    pairs: frozenset[str],
-) -> None:
-    """Stop when an engine's description contradicts the facility file."""
-    from osprey.facility.validate import stating_files
-
-    address = str(record["address"])
-    written = record.get("direction") == "write"
-    if COMMAND_MARK in marks and not written:
-        raise FacilityBuildError(
-            "engine-invalid",
-            str(model["name"]),
-            stating_files(model, None, fallback=_MODELS_FILE),
-            f"make the engine's describe() mark write records alone {COMMAND_MARK}",
-            record_kind="model",
-            detail=f"the engine marks {address} {COMMAND_MARK}; its direction is read",
-        )
-    if written:
-        expected, why = "setpoint", "its direction is write"
-    elif address in pairs:
-        expected, why = "readback", "a setpoint pairs with it"
-    elif record.get("element") is None and not record.get("slices"):
-        expected, why = "output", "it names no element"
-    else:
-        return
-    if description.get("role") != expected:
-        raise FacilityBuildError(
-            "engine-invalid",
-            str(model["name"]),
-            stating_files(model, None, fallback=_MODELS_FILE),
-            f"make the engine's describe() call {address} a {expected}",
-            record_kind="model",
-            detail=(
-                f"the engine describes {address} as a {description.get('role')}; "
-                f"it is a {expected}: {why}"
-            ),
-        )
 
 
 def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:

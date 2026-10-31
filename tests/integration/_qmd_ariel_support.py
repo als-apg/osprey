@@ -374,17 +374,8 @@ def reindex_settled(log: str, since: int | None) -> bool:
     return False
 
 
-def wait_for_indexed(
-    client,
-    container,
-    collection: str,
-    query: str,
-    predicate,
-    *,
-    what: str,
-    since: int | None = None,
-):
-    """Wait for the sidecar's index to settle, then check ``predicate`` once.
+def wait_for_reindex_settled(client, container, *, since: int | None = None) -> None:
+    """Block until the sidecar's index has settled, or fail with its own logs.
 
     The sidecar re-indexes asynchronously — a marker touch is observed by a poll
     loop inside the container and re-embedded on a CPU-bound model — so the wait
@@ -397,15 +388,12 @@ def wait_for_indexed(
     Args:
         client: A ``QMDClient`` pointed at the sidecar.
         container: The started sidecar container.
-        collection: Collection to query.
-        query: Query text.
-        predicate: Callable taking the hit list and returning a bool.
-        what: Human description used in the failure message.
         since: Offset from :func:`sidecar_log_mark` taken before a marker touch,
             or ``None`` when the content was indexed at startup.
 
-    Returns:
-        The hit list the predicate accepted.
+    Raises:
+        ContainerExitedError: If the sidecar exited during the wait.
+        AssertionError: If the index did not settle.
     """
 
     def _settled() -> None:
@@ -427,6 +415,36 @@ def wait_for_indexed(
         interval=1.0,
         ceiling=SIDECAR_REINDEX_CEILING,
     )
+
+
+def wait_for_indexed(
+    client,
+    container,
+    collection: str,
+    query: str,
+    predicate,
+    *,
+    what: str,
+    since: int | None = None,
+):
+    """Wait for the sidecar's index to settle, then check ``predicate`` once.
+
+    The wait is :func:`wait_for_reindex_settled`.
+
+    Args:
+        client: A ``QMDClient`` pointed at the sidecar.
+        container: The started sidecar container.
+        collection: Collection to query.
+        query: Query text.
+        predicate: Callable taking the hit list and returning a bool.
+        what: Human description used in the failure message.
+        since: Offset from :func:`sidecar_log_mark` taken before a marker touch,
+            or ``None`` when the content was indexed at startup.
+
+    Returns:
+        The hit list the predicate accepted.
+    """
+    wait_for_reindex_settled(client, container, since=since)
 
     hits = client.query(collection, query, limit=50, rerank=False, candidate_limit=40)
     if not predicate(hits):

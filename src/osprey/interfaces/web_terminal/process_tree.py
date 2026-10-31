@@ -15,7 +15,8 @@ one reader, :func:`read_while_alive`, which raises
 :class:`ProcessTableUnreadable` when it could not look, so no caller takes an
 unknown tree for one that started nothing. The tree can only be read while
 its root lives, so that is the only time the reader retries a failed read.
-The liveness checks that wait for an ending count an unknown member as alive.
+An ending never signals what it could not re-identify: what an unreadable
+table hides is reported as unknown, never as gone and never as a survivor.
 
 A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
@@ -40,15 +41,14 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
-import psutil
-
+from osprey.deployment import process_table
+from osprey.deployment.process_table import ProcessRow, ProcessTableUnreadable
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("process_tree")
 
-# What a read asks psutil for, per process; the group comes from ``os.getpgid``.
-_ATTRS = ["pid", "ppid", "status", "create_time", "cmdline", "name"]
 # Programs that are shells: the agent CLI starts every command through one of them.
 _SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"})
 # The script the agent CLI's shell wrapper runs: setup pieces joined by ``&&``, then
@@ -60,12 +60,11 @@ _WRAPPER_STDIN = " < /dev/null"
 END_TERM_WAIT_S = 3.0
 # How long started processes get to disappear after SIGKILL.
 END_KILL_WAIT_S = 2.0
+# How long a read that decides what to look for, end or keep retries an
+# unreadable table: a tree read while its root lives, and each read of an ending.
+READ_WAIT_S = 5.0
 # Interval between snapshots while waiting for groups to end.
 _POLL_S = 0.05
-# How long a tree read retries a failed read while its root lives.
-READ_WAIT_S = 5.0
-# Interval between attempts to read an unreadable table.
-_READ_RETRY_S = 0.25
 # Longest label kept for a group.
 _LABEL_MAX = 40
 # Longest command line sent to the browser for a group.
@@ -78,79 +77,13 @@ _FILE_NAME = re.compile(r"^[\w.-]+\.[A-Za-z0-9]{1,5}$")
 _SHELL_SYNTAX = re.compile(r"[;|&<>()$`'\"\\]|^\S+=")
 
 
-@dataclass(frozen=True)
-class ProcessRow:
-    """One process as the process table reported it."""
-
-    pid: int
-    ppid: int
-    pgid: int
-    started: float  # epoch seconds
-    command: str
-    exited: bool  # a zombie: exited, and nobody has reaped it yet
-
-
-class ProcessTableUnreadable(RuntimeError):
-    """The process table could not be read, so what is running is unknown.
-
-    ``cause`` is the failure. ``retryable`` is false when another read cannot
-    answer either: the host has no process table, or reading it is refused.
-    """
-
-    def __init__(self, cause: BaseException, *, retryable: bool | None = None) -> None:
-        super().__init__(f"cannot read the process table: {cause}")
-        self.cause = cause
-        self.retryable = (
-            not isinstance(cause, FileNotFoundError | PermissionError | psutil.AccessDenied)
-            if retryable is None
-            else retryable
-        )
-
-
-def snapshot() -> dict[int, ProcessRow]:
-    """Return every process on the host by pid.
-
-    A row that cannot be read because its process is exiting, or whose group
-    or start can no longer be read, is absent. Only a failure to enumerate the
-    table itself raises.
-
-    Raises:
-        ProcessTableUnreadable: The process table could not be enumerated.
-    """
-    rows: dict[int, ProcessRow] = {}
-    try:
-        for process in psutil.process_iter():
-            try:
-                info = process.as_dict(_ATTRS, ad_value=None)
-            # SystemError covers a psutil defect on macOS, where reading the command
-            # line of an exiting process raises it from the C extension; the catch
-            # is dropped once psutil fixes it.
-            except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied, SystemError):
-                continue
-            pid, ppid, started = info["pid"], info["ppid"], info["create_time"]
-            if ppid is None or started is None:
-                continue
-            try:
-                pgid = os.getpgid(pid)
-            except OSError:
-                continue
-            cmdline = info["cmdline"]
-            command = " ".join(cmdline) if cmdline else info["name"] or ""
-            exited = info["status"] == psutil.STATUS_ZOMBIE
-            rows[pid] = ProcessRow(pid, ppid, pgid, started, command, exited)
-    except (psutil.Error, OSError, SystemError) as exc:
-        raise ProcessTableUnreadable(exc) from exc
-    return rows
-
-
 def read_while_alive(alive: Callable[[], bool]) -> dict[int, ProcessRow]:
-    """Return a :func:`snapshot` taken while the root of a tree is alive, retrying a failed read.
+    """Return the process table, read while the root of a tree is alive.
 
     *alive* says whether the root still runs. A tree can only be read while it
     does, so every read, the first included, is preceded by that question, and
-    a failed read is retried only while the answer is yes. Attempts are
-    :data:`_READ_RETRY_S` apart and none starts once :data:`READ_WAIT_S` has
-    passed since the first, so the call blocks for at most that plus one read.
+    a failed read is retried only while the answer is yes, for up to
+    :data:`READ_WAIT_S` (:func:`~osprey.deployment.process_table.snapshot_within`).
 
     Raises:
         ProcessTableUnreadable: No read succeeded while the root was alive:
@@ -158,21 +91,7 @@ def read_while_alive(alive: Callable[[], bool]) -> dict[int, ProcessRow]:
             failure no retry can answer, and with :class:`ProcessLookupError`
             as the cause when the root had exited before a read was taken.
     """
-    deadline = time.monotonic() + READ_WAIT_S
-    failure: ProcessTableUnreadable | None = None
-    while alive():
-        try:
-            return snapshot()
-        except ProcessTableUnreadable as exc:
-            failure = exc
-            if not exc.retryable or time.monotonic() + _READ_RETRY_S > deadline:
-                raise
-        time.sleep(_READ_RETRY_S)
-    if failure is not None:
-        raise failure
-    raise ProcessTableUnreadable(
-        ProcessLookupError("the root exited before the table was read"), retryable=False
-    )
+    return process_table.snapshot_within(READ_WAIT_S, alive=alive)
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -291,6 +210,25 @@ class ProcessGroup:
         return {"label": self.label, "command": _truncate(self.command, _COMMAND_MAX)}
 
 
+_T = TypeVar("_T", ProcessGroup, ProcessRow)
+
+
+@dataclass(frozen=True)
+class Ending(Generic[_T]):
+    """What an ending did about the groups or processes it was given.
+
+    ``ended`` holds those that were signalled. ``survivors`` holds those a
+    read of the process table still found after SIGKILL. ``unknown`` holds
+    those that could not be re-identified because the table could not be
+    read: they were not signalled again and may still be running. Unknown is
+    never folded into survivors, since nobody looked.
+    """
+
+    ended: tuple[_T, ...] = ()
+    survivors: tuple[_T, ...] = ()
+    unknown: tuple[_T, ...] = ()
+
+
 def _group(pgid: int, rows: Sequence[ProcessRow]) -> ProcessGroup:
     """Return the group *rows* make up, named by what the agent launched.
 
@@ -399,21 +337,16 @@ def server_group_members(root: int, rows: dict[int, ProcessRow]) -> list[Process
 
 
 def still_running(
-    groups: Sequence[ProcessGroup], rows: dict[int, ProcessRow] | None = None
+    groups: Sequence[ProcessGroup], rows: dict[int, ProcessRow]
 ) -> list[ProcessGroup]:
     """Return the groups that still hold one of their snapshotted members.
 
     A member that has exited but is not yet reaped (a zombie, which a server
     running as PID 1 without an init leaves behind) no longer counts.
 
-    *rows* defaults to a fresh :func:`snapshot`. When the table cannot be
-    read every group is returned: an unknown group is never claimed gone.
+    *rows* is a table read after the groups were snapshotted; an ending reads
+    it through :func:`~osprey.deployment.process_table.snapshot_within`.
     """
-    if rows is None:
-        try:
-            rows = snapshot()
-        except ProcessTableUnreadable:
-            return list(groups)
     alive = []
     for group in groups:
         for pid, started in group.members:
@@ -438,49 +371,93 @@ def _signal_groups(groups: Sequence[ProcessGroup], signum: int) -> None:
             os.killpg(group.pgid, signum)
 
 
-def _wait_gone(groups: list[ProcessGroup], within: float) -> list[ProcessGroup]:
-    deadline = time.monotonic() + within
-    while groups and time.monotonic() < deadline:
-        time.sleep(_POLL_S)
-        groups = still_running(groups)
-    return groups
+def _wait_gone(
+    items: list[_T],
+    within: float,
+    alive: Callable[[Sequence[_T], dict[int, ProcessRow]], list[_T]],
+) -> tuple[list[_T], bool]:
+    """Poll the table until *items* are gone or *within* seconds have passed.
 
-
-def end_groups(
-    groups: Sequence[ProcessGroup],
-) -> tuple[list[ProcessGroup], list[ProcessGroup]]:
-    """End *groups*: SIGTERM, then SIGKILL what remains. Never raises.
-
-    Only groups that still hold a snapshotted member are signalled, never the
-    server's own group and never group 0 or 1.
+    A failed poll keeps the last known set. When the wait ends on a failed
+    poll with something left, one verdict read is taken, retried for up to
+    :data:`READ_WAIT_S`.
 
     Returns:
-        ``(ended, survivors)``: the groups that were signalled, and those the
-        last look still found after SIGKILL.
+        ``(remaining, read)``: what the latest successful read still found,
+        and whether *remaining* comes from a read at all; when it does not,
+        *remaining* could not be re-identified.
+    """
+    deadline = time.monotonic() + within
+    read = True
+    while items and time.monotonic() < deadline:
+        time.sleep(_POLL_S)
+        try:
+            rows = process_table.snapshot()
+        except ProcessTableUnreadable:
+            read = False
+            continue
+        read = True
+        items = alive(items, rows)
+    if items and not read:
+        try:
+            rows = process_table.snapshot_within(READ_WAIT_S)
+        except ProcessTableUnreadable:
+            return items, False
+        return alive(items, rows), True
+    return items, read
+
+
+def _end(
+    items: Sequence[_T],
+    alive: Callable[[Sequence[_T], dict[int, ProcessRow]], list[_T]],
+    send: Callable[[Sequence[_T], int], None],
+) -> Ending[_T]:
+    """SIGTERM what a read re-identifies in *items*, then SIGKILL what a read still finds.
+
+    Nothing a read did not re-identify is signalled; it is reported as unknown.
     """
     try:
-        live = still_running(groups)
-        _signal_groups(live, signal.SIGTERM)
-        remaining = _wait_gone(list(live), END_TERM_WAIT_S)
-        if remaining:
-            _signal_groups(remaining, signal.SIGKILL)
-            remaining = _wait_gone(remaining, END_KILL_WAIT_S)
-        return live, remaining
+        rows = process_table.snapshot_within(READ_WAIT_S)
+    except ProcessTableUnreadable:
+        return Ending(unknown=tuple(items))
+    live = alive(items, rows)
+    send(live, signal.SIGTERM)
+    remaining, read = _wait_gone(list(live), END_TERM_WAIT_S, alive)
+    if remaining and read:
+        send(remaining, signal.SIGKILL)
+        remaining, read = _wait_gone(remaining, END_KILL_WAIT_S, alive)
+    if read:
+        return Ending(ended=tuple(live), survivors=tuple(remaining))
+    return Ending(ended=tuple(live), unknown=tuple(remaining))
+
+
+def end_groups(groups: Sequence[ProcessGroup]) -> Ending[ProcessGroup]:
+    """End *groups*: SIGTERM, then SIGKILL what remains. Never raises.
+
+    Only groups a read of the process table re-identifies (they still hold a
+    snapshotted member) are signalled, never the server's own group and never
+    group 0 or 1. A group the table could not be read to re-identify is not
+    signalled. Each read that decides a step is retried for up to
+    :data:`READ_WAIT_S`.
+
+    Returns:
+        The :class:`Ending`: ``ended`` the groups that were signalled,
+        ``survivors`` those a read still found after SIGKILL, and ``unknown``
+        those that could not be re-identified because the table could not be
+        read.
+    """
+    try:
+        return _end(groups, still_running, _signal_groups)
     except Exception:  # teardown finishes whatever the process table reports
         logger.warning("Ending the PTY child's process groups failed", exc_info=True)
-        return [], list(groups)
+        return Ending(unknown=tuple(groups))
 
 
-def _live_rows(rows: Sequence[ProcessRow]) -> list[ProcessRow]:
-    """The *rows* whose process is still the one snapshotted: same start time and group.
+def _live_rows(rows: Sequence[ProcessRow], current: dict[int, ProcessRow]) -> list[ProcessRow]:
+    """The *rows* whose process *current* still shows as the one snapshotted.
 
-    Every row is returned when the table cannot be read: an unknown process is
-    never claimed gone.
+    That is the same pid, start time and group, not yet exited.
     """
-    try:
-        current = snapshot()
-    except ProcessTableUnreadable:
-        return list(rows)
     live = []
     for row in rows:
         now = current.get(row.pid)
@@ -503,38 +480,31 @@ def _signal_processes(rows: Sequence[ProcessRow], signum: int) -> None:
             os.kill(row.pid, signum)
 
 
-def _wait_processes_gone(rows: list[ProcessRow], within: float) -> list[ProcessRow]:
-    deadline = time.monotonic() + within
-    while rows and time.monotonic() < deadline:
-        time.sleep(_POLL_S)
-        rows = _live_rows(rows)
-    return rows
+def _signallable_rows(
+    rows: Sequence[ProcessRow], current: dict[int, ProcessRow]
+) -> list[ProcessRow]:
+    own = os.getpid()
+    return [row for row in _live_rows(rows, current) if row.pid > 1 and row.pid != own]
 
 
-def end_processes(
-    rows: Sequence[ProcessRow],
-) -> tuple[list[ProcessRow], list[ProcessRow]]:
+def end_processes(rows: Sequence[ProcessRow]) -> Ending[ProcessRow]:
     """End the processes *rows* name, one by one: SIGTERM, then SIGKILL. Never raises.
 
-    The per-process twin of :func:`end_groups`, with the same waits. Only a
-    process still the one snapshotted (same pid, start time and group) is
+    The per-process twin of :func:`end_groups`, with the same reads and waits.
+    Only a process a read re-identifies (same pid, start time and group) is
     signalled, never the server and never pid 0 or 1.
 
     Returns:
-        ``(ended, survivors)``: the processes that were signalled, and those
-        the last look still found after SIGKILL.
+        The :class:`Ending`: ``ended`` the processes that were signalled,
+        ``survivors`` those a read still found after SIGKILL, and ``unknown``
+        those that could not be re-identified because the table could not be
+        read.
     """
     try:
-        live = [row for row in _live_rows(rows) if row.pid > 1 and row.pid != os.getpid()]
-        _signal_processes(live, signal.SIGTERM)
-        remaining = _wait_processes_gone(list(live), END_TERM_WAIT_S)
-        if remaining:
-            _signal_processes(remaining, signal.SIGKILL)
-            remaining = _wait_processes_gone(remaining, END_KILL_WAIT_S)
-        return live, remaining
+        return _end(rows, _signallable_rows, _signal_processes)
     except Exception:  # teardown finishes whatever the process table reports
         logger.warning("Ending the agent's processes failed", exc_info=True)
-        return [], list(rows)
+        return Ending(unknown=tuple(rows))
 
 
 def describe_processes(rows: Sequence[ProcessRow]) -> str:

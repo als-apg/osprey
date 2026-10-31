@@ -1012,64 +1012,64 @@ def seed_archiver(
             )
 
         persisted = persisted_scenario_anchor(config, project_dir)
-        archive = build(
+        with build(
             SimulatorView.of_project(project_dir),
             names,
             anchor_s=None if persisted is None else persisted.timestamp(),
-        )
-        # A channel the view does not archive has no stored history to rewrite.
-        archived = set(archive.addresses)
-        events = {pv: script for pv, script in events.items() if pv in archived}
+        ) as archive:
+            # A channel the view does not archive has no stored history to rewrite.
+            archived = set(archive.addresses)
+            events = {pv: script for pv, script in events.items() if pv in archived}
 
-        anchor_s = anchor.timestamp()
-        horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
-        previous = _ledger_windows(manifest)
-        current = {
-            pv: event_window(script, anchor_s, horizon_start, tz=tz)
-            for pv, script in events.items()
-        }
-        live = {
-            pv: event_subwindows(script, anchor_s, horizon_start, tz=tz)
-            for pv, script in events.items()
-        }
-        spans = _union_spans(previous, current)
+            anchor_s = anchor.timestamp()
+            horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
+            previous = _ledger_windows(manifest)
+            current = {
+                pv: event_window(script, anchor_s, horizon_start, tz=tz)
+                for pv, script in events.items()
+            }
+            live = {
+                pv: event_subwindows(script, anchor_s, horizon_start, tz=tz)
+                for pv, script in events.items()
+            }
+            spans = _union_spans(previous, current)
 
-        result = ArchiverSeedResult(channels=tuple(sorted(current)))
+            result = ArchiverSeedResult(channels=tuple(sorted(current)))
 
-        # The ledger goes down first, and it names the *union* — every window
-        # this run is about to disturb, not the ones it means to leave marked.
-        # A process that dies mid-rewrite has already written event values into
-        # windows the new ledger would not mention, and a window no ledger names
-        # is a window no later apply ever comes back for: the marks would be
-        # permanent and unsignalled. A superset costs the next apply one extra
-        # recompute over a stretch that is already at its base value.
-        #
-        # Written whenever there is anything at all to disturb, including when
-        # the union happens to equal the new windows — which is exactly the case
-        # on a store no scenario has touched yet. Skipping it there because "the
-        # ledger would say the same thing at the end anyway" would leave the
-        # *first* eventful apply on every fresh deployment writing marks under
-        # an empty ledger, which is the one crash nothing could recover from.
-        #
-        # Any guard here must be phrased against what is already *on disk*,
-        # never against what this run intends to leave behind; the unconditional
-        # form is the one that cannot be got wrong, and it costs one small
-        # manifest write per eventful apply.
-        if spans:
-            _write_ledger(collection, spans, anchor_s)
+            # The ledger goes down first, and it names the *union* — every window
+            # this run is about to disturb, not the ones it means to leave marked.
+            # A process that dies mid-rewrite has already written event values into
+            # windows the new ledger would not mention, and a window no ledger names
+            # is a window no later apply ever comes back for: the marks would be
+            # permanent and unsignalled. A superset costs the next apply one extra
+            # recompute over a stretch that is already at its base value.
+            #
+            # Written whenever there is anything at all to disturb, including when
+            # the union happens to equal the new windows — which is exactly the case
+            # on a store no scenario has touched yet. Skipping it there because "the
+            # ledger would say the same thing at the end anyway" would leave the
+            # *first* eventful apply on every fresh deployment writing marks under
+            # an empty ledger, which is the one crash nothing could recover from.
+            #
+            # Any guard here must be phrased against what is already *on disk*,
+            # never against what this run intends to leave behind; the unconditional
+            # form is the one that cannot be got wrong, and it costs one small
+            # manifest write per eventful apply.
+            if spans:
+                _write_ledger(collection, spans, anchor_s)
 
-        # Dense inserts are keyed to the windows that needed them; a window that
-        # is no longer an event window must not keep resolution nothing asked
-        # for, so they go before anything is recomputed.
-        regions = _merge_intervals(list(spans.values()))
-        result.removed = _drop_densified(collection, regions)
+            # Dense inserts are keyed to the windows that needed them; a window that
+            # is no longer an event window must not keep resolution nothing asked
+            # for, so they go before anything is recomputed.
+            regions = _merge_intervals(list(spans.values()))
+            result.removed = _drop_densified(collection, regions)
 
-        result.updated, result.restored = _rewrite_documents(
-            collection, archive, knobs, spans, live
-        )
-        result.inserted, result.uncovered = _densify(collection, archive, live, knobs)
+            result.updated, result.restored = _rewrite_documents(
+                collection, archive, knobs, spans, live
+            )
+            result.inserted, result.uncovered = _densify(collection, archive, live, knobs)
 
-        _write_ledger(collection, current, anchor_s)
+            _write_ledger(collection, current, anchor_s)
 
     if result.uncovered:
         logger.warning(

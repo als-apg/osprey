@@ -87,7 +87,7 @@ def _run_local(tmp_path, monkeypatch) -> _LocalRun:
     # which resolves through the stamped agent-data root — without this the marker
     # directory lands in the repository and trips the agent-data guard.
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
-    monkeypatch.setattr(host_executor, "_deployment_record", fake_record)
+    monkeypatch.setattr(host_executor, "_control_context_record", fake_record)
     # Resolvability is a config question, answered elsewhere and pinned in
     # tests/runtime/test_executor_target_stamp.py; here it only has to not
     # send the run to the baseline.

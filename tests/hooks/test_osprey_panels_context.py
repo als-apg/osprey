@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -245,7 +246,7 @@ def test_write_snapshot_roundtrips_and_leaves_no_temp_file(temp_snapshot_dir):
     state = {"tiles": ["bluesky"], "active": "bluesky", "visible": ["bluesky"]}
 
     assert panels._write_snapshot(path, state) is True
-    assert json.loads(open(path).read()) == state
+    assert json.loads(Path(path).read_text()) == state
     assert list(temp_snapshot_dir.iterdir()) == [temp_snapshot_dir / "osprey-workspace-sess-1.json"]
 
 
@@ -254,7 +255,7 @@ def test_write_snapshot_overwrites_previous_content():
     path = panels._snapshot_path("sess-1")
     panels._write_snapshot(path, {"tiles": ["old"], "active": "old", "visible": ["old"]})
     panels._write_snapshot(path, {"tiles": ["new"], "active": "new", "visible": ["new"]})
-    assert json.loads(open(path).read())["tiles"] == ["new"]
+    assert json.loads(Path(path).read_text())["tiles"] == ["new"]
 
 
 def test_write_snapshot_writes_nothing_without_the_file_helper(temp_snapshot_dir, monkeypatch):

@@ -10,12 +10,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from osprey_connectors.simulation.view import ROLES
-
 if TYPE_CHECKING:
     from lume.model import LUMEModel
 
-__all__ = ["ENTRY_POINT_GROUP", "EnginePlugin", "record_marks", "record_roles"]
+__all__ = ["ENTRY_POINT_GROUP", "EnginePlugin"]
 
 #: The entry-point group every engine plug-in registers under.
 ENTRY_POINT_GROUP = "osprey.simulation.engines"
@@ -32,36 +30,32 @@ class EnginePlugin(Protocol):
 
     A plug-in may state these names too, each looked up on the module by name:
 
-    ======================================================  ==============================================  ==========================================
-    name                                                    what it gives                                   a module without it
-    ======================================================  ==============================================  ==========================================
-    ``error_text(exc)``                                     the one line a failed build reports             the exception's own text
-    ``fault_variables(wiring)``                             every fault a model built from the wiring       the model declares no faults
-                                                            declares
-    ``polynomial_kicks(deck, elements)``                    a deck copy carrying named kicks as dipole      the pyAML view stops ``engine-invalid``
-                                                            polynomials; stand-in until pyAML reads a       when design correctors need it
-                                                            dipole kick held in ``KickAngle``
-    ``response_matrix(deck, wiring, settings,               the orbit response of the wired monitors:       ``model_response_matrix`` ends without a
-    correctors, step)``                                     ``rows``, ``columns``, ``matrix`` and the       result; the response check stops
-                                                            ``unsolved`` correctors with their texts. The
-                                                            plug-in raising one of the refusal exceptions
-                                                            refuses the whole request with its text; a
-                                                            return with no column is refused with the
-                                                            ``unsolved`` map
-    ``SOLVE_ERRORS``                                        the exceptions meaning "this request has no     every exception is a failure, never a
-                                                            solve"; stand-in until lume-base states         refusal
-                                                            ``SolveError``
-    ``RECORD_ROLES``                                        the roles ``describe`` may name; a role         ``setpoint``, ``readback``, ``monitor``
-                                                            outside them stops the build                    and ``output``
-    ``RECORD_MARKS``                                        the marks ``describe`` may set ``True``; the    no marks: a description's other keys
-                                                            view's wiring entry and binding carry them,     are dropped
-                                                            and only a write record may carry
-                                                            ``command``
-    ======================================================  ==============================================  ==========================================
-
-    ``RECORD_ROLES`` and ``RECORD_MARKS`` are read through :func:`record_roles`
-    and :func:`record_marks`, not stated as members here, so a module without
-    them still satisfies the contract.
+    ======================================  ============================================  ==========================================
+    name                                    what it gives                                 a module without it
+    ======================================  ============================================  ==========================================
+    ``error_text(exc)``                     the one line a failed build reports           the exception's own text
+    ``fault_variables(wiring)``             every fault a model built from the wiring     the model declares no faults
+                                            declares
+    ``polynomial_kicks(deck, elements)``    a deck copy carrying named kicks as dipole    the pyAML view stops ``engine-invalid``
+                                            polynomials; stand-in until pyAML reads a     when design correctors need it
+                                            dipole kick held in ``KickAngle``
+    ``response_matrix(...)``                called with ``(deck, wiring, settings,        ``model_response_matrix`` ends without a
+                                            correctors, step)``: the orbit response of    result; the response check stops
+                                            the wired monitors, ``rows``, ``columns``,
+                                            ``matrix`` and the ``unsolved`` correctors
+                                            with their texts. Raising one of
+                                            ``REFUSAL_ERRORS`` refuses the request with
+                                            its text; a ``FacilityBuildError`` refuses
+                                            it as a facility-file defect; a return with
+                                            no column is refused with the ``unsolved``
+                                            map
+    ``REFUSAL_ERRORS``                      the exceptions meaning "the request is not    no exception is a request refusal
+                                            one this engine answers"; stand-in until
+                                            lume-base states it
+    ``SOLVE_ERRORS``                        the exceptions meaning "this request has no   every exception is a failure, never a
+                                            solve"; stand-in until lume-base states       refusal
+                                            ``SolveError``
+    ======================================  ============================================  ==========================================
     """
 
     def locate(self, deck: Any, element: str, *, model: str | None = None) -> tuple[float, float]:
@@ -86,7 +80,7 @@ class EnginePlugin(Protocol):
         ...
 
     def describe(self, wiring_record: Any) -> Mapping[str, Any]:
-        """What a wiring record is: its role, plane and refresh, and any declared marks."""
+        """What a wiring record is: its role, plane and refresh, and any marks."""
         ...
 
     def build(
@@ -99,27 +93,3 @@ class EnginePlugin(Protocol):
     ) -> LUMEModel:
         """The LUME model that serves one model's wiring over its deck."""
         ...
-
-
-def record_roles(plugin: Any) -> tuple[str, ...]:
-    """The roles an engine plug-in's ``describe`` may name.
-
-    Args:
-        plugin: The engine plug-in module.
-
-    Returns:
-        Its ``RECORD_ROLES``; the view's ``ROLES`` for a module stating none.
-    """
-    return tuple(str(role) for role in getattr(plugin, "RECORD_ROLES", ROLES))
-
-
-def record_marks(plugin: Any) -> tuple[str, ...]:
-    """The marks an engine plug-in's ``describe`` may set.
-
-    Args:
-        plugin: The engine plug-in module.
-
-    Returns:
-        Its ``RECORD_MARKS``; empty for a module stating none.
-    """
-    return tuple(str(mark) for mark in getattr(plugin, "RECORD_MARKS", ()))

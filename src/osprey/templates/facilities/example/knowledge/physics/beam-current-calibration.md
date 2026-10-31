@@ -7,9 +7,18 @@ tags: [diagnostics, beam-current, dcct, calibration, measurement]
 
 # Beam Current Calibration
 
-The beam current is measured by the DC Current Transformer (DCCT) at
-`PS:DCCT:Current`.  This note describes the calibration basis and known
-systematic effects.
+The circulating beam current is measured by DC Current Transformers (DCCTs):
+[SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB) in SR and
+[BR:DIAG:DCCT:01:CURRENT:RB](facility:BR:DIAG:DCCT:01:CURRENT:RB) in the
+booster.  Each DCCT also reports whether its measurement is valid, for example
+[SR:DIAG:DCCT:01:STATUS:VALID](facility:SR:DIAG:DCCT:01:STATUS:VALID).  This
+note describes the calibration basis and known systematic effects.
+
+The single-pass lines measure charge per pulse instead, with integrating
+current transformers: [GTL:DIAG:ICT:01:CHARGE:RB](facility:GTL:DIAG:ICT:01:CHARGE:RB)
+after the gun, [LTB:DIAG:ICT:01:CHARGE:RB](facility:LTB:DIAG:ICT:01:CHARGE:RB)
+before the booster and [BTS:DIAG:ICT:01:CHARGE:RB](facility:BTS:DIAG:ICT:01:CHARGE:RB)
+before SR.
 
 ## DCCT Operating Principle
 
@@ -27,15 +36,10 @@ Where:
 ## Calibration Status
 
 Calibration is performed by injecting a known DC reference current through
-a calibration winding.  The result is stored in:
-
-```
-PS:DCCT:Cal:Offset    # Current offset correction (mA)
-PS:DCCT:Cal:Gain      # Gain correction factor
-PS:DCCT:Cal:Date      # Date of last calibration (ISO 8601)
-```
-
-Check `PS:DCCT:Cal:Date` if current readings seem anomalous.
+a calibration winding.  The example facility file holds no records for the
+calibration constants; the offset, the gain and the date of the last
+calibration are kept in the calibration log.  Check the date of the last
+calibration if current readings seem anomalous.
 
 ## Known Systematic Effects
 
@@ -47,14 +51,14 @@ Check `PS:DCCT:Cal:Date` if current readings seem anomalous.
 
 ## Interpretation Guidelines
 
-- At currents `< 5 mA`, the DCCT readback is unreliable; use injection
-  diagnostics instead.
+- At currents `< 5 mA`, the DCCT readback is unreliable; use the injection
+  charge monitors instead.
 - For absolute accuracy requirements `< 1%`, use a dedicated Faraday cup
-  measurement (available in the PS injection section during machine studies).
-- A sudden step change in `PS:DCCT:Current` with no beam action is likely
+  measurement (available in the injector during machine studies).
+- A sudden step change in the DCCT readback with no beam action is likely
   an electronics fault, not a real current change.
 
 ## Cross-links
 
-- [Primary Source](/subsystems/primary-source.md) — DCCT location
+- [Primary Source](/subsystems/primary-source.md) — the injector and its charge monitors
 - [Primary Source Startup](/procedures/ps-startup.md) — warmup before trusting readback

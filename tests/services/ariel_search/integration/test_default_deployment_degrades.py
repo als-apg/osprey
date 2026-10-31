@@ -699,6 +699,12 @@ async def test_llama_server_serving_another_model(
 async def test_store_without_pgvector(
     scratch_database, ollama_stub, llama_stub, monkeypatch, caplog, tmp_path
 ):
+    """Without pgvector, semantic search is refused and everything else runs clean.
+
+    The shipped config enables semantic search, which this store cannot serve: the
+    status and every search name the fix. The case then runs with the fix the
+    refusal offers applied, semantic search switched off.
+    """
     from osprey.services.ariel_search.enhancement.image_embedding import (
         migration as image_migration,
     )
@@ -714,12 +720,22 @@ async def test_store_without_pgvector(
         monkeypatch.setattr(module, "pgvector_available", AsyncMock(return_value=False))
     stub = llama_stub()
     monkeypatch.setenv("LLAMA_CPP_HOST", stub.url)
-    raw = _deployment_config(scratch_database, _write_source(tmp_path))
+    shipped = _deployment_config(scratch_database, _write_source(tmp_path))
+    raw = copy.deepcopy(shipped)
+    raw["search_modules"]["semantic"]["enabled"] = False
     config = ARIELConfig.from_dict(raw)
     image_table = image_embedding_target(config.get_enhancement_module_config(EMBED) or {}).table
     assert not _image_table_exists(scratch_database, image_table)
 
     observed = await _main_case(raw, scratch_database, tmp_path, monkeypatch, caplog, ollama_stub)
+
+    shipped_status = await ops.get_status(shipped)
+    assert shipped_status["status"] == "unhealthy"
+    [refusal] = shipped_status["errors"]
+    assert refusal.startswith("search_modules.semantic.model")
+    assert "osprey ariel quickstart" in refusal
+    assert await ops.run_search(shipped, "beam", "keyword", 5) == {"error": refusal}
+    assert observed.status_doc["errors"] == []
 
     assert not _image_table_exists(scratch_database, image_table)
     _assert_runs_clean(observed)

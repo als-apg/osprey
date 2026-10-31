@@ -324,6 +324,7 @@ def _run_stub(argv: list[str], stub: StubRuntime, cwd: Path) -> subprocess.Compl
         text=True,
         check=False,
         stdin=subprocess.DEVNULL,
+        timeout=60,
     )
 
 
@@ -562,6 +563,7 @@ class TestStubAnswersPlausibly:
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         record = stub.invocations()[-1]
         assert record["args"][:2] == ["exec", "-i"]

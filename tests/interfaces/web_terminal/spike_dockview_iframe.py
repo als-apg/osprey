@@ -231,89 +231,89 @@ def _iframe_state(page):
 def main() -> int:
     from playwright.sync_api import sync_playwright
 
-    root = Path(tempfile.mkdtemp(prefix="dockspike-"))
-    shutil.copy(VENDOR / "dockview-core.min.js", root / "dockview-core.min.js")
-    shutil.copy(VENDOR / "dockview.css", root / "dockview.css")
-    (root / "index.html").write_text(INDEX_HTML)
-    (root / "iframe.html").write_text(IFRAME_HTML)
+    with tempfile.TemporaryDirectory(prefix="dockspike-") as tmp:
+        root = Path(tmp)
+        shutil.copy(VENDOR / "dockview-core.min.js", root / "dockview-core.min.js")
+        shutil.copy(VENDOR / "dockview.css", root / "dockview.css")
+        (root / "index.html").write_text(INDEX_HTML)
+        (root / "iframe.html").write_text(IFRAME_HTML)
 
-    httpd, url = _serve(root)
-    rows: list[str] = []
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch()
-            page = browser.new_page(viewport={"width": 1400, "height": 800})
-            page.goto(url)
-            page.wait_for_selector(".dv-tab", timeout=5000)
-            # Wait for the iframe's first load, then plant mutable state.
-            page.wait_for_function(
-                "() => [...document.querySelectorAll('iframe')].some(f => f.contentWindow && f.contentWindow.__setCounter)",
-                timeout=5000,
-            )
-            for frame in page.frames:
-                if frame.url.endswith("iframe.html"):
-                    frame.evaluate("() => window.__setCounter(42)")
+        httpd, url = _serve(root)
+        rows: list[str] = []
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch()
+                page = browser.new_page(viewport={"width": 1400, "height": 800})
+                page.goto(url)
+                page.wait_for_selector(".dv-tab", timeout=5000)
+                # Wait for the iframe's first load, then plant mutable state.
+                page.wait_for_function(
+                    "() => [...document.querySelectorAll('iframe')].some(f => f.contentWindow && f.contentWindow.__setCounter)",
+                    timeout=5000,
+                )
+                for frame in page.frames:
+                    if frame.url.endswith("iframe.html"):
+                        frame.evaluate("() => window.__setCounter(42)")
 
-            base = _iframe_state(page)
-            layout0 = page.evaluate("() => window.__layout()")
-            rows.append(
-                f"baseline:                       counter={base['counter']} loadCount={base['loadCount']} groups={layout0['groups']}"
-            )
+                base = _iframe_state(page)
+                layout0 = page.evaluate("() => window.__layout()")
+                rows.append(
+                    f"baseline:                       counter={base['counter']} loadCount={base['loadCount']} groups={layout0['groups']}"
+                )
 
-            # (a) drag iframe tab to the LEFT edge of P1's group -> re-parent into
-            #     a new adjacent group. A reload here (loadCount bump) is the
-            #     ground-truth re-parent signal; dockview recycles group ids, so
-            #     we report both the group id and the group count, not a verdict.
-            src_tab = ".dv-groupview:has(#marker-ifp) .dv-tab"
-            p1_zone = ".dv-groupview:has(#marker-p1) .dv-content-container"
-            page.evaluate(
-                "([s, t, x, y]) => window.__drag(s, t, x, y)", [src_tab, p1_zone, 0.05, 0.5]
-            )
-            page.wait_for_timeout(200)
-            la = page.evaluate("() => window.__layout()")
-            sa = _iframe_state(page)
-            reloaded_a = sa["loadCount"] > base["loadCount"]
-            rows.append(
-                f"(a) drag tab -> LEFT of group 2: counter={sa['counter']} loadCount={sa['loadCount']} RELOADED={'yes' if reloaded_a else 'no'} groups={la['groups']} ifpGroup={la['ifpGroup']}"
-            )
-
-            # (b) drag iframe tab into the CENTRE of P2's group -> stack into its tabs.
-            p2_zone = ".dv-groupview:has(#marker-p2) .dv-content-container"
-            page.evaluate(
-                "([s, t, x, y]) => window.__drag(s, t, x, y)", [src_tab, p2_zone, 0.5, 0.5]
-            )
-            page.wait_for_timeout(200)
-            lb = page.evaluate("() => window.__layout()")
-            sb_state = _iframe_state(page)
-            stacked_b = "ifp" in lb["ifpGroupPanels"] and len(lb["ifpGroupPanels"]) > 1
-            reloaded_b = sb_state["loadCount"] > sa["loadCount"]
-            rows.append(
-                f"(b) drag tab -> CENTRE of grp 3: counter={sb_state['counter']} loadCount={sb_state['loadCount']} RELOADED={'yes' if reloaded_b else 'no'} STACKED={'yes' if stacked_b else 'no'} panels={lb['ifpGroupPanels']}"
-            )
-
-            # (c) drag a splitter (.dv-sash) to resize -- genuine pointer drag.
-            sash = page.locator(".dv-sash").first
-            box = sash.bounding_box()
-            resized = False
-            if box:
-                cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-                page.mouse.move(cx, cy)
-                page.mouse.down()
-                page.mouse.move(cx + 120, cy, steps=10)
-                page.mouse.up()
+                # (a) drag iframe tab to the LEFT edge of P1's group -> re-parent into
+                #     a new adjacent group. A reload here (loadCount bump) is the
+                #     ground-truth re-parent signal; dockview recycles group ids, so
+                #     we report both the group id and the group count, not a verdict.
+                src_tab = ".dv-groupview:has(#marker-ifp) .dv-tab"
+                p1_zone = ".dv-groupview:has(#marker-p1) .dv-content-container"
+                page.evaluate(
+                    "([s, t, x, y]) => window.__drag(s, t, x, y)", [src_tab, p1_zone, 0.05, 0.5]
+                )
                 page.wait_for_timeout(200)
-                resized = True
-            sc = _iframe_state(page)
-            rows.append(
-                f"(c) drag splitter to resize:    counter={sc['counter']} loadCount={sc['loadCount']} RESIZED={'yes' if resized else 'no'}"
-            )
+                la = page.evaluate("() => window.__layout()")
+                sa = _iframe_state(page)
+                reloaded_a = sa["loadCount"] > base["loadCount"]
+                rows.append(
+                    f"(a) drag tab -> LEFT of group 2: counter={sa['counter']} loadCount={sa['loadCount']} RELOADED={'yes' if reloaded_a else 'no'} groups={la['groups']} ifpGroup={la['ifpGroup']}"
+                )
 
-            final = _iframe_state(page)
-            verdict = "PASS" if (final["counter"] == 42 and final["loadCount"] == 1) else "FAIL"
-            browser.close()
-    finally:
-        httpd.shutdown()
-        shutil.rmtree(root, ignore_errors=True)
+                # (b) drag iframe tab into the CENTRE of P2's group -> stack into its tabs.
+                p2_zone = ".dv-groupview:has(#marker-p2) .dv-content-container"
+                page.evaluate(
+                    "([s, t, x, y]) => window.__drag(s, t, x, y)", [src_tab, p2_zone, 0.5, 0.5]
+                )
+                page.wait_for_timeout(200)
+                lb = page.evaluate("() => window.__layout()")
+                sb_state = _iframe_state(page)
+                stacked_b = "ifp" in lb["ifpGroupPanels"] and len(lb["ifpGroupPanels"]) > 1
+                reloaded_b = sb_state["loadCount"] > sa["loadCount"]
+                rows.append(
+                    f"(b) drag tab -> CENTRE of grp 3: counter={sb_state['counter']} loadCount={sb_state['loadCount']} RELOADED={'yes' if reloaded_b else 'no'} STACKED={'yes' if stacked_b else 'no'} panels={lb['ifpGroupPanels']}"
+                )
+
+                # (c) drag a splitter (.dv-sash) to resize -- genuine pointer drag.
+                sash = page.locator(".dv-sash").first
+                box = sash.bounding_box()
+                resized = False
+                if box:
+                    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                    page.mouse.move(cx, cy)
+                    page.mouse.down()
+                    page.mouse.move(cx + 120, cy, steps=10)
+                    page.mouse.up()
+                    page.wait_for_timeout(200)
+                    resized = True
+                sc = _iframe_state(page)
+                rows.append(
+                    f"(c) drag splitter to resize:    counter={sc['counter']} loadCount={sc['loadCount']} RESIZED={'yes' if resized else 'no'}"
+                )
+
+                final = _iframe_state(page)
+                verdict = "PASS" if (final["counter"] == 42 and final["loadCount"] == 1) else "FAIL"
+                browser.close()
+        finally:
+            httpd.shutdown()
 
     print("\n=== dockview iframe-reload spike ===")
     for r in rows:

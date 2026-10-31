@@ -31,7 +31,12 @@ def tracked_files() -> list[str]:
         The tracked paths in git's order.
     """
     out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ["git", "ls-files", "-z"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
     ).stdout
     return [path for path in out.split("\0") if path]
 

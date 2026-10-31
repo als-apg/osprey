@@ -652,9 +652,8 @@ def test_a_stopped_measurement_ends_with_its_result_listing_what_it_moved(
     (line,) = [line for line in captured.out.splitlines() if line.startswith(RESULT_TAG + " ")]
     result = json.loads(line[len(RESULT_TAG) + 1 :])
     assert result["completed"] is False
-    assert result["remainder"] == [QUADS[1]]
+    assert result["missing"] == {QUADS[1]: None}
     assert result["moved"] == [[QUADS[0], 0.0], [QUADS[1], 0.0]]
-    assert "error" not in result
     assert "GUARDED_RUN_RESTORE" not in captured.out + captured.err
     assert machine.values == dict.fromkeys(QUADS, 0.5), "nothing is written back"
 
@@ -686,11 +685,41 @@ def test_a_tool_that_raises_prints_a_stopped_line_then_fails(
     (line,) = [line for line in out.splitlines() if line.startswith(RESULT_TAG + " ")]
     result = json.loads(line[len(RESULT_TAG) + 1 :])
     assert result["completed"] is False
-    assert result["error"] == "the tune readback went away"
     assert result["moved"] == [[QUADS[0], 0.0]]
-    assert result["remainder"] == [QUADS[1]]
-    assert parse_measure_result(out, "trm")["error"] == "the tune readback went away"
+    assert result["missing"] == {QUADS[1]: "the tune readback went away"}
+    assert parse_measure_result(out, "trm")["missing"] == {QUADS[1]: "the tune readback went away"}
     assert machine.values[QUADS[0]] == 0.5
+
+
+def test_a_tool_that_raises_after_its_last_column_names_the_kind_missing(
+    render,
+    execution,
+    capsys,
+    holder,
+    guarded_repo,  # noqa: ARG001, F811 - the run lock needs its repo
+    monkeypatch,
+):
+    monkeypatch.setattr(run_tool_module, "run_tool", REAL_RUN_TOOL)
+    machine = FakeRuntime(dict.fromkeys(QUADS, 0.0)).install(
+        monkeypatch, ("read_channels", "write_channel", "channel_limits")
+    )
+
+    def fail_after_every_magnet(callback: Any) -> None:
+        for idx, magnet in enumerate(QUADS):
+            machine.set(magnet, 0.5)
+            callback(Action.RESTORE, {"idx": idx, "magnet": magnet, "dtune": [0.1, 0.2]})
+        raise RuntimeError("the measurement could not be stored")
+
+    holder.trm.on_measure = fail_after_every_magnet
+
+    with pytest.raises(RuntimeError, match="the measurement could not be stored"):
+        _execute(render, execution, capsys, kind="trm", by="magnet")
+
+    out = capsys.readouterr().out
+    (line,) = [line for line in out.splitlines() if line.startswith(RESULT_TAG + " ")]
+    result = json.loads(line[len(RESULT_TAG) + 1 :])
+    assert result["completed"] is False
+    assert result["missing"] == {"trm": "the measurement could not be stored"}
 
 
 # --- a non-finite number never sizes a step ------------------------------------------
@@ -781,6 +810,7 @@ def test_a_measurement_holding_arrays_is_saved_as_json_lists(render, execution, 
     result = _run(render, execution, capsys, kind="chromaticity_monitor")
 
     assert result["completed"] is True
+    assert result["missing"] == {}
     saved = json.loads(Path(result["data_file"]).read_text(encoding="utf-8"))
     assert saved == {
         "chromaticity_fit": [[0.1, 1.5, 0.01], [0.2, -2.5, 0.02]],
@@ -872,6 +902,7 @@ def test_each_kinds_printed_result_is_one_the_parser_accepts(
     result = _round_trip(render, execution, capsys, **request_)
 
     assert result["completed"] is True
+    assert result["missing"] == {}
     assert result["model"] == MODEL
     assert result["sha256"] == _sha((render / VIEW_PATH).read_bytes())
     assert result["modulation"] == request_.get("modulation", "bipolar")
@@ -889,6 +920,7 @@ def test_the_chromaticity_monitors_printed_result_is_one_the_parser_accepts(
     result = _round_trip(render, execution, capsys, kind="chromaticity_monitor")
 
     assert result["completed"] is True
+    assert result["missing"] == {}
     assert result["chromaticity"] == [1.5, -2.5]
     assert result["e_delta_used"] == pytest.approx(1.0e-3)
     assert result["rf_limited_by"] is None
@@ -943,7 +975,7 @@ def test_a_stopped_measurements_printed_result_reaches_the_parser(
     result = _round_trip(render, execution, capsys, kind="trm", by="magnet")
 
     assert result["completed"] is False
-    assert result["remainder"] == [QUADS[1]]
+    assert result["missing"] == {QUADS[1]: None}
     assert result["deltas"] == dict.fromkeys(QUADS, QUAD_DELTA)
     assert result["moved"] == [[QUADS[0], 0.0], [QUADS[1], 0.0]]
     assert not {"observables", "data_file", "restore"} & set(result)

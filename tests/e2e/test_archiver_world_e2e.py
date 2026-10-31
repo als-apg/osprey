@@ -117,13 +117,6 @@ RECORDER_POLL_SEC = 2.0
 #: and a full config load first, and this is a timeout, not a measurement.
 HEALTH_TIMEOUT_SEC = 120.0
 
-#: Canary channel the derived ``archiver_freshness`` check reads. Named here
-#: rather than picked from the deployed manifest the way the write test picks
-#: its setpoint, because it has to travel into the build's profile edits before
-#: any project exists to read a manifest from. The test asserts it really is a
-#: channel this machine model serves, so a model that drops it fails loudly
-#: instead of reporting a mystery "no samples in the window".
-FRESHNESS_CANARY = "SR:DIAG:DCCT:01:CURRENT:RB"
 
 # How far the document count may grow when an eventful scenario is applied.
 # One-sided on purpose: densification inserts a bounded number of samples inside
@@ -195,9 +188,9 @@ def _profile_edits() -> dict[str, Any]:
     archiver_recorder services and renders the connector's connection keys.
     Declaring it carries NO knob overrides on purpose: this lane owns the
     measured budgets, and shrinking retention here would make them meaningless.
-    ``freshness_channel`` is not such a knob — it changes no size and no cadence,
-    it only names the canary the derived ``archiver_freshness`` health check
-    reads, and without it that check is never derived and cannot be proven here.
+    It names only ``port_host``: the preset's own ``freshness_channel`` stays in
+    force, so the derived ``archiver_freshness`` health check reads the canary a
+    deployment ships (:func:`_freshness_canary`).
 
     ``archiver.type`` must be set SEPARATELY. Declaring where an archive lives is
     not the same decision as selecting it as the deployment's archiver, so
@@ -256,7 +249,6 @@ def _profile_edits() -> dict[str, Any]:
         "channel_finder_mode": "hierarchical",
         "va_archiver": {
             "port_host": MONGO_PORT_HOST,
-            "freshness_channel": FRESHNESS_CANARY,
         },
         "virtual_accelerator": {"live_standin": None},
         "bluesky": None,
@@ -264,6 +256,24 @@ def _profile_edits() -> dict[str, Any]:
         "dispatch": None,
         "services": {},
     }
+
+
+def _freshness_canary(repo: Path) -> str:
+    """The canary channel the derived ``archiver_freshness`` check reads.
+
+    Inherited from the preset rather than named by this lane: the profile edits
+    leave ``va_archiver.freshness_channel`` alone, so the lane proves the canary
+    a deployment actually ships.
+    """
+    import yaml
+
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    canary = (profile.get("va_archiver") or {}).get("freshness_channel")
+    assert canary, (
+        f"{repo / 'profile.yml'} names no va_archiver.freshness_channel, so the build "
+        "derives no archiver_freshness check"
+    )
+    return str(canary)
 
 
 def _build_project(output_dir: Path) -> Path:
@@ -383,7 +393,9 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         volume the fingerprint would MATCH, the seed would be skipped entirely,
         and the budget assertions would have nothing to measure.
         """
-        subprocess.run(["docker", "volume", "rm", "-f", store_volume], capture_output=True)
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", store_volume], capture_output=True, timeout=60
+        )
 
     base = tmp_path_factory.mktemp("archiver_world_build")
     repo = _build_project(base)
@@ -406,14 +418,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force a fresh --dev image so the deployed recorder runs CURRENT source.
-    # Exact-named image only. E2E_REUSE_IMAGES=1 skips it for fast local
-    # iteration on the test itself; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image(PROJECT_NAME)],
-            capture_output=True,
-            text=True,
-        )
+    _orm_stack.force_image_rebuild(_orm_stack.va_image(PROJECT_NAME))
 
     # Before the deploy, not only after: a run that died without reaching its
     # teardown (a killed session, a crashed fixture) leaves the volume behind,
@@ -534,7 +539,9 @@ def _recorder_logs(tail: str | None = None) -> str:
     command = ["docker", "logs"]
     if tail is not None:
         command += ["--tail", tail]
-    logs = subprocess.run([*command, _recorder_container()], capture_output=True, text=True)
+    logs = subprocess.run(
+        [*command, _recorder_container()], capture_output=True, text=True, timeout=60
+    )
     return _normalize(logs.stdout + logs.stderr)
 
 
@@ -935,11 +942,12 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     """
     from tests.e2e import _orm_stack
 
+    canary = _freshness_canary(archiver_world.repo)
     served = set(_served_addresses(archiver_world))
-    assert FRESHNESS_CANARY in served, (
-        f"{FRESHNESS_CANARY} is not a channel this machine model serves, so the derived "
+    assert canary in served, (
+        f"{canary} is not a channel this machine model serves, so the derived "
         f"freshness check would report 'no samples' for a reason that has nothing to do "
-        f"with the recorder. Pick a canary from the model and update FRESHNESS_CANARY."
+        f"with the recorder. The preset's va_archiver.freshness_channel names it."
     )
 
     store = archiver_world.store
@@ -981,7 +989,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     (row,) = rows
     assert row.get("status") == "ok", (
         f"the archive is deployed and the recorder is running, so the newest sample for "
-        f"{FRESHNESS_CANARY} should be inside the derived threshold. Got "
+        f"{canary} should be inside the derived threshold. Got "
         f"{row.get('status')!r}: {row.get('message')!r}"
     )
 
@@ -1022,11 +1030,9 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
     yaml.preserve_quotes = True
 
     def _set_serving(venue: str) -> None:
-        with open(config_path) as handle:
-            config = yaml.load(handle)
+        config = yaml.load(config_path)
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
-        with open(config_path, "w") as handle:
-            yaml.dump(config, handle)
+        yaml.dump(config, config_path)
 
     poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
     # The window each claim is measured over, once the recorder has SAID which

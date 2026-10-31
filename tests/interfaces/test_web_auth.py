@@ -2042,22 +2042,6 @@ def test_a_panel_token_put_to_the_dispatcher_route_is_refused_by_the_gate() -> N
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _drop_announced_carrier():
-    """Undo the environment variable ``mint_and_announce`` deliberately publishes.
-
-    The module's own population *pops* the carrier, so ``monkeypatch`` has
-    nothing recorded for it and would not clean up a value a test caused the
-    product code to write. Without this teardown the first announcement in this
-    file would leak a real operator secret into ``os.environ`` for every test
-    that runs after it, in this file and any other in the same worker.
-    """
-    import os
-
-    yield
-    os.environ.pop(OPERATOR_SECRET_ENV, None)
-
-
 def test_mint_and_announce() -> None:
     """The announced URL carries the process's own operator secret, once and stably.
 

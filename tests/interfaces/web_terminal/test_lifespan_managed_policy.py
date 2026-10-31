@@ -12,7 +12,6 @@ Drives the real app factory through the TestClient lifespan with the real
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -23,15 +22,6 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal import app as web_app
 
 _CBORG_CONFIG = "claude_code:\n  provider: cborg\n"
-
-
-@pytest.fixture(autouse=True)
-def _restore_environ():
-    """The real injection writes to this interpreter's ``os.environ``."""
-    environ = dict(os.environ)
-    yield
-    os.environ.clear()
-    os.environ.update(environ)
 
 
 def _pin_policy(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:

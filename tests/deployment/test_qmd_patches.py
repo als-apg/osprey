@@ -208,7 +208,7 @@ def _run_apply_loop(tmp_path: pathlib.Path, patches: pathlib.Path) -> subprocess
         "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
         "OSPREY_QMD_PATCHES": " ".join(_listed()),
     }
-    return subprocess.run([sh, "-c", body], env=env, capture_output=True, text=True)
+    return subprocess.run([sh, "-c", body], env=env, capture_output=True, text=True, timeout=60)
 
 
 def test_the_loop_applies_the_listed_set_in_order(tmp_path: pathlib.Path) -> None:

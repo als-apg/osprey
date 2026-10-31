@@ -1,175 +1,90 @@
-"""An engine plug-in's record roles and marks, from its declaration to the view's bindings."""
+"""A wiring record's role and marks, from an engine's description to the view's bindings."""
 
 from __future__ import annotations
 
 import ast
-import sys
-import types
-from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import osprey
+from osprey.facility import wiring
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.views.simulator import simulator_wiring
-from osprey.simulation.engines import (
-    ENTRY_POINT_GROUP,
-    EnginePlugin,
-    record_marks,
-    record_roles,
-)
 from osprey_connectors.simulation import view as view_module
 from osprey_connectors.simulation.view import COMMAND_MARK, REFRESH, ROLES, Binding
 
-FAKE = "fake_record_roles_engine"
-FOUR_ROLES = ("setpoint", "readback", "monitor", "output")
+MODEL = {"name": "M", "engine": "fake"}
+WRITE = {"id": "M/M:CMD", "address": "M:CMD", "direction": "write", "element": "E"}
+READ = {"id": "M/M:TBT", "address": "M:TBT", "direction": "read", "element": "E"}
 
 
-def _function(*args: Any, **kwargs: Any) -> None:
-    return None
+def _describe(record: dict[str, Any], **said: Any) -> tuple[dict[str, Any], list[Any]]:
+    """The record as the wiring stage leaves it, and the stops it reports."""
+    filled = dict(record)
+    errors = wiring._describe_record(
+        lambda _: {"plane": None, "refresh": "pass", **said}, MODEL, filled, frozenset()
+    )
+    return filled, errors
 
 
-def _engine(describe: Any, **declared: Any) -> types.ModuleType:
-    module = types.ModuleType(FAKE)
-    for name in ("locate", "prepare", "start_values", "build"):
-        setattr(module, name, _function)
-    module.describe = describe  # type: ignore[attr-defined]
-    for name, value in declared.items():
-        setattr(module, name, value)
-    return module
+def test_a_listed_mark_is_written_onto_the_record() -> None:
+    filled, errors = _describe(WRITE, role="setpoint", marks=["command"], kind="kick")
+    assert errors == []
+    assert filled["marks"] == ["command"]
+    assert "kind" not in filled
+    assert "marks" in filled["provenance"]["defaults"]
 
 
-@pytest.fixture
-def register(monkeypatch: pytest.MonkeyPatch):
-    """Register a module as engine ``fake`` and nothing else."""
-
-    def _register(module: types.ModuleType) -> None:
-        monkeypatch.setitem(sys.modules, FAKE, module)
-        found = metadata.EntryPoints(
-            [metadata.EntryPoint(name="fake", value=FAKE, group=ENTRY_POINT_GROUP)]
-        )
-
-        def entry_points(**kwargs: Any) -> Any:
-            return found
-
-        monkeypatch.setattr(metadata, "entry_points", entry_points)
-
-    return _register
+def test_a_record_without_marks_carries_none() -> None:
+    filled, errors = _describe(WRITE, role="setpoint")
+    assert errors == []
+    assert "marks" not in filled
 
 
-def _facility(*wiring: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "channels": [{"id": str(record["address"])} for record in wiring],
-        "models": [{"name": "M", "engine": "fake", "wiring": list(wiring)}],
+def test_only_a_write_record_may_carry_the_command_mark() -> None:
+    filled, errors = _describe(READ, role="monitor", marks=["command"])
+    (stop,) = errors
+    assert (stop.kind, stop.record_id) == ("engine-invalid", "M")
+    assert "M:TBT" in str(stop) and "command" in str(stop)
+    assert "role" not in filled
+
+
+@pytest.mark.parametrize(
+    ("said", "word"),
+    [
+        ({"role": "turn_series"}, "turn_series"),
+        ({"role": "monitor", "marks": ["kick"]}, "kick"),
+        ({"role": "monitor", "plane": "z"}, "z"),
+        ({"role": "monitor", "refresh": "never"}, "never"),
+    ],
+)
+def test_a_word_the_schema_does_not_state_stops_the_build(said: dict[str, Any], word: str) -> None:
+    filled, errors = _describe(READ, **said)
+    (stop,) = errors
+    assert isinstance(stop, FacilityBuildError)
+    assert stop.kind == "engine-invalid"
+    assert word in str(stop) and "facility schema" in str(stop)
+    assert "role" not in filled
+
+
+def test_the_view_copies_the_marks_from_the_built_record() -> None:
+    record = {**WRITE, "role": "setpoint", "plane": None, "refresh": "pass"}
+    facility = {
+        "channels": [{"id": "M:CMD"}],
+        "models": [{**MODEL, "wiring": [{**record, "marks": ["command"]}]}],
     }
-
-
-WRITE = {"id": "w1", "address": "M:CMD", "direction": "write", "element": "E"}
-READ = {"id": "w2", "address": "M:TBT", "direction": "read", "element": "E"}
-
-
-def _describing(**by_address: dict[str, Any]) -> Any:
-    def describe(record: Any) -> dict[str, Any]:
-        return {"plane": None, "refresh": "pass", **by_address[record["address"]]}
-
-    return describe
-
-
-def test_the_declarations_are_no_protocol_members() -> None:
-    module = _engine(_function)
-    assert isinstance(module, EnginePlugin)
-    assert (record_roles(module), record_marks(module)) == (FOUR_ROLES, ())
-
-
-def test_a_declaring_module_serves_what_it_declares() -> None:
-    module = _engine(
-        _function, RECORD_ROLES=(*FOUR_ROLES, "turn_series"), RECORD_MARKS=("command",)
-    )
-    assert isinstance(module, EnginePlugin)
-    assert record_roles(module) == (*FOUR_ROLES, "turn_series")
-    assert record_marks(module) == ("command",)
-
-
-def test_pyat_declares_the_four_roles_and_no_mark() -> None:
-    from osprey.simulation.engines import pyat
-
-    assert (record_roles(pyat), record_marks(pyat)) == (FOUR_ROLES, ())
-
-
-def test_the_view_names_the_roles_an_undeclaring_engine_serves() -> None:
-    assert ROLES == FOUR_ROLES
-    assert COMMAND_MARK == "command"
-
-
-def test_a_declared_mark_reaches_the_wiring_entry(register) -> None:
-    register(
-        _engine(
-            _describing(**{"M:CMD": {"role": "setpoint", "command": True, "kind": "kick"}}),
-            RECORD_MARKS=("command",),
-        )
-    )
-    (entry,) = simulator_wiring(_facility(WRITE), "M")
+    (entry,) = simulator_wiring(facility, "M")
     assert entry["marks"] == ["command"]
-    assert "kind" not in entry and "command" not in entry
-
-
-def test_an_undeclared_mark_is_dropped(register) -> None:
-    register(_engine(_describing(**{"M:CMD": {"role": "setpoint", "command": True}})))
-    (entry,) = simulator_wiring(_facility(WRITE), "M")
-    assert "marks" not in entry
-
-
-def test_a_false_mark_is_not_carried(register) -> None:
-    register(
-        _engine(
-            _describing(**{"M:CMD": {"role": "setpoint", "command": False}}),
-            RECORD_MARKS=("command",),
-        )
-    )
-    (entry,) = simulator_wiring(_facility(WRITE), "M")
-    assert "marks" not in entry
-
-
-def test_only_a_write_record_may_carry_the_command_mark(register) -> None:
-    register(
-        _engine(
-            _describing(**{"M:TBT": {"role": "monitor", "command": True}}),
-            RECORD_MARKS=("command",),
-        )
-    )
-    with pytest.raises(FacilityBuildError) as stop:
-        simulator_wiring(_facility(READ), "M")
-    assert (stop.value.kind, stop.value.record_id) == ("engine-invalid", "M")
-    assert "M:TBT" in str(stop.value) and "command" in str(stop.value)
-
-
-def test_a_declared_role_is_served(register) -> None:
-    register(
-        _engine(
-            _describing(**{"M:TBT": {"role": "turn_series"}}),
-            RECORD_ROLES=(*FOUR_ROLES, "turn_series"),
-        )
-    )
-    (entry,) = simulator_wiring(_facility(READ), "M")
-    assert entry["role"] == "turn_series"
-
-
-def test_an_undeclared_role_stops_the_build(register) -> None:
-    register(_engine(_describing(**{"M:TBT": {"role": "turn_series"}})))
-    with pytest.raises(FacilityBuildError) as stop:
-        simulator_wiring(_facility(READ), "M")
-    assert stop.value.kind == "engine-invalid"
-    assert "turn_series" in str(stop.value) and "RECORD_ROLES" in str(stop.value)
 
 
 def test_a_binding_carries_the_records_marks() -> None:
     record = {"id": "w1", "address": "M:CMD", "direction": "write", "role": "setpoint"}
     record |= {"plane": None, "refresh": "pass"}
     assert Binding.from_record("M", record).marks == frozenset()
-    marked = Binding.from_record("M", {**record, "marks": ["command"]})
-    assert marked.marks == frozenset({"command"})
+    marked = Binding.from_record("M", {**record, "marks": [COMMAND_MARK]})
+    assert marked.marks == frozenset({COMMAND_MARK})
 
 
 #: The modules that read roles and refresh from the view.

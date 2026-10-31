@@ -93,7 +93,13 @@ def _verdict_callers() -> set[str]:
     callers = set()
     for root in SRC_ROOTS:
         for path in root.rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            source = path.read_text(encoding="utf-8")
+            # A call spells the name it calls (an identifier has no escape
+            # sequence), and parsing every module is what the scan spends its
+            # time on: a module that spells no verdict name is passed over.
+            if not any(name in source for name in VERDICT_NAMES):
+                continue
+            tree = ast.parse(source)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue

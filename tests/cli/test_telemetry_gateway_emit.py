@@ -101,7 +101,12 @@ def test_a_dispatch_job_carries_the_session_without_a_posture():
         "print(json.dumps([posture.posture_session(), terminal_session()]))\n"
     )
     out = subprocess.run(
-        [sys.executable, "-c", probe], env=env, capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
     )
     posture_session, ledger_session = json.loads(out.stdout.strip().splitlines()[-1])
     assert posture_session is None

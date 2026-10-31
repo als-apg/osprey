@@ -11,29 +11,34 @@ Ion pumps (IPs) are the primary vacuum-maintaining devices in the Example
 Research Facility beamline.  They operate continuously to maintain UHV
 conditions without moving parts or oil contamination.
 
-## Channel Pattern
+## Channels
 
-Ion pumps follow the naming convention `{SYS}:VAC:IP{N}:{param}`:
+Each pump is a device record of the facility file.  Pump
+[SR/ION-PUMP01](facility:SR/ION-PUMP01), for example, carries:
 
-```
-TD:VAC:IP01:Current       # Pump current readback (mA) — proxy for pressure
-TD:VAC:IP01:Voltage       # High-voltage supply voltage (V)
-TD:VAC:IP01:Enable        # Pump enabled: 1=on, 0=off
-TD:VAC:IP01:Fault         # Fault status: 0=OK, 1=fault
-```
+- [SR:VAC:ION-PUMP:01:CURRENT:RB](facility:SR:VAC:ION-PUMP:01:CURRENT:RB) — pump current, a proxy for pressure
+- [SR:VAC:ION-PUMP:01:PRESSURE:RB](facility:SR:VAC:ION-PUMP:01:PRESSURE:RB) — the pressure calculated from the pump current
+- [SR:VAC:ION-PUMP:01:VOLTAGE:SP](facility:SR:VAC:ION-PUMP:01:VOLTAGE:SP) — high-voltage supply setpoint
+- [SR:VAC:ION-PUMP:01:VOLTAGE:RB](facility:SR:VAC:ION-PUMP:01:VOLTAGE:RB) — high-voltage supply readback
+- [SR:VAC:ION-PUMP:01:STATUS:ON](facility:SR:VAC:ION-PUMP:01:STATUS:ON) — the pump is on
+- [SR:VAC:ION-PUMP:01:STATUS:FAULT](facility:SR:VAC:ION-PUMP:01:STATUS:FAULT) — the pump reports a fault
+
+Ask the channel finder for the other pumps rather than composing addresses by
+hand.
 
 ## Current-to-Pressure Relationship
 
 Ion pump current is a rough proxy for pressure at UHV:
 
-| Current (mA) | Approximate pressure (Torr) |
-|-------------|---------------------------|
-| `< 0.001` | `< 1e-9` (nominal UHV) |
-| `0.01–0.1` | `1e-8 – 1e-7` (marginal) |
-| `> 0.1` | `> 1e-7` (interlock range) |
+| Current | Approximate pressure (Torr) |
+|---------|---------------------------|
+| `< 1 µA` | `< 1e-9` (nominal UHV) |
+| `10–100 µA` | `1e-8 – 1e-7` (marginal) |
+| `> 100 µA` | `> 1e-7` (interlock range) |
 
-Use a calibrated ion gauge (`{SYS}:VAC:{Section}:Pressure`) for accurate
-pressure readings; see [Vacuum System](/subsystems/vacuum.md).
+Use a calibrated vacuum gauge, such as
+[SR:VAC:GAUGE:SR01:PRESSURE:RB](facility:SR:VAC:GAUGE:SR01:PRESSURE:RB), for
+accurate pressure readings; see [Vacuum System](/subsystems/vacuum.md).
 
 ## Fault Conditions
 
@@ -41,9 +46,9 @@ Common ion pump faults and their meaning:
 
 | Fault | Likely cause | Action |
 |-------|-------------|--------|
-| `Fault=1, Current=0` | HV supply trip | Check HV supply, reset if safe |
-| `Fault=0, Current > 1 mA` | High gas load / leak | Investigate upstream leak |
-| `Enable=0` | Deliberately disabled for venting | Re-enable after pumpdown |
+| Fault true, current near zero | HV supply trip | Check HV supply, reset if safe |
+| No fault, current above 1 mA | High gas load / leak | Investigate upstream leak |
+| Pump off, no fault | Deliberately switched off for venting | Switch on after pumpdown |
 
 ## Operational Notes
 

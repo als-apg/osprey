@@ -317,7 +317,7 @@ def _stamp_from_record(env: MutableMapping[str, str]) -> None:
         env.pop(name, None)
     env[executor.ENV_LAUNCH_POSTURE] = _sandbox_pin()
 
-    record = executor._deployment_record()
+    record = executor._control_context_record()
     if record is None:
         return
     if blocking := executor._blocking_pids(record):
@@ -434,21 +434,6 @@ SURFACE_NOTEBOOK_KERNEL = "notebook_kernel"
 #: channel the write named goes in ``detail`` instead.
 REFUSAL_SUBJECT = "notebook_cell"
 
-#: ``reason`` codes, one per refusal class, keyed by class name so the mapping
-#: costs no import at module scope. A class that is not in it is a subclass of
-#: one that is, and files under the fallback rather than under a guess.
-_REFUSAL_REASONS = {
-    "ChannelWriteBlockedError": "channel_write_blocked",
-    "ChannelLimitsViolationError": "channel_limits_violation",
-    "ControlTargetChangedError": "control_target_changed",
-}
-
-#: ``reason`` codes keyed by the refusal's own ``reason`` attribute, consulted
-#: before the class table.
-_REFUSAL_REASONS_BY_CODE = {
-    "RAW_CLIENT_IMPORT": "raw_client_import",
-}
-
 #: ``reason`` codes for a write a cell made, keyed by the phase the runtime
 #: reports once the connector has answered. ``landed`` is a write a re-read
 #: verified; ``sent`` put the value on the wire without that verification.
@@ -482,12 +467,14 @@ HINT_RAW_CLIENT_IMPORT = (
 _WRITES_OFF_REASONS = frozenset({"switch_off", "launch_pinned"})
 
 
-def _refusal_classes() -> tuple[type[BaseException], ...]:
-    """The exception classes the kernel's hook answers for.
+def _refusal_codes() -> tuple[tuple[type[BaseException], str], ...]:
+    """The audit ``reason`` of each refusal class the kernel's hook answers for.
 
-    Imported inside the function for the module's one-way dependency rule: a
-    process that only reads the binding must not pull the connectors package
-    in behind it.
+    A refusal files under the first class here it is an instance of, so a
+    subclass files under its class and the order is most specific first. The
+    classes are imported inside the function for the module's one-way
+    dependency rule: a process that only reads the binding must not pull the
+    connectors package in behind it.
     """
     from osprey.runtime import ControlTargetChangedError
     from osprey_connectors.errors import (
@@ -497,11 +484,16 @@ def _refusal_classes() -> tuple[type[BaseException], ...]:
     )
 
     return (
-        ChannelWriteBlockedError,
-        ChannelLimitsViolationError,
-        ControlTargetChangedError,
-        ClientLibraryRefusedError,
+        (ClientLibraryRefusedError, "raw_client_import"),
+        (ChannelWriteBlockedError, "channel_write_blocked"),
+        (ChannelLimitsViolationError, "channel_limits_violation"),
+        (ControlTargetChangedError, "control_target_changed"),
     )
+
+
+def _refusal_classes() -> tuple[type[BaseException], ...]:
+    """The exception classes the kernel's hook answers for."""
+    return tuple(cls for cls, _ in _refusal_codes())
 
 
 def _hint_for(value: BaseException) -> str | None:
@@ -587,13 +579,13 @@ def _detail_tokens(*, subject_token: str | None, with_host: bool) -> str | None:
 
 def _refusal_subject_token(value: BaseException) -> str | None:
     """The subject token of a refusal: what it refused to load, else its channel."""
-    from osprey_connectors.errors import ClientLibraryRefusedError
+    from osprey_connectors.errors import ChannelError, ClientLibraryRefusedError
 
     if isinstance(value, ClientLibraryRefusedError):
         if value.library is not None:
             return f"library={value.library}"
         return f"package={value.package}" if value.package else None
-    return _channel_token(getattr(value, "channel_address", None))
+    return _channel_token(value.channel_address if isinstance(value, ChannelError) else None)
 
 
 def _record_write(address: str, phase: str) -> None:
@@ -601,8 +593,8 @@ def _record_write(address: str, phase: str) -> None:
 
     Registered as a runtime write observer, so it hears every phase of every
     channel; only the phases after the connector answered are recorded, one
-    record per channel. ``attempt`` precedes the send and a refused write gets
-    no later phase, so neither files anything here.
+    record per channel. ``attempt`` precedes the send and files nothing here;
+    ``refused`` files nothing either.
 
     Args:
         address: The channel written.
@@ -631,11 +623,8 @@ def _record_write(address: str, phase: str) -> None:
 
 
 def _refusal_reason(value: BaseException) -> str:
-    """The audit ``reason`` for *value*: its own reason code first, then its class."""
-    by_code = _REFUSAL_REASONS_BY_CODE.get(getattr(value, "reason", None) or "")
-    if by_code is not None:
-        return by_code
-    return _REFUSAL_REASONS.get(type(value).__name__, "refused")
+    """The audit ``reason`` for *value*: that of the first refusal class it is."""
+    return next((code for cls, code in _refusal_codes() if isinstance(value, cls)), "refused")
 
 
 def _record_refusal(value: BaseException) -> None:

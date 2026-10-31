@@ -109,6 +109,10 @@ one from the display menu and the agent you were talking to comes with you: the
 terminal and the chat share one session, one write state and one transcript,
 and only the view you are looking at runs the agent.
 
+A deployment can offer the Simple view alone. With ``web.expert_view: false``
+the display menu has no View row and every terminal opens in Simple; see
+:ref:`config-expert-view`.
+
 Handing it over waits for the work in flight. Switch while the agent is
 mid-turn and the view you arrive in reads *Finishing in the other view* with
 the time you have been waiting, and offers **Stop and switch now**. Let it

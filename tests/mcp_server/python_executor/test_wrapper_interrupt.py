@@ -35,8 +35,7 @@ import yaml
 
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from tests._guarded_run import lock_path
-
-_SRC_ROOT = Path(__file__).resolve().parents[3] / "src"
+from tests.services.python_executor._child_env import child_env
 
 #: How long a child gets to reach a phase, and to exit after being interrupted.
 CHILD_TIMEOUT_S = 60.0
@@ -135,8 +134,7 @@ class _Child:
             ),
             encoding="utf-8",
         )
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_SRC_ROOT), env.get("PYTHONPATH")]))
+        env = child_env()
         env["WRAPPER_INTERRUPT_WORKDIR"] = str(workdir)
         env["OSPREY_AGENT_DATA_ROOT"] = str(workdir / "agent_data")
         env.pop("CONFIG_FILE", None)

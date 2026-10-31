@@ -320,36 +320,30 @@ def _set_live_standin(repo: Path, port: int | None) -> None:
     stand-in by default.
     """
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as fh:
-        profile = _ruamel.load(fh)
+    profile = _ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if port is None:
         block.pop("live_standin", None)
     else:
         block["live_standin"] = port
-    with profile_path.open("w", encoding="utf-8") as fh:
-        _ruamel.dump(profile, fh)
+    _ruamel.dump(profile, profile_path)
 
 
 def _add_config_entry(repo: Path, key: str, value: Any) -> None:
     """Add one dotted entry to the repo profile's own ``config:`` block."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as fh:
-        profile = _ruamel.load(fh)
+    profile = _ruamel.load(profile_path)
     profile["config"][key] = value
-    with profile_path.open("w", encoding="utf-8") as fh:
-        _ruamel.dump(profile, fh)
+    _ruamel.dump(profile, profile_path)
 
 
 def _remove_config_entries(repo: Path, *keys: str) -> None:
     """Drop dotted entries from the repo profile's own ``config:`` block."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as fh:
-        profile = _ruamel.load(fh)
+    profile = _ruamel.load(profile_path)
     for key in keys:
         profile["config"].pop(key, None)
-    with profile_path.open("w", encoding="utf-8") as fh:
-        _ruamel.dump(profile, fh)
+    _ruamel.dump(profile, profile_path)
 
 
 @pytest.mark.slow

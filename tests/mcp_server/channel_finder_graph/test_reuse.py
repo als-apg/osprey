@@ -76,6 +76,7 @@ def test_importing_the_tool_modules_does_not_initialise_the_graph_context():
         capture_output=True,
         text=True,
         env=env,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr

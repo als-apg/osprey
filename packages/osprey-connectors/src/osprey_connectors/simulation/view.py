@@ -7,11 +7,10 @@ which refuses a file whose ``schema`` is not the one this OSPREY reads, so a
 render from an older OSPREY is rebuilt rather than misread.
 
 A wiring record of a physics model carries what its engine's ``describe()``
-stated at build time: its ``role`` (one of :data:`ROLES`, or a role the
-engine declares it serves), the transverse ``plane`` it steers or reads
-(``x``, ``y`` or ``None``), its ``refresh`` (``pass`` or ``periodic``) and,
-when it carries any, the ``marks`` of the engine's declared vocabulary the
-description sets. A ``readback`` is any read of an element's setting, paired
+stated at build time: its ``role`` (one of :data:`ROLES`), the transverse
+``plane`` it steers or reads (``x``, ``y`` or ``None``), its ``refresh``
+(``pass`` or ``periodic``) and, when it carries any, its ``marks`` (of
+:data:`MARKS`). The words are the facility schema's. A ``readback`` is any read of an element's setting, paired
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel's ``pair``.
 
@@ -34,6 +33,7 @@ __all__ = [
     "ADDRESSES_SCHEMA",
     "COMMAND_MARK",
     "DECKS_DIR",
+    "MARKS",
     "MONITOR",
     "NO_VIEW_MESSAGE",
     "OUTPUT",
@@ -100,8 +100,8 @@ SETPOINT = "setpoint"
 READBACK = "readback"
 MONITOR = "monitor"
 OUTPUT = "output"
-#: The roles every engine serves; an engine plug-in's ``RECORD_ROLES`` may
-#: declare more. A channel's facility role is ``setpoint`` or ``readback``.
+#: The roles a wiring record's description names. A channel's facility role
+#: is ``setpoint`` or ``readback``.
 ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES = ("x", "y")
@@ -110,8 +110,10 @@ PERIODIC = "periodic"
 #: write's solve, ``periodic`` with the periodic solve alone.
 REFRESH = ("pass", PERIODIC)
 #: The mark of a record whose write is a command; only a ``write`` record
-#: carries it, and only from an engine that declares it in ``RECORD_MARKS``.
+#: carries it.
 COMMAND_MARK = "command"
+#: The marks a wiring record's description may set.
+MARKS = (COMMAND_MARK,)
 
 #: The text a missing view reports.
 NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
@@ -220,7 +222,7 @@ class Binding:
         model: The model the record belongs to.
         address: The channel address the record serves.
         direction: ``write`` or ``read``.
-        role: One of :data:`ROLES`, or a role the model's engine declares.
+        role: One of :data:`ROLES`.
             A ``readback`` reads an element's setting, paired with a setpoint
             or not; the setpoint channel's ``pair`` names its readback.
         plane: ``x`` or ``y`` for a record steering or reading one transverse
@@ -230,8 +232,8 @@ class Binding:
             slices, or none).
         record: The wiring record as the view states it, read-only; the
             engine's ``build`` takes it verbatim.
-        marks: The marks of its engine's declared vocabulary the record
-            carries, such as :data:`COMMAND_MARK`; empty when it carries none.
+        marks: The :data:`MARKS` the record carries; empty when it carries
+            none.
     """
 
     id: str

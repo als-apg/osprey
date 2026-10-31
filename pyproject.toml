@@ -659,10 +659,9 @@ python_files = [
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-# A passing test's tmp_path is deleted at its teardown, and a passing session deletes its base
-# directory, so a run leaves only what failed. pytest deletes older runs' directories in the shared
-# temporary root when the next process exits, and a whole suite's tree left there would cost that
-# process minutes of silent exit.
+# A passing test's tmp_path is deleted at its teardown, and a green run removes the root it claimed
+# (the harness's _run_temp.py), so a run leaves only what failed: a red run keeps its root and names it in
+# the summary.
 tmp_path_retention_policy = "failed"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
 # See tests/e2e/README.md for details
@@ -781,6 +780,7 @@ layers = [
     "osprey_connectors.control_system",
     "osprey_connectors.simulation",
     "osprey_connectors.settle",
+    "osprey_connectors.recovery",
     "osprey_connectors.errors | osprey_connectors.write_target",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
@@ -796,9 +796,10 @@ ignore_imports = [
     # this is a real upward edge and the cycle archiver -> control_system ->
     # simulation -> archiver is still there.
     "osprey_connectors.simulation.archive -> osprey_connectors.archiver._field_names",
-    # A type-checking import, for an annotation: the exception taxonomy names the
-    # write outcome the control-system contract defines.
-    "osprey_connectors.errors -> osprey_connectors.control_system._base",
+    # The exception taxonomy names the write outcome the control-system contract
+    # defines: a type-checking import for the annotation, and one function-local
+    # import that coerces the outcome a write error carries.
+    "osprey_connectors.errors -> osprey_connectors.control_system",
     # Two function-local imports from the type vocabulary up into the posture
     # readers that import it at module scope: the published machine kind is
     # read from the controls server's report beside the control-context record.

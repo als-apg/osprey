@@ -1,1 +1,1 @@
-An engine plug-in may declare the record roles and marks its `describe()` uses (`RECORD_ROLES`, `RECORD_MARKS`); the simulator view carries a record's declared marks, and an engine declaring neither serves the four existing roles as before.
+An engine's `describe()` may list `marks` for a wiring record (the facility schema states `command`, for a write record alone); the build writes them onto the record beside its role, plane and refresh, and stops on any description word the schema does not state.

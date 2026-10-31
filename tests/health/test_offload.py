@@ -9,6 +9,7 @@ import time
 import pytest
 
 from osprey.health import offload
+from tests._live import async_wait_until
 
 
 @pytest.mark.asyncio
@@ -108,9 +109,12 @@ async def test_alive_count_prunes_completed_abandoned_thread() -> None:
 
     # Let the worker finish; the entry self-prunes once the thread terminates.
     release.set()
-    deadline = time.monotonic() + 5.0
-    while offload.abandoned_alive_count() > baseline and time.monotonic() < deadline:
-        await asyncio.sleep(0.01)
+    await async_wait_until(
+        lambda: offload.abandoned_alive_count() <= baseline,
+        timeout=5.0,
+        interval=0.01,
+        what="the abandoned entry pruning itself",
+    )
     assert offload.abandoned_alive_count() == baseline
 
 

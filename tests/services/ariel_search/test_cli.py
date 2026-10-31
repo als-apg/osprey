@@ -1847,6 +1847,32 @@ class TestStatusEmbeddingBuilds:
         assert flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
 
 
+class TestStatusReportErrors:
+    """``osprey ariel status`` prints every error line of the report verbatim."""
+
+    def test_status_prints_each_error_line(self, monkeypatch):
+        refusal = (
+            "search_modules.semantic.model: semantic search is enabled for model 'm', "
+            "but this database has no embedding table for it ('text_embeddings_m')."
+        )
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+            return {"status": "error", "message": "boom", "errors": [refusal], "vocabulary": None}
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.get_status", fake_get_status
+        )
+
+        result = CliRunner().invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert refusal in flat(result.stdout)
+
+
 class TestStatusReportVocabularyExpansion:
     """The vocabulary line of ``osprey ariel status`` reports entry expansion."""
 

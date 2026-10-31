@@ -1399,6 +1399,7 @@ def test_importing_the_module_does_not_pull_in_the_registry():
         capture_output=True,
         text=True,
         cwd=str(Path(__file__).resolve().parents[2]),
+        timeout=120,
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "False", completed.stderr
@@ -1423,6 +1424,7 @@ def test_importing_the_module_reads_nothing(project):
         text=True,
         cwd=str(Path(__file__).resolve().parents[2]),
         env={**os.environ, am.CONFIG_ENV: str(project.root / "build" / "config.yml")},
+        timeout=120,
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "None 0 0", completed.stderr

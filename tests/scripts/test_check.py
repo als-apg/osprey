@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import functools
 import importlib.util
 import json
 import os
@@ -65,11 +66,16 @@ def _replace(monkeypatch: pytest.MonkeyPatch, check_id: str, **changes: Any) -> 
 
 
 def _on_venue(monkeypatch: pytest.MonkeyPatch, here: bool) -> None:
-    """This machine is, or is not, the live Channel Access venue, for one test."""
-    venue = check.VENUES[fw.LIVE_CA_VENUE]
-    monkeypatch.setitem(
-        check.VENUES, fw.LIVE_CA_VENUE, dataclasses.replace(venue, probe=lambda: here)
-    )
+    """This machine is, or is not, the live Channel Access venue, for one test.
+
+    Every other declared venue answers yes, so the verdict names the live
+    Channel Access venue alone, whatever platform runs the test.
+    """
+    for name, venue in list(check.VENUES.items()):
+        answer = here if name == fw.LIVE_CA_VENUE else True
+        monkeypatch.setitem(
+            check.VENUES, name, dataclasses.replace(venue, probe=lambda answer=answer: answer)
+        )
 
 
 WT = "src/osprey/interfaces/web_terminal/static/js/"
@@ -158,6 +164,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "readonly-warmups-py314",
         "live-ca",
         "vitest",
         "dock-engine-tests",
@@ -169,6 +176,7 @@ def test_the_check_ids_are_the_public_names() -> None:
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
         "pytest-pty",
         "pytest-wallclock",
+        "readonly-warmups-py314",
         "live-ca",
         "docs",
         "linkcheck",
@@ -350,11 +358,30 @@ def _scan_block(
     return False
 
 
+#: Text without which no import names a tree-reader module: every spelling of
+#: such an import, absolute or relative, writes the module's last name.
+_TREE_READER_WORDS = tuple(module.rpartition(".")[2] for module in _TREE_READER_MODULES)
+#: Text without which no call globs or walks a tree: each call the rule follows
+#: names its method or function in the source as written.
+_GLOB_WORDS = (*_GLOB_METHODS, "walk", *_ROOT_WALKERS)
+
+
 def _source_reads_the_tests_tree(source: str, here: tuple[str, ...]) -> bool:
-    """Whether the module at repo-relative parts *here* with text *source* reads the tests tree."""
+    """Whether the module at repo-relative parts *here* with text *source* reads the tests tree.
+
+    A module whose text holds no word the rule keys on cannot match it, so it
+    is passed over before the parse; parsing and walking every test module is
+    what makes the whole-tree scan slow, and most modules hold none of them.
+    """
+    imports = any(word in source for word in _TREE_READER_WORDS)
+    globs = any(word in source for word in _GLOB_WORDS)
+    if not imports and not globs:
+        return False
     tree = ast.parse(source)
-    if _imports_a_tree_reader(tree, here):
+    if imports and _imports_a_tree_reader(tree, here):
         return True
+    if not globs:
+        return False
     roots = frozenset(
         stmt.targets[0].id
         for stmt in tree.body
@@ -382,17 +409,24 @@ def test_every_invariant_test_exists() -> None:
     assert "tests/scripts/test_check.py" in fw.INVARIANT_TESTS
 
 
+@functools.cache
+def _tree_readers() -> tuple[str, ...]:
+    """The test modules that read the whole tests tree, in path order.
+
+    The scan is read once per session: the tests that ask which readers a
+    listing leaves out differ only in the listing, not in what the tree holds.
+    """
+    return tuple(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "tests").rglob("test_*.py"))
+        if "__pycache__" not in path.parts and _reads_the_tests_tree(path)
+    )
+
+
 def _tree_readers_outside(invariant: Sequence[str]) -> list[str]:
     """The test modules that read the whole tests tree and are not in *invariant*."""
     listed = set(invariant)
-    found = []
-    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        if relative not in listed and _reads_the_tests_tree(path):
-            found.append(relative)
-    return found
+    return [relative for relative in _tree_readers() if relative not in listed]
 
 
 def test_every_module_that_reads_the_tests_tree_is_an_invariant_test() -> None:
@@ -458,6 +492,8 @@ _PREAMBLE = (
         ("FILES = text_files(ROOT, ROOTS)\n", True),
         ('FILES = text_files(ROOT, roots=("docs", "tests"))\n', True),
         ('FILES = text_files(ROOT, ("src", "docs"))\n', False),
+        ("from tests._tree_scan import test_modules\n", True),
+        ("from . import _tree_scan\n", True),
     ],
     ids=[
         "argument-default",
@@ -470,6 +506,8 @@ _PREAMBLE = (
         "walker-over-roots",
         "walker-over-literal-roots",
         "walker-elsewhere",
+        "tree-reader-import",
+        "relative-tree-reader-import",
     ],
 )
 def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bool) -> None:
@@ -535,7 +573,7 @@ def run_of(job: str, containing: str) -> str:
 
 def after_bound(argv: list[str]) -> list[str]:
     """A bounded command without its ``run_bounded.py SECONDS --`` prefix."""
-    assert argv[:4] == ["uv", "run", "python", "scripts/run_bounded.py"]
+    assert argv[:5] == [*kit.UV_RUN, "python", "scripts/run_bounded.py"]
     return argv[argv.index("--") + 1 :]
 
 
@@ -598,32 +636,32 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         return check.resolve(["run", *words])
 
     assert run("lockfile") == [["uv", "lock", "--check"]]
-    assert run("ruff-format") == [["uv", "run", "ruff", "format", "--check", "."]]
+    assert run("ruff-format") == [[*fw.UV_RUN, "ruff", "format", "--check", "."]]
     assert run("config-keys") == [
-        ["uv", "run", "python", "scripts/check_config_keys.py", "--back-test"]
+        [*fw.UV_RUN, "python", "scripts/check_config_keys.py", "--back-test"]
     ]
-    assert run("mypy") == [["uv", "run", "python", "scripts/mypy_gate.py"]]
+    assert run("mypy") == [[*fw.UV_RUN, "python", "scripts/mypy_gate.py"]]
     assert run("changelog", "--base", "origin/main") == [
         ["python3", "scripts/changelog_fragments.py", "check", "--base", "origin/main"]
     ]
     assert run("plugin-version", "--base", "origin/main") == [
         ["python3", "scripts/plugin_version.py", "check", "--base", "origin/main"]
     ]
-    assert run("import-contracts") == [["uv", "run", "lint-imports"]]
-    private = ["uv", "run", "ruff", "check", "--preview", "--select=PLC2701", "."]
+    assert run("import-contracts") == [[*fw.UV_RUN, "lint-imports"]]
+    private = [*fw.UV_RUN, "ruff", "check", "--preview", "--select=PLC2701", "."]
     assert run("private-imports") == [private]
     assert run("tracked-ignored") == []
     assert run("gitleaks", "--base", "origin/main") == [
         ["gitleaks", "git", "--log-opts=origin/main..HEAD", "--no-banner", "--redact"]
     ]
     assert run("invariant-tests") == [
-        ["uv", "run", "pytest", *fw.INVARIANT_TESTS, *pytest_report("invariant-tests")]
+        [*fw.UV_RUN, "pytest", *fw.INVARIANT_TESTS, *pytest_report("invariant-tests")]
     ]
-    assert run("actionlint") == [["uv", "run", "actionlint"]]
+    assert run("actionlint") == [[*fw.UV_RUN, "actionlint"]]
 
-    assert run("ruff") == [["uv", "run", "ruff", "check", "."]]
+    assert run("ruff") == [[*fw.UV_RUN, "ruff", "check", "."]]
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    assert run("ruff") == [["uv", "run", "ruff", "check", ".", "--output-format=github"]]
+    assert run("ruff") == [[*fw.UV_RUN, "ruff", "check", ".", "--output-format=github"]]
     assert run("private-imports") == [[*private, "--output-format=github"]]
     monkeypatch.delenv("GITHUB_ACTIONS")
 
@@ -640,7 +678,8 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     for shard, selection in SHARD_SELECTIONS.items():
         (sweep,) = run("pytest", "--shard", shard, "--", *CI_UNIT_EXEC_FLAGS)
         assert after_bound(sweep) == [
-            *("uv", "run", "pytest"),
+            *fw.UV_RUN,
+            "pytest",
             *selection,
             *SWEEP_MARKER,
             *CI_UNIT_EXEC_FLAGS,
@@ -649,8 +688,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ]
     (pty,) = run("pytest-pty", "--", "-v", "--tb=short")
     assert after_bound(pty) == [
-        "uv",
-        "run",
+        *fw.UV_RUN,
         "pytest",
         "tests/pty/",
         "-m",
@@ -661,13 +699,14 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     ]
     (wallclock,) = run("pytest-wallclock")
     assert after_bound(wallclock) == [
-        *("uv", "run", "pytest", "tests/integration", "-m", "wallclock"),
+        *fw.UV_RUN,
+        *("pytest", "tests/integration", "-m", "wallclock"),
         *pytest_report("pytest-wallclock"),
     ]
-    assert run("live-ca") == [["uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"]]
+    assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
-    assert run("docs") == [["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"]]
-    assert run("linkcheck") == [["uv", "run", "make", "linkcheck"]]
+    assert run("docs") == [[*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"]]
+    assert run("linkcheck") == [[*fw.UV_RUN, "make", "linkcheck"]]
     assert [c.id for c in check.CHECKS if c.workdir] == ["docs", "linkcheck"]
     assert BY_ID["linkcheck"].workdir == BY_ID["docs"].workdir
     assert (REPO_ROOT / BY_ID["docs"].workdir / "Makefile").is_file()
@@ -825,10 +864,11 @@ OS_SENSITIVE_USES = frozenset(
 MACOS_TRIM_VETTED = {
     # A symlinked checkout resolves to one repo identity on any POSIX host.
     "tests/deployment/test_up_as_built.py": ("symlink_to",),
-    # The child is only killed in teardown; the assertions are on its frames.
-    "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec",),
-    # Binds and closes a socket to get a port that refuses.
-    "tests/services/ariel_search/test_image_lane.py": ("socket.socket",),
+    # A child is killed with SIGKILL, in teardown and to make a dead child the
+    # supervisor replaces; the assertions are on the envelope's frames. A dead
+    # connector-host child is detected by tests/connectors/ipc/test_pool.py,
+    # kept on macOS.
+    "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec", "os.kill"),
 }
 
 
@@ -876,7 +916,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800"]
-    assert bounds("full") == ["5400", "600", "900"]
+    assert bounds("full") == ["5400", "600", "900", "900"]
 
 
 # ---------------------------------------------------------------------------
@@ -1101,11 +1141,16 @@ def test_named_files_are_added_to_what_the_range_selects() -> None:
     got = selected(
         "quick",
         "tests/cli/test_main.py",
-        named=("tests/docs/test_shipped_identity_literals.py", TW + "toast.test.js"),
+        named=(
+            "tests/docs/test_shipped_identity_literals.py",
+            "tests/cli/test_main.py::test_x",
+            TW + "toast.test.js",
+        ),
     )
     assert got["pytest"].paths == (
         "tests/cli/test_main.py",
         "tests/docs/test_shipped_identity_literals.py",
+        "tests/cli/test_main.py::test_x",
     )
     assert got["vitest"].paths == (TW + "toast.test.js",)
     assert selected("quick", "uv.lock", named=("tests/cli/test_main.py",))["pytest"] == (
@@ -1116,6 +1161,55 @@ def test_named_files_are_added_to_what_the_range_selects() -> None:
 def test_a_named_path_that_is_not_a_test_file_is_refused() -> None:
     with pytest.raises(check.Refused, match="notes.txt"):
         selected("quick", named=("notes.txt",))
+
+
+def test_a_named_node_id_goes_to_pytest_as_given() -> None:
+    got = selected("quick", named=("tests/cli/test_main.py::test_x",))
+    assert got["pytest"] == check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
+    assert got["vitest"].state == check.NOT_TOUCHED
+
+
+def test_a_named_directory_goes_to_pytest_as_the_directory() -> None:
+    got = selected("quick", named=("tests/cli/",))
+    assert got["pytest"].paths == ("tests/cli",)
+    assert got["vitest"].state == check.NOT_TOUCHED
+
+
+def test_a_named_node_id_whose_file_is_absent_is_refused() -> None:
+    with pytest.raises(check.Refused, match="tests/cli/test_nope.py is not a file"):
+        selected("quick", named=("tests/cli/test_nope.py::test_x",))
+
+
+def test_a_node_id_of_a_file_whose_runner_takes_none_is_refused() -> None:
+    with pytest.raises(check.Refused, match="toast.test.js::t: only a .py file takes a node id"):
+        selected("quick", named=(TW + "toast.test.js::t",))
+
+
+def test_a_named_directory_without_a_pytest_file_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "notes.txt").write_text("")
+    monkeypatch.setattr(check, "ROOT", tmp_path)
+    with pytest.raises(check.Refused, match="notes: holds no pytest file"):
+        selected("quick", named=("notes",))
+
+
+def test_a_node_id_names_the_hosts_of_its_file() -> None:
+    hosts = check._hosts_over(["tests/integration/test_build_boot.py"])
+    assert "build-boot-smoke" in hosts
+    assert check._hosts_over(["tests/integration/test_build_boot.py::test_x"]) == hosts
+
+
+def test_the_pytest_line_carries_a_named_node_id() -> None:
+    pytest_check = BY_ID["pytest"]
+    selection = check.Selection(check.PATHS, ("tests/cli/test_main.py::test_x",))
+    (line,) = check.commands(pytest_check, selection, check.Context(tier="quick"))
+    argv = line[line.index("--") + 1 :]
+    assert argv[: len(pytest_check.argv)] == list(pytest_check.argv)
+    rest = argv[len(pytest_check.argv) :]
+    first_ignore = next(i for i, arg in enumerate(rest) if arg.startswith("--ignore="))
+    assert rest[:first_ignore] == ["tests/cli/test_main.py::test_x"]
 
 
 @pytest.mark.parametrize(
@@ -1148,7 +1242,7 @@ def git(repo: Path, *args: str) -> None:
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.invalid",
     }
-    subprocess.run(["git", *args], cwd=repo, env=env, capture_output=True, check=True)
+    subprocess.run(["git", *args], cwd=repo, env=env, capture_output=True, check=True, timeout=60)
 
 
 @pytest.fixture
@@ -1661,6 +1755,7 @@ def test_the_failing_ids_are_the_node_ids_the_installed_pytest_prints(tmp_path: 
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     printed = tuple(re.findall(r"^FAILED (\S+)", done.stdout, re.MULTILINE))
     assert printed == (
@@ -1853,7 +1948,7 @@ def test_full_without_the_docs_extra_is_refused(
     monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     assert check.main(["full"]) == 2
     assert "uv sync --extra docs" in capsys.readouterr().err
-    assert probed == [("uv", "run", "python", "-c", "import myst_parser")]
+    assert probed == [fw.DOCS_EXTRA_PROBE]
     assert recorder.calls == []
 
 
@@ -1862,7 +1957,7 @@ def test_full_with_the_docs_extra_plans_the_docs_build(
 ) -> None:
     monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     assert check.main(["full"]) == 0
-    assert ["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"] in recorder.calls
+    assert [*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"] in recorder.calls
 
 
 @pytest.mark.usefixtures("recorder")
@@ -1902,19 +1997,204 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     install = "the Node toolchain is not installed: install Node, then run npm ci"
     refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
-    probes = {
-        shlex.join(probe[1:])
-        for probe in (fw.DOCS_EXTRA_PROBE, fw.LIVE_CA_PROBE, fw.WORKFLOW_LINT_PROBE)
-    }
+    probes = {shlex.join(argv[1:]) for argv in _declared_argvs() if argv[:1] == ("uv",)}
     log = tmp_path / "uv.log"
     logged = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     assert set(logged) <= probes, logged
     assert recorder.calls == []
     stub(stub_path, "node", "exit 0")
     stub(stub_path, "npm", "exit 0")
+    _lockfiles(tmp_path, installed="1.0.0")
     assert fw._need_node() is None
+    (tmp_path / "node_modules/.package-lock.json").unlink()
     (tmp_path / "node_modules").rmdir()
-    assert "npm ci" in (fw._need_node() or "")
+    answer = fw._need_node() or ""
+    assert recorder.calls == [["npm", "ci"]]
+    assert "node_modules/.package-lock.json is absent" in answer
+
+
+# ---------------------------------------------------------------------------
+# Provisioning: the needs put the tree's pins in place before any check runs
+
+
+def _declared_argvs() -> list[tuple[str, ...]]:
+    """Every argv the checks modules declare: each module-level tuple of words
+    (and each step of a tuple of them), every check's argv and every fix."""
+    found: list[tuple[str, ...]] = []
+    for module in check.DECLARED.modules.values():
+        for value in vars(module).values():
+            if not isinstance(value, tuple):
+                continue
+            steps = value if value and all(isinstance(v, tuple) for v in value) else (value,)
+            found += [s for s in steps if s and all(isinstance(w, str) for w in s)]
+    for declared in check.CHECKS:
+        found += [declared.argv, *declared.fix]
+    return found
+
+
+def _assert_never_relocks(argv: Sequence[str]) -> None:
+    if tuple(argv[:2]) == ("uv", "run"):
+        assert argv[2] == "--frozen", argv
+
+
+def test_every_declared_uv_run_never_relocks() -> None:
+    """A plain ``uv run`` rewrites a stale uv.lock, and the lockfile check must
+    judge it as the tree left it."""
+    argvs = _declared_argvs()
+    assert fw.CLAUDE_PIN_PROBE in argvs
+    assert BY_ID["pytest"].argv in argvs
+    for argv in argvs:
+        _assert_never_relocks(argv)
+
+
+def test_every_resolved_uv_run_never_relocks() -> None:
+    """The commands a tier starts, wrappers such as the bound included, keep
+    the declared argvs' ``--frozen``."""
+    for tier in check.TIERS:
+        resolved = check.resolve([tier])
+        assert any("scripts/run_bounded.py" in argv for argv in resolved), tier
+        for argv in resolved:
+            _assert_never_relocks(argv)
+
+
+def test_every_declared_uv_run_never_relocks__mutation_drops_frozen() -> None:
+    relocking = tuple(part for part in fw.CLAUDE_PIN_PROBE if part != "--frozen")
+    with pytest.raises(AssertionError):
+        _assert_never_relocks(relocking)
+
+
+def test_no_check_sets_uv_frozen_for_its_children() -> None:
+    """Under ``UV_FROZEN`` the lockfile check validates the lock and no longer
+    judges whether it is stale."""
+    for script in sorted((REPO_ROOT / "scripts").glob("*check*.py")):
+        assert "UV_FROZEN" not in script.read_text(encoding="utf-8"), script
+
+
+def test_the_pin_probe_runs_the_resolver() -> None:
+    assert fw.CLAUDE_PIN_PROBE[3:] == ("python", "scripts/pinned_claude.py")
+    assert (REPO_ROOT / fw.CLAUDE_PIN_PROBE[-1]).is_file()
+
+
+def test_the_test_sweep_needs_the_pin() -> None:
+    assert BY_ID["pytest"].needs == ("uv", "claude-pin")
+
+
+@pytest.mark.usefixtures("recorder")
+def test_the_pin_goes_first_on_path_before_any_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pin = tmp_path / "pin"
+    pin.mkdir()
+    probed: list[tuple[str, ...]] = []
+
+    def probe(argv: Sequence[str]) -> tuple[int, str, str]:
+        probed.append(tuple(argv))
+        return 0, f"{pin}\n", ""
+
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setattr(fw, "_probe", probe)
+    monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
+    assert check.main(["quick"]) == 0
+    assert os.environ["PATH"].startswith(str(pin) + os.pathsep)
+    assert probed == [fw.CLAUDE_PIN_PROBE]
+
+
+@pytest.mark.parametrize(
+    ("answer", "refusal"),
+    [
+        (
+            (
+                1,
+                "",
+                "This project pins Claude Code X and none was found.\n"
+                "  npm install -g @anthropic-ai/claude-code@X\n"
+                "then run again.\n",
+            ),
+            "This project pins Claude Code X and none was found. "
+            "npm install -g @anthropic-ai/claude-code@X then run again.",
+        ),
+        ((0, "not a directory\n", ""), "printed no directory"),
+        ((3, "", ""), "exited 3"),
+    ],
+    ids=["refused", "no-directory", "silent"],
+)
+def test_no_pin_is_a_refusal_and_nothing_runs(
+    recorder: Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    answer: tuple[int, str, str],
+    refusal: str,
+) -> None:
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setattr(fw, "_probe", lambda argv: answer)
+    monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
+    assert check.main(["quick"]) == 2
+    assert recorder.calls == []
+    err = capsys.readouterr().err
+    (line,) = (line for line in err.splitlines() if line.startswith("check: pytest: refused ("))
+    assert refusal in line
+
+
+_LOCK = {
+    "name": "fixture",
+    "lockfileVersion": 3,
+    "packages": {
+        "": {"name": "fixture", "devDependencies": {"a": "1.0.0"}},
+        "node_modules/a": {"version": "1.0.0", "integrity": "sha512-a", "dev": True},
+    },
+}
+
+
+def _lockfiles(root: Path, *, installed: str | None) -> None:
+    """``package-lock.json`` under *root*, and npm's hidden lockfile recording
+    package ``a`` at *installed*, or no ``node_modules`` when ``None``."""
+    (root / "package-lock.json").write_text(json.dumps(_LOCK), encoding="utf-8")
+    if installed is None:
+        return
+    hidden = json.loads(json.dumps(_LOCK))
+    del hidden["packages"][""]
+    hidden["packages"]["node_modules/a"]["version"] = installed
+    (root / "node_modules").mkdir(exist_ok=True)
+    (root / "node_modules/.package-lock.json").write_text(json.dumps(hidden), encoding="utf-8")
+
+
+@pytest.fixture
+def node_need(recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> Recorder:
+    """The real ``node`` need, with ``node`` and ``npm`` found and the recorder
+    standing in for npm."""
+    monkeypatch.setitem(check.NEED_PROBES, "node", fw._need_node)
+    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
+    return recorder
+
+
+def test_npm_ci_does_not_run_when_node_modules_is_current(
+    node_need: Recorder, tmp_path: Path
+) -> None:
+    _lockfiles(tmp_path, installed="1.0.0")
+    assert check.main(["quick"]) == 0
+    assert ["npm", "ci"] not in node_need.calls
+
+
+def test_npm_ci_runs_before_any_check_when_node_modules_is_stale(
+    node_need: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _lockfiles(tmp_path, installed="0.9.0")
+    assert check.main(["quick"]) == 2
+    assert node_need.calls[0] == ["npm", "ci"]
+    assert ["uv", "lock", "--check"] not in node_need.calls
+    captured = capsys.readouterr()
+    assert "check: node: node_modules/a differs from package-lock.json; npm ci" in captured.out
+    assert "node_modules still differs from package-lock.json after npm ci" in captured.err
+
+
+def test_a_failed_npm_ci_is_a_refusal(
+    node_need: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _lockfiles(tmp_path, installed="0.9.0")
+    node_need.failing = {"npm ci": 1}
+    assert check.main(["quick"]) == 2
+    assert node_need.calls == [["npm", "ci"]]
+    assert "npm ci failed (exit 1): node_modules/a differs" in capsys.readouterr().err
 
 
 def test_a_run_without_uv_is_refused(stub_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1930,7 +2210,8 @@ def test_a_pytest_check_leaves_its_output_on_the_callers_stdout(
     assert check.main(["run", "pytest-pty", "--", "-q"]) == 0
     assert "stub uv says hello" in capfd.readouterr().out
     logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip()
-    command = "run python scripts/run_bounded.py 600 -- uv run pytest tests/pty/ -m pty -q"
+    pty = shlex.join(BY_ID["pytest-pty"].argv)
+    command = f"{shlex.join(kit.UV_RUN[1:])} python scripts/run_bounded.py 600 -- {pty} -q"
     written = re.fullmatch(re.escape(command) + r" --junitxml=(\S+) -o junit_family=xunit1", logged)
     assert written, logged
     assert written[1].endswith("/pytest-pty/junit.xml")
@@ -1997,7 +2278,7 @@ def test_run_passes_execution_flags_to_the_pytest_checks_only(recorder: Recorder
     flags = ["-q", "-n", "4", "--cov=src/osprey", "--cov-report=xml", "--maxfail=1", "-nauto"]
     assert check.main(["run", "ruff", "pytest", "--", *flags]) == 0
     ruff, sweep = recorder.calls
-    assert ruff == ["uv", "run", "ruff", "check", "."]
+    assert ruff == [*fw.UV_RUN, "ruff", "check", "."]
     assert sweep[:-3][-len(flags) - 2 :] == [*flags, "--dist", "loadgroup"]
     assert sweep[-3].endswith("/pytest/junit.xml") and sweep[-2:] == ["-o", "junit_family=xunit1"]
     assert check.main(["run", "ruff", "--", "-v"]) == 2
@@ -2018,8 +2299,8 @@ def test_fix_lets_ruff_write_before_the_checks_and_only_in_quick(
 ) -> None:
     assert check.main(["quick", "--fix"]) == 0
     assert recorder.calls[:4] == [
-        ["uv", "run", "ruff", "check", ".", "--fix"],
-        ["uv", "run", "ruff", "format", "."],
+        [*fw.UV_RUN, "ruff", "check", ".", "--fix"],
+        [*fw.UV_RUN, "ruff", "format", "."],
         ["npm", "run", "format"],
         ["uv", "lock", "--check"],
     ]
@@ -2041,8 +2322,8 @@ def test_fix_runs_only_the_fixes_of_the_checks_the_range_touches(
     assert check.main(["quick", "--changed", "B", "--fix"]) == 0
     assert not recorder.ran("npm run format")
     assert recorder.calls[:2] == [
-        ["uv", "run", "ruff", "check", ".", "--fix"],
-        ["uv", "run", "ruff", "format", "."],
+        [*fw.UV_RUN, "ruff", "check", ".", "--fix"],
+        [*fw.UV_RUN, "ruff", "format", "."],
     ]
 
     # A fix declared on a scoped check runs only when the range touches its scope.
@@ -2104,15 +2385,15 @@ def test_the_docs_check_cleans_the_build_tree_before_it_builds(
     monkeypatch.setattr(kit, "run", placed)
     assert check.main(["run", "docs"]) == 0
     assert recorder.calls == [
-        ["uv", "run", "make", "clean"],
-        ["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"],
+        [*fw.UV_RUN, "make", "clean"],
+        [*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"],
     ]
     assert where == [tmp_path / "docs", tmp_path / "docs"]
 
     recorder.calls.clear()
     recorder.failing = {"make clean": 2}
     assert check.main(["run", "docs"]) == 1
-    assert recorder.calls == [["uv", "run", "make", "clean"]]
+    assert recorder.calls == [[*fw.UV_RUN, "make", "clean"]]
 
 
 @pytest.mark.parametrize("check_id", ["pytest", "pytest-pty"])
@@ -2292,6 +2573,7 @@ def test_the_command_needs_only_the_standard_library() -> None:
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        timeout=120,
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.splitlines()[0].split()[:3] == ["lockfile", "invariant", "quick,full"]

@@ -25,6 +25,7 @@ from osprey_connectors_tests._harness import (
     _env_scope_guard,
     _live_threads,
     _repo_cleanliness,
+    _run_temp,
     ci_diagnostics,
 )
 from osprey_connectors_tests._harness._env_scope_guard import restore_module_environment
@@ -740,8 +741,15 @@ def reset_second_real_block_warning():
 # the variable unset this installs nothing and costs nothing.
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
-    """Register the harness plugins, the CI recorder among them."""
+    """Claim the run's temporary root, then register the harness plugins and the CI recorder.
+
+    The root is claimed first, ahead of pytest's own temporary-path setup,
+    which reads it. See _run_temp.py.
+    """
+    _run_temp.claim(config)
+
     # Registered as a plugin rather than left as a hook in this file: a
     # session-scoped fixture's ``pytest_fixture_setup`` is dispatched on the
     # Session node, whose hook proxy carries only the conftests above it — this

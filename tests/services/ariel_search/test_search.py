@@ -399,26 +399,32 @@ class TestSemanticSearchFunction:
         return embedder
 
     @pytest.mark.asyncio
-    async def test_empty_query_returns_empty(self, mock_repository, mock_config, mock_embedder):
+    async def test_empty_query_returns_empty(
+        self, mock_repository, mock_config, mock_embedder, search_calls
+    ):
         """Empty query returns empty results."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        result = await semantic_search("", mock_repository, mock_config, mock_embedder)
+        result = await semantic_search(
+            "", mock_repository, mock_config, mock_embedder, search_calls=search_calls
+        )
         assert result == []
 
     @pytest.mark.asyncio
     async def test_whitespace_query_returns_empty(
-        self, mock_repository, mock_config, mock_embedder
+        self, mock_repository, mock_config, mock_embedder, search_calls
     ):
         """Whitespace-only query returns empty results."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        result = await semantic_search("   ", mock_repository, mock_config, mock_embedder)
+        result = await semantic_search(
+            "   ", mock_repository, mock_config, mock_embedder, search_calls=search_calls
+        )
         assert result == []
 
     @pytest.mark.asyncio
     async def test_no_model_returns_empty(
-        self, mock_repository, mock_config_no_model, mock_embedder
+        self, mock_repository, mock_config_no_model, mock_embedder, search_calls
     ):
         """Returns empty if no model configured."""
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -428,11 +434,14 @@ class TestSemanticSearchFunction:
             mock_repository,
             mock_config_no_model,
             mock_embedder,
+            search_calls=search_calls,
         )
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_embedding_generation_called(self, mock_repository, mock_config, mock_embedder):
+    async def test_embedding_generation_called(
+        self, mock_repository, mock_config, mock_embedder, search_calls
+    ):
         """Embedding generation is called with query."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -441,6 +450,7 @@ class TestSemanticSearchFunction:
             mock_repository,
             mock_config,
             mock_embedder,
+            search_calls=search_calls,
         )
 
         mock_embedder.execute_embedding.assert_called_once()
@@ -448,7 +458,9 @@ class TestSemanticSearchFunction:
         assert call_args.kwargs["texts"] == ["test query"]
 
     @pytest.mark.asyncio
-    async def test_uses_config_threshold(self, mock_repository, mock_config, mock_embedder):
+    async def test_uses_config_threshold(
+        self, mock_repository, mock_config, mock_embedder, search_calls
+    ):
         """Uses threshold from config when not provided."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -457,13 +469,16 @@ class TestSemanticSearchFunction:
             mock_repository,
             mock_config,
             mock_embedder,
+            search_calls=search_calls,
         )
 
         call_args = mock_repository.semantic_search.call_args
         assert call_args.kwargs["similarity_threshold"] == 0.8
 
     @pytest.mark.asyncio
-    async def test_per_query_threshold_override(self, mock_repository, mock_config, mock_embedder):
+    async def test_per_query_threshold_override(
+        self, mock_repository, mock_config, mock_embedder, search_calls
+    ):
         """Per-query threshold overrides config."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -473,6 +488,7 @@ class TestSemanticSearchFunction:
             mock_config,
             mock_embedder,
             similarity_threshold=0.5,
+            search_calls=search_calls,
         )
 
         call_args = mock_repository.semantic_search.call_args
@@ -480,7 +496,7 @@ class TestSemanticSearchFunction:
 
     @pytest.mark.asyncio
     async def test_embedding_failure_returns_empty(
-        self, mock_repository, mock_config, mock_embedder
+        self, mock_repository, mock_config, mock_embedder, search_calls
     ):
         """Returns empty on embedding failure."""
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -492,12 +508,15 @@ class TestSemanticSearchFunction:
             mock_repository,
             mock_config,
             mock_embedder,
+            search_calls=search_calls,
         )
 
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_empty_embedding_returns_empty(self, mock_repository, mock_config, mock_embedder):
+    async def test_empty_embedding_returns_empty(
+        self, mock_repository, mock_config, mock_embedder, search_calls
+    ):
         """Returns empty when embedding is empty."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -508,6 +527,7 @@ class TestSemanticSearchFunction:
             mock_repository,
             mock_config,
             mock_embedder,
+            search_calls=search_calls,
         )
 
         assert result == []
@@ -640,7 +660,9 @@ class TestSemanticSearchWithDateFilters:
         return embedder
 
     @pytest.mark.asyncio
-    async def test_semantic_with_date_filters(self, mock_repository, mock_config, mock_embedder):
+    async def test_semantic_with_date_filters(
+        self, mock_repository, mock_config, mock_embedder, search_calls
+    ):
         """Semantic search passes date filters to repository."""
         from datetime import datetime
 
@@ -656,6 +678,7 @@ class TestSemanticSearchWithDateFilters:
             mock_embedder,
             start_date=start_date,
             end_date=end_date,
+            search_calls=search_calls,
         )
 
         call_args = mock_repository.semantic_search.call_args
@@ -951,7 +974,9 @@ class TestSemanticSearchValidation:
     )
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("fallback_handler_with_capture")
-    async def test_embedding_dimension_mismatch_warning(self, mock_config, captured_events):
+    async def test_embedding_dimension_mismatch_warning(
+        self, mock_config, captured_events, search_calls
+    ):
         """Warning logged when embedding dimension mismatches config (TEST-H008)."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -972,6 +997,7 @@ class TestSemanticSearchValidation:
             mock_repo,
             mock_config,
             mock_embedder,
+            search_calls=search_calls,
         )
 
         # Check that warning was emitted via unified event system
@@ -985,7 +1011,7 @@ class TestThreeTierThresholdResolution:
     """Tests for 3-tier threshold resolution (EDGE-004)."""
 
     @pytest.mark.asyncio
-    async def test_param_overrides_config(self):
+    async def test_param_overrides_config(self, search_calls):
         """Per-query parameter overrides config value."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1019,13 +1045,14 @@ class TestThreeTierThresholdResolution:
             config,
             mock_embedder,
             similarity_threshold=0.5,  # Override config's 0.8
+            search_calls=search_calls,
         )
 
         call_args = mock_repo.semantic_search.call_args
         assert call_args.kwargs["similarity_threshold"] == 0.5
 
     @pytest.mark.asyncio
-    async def test_config_overrides_default(self):
+    async def test_config_overrides_default(self, search_calls):
         """Config value overrides hardcoded default."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1056,7 +1083,7 @@ class TestThreeTierThresholdResolution:
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # Don't pass explicit threshold - should use config
-        await semantic_search("test", mock_repo, config, mock_embedder)
+        await semantic_search("test", mock_repo, config, mock_embedder, search_calls=search_calls)
 
         call_args = mock_repo.semantic_search.call_args
         assert call_args.kwargs["similarity_threshold"] == 0.9
@@ -1144,7 +1171,7 @@ class TestEmbeddingGenerationFailure:
     """Tests for embedding generation failure handling (EDGE-012)."""
 
     @pytest.mark.asyncio
-    async def test_semantic_search_embedding_failure_returns_empty(self):
+    async def test_semantic_search_embedding_failure_returns_empty(self, search_calls):
         """Semantic search returns empty on embedding failure."""
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1169,7 +1196,9 @@ class TestEmbeddingGenerationFailure:
             side_effect=Exception("Embedding service unavailable")
         )
 
-        result = await semantic_search("test", mock_repo, config, mock_embedder)
+        result = await semantic_search(
+            "test", mock_repo, config, mock_embedder, search_calls=search_calls
+        )
 
         assert result == []
 
@@ -1281,7 +1310,7 @@ class TestThreeTierPriorityComplete:
     """Complete tests for 3-tier priority resolution (QUAL-009)."""
 
     @pytest.mark.asyncio
-    async def test_three_tier_priority_explicit_param_highest(self):
+    async def test_three_tier_priority_explicit_param_highest(self, search_calls):
         """Explicit parameter has highest priority in 3-tier resolution.
 
         QUAL-009: Test 3-tier priority - tier 1 (param).
@@ -1319,13 +1348,14 @@ class TestThreeTierPriorityComplete:
             config,
             mock_embedder,
             similarity_threshold=0.3,  # Tier 1: explicit param
+            search_calls=search_calls,
         )
 
         call_args = mock_repo.semantic_search.call_args
         assert call_args.kwargs["similarity_threshold"] == 0.3
 
     @pytest.mark.asyncio
-    async def test_three_tier_priority_config_middle(self):
+    async def test_three_tier_priority_config_middle(self, search_calls):
         """Config value has middle priority in 3-tier resolution.
 
         QUAL-009: Test 3-tier priority - tier 2 (config).
@@ -1359,14 +1389,14 @@ class TestThreeTierPriorityComplete:
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # No explicit param -> should use config's 0.85
-        await semantic_search("test", mock_repo, config, mock_embedder)
+        await semantic_search("test", mock_repo, config, mock_embedder, search_calls=search_calls)
 
         call_args = mock_repo.semantic_search.call_args
         assert call_args.kwargs["similarity_threshold"] == 0.85
         assert call_args.kwargs["similarity_threshold"] != DEFAULT_SIMILARITY_THRESHOLD
 
     @pytest.mark.asyncio
-    async def test_three_tier_priority_default_lowest(self):
+    async def test_three_tier_priority_default_lowest(self, search_calls):
         """Default value has lowest priority in 3-tier resolution.
 
         QUAL-009: Test 3-tier priority - tier 3 (default).
@@ -1401,7 +1431,7 @@ class TestThreeTierPriorityComplete:
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # No explicit param, no config value -> should use default
-        await semantic_search("test", mock_repo, config, mock_embedder)
+        await semantic_search("test", mock_repo, config, mock_embedder, search_calls=search_calls)
 
         call_args = mock_repo.semantic_search.call_args
         assert call_args.kwargs["similarity_threshold"] == DEFAULT_SIMILARITY_THRESHOLD
@@ -1411,7 +1441,7 @@ class TestThresholdInSQLVerification:
     """Quality assertions for threshold in SQL (QUAL-010)."""
 
     @pytest.mark.asyncio
-    async def test_threshold_passed_to_repository(self):
+    async def test_threshold_passed_to_repository(self, search_calls):
         """Verify threshold is passed to repository for SQL filtering.
 
         QUAL-010: Verify threshold in SQL.
@@ -1449,6 +1479,7 @@ class TestThresholdInSQLVerification:
             config,
             mock_embedder,
             similarity_threshold=threshold,
+            search_calls=search_calls,
         )
 
         # Verify threshold was passed to repository
@@ -1606,7 +1637,7 @@ class TestSemanticSearchDiagnostics:
 
     @pytest.mark.asyncio
     async def test_dimension_mismatch_warns_but_still_searches(
-        self, mock_repository, mock_embedder, caplog
+        self, mock_repository, mock_embedder, caplog, search_calls
     ):
         """A query embedding of the wrong width warns and proceeds."""
         import logging
@@ -1616,14 +1647,18 @@ class TestSemanticSearchDiagnostics:
         config = self._config({"embedding_dimension": 768})
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
-            await semantic_search("beam", mock_repository, config, mock_embedder)
+            await semantic_search(
+                "beam", mock_repository, config, mock_embedder, search_calls=search_calls
+            )
 
         assert "Embedding dimension mismatch" in caplog.text
         assert "3 dimensions but config expects 768" in caplog.text
         mock_repository.semantic_search.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_matching_dimension_does_not_warn(self, mock_repository, mock_embedder, caplog):
+    async def test_matching_dimension_does_not_warn(
+        self, mock_repository, mock_embedder, caplog, search_calls
+    ):
         """A correctly sized query embedding produces no mismatch warning."""
         import logging
 
@@ -1632,13 +1667,15 @@ class TestSemanticSearchDiagnostics:
         config = self._config({"embedding_dimension": 3})
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
-            await semantic_search("beam", mock_repository, config, mock_embedder)
+            await semantic_search(
+                "beam", mock_repository, config, mock_embedder, search_calls=search_calls
+            )
 
         assert "Embedding dimension mismatch" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_zero_results_with_no_embedding_tables_warns(
-        self, mock_repository, mock_embedder, caplog
+        self, mock_repository, mock_embedder, caplog, search_calls
     ):
         """Zero hits with no embedding tables at all points at the ingest step."""
         import logging
@@ -1648,14 +1685,16 @@ class TestSemanticSearchDiagnostics:
         config = self._config({"similarity_threshold": 0.5})
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
-            results = await semantic_search("beam", mock_repository, config, mock_embedder)
+            results = await semantic_search(
+                "beam", mock_repository, config, mock_embedder, search_calls=search_calls
+            )
 
         assert results == []
         assert "no embeddings exist" in caplog.text
 
     @pytest.mark.asyncio
     async def test_zero_results_with_empty_embedding_tables_warns(
-        self, mock_repository, mock_embedder, caplog
+        self, mock_repository, mock_embedder, caplog, search_calls
     ):
         """Tables that exist but hold no rows produce the same diagnostic."""
         import logging
@@ -1669,13 +1708,15 @@ class TestSemanticSearchDiagnostics:
         config = self._config({"similarity_threshold": 0.5})
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
-            await semantic_search("beam", mock_repository, config, mock_embedder)
+            await semantic_search(
+                "beam", mock_repository, config, mock_embedder, search_calls=search_calls
+            )
 
         assert "no embeddings exist" in caplog.text
 
     @pytest.mark.asyncio
     async def test_zero_results_with_populated_tables_stays_quiet(
-        self, mock_repository, mock_embedder, caplog
+        self, mock_repository, mock_embedder, caplog, search_calls
     ):
         """Populated tables mean the miss is genuine — no diagnostic warning."""
         import logging
@@ -1689,6 +1730,8 @@ class TestSemanticSearchDiagnostics:
         config = self._config({"similarity_threshold": 0.5})
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
-            await semantic_search("beam", mock_repository, config, mock_embedder)
+            await semantic_search(
+                "beam", mock_repository, config, mock_embedder, search_calls=search_calls
+            )
 
         assert "no embeddings exist" not in caplog.text

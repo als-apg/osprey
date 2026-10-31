@@ -96,8 +96,9 @@
 # DATA_ROOT is a render's data root, `<project>/build/data`, holding the
 # simulator view under `simulator/`.
 #
-# Building needs BuildKit when the runtime is docker: the gate checks for it
-# before staging anything and names how to enable it.
+# The container runtime is the one `osprey up` drives: CONTAINER_RUNTIME, or
+# auto-detected when unset, decided by osprey.deployment.runtime_helper, which
+# also checks the runtime can build the image before anything is staged.
 # The build asks for linux/amd64 on the command line as well as in the
 # Containerfile, so every builder is asked for the same architecture.
 #
@@ -112,7 +113,8 @@
 #   OSPREY_VA_PVA_PORT  PVAccess port to bind and publish. Defaults to 5175,
 #                       off the 5075 the compose template names, for the same
 #                       reason OSPREY_VA_CA_PORT defaults off 5064.
-#   OSPREY_VA_RUNTIME   Container runtime. Auto-detected when unset.
+#   CONTAINER_RUNTIME   The container runtime, the setting `osprey up` reads.
+#                       Auto-detected when unset.
 #   OSPREY_VA_BOOT_TIMEOUT_SECS
 #                       Seconds to wait for the ready log line, a positive
 #                       whole number. Defaults to 240, the budget
@@ -215,61 +217,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Container runtime: prefer podman, fall back to docker (same auto-detect as
-# scripts/va/probe_build_and_caget.sh -- podman-machine storage has been
-# broken host-wide independent of this feature at time of writing).
-RUNTIME="${OSPREY_VA_RUNTIME:-}"
-if [[ -z "${RUNTIME}" ]]; then
-    if command -v podman >/dev/null 2>&1 && \
-       podman run --rm --name "osprey-va-full-healthcheck-$$" busybox:latest true >/dev/null 2>&1; then
-        RUNTIME="podman"
-    elif command -v docker >/dev/null 2>&1; then
-        RUNTIME="docker"
-        if command -v podman >/dev/null 2>&1; then
-            echo "WARNING: podman found but failed a basic container-run health check; falling back to docker" >&2
-        fi
-    else
-        echo "FATAL: neither a working podman nor docker found on PATH" >&2
-        exit 1
-    fi
-fi
-echo "Using container runtime: ${RUNTIME}"
-
-# The Containerfile's `FROM --platform=linux/amd64` is honoured by BuildKit
-# only. Docker's legacy builder ignores it, pulls the host's own architecture
-# and stops at the Containerfile's architecture guard, so a docker without
-# BuildKit stops here instead, before anything is staged. Podman's builder
-# honours the flag and needs no check. A docker whose `--version` answers
-# `podman version`, or prints podman's emulation notice, is podman: an
-# auto-detected one passes, and a runtime pinned to docker on such a host
-# stops naming the setting to change.
-if [[ "$(basename "${RUNTIME}")" == "docker" ]]; then
-    RUNTIME_VERSION="$("${RUNTIME}" --version 2>&1 || true)"
-    if grep -qiE '^podman version|emulate docker cli using podman' <<<"${RUNTIME_VERSION}"; then
-        if [[ -n "${OSPREY_VA_RUNTIME:-}" ]]; then
-            echo "FATAL: OSPREY_VA_RUNTIME=${OSPREY_VA_RUNTIME} runs podman's docker emulation; set OSPREY_VA_RUNTIME=podman and re-run." >&2
-            exit 1
-        fi
-    else
-        if [[ "${DOCKER_BUILDKIT:-}" == "0" || "${DOCKER_BUILDKIT:-}" == "false" ]]; then
-            echo "FATAL: DOCKER_BUILDKIT=${DOCKER_BUILDKIT} selects docker's legacy builder, which cannot build this image." >&2
-            echo "       Unset DOCKER_BUILDKIT and re-run." >&2
-            exit 1
-        fi
-        if [[ -z "${DOCKER_BUILDKIT:-}" ]] && ! "${RUNTIME}" buildx version >/dev/null 2>&1; then
-            echo "FATAL: docker has no BuildKit (\`docker buildx version\` failed), and this image needs it." >&2
-            echo "       The Containerfile's FROM --platform=linux/amd64 is honoured by BuildKit only;" >&2
-            echo "       the legacy builder pulls the host's own architecture and stops at the" >&2
-            echo "       Containerfile's architecture guard." >&2
-            echo "       Enable it with one of:" >&2
-            echo "         - install the docker buildx plugin, so \`docker buildx version\` succeeds;" >&2
-            echo "         - export DOCKER_BUILDKIT=1, when this docker CLI drives the engine's built-in BuildKit." >&2
-            exit 1
-        fi
-    fi
-fi
-
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
+if [[ ! -x "${VENV_PY}" ]]; then
+    echo "FATAL: no worktree venv python at ${VENV_PY}." >&2
+    echo "       It decides the container runtime, renders the demo view and runs" >&2
+    echo "       every host-side assertion. Create the venv with \`uv sync\`." >&2
+    exit 1
+fi
+
+RUNTIME="$("${VENV_PY}" -m osprey.deployment.runtime_helper --build)" || exit 1
+echo "Using container runtime: ${RUNTIME}"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
 SERVED_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-served-data.XXXXXX")"
@@ -312,13 +269,6 @@ echo "--- Building ${IMAGE} (linux/amd64) ---"
     --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
     --build-arg "OSPREY_CONNECTORS_VERSION=${OSPREY_CONNECTORS_VERSION}" \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
-
-if [[ ! -x "${VENV_PY}" ]]; then
-    echo "FATAL: no worktree venv python at ${VENV_PY}." >&2
-    echo "       It renders the demo view and runs every host-side assertion." >&2
-    echo "       Create the venv with \`uv sync\`." >&2
-    exit 1
-fi
 
 # The data root the container mounts: a copy of the view, so the gate never
 # writes into the tree it was pointed at. Copied rather than layered on with
@@ -465,10 +415,6 @@ export EPICS_PVA_ADDR_LIST=""
 # fails at random, and, far worse, an assertion that a value did NOT move
 # (step 7) passes for free, since a stale cache never moves. A fresh read is
 # what put-completion actually guarantees something about.
-if [[ ! -x "${VENV_PY}" ]]; then
-    echo "FATAL: no worktree venv python at ${VENV_PY}; the CA assertions need aioca" >&2
-    exit 1
-fi
 if ! "${VENV_PY}" -c "import aioca" >/dev/null 2>&1; then
     echo "FATAL: aioca is not importable in ${VENV_PY}" >&2
     exit 1
@@ -994,6 +940,8 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
     parse_reply,
 )
 from osprey.services.virtual_accelerator.serving.model_surface import (
+    INFO_ENTRY_KEYS,
+    STATUS_KEYS,
     SURFACE_MODEL_ONLY,
     SURFACE_SERVED,
     WRITES_DISABLED,
@@ -1006,16 +954,6 @@ hostname, view = sys.argv[5], Path(sys.argv[6])
 # imported because it is the wire text a client is shown, and this gate is one
 # of the clients: the point is that the sentence itself has not changed.
 NO_TOKEN = "model write refused: no write token was presented"
-STATUS_KEYS = {
-    "instance",
-    "endpoint",
-    "last_cycle_ms",
-    "queue_depth",
-    "uptime_s",
-    "last_refused_write",
-    "last_failed_pass",
-}
-ENTRY_KEYS = {"name", "unit", "value_range", "read_only", "surface"}
 # Well below the offset written and the orbit measured, and well above float
 # noise on either.
 TOL = 1e-9
@@ -1078,7 +1016,7 @@ info = call("info")
 if set(info) != {"variables"}:
     raise SystemExit(f"FATAL: info carries {sorted(info)}, not ['variables']")
 for entry in info["variables"]:
-    if set(entry) != ENTRY_KEYS:
+    if set(entry) != INFO_ENTRY_KEYS:
         raise SystemExit(f"FATAL: info entry {entry!r} carries {sorted(entry)}")
 by_surface = {}
 for entry in info["variables"]:

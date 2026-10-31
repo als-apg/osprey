@@ -29,7 +29,8 @@
 # nothing skipped.
 #
 # Environment:
-#   OSPREY_VA_RUNTIME        force `docker` or `podman`.
+#   CONTAINER_RUNTIME        force the container runtime (the setting osprey up
+#                            reads); auto-detected when unset.
 #   OSPREY_LIVE_CA_REBUILD=1 rebuild the image even if it already exists.
 set -euo pipefail
 
@@ -39,6 +40,13 @@ PLATFORM="linux/amd64"
 
 if [[ ! -f "${WORKTREE_ROOT}/uv.lock" ]]; then
     echo "FATAL: no uv.lock at ${WORKTREE_ROOT} -- is this the repo root?" >&2
+    exit 1
+fi
+
+VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
+if [[ ! -x "${VENV_PY}" ]]; then
+    echo "FATAL: worktree venv python not found at ${VENV_PY}; it decides the container runtime" >&2
+    echo "       run 'uv sync' in ${WORKTREE_ROOT} first" >&2
     exit 1
 fi
 
@@ -62,23 +70,9 @@ BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
                 "${SCRIPT_DIR}/Containerfile" | "${DIGEST_CMD[@]}" | cut -c1-12)"
 IMAGE="osprey-va-live-ca:${BUILD_ID}"
 
-# Container runtime. docker is preferred here, the reverse of
-# scripts/va/probe_pcaspy/run_probe.sh: this image is cross-architecture on an
-# arm64 developer machine, and Docker Desktop ships the amd64 emulation that
-# makes that work out of the box.
-RUNTIME="${OSPREY_VA_RUNTIME:-}"
-if [[ -z "${RUNTIME}" ]]; then
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-        RUNTIME="docker"
-    elif command -v podman >/dev/null 2>&1; then
-        RUNTIME="podman"
-        echo "WARNING: docker unavailable; using podman. It must be able to run" >&2
-        echo "         ${PLATFORM} images, which needs qemu-user emulation on arm64." >&2
-    else
-        echo "FATAL: neither a working docker nor podman found on PATH" >&2
-        exit 1
-    fi
-fi
+# The container runtime is the one osprey up drives. The image is linux/amd64,
+# so on an arm64 host the runtime must be able to run it under emulation.
+RUNTIME="$("${VENV_PY}" -m osprey.deployment.runtime_helper --build)" || exit 1
 
 echo "--- runtime: ${RUNTIME}, platform: ${PLATFORM} ---"
 

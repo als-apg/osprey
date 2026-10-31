@@ -31,6 +31,40 @@ enums:
       none:
         description: Neither written nor paired.
 
+  wiring_role_enum:
+    description: What a model's engine says a wiring record is.
+    permissible_values:
+      setpoint:
+        description: Written; the engine applies the value to the deck.
+      readback:
+        description: Read; the engine reads a setting or a deck property back.
+      monitor:
+        description: Read; the engine reads a position at a monitor.
+      output:
+        description: Read; the engine computes an optics output such as a tune.
+
+  plane_enum:
+    description: The transverse plane a wiring record steers or reads.
+    permissible_values:
+      x:
+        description: Horizontal.
+      y:
+        description: Vertical.
+
+  refresh_enum:
+    description: When a wiring record's value is recomputed.
+    permissible_values:
+      pass:
+        description: With each write's solve.
+      periodic:
+        description: With the periodic solve alone.
+
+  wiring_mark_enum:
+    description: A mark a model's engine sets on a wiring record.
+    permissible_values:
+      command:
+        description: Written as a command rather than a setting; only a written record carries it.
+
   value_type_enum:
     description: The type of the value a channel carries.
     permissible_values:
@@ -548,6 +582,19 @@ classes:
         multivalued: true
         list_elements_ordered: true
         description: Computed from the channel's limits record.
+      role:
+        range: wiring_role_enum
+        description: Computed; what the model's engine says the record is.
+      plane:
+        range: plane_enum
+        description: Computed; the plane the engine says the record steers or reads, null for none.
+      refresh:
+        range: refresh_enum
+        description: Computed; when the engine recomputes the record's value.
+      marks:
+        range: wiring_mark_enum
+        multivalued: true
+        description: Computed; the marks the engine sets on the record, absent for none.
       provenance:
         range: Provenance
         inlined: true

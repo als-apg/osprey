@@ -76,8 +76,9 @@ Every write of one measurement runs under the control target's run lock:
 
 - a second read-write run on the target is refused while it runs;
 - a measurement that stops part-way, fails or is interrupted leaves each
-  setpoint where it stopped, and its result's ``moved`` lists each one with its
-  value before the call; report them to the operator;
+  setpoint where it stopped, and its result's ``moved`` lists each setpoint
+  whose write may have gone out, an unknown outcome included, with its value
+  before the call; report them to the operator;
 - a measurement that reaches the execution timeout is killed like any other
   run, with no early stop; its failure lists only the channels it attempted;
 - a pyAML write from ``execute`` is refused; measurements go through

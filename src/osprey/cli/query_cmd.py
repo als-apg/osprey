@@ -181,7 +181,7 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
 
     \b
       $ osprey query "What PVs are used for beam current?"
-      $ osprey query --repo ~/als-assistant "List vacuum sections"
+      $ osprey query --repo ~/my-assistant "List vacuum sections"
       $ osprey query --json "Summarise recent alarms"
     """
     from osprey.deployment.staleness import BUILD_DIRNAME

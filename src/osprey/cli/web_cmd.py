@@ -1087,7 +1087,7 @@ def web(
         osprey web --shell zsh             # Use zsh instead of claude
         osprey web --reload                # Development mode
         osprey web --detach                # Start in background
-        osprey web --repo ~/als-assistant  # Serve another deployment
+        osprey web --repo ~/my-assistant   # Serve another deployment
         osprey web stop                    # Stop background server
         osprey web sessions clear          # Drop the persisted browser sessions
     """

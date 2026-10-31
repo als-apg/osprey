@@ -47,7 +47,9 @@ those stores out from under their assertions.
 
 from __future__ import annotations
 
-import time
+import contextlib
+import sys
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -78,9 +80,18 @@ from osprey_connectors.simulation.archive import (
     tier_expiry,
 )
 from osprey_connectors.simulation.series import epoch_seconds_array
+from tests._archive_composites import archives_closed
 from tests._container_support import is_docker_available
+from tests._live import wait_until
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
+
+
+@pytest.fixture(autouse=True)
+def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    with archives_closed(monkeypatch, sys.modules[__name__]):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -661,14 +672,16 @@ def _aged_rf_thermal(at_offset: float) -> dict:
 
 def _await_sweep(collection, ids, timeout_s: float = 90.0) -> None:
     """Block until mongod has removed every one of these documents."""
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        remaining = collection.count_documents({"_id": {"$in": ids}})
-        if remaining == 0:
-            return
-        time.sleep(0.5)
-    pytest.fail(
-        f"the TTL monitor left {remaining} of {len(ids)} expired documents after {timeout_s}s"
+
+    def remaining() -> int:
+        return collection.count_documents({"_id": {"$in": ids}})
+
+    # Wait, then assert: the failure message counts what the monitor left.
+    with contextlib.suppress(AssertionError):
+        wait_until(lambda: remaining() == 0, timeout=timeout_s, interval=0.5)
+    left = remaining()
+    assert left == 0, (
+        f"the TTL monitor left {left} of {len(ids)} expired documents after {timeout_s}s"
     )
 
 

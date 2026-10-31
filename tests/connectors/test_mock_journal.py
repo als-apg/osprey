@@ -263,6 +263,7 @@ def _subprocess(script: str, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         cwd=REPO,
+        timeout=120,
     )
 
 

@@ -167,25 +167,17 @@ def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    import os
+    config.load_project_dotenv()
 
-    try:
-        config.load_project_dotenv()
+    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    # The override itself still happened — .env stays the in-process winner.
+    assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-the-file"
 
-        assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
-        # The override itself still happened — .env stays the in-process winner.
-        assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-the-file"
-
-        # The load runs more than once per process; after the first, the
-        # environment already matches the file — the record of what the SHELL
-        # held must survive the repeat, not be erased by it.
-        config.load_project_dotenv()
-        assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
-    finally:
-        # load_dotenv wrote the file-only key straight into os.environ, outside
-        # monkeypatch's bookkeeping; the differing/agreeing keys are restored by
-        # the setenv registrations above.
-        os.environ.pop("OSPREY_HYGIENE_FILE_ONLY", None)
+    # The load runs more than once per process; after the first, the
+    # environment already matches the file — the record of what the SHELL
+    # held must survive the repeat, not be erased by it.
+    config.load_project_dotenv()
+    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
 
 
 def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkeypatch):
@@ -208,18 +200,13 @@ def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkey
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(tmp_path)
 
-    written = ("OSPREY_HYGIENE_BOTH", "OSPREY_HYGIENE_SHARED_ONLY", "OSPREY_HYGIENE_LOCAL_ONLY")
-    try:
-        config.load_project_dotenv()
+    config.load_project_dotenv()
 
-        assert os.environ["OSPREY_HYGIENE_BOTH"] == "from-local"
-        assert os.environ["OSPREY_HYGIENE_SHARED_ONLY"] == "shared-only"
-        assert os.environ["OSPREY_HYGIENE_LOCAL_ONLY"] == "local-only"
-        # Nothing was shadowed: the shell set none of these.
-        assert config.dotenv_shell_overrides() == {}
-    finally:
-        for name in written:
-            os.environ.pop(name, None)
+    assert os.environ["OSPREY_HYGIENE_BOTH"] == "from-local"
+    assert os.environ["OSPREY_HYGIENE_SHARED_ONLY"] == "shared-only"
+    assert os.environ["OSPREY_HYGIENE_LOCAL_ONLY"] == "local-only"
+    # Nothing was shadowed: the shell set none of these.
+    assert config.dotenv_shell_overrides() == {}
 
 
 def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
@@ -316,12 +303,20 @@ def test_provider_import_does_not_walk_up_to_a_parent_dotenv(tmp_path):
     assert seen is None, "a parent directory's .env reached os.environ via the provider import"
 
 
-def test_litellm_mode_is_pinned_but_respects_an_explicit_setting():
-    """The mechanism, and its escape hatch. Pinning gates nothing else in LiteLLM."""
-    env = {k: v for k, v in os.environ.items() if k != "LITELLM_MODE"}
+def test_litellm_settings_are_pinned_but_respect_an_explicit_setting():
+    """The mechanism, and its escape hatch, for both settings LiteLLM reads at import.
+
+    ``LITELLM_MODE``: pinning gates nothing else in LiteLLM. The model map:
+    LiteLLM fetches it from GitHub at import unless told not to. Offline that
+    fetch stalls every importing process, and the ids LiteLLM can route would
+    differ by host; an operator may still opt back in.
+    """
+    names = ("LITELLM_MODE", "LITELLM_LOCAL_MODEL_COST_MAP")
+    env = {k: v for k, v in os.environ.items() if k not in names}
     probe = (
         "import os; import osprey.models.providers.litellm_adapter; "
-        "print('MODE ' + os.environ['LITELLM_MODE'])"
+        "print('MODE ' + os.environ['LITELLM_MODE']); "
+        "print('MAP ' + os.environ['LITELLM_LOCAL_MODEL_COST_MAP'])"
     )
 
     default = subprocess.run(
@@ -329,16 +324,18 @@ def test_litellm_mode_is_pinned_but_respects_an_explicit_setting():
     )
     assert default.returncode == 0, default.stderr
     assert "MODE PRODUCTION" in default.stdout
+    assert "MAP True" in default.stdout
 
     explicit = subprocess.run(
         [sys.executable, "-c", probe],
-        env={**env, "LITELLM_MODE": "DEV"},
+        env={**env, "LITELLM_MODE": "DEV", "LITELLM_LOCAL_MODEL_COST_MAP": "False"},
         capture_output=True,
         text=True,
         timeout=180,
     )
     assert explicit.returncode == 0, explicit.stderr
     assert "MODE DEV" in explicit.stdout
+    assert "MAP False" in explicit.stdout
 
 
 # ===================================================================
@@ -370,35 +367,6 @@ def test_cli_entry_point_loads_dotenv(tmp_path):
     )
 
     assert seen == "leaked"
-
-
-def test_the_model_map_defaults_to_the_bundled_copy_but_respects_an_explicit_setting():
-    """LiteLLM fetches its model map from GitHub at import unless told not to.
-
-    Offline that fetch stalls every importing process, and the ids LiteLLM can
-    route would differ by host; an operator may still opt back in.
-    """
-    env = {k: v for k, v in os.environ.items() if k != "LITELLM_LOCAL_MODEL_COST_MAP"}
-    probe = (
-        "import os; import osprey.models.providers.litellm_adapter; "
-        "print('MAP ' + os.environ['LITELLM_LOCAL_MODEL_COST_MAP'])"
-    )
-
-    default = subprocess.run(
-        [sys.executable, "-c", probe], env=env, capture_output=True, text=True, timeout=180
-    )
-    assert default.returncode == 0, default.stderr
-    assert "MAP True" in default.stdout
-
-    explicit = subprocess.run(
-        [sys.executable, "-c", probe],
-        env={**env, "LITELLM_LOCAL_MODEL_COST_MAP": "False"},
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert explicit.returncode == 0, explicit.stderr
-    assert "MAP False" in explicit.stdout
 
 
 def _first_import_line(tree: ast.Module, wanted) -> int | None:

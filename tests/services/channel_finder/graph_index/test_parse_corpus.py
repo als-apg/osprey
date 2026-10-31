@@ -430,7 +430,7 @@ class TestModuleImport:
             """
         )
         result = subprocess.run(
-            [sys.executable, "-c", script], capture_output=True, text=True, check=False
+            [sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=120
         )
         assert result.returncode == 0, result.stderr
         assert "ok" in result.stdout

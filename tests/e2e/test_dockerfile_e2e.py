@@ -241,7 +241,7 @@ def built_image(tmp_path_factory):
         _build_image(_image_context(repo), tag)
         yield tag, repo, PROJECT_NAME, out_dir
     finally:
-        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True)
+        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, timeout=120)
 
 
 def test_generated_dockerfile_builds_and_boots(built_image):
@@ -533,13 +533,18 @@ def _host_port(cid: str) -> int:
 
 
 def _container_logs(cid: str) -> str:
-    logs = subprocess.run(["docker", "logs", "--tail", "60", cid], capture_output=True, text=True)
+    logs = subprocess.run(
+        ["docker", "logs", "--tail", "60", cid], capture_output=True, text=True, timeout=60
+    )
     return (logs.stdout + logs.stderr)[-4000:]
 
 
 def _is_running(cid: str) -> bool:
     out = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", cid], capture_output=True, text=True
+        ["docker", "inspect", "-f", "{{.State.Running}}", cid],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     return out.stdout.strip() == "true"
 
@@ -691,7 +696,7 @@ def test_generated_image_serves_agent_over_http(built_image):
             f"expected a completed agent turn, got events: {events}"
         )
     finally:
-        subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=60)
 
 
 # ── Layer cache, dev-wheel sentinel, and image hygiene ───────────────────────
@@ -739,7 +744,7 @@ def test_rebuild_without_changes_is_fully_cached(built_image):
             + f"\n--- progress tail ---\n{progress[-4000:]}"
         )
     finally:
-        subprocess.run(["docker", "rmi", "-f", rebuild_tag], capture_output=True)
+        subprocess.run(["docker", "rmi", "-f", rebuild_tag], capture_output=True, timeout=120)
 
 
 # Marker baked into the sentinel wheel; asserting it imports in the final
@@ -862,8 +867,8 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
         )
         assert version_after.stdout.strip() == primed_version
     finally:
-        subprocess.run(["docker", "rmi", "-f", base_tag], capture_output=True)
-        subprocess.run(["docker", "rmi", "-f", dev_tag], capture_output=True)
+        subprocess.run(["docker", "rmi", "-f", base_tag], capture_output=True, timeout=120)
+        subprocess.run(["docker", "rmi", "-f", dev_tag], capture_output=True, timeout=120)
 
 
 def test_final_image_has_no_toolchain_and_carries_project_label(built_image):

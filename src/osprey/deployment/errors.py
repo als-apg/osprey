@@ -282,3 +282,13 @@ class RemovalIncompleteError(DeploymentError):
             f"{len(self.left)} resource(s) could not be removed: "
             + "; ".join(f"{subject}: {reason}" for subject, reason in self.left)
         )
+
+
+class DeploymentRecordError(DeploymentError):
+    """The deployment record exists but is not a record ``osprey up`` writes.
+
+    The file could not be read, is not JSON, carries other keys than the record
+    has, or holds a value outside the record's invariant. The message names the
+    file. Distinct from no record at all, which reads as ``None``: a repo nothing
+    was started from and a repo whose record is damaged are told apart.
+    """
