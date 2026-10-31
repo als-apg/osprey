@@ -2484,6 +2484,16 @@ def _inject_project_metadata(config):
             PurePosixPath(_CONTAINER_APP_ROOT) / relpath
         ).as_posix()
 
+    # Each projected application container's declared state directory, as the
+    # per-service fact its runtime template binds (:func:`app_state_mounts`).
+    # Copy-on-write, so the shared input config is never mutated.
+    state_mounts = app_state_mounts(config_with_labels, container_project_dir)
+    if state_mounts:
+        services = dict(config_with_labels["services"])
+        for key, mounts in state_mounts.items():
+            services[key] = {**services[key], "state_mounts": mounts}
+        config_with_labels["services"] = services
+
     # The control-context TREE, in the two spellings a compose template needs:
     # the HOST-side bind source — the ``control_target/`` root under whatever
     # agent-data root this project configured — and the fixed container path
@@ -3233,6 +3243,135 @@ def ensure_state_dir(repo_root, identity, relative_to=None):
         noun="state directory",
         consequence="State the container keeps across restarts may not persist.",
     )
+
+
+def _declared_app_states(config):
+    """Every projected application service that declares a ``state`` directory.
+
+    The ``services.<k>`` entries ``osprey.apps.projection`` writes are the ones
+    carrying ``app``; of those, a container that declares ``state`` yields
+    ``(key, audit_identity, state)``, in config order. Only a service named in
+    ``deployed_services`` counts, the gate :func:`service_audit_identities`
+    applies: a container the build never renders gets no directory and no
+    mount. A framework service is never an application's, whatever keys it
+    carries.
+    """
+    services = config.get("services")
+    if not isinstance(services, dict):
+        return
+    deployed = {str(n) for n in (config or {}).get("deployed_services") or []}
+    for key, block in services.items():
+        if str(key) not in deployed:
+            continue
+        if isinstance(block, dict) and block.get("app") and block.get("state"):
+            yield key, block.get("audit_identity"), block["state"]
+
+
+def app_state_dir(repo_root, identity, service_key):
+    """Where one application container's declared state lives on the HOST.
+
+    ``<repo>/var/state/<identity>/<service_key>``: a directory inside the
+    identity's state zone, one per container, so two containers of one
+    application never share a directory by accident.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The owning application's audit identity
+    :type identity: str
+    :param service_key: The container's ``services.<k>`` key
+    :type service_key: str
+    :return: The container's state directory
+    :rtype: pathlib.Path
+    :raises ValueError: If *identity* is outside the username charset, or
+        *service_key* is not one plain path segment
+    """
+    if (
+        not isinstance(service_key, str)
+        or service_key in ("", ".", "..")
+        or any(c in service_key for c in "/:\\")
+    ):
+        raise ValueError(
+            f"service key {service_key!r} names a subdirectory of the state zone, "
+            "so it must be one plain path segment"
+        )
+    return state_identity_dir(repo_root, identity) / service_key
+
+
+def _app_state_target(container_project_dir, service_key, declared):
+    """The container path a declared ``state`` is bound at, under the project."""
+    path = PurePosixPath(declared)
+    if path.is_absolute() or ".." in path.parts or not path.parts or ":" in declared:
+        raise ValueError(
+            f"services.{service_key}.state {declared!r} must be a relative path inside "
+            "the container's project, with no '..' and no ':'"
+        )
+    return (PurePosixPath(container_project_dir) / path).as_posix()
+
+
+def app_state_mounts(config, container_project_dir):
+    """Each projected service's ``state_mounts``: ``{key: [{source, target}]}``.
+
+    The source is the container's directory inside its identity's state zone
+    (:func:`app_state_dir`), spelled repo-relative; the target is the declared
+    ``state`` path under *container_project_dir*. The application runtime
+    template binds each entry and names its target in ``OSPREY_APP_STATE_DIRS``.
+
+    :param config: The build config, ``services.<k>`` as projected
+    :type config: dict
+    :param container_project_dir: The project root inside the container
+    :type container_project_dir: str | pathlib.PurePosixPath
+    :return: The mounts, keyed by service; services declaring no state are absent
+    :rtype: dict[str, list[dict[str, str]]]
+    :raises ValueError: If an identity, a key or a declared path is unusable
+    """
+    mounts = {}
+    for key, identity, declared in _declared_app_states(config):
+        host = app_state_dir(".", identity, key)
+        mounts[key] = [
+            {
+                "source": repo_relative_mount_source(host.as_posix()),
+                "target": _app_state_target(container_project_dir, key, declared),
+            }
+        ]
+    return mounts
+
+
+def ensure_app_state_dirs(config, repo_root, relative_to=None):
+    """Provision every declared application state directory before it is bound.
+
+    Each lands group-shared inside its identity's state zone, the zone
+    directory first (:func:`ensure_state_dir`), for the zone's reasons: a bind
+    source the runtime creates is root-owned under rootful docker, and the
+    entrypoint joins the group it reads off the directory. Never fatal: an
+    entry whose identity or key cannot name a directory inside the zone is
+    skipped with a warning, and the render refuses it on its own account.
+
+    :param config: The build config, ``services.<k>`` as projected
+    :type config: dict
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell each directory against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The directories provisioned, in config order
+    :rtype: list[pathlib.Path]
+    """
+    provisioned = []
+    for key, identity, _declared in _declared_app_states(config):
+        try:
+            target = app_state_dir(repo_root, identity, key)
+        except ValueError as e:
+            logger.warning(f"Skipping app state directory provisioning: {e}")
+            continue
+        ensure_state_dir(repo_root, identity, relative_to=relative_to)
+        _ensure_group_shared_dir(
+            target,
+            relative_to=relative_to,
+            label="App state dir",
+            noun="application state directory",
+            consequence="State the application keeps across restarts may not persist.",
+        )
+        provisioned.append(target)
+    return provisioned
 
 
 def ensure_agent_record_dirs(repo_root, relative_to=None):
@@ -4194,6 +4333,9 @@ def _ensure_agent_data_structure(config):
     recorded_host = host_identity(config)
     if recorded_host is not None:
         ensure_spool_dir(project_root, recorded_host, relative_to=project_root)
+    # Each application container's declared state directory, inside its
+    # identity's state zone, for the same reason.
+    ensure_app_state_dirs(config, project_root, relative_to=project_root)
 
     # The control-context tree, for the spool zone's reason and one of its own.
     # Every container that has to judge an owned write binds the tree READ-ONLY,
