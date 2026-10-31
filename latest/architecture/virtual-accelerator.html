@@ -742,6 +742,26 @@ was. A <code class="docutils literal notranslate"><span class="pre">frozen</span
 active. A <code class="docutils literal notranslate"><span class="pre">disconnected</span></code> channel holds writes as <code class="docutils literal notranslate"><span class="pre">stuck</span></code> does, and its
 reading serves not-a-number, or for a non-float the value it served when the
 scenario became active, with the <code class="docutils literal notranslate"><span class="pre">udf</span></code> condition.</p>
+<p>Element errors are the magnets’ own imperfections. One series supply address
+feeds many magnets, so these are keyed by the served deck element’s name
+rather than by an address: <code class="docutils literal notranslate"><span class="pre">&lt;element&gt;/dx</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;element&gt;/dy</span></code> and
+<code class="docutils literal notranslate"><span class="pre">&lt;element&gt;/roll</span></code> on every element a setpoint or a non-monitor readback binds,
+and <code class="docutils literal notranslate"><span class="pre">&lt;element&gt;/dB&lt;n&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">&lt;element&gt;/dA&lt;n&gt;</span></code> (<code class="docutils literal notranslate"><span class="pre">n</span></code> from 0 to 9, the index
+into <code class="docutils literal notranslate"><span class="pre">PolynomB</span></code> or <code class="docutils literal notranslate"><span class="pre">PolynomA</span></code>) on every element bound on a polynomial. A
+scenario writes them under <code class="docutils literal notranslate"><span class="pre">faults.&lt;model&gt;</span></code> like any engine-named fault,
+either as <code class="docutils literal notranslate"><span class="pre">{QF_01_1/dx:</span> <span class="pre">1.0e-4}</span></code> or as <code class="docutils literal notranslate"><span class="pre">{QF_01_1:</span> <span class="pre">{dx:</span> <span class="pre">1.0e-4,</span> <span class="pre">dB2:</span> <span class="pre">0.3}}</span></code>.
+Each takes an explicit value; <code class="docutils literal notranslate"><span class="pre">dx</span></code> and <code class="docutils literal notranslate"><span class="pre">dy</span></code> are bounded to 1 cm and
+<code class="docutils literal notranslate"><span class="pre">roll</span></code> to 0.1 rad, and a multipole delta must be finite. The engine draws
+nothing at random: a random realisation of errors is the scenario author’s to
+draw and write down, so the same scenario always boots the same machine.</p>
+<p>The errors are seeded once, when the model is built. A misalignment becomes
+the element’s entrance and exit transforms. A multipole delta is added to its
+coefficient and held there: a setpoint write on the same coefficient moves the
+nominal strength and keeps the delta, and the setpoint reads back what was
+written. Systematic multipoles are facts of the deck, written into the lattice
+file, not scenario faults. A scenario whose errors leave no closed orbit does
+not boot quietly wrong: its model fails with the solve error, which names the
+elements seeded, and the model’s status names the scenario.</p>
 <p>A readout fault never moves the orbit; it changes what a monitor reports.
 <code class="docutils literal notranslate"><span class="pre">diff</span></code> is where it becomes visible, as a served reading that has parted from
 the composite’s own value.</p>
