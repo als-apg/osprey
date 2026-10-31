@@ -217,6 +217,16 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 }
 
 
+def builtin_token_vars() -> frozenset[str]:
+    """Every variable :data:`_SERVICE_TOKEN_VARS` mints, lane tokens included.
+
+    OSPREY's own credentials only: a projected application's launch token is
+    never among them (:func:`_service_token_vars`), so a rule that keeps an
+    application off these names never refuses the name it was given.
+    """
+    return frozenset(var for names in _SERVICE_TOKEN_VARS.values() for var in names)
+
+
 def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     """The deployed ``services.<key>`` rows an application's manifest projected.
 
@@ -230,6 +240,21 @@ def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any
         for key, row in services.items()
         if str(key) in deployed and isinstance(row, Mapping) and row.get("app")
     }
+
+
+def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    """:data:`_SERVICE_TOKEN_VARS` merged with the projected panels' launch tokens.
+
+    A projected panel that declares ``launch_token`` carries the variable's name
+    as ``services.<key>.launch_token_env``, whatever its container runs; that
+    recorded name is minted as it stands.
+    """
+    merged = dict(_SERVICE_TOKEN_VARS)
+    for key, row in _projected_services(config).items():
+        name = row.get("launch_token_env")
+        if name:
+            merged[key] = (str(name),)
+    return merged
 
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
@@ -635,7 +660,7 @@ def _ensure_service_tokens(
     assignment below). Everything the rest of this docstring says about "the
     ``.env``" is about the file the caller named.
 
-    For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
+    For any token var (per :func:`_service_token_vars`, keyed by the deployed
     services present) unset — or present with an empty value — in BOTH the
     process env and that ``.env``,
     generate a strong random value (``_generate_token``: ``token_urlsafe(32)``
@@ -726,7 +751,7 @@ def _ensure_service_tokens(
     # deterministic regardless of set iteration order or config.yml ordering.
     required_vars: list[str] = []
     seen: set[str] = set()
-    for svc_name, token_vars in _SERVICE_TOKEN_VARS.items():
+    for svc_name, token_vars in _service_token_vars(config).items():
         if svc_name not in services:
             continue
         for var in token_vars:

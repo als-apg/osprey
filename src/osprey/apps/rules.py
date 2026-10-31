@@ -131,9 +131,9 @@ def fixed_names() -> frozenset[str]:
 @lru_cache(maxsize=1)
 def builtin_credential_names() -> frozenset[str]:
     """The environment variables OSPREY mints for its own services, lane tokens included."""
-    from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS  # noqa: PLC2701
+    from osprey.deployment.container_lifecycle import builtin_token_vars
 
-    return frozenset(name for names in _SERVICE_TOKEN_VARS.values() for name in names)
+    return builtin_token_vars()
 
 
 def validate(
