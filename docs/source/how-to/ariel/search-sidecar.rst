@@ -210,7 +210,7 @@ Sharing the knowledge bundle
 
 The OKF bundle is different from the other corpora: web terminals write to it.
 So the *deployment's* bundle is bind-mounted **read-write** into every
-``web-<user>`` service whose tier or app enables facility knowledge, at a target
+``web-<user>`` service whose login enables facility knowledge, at a target
 computed from that render's own project directory inside its container. There
 is one directory, not a copy per user --- and it deliberately **shadows the
 copy baked into each terminal image**, because the bundle is operational

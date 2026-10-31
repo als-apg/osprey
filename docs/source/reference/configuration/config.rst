@@ -717,8 +717,8 @@ The control-target picker
 The title bar's control-target chip names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The bundled ``logbook``, ``knowledge`` and
-``channel-finder`` apps do.
+server and no JUPYTER panel. The bundled shared logins ``logbook``,
+``knowledge`` and ``channel-finder`` do.
 
 The setting changes what the page shows, not what the agent may do. With it
 off, the ``control-target`` item is left out of every arrangement this terminal
@@ -749,7 +749,7 @@ Claude Code process is started, so no client can open one.
 The default is ``true``, the behaviour of a deployment that never sets the
 key. A value that is not a boolean is reported in the log and ``true`` is
 used; a config file that cannot be read closes the Expert view. ``osprey
-build`` refuses a profile — or a tier or app laid over its deployment — that
+build`` refuses a profile — or a login laid over its deployment — that
 states ``web.ui_mode: expert`` beside ``web.expert_view: false``; set
 ``web.ui_mode: simple`` there, or drop the line.
 
@@ -822,8 +822,10 @@ Each entry has a ``type`` and an optional ``label``:
 - ``users`` — one card per person on the roster. ``names: hidden`` replaces the
   name cards with one sign-in button; it needs ``auth.method`` ``password`` or
   ``oidc``, and only a ``users`` entry takes it.
-- ``apps`` — one card per app in ``shared``, titled by the app's ``name:``,
-  opened by anyone on the roster (:ref:`multi-user-shared-card`).
+- ``shared`` — one card per login in ``shared``, titled by the login's
+  ``name:``, opened by anyone on the roster (:ref:`multi-user-shared-card`).
+  The retired ``apps`` reads as ``shared`` for one release, with a lint
+  warning.
 - ``links`` — your own cards, each a ``label`` and a ``url``.
 
 .. code-block:: yaml
@@ -834,22 +836,22 @@ Each entry has a ``type`` and an optional ``label``:
          groups:
            - type: users
              label: Users
-           - type: apps
-             label: Apps
+           - type: shared
+             label: Shared logins
            - type: links
              label: Facility
              links:
                - {label: Elog, url: https://elog.example.org}
 
-Left out, the page shows ``[{type: users}, {type: apps}]``. A section with no
+Left out, the page shows ``[{type: users}, {type: shared}]``. A section with no
 cards shows no heading.
 
 ``modules.web_terminals.renders`` is the render catalog: one entry per file in
-``tiers/`` and ``apps/``, keyed by that file's name, with its ``kind``,
-``project`` and ``project_path``. ``osprey build`` writes it into
-``build/config.yml``; a profile that spells it is refused. Set a render's
-``extra_mounts``, ``seed_base`` or ``image`` at the top of its tier or app file
-instead.
+``tiers/``, keyed by that file's name, with its ``kind`` (``tier``, or
+``shared`` for a login only ``shared:`` names), ``project`` and
+``project_path``. ``osprey build`` writes it into ``build/config.yml``; a
+profile that spells it is refused. Set a render's ``extra_mounts``,
+``seed_base`` or ``image`` at the top of its login file instead.
 
 .. _config-artifact-server:
 
