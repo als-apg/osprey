@@ -41,10 +41,10 @@ path rather than quietly producing an incomplete fixture.
 The staged login map
 --------------------
 One key is the exception. The shared containers that run one render for every
-login (``LOGIN_TIERS_SERVICES``: the Bluesky bridge and the untiered dispatch
-worker) get their ``config.yml`` staged with ``control_system.login_tiers``, the
-login→tier map. No root, tier or app render carries it, so it is not a delta of
-any captured document. The completeness check compares each
+login (every container that drives the target,
+``compose_generator.drives_target_services``) get their ``config.yml`` staged
+with ``control_system.login_tiers``, the login→tier map. No root, tier or app
+render carries it, so it is not a delta of any captured document. The completeness check compares each
 ``build/services/*`` document with that key removed, and the map is frozen on
 its own, once per cell, as::
 
