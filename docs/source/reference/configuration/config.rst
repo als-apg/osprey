@@ -801,7 +801,9 @@ trusted operator and no live machine behind it:
    dangerously_allow_bash: true
 
 It takes the boolean ``true`` and nothing else — any other value is a config
-error. Absent, the refusal stands exactly as before. When set, every
+error. Absent, the refusal stands exactly as before. It never waives the
+refusal of a tier that holds an application's launch token or a write agent
+route beside an open shell. When set, every
 ``osprey up`` prints a warning naming the tiers it waved through, and the
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
