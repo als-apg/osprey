@@ -20,6 +20,49 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.10.1] - 2026-10-31
+
+### Changed
+
+- **Three-position write switch.** The login tier is three-valued
+  (`never | asked | allowed`) and caps the switch. The switch record stores a
+  position per machine, `asked` or `allowed` (absent is off); a stored `on`
+  reads as `asked`, and an unknown position refuses. `set_switch` takes
+  `asked`, `allowed`, and still `on` (as `asked`). An older package refuses
+  every login against a login-tier map holding `asked`, so release this
+  package before the framework.
+- `osprey_connectors.errors.RefusalReason` is the one refusal-reason
+  vocabulary; each member names who refuses and what to do next. A refused
+  write result must name one; only a refused result may carry a reason, and
+  only a refused, failed or unconfirmed one a message.
+- `ChannelError` is the base of every per-channel failure and names the
+  channel the same way in process and across the connector host; the IPC
+  exception registry derives from it.
+- Two failure roots: `ChannelUnreachableError` for a channel a connector
+  cannot reach, `ConnectorUnavailableError` when its transport is gone (an
+  unreachable archive service counts as the latter). The connector-host
+  boundary carries both, and the pool replaces a child whose connector is
+  unavailable.
+- Connector recovery is decided by one policy, `osprey_connectors.recovery`:
+  failure class and origin in, at most one act per child.
+- Composite: a model failing while an active scenario faults it or overrides
+  one of its setpoints names those scenarios first in its status. (#2188)
+- `identity` names the spool directory a record is written into.
+
+### Fixed
+
+- `is_process_alive` no longer reads a Linux thread id as a running process.
+  (#2172)
+- The archive composite closes its state directory, and the mock archiver
+  closes a composite it replaces or drops.
+- A connector bug inside the connector-host child crosses the boundary as
+  `ConnectorInternalError`, not as an unreachable control system; a reply the
+  parent cannot rebuild fails only that call, and the connection stays up.
+- `settle` raises `SettleReadError` only when the readback read failed with a
+  `ChannelError` or answered no value; a lost connector propagates as its own
+  error.
+- Stopping the Channel Access loop closes the loop once its thread has ended.
+
 ## [2026.10.0] - 2026-10-29
 
 The first release on the package's own calendar stream, cut independently of the
