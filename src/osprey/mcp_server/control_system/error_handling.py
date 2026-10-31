@@ -268,11 +268,16 @@ def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envel
     if isinstance(exc, ChannelUnreachableError):
         identity = describe_active_target() if connector_name == "control_system" else None
         error_type = "channel_unreachable"
+        machine = identity["label"] if identity else "control system"
         return (
             error_type,
             f"Channel {exc.channel_address} did not answer during {tool_name}"
             f"{_target_clause(identity)}: {exc}",
-            ["Report the channel to the operator; the rest of the control system still answers."],
+            [
+                f"One channel's silence does not say whether the {machine} is up: if other "
+                f"channels fail the same way, report the {machine} as unreachable, otherwise "
+                "report this channel."
+            ],
             {"channel": exc.channel_address, **({"active_target": identity} if identity else {})},
         )
     if isinstance(exc, ConnectionError):
