@@ -17,7 +17,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from osprey.apps.errors import AppManifestError
-from osprey.apps.manifest import AppManifest, Container, launch_token_env
+from osprey.apps.manifest import AppManifest, Container, Tools, launch_token_env
 from osprey.apps.rules import LoginSelection
 from osprey.port_layout import FACILITY_MAX, default_port, resolve_port_base
 
@@ -31,6 +31,17 @@ APP_CONFIG_FILE = "app-config.yml"
 #: The deployment directory holding application directories, relative to which an
 #: ``image:`` container's fragment directory is named.
 _APPS_DIR = "apps"
+
+#: The environment variable naming the application a projected tool server
+#: serves (the SDK's ``APP_NAME_ENV_VAR``, restated so the projection imports no SDK).
+APP_NAME_ENV = "OSPREY_APP_NAME"
+
+#: The condition of a ``shown_when: panel`` tool server is this prefix and the
+#: panel id: the render context key true when the render shows that panel.
+PANEL_CONDITION_PREFIX = "panel:"
+
+#: The agent's interpreter, resolved by the registry when the server is rendered.
+_AGENT_PYTHON = "{current_python_env}"
 
 #: The host every projected port is published on, whatever the deployment's bind
 #: address: an application panel is reached through the terminal's proxy only.
@@ -173,7 +184,7 @@ def project_login(
     config: Mapping[str, Any],
     selection: LoginSelection,
 ) -> dict[str, Any]:
-    """Return the ``web.panels.<id>`` blocks of one login's shown applications.
+    """Return what one login's render carries of its shown applications.
 
     Every application with a panel that ``selection`` marks shown gets a block,
     and its id is added to the login's panel selection (``web_panels``), which the
@@ -189,6 +200,18 @@ def project_login(
     login ``agent_routes`` lists the safe-method routes only and no launch token
     is named.
 
+    Every shown application with ``tools:`` is projected as one facility server
+    (``mcp_servers.<name>``, so its tools are ``mcp__<name>__<tool>``) running
+    ``tools.module`` beside the agent: its reads are allowed, its approval tools
+    are its ``writes:``, and a ``shown_when: panel`` server carries the
+    condition ``panel:<panel id>``. The server is the same on every tier; the
+    render's ``control_system.writes`` denies or gates those writes. Beside it
+    the render carries ``apps.<name>.approval.<tool>`` (each approval entry),
+    ``apps.<name>.tools`` (the read list and the error guidance texts) and
+    ``dispatch.denied_app_tools``, the full names of every tool a dispatch job
+    may not run: every tool of a ``deny_in_jobs`` application and every
+    approval tool that binds fetched state. That list is always present.
+
     Args:
         manifests: The deployment's validated manifests.
         config: The rendered-config mapping, holding ``services.<key>.port`` for
@@ -196,12 +219,16 @@ def project_login(
         selection: This login's selection.
 
     Returns:
-        ``{"web": {"panels": {<id>: dict}}, "web_panels": [<id>, ...]}``; the
-        ``web_panels`` list holds the ids to add to the login's own selection.
+        ``{"web": {"panels": {<id>: dict}}, "web_panels": [<id>, ...],
+        "mcp_servers": {<name>: dict}, "apps": {<name>: {"approval": dict,
+        "tools": dict}}, "dispatch": {"denied_app_tools": [<tool>, ...]}}``; the
+        ``web_panels`` list holds the ids to add to the login's own selection,
+        and each ``mcp_servers`` entry is profile ``mcp_servers`` shaped.
 
     Raises:
         AppManifestError: A shown panel's container has no projected port.
     """
+    manifests = list(manifests)
     services = config.get("services") or {}
     panels: dict[str, Any] = {}
     for manifest in manifests:
@@ -238,7 +265,72 @@ def project_login(
         if "read_timeout_s" in panel.model_fields_set:
             block["read_timeout_s"] = panel.read_timeout_s
         panels[panel.id] = block
-    return {"web": {"panels": panels}, "web_panels": list(panels)}
+    servers: dict[str, Any] = {}
+    apps: dict[str, Any] = {}
+    denied: list[str] = []
+    for manifest in manifests:
+        tools = manifest.tools
+        shown = selection.apps.get(manifest.name)
+        if tools is None or shown is None or not shown.shown:
+            continue
+        servers[manifest.name] = _project_server(manifest, tools)
+        errors = _tool_errors(tools)
+        panel_id = manifest.panel.id if manifest.panel is not None else None
+        apps[manifest.name] = {
+            "approval": {
+                entry.tool: {
+                    "prompt": entry.prompt,
+                    "panel_id": panel_id,
+                    "state_path": entry.state_path,
+                    "display_lines_key": entry.display_lines_key,
+                    "bind": entry.bind.model_dump(),
+                    "require": entry.require.model_dump(),
+                    "errors": dict(errors),
+                }
+                for entry in tools.approval
+            },
+            "tools": {"read": list(tools.read), "errors": errors},
+        }
+        denied.extend(f"mcp__{manifest.name}__{tool}" for tool in _denied_in_jobs(tools))
+    return {
+        "web": {"panels": panels},
+        "web_panels": list(panels),
+        "mcp_servers": servers,
+        "apps": apps,
+        "dispatch": {"denied_app_tools": denied},
+    }
+
+
+def _project_server(manifest: AppManifest, tools: Tools) -> dict[str, Any]:
+    server: dict[str, Any] = {
+        "command": _AGENT_PYTHON,
+        "args": ["-m", tools.module],
+        "env": {APP_NAME_ENV: manifest.name},
+        "permissions": {"allow": list(tools.read)},
+        "writes": [entry.tool for entry in tools.approval],
+        "app": manifest.name,
+    }
+    if tools.shown_when == "panel" and manifest.panel is not None:
+        server["condition"] = f"{PANEL_CONDITION_PREFIX}{manifest.panel.id}"
+    return server
+
+
+def _tool_errors(tools: Tools) -> dict[str, str | None]:
+    errors = tools.errors
+    return {
+        "unreachable": errors.unreachable if errors is not None else None,
+        "refused": errors.refused if errors is not None else None,
+    }
+
+
+def _denied_in_jobs(tools: Tools) -> list[str]:
+    if tools.deny_in_jobs:
+        return _merge_names(tools.read, (entry.tool for entry in tools.approval))
+    return [
+        entry.tool
+        for entry in tools.approval
+        if entry.state_path is not None or entry.bind.state_fields
+    ]
 
 
 def _merge_names(*lists: Iterable[str]) -> list[str]:
