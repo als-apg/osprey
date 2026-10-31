@@ -55,6 +55,8 @@ _EXPECTED_KEYS = {
     "mixed_read_write_tools",
     "lane_addressed_tools",
     "measurement",
+    "app_approvals",
+    "app_error_types",
 }
 
 
@@ -486,6 +488,8 @@ def test_absent_servers_key_renders_empty_lists_silently():
 
     assert set(config) == _EXPECTED_KEYS
     assert config.pop("measurement") == {}
+    assert config.pop("app_approvals") == {}
+    assert config.pop("app_error_types") == {}
     assert all(value == [] for value in config.values())
 
 
@@ -496,6 +500,8 @@ def test_rendered_file_is_valid_json_on_a_bare_render():
 
     assert set(config) == _EXPECTED_KEYS
     assert config.pop("measurement") == {}
+    assert config.pop("app_approvals") == {}
+    assert config.pop("app_error_types") == {}
     for value in config.values():
         assert isinstance(value, list)
 
