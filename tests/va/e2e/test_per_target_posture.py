@@ -1017,7 +1017,7 @@ class TestTheNarrowingLandsWithoutARespawn:
         assert session["narrow_body"]["target"] == TARGET_STANDIN
         assert session["narrow_body"]["state"] == "off"
         # Per target: the stand-in went off and the virtual accelerator stayed on.
-        assert session["switch_after_narrow"] == {TARGET_VA: "on"}
+        assert session["switch_after_narrow"] == {TARGET_VA: "asked"}
 
     def test_no_child_was_respawned_to_apply_it(self, session) -> None:
         """The whole point of enforcing at write time.
