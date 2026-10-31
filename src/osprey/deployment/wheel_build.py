@@ -655,7 +655,9 @@ def build_deployment_packages(
 def _build_wheel(source: Path, out_dir: Path) -> Path:
     """Build *source*'s wheel into *out_dir*; return it.
 
-    uv when it is on hand (as the build venv's installer is), else pip.
+    uv when it is on hand (as the build venv's installer is), else pip. The build
+    sets ``SOURCE_DATE_EPOCH`` unless the operator has, so an unchanged source gives
+    a byte-identical wheel and leaves the image's COPY and deps layers cached.
     """
     import sys
     import tempfile
@@ -663,6 +665,8 @@ def _build_wheel(source: Path, out_dir: Path) -> Path:
     from osprey_connectors.errors import BuildProfileError
 
     uv = os.environ.get("UV") or shutil.which("uv")
+    env = dict(os.environ)
+    env.setdefault("SOURCE_DATE_EPOCH", "315532800")  # 1980-01-01, the earliest zip time
     with tempfile.TemporaryDirectory() as scratch:
         if uv:
             cmd = [uv, "build", "--wheel", "--quiet", "--out-dir", scratch, str(source)]
@@ -671,7 +675,7 @@ def _build_wheel(source: Path, out_dir: Path) -> Path:
             cmd += ["--wheel-dir", scratch, str(source)]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=_WHEEL_BUILD_TIMEOUT_S
+                cmd, capture_output=True, text=True, timeout=_WHEEL_BUILD_TIMEOUT_S, env=env
             )
         except subprocess.TimeoutExpired as e:
             raise BuildProfileError(
