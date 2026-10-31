@@ -55,6 +55,7 @@ from osprey.deployment.web_terminals.artifacts import (
     DANGEROUSLY_ALLOW_BASH_KEY,
     BashLaunchTokenConflictError,
     OpenModeEgressError,
+    application_shell_conflicts,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
     check_open_mode_requirements,
@@ -431,7 +432,10 @@ def web_terminal_preflight_report(
     # render that may arm hardware from a shell is the more serious of the two
     # and an operator reading top-down should meet it first.
     if offenders := bash_launch_token_offenders(config, root):
-        findings.append((str(BashLaunchTokenConflictError(offenders)), ""))
+        applications = application_shell_conflicts(config, root)
+        findings.append(
+            (str(BashLaunchTokenConflictError(offenders, applications=applications)), "")
+        )
     # Next, in the gate's own order: an open deployment whose renders can reach
     # its terminals is the other refusal an operator must see before being told
     # about anything the deploy merely needs. Reported through the gate's own
