@@ -482,6 +482,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("limit_invalid__writable", "limit-invalid", "writable on a non-setpoint"),
     ("limit_invalid__int_bound", "limit-invalid", "non-integral bound on an int channel"),
+    (
+        "place_conflict__imported_place",
+        "place-conflict",
+        "an imported place contradicting its span",
+    ),
     ("place_conflict__stated_s", "place-conflict", "a wired device's stated s off its deck"),
     (
         "place_conflict__stated_model",
@@ -1914,6 +1919,21 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: limit-invalid: limit T — `max_value` 2.5 on an int channel is not "
             "integral; fix: write integral bounds"
+        ),
+    ),
+    "place_conflict__imported_place": (
+        _deck(
+            append(
+                "records/places.yaml",
+                {"id": "SR/A", "span": {"model": "SR", "from_marker": "M1", "to_marker": "M2"}},
+                {"id": "SR/B", "span": {"model": "SR", "from_marker": "M2", "to_marker": "M1"}},
+            ),
+            put("imported/mml/devices.yaml", [{"id": "SR/QD", "place": "SR/B"}]),
+        ),
+        (
+            "facility: place-conflict: device SR/QD — layer mml states place SR/B, but the span "
+            "of place SR/A holds the device at s 1.25 in model SR; fix: drop `place` from the "
+            "layer, or add a fix `set` of place SR/B"
         ),
     ),
     "place_conflict__stated_s": (

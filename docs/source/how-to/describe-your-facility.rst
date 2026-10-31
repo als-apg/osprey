@@ -92,7 +92,9 @@ A place with a ``span`` covers a stretch of one model's deck, from the
 without one. A device the deck puts inside it belongs to the deepest such
 place, unless the device states its own ``place`` in an authored record or a
 fix. A place only an importing layer states (``place_from: imported``) yields
-to such a span and stands where none holds the device.
+to a span that is that place or lies inside it, and stands under a span that
+holds it or where none holds the device; any other span holding the device
+contradicts it, and the build stops ``place-conflict``.
 
 .. code-block:: yaml
 

@@ -19,8 +19,9 @@ computed device slots in place on the document:
   that contains its s, computed or stated; ``provenance.place_from`` says
   where the place came from. A place a fix sets or an authored record states
   stands (``fix``, ``authored``), deepened to a span inside it. A place an
-  importing layer alone states (``imported``) yields to the deepest span
-  that holds the device, and stands where none does.
+  importing layer alone states (``imported``) yields to a span that is that
+  place or inside it, and stands under a span that holds it or where none
+  holds the device.
 * ``ordinalInPlace``, ``ordinalInModel``: per (class, place) and per
   (class, model), in s order with ties by id, a periodic model's s read
   modulo its length; a device with an ``s`` and no ``model`` is numbered in
@@ -28,8 +29,8 @@ computed device slots in place on the document:
 * ``groups``: the groups naming the device as a member.
 
 It also stops on what only a deck can show: a span whose markers do not
-resolve or that overlaps another at its level (``span-invalid``), a stated
-position that contradicts the deck
+resolve or that overlaps another at its level (``span-invalid``), an imported
+place that contradicts its span, a stated position that contradicts the deck
 or lies outside a single-pass deck (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
 (``wiring-conflict``), a declared ``texture`` model or a channel on a status
@@ -613,9 +614,16 @@ def _places(run: _Run, positions: Mapping[str, _Position], spans: Sequence[_Span
             device["place"] = span.place
             _place_from(device, origin if span.place == stated and origin in _DECIDED else "span")
             continue
-        if origin == "imported" and span is not None:
-            device["place"] = span.place
-            _place_from(device, "span")
+        if origin == "imported" and span is not None and not stated.startswith(f"{span.place}/"):
+            run.stop(
+                "place-conflict",
+                "device",
+                device["id"],
+                stating_files(device, "place", _MODELS_FILE),
+                f"layer {_stating_layers(device, 'place')} states place {stated}, but the span of place "
+                f"{span.place} holds the device at s {position.s:g} in model {position.model}",
+                f"drop `place` from the layer, or add a fix `set` of place {stated}",
+            )
             continue
         if origin is not None:
             _place_from(device, origin)
@@ -634,7 +642,9 @@ def _origin(device: Mapping[str, Any], fixed: set[str]) -> str | None:
     """Where a stated place comes from: ``fix``, ``authored``, ``imported``, else ``None``.
 
     ``fix`` and ``authored`` are the decision itself and stand against a span;
-    ``imported``, stated by an importing layer alone, yields to a span.
+    ``imported``, stated by an importing layer alone, yields to a span that is
+    that place or inside it, stands under a span that holds it, and stops
+    ``place-conflict`` against any other span.
     """
     if device["id"] in fixed:
         return "fix"

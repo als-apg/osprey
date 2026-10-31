@@ -259,7 +259,9 @@ Two placements stop the import before anything is written: a row naming a
 sector beyond the list, and a device placed by its row and bound alone to an
 address that begins with another sector's token. Answer either with
 ``sector_override`` or ``model_wide``. The build records these places as
-``place_from: imported``; a span that holds the device takes precedence.
+``place_from: imported``. A span that is the device's sector or lies inside
+it takes precedence, a span of the model above the sectors leaves the sector
+standing, and a span of another sector stops the build ``place-conflict``.
 
 A setpoint takes its ``tolerance`` from its write field's
 ``Setpoint.Tolerance``, one number per device or one for the family, written

@@ -299,12 +299,20 @@ class TestPlaces:
         assert qd["place"] == "SR/B"
         assert qd["provenance"]["place_from"] == "authored"
 
-    def test_an_imported_contradiction_yields_to_its_span(self, tmp_path):
+    def test_an_imported_contradiction_stops(self, tmp_path):
         files = _tree()
         files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "place": "SR/B"}]
+        assert _stops(tmp_path, files) == [("place-conflict", "device", "SR/QD")]
+
+    def test_an_imported_place_under_a_span_that_holds_it_stands(self, tmp_path):
+        files = _tree()
+        for place in files["records/places.yaml"]:
+            if place["id"] in ("SR/A", "SR/B"):
+                del place["span"]
+        files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "place": "SR/B"}]
         qd = _devices(_ok(tmp_path, files))["SR/QD"]
-        assert qd["place"] == "SR/A"
-        assert qd["provenance"]["place_from"] == "span"
+        assert qd["place"] == "SR/B"
+        assert qd["provenance"]["place_from"] == "imported"
 
     def test_an_imported_place_its_span_agrees_with_is_the_span(self, tmp_path):
         files = _tree()
