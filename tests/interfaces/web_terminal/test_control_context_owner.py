@@ -194,7 +194,7 @@ async def test_a_mutation_keeps_the_switch_the_gesture_wrote(context_owner, reco
     stored = read(record_file)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 4)
-    assert stored.switch == {"standin": "on"}
+    assert stored.switch == {"standin": "asked"}
     assert stored.switch_epoch == switched.switch_epoch
 
 
@@ -214,7 +214,7 @@ async def test_the_switch_gesture_needs_no_ownership(record_file):
 
     stored = read(record_file)
     assert stored is not None
-    assert stored.switch == {"va": "on"}
+    assert stored.switch == {"va": "asked"}
     assert stored.owner == OTHER_TERMINAL
 
 

@@ -1395,7 +1395,7 @@ class TestARunLaunchedNarrowStaysNarrow:
         assert session["pin_narrow_status"] == 200
         assert session["widen_status"] == 200
         assert session["widen_body"]["state"] == "on"
-        assert session["switch_after_widen"].get(TARGET_VA) == "on"
+        assert session["switch_after_widen"].get(TARGET_VA) == "asked"
         assert session["narrow_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=sandbox"
         assert session["wide_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=writes"
 
