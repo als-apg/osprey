@@ -26,6 +26,20 @@ element on its (x, y) pair, because a roll mixes the two planes, and its noise
 is a pure function of the reading's address and the time it is read at. The
 roll turns the beam position before the monitor's conversion to the unit it
 publishes; the rest of the chain acts on the published number.
+
+**Element errors are keyed by the element, not by an address.** One series
+supply address feeds many magnets, so a magnet's own misalignment and its own
+multipole error cannot hang off the address. Every element a non-monitor
+wiring record binds -- the served deck's element name -- carries ``dx``,
+``dy`` and ``roll`` (:data:`MISALIGNMENT_BOUNDS`), and every element bound on
+``PolynomB`` or ``PolynomA`` also carries ``dB<n>`` and ``dA<n>`` for the
+polynomial index ``n`` (:data:`MULTIPOLE_INDICES`). They are fault names like
+any other, ``<element>/<field>``, each with its explicit value: drawing a
+random realisation is the scenario author's job, and the engine draws nothing.
+They are seeded once, when the model is built, never written afterwards: the
+misalignment as the element's entrance and exit transforms, the multipole as
+an additive delta the element holds (:func:`multipole_attribute`) and every
+write of a setpoint on the same coefficient keeps (:func:`multipole_error`).
 """
 
 from __future__ import annotations
@@ -86,6 +100,38 @@ FAULT_BOUNDS: dict[str, tuple[float, float]] = {
     ROLL: (-MAX_MONITOR_ROLL_RAD, MAX_MONITOR_ROLL_RAD),
     "cal_factor": (-MAX_CALIBRATION_FACTOR, MAX_CALIBRATION_FACTOR),
 }
+
+#: The misalignment fields of an element error, each at its identity.
+MISALIGNMENT_IDENTITY: dict[str, float] = {"dx": 0.0, "dy": 0.0, "roll": 0.0}
+
+#: The largest transverse offset an element error may state, in metres.
+MAX_ELEMENT_OFFSET_M = 0.01
+#: The largest roll an element error may state, in radians.
+MAX_ELEMENT_ROLL_RAD = 0.1
+
+#: Misalignment field -> its inclusive (min, max).
+MISALIGNMENT_BOUNDS: dict[str, tuple[float, float]] = {
+    "dx": (-MAX_ELEMENT_OFFSET_M, MAX_ELEMENT_OFFSET_M),
+    "dy": (-MAX_ELEMENT_OFFSET_M, MAX_ELEMENT_OFFSET_M),
+    ROLL: (-MAX_ELEMENT_ROLL_RAD, MAX_ELEMENT_ROLL_RAD),
+}
+
+#: Multipole error field prefix -> the polynomial it adds to.
+MULTIPOLE_PREFIXES: dict[str, str] = {"dB": "PolynomB", "dA": "PolynomA"}
+
+#: The polynomial indices an element error may name: ``dB0`` (dipole) to
+#: ``dB9`` (twenty-pole), and the same for ``dA``.
+MULTIPOLE_INDICES: range = range(10)
+
+#: A multipole delta is bounded by well-formedness alone (finite); its scale
+#: is the polynomial index's own.
+MULTIPOLE_BOUNDS: tuple[float, float] = (-math.inf, math.inf)
+
+#: What a slot's ``scope`` says it is keyed by.
+ADDRESS_SCOPE = "address"
+ELEMENT_SCOPE = "element"
+
+_MULTIPOLE_PREFIX = "error_"
 
 #: A polarity is a direction: it lands exactly on one of these two values.
 POLARITY_OPTIONS: tuple[float, float] = (-1.0, 1.0)
@@ -221,18 +267,59 @@ def supply_calibration(element: Any, setpoint: str) -> dict[str, float]:
     }
 
 
+def multipole_attribute(attribute: str, index: int) -> str:
+    """The element attribute that holds a multipole error on one polynomial coefficient.
+
+    No pyAT pass method reads it; the delta itself sits in the polynomial,
+    and this attribute is what lets a setpoint write keep it.
+
+    Args:
+        attribute: ``PolynomB`` or ``PolynomA``.
+        index: The coefficient's index.
+
+    Returns:
+        ``error_<attribute>[<index>]``.
+    """
+    return f"{_MULTIPOLE_PREFIX}{attribute}[{index}]"
+
+
+def multipole_error(element: Any, attribute: str, index: int | None) -> float:
+    """The multipole delta ``element`` holds on ``attribute[index]``; 0 where it holds none."""
+    if index is None or attribute not in MULTIPOLE_PREFIXES.values():
+        return 0.0
+    return float(getattr(element, multipole_attribute(attribute, index), 0.0))
+
+
+def multipole_field(field: str) -> tuple[str, int] | None:
+    """``(attribute, index)`` a multipole error field names, or ``None`` for any other field.
+
+    ``dB2`` is ``("PolynomB", 2)``; an index outside :data:`MULTIPOLE_INDICES`
+    is no multipole field.
+    """
+    prefix, digits = field[:2], field[2:]
+    attribute = MULTIPOLE_PREFIXES.get(prefix)
+    if attribute is None or not digits.isdigit() or str(int(digits)) != digits:
+        return None
+    index = int(digits)
+    return (attribute, index) if index in MULTIPOLE_INDICES else None
+
+
 @dataclass(frozen=True)
 class FaultSlot:
-    """One fault a model declares: the wired address it perturbs and the field.
+    """One fault a model declares: what it perturbs and the field.
 
     Attributes:
-        address: The wired address.
-        field: The fault field, such as ``offset`` or ``cal_factor``.
+        address: The wired address, or the element name for an element error.
+        field: The fault field, such as ``offset``, ``cal_factor``, ``dx`` or
+            ``dB2``.
         value_range: The inclusive ``(min, max)`` a value must lie in, or
             ``None`` where only well-formedness bounds it.
         options: The exact values a value must equal one of, or ``None``
             where the field is not an enumeration.
-        element: The element the address is wired to (its first slice's).
+        element: The element the address is wired to (its first slice's);
+            the element itself for an element error.
+        scope: ``address`` for a fault keyed by a wired address,
+            ``element`` for an element error keyed by the element's name.
     """
 
     address: str
@@ -240,6 +327,7 @@ class FaultSlot:
     value_range: tuple[float, float] | None
     options: tuple[float, ...] | None = None
     element: str | None = None
+    scope: str = ADDRESS_SCOPE
 
 
 def _first_element(record: Any) -> str | None:
@@ -248,16 +336,32 @@ def _first_element(record: Any) -> str | None:
     return None if element is None else str(element)
 
 
+def _bound_elements(record: Any) -> list[str]:
+    slices = _slot(record, "slices")
+    if slices:
+        return [str(_slot(item, "element")) for item in slices if _slot(item, "element")]
+    element = _slot(record, "element")
+    return [] if element is None else [str(element)]
+
+
 def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     """Every fault a model built from ``wiring`` declares, by fault name.
 
-    A fault name is ``<address>/<field>``. A monitor readback (an engine
+    A fault name is ``<address>/<field>`` or, for an element error,
+    ``<element>/<field>``. A monitor readback (an engine
     ``axis`` and no ``attribute``) carries ``offset``, ``gain``, ``noise`` and
     ``polarity`` on its own axis, the first readback of each element and axis
     only; each monitor element carries one ``roll``, on its x-axis readback or
     else its first one. A setpoint (``direction: write``) on ``PolynomB`` or
-    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``. Nothing is
-    imported and no deck is read.
+    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``.
+
+    Every element a record that is no monitor reading binds (its ``element``
+    or each of its ``slices``) carries ``dx``, ``dy`` and ``roll``; one bound
+    on ``PolynomB`` or ``PolynomA`` also carries ``dB<n>`` and ``dA<n>`` for
+    every ``n`` of :data:`MULTIPOLE_INDICES`. These slots are of ``element``
+    scope and keyed by the element's name. An element whose name is also a
+    wired address carries none, so the two keyings never share a name.
+    Nothing is imported and no deck is read.
 
     Args:
         wiring: The model's wiring records, each with its ``direction``.
@@ -267,6 +371,8 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     """
     slots: dict[str, FaultSlot] = {}
     monitors: dict[str, dict[str, str]] = {}
+    magnets: dict[str, bool] = {}
+    addresses: set[str] = set()
 
     def declare(address: str, field: str, element: str) -> None:
         if field == "polarity":
@@ -277,12 +383,17 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
 
     for record in wiring:
         address = str(_slot(record, "address"))
+        addresses.add(address)
         block = _slot(record, "engine")
         attribute = _slot(block, "attribute")
         axis = _slot(block, "axis")
         element = _first_element(record)
         if element is None:
             continue
+        if not (attribute is None and axis in _AXES):
+            polynomial = attribute in MULTIPOLE_PREFIXES.values()
+            for bound in _bound_elements(record):
+                magnets[bound] = magnets.get(bound, False) or polynomial
         if attribute is None and axis in _AXES:
             monitors.setdefault(element, {}).setdefault(str(axis), address)
         elif _slot(record, "direction") == "write" and attribute in CALIBRATED_ATTRIBUTES:
@@ -293,6 +404,21 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
             for field in READOUT_IDENTITY:
                 declare(address, field, element)
         declare(axes.get("x") or next(iter(axes.values())), ROLL, element)
+    for element, polynomial in magnets.items():
+        if element in addresses or element in monitors:
+            continue
+        for field, bounds in MISALIGNMENT_BOUNDS.items():
+            slots[f"{element}{FAULT_SEPARATOR}{field}"] = FaultSlot(
+                element, field, bounds, element=element, scope=ELEMENT_SCOPE
+            )
+        if not polynomial:
+            continue
+        for prefix in MULTIPOLE_PREFIXES:
+            for index in MULTIPOLE_INDICES:
+                field = f"{prefix}{index}"
+                slots[f"{element}{FAULT_SEPARATOR}{field}"] = FaultSlot(
+                    element, field, MULTIPOLE_BOUNDS, element=element, scope=ELEMENT_SCOPE
+                )
     return dict(sorted(slots.items()))
 
 
@@ -441,10 +567,16 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
 
 
 __all__ = [
+    "ELEMENT_SCOPE",
+    "MISALIGNMENT_BOUNDS",
+    "MULTIPOLE_INDICES",
     "READOUT_IDENTITY",
     "SUPPLY_IDENTITY",
     "bpm_read",
     "magnet_cal",
+    "multipole_attribute",
+    "multipole_error",
+    "multipole_field",
     "readout",
     "rolled",
     "supply_attribute",

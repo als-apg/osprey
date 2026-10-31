@@ -227,6 +227,9 @@ class _Child:
     inputs: dict[str, Any] = field(default_factory=dict)
     last_good: dict[str, Any] = field(default_factory=dict)
     starts: dict[str, Any] = field(default_factory=dict)
+    #: The active scenarios that fault this child or override one of its
+    #: setpoints, in activation order.
+    scenarios: tuple[str, ...] = ()
 
 
 class Composite(LUMEModel):
@@ -406,11 +409,18 @@ class Composite(LUMEModel):
         self._log(child.name, {"event": "built", "status": STATUS_OK})
 
     def _fail(self, child: _Child, exc: BaseException) -> None:
-        """Mark a child failed with the text its engine gives for ``exc``."""
+        """Mark a child failed with the text its engine gives for ``exc``.
+
+        A child some active scenario faults or overrides names those
+        scenarios first, so a seed with no solve says which scenario seeded it.
+        """
         error_text = getattr(child.engine, "error_text", None)
         text = error_text(exc) if callable(error_text) else ""
         if not text:
             text = str(exc) or type(exc).__name__
+        if child.scenarios:
+            plural = "s" if len(child.scenarios) > 1 else ""
+            text = f"scenario{plural} {', '.join(child.scenarios)}: {text}"
         child.model = None
         child.status = _cap_status(text)
         self._log(child.name, {"event": "failed", "error": text})
@@ -462,12 +472,16 @@ class Composite(LUMEModel):
         still: set[str] = set()
         still_all = False
         channel_faults: dict[str, str] = {}
+        faulted_by: dict[str, set[str]] = {}
+        overridden_by: dict[str, set[str]] = {}
         for name in active:
             scenario = self._scenarios.get(name, {})
             overrides.update(scenario.get("overrides") or {})
+            overridden_by[str(name)] = {str(a) for a in scenario.get("overrides") or {}}
             for model, fault in (scenario.get("faults") or {}).items():
                 if not fault.get("inactive"):
                     faults.setdefault(str(model), {}).update(fault.get("writes") or {})
+                    faulted_by.setdefault(str(model), set()).add(str(name))
             drivers.update(scenario.get("drivers") or {})
             for address, terms in (scenario.get("couple") or {}).items():
                 couple.setdefault(str(address), []).extend(terms)
@@ -506,6 +520,12 @@ class Composite(LUMEModel):
 
         for child in self._children.values():
             child.active = self._child_active(child, overrides, faults)
+            child.scenarios = tuple(
+                str(name)
+                for name in active
+                if str(name) in faulted_by.get(child.name, ())
+                or overridden_by.get(str(name), set()) & child.setpoints
+            )
             child.last_good = {}
             self._build(child)
         self._apply_channel_faults(channel_faults)

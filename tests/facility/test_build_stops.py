@@ -2251,7 +2251,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: scenario warm — faults.SR.QF:SP/tilt names no channel and "
             "no pyat variable; fix: name a channel address or a pyat variable "
-            "(<address>/<field>); closest: QF:SP/cal_offset, QF:SP/cal_factor"
+            "(<address>/<field>, or <element>/<field> for an element error); "
+            "closest: QF:SP/cal_offset, QF:SP/cal_factor"
         ),
     ),
     "engine_invalid__scenario_fault_key_nothing_close": (
@@ -2259,7 +2260,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: scenario warm — faults.SR.ZZZZ names no channel and "
             "no pyat variable; fix: name a channel address or a pyat variable "
-            "(<address>/<field>)"
+            "(<address>/<field>, or <element>/<field> for an element error)"
         ),
     ),
     "model_conflict__texture": (
