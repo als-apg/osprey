@@ -3168,6 +3168,9 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 _EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
+        # The admin tier's ceiling: the preset ships `asked`, which caps the
+        # switch at the position that prompts, and the stack arms `allowed`.
+        "control_system.writes": "allowed",
         "approval.tools.queue_remove": "skip",
         # The authoring pair, for the hysteresis test only in practice: this
         # disarms the HOOK gate stack-wide, but ``settings.json`` still lists
