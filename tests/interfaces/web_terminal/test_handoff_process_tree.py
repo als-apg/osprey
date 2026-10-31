@@ -71,16 +71,21 @@ def _pool_terminal(
 
 async def test_stop_and_switch_asks_before_a_started_command_is_ended(tmp_path):
     app = make_app(hook=False)
-    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
+    session, pid_file, input_file = _pool_terminal(
+        app, tmp_path, ("magnet_scan.py", "orbit_poll.py")
+    )
     pids: list[int] = []
     try:
-        pids = wait_for_pids(session, pid_file, 2)
+        pids = wait_for_pids(session, pid_file, 3)
         grandchild = pids[0]
 
         with pytest.raises(HandoffRefused) as refused:
             await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+        # The refusal lists each started command.
+        labels = [command["label"] for command in refused.value.extra["commands"]]
+        assert sorted(labels) == ["magnet_scan.py", "orbit_poll.py"]
         assert registry(app).get_session(KEY) is session
         assert session.is_alive
         assert input_file.read_bytes() == b""
@@ -265,22 +270,5 @@ async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_p
         assert_released(app)
     finally:
         monkeypatch.undo()
-        registry(app).cleanup_all()
-        kill_quietly(pids)
-
-
-async def test_the_refusal_lists_each_started_command(tmp_path):
-    app = make_app(hook=False)
-    session, pid_file, _ = _pool_terminal(app, tmp_path, ("magnet_scan.py", "orbit_poll.py"))
-    pids: list[int] = []
-    try:
-        pids = wait_for_pids(session, pid_file, 3)
-
-        with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
-
-        labels = [command["label"] for command in refused.value.extra["commands"]]
-        assert sorted(labels) == ["magnet_scan.py", "orbit_poll.py"]
-    finally:
         registry(app).cleanup_all()
         kill_quietly(pids)

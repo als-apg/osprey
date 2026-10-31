@@ -54,6 +54,10 @@ def config_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
     # Keep every per-launch tempdir under the test's own tree.
     monkeypatch.setenv("TMPDIR", str(tmp_path))
+    # No test here starts a kernel, so a stop's settle window only waits for a
+    # straggler that cannot come; the reap still takes its one snapshot. The
+    # window itself is tested against scripted snapshots below.
+    monkeypatch.setattr(jupyter_sidecar, "_REAP_SETTLE", 0.0)
 
 
 def _running(shared_root: Path, outer_prefix: str = "") -> Iterator[JupyterSidecar]:

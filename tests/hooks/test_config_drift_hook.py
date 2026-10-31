@@ -1034,13 +1034,19 @@ def _render(tmp_path, *, writes: str):
     return project_dir / "config.yml", hook_config_path, settings_path, ctx
 
 
-@pytest.mark.parametrize(("writes", "denied"), [("never", True), ("allowed", False)])
-def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, denied):
+@pytest.mark.parametrize(
+    ("writes", "edited", "fragment"),
+    [("never", "allowed", "still blocks writes"), ("allowed", "never", "still permits writes")],
+    ids=["never", "allowed"],
+)
+def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, edited, fragment):
     """A real render agrees with the hook in both tiers — never a partial overlap.
 
     On ``never`` every tool the hook compares is in the rendered deny, and on
     ``allowed`` none is; a set that drifted from the kill switch would answer
     None (partial) and silence the warning on every such deployment.
+
+    Then the #244 case end to end on the same render: a hand-edited tier warns.
     """
     hook = _hook()
     config_path, hook_config_path, settings_path, ctx = _render(tmp_path, writes=writes)
@@ -1052,7 +1058,7 @@ def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, den
     # Mixed tools and the project's write_tools entry never count.
     assert "mcp__plc__get_value" not in tools
     assert not set(tools) & set(ctx["mixed_read_write_tools"])
-    assert hook._write_tools_denied(settings_path, tools) is denied
+    assert hook._write_tools_denied(settings_path, tools) is (writes == "never")
     assert hook._tier_in_config(config_path) == (
         writes == "allowed",
         f"control_system.writes: {writes}",
@@ -1060,23 +1066,12 @@ def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, den
     if writes == "never":
         assert set(tools) <= set(ctx["killswitch_deny"]) | set(ctx["deny_defaults"] or [])
 
-
-@pytest.mark.parametrize(
-    ("rendered", "edited", "fragment"),
-    [("never", "allowed", "still blocks writes"), ("allowed", "never", "still permits writes")],
-    ids=["never-render-allowed-config", "allowed-render-never-config"],
-)
-def test_a_tier_edited_after_the_render_warns(tmp_path, rendered, edited, fragment):
-    """The #244 case end to end: a real render, then a hand-edited tier."""
-    config_path, hook_config_path, settings_path, _ctx = _render(tmp_path, writes=rendered)
     text = config_path.read_text(encoding="utf-8")
-    assert text.count(f"writes: {rendered}") == 1
-    config_path.write_text(
-        text.replace(f"writes: {rendered}", f"writes: {edited}"), encoding="utf-8"
-    )
+    assert text.count(f"writes: {writes}") == 1
+    config_path.write_text(text.replace(f"writes: {writes}", f"writes: {edited}"), encoding="utf-8")
     _set_mtimes(config_path, settings_path, config_newer=False)
 
-    message = _hook()._detect_drift(config_path, settings_path, hook_config_path)
+    message = hook._detect_drift(config_path, settings_path, hook_config_path)
 
     assert message is not None
     assert fragment in message

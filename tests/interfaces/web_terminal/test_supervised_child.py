@@ -285,26 +285,6 @@ class TestRespawn:
         assert generation == "2"
         assert child.exit_status == 3
 
-    def test_respawn_now_past_the_quick_bound_skips_the_backoff(self, harness: Harness) -> None:
-        # Every lifetime on the step clock is 1.5 s, past the quick-exit bound,
-        # and eight exits fit well inside the window: each 75 is respawned at
-        # once and counted, so the eighth ends supervision.
-        ticks = itertools.count()
-        child = harness.supervise(
-            "exit",
-            BINDING_MOVED,
-            backoff_s=(30.0,),
-            give_up_after=8,
-            clock=lambda: next(ticks) * 1.5,
-        )
-        child.start()
-        wait_until(lambda: harness.give_ups == 1, timeout=20)
-        assert child.starts == 8
-        assert child.failure == FAILURE_GAVE_UP
-        gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
-        assert len(gaps) == 7
-        assert max(gaps) < 10.0, "no backoff was waited"
-
     def test_a_crash_is_respawned_after_the_backoff(self, harness: Harness) -> None:
         child = harness.supervise("exit", 1, backoff_s=(0.3,), give_up_after=3)
         child.start()
@@ -426,6 +406,9 @@ class TestContractSchedule:
         wait_until(lambda: harness.give_ups == 1, timeout=20)
         assert child.starts == 5
         assert child.failure == FAILURE_GAVE_UP
+        gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
+        assert len(gaps) == 4
+        assert max(gaps) < 10.0, "no backoff was waited"
 
 
 class TestStartRefused:

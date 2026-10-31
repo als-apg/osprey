@@ -77,9 +77,12 @@ def _run(tmp_path: Path, test_body: str, policy: str = "failed") -> set[str]:
 
 
 def test_a_module_fixtures_directory_goes_with_its_module(tmp_path):
-    left = _run(tmp_path, "def test_uses(shared):\n    assert shared.is_dir()\n")
+    """Only what ``mktemp`` made is removed: a directory a module fixture made by
+    hand, and one a session fixture set up inside it made, both stay."""
+    left = _run(tmp_path, "def test_uses(shared, hand_made):\n    assert shared.is_dir()\n")
     assert "module-made0" not in left
     assert "long-lived0" in left
+    assert "hand-made" in left
 
 
 def test_a_failed_modules_directory_is_kept(tmp_path):
@@ -90,9 +93,3 @@ def test_a_failed_modules_directory_is_kept(tmp_path):
 def test_policy_all_keeps_every_directory(tmp_path):
     left = _run(tmp_path, "def test_uses(shared):\n    pass\n", policy="all")
     assert "module-made0" in left
-
-
-def test_only_what_mktemp_made_is_removed(tmp_path):
-    left = _run(tmp_path, "def test_uses(shared, hand_made):\n    pass\n")
-    assert "module-made0" not in left
-    assert "hand-made" in left

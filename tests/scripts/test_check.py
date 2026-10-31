@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import functools
 import importlib.util
 import json
 import os
@@ -357,11 +358,30 @@ def _scan_block(
     return False
 
 
+#: Text without which no import names a tree-reader module: every spelling of
+#: such an import, absolute or relative, writes the module's last name.
+_TREE_READER_WORDS = tuple(module.rpartition(".")[2] for module in _TREE_READER_MODULES)
+#: Text without which no call globs or walks a tree: each call the rule follows
+#: names its method or function in the source as written.
+_GLOB_WORDS = (*_GLOB_METHODS, "walk", *_ROOT_WALKERS)
+
+
 def _source_reads_the_tests_tree(source: str, here: tuple[str, ...]) -> bool:
-    """Whether the module at repo-relative parts *here* with text *source* reads the tests tree."""
+    """Whether the module at repo-relative parts *here* with text *source* reads the tests tree.
+
+    A module whose text holds no word the rule keys on cannot match it, so it
+    is passed over before the parse; parsing and walking every test module is
+    what makes the whole-tree scan slow, and most modules hold none of them.
+    """
+    imports = any(word in source for word in _TREE_READER_WORDS)
+    globs = any(word in source for word in _GLOB_WORDS)
+    if not imports and not globs:
+        return False
     tree = ast.parse(source)
-    if _imports_a_tree_reader(tree, here):
+    if imports and _imports_a_tree_reader(tree, here):
         return True
+    if not globs:
+        return False
     roots = frozenset(
         stmt.targets[0].id
         for stmt in tree.body
@@ -389,17 +409,24 @@ def test_every_invariant_test_exists() -> None:
     assert "tests/scripts/test_check.py" in fw.INVARIANT_TESTS
 
 
+@functools.cache
+def _tree_readers() -> tuple[str, ...]:
+    """The test modules that read the whole tests tree, in path order.
+
+    The scan is read once per session: the tests that ask which readers a
+    listing leaves out differ only in the listing, not in what the tree holds.
+    """
+    return tuple(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "tests").rglob("test_*.py"))
+        if "__pycache__" not in path.parts and _reads_the_tests_tree(path)
+    )
+
+
 def _tree_readers_outside(invariant: Sequence[str]) -> list[str]:
     """The test modules that read the whole tests tree and are not in *invariant*."""
     listed = set(invariant)
-    found = []
-    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        if relative not in listed and _reads_the_tests_tree(path):
-            found.append(relative)
-    return found
+    return [relative for relative in _tree_readers() if relative not in listed]
 
 
 def test_every_module_that_reads_the_tests_tree_is_an_invariant_test() -> None:
@@ -465,6 +492,8 @@ _PREAMBLE = (
         ("FILES = text_files(ROOT, ROOTS)\n", True),
         ('FILES = text_files(ROOT, roots=("docs", "tests"))\n', True),
         ('FILES = text_files(ROOT, ("src", "docs"))\n', False),
+        ("from tests._tree_scan import test_modules\n", True),
+        ("from . import _tree_scan\n", True),
     ],
     ids=[
         "argument-default",
@@ -477,6 +506,8 @@ _PREAMBLE = (
         "walker-over-roots",
         "walker-over-literal-roots",
         "walker-elsewhere",
+        "tree-reader-import",
+        "relative-tree-reader-import",
     ],
 )
 def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bool) -> None:
