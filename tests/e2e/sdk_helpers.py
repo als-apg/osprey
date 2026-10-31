@@ -870,7 +870,9 @@ def enable_writes_in_project(repo: Path, *, owner: str | None = None) -> ArmedWr
     return arm_writes(repo, owner=owner if owner is not None else acting_identity())
 
 
-def arm_deployed_queue_owner(repo: Path, targets: list[str] | None = None) -> str:
+def arm_deployed_queue_owner(
+    repo: Path, targets: list[str] | None = None, *, position: SwitchPosition = "asked"
+) -> str:
     """Arm this process's login's switch in a DEPLOYED stack's record; return the login.
 
     For lanes that drive a deployed bridge queue over HTTP. The bridge worker's
@@ -885,7 +887,7 @@ def arm_deployed_queue_owner(repo: Path, targets: list[str] | None = None) -> st
 
     The login is :func:`~osprey_connectors.posture_store.current_owner`, the
     same ladder an in-process tool walks. *targets* defaults to the deployment's
-    baseline target.
+    baseline target; *position* is passed to :func:`set_switch_in_record`.
     """
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey_connectors import posture_store
@@ -893,7 +895,7 @@ def arm_deployed_queue_owner(repo: Path, targets: list[str] | None = None) -> st
     owner = posture_store.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     ensure_control_target_dir(_render_config(repo), repo, owner, relative_to=repo)
-    set_switch_in_record(repo, owner=owner, targets=targets)
+    set_switch_in_record(repo, owner=owner, targets=targets, position=position)
     return owner
 
 
