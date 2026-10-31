@@ -1680,6 +1680,24 @@ def _parse_server_writes(name: str, writes: Any) -> list[str] | None:
     return list(writes)
 
 
+def _parse_server_projection(name: str, sdef: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """``mcp_servers.<name>.{condition, app}``: a non-empty string and an application name."""
+    from osprey.apps.manifest import APP_NAME_PATTERN
+
+    condition = sdef.get("condition")
+    if condition is not None and not (isinstance(condition, str) and condition):
+        raise BuildProfileError(
+            f"MCP server '{name}' condition must be a non-empty string naming a render "
+            f"context key (got {condition!r})"
+        )
+    app = sdef.get("app")
+    if app is not None and not (isinstance(app, str) and re.fullmatch(APP_NAME_PATTERN, app)):
+        raise BuildProfileError(
+            f"MCP server '{name}' app must be an application name ([a-z0-9-]+) (got {app!r})"
+        )
+    return condition, app
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile.
 
@@ -1710,6 +1728,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         _warn_unknown_server_keys(name, sdef)
         hooks = _parse_server_hooks(name, sdef.get("hooks"))
         writes = _parse_server_writes(name, sdef.get("writes"))
+        condition, app = _parse_server_projection(name, sdef)
         perms = sdef.get("permissions", {})
         url = sdef.get("url")
         command = sdef.get("command", "")
@@ -1763,6 +1782,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=port,
             hooks=hooks,
             writes=writes,
+            condition=condition,
+            app=app,
         )
 
     services: dict[str, ServiceDef] = {}

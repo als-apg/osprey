@@ -180,6 +180,11 @@ class McpServerDef:
     # None means the server declares no list; [] declares that none writes.
     # Validated as written — the build never queries the server's tool list.
     writes: list[str] | None = None
+    # The render-context key that must be truthy for the server to render;
+    # a projected ``shown_when: panel`` server's is ``panel:<panel id>``.
+    condition: str | None = None
+    # The application this server is projected for; None for any other server.
+    app: str | None = None
 
 
 ListsMode = Literal["own", "add"]
