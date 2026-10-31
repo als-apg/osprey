@@ -6366,3 +6366,21 @@ def test_osprey_up_refuses_a_start_over_a_carrier_collision(tmp_path, monkeypatc
     container_lifecycle._collect_unmet_preconditions(
         _history_config(), tmp_path, {}, dev_mode=False, web_terminals_enabled=False
     )
+
+
+def test_lint_username_matching_a_deployed_apps_audit_identity_is_an_error() -> None:
+    """The scaffold-time half of the render's refusal: the finding names the
+    roster entry and the application whose identity it takes."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["knob", "bob"]
+    config["services"]["knob-panel"] = {"app": "knob", "audit_identity": "knob"}
+    config["deployed_services"] = ["knob-panel"]
+
+    findings = [
+        f
+        for f in _errors(lint_web_terminals(config))
+        if f.code == "web_terminals.reserved_audit_identity"
+    ]
+
+    assert len(findings) == 1
+    assert "'knob'" in findings[0].message and "application 'knob'" in findings[0].message

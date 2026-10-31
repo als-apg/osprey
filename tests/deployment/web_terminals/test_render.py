@@ -6735,3 +6735,18 @@ def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
     assert not any(path.startswith("control_identity/") for path in artifacts)
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert "./build/control_identity" not in artifacts["docker-compose.web.yml"]
+
+
+def test_a_roster_name_equal_to_a_deployed_apps_audit_identity_is_refused() -> None:
+    """A user named like an application's audit identity would bind that
+    application's spool and state read-write, and write facts as it."""
+    config = _config(["alice", "knob"])
+    config["services"] = {"knob-panel": {"app": "knob", "audit_identity": "knob"}}
+    config["deployed_services"] = ["knob-panel"]
+
+    with pytest.raises(ValueError, match=r"'knob'.*application 'knob'"):
+        render_web_terminals(config)
+
+    # An application that is not deployed claims no identity.
+    config["deployed_services"] = []
+    render_web_terminals(config)

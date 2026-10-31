@@ -107,12 +107,15 @@ class Reserved:
         panels: Its ``web.panels`` ids, built-ins included.
         servers: Its ``mcp_servers`` names.
         names: :func:`fixed_names`.
+        roster_users: The ``modules.web_terminals`` roster's user names, each
+            a per-user spool and state directory an audit identity may not take.
     """
 
     services: frozenset[str]
     panels: frozenset[str]
     servers: frozenset[str]
     names: frozenset[str]
+    roster_users: frozenset[str] = frozenset()
 
 
 @lru_cache(maxsize=1)
@@ -160,8 +163,10 @@ def validate(
     seen_names: set[str] = set()
     container_owner: dict[str, str] = {}
     panel_owner: dict[str, str] = {}
+    identity_owner: dict[str, str] = {}
     for manifest in manifests:
         found.extend(_check_app(manifest, reserved, container_owner, panel_owner, seen_names))
+        found.extend(_check_audit_identity(manifest, reserved, identity_owner))
     found.extend(_check_arming(manifests, logins))
     if found:
         raise AppManifestError.from_violations(found)
@@ -203,6 +208,31 @@ def _check_arming(
                     )
                 )
     return out
+
+
+def _check_audit_identity(
+    m: AppManifest, reserved: Reserved, identity_owner: dict[str, str]
+) -> list[Violation]:
+    """An application's audit identity names its own spool and state directories.
+
+    So it may not be a service's own identity, another application's, or a
+    roster user's: each of those already writes there.
+    """
+    from osprey.deployment.web_terminals.render import _RESERVED_AUDIT_IDENTITY_RE
+
+    identity = m.audit_identity
+    if _RESERVED_AUDIT_IDENTITY_RE.fullmatch(identity):
+        rule, message = "audit_identity_reserved", f"{identity!r} is a service's own identity"
+    elif identity in identity_owner:
+        rule = "audit_identity_unique"
+        message = f"{identity!r} is already the audit identity of {identity_owner[identity]!r}"
+    elif identity in reserved.roster_users:
+        rule = "audit_identity_roster"
+        message = f"{identity!r} is a user of the web-terminal roster"
+    else:
+        identity_owner[identity] = m.name
+        return []
+    return [Violation(m.name, "audit_identity", rule, message)]
 
 
 def _check_app(
