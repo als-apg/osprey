@@ -104,7 +104,12 @@ class TestFaultVariables:
             if pyat_faults.FAULT_SEPARATOR in name
         }
 
-        roster = engine.fault_variables(demo["wiring"])
+        # Element errors are seeded once at build, never model variables.
+        roster = {
+            name: slot
+            for name, slot in engine.fault_variables(demo["wiring"]).items()
+            if slot.scope == pyat_faults.ADDRESS_SCOPE
+        }
 
         assert sorted(roster) == sorted(declared)
         for name, slot in roster.items():

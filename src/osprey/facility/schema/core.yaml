@@ -90,6 +90,8 @@ enums:
         description: Stated in an authored record.
       fix:
         description: Set by a fix.
+      imported:
+        description: Stated by an importing layer alone, where no span holds the device.
 
   fix_op_enum:
     permissible_values:

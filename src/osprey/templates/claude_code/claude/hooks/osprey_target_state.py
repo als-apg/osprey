@@ -307,6 +307,7 @@ VALID_POSTURES = (POSTURE_SANDBOX, POSTURE_WRITES)
 
 __all__ = [
     "AGENT_DATA_ROOT_ENV_VAR",
+    "ARMED_SWITCH_WORDS",
     "AUDIT_IDENTITY_ENV",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
@@ -1103,8 +1104,14 @@ TIER_NEVER = "never"
 LOGIN_TIERS_LEAF = "login_tiers"
 _LOGIN_TIERS = (TIER_ALLOWED, TIER_NEVER)
 
-#: The one switch value that arms a target. Mirrors ``control_context._SWITCH_ON``.
+#: The switch value a parsed record states for an armed target. Mirrors
+#: ``control_context._SWITCH_ON``.
 SWITCH_ON = "on"
+
+#: The stored words that arm a target: ``"on"``, and the upcoming connectors
+#: release's ``"asked"`` and ``"allowed"``. All three read as ``"on"``; any
+#: other word is off.
+ARMED_SWITCH_WORDS = frozenset({SWITCH_ON, "asked", "allowed"})
 
 #: The kind of machine each target names by its name alone. Mirrors
 #: ``types._MACHINE_KINDS``: ``standin`` is ``real`` by name, and only the
@@ -1436,7 +1443,7 @@ def owner_tier_term(section, owner):
 
 
 def parse_switch(value):
-    """One record's ``switch`` as ``{target: "on"}``: only the string ``"on"`` arms.
+    """One record's ``switch`` as ``{target: "on"}``: only :data:`ARMED_SWITCH_WORDS` arm.
 
     Mirrors ``control_context._parse_switch``: string keys are kept whether or
     not they name a known target. Anything that is not a mapping is ``{}``.
@@ -1446,7 +1453,7 @@ def parse_switch(value):
     return {
         key: SWITCH_ON
         for key, state in value.items()
-        if isinstance(key, str) and isinstance(state, str) and state == SWITCH_ON
+        if isinstance(key, str) and isinstance(state, str) and state in ARMED_SWITCH_WORDS
     }
 
 

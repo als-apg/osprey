@@ -1228,6 +1228,10 @@ RECORD_UNREADABLE = "record unreadable — writes refused"
 #: the "on" stays recorded and arms again only if the tier is lifted (O-3).
 INERT_UNDER_NEVER = "on — tier never, inert"
 
+#: The stored switch words that arm a machine: ``"on"``, and the upcoming
+#: connectors release's ``"asked"`` and ``"allowed"``. Any other word is off.
+ARMED_SWITCH_WORDS = frozenset({"on", "asked", "allowed"})
+
 
 def _staged_login_tiers(repo_root):
     """The ``control_system`` section that carries the rendered login→tier map, or ``None``.
@@ -1377,7 +1381,7 @@ def writes_rows(config, repo_root):
         if record is None:
             rows.append((login, tier, "—", "off"))
             continue
-        on = sorted(target for target, state in record.switch.items() if state == "on")
+        on = sorted(t for t, state in record.switch.items() if state in ARMED_SWITCH_WORDS)
         if not on:
             writes = "off"
         elif tier == "never":

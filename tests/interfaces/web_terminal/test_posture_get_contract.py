@@ -1243,6 +1243,24 @@ class TestTheWriteColumns:
         assert "gone" not in {row["target"] for row in payload["targets"]}
         assert all(row["switch"] == "off" for row in payload["targets"])
 
+    @pytest.mark.parametrize(("word", "on"), [("asked", True), ("allowed", True), ("bogus", False)])
+    def test_a_stored_switch_word_reads_on_only_when_it_arms(
+        self, make_client, tmp_path, agent_data_root, monkeypatch, word, on
+    ):
+        """The upcoming connectors release stores its word as it is; ``asked`` and ``allowed`` are on."""
+        monkeypatch.setattr(
+            control_context,
+            "_parse_switch",
+            lambda value: {k: v for k, v in value.items() if isinstance(v, str)},
+        )
+        with make_client(armed(tmp_path)) as client:
+            write_control_context(agent_data_root, target="live", generation=4, switch={"va": word})
+            control_context.invalidate_cache()
+            posture_store.invalidate_cache()
+            payload = get_posture(client)
+        assert row_for(payload, "va")["switch"] == ("on" if on else "off")
+        assert payload["any_on"] is on
+
     def test_any_on_is_false_with_everything_off(self, make_client, tmp_path):
         with make_client(armed(tmp_path)) as client:
             assert get_posture(client)["any_on"] is False
