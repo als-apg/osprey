@@ -447,7 +447,7 @@ def verdict_word(app: Any, target: str) -> str:
     record, status = control_context.read_record_status()
     if status == "unreadable":
         return "locked"
-    on = record is not None and record.switch.get(target) == "on"
+    on = control_context.switch_position(record, target) != "off"
     if not on:
         return "off"
     return "on" if write_verdict_for(app, target).allowed else "locked"

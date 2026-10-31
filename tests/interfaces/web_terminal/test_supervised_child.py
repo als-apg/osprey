@@ -18,7 +18,7 @@ import sys
 import textwrap
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -145,6 +145,7 @@ class Harness:
         self.held = held
         self.give_ups = 0
         self.spawn_times: list[float] = []
+        self.clock_times: list[float] = []
         self.generation = 0
         self._children: list[SupervisedChild] = []
 
@@ -174,6 +175,26 @@ class Harness:
         child = SupervisedChild(argv_for, env_for, **options)  # type: ignore[arg-type]
         self._children.append(child)
         return child
+
+    def recording(self, clock: Callable[[], float]) -> Callable[[], float]:
+        """*clock*, noting the real instant of every call the supervisor makes."""
+
+        def read() -> float:
+            self.clock_times.append(time.monotonic())
+            return clock()
+
+        return read
+
+    def respawn_waits(self) -> list[float]:
+        """Each respawn's distance from the supervisor's last clock read before it.
+
+        The supervisor reads its clock once the child has exited and before it
+        waits, so this is the wait alone: the child's own start-up, which on a
+        loaded runner takes seconds, is not in it.
+        """
+        return [
+            spawn - max(t for t in self.clock_times if t <= spawn) for spawn in self.spawn_times[1:]
+        ]
 
     def stop_all(self) -> None:
         for child in self._children:
@@ -365,7 +386,7 @@ class TestContractSchedule:
         host's speed.
         """
         port = harness.held.port
-        child = harness.supervise("exit", BINDING_MOVED, clock=lambda: 0.0)
+        child = harness.supervise("exit", BINDING_MOVED, clock=harness.recording(lambda: 0.0))
         child.start()
 
         wait_until(lambda: harness.give_ups == 1, timeout=40)
@@ -377,9 +398,10 @@ class TestContractSchedule:
         assert child.pid is None
         gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
         assert len(gaps) == 4
-        for gap, wait in zip(gaps, (0.5, 1.0, 2.0, 4.0), strict=True):
-            # The gap is the wait plus one short child lifetime.
-            assert wait <= gap < wait + 5.0
+        waited = harness.respawn_waits()
+        for gap, measured, wait in zip(gaps, waited, (0.5, 1.0, 2.0, 4.0), strict=True):
+            assert gap >= wait
+            assert wait <= measured < wait + 2.0
 
         time.sleep(0.3)
         assert harness.give_ups == 1, "called once"
@@ -398,7 +420,10 @@ class TestContractSchedule:
         """
         ticks = itertools.count()
         child = harness.supervise(
-            "exit", BINDING_MOVED, backoff_s=(30.0,), clock=lambda: next(ticks) * 1.5
+            "exit",
+            BINDING_MOVED,
+            backoff_s=(30.0,),
+            clock=harness.recording(lambda: next(ticks) * 1.5),
         )
         child.start()
 
@@ -408,7 +433,7 @@ class TestContractSchedule:
         assert child.failure == FAILURE_GAVE_UP
         gaps = [b - a for a, b in itertools.pairwise(harness.spawn_times)]
         assert len(gaps) == 4
-        assert max(gaps) < 10.0, "no backoff was waited"
+        assert max(harness.respawn_waits()) < 5.0, "no backoff was waited"
 
 
 class TestStartRefused:

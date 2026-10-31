@@ -431,7 +431,7 @@ class TestOwnership:
         assert current.owner.kind == control_context.OWNER_CONTROLS_SERVER
         assert current.owner.pid == os.getpid()
         assert (current.target, current.generation) == ("va", 3)
-        assert current.switch == {"live": "on"}
+        assert current.switch == {"live": "asked"}  # a legacy "on" reads as asked
         assert current.posture == {"va": "sandbox", "standin": "sandbox"}
 
     @pytest.mark.usefixtures("records")

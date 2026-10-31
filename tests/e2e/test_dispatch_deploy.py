@@ -1226,7 +1226,7 @@ def test_readwrite_render_arms_writes(deployed_stack: Path) -> None:
     armed = {
         target: (record.get("switch") or {}).get(target) for target in (TARGET_LIVE, TARGET_STANDIN)
     }
-    assert all(state != "on" for state in armed.values()), (
+    assert all(state in (None, "off") for state in armed.values()), (
         f"{READWRITE_USER}'s switch is on for a real machine with no gesture: {armed} "
         f"(record {record_path})"
     )
@@ -1872,7 +1872,7 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
     record_path = _host_record_path(deployed_stack, READONLY_USER)
     switch_on_in_record(deployed_stack, owner=READONLY_USER, targets=[TARGET_VA])
     seed = json.loads(record_path.read_text(encoding="utf-8"))
-    assert (seed.get("switch") or {}).get(TARGET_VA) == "on", (
+    assert (seed.get("switch") or {}).get(TARGET_VA) == "asked", (
         f"{READONLY_USER}'s switch is not on for {TARGET_VA} before the toggle, so this "
         f"row cannot tell a working chip from a no-op: {seed}"
     )
@@ -1895,7 +1895,9 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
         f"the chip answered epoch {reported.get('switch_epoch')} but the host record "
         f"carries {record.get('switch_epoch')}: the toggle did not land on this file: {record}"
     )
-    still_on = sorted(t for t, state in (record.get("switch") or {}).items() if state == "on")
+    still_on = sorted(
+        t for t, state in (record.get("switch") or {}).items() if state not in (None, "off")
+    )
     assert not still_on, (
         f"a stop-everything toggle left {READONLY_USER}'s switch on for {still_on}: {record}"
     )

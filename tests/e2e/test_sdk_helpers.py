@@ -703,7 +703,7 @@ def test_the_record_arm_turns_on_the_named_owners_switch_only(tmp_path):
     control_context.invalidate_cache()
     on_disk = control_context.read_record(path=path)
     assert on_disk is not None
-    assert dict(on_disk.switch) == {_baseline(): "on"} == dict(stored.switch)
+    assert dict(on_disk.switch) == {_baseline(): "asked"} == dict(stored.switch)
     assert on_disk.target == _baseline()
     assert isinstance(on_disk.switch_epoch, int) and on_disk.switch_epoch > 0
     assert not (path.parent.parent / "bob").exists()
@@ -720,7 +720,7 @@ def test_the_record_arm_keeps_an_existing_record_and_is_idempotent(tmp_path):
     again = sdk_helpers.switch_on_in_record(repo, owner="alice")
 
     assert again.generation == 7
-    assert dict(again.switch) == {_baseline(): "on"}
+    assert dict(again.switch) == {_baseline(): "asked"}
 
 
 def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
@@ -734,7 +734,7 @@ def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
 
     stored = sdk_helpers.switch_on_in_record(repo, owner="alice")
 
-    assert dict(stored.switch) == {_baseline(): "on"}
+    assert dict(stored.switch) == {_baseline(): "asked"}
     assert isinstance(stored.switch_epoch, int)
 
 

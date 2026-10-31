@@ -30,7 +30,7 @@ something this module reads from the environment: an environment-reading
 override would make the honesty predicate describe a deployment the process is
 no longer running.
 
-:func:`tier_writes` answers "may this deployment write" from the one tier key,
+:func:`tier_writes` answers "how far may this deployment write" from the one tier key,
 ``control_system.writes``, for the same reason. The lint that reads the config,
 the profile card that tells an operator what they hold, and the connector that
 would perform the write all have to agree about the answer. Two readings of one
@@ -89,6 +89,8 @@ __all__ = [
     "TARGET_LIVE",
     "TARGET_STANDIN",
     "TARGET_VA",
+    "TIER_WORDS",
+    "TierWord",
     "TRANSPORT_CA",
     "TRANSPORT_DOOCS",
     "TRANSPORT_IN_PROCESS",
@@ -245,18 +247,30 @@ _ONE_REAL_MACHINE = (
 
 # -- Write posture --
 #: The login tier's write ceiling, dotted as a caller spells it for
-#: ``get_config_value``: ``"allowed"`` or ``"never"``. Target-blind — a tier
-#: that allows writes allows them for every machine, and which machine is
-#: actually written is the session's switch to decide, not the tier's. Read by
-#: :func:`tier_writes`; when the key is absent the tier is ``never``.
+#: ``get_config_value``: ``"never"``, ``"asked"`` or ``"allowed"``, the furthest
+#: position a login may pick. Target-blind — a tier that allows writes allows
+#: them for every machine, and which machine is actually written is the
+#: session's switch to decide, not the tier's. Read by :func:`tier_writes`; when
+#: the key is absent the tier is ``never``.
 WRITES_KEY = "control_system.writes"
 
 #: :data:`WRITES_KEY`'s leaf inside the ``control_system:`` section.
 _WRITES_LEAF = "writes"
 
-#: The one value of :data:`WRITES_KEY` that arms anything.
+#: The two values of :data:`WRITES_KEY` that arm anything, and the refusing word.
 _TIER_ALLOWED: Literal["allowed"] = "allowed"
+_TIER_ASKED: Literal["asked"] = "asked"
 _TIER_NEVER: Literal["never"] = "never"
+
+#: One tier word, as a type: a member of :data:`TIER_WORDS`.
+TierWord = Literal["never", "asked", "allowed"]
+
+#: The three tier words, narrowest first: every answer :func:`tier_writes` gives.
+TIER_WORDS: tuple[Literal["never"], Literal["asked"], Literal["allowed"]] = (
+    _TIER_NEVER,
+    _TIER_ASKED,
+    _TIER_ALLOWED,
+)
 
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
@@ -741,15 +755,16 @@ def configured_targets(section: Any) -> list[str]:
     ]
 
 
-def tier_writes(section: Any) -> Literal["allowed", "never"]:
-    """The write ceiling this deployment's login tier sets: ``allowed`` or ``never``.
+def tier_writes(section: Any) -> Literal["never", "asked", "allowed"]:
+    """The write ceiling this deployment's login tier sets: ``never``, ``asked`` or ``allowed``.
 
     :data:`WRITES_KEY` decides when the section carries it, and then only the
-    literal string ``"allowed"`` arms; ``"never"``, any other string, ``True``,
-    ``None`` and every other value answer ``never``. When the key is absent the
-    tier is ``never``: the retired arming leaves are not read at run
-    time, so a render built before the tier key existed writes nowhere until it
-    is rebuilt (the build's normalizer writes the key into every render).
+    literal strings ``"asked"`` and ``"allowed"`` arm, matched exactly; ``"never"``,
+    any other string (the switch's retired ``"on"`` among them), ``True``, ``None``
+    and every other value answer ``never``. When the key is absent the tier is
+    ``never``: the retired arming leaves are not read at run time, so a render
+    built before the tier key existed writes nowhere until it is rebuilt (the
+    build's normalizer writes the key into every render).
 
     Target-blind by design: a tier that allows writes allows them for every
     machine. The tier is a ceiling, not a selection — the session's switch picks
@@ -758,12 +773,21 @@ def tier_writes(section: Any) -> Literal["allowed", "never"]:
     Never raises. A section that is not a mapping answers ``never``.
     """
     value = section.get(_WRITES_LEAF) if isinstance(section, dict) else None
-    return _TIER_ALLOWED if isinstance(value, str) and value == _TIER_ALLOWED else _TIER_NEVER
+    if isinstance(value, str):
+        if value == _TIER_ASKED:
+            return _TIER_ASKED
+        if value == _TIER_ALLOWED:
+            return _TIER_ALLOWED
+    return _TIER_NEVER
 
 
 def tier_allows(section: Any) -> bool:
-    """Whether :func:`tier_writes` answers ``allowed``. Never raises."""
-    return tier_writes(section) == _TIER_ALLOWED
+    """Whether the tier arms anything: :func:`tier_writes` is not ``never``. Never raises.
+
+    This reads the ceiling only: ``asked`` and ``allowed`` both answer true, so
+    whether a write prompts is not decided here.
+    """
+    return tier_writes(section) != _TIER_NEVER
 
 
 #: What kind of machine each control target names by its name alone, for the
@@ -1252,7 +1276,7 @@ def tier_limits_database_targets(section: Any, *, path_configured: bool) -> list
     """The targets the login tier lets write whose limits posture needs a database.
 
     The tier is a ceiling, not a selection: a render whose :func:`tier_writes`
-    answers ``allowed`` lets a session write to every :func:`configured_targets`,
+    answers ``asked`` or ``allowed`` lets a session write to every :func:`configured_targets`,
     so every one of them whose resolved :func:`target_limits_posture` makes
     :func:`limits_database_required` true — limits checking on, and a mode
     other than ``optional`` or a path configured — needs the channel-limits

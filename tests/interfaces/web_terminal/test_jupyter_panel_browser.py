@@ -984,7 +984,7 @@ def _violations(page: Page) -> list[dict]:
 
 
 def _switch_of(target: str) -> str | None:
-    """The record's writes switch for *target*: ``"on"``, or ``None`` for off."""
+    """The record's writes switch for *target*: ``"asked"`` or ``"allowed"``, or ``None`` for off."""
     record = read_record()
     assert record is not None, "the deployment has no control-context record"
     return dict(record.switch or {}).get(target)
@@ -1116,7 +1116,7 @@ def test_agent_script_in_an_output_makes_no_request_and_the_switch_stays_off(
             # The control: the same payload, from outside the policy, is a
             # working credentialed write.
             page.evaluate(f"() => {{ {_PAYLOAD.replace('PROBE', 'control')} }}")
-            _wait_for_switch(page, POSTURE_TARGET, "on")
+            _wait_for_switch(page, POSTURE_TARGET, "asked")
             control = f"{base_url}/api/terminal/posture?probe=control"
             assert [(m, url) for m, url in sent if "probe=" in url] == [
                 ("GET", control),
@@ -1216,7 +1216,7 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             page.locator(MODAL_CONFIRM).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
             expect(toggle).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
-            _wait_for_switch(page, POSTURE_TARGET, "on")
+            _wait_for_switch(page, POSTURE_TARGET, "asked")
 
             toggle.click()
             expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)

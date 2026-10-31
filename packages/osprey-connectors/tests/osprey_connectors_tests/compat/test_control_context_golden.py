@@ -82,3 +82,32 @@ def test_a_golden_report_the_reader_refuses_breaks_the_contract(tmp_path: Path) 
     report.write_text(json.dumps({**json.loads(report.read_text()), "server_pid": 0}))
     with pytest.raises(contracts.ContractError, match="no longer parses"):
         contracts.check_control_context_golden(fixtures)
+
+
+def test_the_golden_switch_record_reads_its_legacy_on_as_asked() -> None:
+    contracts.check_switch_golden()
+
+
+def test_a_golden_switch_the_reader_reads_as_off_breaks_the_contract(tmp_path: Path) -> None:
+    fixtures = tmp_path / "switch_on"
+    shutil.copytree(contracts.SWITCH_ON_FIXTURES, fixtures)
+    record = fixtures / control_context.RECORD_FILENAME
+    record.write_text(json.dumps({**json.loads(record.read_text()), "switch": {"va": "ON"}}))
+    with pytest.raises(contracts.ContractError, match="golden switch record reads as"):
+        contracts.check_switch_golden(fixtures)
+
+
+def test_the_legacy_gesture_word_arms_at_asked_and_is_never_stored(tmp_path: Path) -> None:
+    path = contracts.check_set_switch_legacy_word(tmp_path)
+    assert '"on"' not in path.read_text()
+
+
+def test_a_package_that_refuses_the_legacy_gesture_word_breaks_the_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(_targets, state, **_kwargs):
+        raise ValueError(f"set_switch state must be off, asked or allowed, not {state!r}")
+
+    monkeypatch.setattr(control_context, "set_switch", refuse)
+    with pytest.raises(contracts.ContractError, match='"on"'):
+        contracts.check_set_switch_legacy_word(tmp_path)
