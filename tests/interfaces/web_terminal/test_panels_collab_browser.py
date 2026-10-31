@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from contextlib import contextmanager
 
@@ -297,9 +298,18 @@ def _wait_for_client_tiles(page: Page, expected: list[str], timeout: float = 10_
     )
 
 
+def _title_case(label: str) -> str:
+    """The sidebar's reading of a panel label (panel-catalog.js ``titleCase``):
+    an all-caps label reads ``Data Viz``; mixed case is kept as spelled."""
+    if label != label.upper():
+        return label
+    return re.sub(r"(^|[\s-])(\w)", lambda m: m.group(1) + m.group(2).upper(), label.lower())
+
+
 def _service_tab(page: Page, label: str):
-    """The dockview tile strip whose accessible name is exactly ``label``."""
-    strip = page.locator(f'.tile-tab[aria-label="{label}"]')
+    """The dockview tile strip whose accessible name is exactly the
+    title-cased ``label`` the page renders."""
+    strip = page.locator(f'.tile-tab[aria-label="{_title_case(label)}"]')
     return page.locator(".dv-tab").filter(has=strip)
 
 
