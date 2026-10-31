@@ -384,7 +384,7 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
 
         # A rail click takes the focused tile over (one panel per tile).
         rail_entry(page, "jupyter").click()
-        expect(page.locator('.tile-tab[aria-label="JUPYTER"]')).to_have_count(1, timeout=10_000)
+        expect(page.locator('.tile-tab[aria-label="Jupyter"]')).to_have_count(1, timeout=10_000)
 
         lab = _lab(page)
         expect(lab.locator("#jp-main-dock-panel")).to_be_visible(timeout=_LAB_BOOT_MS)

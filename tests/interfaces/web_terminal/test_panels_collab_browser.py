@@ -629,7 +629,7 @@ def test_arrange_converges_from_two_layouts_without_a_report_loop(tmp_path, chro
             # Left-to-right on screen, not merely in the serialization.
             service = [g for g in _dock_groups(page) if "Agent" not in g["tabs"]]
             order = [g["tabs"][0] for g in sorted(service, key=lambda g: g["x"])]
-            assert order == ["DATA VIZ", "Artifacts"], order
+            assert order == [_title_case("DATA VIZ"), "Artifacts"], order
 
         # The arrangement reached the server as an observation, not just a command.
         _wait_for_open_tiles(base_url, ["data-viz", "artifacts"])
@@ -930,7 +930,8 @@ def test_vertical_split_reports_column_before_its_neighbour(tmp_path, chromium_b
 
         # Assert the arrangement really is a column beside a full-height tile.
         groups = {g["tabs"][0]: g for g in _dock_groups(page) if len(g["tabs"]) == 1}
-        artifacts, scope, data_viz = groups["Artifacts"], groups["SCOPE"], groups["DATA VIZ"]
+        artifacts = groups["Artifacts"]
+        scope, data_viz = groups[_title_case("SCOPE")], groups[_title_case("DATA VIZ")]
         assert abs(scope["x"] - artifacts["x"]) <= 2, groups
         assert abs(scope["w"] - artifacts["w"]) <= 2, groups
         assert scope["y"] > artifacts["y"], groups

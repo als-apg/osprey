@@ -582,10 +582,19 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
         )
         groups = _dock_groups(page)
         assert groups[0]["tabs"] == ["Agent"], groups
-        dock_w = page.evaluate(
-            "() => document.getElementById('dock-root').getBoundingClientRect().width"
+        # The card sits inside its view's gutter, so "fills the dock" means the
+        # dock's width less the padding the view itself computes.
+        room = page.evaluate(
+            """() => {
+              const dock = document.getElementById('dock-root').getBoundingClientRect();
+              const view = document.querySelector('.dock-root .dv-view:has(> .dv-groupview)');
+              const css = getComputedStyle(view);
+              const left = parseFloat(css.paddingLeft);
+              return { x: dock.x + left, w: dock.width - left - parseFloat(css.paddingRight) };
+            }"""
         )
-        assert abs(groups[0]["w"] - dock_w) <= 2, (groups, dock_w)
+        assert abs(groups[0]["x"] - room["x"]) <= 2, (groups, room)
+        assert abs(groups[0]["w"] - room["w"]) <= 2, (groups, room)
 
         page.close()
 
@@ -728,9 +737,12 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         # the echo arrived and was applied; the tile assertion after it is then
         # about the handler's work, not about the network. Both at the 10s budget
         # this file already uses for round trips that must survive suite load.
+        # The Artifacts row is page-owned: a non-member is parked hidden, not
+        # removed (panel-rail.js), so "out of the rail" is "not in view".
         _open_rail_menu(page, "artifacts")
         _menu_row(page, "Remove from rail").click()
-        expect(artifacts_rail).to_have_count(0, timeout=10_000)
+        expect(artifacts_rail).to_be_hidden(timeout=10_000)
+        assert "artifacts" not in _rail_order(page)
         expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=10_000)
         page.wait_for_function(
             "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
@@ -848,7 +860,7 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
         # The unified bar: visible title + pop out + close, no grip badge.
         tab = _service_tab(page, "DATA VIZ")
         expect(tab.locator(".tile-tab-grip")).to_have_count(0)
-        expect(tab.locator(".tile-tab-title")).to_have_text("DATA VIZ")
+        expect(tab.locator(".tile-tab-title")).to_have_text(_title_case("DATA VIZ"))
         expect(tab.locator(".tile-tab-close")).to_have_count(1)
         expect(tab.locator(".tile-tab-popout")).to_have_count(1)
         page.wait_for_timeout(600)
@@ -1017,7 +1029,7 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
         groups = _dock_groups(page)
         term = next(g for g in groups if g["tabs"] == ["Agent"])
-        dv = next(g for g in groups if g["tabs"] == ["DATA VIZ"])
+        dv = next(g for g in groups if g["tabs"] == [_title_case("DATA VIZ")])
         assert dv["y"] > term["y"], (term, dv)
 
         page.close()
@@ -1025,7 +1037,7 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
 
 _RAIL_REORDER_JS = """(args) => {
     const [panelId, beforeId] = args;
-    const rail = document.querySelector('nav.panel-rail');
+    const rail = document.querySelector('#panel-rail');
     const entry = rail.querySelector(`[data-panel-id="${panelId}"]`);
     const target = rail.querySelector(`[data-panel-id="${beforeId}"]`).getBoundingClientRect();
     const dt = new DataTransfer();
@@ -1042,8 +1054,10 @@ _RAIL_REORDER_JS = """(args) => {
 
 
 def _rail_order(page: Page) -> list[str]:
+    """The ids of the rows in view, top to bottom (a parked row is not one)."""
     return page.eval_on_selector_all(
-        "nav.panel-rail .panel-rail-button", "els => els.map(e => e.dataset.panelId)"
+        "#panel-rail .panel-rail-button",
+        "els => els.filter(e => e.checkVisibility()).map(e => e.dataset.panelId)",
     )
 
 
@@ -1053,39 +1067,43 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
     """Dropping a rail entry on the rail itself moves it there.
 
     The order is the server's, so a second client follows the move and a
-    reload draws the same rail; Agent stays at the head throughout.
+    reload draws the same rail; Agent stays at the head throughout. The two rows
+    share the Tools group, because a drop into another group is a group move
+    rather than a pure reorder.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
+    ops = {**_CUSTOM_DATA_VIZ, "id": "ops", "label": "OPS", "url": "http://ops.internal:8080"}
 
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
+        custom_panels=[_CUSTOM_DATA_VIZ, ops],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         other = _open_page(chromium_browser, base_url)
-        before = ["terminal", "artifacts", "data-viz"]
-        expect(page.locator('nav.panel-rail [data-panel-id="data-viz"]')).to_have_count(1)
-        assert _rail_order(page) == before
+        before = ["terminal", "artifacts", "data-viz", "ops"]
+        for client in (page, other):
+            expect(client.locator('#panel-rail [data-panel-id="ops"]')).to_have_count(1)
+            assert _rail_order(client) == before
 
-        marked = page.evaluate(_RAIL_REORDER_JS, ["data-viz", "artifacts"])
-        assert marked == "artifacts"
+        marked = page.evaluate(_RAIL_REORDER_JS, ["ops", "data-viz"])
+        assert marked == "data-viz"
 
-        after = ["terminal", "data-viz", "artifacts"]
+        after = ["terminal", "artifacts", "ops", "data-viz"]
         for client in (page, other):
             client.wait_for_function(
                 """(want) => JSON.stringify([...document.querySelectorAll(
-                    'nav.panel-rail .panel-rail-button')].map(e => e.dataset.panelId))
-                    === JSON.stringify(want)""",
+                    '#panel-rail .panel-rail-button')].filter(e => e.checkVisibility())
+                    .map(e => e.dataset.panelId)) === JSON.stringify(want)""",
                 arg=after,
                 timeout=5_000,
             )
         # The drop opened no tile: the rail gesture is not the workspace one.
-        expect(_service_tab(page, "DATA VIZ")).to_have_count(0)
+        expect(_service_tab(page, "OPS")).to_have_count(0)
 
         page.reload()
-        expect(page.locator('nav.panel-rail [data-panel-id="data-viz"]')).to_have_count(1)
+        expect(page.locator('#panel-rail [data-panel-id="ops"]')).to_have_count(1)
         assert _rail_order(page) == after
 
         other.close()
@@ -1351,7 +1369,9 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         assert all(len(g["tabs"]) == 1 for g in before), before
 
         # Act — the restack gesture, with an accepted edge target as contrast.
-        probe = page.evaluate(_TAB_DRAG_PROBE_JS, {"source": "DATA VIZ", "target": "Artifacts"})
+        probe = page.evaluate(
+            _TAB_DRAG_PROBE_JS, {"source": _title_case("DATA VIZ"), "target": "Artifacts"}
+        )
         assert "error" not in probe, probe
         assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
         assert probe["clearedAfterEdge"] is True, probe
@@ -1715,12 +1735,12 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         assert all(t in ("Agent", "Artifacts") for t in all_tabs), (
             f"unexpected/dead dock tab after restore: {groups}"
         )
-        assert all_tabs.count("MONITOR") == 0, groups
+        assert all_tabs.count(_title_case("MONITOR")) == 0, groups
 
         # Focusing the panel registered during simple mode docks one clean tab.
         _focus_service_panel(page, "monitor", "MONITOR")
         groups = _dock_groups(page)
-        monitor_tabs = [t for g in groups for t in g["tabs"] if t == "MONITOR"]
+        monitor_tabs = [t for g in groups for t in g["tabs"] if t == _title_case("MONITOR")]
         assert len(monitor_tabs) == 1, f"expected exactly one MONITOR tab: {groups}"
 
         page.close()
@@ -1985,11 +2005,12 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
             expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
-            # The hidden default never surfaced itself: no rail entry (it is not
-            # a member), no dock tab.
+            # The hidden default never surfaced itself: no rail entry in view (it
+            # is not a member, and its page-owned row stays parked), no dock tab.
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-            ).to_have_count(0)
+            ).to_be_hidden()
+            assert "artifacts" not in _rail_order(page)
             expect(_service_tab(page, "Artifacts")).to_have_count(0)
 
             page.close()
@@ -2479,11 +2500,17 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             artifact_url=f"http://127.0.0.1:{reserve_port()}",
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
+            # Three tiles beside the sidebar: at the default width a tile folds
+            # its lowest-priority item into its overflow menu. Give them the
+            # room to show every item in the bar, and prove nothing folded.
+            page.set_viewport_size({"width": 1600, "height": 800})
             _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
 
             # Contribution renders inside the CONTRIB tile's bar only.
             tab = _service_tab(page, "CONTRIB")
             expect(tab.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
+            expect(tab.locator(".contrib-nav-link").first).to_be_visible()
+            expect(tab.locator(".contrib-overflow-btn")).to_have_count(0)
             expect(tab.locator(".contrib-nav-link.active")).to_have_text("Browse")
             expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
             expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
@@ -2556,7 +2583,7 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(
             bar = page.locator("#right-panel > .fallback-tile-bar")
             expect(bar).to_have_count(1)
             expect(bar).to_be_visible()
-            expect(bar.locator(".tile-tab-title")).to_have_text("CONTRIB")
+            expect(bar.locator(".tile-tab-title")).to_have_text(_title_case("CONTRIB"))
             expect(bar.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
             refresh = bar.locator('[data-contrib-key="button:refresh"]')
             expect(refresh).to_be_visible()
@@ -2881,7 +2908,7 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
             "Remove from rail",
         ], _menu_labels(page)
         expect(menu).to_have_attribute("role", "menu")
-        expect(menu).to_have_attribute("aria-label", "DATA VIZ actions")
+        expect(menu).to_have_attribute("aria-label", f"{_title_case('DATA VIZ')} actions")
         expect(menu.locator(".rail-context-divider")).to_have_count(2)
         expect(menu.locator(".rail-context-glyph")).to_have_count(3)
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
@@ -3000,7 +3027,9 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
         _menu_row(page, "Remove from rail").click()
 
         notice = page.locator("#undo-notice")
-        expect(notice).to_contain_text("DATA VIZ removed from the rail", timeout=5_000)
+        expect(notice).to_contain_text(
+            f"{_title_case('DATA VIZ')} removed from the rail", timeout=5_000
+        )
         expect(_rail_entry(page, "data-viz")).to_have_count(0, timeout=10_000)
 
         notice.get_by_role("button", name="Undo").click()
@@ -3340,7 +3369,8 @@ _PALETTE_RECENT_ROWS_JS = r"""() => {
       if (node.textContent === 'Recent') inRecent = true;
       continue;
     }
-    if (inRecent) rows.push(node.textContent);
+    // The label, not the row: a row's detail ("new tab") is a separate span.
+    if (inRecent) rows.push(node.querySelector('.command-palette-item-label').textContent);
   }
   return inRecent ? rows : null;
 }"""
