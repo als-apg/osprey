@@ -350,6 +350,14 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
             for i, group in enumerate(entry.require.one_of)
             for f in group
         ]
+        for i, digest in enumerate(entry.bind.input_digests):
+            if digest.field not in entry.require.all_of:
+                refuse(
+                    f"{at}.bind.input_digests.{i}.field",
+                    "digest_required",
+                    f"{entry.tool} binds the input digest {digest.field!r}, which "
+                    "require.all_of must name: every bound digest is required",
+                )
         for field, name in required:
             if name not in produced:
                 refuse(
