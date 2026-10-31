@@ -43,6 +43,7 @@ import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { KIND_REAL, KIND_REHEARSAL, KIND_SIMULATOR, KIND_WORDS } from './control-target-facts.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
+import { createSpotlight } from './tour-spotlight.js';
 
 /** Dismissal flag ("Don't show this again" / completed). Scoped per user. */
 const DISMISS_BASE = 'osprey-tour-dismissed-v2';
@@ -384,6 +385,11 @@ const tour = {
   activatedStep: null,
   /** @type {(() => void) | null} */
   activeCleanup: null,
+  /**
+   * The spotlight layer while a step shows (`els.spot` is its element).
+   * @type {ReturnType<typeof createSpotlight> | null}
+   */
+  spotlight: null,
 
   runCleanup() {
     if (this.activeCleanup) this.activeCleanup();
@@ -499,24 +505,25 @@ const tour = {
       }, SETTLE_MS);
     }
 
-    // Spotlight rect: the anchor plus whatever its activation revealed.
+    // Spotlight parts: the anchor plus whatever its activation revealed.
     // Falls back to the bare anchor when nothing measures visible (a
-    // zero-rect anchor must still produce a finite union).
+    // zero-rect anchor must still produce a finite union). The spotlight is
+    // their union; the card is placed against their bounding box.
     const parts = [target, ...(step.extras ? step.extras() : [])].filter(visible);
     const rects = (parts.length ? parts : [target]).map((p) => p.getBoundingClientRect());
     const top0 = Math.min(...rects.map((q) => q.top));
     const left0 = Math.min(...rects.map((q) => q.left));
     const right0 = Math.max(...rects.map((q) => q.right));
     const bottom0 = Math.max(...rects.map((q) => q.bottom));
-    const pad = 6;
 
-    const spot = this.ensure('spot', 'tour-spot');
-    Object.assign(spot.style, {
-      top: `${top0 - pad}px`,
-      left: `${left0 - pad}px`,
-      width: `${right0 - left0 + 2 * pad}px`,
-      height: `${bottom0 - top0 + 2 * pad}px`,
-    });
+    if (!this.spotlight || !this.els.spot) {
+      this.spotlight = createSpotlight();
+      this.els.spot = this.spotlight.el;
+      document.body.appendChild(this.spotlight.el);
+    }
+    this.spotlight.move(
+      rects.map(({ left, top, right, bottom }) => ({ left, top, right, bottom }))
+    );
     this.ensure('blocker', 'tour-blocker');
 
     const card = this.rebuildCard();

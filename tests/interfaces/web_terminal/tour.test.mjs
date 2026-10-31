@@ -460,6 +460,46 @@ describe('activation', () => {
     expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
+  test('the target step spotlights chip and popover as one outline, not their box', () => {
+    mountFullShell();
+    // Reduced motion draws the spotlight at once rather than easing it.
+    vi.spyOn(window, 'matchMedia').mockReturnValue(
+      /** @type {MediaQueryList} */ (/** @type {unknown} */ ({ matches: true }))
+    );
+    /** @param {Element} node @param {number[]} edges left, top, right, bottom */
+    const place = (node, [left, top, right, bottom]) => {
+      node.getBoundingClientRect = () =>
+        /** @type {DOMRect} */ ({
+          left,
+          top,
+          right,
+          bottom,
+          width: right - left,
+          height: bottom - top,
+        });
+    };
+    place(find('#sidebar-target'), [8, 10, 240, 50]);
+    const chip = find('.control-target-chip');
+    chip.addEventListener('click', () => {
+      chip.setAttribute('aria-expanded', 'true');
+      const popover = document.createElement('div');
+      popover.id = 'control-target-popover';
+      place(popover, [244, 10, 520, 260]);
+      document.body.appendChild(popover);
+    });
+    startTour();
+    goTo('Your control target');
+    vi.advanceTimersByTime(200); // the settle re-render measures the popover
+
+    // SVG nodes, so not find(): that one asserts an HTMLElement.
+    const edge = document.querySelector('.tour-spot .tour-spot-edge')?.getAttribute('d') ?? '';
+    // An L has six corners; the box round both would have four.
+    expect(edge.match(/A/g)).toHaveLength(6);
+    const dim = document.querySelector('.tour-spot .tour-spot-dim');
+    expect(dim?.getAttribute('fill-rule')).toBe('evenodd');
+    expect(dim?.getAttribute('d')).toContain(edge);
+  });
+
   test('a panel step presses its sidebar row — but never the ACTIVE one', () => {
     mountFullShell();
     const workspace = find('[data-panel-id="artifacts"]');
