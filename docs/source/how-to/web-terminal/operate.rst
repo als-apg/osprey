@@ -205,26 +205,16 @@ Facility storage ring* rather than *Real machine*); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server's own technical label.
 
-The second part is **your login's** write switch for that machine. It has
-three positions, and the word says what the next write gets:
+The second part is **your login's** write switch for that machine, and what
+the next write would get:
 
-- **writes asked** --- every machine write asks you first, in the approval
-  card, as it always has.
-- **writes allowed** --- the same writes run without a prompt. Each still
-  leaves an approval record and an audit line naming your switch position.
+- **writes asked** --- every machine write asks you first, in the approval card.
+- **writes allowed** --- the same writes run without a prompt.
 - **writes off** --- writes are refused. Reads are untouched: the agent keeps
   its full view of the control system and of the project, and can still run
   analysis, plots and read-only Python.
-- **writes locked** --- your switch is at asked or allowed, but something the
-  chip cannot lift refuses the write. The popover shows the phrase for it and
-  who lifts it.
-
-The position decides for the **governed** tools: ``channel_write``, ``execute``
-and ``execute_file`` in write mode, ``pyaml_measure``, ``queue_add``,
-``queue_start``, and every declared facility write tool whose server carries
-both the writes check and the approval hook. Every other approval-gated tool
-keeps its own policy in every position. Python code that names the switch
-store asks in every position.
+- **writes locked** --- your switch is armed, but something the chip cannot lift
+  refuses the write. The popover shows the phrase for it and who lifts it.
 
 A switch is one login's. Two logins on the same machine each have their own,
 and one login's position never changes the other's writes.
@@ -242,10 +232,8 @@ of the *nothing moves* lines) sits with its endpoint and the server's own
 label behind the small ⓘ beside each name, on hover or keyboard focus:
 
 - **The writes switch** --- per machine, for every session of this login:
-  three options, *off*, *asked* and *allowed*, the checked one the stored
-  position. *Off* is never disabled. A position your tier does not reach, or
-  that a lock holds, stays on screen disabled, with the reason on hover
-  (*your tier caps writes at asked*).
+  *off*, *asked* or *allowed*. *Off* is always available. A position your tier
+  or a lock forbids is disabled, with the reason on hover.
 - **Switch to** --- moves the deployment onto that machine. Where a switch is
   not available, the button's place is taken by a short phrase for the reason
   --- ``not set up``, ``needs gateway ack`` --- with the server's full
@@ -261,31 +249,25 @@ confirmation dialogs, where the decision is actually made.
 The foot has **Turn all writes off**: every switch of your login goes off in
 one click, a machine no longer configured included. It stops your login's
 writes only; other logins keep theirs. It is enabled while any of your
-switches is at asked or allowed.
+switches is armed.
 
-Move the switch
-~~~~~~~~~~~~~~~
+Turn writes off, or on
+~~~~~~~~~~~~~~~~~~~~~~
 
-The switch is **per machine**. Set the real machine to off and work on the
+The switch is **per machine**. Turn the real machine off and work on the
 simulator carries on, which is the point: you put the machine you are worried
 about out of reach without giving up the one you are working on.
 
-**Narrowing applies as you click** (allowed to asked, anything to off), and
-nothing refuses it --- no lock, no read-only run, no second terminal. If a
-stop cannot be recorded you are told plainly that it did not take effect; the
-chip never shows an off that was not recorded.
+**Narrowing** (to *asked*, or to *off*) applies as you click, and nothing
+refuses it --- no lock, no read-only run, no second terminal. If a stop cannot
+be recorded you are told plainly that it did not take effect; the chip never
+shows an off that was not recorded.
 
-**Widening confirms first** (off to asked, off to allowed, asked to allowed).
-The confirmation names the machine and says whether writes will still prompt.
-*Don't ask again for this machine* is offered only for a move to asked on the
-rehearsal or the simulator (Shift-click brings the dialog back). A move to
-allowed, and any move on the real machine, confirms every time. If a stop
-lands while you are confirming, the move does not take effect: the chip
-re-reads and you click again.
-
-Every move leaves one audit line naming your login, the machine, the position
-before and after, and whether the confirm was waived; **Turn all writes off**
-leaves one.
+**Widening** asks first. The confirmation names the machine and says whether
+writes will still prompt. Tick *Don't ask again for this machine* to skip it
+for a move to *asked* (Shift-click brings it back). A move to *allowed*, and
+the real machine, always ask. If a stop lands while you are confirming, the
+move does not take effect: the chip re-reads and you click again.
 
 **Nothing is restarted.** Every gate reads the switch at the moment of the
 write. A narrowing reaches every next write, runs already going included: the
@@ -323,10 +305,8 @@ machine.)*:
    * - *Writes are off*, *a stop came after the turn-on began*
      - You: move the switch to asked or allowed.
 
-**The tier is a ceiling.** Your login's tier says how far the switch may go:
-``never``, ``asked`` or ``allowed`` (:doc:`multi-user/tiers`). A stored
-position past it is inert --- writes behave as the ceiling --- and comes back
-when the tier is restored, with no new click.
+A position past your login's tier (:doc:`multi-user/tiers`) acts as the tier
+until the tier is restored.
 
 Switch the deployment to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -412,7 +392,7 @@ best-effort rather than enforced:
        refuse.
 
 Every layer speaks the phrase from the table above, so a refusal never sends
-you to the wrong control. A switch you set to off sounds like *"Writes are
+you to the wrong control. A switch you turned off sounds like *"Writes are
 off; turn it on from the chip in the web terminal. (Concerns the real
 machine.)"* --- and the chip is where you move it. A read-only run says the
 chip cannot lift it, and a refusal nobody set --- a switch that cannot be read

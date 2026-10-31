@@ -416,9 +416,8 @@ matters most. The tier key says how far a login may write:
 
 The tier is target-blind. Which machine a write reaches is the person's own
 switch, set per machine from the
-:ref:`control-target chip <web-terminal-session-posture>` to off, asked or
-allowed; a machine with no position is off. Set the simulator to asked and
-leave the real machine at off, and the same
+:ref:`control-target chip <web-terminal-session-posture>`, and every machine
+starts off. Arm the simulator and leave the real machine off, and the same
 write tool that moves the simulator is refused on the machine after a switch
 (:doc:`switch-control-target`), with no config edit and no rebuild. The rule is
 on :ref:`write-safety-config`.

@@ -142,9 +142,8 @@ its path), so every render keeps what it carried.
 Your deployment's own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Retired write keys are rewritten to the tier key
-``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and an
-``approval.tools.<tool>`` line for a tool the write switch governs is removed:
-the switch's position decides for it. Prints
+``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
+retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
@@ -208,10 +207,7 @@ facilities' gateway addresses.
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
    osprey set --repo ~/my-assistant config.control_system.writes=never
 
-The write ceiling only narrows here: ``config.control_system.writes=never`` is
-accepted from any ceiling, ``=asked`` only from ``allowed``, and ``=allowed`` is
-refused. Raising it is an edit to the profile or tier file, where it is
-reviewed. No CLI command moves a login's write switch; that is the chip's.
+``osprey set`` only lowers the write ceiling; raise it in the profile or tier file.
 
 osprey validate
 ===============
@@ -495,10 +491,8 @@ any time.
 Five sections. **Build** says whether ``build/`` still matches ``profile.yml``,
 the same check ``osprey up`` refuses on, and which version of osprey rendered it.
 **Containers** is what the container runtime reports, not what compose thinks
-should exist. **Endpoints** is where the services are declared to answer. **Writes** lists
-each login with its tier and the machines its switch has at ``asked`` or
-``allowed`` (``off`` when none); a stored ``allowed`` under an ``asked`` tier is
-marked capped.
+should exist. **Endpoints** is where the services are declared to answer.
+**Writes** lists each login's tier and switch positions.
 **Agent** is the provider, whether its credential can be found, and whether the
 rendered agent files still match the config.
 

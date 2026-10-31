@@ -105,11 +105,10 @@ asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
 would be. See `From the Web Terminal`_.
 
-Whether writes may run follows it too. Your write switch is per machine ---
-*off*, *asked* or *allowed* --- and a machine with no position is off, so a
-setpoint the simulator took is refused on the real machine until you move that
-machine to asked or allowed from the chip (:ref:`write-safety-config`). Moving
-the deployment never moves a switch. Ask
+Whether writes may run follows it too. Your write switch is per machine
+and starts off on each, so a setpoint the simulator took is refused on the real
+machine until you arm that machine from the chip
+(:ref:`write-safety-config`). Moving the deployment never arms a switch. Ask
 ``control_target`` if you want to know before you move: every row carries its
 own ``writes_permitted``.
 
@@ -267,9 +266,9 @@ The popover on the tutorial deployment, whose baseline is the stand-in: the
 Each machine carries:
 
 - **A writes switch** — your login's switch for that machine, and the control
-  that changes it, in one widget: *off*, *asked* or *allowed*. A narrowing
-  applies as you click and nothing refuses it; a widening confirms first. A
-  position your tier or a lock forbids is disabled, with the reason on hover.
+  that changes it, in one widget: *off*, *asked* or *allowed*. Narrowing
+  applies as you click and nothing refuses it; widening asks first. A position
+  your tier or a lock forbids is disabled, with the reason on hover.
 - **A small ⓘ** after the name — what writing to this machine means (*Writes
   move hardware*, or one of the *nothing moves* lines), the endpoint, and the
   controls server's own technical label, shown on hover or keyboard focus.
@@ -283,15 +282,15 @@ Each machine carries:
   leaves the row after a minute — an outcome is news for about as long as
   someone is watching for it.
 
-The foot's **Turn all writes off** sets every switch of your login to off in
-one click. It stops your login's writes only; other logins keep theirs. A switch
+The foot's **Turn all writes off** turns every switch of your login off in one
+click. It stops your login's writes only; other logins keep theirs. A switch
 is one login's: two logins on one machine never change each other's writes.
 :doc:`../web-terminal/operate` walks the whole surface, including what the
 chip cannot lift and who can.
 
 One process holds the deployment's control context at a time, and only that
-one moves the deployment. A second web terminal of the same login turns
-moves switches as the first does, but its **Switch to** buttons give way
+one moves the deployment. A second web terminal of the same login moves
+switches as the first does, but its **Switch to** buttons give way
 to a phrase naming the holder.
 
 What a deployment needs first
@@ -409,8 +408,7 @@ has actually measured it — whether its gateway answered.
      - Whether writes are permitted on **this target**, whether this target is
        the real machine, and the channel a switch would prove it with. Two rows
        of the same deployment can disagree about the first one: the switch is
-       per machine, so the simulator may be at allowed beside a real machine at
-       off.
+       per machine, so the simulator may be armed beside a real machine that is off.
    * - ``limits_strict``
      - Whether **this target** runs exclusive limits — limits checking on and
        ``mode: exclusive``, so only channels in the limits file can be written.

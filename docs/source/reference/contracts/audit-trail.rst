@@ -97,20 +97,9 @@ refusal never share one.
 ``hook_approval`` has three words of its own, all on the same
 ``tool_use_id``: ``ask`` when the hook put the call in front of an approver,
 then ``approved`` when the harness reported that the call ran, or ``denied``
-when the turn ended without it --- declined or interrupted. A governed write
-the write switch's ``allowed`` position let run is asked of nobody, so it has
-no ``ask`` line: the hook files ``approved`` with reason ``switch`` and
-``approver=write_switch position=allowed`` in ``detail`` as it lets the call
-through (``approver=dispatch_policy`` in a dispatch run). The usual
-``approved`` with reason ``executed`` follows when the call ran; when the turn
-ended without it the line still reads ``approved`` --- the switch's approval
-stood --- with reason ``not_executed``, never ``denied``.
-
-The switch position never rides in ``decision``. ``allowed`` there is the
-envelope's own word for an admitted call, whatever the switch said; the
-position has one home, the approval stamp's ``position`` field, which the MCP
-server copies into the tool-call record's ``approval`` (see
-:ref:`audit-trail-tool-call`).
+when the turn ended without it --- declined or interrupted. A write the
+switch's *allowed* position let run has no ``ask``: its ``approved`` names
+``approver=write_switch`` in ``detail``.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves ``http_mutation``
@@ -179,9 +168,7 @@ JSON object:
        the same way the refusal message names it; on the web surfaces, the
        login the request came from --- see :ref:`audit-trail-identity-keys`.
        An MCP server's own record adds ``approval=approved approver=<who>``
-       when an approval let the call through --- ``human`` for a person,
-       ``write_switch`` when the switch's ``allowed`` position approved it
-       with nobody asked, ``dispatch_policy`` in a dispatch run --- and a control-target
+       when an approval (a person's or the switch's) let the call through, and a control-target
        switch adds ``from_target=`` and ``to_target=``. A control-system write
        adds the account and host the control system sees it from, and the
        person behind a dispatched run or a queued plan; see
@@ -445,11 +432,8 @@ the default record shape:
      - The MCP server's tool prefix, and the ``mcp__<prefix>__<tool>`` name
    * - ``approval``
      - ``{"outcome": "approved", "approver", "permission_mode", "position"}``
-       when an approval let the call through, else ``null``. ``approver`` is
-       ``human``, ``write_switch`` or ``dispatch_policy``; ``position`` is the
-       write switch's position the governed call ran under --- ``asked`` when a
-       person was asked, ``allowed`` when the switch approved it (in a dispatch
-       run too) --- and ``null`` for a call outside the switch's governance
+       when an approval let the call through, else ``null``; ``position`` is
+       the switch position a governed call ran under, else ``null``
    * - ``target``, ``generation``
      - The control target and its generation when the call started
    * - ``facts``

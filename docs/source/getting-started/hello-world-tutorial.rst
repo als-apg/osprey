@@ -118,7 +118,7 @@ per line:
      control_system.limits_checking.enabled: true
      # ...
      # The THIRD guard: a write that passed the master switch and the limits check
-     # still pauses for a yes/no prompt, unless its slider stands at `allowed`.
+     # still pauses for a yes/no prompt, unless the switch is at `allowed`.
      # Applied by the approval hook, so it reaches only hook-wired tools;
      # everything else is gated by the rendered settings.json permissions.
      approval.enabled: true
@@ -235,8 +235,8 @@ This is the first of **three guards** that every write must pass:
 1. **Who may write** (``writes-check`` hook) — the tier key
    ``control_system.writes`` is ``never`` here, so all writes are refused
    outright. This is what just fired: the build bakes the tier into the agent's
-   denied permissions. Once the tier allows writes, the hook reads your login's
-   write switch for the machine on every call: *off*, *asked* or *allowed*. See
+   denied permissions. Once the tier allows writes, the hook asks your login's
+   write switch for the machine on every call. See
    :ref:`write-safety-config`.
 2. **Limits** (``limits`` hook) — the value is checked against per-channel
    bounds and writable flags in ``data/facility/limits.yaml``.
@@ -251,7 +251,7 @@ guarded. Only a read-only deployment may drop them.
 Step 7: Enable Writes — Tier, Rebuild, Chip
 --------------------------------------------
 
-Writes take two steps: the deployment allows them, then you move your switch.
+Writes take two steps: the deployment allows them, then you turn them on.
 
 Open ``profile.yml``, find the ``config:`` block from Step 2, and allow writes:
 
@@ -272,12 +272,10 @@ Then re-render and relaunch:
 Do **not** edit ``build/config.yml`` instead — that file is generated output,
 and your edit would vanish on the next build.
 
-The deployment now *may* write, but your switch is still at off. Click the
+The deployment now *may* write, but your switch is still off. Click the
 control-target chip in the header (``● Simulator · writes off``) and move the
 simulator to *asked* (:ref:`web-terminal-session-posture`). A write asked for
-with the switch at off is refused with a line telling you to do exactly that.
-``asked`` is this tier's ceiling, so *allowed*, where writes run without a
-prompt, stays disabled on the chip.
+with the switch off is refused with a line telling you to do exactly that.
 
 Step 8: Write with the Guards Watching
 ---------------------------------------
@@ -372,8 +370,8 @@ put bounds on it. Add one record:
      min_value: -5.0
      max_value: 5.0
 
-Then ``osprey build`` to carry the change into the render, and try writes
-on either side of the new bounds. This edit-rebuild-observe loop — in ``data/``
+Then ``osprey build`` to carry the change into the render, and try writes on
+either side of the new bounds. This edit-rebuild-observe loop — in ``data/``
 or in ``profile.yml`` — is the same loop every real deployment is grown with.
 
 Step 10: Read What the Agent Recorded

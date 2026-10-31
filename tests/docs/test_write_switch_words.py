@@ -78,8 +78,6 @@ ALLOW = (
     ("how-to/web-terminal/operate.rst", "turn it on from the chip"),
     ("reference/contracts/connectors.rst", "turn it on from the chip"),
     ("architecture/python-executor.rst", "turn it on from the chip"),
-    # The notebook kernel's refusal phrase, quoted verbatim.
-    ("how-to/web-terminal/notebooks.rst", "Turn writes on from the chip"),
     # OSPREY_PREBUILT_IMAGES, an environment switch unrelated to writes.
     ("how-to/deploy-project/compose-templates.rst", "turn the switch on"),
 )

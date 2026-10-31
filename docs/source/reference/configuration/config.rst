@@ -1346,10 +1346,8 @@ agent, whichever surface the write arrives through: the rendered
 safety hooks, rules and skills, the limits and plan-device tables — and, inside
 ``config.yml``,
 the key families that gate writes and approval (``control_system.*``,
-``approval.*``, ``hooks.*``, ``claude_code.*``, among others). The write
-switch's position (*off*, *asked*, *allowed*) is not among them: it is the
-login's, set from the control-target chip, and no config key holds it. These
-artifacts are owned by the build profile: edit them in the profile and run
+``approval.*``, ``hooks.*``, ``claude_code.*``, among others). These artifacts
+are owned by the build profile: edit them in the profile and run
 ``osprey build``. Every refused attempt names the owning channel and is
 recorded in :ref:`the audit trail <reference-audit-trail>`, under
 an ``audit`` entry filed under the acting identity, whose ``surface`` names

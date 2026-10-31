@@ -96,9 +96,7 @@ with:
    os.environ["OSPREY_LAUNCH_POSTURE"]             # what this cell may write
 
 **Nothing restarts.** Switch the control target from the chip, or move the
-write switch, and the next cell you run is routed by the new state. A cell is
-the person's own code, so it never prompts: at *asked* and at *allowed* alike
-it writes, and at *off* it is refused.
+write switch, and the next cell you run is routed by the new state.
 
 Inside the web terminal the header chip is the only place to do that; the
 JUPYTER tab carries no chip of its own. A notebook opened in its own window —
@@ -110,11 +108,10 @@ A cell already running is not re-routed --- but taking writes away still
 reaches it. The two directions are not symmetric, and the difference is worth
 knowing:
 
-- **Moving the switch to off lands at once.** The connector re-reads the
-  write posture on every write, so the running cell's very next write is
-  refused.
-- **Widening waits for the next cell.** A cell can never write more than it
-  was allowed when it started, so a move from off cannot reach it.
+- **Turning writes off lands at once.** The connector re-reads the write
+  posture on every write, so the running cell's very next write is refused.
+- **Widening waits for the next cell.** A cell can never write more
+  than it was allowed when it started, so widening cannot reach it.
 - **Switching the machine waits for the next cell** as well, so a switch never
   lands halfway through your work.
 
@@ -124,7 +121,7 @@ one you are in:
 .. code-block:: text
 
    The control target changed while this cell ran. Re-run the cell.
-   Writes are off for this cell. Turn writes on from the chip, then re-run the cell.
+   Writes are off for this cell. Set the machine to asked or allowed on the chip, then re-run the cell.
 
 A switch takes a moment to reach the machines, and a cell run in that window is
 routed nowhere rather than to a guess:

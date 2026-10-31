@@ -132,8 +132,7 @@ Ten safety layers are applied in sequence:
 5. **Approved-call check** (``_check_approved_call``)---before it spawns a
    ``readwrite`` run of a governed tool (``execute``, ``execute_file``,
    ``pyaml_measure``), the executor reads the record the approval hook left
-   for this tool call: a person's answer at *asked*, the switch's own record
-   (approver ``write_switch``) at *allowed*. The call's
+   for this tool call, a person's or the switch's. The call's
    ``approved_target`` must equal what the prompt recorded and name the
    run's own control target; for ``pyaml_measure`` the call's ``approved_view_sha256``
    must equal the recorded view digest as well. Without a record,
@@ -142,14 +141,8 @@ Ten safety layers are applied in sequence:
    not ``true`` or ``false`` (or an ``approval`` section that is not a
    mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
    Nothing of the record reaches the subprocess, which evaluates no approval
-   policy itself. For these tools the switch's position decides, and
-   ``approval.enabled`` and ``approval.default_policy`` have no say: a call
-   that reaches the server without passing the approval hook gets no
-   read-write run in any position. A deployment whose writes should ask
-   nobody gives the login an ``allowed`` tier and moves the chip to
-   *allowed*; ``approval.enabled: false`` does not do it. Code that names the
-   switch store needs a person's answer in every position: a ``write_switch``
-   record is refused for it.
+   policy itself. A call that reaches the server without passing the
+   approval hook gets no read-write run, whatever ``approval.enabled`` says.
 
 6. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
@@ -571,9 +564,8 @@ Write posture
 
 A ``readwrite`` ``execute`` asks the write verdict (:ref:`write-safety-config`)
 when the run is requested --- the login's tier, then its switch for the run's
-control target, read fresh, so a move made mid-conversation applies to the next
-run. At *asked* the run prompts first; at *allowed* it runs unprompted; at
-*off* it is refused. A refused run gets the verdict's phrase and its trailer, for example::
+control target, read fresh, so a flip made mid-conversation applies to the next
+run. A refused run gets the verdict's phrase and its trailer, for example::
 
    Writes are off; turn it on from the chip in the web terminal.
    [osprey-refusal: switch_off]
@@ -586,7 +578,7 @@ switch from the chip. The phrase names no config key: the deployment's
 
 A run that has already started cannot be *widened*: it keeps the launch pin it
 started under, and a write it attempts on a machine it was launched with writes
-held off for is refused ``launch_pinned``. A switch moved to off mid-run is
+held off for is refused ``launch_pinned``. A switch turned off mid-run is
 honoured by the connector inside the sandbox at the moment of the write.
 
 A run is also refused outright while a control-target switch has not yet
@@ -648,10 +640,9 @@ and the operator alert are what is missing.
 
 .. note::
 
-   Write approval is handled by the ``execution_mode`` parameter. A call to
-   ``execute`` with ``execution_mode="readwrite"`` prompts the user at
-   *asked* and runs on the switch's record at *allowed*; read-only code runs
-   unprompted in every position. There is no separate approval API.
+   Write approval is handled by the ``execution_mode`` parameter. At *asked*, a
+   call to ``execute`` with ``execution_mode="readwrite"`` prompts the user
+   first---there is no separate approval API.
 
 .. seealso::
 

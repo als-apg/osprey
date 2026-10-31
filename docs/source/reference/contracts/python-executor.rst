@@ -38,11 +38,7 @@ takes ``file_path`` and optional ``script_args`` in place of ``code``).
      - ``"readonly"`` blocks detected write patterns. ``"readwrite"`` may write,
        through ``osprey.runtime.write_channel()`` only; a raw client put is
        refused (see
-       :ref:`python-executor-armed-block`). A ``"readwrite"`` call prompts at
-       the switch's *asked* position, runs on the switch's record at
-       *allowed*, and is refused at *off*. Read-only code runs unprompted in
-       every position; code that names the switch store prompts in every
-       position.
+       :ref:`python-executor-armed-block`).
    * - ``save_output``
      - ``True``
      - Save code and output to a workspace data file and artifact store.
@@ -86,12 +82,10 @@ tools to the ``python`` server. A render without one registers neither.
 ``pyaml_measure``
 -----------------
 
-Steps setpoints on the control target through pyAML and writes them back. It
-is a governed tool: at the switch's *asked* position every call for a kind the
-model's measurement file lists prompts first, at *allowed* it runs on the
-switch's record without a prompt (the view the agent named, unshown), and at
-*off* it is denied like every write tool. Any other call reaches the tool
-unasked and is refused there.
+Steps setpoints on the control target through pyAML and writes them back. Every
+call for a kind the model's measurement file lists asks for approval at the
+switch's *asked* position; any other call reaches the tool unasked and is
+refused there. With writes off it is denied like every write tool.
 The prompt lists every setpoint the call steps; a call stepping more than 500
 is refused without asking.
 
