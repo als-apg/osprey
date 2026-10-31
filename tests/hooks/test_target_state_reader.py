@@ -643,3 +643,31 @@ def test_module_imports_no_third_party_dependencies():
         "sys",
         "osprey_hook_log",
     }, top_level_roots
+
+
+# ---------------------------------------------------------------------------
+# the switch words: the upcoming connectors release's arm like "on"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("word", ["on", "asked", "allowed"])
+def test_every_armed_switch_word_reads_as_on(word):
+    assert reader.parse_switch({"va": word, "live": "off"}) == {"va": reader.SWITCH_ON}
+
+
+@pytest.mark.parametrize("word", ["off", "ON", "allow", "", 1, None])
+def test_any_other_switch_word_reads_off(word):
+    assert reader.parse_switch({"va": word}) == {}
+
+
+@pytest.mark.parametrize("word", ["asked", "allowed", "bogus"])
+def test_a_stored_switch_word_gets_the_verdict_on_or_off_gets(state_dir, word):
+    section = {"type": "mock", "writes": "allowed"}
+    expected = "on" if word in ("asked", "allowed") else "off"
+    write_record(state_dir, target="va", switch={"va": expected})
+    baseline = reader.write_verdict(section, "va")
+
+    write_record(state_dir, target="va", switch={"va": word})
+
+    assert reader.write_verdict(section, "va") == baseline
+    assert baseline.allowed is (expected == "on")

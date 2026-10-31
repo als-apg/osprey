@@ -85,6 +85,10 @@ router = APIRouter()
 #: The switch state that arms a machine; the other is ``"off"``.
 SWITCH_ON = "on"
 
+#: The stored words that read as :data:`SWITCH_ON`: ``"on"``, and the upcoming
+#: connectors release's ``"asked"`` and ``"allowed"``. Any other word is off.
+ARMED_SWITCH_WORDS = frozenset({SWITCH_ON, "asked", "allowed"})
+
 
 #: The one spelling of a switch epoch on the wire: a canonical decimal string.
 _WIRE_EPOCH = re.compile(r"0|[1-9][0-9]{0,19}")
@@ -2233,7 +2237,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     _push_control_context(app)
     from osprey.audit.envelope import DECISION_ALLOWED
 
-    on = ",".join(sorted(stored.switch)) or "none"
+    on = ",".join(sorted(t for t, s in stored.switch.items() if s in ARMED_SWITCH_WORDS)) or "none"
     _record_control_gesture(
         session_id,
         subject=AUDIT_SUBJECT_POSTURE_SET,
@@ -2848,7 +2852,7 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     """
     if status == "unreadable":
         return None
-    if record is not None and record.switch.get(target) == SWITCH_ON:
+    if record is not None and record.switch.get(target) in ARMED_SWITCH_WORDS:
         return SWITCH_ON
     return "off"
 
@@ -2958,7 +2962,7 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         # What enables "Turn all off": any machine on in this login's record,
         # configured here or not — a machine a later render dropped is still on.
         "any_on": record is not None
-        and any(state == SWITCH_ON for state in record.switch.values()),
+        and any(state in ARMED_SWITCH_WORDS for state in record.switch.values()),
         "locks": {"readonly_run": readonly_run, "tier": _login_tier(section, login)},
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
