@@ -6,7 +6,9 @@ what it returns through the same path a profile's ``services:`` entry takes.
 
 ``config`` is the rendered-config-shaped mapping of the deployment: the profile's
 ``apps:`` block (``apps.<name>.{config, services.<key>.{network, env}}``) and
-``deployment.port_base`` are the only keys read here.
+``deployment.port_base`` are the only keys :func:`project_deployment` reads;
+:func:`project_login` reads only ``services.<key>.port``, the port
+:func:`project_deployment` assigned.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from typing import Any
 
 from osprey.apps.errors import AppManifestError
 from osprey.apps.manifest import AppManifest, Container, launch_token_env
+from osprey.apps.rules import LoginSelection
 from osprey.port_layout import FACILITY_MAX, default_port, resolve_port_base
 
 #: The bundled template every ``runtime: osprey`` container renders through.
@@ -163,6 +166,79 @@ def _project_container(
                 "single_user_alias": panel.roster_grant.single_user_alias,
             }
     return {"template": template, "config": block}
+
+
+def project_login(
+    manifests: Iterable[AppManifest],
+    config: Mapping[str, Any],
+    selection: LoginSelection,
+) -> dict[str, Any]:
+    """Return the ``web.panels.<id>`` blocks of one login's shown applications.
+
+    Every application with a panel that ``selection`` marks shown gets a block,
+    and its id is added to the login's panel selection (``web_panels``), which the
+    build merges before it tells each block whether this render shows it. The
+    block is config-defined, so the terminal frames it as the deployment's own,
+    never as an opaque panel, and the proxy prefix ``/panel/<id>`` is composed
+    from the id by the terminal, never written here.
+
+    The block carries the login's arming fact by what it holds: on a login that
+    arms the application (:meth:`LoginSelection.arms`) and is not a ``shared``
+    audience, ``agent_routes`` lists every declared route and ``launch_token_env``
+    names the panel's launch token when the manifest asks for one; on any other
+    login ``agent_routes`` lists the safe-method routes only and no launch token
+    is named.
+
+    Args:
+        manifests: The deployment's validated manifests.
+        config: The rendered-config mapping, holding ``services.<key>.port`` for
+            each projected container.
+        selection: This login's selection.
+
+    Returns:
+        ``{"web": {"panels": {<id>: dict}}, "web_panels": [<id>, ...]}``; the
+        ``web_panels`` list holds the ids to add to the login's own selection.
+
+    Raises:
+        AppManifestError: A shown panel's container has no projected port.
+    """
+    services = config.get("services") or {}
+    panels: dict[str, Any] = {}
+    for manifest in manifests:
+        panel = manifest.panel
+        shown = selection.apps.get(manifest.name)
+        if panel is None or shown is None or not shown.shown:
+            continue
+        port = (services.get(panel.container) or {}).get("port")
+        if port is None:
+            raise AppManifestError(
+                manifest.name,
+                "panel.container",
+                "panel_port_missing",
+                f"the panel's container has no services.{panel.container}.port; "
+                "project the deployment's services before its logins",
+            )
+        armed = selection.audience != "shared" and selection.arms(manifest.name)
+        block: dict[str, Any] = {
+            "label": panel.label,
+            "url": f"http://{_LOOPBACK}:{port}",
+            "path": panel.entry,
+        }
+        health = manifest.containers[panel.container].health
+        if health is not None:
+            block["health_endpoint"] = health
+        block["app"] = manifest.name
+        block["agent_routes"] = [
+            {"method": route.method, "path": route.path}
+            for route in panel.agent_routes
+            if armed or not route.is_write
+        ]
+        if armed and panel.launch_token:
+            block["launch_token_env"] = launch_token_env(manifest.name)
+        if "read_timeout_s" in panel.model_fields_set:
+            block["read_timeout_s"] = panel.read_timeout_s
+        panels[panel.id] = block
+    return {"web": {"panels": panels}, "web_panels": list(panels)}
 
 
 def _merge_names(*lists: Iterable[str]) -> list[str]:
