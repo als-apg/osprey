@@ -93,7 +93,11 @@ here, because chat opens companions as browser tabs rather than as a panel
 rail.
 
 The servers run as background threads and stop automatically when you exit
-the OSPREY agent.
+the OSPREY agent. Once the agent's screen is up, what they log goes to a file
+rather than over that screen: ``var/logs/chat-<timestamp>.log`` in the
+deployment repo, named in the line before the launch. A health check that
+passes late or a database that times out is recorded there; only an error
+still reaches the terminal.
 
 When to Use CLI vs. Web Terminal
 --------------------------------

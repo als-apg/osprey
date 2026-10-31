@@ -23,7 +23,15 @@ import logging
 
 from rich.logging import RichHandler
 
-__all__ = ["PRINTED", "gate_installed", "install_gate", "lift_gate"]
+__all__ = [
+    "PRINTED",
+    "gate_installed",
+    "handoff_gate_installed",
+    "install_gate",
+    "install_handoff_gate",
+    "lift_gate",
+    "lift_handoff_gate",
+]
 
 #: The record attribute that marks a warning its call site has already printed
 #: in full; the gate keeps a record carrying it off the terminal.
@@ -143,3 +151,65 @@ def gate_installed(handler: logging.Handler | None = None) -> bool:
     if handler is None:
         return False
     return any(isinstance(existing, _AltitudeGate) for existing in handler.filters)
+
+
+class _HandoffGate(logging.Filter):
+    """Keep everything below ERROR off a handler whose terminal another program owns.
+
+    Installed by a verb that hands its screen to a full-screen program --
+    ``osprey chat``, once the agent's interface is up -- and lifted when that
+    program exits. The daemon threads the verb leaves running (companion
+    servers, the translation proxy) keep logging; while the agent owns the
+    terminal those records are painted over its screen by this handler, in
+    the middle of whatever it is drawing. The gate drops them from this
+    handler only: they are still emitted, and the verb that installs the gate
+    puts a file sink on the root logger first, so every record reaches the
+    log. ERROR and above keep painting, as under :class:`_AltitudeGate`: a
+    failure outranks the screen's tidiness.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Return True when this record should be rendered."""
+        return record.levelno >= logging.ERROR
+
+
+def install_handoff_gate(handler: logging.Handler | None = None) -> None:
+    """Gate ``handler`` for the time another program owns the terminal.
+
+    Exactly one gate: any earlier one is lifted first, so a verb that hands
+    the screen over twice in one process does not stack filters.
+
+    Args:
+        handler: Handler to gate. Defaults to the root ``RichHandler``.
+    """
+    if handler is None:
+        handler = _root_rich_handler()
+    if handler is None:
+        return
+    lift_handoff_gate(handler)
+    handler.addFilter(_HandoffGate())
+
+
+def lift_handoff_gate(handler: logging.Handler | None = None) -> None:
+    """Remove the handoff gate from ``handler``, if one is installed.
+
+    Args:
+        handler: Handler to lift the gate from. Defaults to the root
+            ``RichHandler``.
+    """
+    if handler is None:
+        handler = _root_rich_handler()
+    if handler is None:
+        return
+    for existing in list(handler.filters):
+        if isinstance(existing, _HandoffGate):
+            handler.removeFilter(existing)
+
+
+def handoff_gate_installed(handler: logging.Handler | None = None) -> bool:
+    """Return True when a handoff gate is currently gating ``handler``."""
+    if handler is None:
+        handler = _root_rich_handler()
+    if handler is None:
+        return False
+    return any(isinstance(existing, _HandoffGate) for existing in handler.filters)
