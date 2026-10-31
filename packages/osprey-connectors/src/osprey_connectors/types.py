@@ -90,6 +90,7 @@ __all__ = [
     "TARGET_STANDIN",
     "TARGET_VA",
     "TIER_WORDS",
+    "TierWord",
     "TRANSPORT_CA",
     "TRANSPORT_DOOCS",
     "TRANSPORT_IN_PROCESS",
@@ -260,6 +261,9 @@ _WRITES_LEAF = "writes"
 _TIER_ALLOWED: Literal["allowed"] = "allowed"
 _TIER_ASKED: Literal["asked"] = "asked"
 _TIER_NEVER: Literal["never"] = "never"
+
+#: One tier word, as a type: a member of :data:`TIER_WORDS`.
+TierWord = Literal["never", "asked", "allowed"]
 
 #: The three tier words, narrowest first: every answer :func:`tier_writes` gives.
 TIER_WORDS: tuple[Literal["never"], Literal["asked"], Literal["allowed"]] = (

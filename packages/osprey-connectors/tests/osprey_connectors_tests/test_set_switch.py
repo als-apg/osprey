@@ -520,13 +520,32 @@ def test_turning_every_machine_on_is_a_value_error(data_root, state):
     assert path.read_bytes() == before
 
 
-def test_the_retired_gesture_word_is_a_value_error(data_root):
-    """``on`` is read from an old map; nothing may still say it to the gesture."""
+def test_the_legacy_gesture_word_on_is_taken_as_asked_and_never_stored(data_root):
+    """A framework released before the three positions sends ``on``."""
+    path = write_control_context(data_root)
+    stored = set_switch(["va"], "on", epoch=_epoch(path))
+    assert stored is not None and stored.switch == {"va": "asked"}
+    assert _payload(path)["switch"] == {"va": "asked"}
+
+
+def test_the_legacy_gesture_word_on_widens_like_asked(data_root):
     path = write_control_context(data_root)
     before = path.read_bytes()
-    with pytest.raises(ValueError, match="state"):
-        set_switch(["va"], "on", epoch=_epoch(path))
+    with pytest.raises(StoppedSince):
+        set_switch(["va"], "on")
     assert path.read_bytes() == before
+
+
+def test_the_legacy_gesture_word_on_narrows_allowed_to_asked(data_root):
+    write_control_context(data_root, switch={"va": "allowed"})
+    stored = set_switch(["va"], "on")
+    assert stored is not None and stored.switch == {"va": "asked"}
+
+
+def test_the_legacy_gesture_word_on_cannot_name_all(data_root):
+    write_control_context(data_root)
+    with pytest.raises(ValueError, match="one at a time"):
+        set_switch("all", "on")
 
 
 @pytest.mark.parametrize("epoch", [True, "1", 1.5], ids=["bool", "str", "float"])

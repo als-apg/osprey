@@ -164,6 +164,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "STATE_DIR_NAME",
     "SWITCH_APPLIED",
+    "SWITCH_POSITIONS",
     "SWITCH_REFUSED",
     "ControlContext",
     "Owner",
@@ -262,7 +263,7 @@ _SWITCH_ASKED: Literal["asked"] = "asked"
 _SWITCH_ALLOWED: Literal["allowed"] = "allowed"
 
 #: The word a record written before the three positions arms a machine with.
-#: Read as :data:`_SWITCH_ASKED` and never written. Every other value a payload
+#: Read, and taken by :func:`set_switch`, as :data:`_SWITCH_ASKED`; never written. Every other value a payload
 #: carries under ``switch`` is dropped on parse (rule 2).
 _SWITCH_LEGACY_ON = "on"
 
@@ -904,9 +905,14 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
 #: The keyword a person's gesture uses for "every machine": only ever off.
 _ALL_TARGETS = "all"
 
-#: The gesture's three words, narrowest first: a later one widens an earlier
-#: one. ``"off"`` is not stored (rule 2).
-_SWITCH_STATES = (_SWITCH_OFF, _SWITCH_ASKED, _SWITCH_ALLOWED)
+#: A machine's three positions, narrowest first: a later one widens an earlier
+#: one. The gesture's words and every reader's order. ``"off"`` is not stored
+#: (rule 2).
+SWITCH_POSITIONS: tuple[Literal["off"], Literal["asked"], Literal["allowed"]] = (
+    _SWITCH_OFF,
+    _SWITCH_ASKED,
+    _SWITCH_ALLOWED,
+)
 
 
 class StoppedSince(Exception):
@@ -969,7 +975,7 @@ def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> lis
 
 def _widens(state: str, position: str) -> bool:
     """Whether moving a machine at *position* to *state* widens it."""
-    return _SWITCH_STATES.index(state) > _SWITCH_STATES.index(position)
+    return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
 
 
 def set_switch(
@@ -1007,7 +1013,8 @@ def set_switch(
 
     Args:
         targets: The machines, or ``"all"``.
-        state: ``"off"``, ``"asked"`` or ``"allowed"``.
+        state: ``"off"``, ``"asked"`` or ``"allowed"``; the legacy ``"on"``
+            is taken as ``"asked"`` and never stored.
         epoch: The epoch the gesture was begun against. Ignored when nothing
             widens.
         path: Write this file instead of :func:`record_path`.
@@ -1025,8 +1032,11 @@ def set_switch(
             stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
-    if state not in _SWITCH_STATES:
-        raise ValueError(f"set_switch state must be one of {_SWITCH_STATES}, not {state!r}")
+    if state == _SWITCH_LEGACY_ON:
+        # A framework released before the three positions sends "on".
+        state = _SWITCH_ASKED
+    if state not in SWITCH_POSITIONS:
+        raise ValueError(f"set_switch state must be one of {SWITCH_POSITIONS}, not {state!r}")
     names = _gesture_targets(targets, state)
     if state != _SWITCH_OFF and (
         epoch is not None and (isinstance(epoch, bool) or not isinstance(epoch, int))

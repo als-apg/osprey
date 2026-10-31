@@ -179,6 +179,7 @@ __all__ = [
     "parse_posture_value",
     "stamped_agent_data_root",
     "state_dir",
+    "write_ceiling",
     "write_verdict",
 ]
 
@@ -1091,6 +1092,23 @@ def owner_tier_term(
     return tier if tier in _LOGIN_TIERS else "unknown"
 
 
+def write_ceiling(
+    section: Any, owner: str | NoOwner | None, *, tree_bound: bool | None = None
+) -> Literal["never", "asked", "allowed", "unknown"]:
+    """The highest position a write by *owner* runs at: the verdict's ceiling.
+
+    Under a bound tree the owner's rung (:func:`owner_tier_term`), otherwise
+    :func:`~osprey_connectors.types.tier_writes` of *section*. The ceiling caps
+    an allowed verdict's ``position`` and refuses nothing itself; the tier and
+    rung terms of :func:`write_verdict` do that. *tree_bound* answers for a
+    process other than this one (``None``: :func:`_tree_is_bound`). Never raises.
+    """
+    if not (_tree_is_bound() if tree_bound is None else tree_bound):
+        return tier_writes(section)
+    rung = owner_tier_term(section, owner)
+    return "unknown" if rung == "skip" else rung
+
+
 # -- the write verdict ------------------------------------------------------
 
 
@@ -1166,9 +1184,9 @@ def write_verdict(
        *ignore_launch_pin*, for a caller that reports the pin on its own.
 
     An allowed verdict's ``position`` is the lower of the stored position and
-    the ceiling: :func:`~osprey_connectors.types.tier_writes` of *section* on a
-    host (term 2), the owner's rung under a bound tree (term 5). The ceiling
-    adds no refusal.
+    :func:`write_ceiling`: :func:`~osprey_connectors.types.tier_writes` of
+    *section* on a host (term 2), the owner's rung under a bound tree (term 5).
+    The ceiling adds no refusal.
 
     Tier and owner rung come before the record, so a demoted login's position
     stays on disk, inert, and arms again if the tier is restored. This function
@@ -1294,5 +1312,5 @@ def _write_refusal(
 
     if not ignore_launch_pin and launch_pin_term(target) != "none":
         return "launch_pinned", None
-    ceiling = rung if _tree_is_bound() else tier_writes(section)
+    ceiling = write_ceiling(section, resolved)
     return None, cast("Literal['asked', 'allowed']", min(stored, ceiling, key=_LOGIN_TIERS.index))

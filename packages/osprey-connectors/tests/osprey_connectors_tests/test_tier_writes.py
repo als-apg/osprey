@@ -307,3 +307,37 @@ def test_published_kind_reads_the_state_dir_by_default(tmp_path: Path, monkeypat
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path))
     _report(tmp_path, os.getpid(), {"standin": {"machine_kind": "rehearsal"}})
     assert published_machine_kind(TARGET_STANDIN) == "rehearsal"
+
+
+def test_tier_word_is_the_tier_words_as_a_type():
+    from typing import get_args
+
+    assert get_args(types.TierWord) == types.TIER_WORDS
+
+
+@pytest.mark.parametrize(
+    ("tree_bound", "section", "ceiling"),
+    [
+        # A host caps by its tier; the rung there only refuses.
+        (False, {"writes": "allowed", "login_tiers": {"alice": "asked"}}, "allowed"),
+        (False, {"writes": "asked", "login_tiers": {"alice": "allowed"}}, "asked"),
+        (False, {"writes": "allowed"}, "allowed"),
+        # Under a tree the owner's rung is the ceiling.
+        (True, {"writes": "allowed", "login_tiers": {"alice": "asked"}}, "asked"),
+        (True, {"writes": "asked", "login_tiers": {"alice": "allowed"}}, "allowed"),
+        (True, {"writes": "allowed", "login_tiers": {"alice": "never"}}, "never"),
+        (True, {"writes": "allowed", "login_tiers": {"bob": "allowed"}}, "unknown"),
+        (True, {"writes": "allowed"}, "unknown"),
+    ],
+)
+def test_write_ceiling_is_the_tier_on_a_host_and_the_rung_under_a_tree(
+    monkeypatch, tree_bound, section, ceiling
+):
+    from osprey_connectors import posture_store
+
+    if tree_bound:
+        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
+    else:
+        monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    assert posture_store.write_ceiling(section, "alice") == ceiling
+    assert posture_store.write_ceiling(section, "alice", tree_bound=tree_bound) == ceiling
