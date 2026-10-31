@@ -61,11 +61,12 @@ The Safety Model
 
 The agent can propose writes but cannot execute them alone. When a
 write is proposed, the operator sees the target channel and value and
-must explicitly approve before anything reaches hardware.
+must explicitly approve before anything reaches hardware, unless they set
+that machine's write switch to *allowed*.
 
 Two automated checks run behind the scenes. The **write verdict** blocks a
 write --- no prompt appears --- unless the login's tier allows writes
-(``control_system.writes``) and that login has turned writes on for the machine
+(``control_system.writes``) and that login has armed the machine's switch
 from the web terminal's chip. The switch is per machine, so an operator can
 write to the simulator while the machine that has beam stays off
 (:ref:`write-safety-config`). The **limits system**

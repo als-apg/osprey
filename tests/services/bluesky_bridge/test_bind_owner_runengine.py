@@ -186,7 +186,7 @@ def record_for(tree: Path, owner: str, *, on: bool, target: str = _TARGET) -> Pa
     )
     if on:
         epoch = control_context.read_record(path=path).switch_epoch
-        control_context.set_switch([target], "on", epoch=epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=epoch, path=path)
     posture_store.invalidate_cache()
     return path
 

@@ -131,11 +131,26 @@ dev.write_attribute("Setpoint", 150)  # Refused at runtime: RAW_CLIENT_WRITE
 The `osprey.runtime` API enforces:
 1. **Channel limits** — prevents out-of-range writes (the records of `data/facility/limits.yaml`, which `osprey build` renders into `build/data/channel_limits.json`, the file the connector's reference monitor and the runtime's limits check enforce on every write)
 2. **Write confirmation** — re-reads the channel to confirm it holds the value sent
-3. **Human approval** — routes writes through the approval workflow
+3. **Human approval** — a person approves each write while the machine is at asked; at allowed the login's switch position approves it, and limits still apply
 4. **Audit logging** — records all operations for traceability
 
 Direct {{ protocol_name }} calls skip all of these protections.
 
+The login's write switch has three positions per machine — **off** refuses every
+write, **asked** puts each write in front of a person first, and **allowed** runs it
+without a prompt. The tier sets the furthest position a login may pick: `never`,
+`asked` or `allowed`.
+{% if writes_tier is defined %}
+{%- if writes_tier == 'never' %}
+This agent's tier is `never`: no switch position arms a write here, so every write is refused.
+{%- elif writes_tier == 'asked' %}
+This agent's tier is `asked`: the switch goes no further than asked, so a person approves every write.
+{%- elif writes_tier == 'allowed' %}
+This agent's tier is `allowed`: the login may set a machine to allowed, and then its writes run without a prompt.
+{%- else %}
+{{ fail("control-system-safety: unknown write tier " ~ writes_tier) }}
+{%- endif %}
+{% endif %}
 {% if target_switch_enabled | default(false) %}## Which Machine You Are Talking To
 
 OSPREY names three machines, and a deployment has the ones its config
@@ -189,7 +204,7 @@ a process (so a shelled-out `caput` fails) and loading a shared library through
 readonly script cannot shell out at all. Every refusal is reported to the
 operator and recorded in the deployment's audit log, so working around one is
 never the right move — resubmit with `execution_mode: "readwrite"` and let the
-operator approve it.
+switch position decide it: at asked the operator approves it.
 
 ## Choosing the Right Tool
 
@@ -241,19 +256,21 @@ for a plan that is not.
 Starting a queue moves accelerator hardware. Arming a start needs the lane's
 launch token, which a render is granted per lane: only when its config arms
 writes for the machine that lane drives **and** runs the `bluesky` MCP server.
-Write posture is per machine — `control_system.writes: allowed` is the tier's
-ceiling, and the owner's switch, turned on per machine from the chip, picks
-which machine may write — so a deployment armed for the simulator alone
-holds a token for the simulator's lane and none for the live one. A read-only
-tier never holds one at all.
+Write posture is per machine — `control_system.writes` (`asked` or `allowed`) is
+the tier's ceiling, and the owner's switch, set per machine from the chip to off,
+asked or allowed, picks which machine may write — so a deployment armed for the
+simulator alone holds a token for the simulator's lane and none for the live one.
+A tier at `never` never holds one at all.
 
-Where it is granted, one approval is the whole gate: approving `queue_start` in
-chat starts the queue. There is no second confirmation step anywhere else.
+Where it is granted, `queue_start` follows the switch position of the lane's
+machine: at asked a person approves it in chat and that approval starts the
+queue; at allowed the login's switch position approves it and the queue starts
+without a prompt. There is no second confirmation step anywhere else.
 
 A deploy refuses to grant this token to a render whose settings permit `Bash` or `Monitor`.
-The approval gates the `queue_start` tool, not a shell — an agent with a shell
-could read the token out of its own environment and arm a queue with no approval
-at all.
+The switch and the approval gate the `queue_start` tool, not a shell — an agent
+with a shell could read the token out of its own environment and arm a queue
+past both.
 
 If `queue_start` is refused with `launch_token_invalid` or
 `launch_token_required`, this agent cannot arm the queue here — it was not

@@ -19,6 +19,11 @@
   verbatim, and this template derives nothing from it. Both write-target
   twins read it to send exactly those tools to `live`.
 
+  `governed_tools` is the set the write switch's position decides for, as
+  osprey.registry.mcp.governed_write_tools computed it; rendered verbatim, and
+  read by the approval hook through `is_governed`, which honours the same
+  trailing wildcard as `is_write_tool`.
+
   `control_system_write_tools` is the subset of the project's
   `control_system.write_tools` that this render actually APPENDED to
   `write_tools` — an extra naming a matcher a server already contributed is
@@ -61,6 +66,7 @@
   "write_tools": {{ write_tools | tojson }},
   "control_system_write_tools": {{ appended_extras | tojson }},
   "facility_write_tools": {{ facility_write_tools | default([], true) | tojson }},
+  "governed_tools": {{ governed_tools | default([], true) | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
   "measurement": {{ measurement | default({}, true) | tojson }}

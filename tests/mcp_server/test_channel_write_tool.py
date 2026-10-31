@@ -1624,15 +1624,64 @@ async def test_a_stamp_for_another_tool_is_no_record_of_this_write(tmp_path, mon
     connector.write_channel.assert_not_awaited()
 
 
-async def test_the_write_runs_unchanged_with_approval_switched_off(tmp_path, monkeypatch):
-    """``approval.enabled: false``: no record is asked for, and the envelope is the usual one."""
-    _prepare(tmp_path, monkeypatch, config=_CONFIG + "approval:\n  enabled: false\n")
+@pytest.mark.parametrize(
+    "approval",
+    [
+        pytest.param("approval:\n  enabled: false\n", id="approval-disabled"),
+        pytest.param("approval:\n  enabled: true\n  tools:\n    channel_write: skip\n", id="skip"),
+    ],
+)
+async def test_a_missing_stamp_is_refused_whatever_approval_says(tmp_path, monkeypatch, approval):
+    """``channel_write`` is governed: no ``approval.*`` setting lets it run unrecorded."""
+    _prepare(tmp_path, monkeypatch, config=_CONFIG + approval)
+    connector = AsyncMock()
+
+    with assert_raises_error(error_type="approval_missing") as ctx:
+        await _unstamped_write(connector)
+
+    assert ctx["envelope"]["error_message"].startswith("not run:")
+    connector.write_channel.assert_not_awaited()
+
+
+def _write_switch_ask(state, tool_use_id):
+    """The ask stamp the hook files for ``channel_write`` at ``allowed``."""
+    from osprey.mcp_server.approval_record import (
+        ANSWERED_AT_KEY,
+        APPROVER_WRITE_SWITCH,
+        POSITION_ALLOWED,
+    )
+
+    ApprovalStamps(state).ask(
+        "channel_write",
+        tool_use_id=tool_use_id,
+        approver=APPROVER_WRITE_SWITCH,
+        position=POSITION_ALLOWED,
+        **{ANSWERED_AT_KEY: "2026-01-01T00:00:00+00:00"},
+    )
+
+
+async def test_a_write_switch_stamp_with_its_window_stamp_runs_the_write(tmp_path, monkeypatch):
+    """At ``allowed`` nobody is asked, and the hook's ``write_switch`` record is enough."""
+    from osprey.audit.call import call_scope
+    from osprey.mcp_server.control_system.tools import channel_write as cw
+
+    _prepare(tmp_path, monkeypatch)
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    operations = [{"channel": "TEST:PV", "value": 1.0}]
+    binding = cw._read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
+    _write_switch_ask(state, "toolu_allowed")
+    ApprovalStamps(state).write_approval(operations, None, target=target, generation=generation)
     connector = AsyncMock()
     connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=1.0)
 
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=None,
+    with (
+        call_scope("toolu_allowed", None),
+        patch(
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
+            return_value=None,
+        ),
     ):
         data = extract_response_dict(await _unstamped_write(connector))
 
@@ -1641,23 +1690,24 @@ async def test_the_write_runs_unchanged_with_approval_switched_off(tmp_path, mon
     connector.write_channel.assert_awaited_once()
 
 
-async def test_the_write_runs_without_a_record_where_its_policy_skips(tmp_path, monkeypatch):
-    """A tool whose policy does not ask needs no record."""
-    _prepare(
-        tmp_path,
-        monkeypatch,
-        config=_CONFIG + "approval:\n  enabled: true\n  tools:\n    channel_write: skip\n",
-    )
+async def test_a_write_switch_stamp_without_its_window_stamp_is_refused(tmp_path, monkeypatch):
+    """The ask stamp alone cannot show which target the write was allowed on."""
+    from osprey.audit.call import call_scope
+
+    _prepare(tmp_path, monkeypatch)
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    _write_switch_ask(state, "toolu_allowed")
     connector = AsyncMock()
-    connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=1.0)
 
-    with patch(
-        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
-        return_value=None,
+    with (
+        call_scope("toolu_allowed", None),
+        assert_raises_error(error_type="approval_missing") as ctx,
     ):
-        data = extract_response_dict(await _unstamped_write(connector))
+        await _unstamped_write(connector)
 
-    assert data["status"] == "success"
+    assert "control target" in ctx["envelope"]["error_message"]
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_malformed_approval_switch_refuses_every_write(tmp_path, monkeypatch):

@@ -25,7 +25,16 @@ import pytest
 import yaml
 
 import osprey.runtime.guarded_run as guarded_run
-from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
+from osprey.mcp_server.approval_record import (
+    ANSWERED_AT_KEY,
+    APPROVAL_CONFIG_INVALID,
+    APPROVAL_MISSING,
+    APPROVER_DISPATCH_POLICY,
+    APPROVER_HUMAN,
+    APPROVER_WRITE_SWITCH,
+    POSITION_ALLOWED,
+    Refusal,
+)
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -191,8 +200,14 @@ def stamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return state
 
 
-def _stamp(state: Path, tool: str = "mcp__python__execute", **fields: str) -> None:
-    payload = {"tool_use_id": _CALL_ID, "tool": tool, "approver": "human", **fields}
+def _stamp(
+    state: Path,
+    tool: str = "mcp__python__execute",
+    *,
+    approver: str = APPROVER_HUMAN,
+    **fields: str,
+) -> None:
+    payload = {"tool_use_id": _CALL_ID, "tool": tool, "approver": approver, **fields}
     (state / f"approval_ask_{_CALL_ID}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -385,8 +400,8 @@ def _launched_env(
 @pytest.mark.parametrize(
     ("config", "mode", "stamped"),
     [
-        pytest.param(_approval(tools={"execute": "skip"}), "readwrite", False, id="skip"),
-        pytest.param(_approval(enabled=False), "readwrite", False, id="approval-disabled"),
+        pytest.param(_approval(tools={"execute": "skip"}), "readwrite", True, id="skip"),
+        pytest.param(_approval(enabled=False), "readwrite", True, id="approval-disabled"),
         pytest.param(_ASKING_CONFIG, "readwrite", True, id="asked-and-stamped"),
         pytest.param(_ASKING_CONFIG, "readonly", False, id="readonly"),
     ],
@@ -405,6 +420,46 @@ def test_no_approved_field_reaches_any_sandbox(
     env = _launched_env(tmp_path, monkeypatch, config, mode=mode)
 
     assert [name for name in env if name.startswith("OSPREY_APPROVED_")] == []
+
+
+#: The fields the hook adds to a stamp it files at ``allowed``, with nobody asked.
+_AT_ALLOWED = {"position": POSITION_ALLOWED, ANSWERED_AT_KEY: "2026-01-01T00:00:00+00:00"}
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_approval(tools={"execute": "skip"}), id="skip"),
+        pytest.param(_approval(enabled=False), id="approval-disabled"),
+    ],
+)
+@pytest.mark.usefixtures("stamps")
+def test_a_governed_call_without_a_stamp_is_refused_whatever_approval_says(
+    config: dict[str, Any],
+) -> None:
+    """``execute`` is governed: no ``approval.*`` setting lets it run unrecorded."""
+    assert _refused(config, _BOUND).startswith("not run:")
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_ASKING_CONFIG, id="asking"),
+        pytest.param(_approval(enabled=False), id="approval-disabled"),
+    ],
+)
+def test_a_write_switch_stamp_with_the_bound_target_is_admitted(
+    stamps: Path, config: dict[str, Any]
+) -> None:
+    _stamp(stamps, approver=APPROVER_WRITE_SWITCH, **_AT_ALLOWED, **_BOUND)
+
+    assert _gate(config, _BOUND) is None
+
+
+def test_a_write_switch_stamp_for_another_target_is_refused(stamps: Path) -> None:
+    _stamp(stamps, approver=APPROVER_WRITE_SWITCH, **_AT_ALLOWED, approved_target="va")
+
+    assert "`approved_target` differs" in _refused(_ASKING_CONFIG, _BOUND)
 
 
 def test_a_readonly_call_is_not_checked(stamps: Path) -> None:
@@ -533,6 +588,36 @@ def test_a_measurement_whose_stamp_agrees_on_both_fields_is_admitted(stamps: Pat
     _stamp(stamps, tool="mcp__python__pyaml_measure", **_MEASURE_BOUND)
 
     assert _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure") is None
+
+
+def test_a_measurement_with_a_write_switch_stamp_on_its_bound_view_is_admitted(
+    stamps: Path,
+) -> None:
+    _stamp(
+        stamps,
+        tool="mcp__python__pyaml_measure",
+        approver=APPROVER_WRITE_SWITCH,
+        **_AT_ALLOWED,
+        **_MEASURE_BOUND,
+    )
+
+    assert _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure") is None
+
+
+def test_a_measurement_with_a_write_switch_stamp_on_another_view_is_refused(
+    stamps: Path,
+) -> None:
+    _stamp(
+        stamps,
+        tool="mcp__python__pyaml_measure",
+        approver=APPROVER_WRITE_SWITCH,
+        **_AT_ALLOWED,
+        **{**_MEASURE_BOUND, "approved_view_sha256": "ef" * 32},
+    )
+
+    assert "`approved_view_sha256` differs" in _refused(
+        _ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure"
+    )
 
 
 def test_an_asking_measurement_without_a_view_digest_is_refused(stamps: Path) -> None:
@@ -788,3 +873,88 @@ def test_the_wrapper_passes_its_context_once() -> None:
     script = ExecutionWrapper(execution_mode="readwrite").create_wrapper("x = 1\n")
     assert script.count("context=") == 1
     assert "OSPREY_APPROVED" not in script
+
+
+# ---------------------------------------------------------------------------
+# Store-naming code: only a prompted approver's stamp lets it run
+# ---------------------------------------------------------------------------
+
+
+def _store_naming_code() -> str:
+    from osprey_connectors.refusals import STORE_PATH_MARKERS
+
+    return f"open({sorted(STORE_PATH_MARKERS)[0]!r})\n"
+
+
+def _store_check(config: dict[str, Any], *, call_id: str | None = _CALL_ID) -> Refusal | None:
+    from osprey.audit.call import call_scope
+
+    with call_scope(call_id, None):
+        return executor._check_store_path(_store_naming_code(), config, "execute")
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_ASKING_CONFIG, id="asking"),
+        pytest.param(_approval(enabled=False), id="approval-disabled"),
+    ],
+)
+def test_store_naming_code_with_a_write_switch_stamp_is_refused(
+    stamps: Path, monkeypatch: pytest.MonkeyPatch, config: dict[str, Any]
+) -> None:
+    """``allowed`` asked nobody, so its record cannot vouch for code naming the store."""
+    from osprey_connectors import posture_store
+
+    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    _stamp(stamps, approver=APPROVER_WRITE_SWITCH, **_AT_ALLOWED)
+
+    refusal = _store_check(config)
+
+    assert refusal is not None
+    assert refusal.error_type == APPROVAL_MISSING
+    assert refusal.message == executor.STORE_PATH_REFUSAL
+
+
+def test_store_naming_code_with_a_human_stamp_runs(
+    stamps: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey_connectors import posture_store
+
+    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    _stamp(stamps, approver=APPROVER_HUMAN)
+
+    assert _store_check(_ASKING_CONFIG) is None
+
+
+def test_store_naming_code_with_a_dispatch_policy_stamp_runs_outside_a_dispatch_run(
+    stamps: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The approver rule admits ``dispatch_policy``; a dispatch run is refused before it."""
+    from osprey_connectors import posture_store
+
+    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    _stamp(stamps, approver=APPROVER_DISPATCH_POLICY)
+
+    assert _store_check(_ASKING_CONFIG) is None
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({}, id="no-approver"),
+        pytest.param({"approver": "somebody"}, id="unknown-approver"),
+    ],
+)
+def test_store_naming_code_with_an_unprompted_stamp_is_refused(
+    stamps: Path, monkeypatch: pytest.MonkeyPatch, fields: dict[str, str]
+) -> None:
+    from osprey_connectors import posture_store
+
+    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    payload = {"tool_use_id": _CALL_ID, "tool": "mcp__python__execute", **fields}
+    (stamps / f"approval_ask_{_CALL_ID}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    refusal = _store_check(_ASKING_CONFIG)
+
+    assert refusal is not None and refusal.message == executor.STORE_PATH_REFUSAL

@@ -27,7 +27,7 @@ web_panels:
 config:
   # The tier boundary, pinned rather than left to the deployment's root, so
   # a root that says `never` does not take this tier's writes away.
-  control_system.writes: allowed
+  control_system.writes: asked
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason control_system.writes is.

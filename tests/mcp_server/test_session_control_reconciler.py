@@ -326,7 +326,7 @@ ARMED_RAW: dict[str, Any] = {
 def armed(manager: FakeManager, monkeypatch, raw: dict | None = None):
     """*manager*'s context on :data:`ARMED_RAW`, with both machines switched on."""
     context = install_context(manager, monkeypatch, raw=ARMED_RAW if raw is None else raw)
-    write_record(switch={"live": "on", "va": "on"})
+    write_record(switch={"live": "asked", "va": "asked"})
     return context
 
 
@@ -423,7 +423,7 @@ class TestOwnership:
         """The claim is a merge: it changes who may write, not what it says."""
         manager = FakeManager(target="va", generation=3)
         install_context(manager, monkeypatch)
-        write_record(target="va", generation=3, switch={"live": "on"}, owned_by=None)
+        write_record(target="va", generation=3, switch={"live": "asked"}, owned_by=None)
 
         await session_control.SessionControlReconciler().poll_once()
 
@@ -431,7 +431,7 @@ class TestOwnership:
         assert current.owner.kind == control_context.OWNER_CONTROLS_SERVER
         assert current.owner.pid == os.getpid()
         assert (current.target, current.generation) == ("va", 3)
-        assert current.switch == {"live": "asked"}  # a legacy "on" reads as asked
+        assert current.switch == {"live": "asked"}
         assert current.posture == {"va": "sandbox", "standin": "sandbox"}
 
     @pytest.mark.usefixtures("records")
@@ -659,7 +659,7 @@ class TestReconcileToTheRecord:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(target="live", generation=1, switch={"va": "on"})
+        write_record(target="live", generation=1, switch={"va": "asked"})
         await reconciler.poll_once()
 
         assert manager.reconcile_calls == [("live", 1)]
@@ -1075,7 +1075,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()  # baseline: live switched on
 
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
 
         assert manager.respawns == 1
@@ -1090,7 +1090,7 @@ class TestPostureRealignment:
         await reconciler.poll_once()  # baseline: every switch off
         assert manager.respawns == 0
 
-        write_record(switch={"live": "on"})
+        write_record(switch={"live": "asked"})
         await reconciler.poll_once()
 
         assert manager.respawns == 1
@@ -1103,7 +1103,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(switch={"live": "on"})  # va off, live still on
+        write_record(switch={"live": "asked"})  # va off, live still on
         await reconciler.poll_once()
 
         assert manager.respawns == 0
@@ -1118,7 +1118,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(switch={"live": "on"})
+        write_record(switch={"live": "asked"})
         await reconciler.poll_once()
 
         assert manager.respawns == 0
@@ -1149,7 +1149,7 @@ class TestPostureRealignment:
         await reconciler.poll_once()
 
         write_marker("live")
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
 
         assert manager.respawns == 0
@@ -1183,7 +1183,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
 
         assert manager.respawns == 1, "the rebuild was not attempted"
@@ -1204,11 +1204,11 @@ class TestPostureRealignment:
         """Turning on the machine this server is not on changes nothing here."""
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
-        write_record(switch={"live": "on"})
+        write_record(switch={"live": "asked"})
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()  # baseline: live on, va off
 
-        write_record(switch={"live": "on", "va": "on"})
+        write_record(switch={"live": "asked", "va": "asked"})
         await reconciler.poll_once()
 
         assert manager.respawns == 0
@@ -1221,7 +1221,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
         await reconciler.poll_once()
         await reconciler.poll_once()
@@ -1234,7 +1234,7 @@ class TestPostureRealignment:
         manager = FakeManager(target="live", generation=0)
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
-        write_record(switch={"live": "on"})
+        write_record(switch={"live": "asked"})
         await reconciler.poll_once()
 
         write_request("va")
@@ -1272,7 +1272,7 @@ class TestDisplayRepublication:
         await reconciler.poll_once()  # baseline
         manager.display_publishes = 0
 
-        write_record(switch={"live": "on"})
+        write_record(switch={"live": "asked"})
         await reconciler.poll_once()
 
         assert manager.display_publishes == 1
@@ -1286,7 +1286,7 @@ class TestDisplayRepublication:
         await reconciler.poll_once()
         manager.display_publishes = 0
 
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
 
         assert manager.display_publishes == 1
@@ -1298,7 +1298,7 @@ class TestDisplayRepublication:
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
 
         writes = 0
@@ -1327,7 +1327,7 @@ class TestDisplayRepublication:
         await reconciler.poll_once()
         manager.display_publishes = 0
 
-        write_record(switch={"va": "on"})
+        write_record(switch={"va": "asked"})
         await reconciler.poll_once()
 
         assert manager.display_publishes == 1
@@ -1492,7 +1492,7 @@ class TestTheSwitchReachesARunningChild:
         refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
         assert refused.outcome is WriteOutcome.REFUSED
 
-        write_va_record({"va": "on"})
+        write_va_record({"va": "asked"})
         await reconciler.poll_once()
 
         assert realign()["state"] == session_control.REALIGN_DONE

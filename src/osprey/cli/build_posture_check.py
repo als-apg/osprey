@@ -40,21 +40,25 @@ render inherited, or a preset's ``config:`` block spelled is read here the
 same way an operator's own line is. Each refusal names the dotted key and the
 file to add it to.
 
-Beside the floor sits one check on what the approval policies *say*. The
-guarded tools — ``execute``, ``execute_file`` and ``pyaml_measure`` — each run
-a read-write call under the target's run lock, and the executor refuses such a
-call before it is spawned unless the approval hook recorded it whenever its
-policy asks. :func:`effective_policy` and :func:`ask_capable` are the one
-reading of a tool's policy that the build and the executor share. The build
-guarantees that a render which asks selects the hook that asks: a guarded tool
-put to a human in a profile whose ``hooks:`` list lacks ``approval`` stops the
-build. So asks ⇒ hook selected, and ``config.yml`` alone answers whether a
-call of a guarded tool is asked.
+Beside the floor sits one check on who asks. The guarded tools — ``execute``,
+``execute_file`` and ``pyaml_measure`` — each run a read-write call under the
+target's run lock, and the executor refuses such a call before it is spawned
+unless the approval hook recorded it whenever the tool asks.
+:func:`effective_policy` and :func:`ask_capable` are the one reading that the
+build and the executor share. A governed tool
+(:func:`~osprey.registry.mcp.governed_write_tools`) is decided by the write
+switch's position, so it counts as asking whatever ``approval.*`` says; any
+other tool asks by its policy. The build guarantees that a render which asks
+selects the hook that asks: a tool put to a human in a profile whose ``hooks:``
+list lacks ``approval`` stops the build. So asks ⇒ hook selected, and
+``config.yml`` alone answers whether a call of a guarded tool is asked.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
 from typing import Any
 
 __all__ = [
@@ -321,15 +325,66 @@ def effective_policy(rendered: Mapping[str, Any], tool: str) -> str:
     return str(policy) if policy is not None else HOOK_FALLBACK_POLICY
 
 
+@lru_cache(maxsize=8)
+def _resolved_governed(claude_code: str) -> tuple[str, ...]:
+    """The governed matchers of a serialized ``claude_code`` section.
+
+    Cached because :func:`ask_capable` runs on every write of a running server:
+    the section does not change under it, and resolving the servers logs. The
+    context is empty for the reason :func:`_enabled_servers` gives.
+
+    Args:
+        claude_code: The section as canonical JSON, the hashable cache key.
+
+    Returns:
+        The render's governed matchers, in the producer's order.
+    """
+    from osprey.registry.mcp import governed_write_tools, resolve_servers
+
+    return tuple(governed_write_tools(resolve_servers(json.loads(claude_code), {})))
+
+
+def _governed_matchers(rendered: Mapping[str, Any]) -> tuple[str, ...] | None:
+    """The governed matchers of *rendered*, or ``None`` when they cannot be resolved.
+
+    Never raises: a server's run-time check must answer under a bad server spec.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+
+    Returns:
+        The matchers, or ``None`` for a section the registry refuses.
+    """
+    claude_code = rendered.get("claude_code")
+    section = dict(claude_code) if isinstance(claude_code, Mapping) else {}
+    try:
+        return _resolved_governed(json.dumps(section, sort_keys=True, default=str))
+    except Exception:
+        return None
+
+
+def _short_name(matcher: str) -> str:
+    """The short name of an ``mcp__<server>__<tool>`` *matcher*."""
+    parts = matcher.split("__", 2)
+    return parts[2] if len(parts) == 3 else matcher
+
+
 def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     """Whether a call of *tool* is put to a human before it runs.
 
-    True when ``approval.enabled`` is ``true`` or unstated (the hook reads an
-    unstated switch as on) and *tool*'s effective policy is not ``skip``. A
-    switch that is not a bool, or an ``approval`` that is not a mapping, asks
-    nobody: the approval hook and the executor refuse every call under it
-    (:func:`approval_enabled_fault`). No hook term: :func:`check_approval_hook_selected`
-    stops every build whose render asks without selecting the approval hook.
+    A governed tool is, whatever ``approval.*`` says: the switch's position
+    decides for it, and the run-time check must keep requiring the record the
+    hook leaves. So is any tool when the governed set cannot be resolved, which
+    fails closed. Membership is by short name, so an ``extends`` clone's tool
+    counts; a whole-server matcher names no tool and matches none here.
+
+    Any other tool asks when ``approval.enabled`` is ``true`` or unstated (the
+    hook reads an unstated switch as on) and its effective policy is not
+    ``skip``. A switch that is not a bool, or an ``approval`` that is not a
+    mapping, asks nobody: the approval hook and the executor refuse every call
+    under it (:func:`approval_enabled_fault`). No hook term:
+    :func:`check_approval_hook_selected` stops every build whose render asks
+    without selecting the approval hook.
 
     Args:
         rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
@@ -338,6 +393,9 @@ def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     Returns:
         ``True`` when a call of *tool* is put to a human.
     """
+    governed = _governed_matchers(rendered)
+    if governed is None or tool in map(_short_name, governed):
+        return True
     if approval_enabled_fault(rendered) is not None:
         return False
     if _approval_section(rendered).get("enabled", True) is False:
@@ -375,15 +433,35 @@ def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
     )
 
 
+def _no_hook_error(detail: str) -> Exception:
+    """The build stop for a render that asks with no approval hook selected."""
+    from osprey.facility.errors import FacilityBuildError
+
+    return FacilityBuildError(
+        "profile-invalid",
+        "approval.enabled",
+        [PROFILE_FILENAME],
+        f"add `{APPROVAL_HOOK}` to `hooks:` in {PROFILE_FILENAME}",
+        record_kind="path",
+        detail=f"{detail} but the profile does not select the `{APPROVAL_HOOK}` hook, "
+        "so nothing would ask",
+    )
+
+
 def check_approval_hook_selected(
     rendered: Mapping[str, Any], selected_hooks: Iterable[str]
 ) -> None:
-    """Stop a render that puts a guarded tool to a human with no hook to ask.
+    """Stop a render that puts a tool to a human with no hook to ask.
 
-    The first tool of :data:`GUARDED_TOOLS`, then of :data:`STAGE1_TOOLS`,
-    that is :func:`ask_capable` is named when :data:`APPROVAL_HOOK` is not
-    among *selected_hooks*. A stage-1 tool counts only when the build enables
-    the server that serves it: a tool nobody can call asks nobody.
+    Governed tools come first, because ``approval.*`` has no say over them: the
+    first of :data:`GUARDED_TOOLS`, then of :data:`STAGE1_TOOLS`, then of the
+    render's other governed tools (a facility's, a whole-server matcher) is
+    named when :data:`APPROVAL_HOOK` is not among *selected_hooks*. Only an
+    enabled server contributes one: a tool nobody can call asks nobody.
+
+    After them, the first of the same two lists that is :func:`ask_capable` by
+    its policy. A stage-1 tool counts only when the build enables the server
+    that serves it.
 
     Args:
         rendered: The rendered ``config.yml``, read after the injectors.
@@ -391,12 +469,23 @@ def check_approval_hook_selected(
 
     Raises:
         FacilityBuildError: ``profile-invalid`` on ``approval.enabled``, naming
-            the guarded tool and the key that gives it its asking policy.
+            the tool and what puts it to a human.
     """
     if APPROVAL_HOOK in set(selected_hooks):
         return
+    named = (*GUARDED_TOOLS, *STAGE1_TOOLS)
+    governed = _governed_matchers(rendered) or ()
+    shorts = {_short_name(matcher) for matcher in governed}
+    offenders = [
+        *(tool for tool in named if tool in shorts),
+        *(matcher for matcher in governed if _short_name(matcher) not in named),
+    ]
+    if offenders:
+        raise _no_hook_error(
+            f"governed tool `{offenders[0]}` is put to a human by the write switch"
+        )
     enabled: frozenset[str] | None = None
-    for tool in (*GUARDED_TOOLS, *STAGE1_TOOLS):
+    for tool in named:
         if not ask_capable(rendered, tool):
             continue
         if tool in _STAGE1_SERVERS:
@@ -404,18 +493,6 @@ def check_approval_hook_selected(
                 enabled = _enabled_servers(rendered)
             if _STAGE1_SERVERS[tool] not in enabled:
                 continue
-        from osprey.facility.errors import FacilityBuildError
-
-        raise FacilityBuildError(
-            "profile-invalid",
-            "approval.enabled",
-            [PROFILE_FILENAME],
-            f"add `{APPROVAL_HOOK}` to `hooks:` in {PROFILE_FILENAME}, or set "
-            "`config: approval.enabled: false`",
-            record_kind="path",
-            detail=(
-                f"guarded tool `{tool}` is put to a human under "
-                f"`{_policy_key(rendered, tool)}` but the profile does not select the "
-                f"`{APPROVAL_HOOK}` hook, so nothing would ask"
-            ),
+        raise _no_hook_error(
+            f"guarded tool `{tool}` is put to a human under `{_policy_key(rendered, tool)}`"
         )

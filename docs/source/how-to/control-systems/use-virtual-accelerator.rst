@@ -105,7 +105,7 @@ The Control Assistant stack ships pointed at the Virtual Accelerator and
 **already deploys** it: the preset's ``virtual_accelerator:`` block renders a
 compose service, so ``osprey up`` brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
-to switch on.
+to enable.
 
 .. code-block:: bash
 
@@ -399,7 +399,7 @@ Write limits
 
 Channels with a record in ``data/facility/limits.yaml`` carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
-in-range write goes through. The mandatory write-approval flow applies
+in-range write goes through. The write switch's positions apply
 unchanged — the Virtual Accelerator connector inherits the same write-safety
 wiring as the EPICS connector.
 
@@ -407,17 +407,17 @@ Write to the simulator without arming the machine
 -------------------------------------------------
 
 Writes are decided per login and per machine, and this is the page where that
-matters most. The tier key says whether a login may write at all:
+matters most. The tier key says how far a login may write:
 
 .. code-block:: yaml
 
    control_system:
-     writes: allowed       # or never; silence is never
+     writes: asked         # never | asked | allowed; silence is never
 
 The tier is target-blind. Which machine a write reaches is the person's own
-switch, turned on per machine from the
-:ref:`control-target chip <web-terminal-session-posture>`, and every switch
-starts off. Turn the simulator on and leave the real machine off, and the same
+switch, set per machine from the
+:ref:`control-target chip <web-terminal-session-posture>`, and every machine
+starts off. Arm the simulator and leave the real machine off, and the same
 write tool that moves the simulator is refused on the machine after a switch
 (:doc:`switch-control-target`), with no config edit and no rebuild. The rule is
 on :ref:`write-safety-config`.

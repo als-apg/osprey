@@ -48,25 +48,24 @@ drive meet the first and the last:
    The step size is left to the connector, the only layer that can read the channel first.
    Channel writes only.
 
-3. **Does a human approve?** (``osprey_approval``) --- the operator answers a prompt at the
-   terminal. How often it asks is set per tool: ``always``, ``selective``, or ``skip``. Under
-   ``selective`` the check reads the request itself and asks only when a Python run is
-   read-write or its code contains a write; a channel write is always asked. When a Python run
+3. **Does a human approve?** (``osprey_approval``) --- for a governed write the switch's
+   position decides: at *asked* the operator answers a prompt at the terminal, at *allowed*
+   the write runs unprompted on a record naming the switch. Every other tool keeps its own
+   policy: ``always``, ``selective``, or ``skip``. When a Python run
    needs approval, the exact code is saved as a **Pre-Execution Review** notebook in the
    artifact gallery and linked from the prompt, so the operator can read what is about to run.
    The approval is the terminal prompt; the gallery only shows the code.
 
-   **What a prompt guarantees (stage 1).** Where the policy asks, a channel write, a Phoebus
-   drive, queueing or starting a plan, and a read-write Python run go ahead only on the record
-   the prompt left for that call; a call the prompt never saw is refused by the server that
+   **What a prompt guarantees (stage 1).** A governed write, and a Phoebus drive where its
+   policy asks, go ahead only on the record the hook left for that call; a call the hook
+   never saw is refused by the server that
    would carry it out. That is all it claims: the record is checked on the agent's own host,
    by processes of the agent's own user, so it binds every tool path and does not contain code
    already running there (see :ref:`architecture-safety-chain-residual`). Python code that names the store holding the machine's switch is asked
-   under every policy and refused where nothing can ask --- under ``skip``, with approval off,
-   or in a dispatch run. The executor checks it again before the code runs, read-only runs
-   included.
+   in every position and refused where nothing can ask, as in a dispatch run. The executor
+   checks it again before the code runs, read-only runs included.
 
-Which machine the deployment points at, and whether the login's switch is on for it, come
+Which machine the deployment points at, and the login's switch position for it, come
 from the records the deployment keeps --- one per login --- read fresh on every call, so a
 flip reaches the agent's next tool call. The tier is rendered at build time and takes a
 rebuild to change. See :ref:`web-terminal-session-posture` for the switch and
@@ -186,7 +185,7 @@ A Jupyter cell
 A cell is run by a person, so no tool call and none of the checks are involved. What guards it
 are the deployment's settings, which the notebook kernel carries. Before every cell the kernel
 re-reads which machine the deployment points at, and the connector asks the verdict on every
-write, so a flip of the switch reaches a cell already running. A cell reaches
+write, so moving the switch to off reaches a cell already running. A cell reaches
 the machine through ``osprey.runtime``: importing a control-system client library, or loading
 one through ``ctypes`` or ``cffi``, is refused whatever the chip says, for reads as for writes,
 so a cell written the ordinary way reads and writes through the connector. The block is
@@ -378,8 +377,8 @@ What the switch does not close
 **The same-uid residual.** The switch's record is written by the terminal's server, and the
 agent, its Python runs and its notebook kernels run as the same Unix user. OSPREY closes what
 it can reach: the agent's file tools are denied the record's store, a shell is denied on every
-``allowed`` tier (lifting it fails the build), Python code that names the store needs approval
-and is refused where nothing can ask, and every writer other than the person's own route
+``asked`` or ``allowed`` tier (lifting it fails the build), Python code that names the store
+needs approval and is refused where nothing can ask, and every writer other than the person's own route
 leaves the switch as it found it. Code in the executor running as that user, assembling the
 path at run time, can still reach it. A writer the agent cannot reach --- the record in its
 own user or container --- is the structural close, and is left to the sandboxing work (SBX).

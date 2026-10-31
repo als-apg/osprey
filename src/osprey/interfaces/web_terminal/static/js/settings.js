@@ -61,8 +61,8 @@ const APPROVAL_TOOL_PREFIX = 'approval.tools.';
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
   'approval.default_policy': APPROVAL_POLICIES,
-  // The write ceiling: one of two words, never a boolean.
-  'control_system.writes': ['allowed', 'never'],
+  // The write ceiling: one of three words, never a boolean.
+  'control_system.writes': ['never', 'asked', 'allowed'],
 };
 
 /**

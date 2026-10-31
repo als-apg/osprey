@@ -12,7 +12,10 @@ One call:
 3. renders the measurement script (:func:`~._pyaml_measure_script.build_measure_script`)
    and runs it through :func:`~._execution_gates.run_gated_execution` in
    ``readwrite`` mode, so it meets every gate ``execute`` meets, carrying the
-   approved target and view digest the approval hook set;
+   approved target and view digest the approval hook set. ``pyaml_measure``
+   is governed: every call runs only on the hook's record, a person's at
+   ``asked`` or the write switch's at ``allowed``, bound to the view the
+   record names (:func:`~osprey.mcp_server.python_executor.executor._check_approved_call`);
 4. notes who the run wrote as and which channels it attempted on the call's
    audit record, then parses what the script printed, names every row, column
    and step by its address and device id, and copies a completed run's saved
@@ -271,7 +274,8 @@ async def pyaml_measure(
     """Measure a response matrix or the chromaticity with pyAML on the control target.
 
     Steps setpoints on the machine inside the control target's run lock, so
-    every call is approval-gated and runs in read-write mode. A run that
+    every call runs in read-write mode and only on the approval hook's record
+    of it, bound to the pyAML view the record names. A run that
     stops, fails or is interrupted leaves each setpoint where it stopped;
     every result lists the setpoints the call moved with their values before
     the call (``moved``). The model's pyAML

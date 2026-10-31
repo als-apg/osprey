@@ -171,8 +171,8 @@ async def test_a_foreign_owner_refuses_the_mutation(record_file):
 def _turn_on(path: Path, target: str) -> ControlContext:
     """The person's turn-on, as the posture route makes it: null epoch, then retry."""
     with pytest.raises(control_context.StoppedSince) as refused:
-        control_context.set_switch([target], "on", epoch=0, path=path)
-    stored = control_context.set_switch([target], "on", epoch=refused.value.epoch, path=path)
+        control_context.set_switch([target], "asked", epoch=0, path=path)
+    stored = control_context.set_switch([target], "asked", epoch=refused.value.epoch, path=path)
     assert stored is not None
     return stored
 

@@ -1243,7 +1243,7 @@ def test_logs_help_states_that_both_stacks_are_covered():
 
 
 # ---------------------------------------------------------------------------
-# Writes: per login its tier, its record's target, and which machines are on
+# Writes: per login its tier, its record's target, and each armed machine's position
 # ---------------------------------------------------------------------------
 
 
@@ -1324,33 +1324,10 @@ def test_single_user_lists_its_record_at_the_deployments_own_tier(tmp_path):
 
     rows = status_display.writes_rows(config, tmp_path)
 
-    assert rows == [("thorsten", "allowed", "standin", "standin")]
+    assert rows == [("thorsten", "allowed", "standin", "standin:asked")]
     text = _writes_text(config, tmp_path)
     assert "Writes:" in text
     assert "not in the roster" not in text
-
-
-@pytest.mark.parametrize(
-    ("word", "writes"), [("asked", "standin"), ("allowed", "standin"), ("bogus", "off")]
-)
-def test_a_stored_switch_word_lists_the_machine_only_when_it_arms(
-    tmp_path, monkeypatch, word, writes
-):
-    """The upcoming connectors release stores its word as it is; ``asked`` and ``allowed`` are on."""
-    from osprey_connectors import control_context
-
-    monkeypatch.setattr(
-        control_context,
-        "_parse_switch",
-        lambda value: {k: v for k, v in value.items() if isinstance(v, str)},
-    )
-    control_context.invalidate_cache()
-    _write_record(tmp_path, "thorsten", target="standin", switch={"standin": word})
-    config = {"control_system": {"writes": "allowed"}}
-
-    assert status_display.writes_rows(config, tmp_path) == [
-        ("thorsten", "allowed", "standin", writes)
-    ]
 
 
 def test_single_user_with_no_record_says_every_machine_is_off(tmp_path):
@@ -1362,12 +1339,12 @@ def test_single_user_with_no_record_says_every_machine_is_off(tmp_path):
 
 def test_multi_user_lists_each_login_with_its_tier_target_and_machines(tmp_path):
     config = _multi_user_config(tmp_path)
-    _write_record(tmp_path, "alice", target="live", switch={"live": "on", "standin": "on"})
+    _write_record(tmp_path, "alice", target="live", switch={"live": "asked", "standin": "allowed"})
 
     rows = status_display.writes_rows(config, tmp_path)
 
     assert rows == [
-        ("alice", "allowed", "live", "live, standin"),
+        ("alice", "allowed", "live", "live:asked, standin:allowed"),
         # No record is every switch off; nothing is created to say so.
         ("bob", "never", "—", "off"),
     ]
@@ -1376,15 +1353,78 @@ def test_multi_user_lists_each_login_with_its_tier_target_and_machines(tmp_path)
     assert not control_target_identity_dir({}, tmp_path, "bob").exists()
 
 
-def test_an_on_under_a_never_tier_is_marked_inert(tmp_path):
-    """O-3: a demoted login's "on" stays recorded and inert."""
+def test_a_position_under_a_never_tier_is_marked_inert(tmp_path):
+    """O-3: a demoted login's positions stay recorded and inert, in neither case capped."""
     config = _multi_user_config(tmp_path)
-    _write_record(tmp_path, "bob", target="standin", switch={"standin": "on"})
+    _write_record(tmp_path, "bob", target="standin", switch={"live": "allowed", "standin": "asked"})
 
     rows = _rows_by_login(config, tmp_path)
 
-    assert rows["bob"] == ["never", "standin", "standin on — tier never, inert"]
-    assert "standin on — tier never, inert" in _writes_text(config, tmp_path)
+    expected = "live:allowed, standin:asked — tier never, inert"
+    assert rows["bob"] == ["never", "standin", expected]
+    assert expected in _writes_text(config, tmp_path)
+
+
+def test_a_staged_asked_entry_is_the_tier_cell(tmp_path):
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "asked", "bob": "never"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["asked", "—", "off"]
+
+
+def test_a_legacy_on_record_reads_asked(tmp_path):
+    """The stored ``on`` from before the three positions is the word ``asked`` everywhere."""
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="standin", switch={"standin": "on"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "standin", "standin:asked"]
+
+
+def test_an_allowed_under_an_asked_ceiling_is_marked_capped(tmp_path):
+    """Only the entry above the ceiling is marked; ``asked`` is in force as stored."""
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "asked", "bob": "never"})
+    _write_record(tmp_path, "alice", target="live", switch={"live": "allowed", "standin": "asked"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    expected = "live:allowed (capped: asked), standin:asked"
+    assert rows["alice"] == ["asked", "live", expected]
+    assert expected in _writes_text(config, tmp_path)
+
+
+@pytest.mark.parametrize("tier", ["allowed", "unknown"])
+def test_an_allowed_is_not_capped_without_an_asked_ceiling(tmp_path, tier):
+    """``unknown`` states no ceiling, so nothing here claims one."""
+    login_tiers = {"bob": "never"} if tier == "unknown" else {"alice": tier, "bob": "never"}
+    config = _multi_user_config(tmp_path, login_tiers=login_tiers)
+    _write_record(tmp_path, "alice", target="live", switch={"live": "allowed"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == [tier, "live", "live:allowed"]
+
+
+def test_an_all_off_record_reads_off(tmp_path):
+    """A switch map with nothing armed states the record's target and no machine."""
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="live", switch={"standin": "maybe"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "live", "off"]
+
+
+def test_the_writes_table_names_the_three_words_not_the_retired_one(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="standin", switch={"standin": "asked"})
+
+    text = _writes_text(config, tmp_path)
+
+    assert "Writes (off, asked, allowed)" in text
+    assert "Writes on" not in text
 
 
 def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
@@ -1393,7 +1433,7 @@ def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
 
     rows = status_display.writes_rows(config, tmp_path)
 
-    assert rows[-1] == ("mallory", "not in the roster — cannot write", "live", "live")
+    assert rows[-1] == ("mallory", "not in the roster — cannot write", "live", "live:asked")
     assert [row[0] for row in rows] == ["alice", "bob", "mallory"]
 
 
@@ -1414,6 +1454,20 @@ def test_an_unreadable_record_reads_refused_never_off(tmp_path):
     assert "record unreadable — writes refused" in text
 
 
+def test_an_unreadable_record_under_an_asked_tier_reads_refused(tmp_path):
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "asked", "bob": "never"})
+    directory = control_target_identity_dir({}, tmp_path, "alice")
+    directory.mkdir(parents=True)
+    (directory / RECORD_FILENAME).write_text("{not json", encoding="utf-8")
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["asked", "?", "record unreadable — writes refused"]
+
+
 def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
     """Carried R2 CF-4: the claim picks the role, so no file here names the tier."""
     config = _multi_user_config(
@@ -1431,7 +1485,7 @@ def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
     rows = _rows_by_login(config, tmp_path)
 
     assert rows["alice"] == ["allowed", "—", "off"]
-    assert rows["carol"] == ["by role at sign-in", "standin", "standin"]
+    assert rows["carol"] == ["by role at sign-in", "standin", "standin:asked"]
 
 
 def test_no_staged_map_answers_unknown_for_every_card_not_a_guess(tmp_path):
@@ -1484,7 +1538,7 @@ def test_a_mapped_login_outside_the_roster_lists_only_with_a_record_at_its_mappe
     rows = status_display.writes_rows(config, tmp_path)
 
     assert [row[0] for row in rows] == ["alice", "bob", "builder"]
-    assert rows[-1] == ("builder", "allowed", "standin", "standin")
+    assert rows[-1] == ("builder", "allowed", "standin", "standin:asked")
 
 
 @pytest.mark.parametrize(

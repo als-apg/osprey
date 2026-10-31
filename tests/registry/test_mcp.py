@@ -12,6 +12,7 @@ from osprey.registry.mcp import (
     HOOK_PRESETS,
     MIXED_READ_WRITE_TEMPLATES,
     framework_mixed_read_write_tools,
+    governed_write_tools,
     mixed_read_write_tools,
     resolve_agents,
     resolve_servers,
@@ -1627,6 +1628,52 @@ class TestTemplateRendering:
 # ---------------------------------------------------------------------------
 # Mixed read/write templates (the kill switch's documented exception)
 # ---------------------------------------------------------------------------
+
+
+class TestGovernedWriteTools:
+    """Both write hooks and no ``keeps_policy``; the preset cases are in tests/cli."""
+
+    def test_the_arming_pairs_preflight_budget_counts_as_approval(self):
+        servers = resolve_servers({"servers": {"bluesky": {"enabled": True}}}, _base_ctx())
+        governed = governed_write_tools(servers)
+        assert {"mcp__bluesky__queue_add", "mcp__bluesky__queue_start"} <= set(governed)
+
+    def test_keeps_policy_is_set_on_the_drive_rule_alone(self):
+        flagged = [
+            rule.matcher
+            for sdef in FRAMEWORK_SERVERS.values()
+            for rule in sdef.hooks_pre
+            if rule.keeps_policy
+        ]
+        assert flagged == ["mcp__phoebus__phoebus_drive"]
+
+    def test_the_flag_reaches_the_resolved_rule(self):
+        servers = resolve_servers({"servers": {"phoebus": {"enabled": True}}}, _base_ctx())
+        phoebus = next(s for s in servers if s["name"] == "phoebus")
+        assert [r["keeps_policy"] for r in phoebus["hooks_pre"]] == [True]
+
+    def test_an_extends_clone_keeps_the_flag(self):
+        cfg = {"servers": {"phoebus2": {"extends": "phoebus"}}}
+        governed = governed_write_tools(resolve_servers(cfg, _base_ctx()))
+        assert not [tool for tool in governed if "phoebus" in tool]
+
+    def test_an_extends_clones_tools_are_named_for_the_clone(self):
+        cfg = {"servers": {"pyva": {"extends": "python"}}}
+        governed = governed_write_tools(resolve_servers(cfg, _base_ctx()))
+        assert "mcp__pyva__execute" in governed
+        assert "mcp__python__execute" in governed
+
+    def test_a_disabled_server_contributes_nothing(self):
+        cfg = {"servers": {"python": {"enabled": False}}}
+        governed = governed_write_tools(resolve_servers(cfg, _base_ctx()))
+        assert not [tool for tool in governed if tool.startswith("mcp__python__")]
+
+    def test_the_order_is_resolved_server_then_hook_order(self):
+        governed = governed_write_tools(resolve_servers({}, _base_ctx()))
+        assert governed.index("mcp__controls__channel_write") < governed.index(
+            "mcp__python__execute"
+        )
+        assert governed.index("mcp__python__execute") < governed.index("mcp__python__execute_file")
 
 
 class TestMixedReadWriteTools:

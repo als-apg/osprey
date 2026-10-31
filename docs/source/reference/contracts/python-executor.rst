@@ -83,9 +83,9 @@ tools to the ``python`` server. A render without one registers neither.
 -----------------
 
 Steps setpoints on the control target through pyAML and writes them back. Every
-call for a kind the model's measurement file lists asks for approval; any other
-call reaches the tool unasked and is refused there. With writes off it is denied
-like every write tool.
+call for a kind the model's measurement file lists asks for approval at the
+switch's *asked* position; any other call reaches the tool unasked and is
+refused there. With writes off it is denied like every write tool.
 The prompt lists every setpoint the call steps; a call stepping more than 500
 is refused without asking.
 
@@ -136,8 +136,8 @@ build writes ``trm.json`` or ``crm.json`` whenever every member of the group has
 a modelled column; a group with an unmodelled member has none, and its group
 step is refused.
 
-The run starts only on the view the build recorded and the approval prompt
-showed (``approved_view_sha256``), and every write runs under the target's run
+The run starts only on the view the build recorded and the approval record
+names (``approved_view_sha256``), and every write runs under the target's run
 lock; nothing is written back. The result
 names every row, column and step by address and device id and carries the
 view's ``sha256``, the ``shape``, ``data_file`` and ``artifact_id``. The file

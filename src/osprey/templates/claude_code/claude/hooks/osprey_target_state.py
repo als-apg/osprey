@@ -133,10 +133,11 @@ stood up.
 
 The write verdict (a third question, answered from config and the record)
 -------------------------------------------------------------------------
-The person turns writes on for one machine from the control-target chip in the
-header. That is the record's ``switch`` field, ``{target: "on"}``, and it is
+The person arms one machine from the control-target chip in the header. That is
+the record's ``switch`` field, ``{target: "asked" | "allowed"}``, and it is
 enforced at WRITE time rather than delivered by respawning the agent, which is
-what lets a flip land on a session already mid-conversation.
+what lets a flip land on a session already mid-conversation. A stored ``"on"``,
+the retired spelling, reads as ``"asked"``; no other value arms.
 
 ``osprey_connectors.posture_store.write_verdict`` is the canonical verdict.
 Hooks cannot import it, so :func:`write_verdict` restates it here term for term
@@ -144,9 +145,11 @@ Hooks cannot import it, so :func:`write_verdict` restates it here term for term
 drives one case table through both.
 
 **1. The tier.** :func:`tier_writes` reads ``control_system.writes``: only the
-literal ``allowed`` arms. A section that states no tier is ``never``; a retired
-``writes_enabled`` leaf, flat or in a connector block, is never read, in step
-with the package's ``types.tier_writes``.
+literals ``asked`` and ``allowed`` arm. A section that states no tier is
+``never``; a retired ``writes_enabled`` leaf, flat or in a connector block, is
+never read, in step with the package's ``types.tier_writes``. The tier is a
+ceiling on the position as well: an allowed verdict's ``position`` is the stored
+word capped by it (by the owner's rung under a bound tree).
 
 **2. Whose switch it is.** The owner's, resolved by :func:`current_owner`: this
 host's own record, or the owner's record in a bound read-only tree.
@@ -158,7 +161,7 @@ old narrowing; :func:`parse_posture` still parses it (``{"live": "sandbox"}``,
 or the bare string ``"sandbox"`` for every target in :data:`CONTROL_TARGETS`;
 anything else is dropped) so that :func:`parse_record` admits exactly the
 records the canonical parser admits, and nothing that decides a write reads it.
-An old narrowing with the switch on is allowed, on both sides.
+An old narrowing with the machine armed is allowed, on both sides.
 
 **4. When a change is seen.** Every read re-reads the file. The canonical reader
 caches its parse against ``(st_mtime_ns, st_size, st_ino)`` because it lives in
@@ -307,7 +310,6 @@ VALID_POSTURES = (POSTURE_SANDBOX, POSTURE_WRITES)
 
 __all__ = [
     "AGENT_DATA_ROOT_ENV_VAR",
-    "ARMED_SWITCH_WORDS",
     "AUDIT_IDENTITY_ENV",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
@@ -341,12 +343,15 @@ __all__ = [
     "STANDIN_TYPES",
     "STATE_DIR_NAME",
     "STORE_PATH_MARKERS",
-    "SWITCH_ON",
+    "SWITCH_ALLOWED",
+    "SWITCH_ASKED",
+    "SWITCH_OFF",
     "TARGET_LIVE",
     "TARGET_STANDIN",
     "TARGET_VA",
     "TERMINAL_USER_ENV",
     "TIER_ALLOWED",
+    "TIER_ASKED",
     "TIER_NEVER",
     "UNKNOWN_IDENTITY",
     "UNRESOLVED",
@@ -384,6 +389,7 @@ __all__ = [
     "selected_target",
     "session_key",
     "session_types",
+    "switch_position",
     "target_metadata",
     "target_type",
     "tier_allows",
@@ -1096,22 +1102,23 @@ LAUNCH_POSTURE_ALL_TARGETS = "*"
 #: ``posture_store._RECORD_READ_LIMIT``.
 RECORD_READ_LIMIT = 64 * 1024
 
-#: The tier key's leaf, its two values, and the login→tier map's leaf. Mirror
-#: ``types._WRITES_LEAF``/``_TIER_ALLOWED`` and ``posture_store._LOGIN_TIERS_LEAF``.
+#: The tier key's leaf, its three values, and the login→tier map's leaf. Mirror
+#: ``types._WRITES_LEAF``/``_TIER_*`` and ``posture_store._LOGIN_TIERS_LEAF``.
 WRITES_LEAF = "writes"
-TIER_ALLOWED = "allowed"
 TIER_NEVER = "never"
+TIER_ASKED = "asked"
+TIER_ALLOWED = "allowed"
 LOGIN_TIERS_LEAF = "login_tiers"
-_LOGIN_TIERS = (TIER_ALLOWED, TIER_NEVER)
 
-#: The switch value a parsed record states for an armed target. Mirrors
-#: ``control_context._SWITCH_ON``.
-SWITCH_ON = "on"
+#: Lowest to highest, which is what caps a position. Mirrors ``posture_store._LOGIN_TIERS``.
+_LOGIN_TIERS = (TIER_NEVER, TIER_ASKED, TIER_ALLOWED)
 
-#: The stored words that arm a target: ``"on"``, and the upcoming connectors
-#: release's ``"asked"`` and ``"allowed"``. All three read as ``"on"``; any
-#: other word is off.
-ARMED_SWITCH_WORDS = frozenset({SWITCH_ON, "asked", "allowed"})
+#: The positions a machine's switch can be in, and the retired spelling read as
+#: asked. Mirror ``control_context._SWITCH_*``.
+SWITCH_OFF = "off"
+SWITCH_ASKED = "asked"
+SWITCH_ALLOWED = "allowed"
+_SWITCH_LEGACY_ON = "on"
 
 #: The kind of machine each target names by its name alone. Mirrors
 #: ``types._MACHINE_KINDS``: ``standin`` is ``real`` by name, and only the
@@ -1246,29 +1253,32 @@ NO_OWNER = NoOwner()
 class WriteVerdict:
     """Whether one write may go ahead, and the one reason when it may not.
 
-    The same four fields as ``posture_store.WriteVerdict``: *allowed*, *reason*
+    The same five fields as ``posture_store.WriteVerdict``: *allowed*, *reason*
     (a member of :data:`REASONS` or ``None``), *target* (verbatim when it was a
-    string) and *kind* (``real``/``rehearsal``/``simulator`` or ``None``).
+    string), *kind* (``real``/``rehearsal``/``simulator`` or ``None``) and
+    *position* (``asked``/``allowed`` when allowed, ``None`` on every refusal).
     A plain slotted class rather than a dataclass: a hook pays every
     module-level import on every tool call.
     """
 
-    __slots__ = ("allowed", "reason", "target", "kind")
+    __slots__ = ("allowed", "reason", "target", "kind", "position")
 
-    def __init__(self, allowed, reason, target, kind):
+    def __init__(self, allowed, reason, target, kind, position=None):
         self.allowed = allowed
         self.reason = reason
         self.target = target
         self.kind = kind
+        self.position = position
 
     def __eq__(self, other):
         if not isinstance(other, WriteVerdict):
             return NotImplemented
-        return (self.allowed, self.reason, self.target, self.kind) == (
+        return (self.allowed, self.reason, self.target, self.kind, self.position) == (
             other.allowed,
             other.reason,
             other.target,
             other.kind,
+            other.position,
         )
 
     # Defining __eq__ already sets __hash__ to None: a verdict is unhashable.
@@ -1276,24 +1286,27 @@ class WriteVerdict:
     def __repr__(self):
         return (
             f"WriteVerdict(allowed={self.allowed!r}, reason={self.reason!r}, "
-            f"target={self.target!r}, kind={self.kind!r})"
+            f"target={self.target!r}, kind={self.kind!r}, position={self.position!r})"
         )
 
 
 def tier_writes(section):
-    """The login tier's write ceiling: ``"allowed"`` or ``"never"``. Never raises.
+    """The login tier's write ceiling: ``never``, ``asked`` or ``allowed``. Never raises.
 
-    Mirrors ``types.tier_writes``: only the literal ``"allowed"`` in the
-    ``writes`` leaf arms. An absent leaf, any other value, and a section that is
-    not a mapping are ``never``; the retired ``writes_enabled`` leaves are not read.
+    Mirrors ``types.tier_writes``: only the literals ``"asked"`` and ``"allowed"``
+    in the ``writes`` leaf arm, matched exactly. An absent leaf, any other value
+    (the switch's retired ``"on"`` among them), and a section that is not a mapping
+    are ``never``; the retired ``writes_enabled`` leaves are not read.
     """
     value = section.get(WRITES_LEAF) if isinstance(section, dict) else None
-    return TIER_ALLOWED if isinstance(value, str) and value == TIER_ALLOWED else TIER_NEVER
+    if isinstance(value, str) and value in (TIER_ASKED, TIER_ALLOWED):
+        return value
+    return TIER_NEVER
 
 
 def tier_allows(section):
-    """Whether :func:`tier_writes` answers ``allowed``."""
-    return tier_writes(section) == TIER_ALLOWED
+    """Whether the tier arms anything: :func:`tier_writes` is not ``never``."""
+    return tier_writes(section) != TIER_NEVER
 
 
 def machine_kind(section, target):
@@ -1412,7 +1425,7 @@ def _is_dispatch_run():
 
 
 def owner_tier_term(section, owner):
-    """The owner's tier from the login→tier map: ``skip``/``allowed``/``never``/``unknown``.
+    """The owner's tier from the login→tier map: ``skip``, a tier word, or ``unknown``.
 
     Mirrors ``posture_store.owner_tier_term``: the rung applies when the
     section carries ``login_tiers`` or a tree is bound; a map that is not one
@@ -1435,26 +1448,53 @@ def owner_tier_term(section, owner):
         tier = login_tiers.get(owner)
     except Exception:
         return "unknown"
-    if tier == TIER_ALLOWED:
-        return TIER_ALLOWED
-    if tier == TIER_NEVER:
-        return TIER_NEVER
-    return "unknown"
+    return tier if tier in _LOGIN_TIERS else "unknown"
+
+
+def _switch_word(value):
+    """One stored ``switch`` value as the word it arms with, or ``None`` for off.
+
+    Mirrors ``control_context._switch_word``: an exact match, no folding and no
+    trimming. The legacy ``"on"`` is ``"asked"``.
+    """
+    if not isinstance(value, str):
+        return None
+    if value == _SWITCH_LEGACY_ON:
+        return SWITCH_ASKED
+    if value in (SWITCH_ASKED, SWITCH_ALLOWED):
+        return value
+    return None
 
 
 def parse_switch(value):
-    """One record's ``switch`` as ``{target: "on"}``: only :data:`ARMED_SWITCH_WORDS` arm.
+    """One record's ``switch`` as ``{target: "asked" | "allowed"}``.
 
     Mirrors ``control_context._parse_switch``: string keys are kept whether or
-    not they name a known target. Anything that is not a mapping is ``{}``.
+    not they name a known target, ``"on"`` reads as ``"asked"``, and any other
+    value is dropped. Anything that is not a mapping is ``{}``.
     """
     if not isinstance(value, dict):
         return {}
-    return {
-        key: SWITCH_ON
-        for key, state in value.items()
-        if isinstance(key, str) and isinstance(state, str) and state in ARMED_SWITCH_WORDS
-    }
+    parsed = {}
+    for key, state in value.items():
+        word = _switch_word(state)
+        if isinstance(key, str) and word is not None:
+            parsed[key] = word
+    return parsed
+
+
+def switch_position(record, target):
+    """Where the person has put *target*: ``off``, ``asked`` or ``allowed``. Never raises.
+
+    Mirrors ``control_context.switch_position``, over the dict
+    :func:`parse_switch_record` builds. No record, a record with no switch, a
+    target absent from the map and an unknown value all read as off; a
+    hand-built record still spelling ``"on"`` reads as asked, as a parsed one does.
+    """
+    switch = record.get("switch") if isinstance(record, dict) else None
+    if not isinstance(switch, dict) or not isinstance(target, str):
+        return SWITCH_OFF
+    return _switch_word(switch.get(target)) or SWITCH_OFF
 
 
 def parse_switch_record(raw):
@@ -1578,51 +1618,54 @@ def read_tree_record(tree, owner):
 
 
 def _write_refusal(section, target, owner, ignore_launch_pin, hook_input):
-    """The first term of :func:`write_verdict` that refuses, or ``None``. May raise."""
+    """The first term of :func:`write_verdict` that refuses, else the position.
+
+    Answers ``(reason, None)`` or ``(None, position)``. May raise.
+    """
     if is_readonly_run():
-        return "readonly_run"
+        return "readonly_run", None
     if not tier_allows(section):
-        return "tier_never"
+        return "tier_never", None
     if target_type(section, target) is None:
-        return "target_unknown"
+        return "target_unknown", None
 
     resolved = current_owner(owner)
     if resolved is NO_OWNER and _is_dispatch_run():
-        return "owner_unscheduled"
+        return "owner_unscheduled", None
     if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
-        return "owner_unknown"
+        return "owner_unknown", None
     # Mirrors the package: a host never lends its login's switch to another owner.
     if not _tree_is_bound() and resolved.strip() != acting_identity():
-        return "owner_foreign"
+        return "owner_foreign", None
 
     rung = owner_tier_term(section, resolved)
     if rung == "unknown":
-        return "owner_unknown"
+        return "owner_unknown", None
     if rung == TIER_NEVER:
-        return "tier_never"
+        return "tier_never", None
 
     if _tree_is_bound():
         tree = _control_context_tree()
         if tree is None:
-            return "record_unavailable"
+            return "record_unavailable", None
         record, unavailable = read_tree_record(tree, resolved)
         if unavailable:
-            return "record_unavailable"
+            return "record_unavailable", None
     else:
         record, status = read_record_status(hook_input)
         if status == "unreadable":
-            return "record_unavailable"
+            return "record_unavailable", None
         if status != "ok":
             record = None
 
-    if record is None:
-        return "switch_off"
-    if record["switch"].get(target) != SWITCH_ON:
-        return "switch_off"
+    stored = switch_position(record, target)
+    if stored == SWITCH_OFF:
+        return "switch_off", None
 
     if not ignore_launch_pin and launch_pin_term(target) != "none":
-        return "launch_pinned"
-    return None
+        return "launch_pinned", None
+    ceiling = rung if _tree_is_bound() else tier_writes(section)
+    return None, min(stored, ceiling, key=_LOGIN_TIERS.index)
 
 
 def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_input=None):
@@ -1635,9 +1678,12 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
     bound and an owner that is not :func:`acting_identity`), the login-tier rung
     (``owner_unknown`` / ``tier_never``), ``record_unavailable`` (the tree
     record under a bound tree, else this host's record — absent is not
-    unavailable), ``switch_off`` (not ``"on"`` for *target*; the record's
-    ``posture`` field is not read, so an old ``sandbox`` narrowing with the
-    switch on is allowed), and ``launch_pinned`` unless *ignore_launch_pin*.
+    unavailable), ``switch_off`` (:func:`switch_position` reads off for
+    *target*; the record's ``posture`` field is not read, so an old ``sandbox``
+    narrowing with the machine armed is allowed), and ``launch_pinned`` unless
+    *ignore_launch_pin*. An allowed verdict's ``position`` is the stored word
+    capped by the ceiling: the section's tier on a host, the owner's rung under
+    a bound tree.
 
     Args:
         section: The ``control_system:`` config section, as loaded.
@@ -1657,10 +1703,12 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
     if kind is not None:
         kind = published_machine_kind(target, hook_input=hook_input)
     try:
-        reason = _write_refusal(section, target, owner, ignore_launch_pin, hook_input)
+        reason, position = _write_refusal(section, target, owner, ignore_launch_pin, hook_input)
     except Exception:
-        reason = "record_unavailable"
-    return WriteVerdict(allowed=reason is None, reason=reason, target=named, kind=kind)
+        reason, position = "record_unavailable", None
+    return WriteVerdict(
+        allowed=reason is None, reason=reason, target=named, kind=kind, position=position
+    )
 
 
 # -- which machine a hooked call writes to ---------------------------------

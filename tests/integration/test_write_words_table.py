@@ -56,6 +56,7 @@ CHIP_JS = (
     "control-target-chip.js",
     "control-target-facts.js",
     "control-target-popover.js",
+    "control-target-popover-switch.js",
     "control-target-lab-bar.js",
 )
 
@@ -500,7 +501,8 @@ def _agent_context_surface() -> list[str]:
     context = _import_hook("osprey_control_context")
     writes = {
         **{f"t-{reason}": f"{context.WRITES_REFUSED}:{reason}" for reason in refusals.REASONS},
-        "on": context.WRITES_ON,
+        "asked": context.WRITES_ASKED,
+        "allowed": context.WRITES_ALLOWED,
         "off": context.WRITES_OFF,
     }
     state = {

@@ -722,16 +722,15 @@ class TestServerStartClaimsTheRecord:
             control_context_root,
             target="va",
             generation=7,
-            switch={"va": "on"},
+            switch={"va": "asked"},
             owned_by=None,
         )
 
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        # A stored legacy "on" reads as "asked".
         assert claimed.switch == {"va": "asked"}
-        assert claimed.posture == control_context.posture_mirror({"va": "on"})
+        assert claimed.posture == control_context.posture_mirror({"va": "asked"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context

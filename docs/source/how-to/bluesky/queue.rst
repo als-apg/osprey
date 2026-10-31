@@ -78,8 +78,8 @@ One queue, three ways to drive it
         BLUESKY's Plans view.
       - ``queue_add`` — queues the pinned draft; on an armed queue that runs
         it. ``queue_start`` — arms a stopped queue. Both ask for your
-        approval, and both are switched off entirely while the project's
-        control-system writes are disabled.
+        approval at the switch's *asked* position, and both are switched off
+        entirely while the project's control-system writes are disabled.
       - ``queue_stop`` / ``stop_run`` — the two halts. Never switched off.
       - ``queue_list`` / ``queue_status`` / ``list_runs`` / ``get_run_data``
         — read what is queued, running, and measured.
@@ -176,7 +176,7 @@ quirks worth knowing:
    anything, even on an idle queue. Its halts and its read tools are never
    taken away.
 
-   On an ``allowed`` tier, each lane is bound at build time to one machine,
+   On an armed tier, each lane is bound at build time to one machine,
    and the write verdict for that machine is asked on every call
    (:ref:`write-safety-config`). With your switch for the lane's machine off,
    ``queue_start`` is refused with ``writes_disabled`` and the verdict's
@@ -186,11 +186,11 @@ quirks worth knowing:
 
    In a deployed control room the agent holds the launch token only where the
    deployment grants it, and it is granted **per lane**: to a tier whose
-   ``control_system.writes`` is ``allowed`` and that also runs the bluesky MCP
+   ``control_system.writes`` is not ``never`` and that also runs the bluesky MCP
    server. The token is a ceiling; your switch still decides each write.
    Where it is granted, the agent's
    ``queue_start`` arms the queue itself, and your approval of that tool call
-   is the arming decision. Where it is not, ``queue_start`` is refused with
+   (or your *allowed* switch) is the arming decision. Where it is not, ``queue_start`` is refused with
    ``launch_token_invalid`` and the start stays with you, from the BLUESKY
    queue panel's own **Start** button.
 

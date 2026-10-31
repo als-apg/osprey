@@ -426,7 +426,7 @@ def test_osprey_set_with_a_leaf_key_keeps_the_siblings_in_the_file(
     runner, repo = runner_repo
     _init(runner, repo, "hello-world")
     before = _profile_config(repo)
-    sibling = "approval.tools.execute"
+    sibling = "approval.tools.archiver_read"
     assert sibling in before
 
     written = runner.invoke(

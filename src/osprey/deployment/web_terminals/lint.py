@@ -127,6 +127,7 @@ from osprey_connectors.types import (
     configured_targets,
     resolve_target,
     speaks_channel_access,
+    tier_allows,
 )
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
@@ -2340,7 +2341,8 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
 def _layer_writes(layer: Any) -> str | None:
     """The ``control_system.writes`` one config layer states, read as the build reads it.
 
-    The tier key's value when the layer spells it (any spelling, later wins);
+    ``never``, ``asked`` or ``allowed``, the words the parse admits: the tier
+    key's value when the layer spells it (any spelling, later wins);
     else what the layer's retired ``writes_enabled`` leaves amount to — the
     rewrite the normalizer applies to every parsed document, applied here too
     because a layer this module reads may be a raw mapping; else ``None``, a
@@ -2361,7 +2363,7 @@ def _check_readonly_tier_inherits_writes(
     rendered_project: bool,
     profile_root: Path | None,
 ) -> list[Finding]:
-    """A render whose own layer says ``control_system.writes: never`` must not render ``allowed``.
+    """A render whose own layer says ``control_system.writes: never`` must not render armed.
 
     ``control_system.writes`` is one deployment-wide key, so a tier layer that
     writes ``never`` — the line an operator scans for — overrides whatever the
@@ -2393,11 +2395,10 @@ def _check_readonly_tier_inherits_writes(
         if isinstance(layers, _UnreadableRender):
             continue  # reported by `_check_unreadable_tier_privileges`
 
-        # Not `== "never"`: only the literal `allowed` arms, so every other value
-        # the layer could carry is a layer whose author wrote down a read-only
-        # posture (an invalid one is refused at parse).
-        authored = _layer_writes(layers.authored)
-        if authored is None or authored == "allowed":
+        # Only the literal `never` is a read-only claim: `asked` over an `allowed`
+        # root is an arming author, and silence claims nothing. An invalid word
+        # is refused at parse.
+        if _layer_writes(layers.authored) != "never":
             continue
         if not _layers_allow_writes(*layers.layers):
             continue
@@ -2414,8 +2415,9 @@ def _check_readonly_tier_inherits_writes(
                 code="web_terminals.tier_inherits_armed_connector",
                 message=(
                     f"modules.web_terminals tier {render_name!r} sets "
-                    f"{WRITES_KEY}: {authored} in {layers.source!r}, but its render "
-                    f"resolves {WRITES_KEY}: allowed from {inherited_from}, so this tier "
+                    f"{WRITES_KEY}: never in {layers.source!r}, but its render resolves "
+                    f"{WRITES_KEY}: {_resolved_writes(*layers.layers)} from "
+                    f"{inherited_from}, so this tier "
                     f"would be served as a read-only tier while writes stay armed for it. "
                     f"Spell {WRITES_KEY} the same way (one dotted key) in this {layer_word} "
                     f"and in {inherited_from}"
@@ -2435,18 +2437,27 @@ def _fold_layers(*layers: Any) -> dict[str, Any]:
     return _nest_dotted(_config_leaves(*layers))
 
 
-def _layers_allow_writes(*layers: Any) -> bool:
-    """Whether a render's config layers resolve ``control_system.writes`` to ``allowed``.
+def _resolved_writes(*layers: Any) -> str | None:
+    """The ``control_system.writes`` a render's config layers resolve to, ``None`` if silent.
 
     Each layer read as the build reads it (:func:`_layer_writes`), a later
-    layer winning, silence ``never``; only the literal ``allowed`` arms.
+    layer winning.
     """
     resolved: str | None = None
     for layer in layers:
         stated = _layer_writes(layer)
         if stated is not None:
             resolved = stated
-    return resolved == "allowed"
+    return resolved
+
+
+def _layers_allow_writes(*layers: Any) -> bool:
+    """Whether a render's config layers resolve to a tier that arms: the word is not ``never``.
+
+    Read through :func:`~osprey_connectors.types.tier_allows`, so silence and any
+    value a raw layer carries that is not an arming word read ``never``.
+    """
+    return tier_allows({"writes": _resolved_writes(*layers)})
 
 
 def _live_writes_type(section: Any, *, tier_allows_writes: bool) -> str | None:
@@ -2523,14 +2534,14 @@ def _check_live_writer_without_control_identity(
         project_root=project_root,
         profile_root=profile_root,
     )
-    live_writers: dict[str, str] = {}
+    live_writers: dict[str, tuple[str, str | None]] = {}
     for render_name, layers in documents.items():
         live_type = _live_writes_type(
             as_dict(_fold_layers(*layers).get("control_system")),
             tier_allows_writes=_layers_allow_writes(*layers),
         )
         if live_type is not None:
-            live_writers[render_name] = live_type
+            live_writers[render_name] = (live_type, _resolved_writes(*layers))
     if not live_writers:
         return []
 
@@ -2543,14 +2554,15 @@ def _check_live_writer_without_control_identity(
         if entry.get("control_identity") or entry_is_shared(dict(entry)):
             continue
         name = entry.get("name")
+        live_type, word = live_writers[render]
         findings.append(
             Finding(
                 severity="warn",
                 code="web_terminals.live_writer_without_control_identity",
                 message=(
                     f"modules.web_terminals user {name!r} resolves to render "
-                    f"{render!r}, whose {WRITES_KEY}: allowed reaches the live machine "
-                    f"({live_writers[render]!r}), but sets no control_identity; its "
+                    f"{render!r}, whose {WRITES_KEY}: {word} reaches the live machine "
+                    f"({live_type!r}), but sets no control_identity; its "
                     f"writes reach the control system under the container's shared "
                     f"account, so the machine cannot tell who made them. Set "
                     f"control_identity on {name!r} to the account name that person "

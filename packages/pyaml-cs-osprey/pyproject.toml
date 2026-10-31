@@ -17,7 +17,7 @@ dependencies = [
     # The backend raises and catches the connectors' own errors (device.py,
     # devices.py, _run.py, errors.py). The same floor as the framework's
     # `osprey-connectors` dependency (a test holds them together).
-    "osprey-connectors>=2026.6.2",
+    "osprey-connectors>=2026.10.1",
 ]
 
 [project.entry-points."pyaml.schemas"]

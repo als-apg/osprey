@@ -355,8 +355,8 @@ osprey-display-menu .display-menu-logout-icon {
 
    Everything is keyed off four data attributes the chip module sets —
    `data-target-kind` (real | rehearsal | simulator, GET's `machine_kind`),
-   `data-state` (on | off | locked), `data-enforceable`, `data-pending` — so no
-   colour name and no state word lives in the JS.
+   `data-state` (off | asked | allowed | locked), `data-enforceable`,
+   `data-pending` — so no colour name and no state word lives in the JS.
 
    The popover is the identity menu's idiom (absolute, anchored under its
    trigger, --z-sticky, a 120ms fade), turned into a table of the targets this
@@ -407,18 +407,37 @@ osprey-display-menu .display-menu-logout-icon {
   background: var(--bg-elevated);
 }
 
-/* The one loud cell in the whole matrix: the facility's own machine, with
-   writes on for this login. Nothing else tints the border — the real machine
-   with writes off is a safe state and must not shout, or the one state that
-   should stops being distinguishable. */
-.control-target-chip[data-target-kind="real"][data-state="on"] {
+/* The facility's own machine is the only one whose chip border ever tints,
+   and it tints in two steps. At `asked` every write still stops at a prompt,
+   so the border carries a quiet error tint. At `allowed` writes land with
+   nobody asked — the one loud cell in the whole matrix — so the border is the
+   full error tone over an error wash at rest, not only on hover. Nothing else
+   tints the border: the real machine with writes off is a safe state and must
+   not shout, or the one state that should stops being distinguishable. */
+.control-target-chip[data-target-kind="real"][data-state="asked"] {
   border-color: var(--error-tint-40);
 }
 
-.control-target-chip[data-target-kind="real"][data-state="on"]:hover,
-.control-target-chip[data-target-kind="real"][data-state="on"][aria-expanded="true"] {
+.control-target-chip[data-target-kind="real"][data-state="asked"]:hover,
+.control-target-chip[data-target-kind="real"][data-state="asked"][aria-expanded="true"] {
   border-color: var(--color-error);
   background: var(--error-tint-08);
+}
+
+.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
+  color: var(--text-primary);
+  border-color: var(--color-error);
+  background: var(--error-tint-15);
+}
+
+.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]):hover,
+.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"])[aria-expanded="true"] {
+  border-color: var(--color-error);
+  background: var(--error-tint-25);
+}
+
+.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) .ctc-state {
+  font-weight: var(--weight-medium);
 }
 
 /* Nothing behind the chip can enforce what it says (posture store unavailable,
@@ -450,20 +469,20 @@ osprey-display-menu .display-menu-logout-icon {
   color: var(--text-secondary);
 }
 
-/* The state word takes the kind's colour while writes are on — red on the
-   real machine, amber on the rehearsal, green on the simulator — the same
-   colour as the dot and the popover's switch, all keyed on the one
-   `data-target-kind` the module sets. Off is the resting position and stays
-   in the plain secondary tone; locked drops to muted. */
-.control-target-chip[data-target-kind="real"][data-state="on"]:not([data-pending="true"]) .ctc-state {
+/* The state word takes the kind's colour while writes are armed — asked or
+   allowed — red on the real machine, amber on the rehearsal, green on the
+   simulator: the same colour as the dot and the popover's switch, all keyed
+   on the one `data-target-kind` the module sets. Off is the resting position
+   and stays in the plain secondary tone; locked drops to muted. */
+.control-target-chip[data-target-kind="real"]:is([data-state="asked"], [data-state="allowed"]):not([data-pending="true"]) .ctc-state {
   color: var(--color-error);
 }
 
-.control-target-chip[data-target-kind="rehearsal"][data-state="on"]:not([data-pending="true"]) .ctc-state {
+.control-target-chip[data-target-kind="rehearsal"]:is([data-state="asked"], [data-state="allowed"]):not([data-pending="true"]) .ctc-state {
   color: var(--color-warning);
 }
 
-.control-target-chip[data-target-kind="simulator"][data-state="on"]:not([data-pending="true"]) .ctc-state {
+.control-target-chip[data-target-kind="simulator"]:is([data-state="asked"], [data-state="allowed"]):not([data-pending="true"]) .ctc-state {
   color: var(--color-success);
 }
 
@@ -487,10 +506,11 @@ osprey-display-menu .display-menu-logout-icon {
 /* ---- The dot ----
 
    Two channels, read together: colour is the consequence of a write landing
-   here, shape is who is holding writes back. Filled = nobody, the agent can
-   write. Half = the switch is off, and one click in the popover turns it on.
-   Hollow = locked: the switch is on and still refused (or cannot be read), and
-   the row says who lifts it.
+   here, shape is who is holding writes back. Filled = asked: the agent can
+   write, and a prompt stops each write first. Filled with a halo = allowed:
+   nobody is asked. Half = the switch is off, and one click in the popover
+   turns it on. Hollow = locked: the switch is armed and still refused (or
+   cannot be read), and the row says who lifts it.
 
    The words beside the dot say the same thing, so colour is a second channel
    rather than the only one. */
@@ -516,10 +536,18 @@ osprey-display-menu .display-menu-logout-icon {
   background: transparent;
 }
 
+/* Allowed: the halo is the shape for "nobody is asked". It takes the dot's own
+   colour, so it stays the kind's consequence colour. */
+[data-state="allowed"] > .ctc-dot,
+.ctc-dot[data-state="allowed"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 35%, transparent);
+}
+
 /* Colour (C-WORDS) is the kind, whatever the switch says: the real machine
    red, the rehearsal amber — nothing moves there, but it is driven the way
-   the real one is — and the simulator green. Shape alone carries on and off,
-   so a real machine with writes off is a red half-dot, never amber. Locked
+   the real one is — and the simulator green. Shape alone carries off, asked
+   and allowed, so a real machine with writes off is a red half-dot, never
+   amber. Locked
    stays muted: no write lands, so there is no consequence to colour. */
 [data-target-kind="real"]:not([data-state="locked"]) > .ctc-dot {
   --dot: var(--color-error);
@@ -765,16 +793,20 @@ osprey-display-menu .display-menu-logout-icon {
 
 /* ---- The writes switch ----
 
-   One widget instead of pill + verb: the position is the state, the word
-   beside it is the glance copy, and the click is the gesture. On takes the
-   colour of what a write there would mean, read from the card's or row's
-   `data-target-kind` — the error tone on the real machine, amber on the
-   rehearsal, success on the simulator; off is the neutral resting position (a
-   toggle's off must read as resting, not as a warning). Locked keeps the
-   switch on screen, disabled, with the reason on hover. While the turn-on
-   confirm is up the knob parks mid-track behind a dashed outline
-   (`data-pending`): a switch implies "now", and nothing has been applied
-   yet. */
+   One three-option control instead of a pill + verb: `Writes`, then off |
+   asked | allowed as a segmented radiogroup, then the effective state word.
+   The checked option is the stored position; the word says what the next
+   write meets (a stored allowed the tier holds at asked reads `asked`).
+
+   A checked option takes the colour of what a write there would mean, read
+   from the card's or row's `data-target-kind` — the error tone on the real
+   machine, amber on the rehearsal, success on the simulator. Off is the
+   neutral resting position (an off must read as resting, not as a warning).
+   Asked is a light kind-coloured wash with a kind-coloured edge; allowed is a
+   heavy wash — the loudest, and on the real machine it also bolds the state
+   word. While a widening confirm is up the option it would land on shows a
+   dashed outline (`data-pending`): nothing has been applied yet. A disabled
+   option is held by a lock and says why on hover. */
 .ctc-switchwrap {
   display: inline-flex;
   align-items: center;
@@ -791,103 +823,109 @@ osprey-display-menu .display-menu-logout-icon {
   white-space: nowrap;
 }
 
-/* Reserved width: `on`, `off` and `locked` differ, and the Switch column
-   beside this one must not shuffle when a state changes in place. */
+/* Reserved width: `off`, `asked`, `allowed` and `locked` differ, and the
+   Switch column beside this one must not shuffle when a state changes in
+   place. `allowed` is the longest word. */
 .ctc-switch-state {
-  min-width: 38px;
+  min-width: 7.5ch;
 }
 
-[data-target-kind="real"] .ctc-switchwrap[data-state="on"] .ctc-switch-state {
+[data-target-kind="real"] .ctc-switchwrap:is([data-state="asked"], [data-state="allowed"]) .ctc-switch-state {
   color: var(--color-error);
 }
 
-[data-target-kind="rehearsal"] .ctc-switchwrap[data-state="on"] .ctc-switch-state {
+[data-target-kind="rehearsal"] .ctc-switchwrap:is([data-state="asked"], [data-state="allowed"]) .ctc-switch-state {
   color: var(--color-warning);
 }
 
-[data-target-kind="simulator"] .ctc-switchwrap[data-state="on"] .ctc-switch-state {
+[data-target-kind="simulator"] .ctc-switchwrap:is([data-state="asked"], [data-state="allowed"]) .ctc-switch-state {
   color: var(--color-success);
 }
 
-.ctc-toggle {
-  position: relative;
-  width: 30px;
-  height: 16px;
+[data-target-kind="real"] .ctc-switchwrap[data-state="allowed"] .ctc-switch-state {
+  font-weight: var(--weight-medium);
+}
+
+/* The segmented control: one bordered track, three equal options. The kind
+   sets the tone a checked asked or allowed option wears. */
+.ctc-positions {
+  --pos-tone: var(--text-secondary);
+  display: inline-flex;
   flex-shrink: 0;
-  padding: 0;
-  background: var(--neutral-tint-12);
+  padding: 1px;
+  gap: 1px;
+  background: var(--neutral-tint-06);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
+}
+
+[data-target-kind="real"] .ctc-positions {
+  --pos-tone: var(--color-error);
+}
+
+[data-target-kind="rehearsal"] .ctc-positions {
+  --pos-tone: var(--color-warning);
+}
+
+[data-target-kind="simulator"] .ctc-positions {
+  --pos-tone: var(--color-success);
+}
+
+.ctc-position {
+  height: 18px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background var(--wt-transition-fast), border-color var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast),
+    border-color var(--wt-transition-fast);
 }
 
-.ctc-toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: transform var(--wt-transition-fast), background var(--wt-transition-fast);
+.ctc-position:hover:not(:disabled):not([aria-checked="true"]) {
+  color: var(--text-primary);
+  background: var(--neutral-tint-12);
 }
 
-.ctc-toggle:hover:not(:disabled) {
-  border-color: var(--text-secondary);
-}
-
-.ctc-toggle:focus-visible {
+.ctc-position:focus-visible {
   outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
-.ctc-toggle[aria-checked="true"]::after {
-  transform: translateX(14px);
-  background: #fff; /* hygiene-allow-color: knob on the saturated error/warning/success track — white in every theme, like a native switch */
+/* Selected. Off rests in the neutral tone whatever the kind. */
+.ctc-position[aria-checked="true"] {
+  color: var(--text-primary);
+  background: var(--neutral-tint-20);
+  font-weight: var(--weight-medium);
 }
 
-[data-target-kind="real"] .ctc-toggle[aria-checked="true"] {
-  background: var(--color-error);
-  border-color: var(--color-error);
+.ctc-position[data-position="asked"][aria-checked="true"] {
+  color: var(--pos-tone);
+  background: color-mix(in srgb, var(--pos-tone) 12%, transparent);
+  border-color: color-mix(in srgb, var(--pos-tone) 50%, transparent);
 }
 
-[data-target-kind="rehearsal"] .ctc-toggle[aria-checked="true"] {
-  background: var(--color-warning);
-  border-color: var(--color-warning);
+.ctc-position[data-position="allowed"][aria-checked="true"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--pos-tone) 40%, transparent);
+  border-color: var(--pos-tone);
 }
 
-[data-target-kind="simulator"] .ctc-toggle[aria-checked="true"] {
-  background: var(--color-success);
-  border-color: var(--color-success);
-}
-
-.ctc-toggle[data-pending="on"] {
+/* Pending: the confirm for this position is up, nothing applied yet. */
+.ctc-position[data-pending="true"] {
+  color: var(--text-primary);
   border-style: dashed;
   border-color: var(--text-secondary);
 }
 
-.ctc-toggle[data-pending="on"]::after {
-  transform: translateX(7px);
-  background: var(--text-primary);
-  opacity: 0.7;
-}
-
-.ctc-toggle:disabled {
+.ctc-position:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
-}
-
-/* Locked: the knob is a lock glyph, not a position — no position is honest
-   when no click here moves it. */
-.ctc-toggle:disabled::after {
-  content: "\1F512";
-  font-size: var(--text-2xs);
-  line-height: var(--leading-tight);
-  text-align: center;
-  background: transparent;
-  color: var(--text-secondary);
+  opacity: 0.4;
 }
 
 /* What the last switch or write-state request on this row did. */

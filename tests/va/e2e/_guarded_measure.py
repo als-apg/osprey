@@ -4,9 +4,10 @@ Three live lanes drive ``pyaml_measure`` against a container: the guarded-run
 cases, check B and the chain. Each needs the same pieces, kept here once:
 
 * **The deployment.** A real ``osprey init`` and ``osprey build`` of a repo
-  whose only control target is the virtual accelerator on loopback, armed for
-  writes, whose default set -- the built-in ``still`` scenario -- is
-  activated in its state directory as ``osprey up`` activates it. The connector table is
+  whose only control target is the virtual accelerator on loopback, whose
+  write tier is stated (``asked`` for a deployment whose governed tools ask,
+  ``allowed`` for one that asks nobody), whose default set -- the built-in
+  ``still`` scenario -- is activated in its state directory as ``osprey up`` activates it. The connector table is
   stated whole, so no block of the preset's that names another machine
   survives into the render: every target the render configures resolves to the
   simulator (:func:`only_simulated_targets`).
@@ -16,8 +17,10 @@ cases, check B and the chain. Each needs the same pieces, kept here once:
   posture session, set the way a session child carries them; the hook, the
   tool and the sandbox the tool spawns all resolve from them.
 * **The approval hook.** The build's own rendered ``osprey_approval.py`` run as
-  the harness runs it, on a PreToolUse payload; an ``ask`` that is approved
-  hands the tool the input the hook rewrote, under the same tool-use id, which
+  the harness runs it, on a PreToolUse payload, for every governed call: at
+  ``asked`` it answers ``ask`` and a person's yes is assumed; at ``allowed`` it
+  answers ``allow`` and files a ``write_switch`` stamp itself. Either way the
+  tool is handed the input the hook rewrote, under the same tool-use id, which
   is how the executor finds the stamp the hook left.
 
 Every Channel Access read here runs in a subprocess that leaves through
@@ -40,7 +43,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import yaml
@@ -76,6 +79,10 @@ APPROVAL_HOOK = Path(".claude") / "hooks" / "osprey_approval.py"
 
 #: The scenario every deployment here starts in.
 STILL = "still"
+
+#: A write position: the tier a build states, and the switch a session sets.
+#: ``asked`` puts every governed call to a person; ``allowed`` asks nobody.
+Position = Literal["asked", "allowed"]
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +124,12 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
     instance 1's protocol ports, Channel Access ``port`` and pvAccess
     ``pva_port``, which sit outside the deployment's port block, so two
     deployments on one host collide on neither. The approval block is
-    stated, never left to a default: ``approval`` false is a deployment that
-    asks nobody, true one whose every guarded tool asks.
+    stated, never left to a default, for the tools the write switch does not
+    govern: ``approval`` false asks nobody about them, true asks about every
+    one. Whether a governed tool (``pyaml_measure``, ``execute``) asks is not
+    the approval block's to say -- it is the write position, which the build
+    states as the tier (:func:`build`) and a session sets as its switch
+    (:func:`acting_in`).
     """
     gateway = {"address": "127.0.0.1", "port": port, "use_name_server": True}
     connector = {
@@ -137,8 +148,6 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
         f"config.simulation.default_scenarios=[{STILL}]",
         f"config.approval.enabled={'true' if approval else 'false'}",
         "config.approval.default_policy=always",
-        "config.approval.tools.pyaml_measure=always",
-        "config.approval.tools.execute=always",
         f"config.python_executor.execution_timeout_seconds={EXECUTION_TIMEOUT_S}",
     ]
 
@@ -162,8 +171,8 @@ def set_measurement(repo: Path, model: str, **changes: Any) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
-def allow_writes(repo: Path) -> None:
-    """State ``control_system.writes: allowed`` in the repo's profile, as a deployer does.
+def state_tier(repo: Path, tier: Position) -> None:
+    """State ``control_system.writes: <tier>`` in the repo's profile, as a deployer does.
 
     ``osprey set`` only ever lowers the write ceiling, so raising it is an edit to
     the profile's ``config:`` block, which the build then renders. Any other
@@ -182,15 +191,15 @@ def allow_writes(repo: Path) -> None:
         nested.pop(leaf, None)
         if not nested:
             del config[section]
-    config[WRITES_KEY] = "allowed"
+    config[WRITES_KEY] = tier
     profile["config"] = config
     path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
 
-def build(repo: Path, settings: Sequence[str]) -> None:
-    """Apply ``settings`` to ``repo``, allow writes in its profile, and build it."""
+def build(repo: Path, settings: Sequence[str], *, writes: Position = "asked") -> None:
+    """Apply ``settings`` to ``repo``, state its write tier ``writes``, and build it."""
     osprey("set", "--repo", str(repo), *settings)
-    allow_writes(repo)
+    state_tier(repo, writes)
     osprey("build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
 
@@ -305,11 +314,13 @@ class PortTaken(RuntimeError):
 
 
 @contextmanager
-def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[Deployment]:
+def deployed(
+    repo: Path, settings: Any, *, prefix: str, probe: str, writes: Position = "asked"
+) -> Iterator[Deployment]:
     """Build ``repo`` on a fresh port and serve it; the deployment, while it is served.
 
     ``settings`` maps the Channel Access and pvAccess ports to the ``osprey set``
-    arguments of the build. A port taken between the build and the boot is
+    arguments of the build; ``writes`` is the tier the build states. A port taken between the build and the boot is
     replaced, both re-reserved, and the repo rebuilt, since the ports are part
     of the render.
     """
@@ -318,7 +329,7 @@ def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[
         pva_port = reserve_port()
         while pva_port == port:
             pva_port = reserve_port()
-        build(repo, settings(port, pva_port))
+        build(repo, settings(port, pva_port), writes=writes)
         deployment = Deployment(repo=repo, port=port, pva_port=pva_port)
         deployment.activate_default_scenarios()
         try:
@@ -432,6 +443,7 @@ def acting_in(
     deployment: Deployment,
     agent_data: Path,
     *,
+    position: Position = "asked",
     environment: Mapping[str, str] | None = None,
 ) -> Iterator[None]:
     """Run the block as a session of ``deployment`` whose agent-data root is ``agent_data``.
@@ -440,12 +452,13 @@ def acting_in(
     they share the repo's guarded-run directory and nothing else. Every stamp
     a session child must not inherit from this process is removed.
 
-    The session's switch is on for the simulator: a write needs the login tier
-    (``control_system.writes: allowed``, which :func:`build` states) AND the
-    switch on for its machine, and a fresh session's switch is off. The record
-    is written once per root, ownerless at generation 0 on the simulator, the
-    way a controls server's claim would start it; a root that already holds
-    one keeps it.
+    The session's switch is at ``position`` for the simulator: a write needs
+    the login tier (``control_system.writes``, which :func:`build` states) AND
+    the switch armed for its machine, and a fresh session's switch is off; the
+    lower of the two decides whether a governed call asks. The record is
+    written once per root, ownerless at generation 0 on the simulator, the way
+    a controls server's claim would start it; a root that already holds one
+    keeps it.
     """
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
@@ -481,7 +494,11 @@ def acting_in(
         control_context.invalidate_cache()
         if not control_context._record_path_under(agent_data).exists():
             write_control_context(
-                agent_data, target=VA_TARGET, generation=0, owned_by=None, switch={VA_TARGET: "on"}
+                agent_data,
+                target=VA_TARGET,
+                generation=0,
+                owned_by=None,
+                switch={VA_TARGET: position},
             )
         try:
             yield
@@ -618,13 +635,47 @@ async def call(tool: str, arguments: Mapping[str, Any], tool_use_id: str | None 
         return await _answer(_tool(tool)(**dict(arguments)))
 
 
+#: The fields the hook binds into every guarded ``pyaml_measure`` call it lets through.
+MEASURE_BOUND_FIELDS = ("approved_target", "approved_view_sha256")
+
+
+async def decided(
+    deployment: Deployment,
+    tool: str,
+    tool_input: Mapping[str, Any],
+    *,
+    expect: Literal["ask", "allow"],
+) -> tuple[Asked, Answer]:
+    """Run the hook on one call, insist it decided ``expect``, and run the call it let through.
+
+    ``ask`` is the ``asked`` position: the hook prompts, and the person's yes
+    is assumed. ``allow`` is the ``allowed`` position: the hook asks nobody,
+    binds the call (the target, and for ``pyaml_measure`` the view digest)
+    into its rewritten input, and files a ``write_switch`` stamp under the
+    call's id, which is the record the executor reads. Either way the tool
+    runs with the hook's input under the hook's tool-use id.
+    """
+    from osprey.mcp_server.approval_record import APPROVER_WRITE_SWITCH, approval_ask_stamp
+
+    asked = ask(deployment, tool, tool_input)
+    assert asked.decision == expect, (
+        f"the hook answered {asked.decision}, not {expect}: {asked.reason}"
+    )
+    if expect == "allow":
+        bound = MEASURE_BOUND_FIELDS if tool == "pyaml_measure" else MEASURE_BOUND_FIELDS[:1]
+        missing = [field for field in bound if not asked.updated_input.get(field)]
+        assert not missing, f"the hook let the call through unbound ({missing}): {asked}"
+        stamp = approval_ask_stamp(asked.tool_use_id)
+        assert stamp is not None, f"the hook allowed {asked.tool_use_id} and filed no stamp"
+        assert stamp.get("approver") == APPROVER_WRITE_SWITCH, stamp
+    return asked, await call(tool, asked.updated_input, asked.tool_use_id)
+
+
 async def approved(
     deployment: Deployment, tool: str, tool_input: Mapping[str, Any]
 ) -> tuple[Asked, Answer]:
-    """Ask the hook, insist it asked, and run the call it approved."""
-    asked = ask(deployment, tool, tool_input)
-    assert asked.decision == "ask", f"the hook answered {asked.decision}: {asked.reason}"
-    return asked, await call(tool, asked.updated_input, asked.tool_use_id)
+    """Ask the hook at ``asked``, insist it asked, and run the call it approved."""
+    return await decided(deployment, tool, tool_input, expect="ask")
 
 
 # ---------------------------------------------------------------------------

@@ -121,6 +121,21 @@ def _revalidate(root: Path, *extra: str) -> object:
     return CliRunner().invoke(init, [str(root), "--revalidate", *extra], catch_exceptions=False)
 
 
+#: The previous release's root armed writes (``writes_enabled: true``), which
+#: the parse point reads as ``allowed``; the rewrite keeps that ceiling (an
+#: existing ``allowed`` is never lowered), where a fresh repo ships ``asked``.
+_KEPT_CEILING = ("  control_system.writes: asked\n", "  control_system.writes: allowed\n")
+
+
+def revalidated_exemplar() -> dict[str, str]:
+    """The new exemplar as the previous release's repo revalidates to it."""
+    files = exemplar_source_files()
+    asked, allowed = _KEPT_CEILING
+    assert files["profile.yml"].count(asked) == 1
+    files["profile.yml"] = files["profile.yml"].replace(asked, allowed)
+    return files
+
+
 # ── The gate ────────────────────────────────────────────────────────────────
 
 
@@ -132,7 +147,7 @@ def test_revalidated_previous_release_repo_is_byte_equal_to_the_new_exemplar(
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    expected = exemplar_source_files()
+    expected = revalidated_exemplar()
     actual = _repo_files(root)
     assert sorted(actual) == sorted(expected)
     for rel, text in expected.items():
@@ -172,7 +187,7 @@ def test_previous_release_without_shared_gains_the_shared_block(tmp_path: Path) 
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    expected = exemplar_source_files()["profile.yml"].replace(_CHANNEL_FINDER_ITEM, "")
+    expected = revalidated_exemplar()["profile.yml"].replace(_CHANNEL_FINDER_ITEM, "")
     assert (root / "profile.yml").read_text(encoding="utf-8") == expected
     assert sorted(p.name for p in (root / "apps").iterdir()) == ["knowledge.yml", "logbook.yml"]
 
@@ -390,7 +405,7 @@ def test_the_rewrite_does_not_depend_on_the_retired_presets_shipping(
 
 
 def _assert_is_the_new_exemplar(root: Path) -> None:
-    expected = exemplar_source_files()
+    expected = revalidated_exemplar()
     actual = _repo_files(root)
     assert sorted(actual) == sorted(expected)
     for rel, text in expected.items():
