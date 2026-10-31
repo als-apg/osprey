@@ -1,0 +1,1 @@
+An application panel declaring `roster_grant` gets the entitled users' terminal secrets on its own service, through the same grant the Bluesky panel uses; every service template now reads its own `service_key`, `service` block and `panel_grant`.

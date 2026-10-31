@@ -4441,22 +4441,22 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
     return True
 
 
-#: The one service whose compose environment lists the roster's per-user
-#: operator secrets: the bluesky_web sidecar, which each per-user web terminal
-#: proxies its BLUESKY tab into with the secret ITS container holds.
-_ROSTER_SECRET_SERVICE = "bluesky_web"  # noqa: S105 -- names a compose service, holds no secret
+def _service_key(source_dir):
+    """The service key a render under *source_dir* defaults to: its directory basename."""
+    return os.path.basename(os.path.normpath(source_dir))
 
 
-def _bluesky_panel_secret_env_vars(config, source_dir, layer_root=None):
-    """The per-user secret variables the bluesky_web sidecar's compose lists.
+def _panel_grant(config, service_key, layer_root=None):
+    """The ``panel_grant`` context value of one service render.
 
-    Empty for every other service render, and for a deployment with no
-    web-terminal roster. Resolved here, in the services render, because the
-    sidecar is part of the SERVICES compose project — the web-terminal overlay
-    is brought up by its own single-file invocation
+    ``{secret_env_vars, roster_owners}`` off the roster-grant table
+    (:func:`osprey.deployment.web_terminals.roster.service_panel_grant`) for the
+    service holding a panel's grant, both empty for every other render.
+    Resolved here, in the services render, because a panel's service is part of
+    the SERVICES compose project — the web-terminal overlay is brought up by
+    its own single-file invocation
     (:func:`osprey.deployment.web_terminals.provision.web_stack_compose_cmd`),
-    so a ``bluesky-web:`` fragment there would never merge into this service
-    and would instead fail that stack as an image-less service.
+    so a fragment there would never merge into the service.
 
     Entitlement is read off the renders' rendered ``config.yml`` files.
     ``osprey build`` — the one verb that renders this file; the start verbs are
@@ -4466,19 +4466,56 @@ def _bluesky_panel_secret_env_vars(config, source_dir, layer_root=None):
 
     :param config: Full project configuration dictionary
     :type config: dict
-    :param source_dir: Service source directory being rendered
-    :type source_dir: str
+    :param service_key: The service being rendered (``services.<k>``)
+    :type service_key: str
     :param layer_root: Where a build in flight has rendered its renders;
         ``None`` reads the published build zone
     :type layer_root: str or None
+    :return: ``{"secret_env_vars": [...], "roster_owners": "..."}``
+    :rtype: dict
+    """
+    from osprey.deployment.web_terminals.roster import service_panel_grant
+
+    return service_panel_grant(config, resolve_repo_root(config), service_key, layer_root)
+
+
+def _bluesky_grant(service_key, panel_grant):
+    """*panel_grant* on the bluesky_web sidecar, the empty grant on every other service.
+
+    What the sidecar's two older context names carry: the same values
+    ``panel_grant`` holds there, never another panel's grant.
+    """
+    from osprey.deployment.web_terminals.roster import (
+        BLUESKY_PANEL_ID,
+        BUILTIN_PANEL_ROSTER_GRANTS,
+    )
+
+    if service_key != BUILTIN_PANEL_ROSTER_GRANTS[BLUESKY_PANEL_ID].service:
+        return {"secret_env_vars": [], "roster_owners": ""}
+    return panel_grant
+
+
+def _bluesky_panel_secret_env_vars(config, source_dir, layer_root=None):
+    """The per-user secret variables the bluesky_web sidecar's compose lists.
+
+    The bluesky row of the roster-grant table (see :func:`_panel_grant`);
+    ``[]`` for every other service render.
+
     :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
     :rtype: list[str]
     """
-    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
-        return []
-    from osprey.deployment.web_terminals.roster import bluesky_panel_secret_env_vars
+    key = _service_key(source_dir)
+    return _bluesky_grant(key, _panel_grant(config, key, layer_root))["secret_env_vars"]
 
-    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), layer_root)
+
+def _bluesky_panel_roster_owners(config, source_dir, layer_root=None):
+    """Whose secret each variable of the sidecar's roster grant is; ``""`` elsewhere.
+
+    :return: ``"<SUFFIX>=<username>,..."``, roster order
+    :rtype: str
+    """
+    key = _service_key(source_dir)
+    return _bluesky_grant(key, _panel_grant(config, key, layer_root))["roster_owners"]
 
 
 def _connection_ca_bundles(config, source_dir):
@@ -4512,30 +4549,6 @@ def _connection_ca_bundles(config, source_dir):
         store = as_dict(config.get("archiver")).get("mongodb_archiver")
         return list(ca_bundle_mounts(store, where="archiver.mongodb_archiver"))
     return []
-
-
-def _bluesky_panel_roster_owners(config, source_dir, layer_root=None):
-    """Whose secret each variable of the sidecar's roster grant is.
-
-    The companion of :func:`_bluesky_panel_secret_env_vars`, resolved off the
-    same entitlement walk and gated on the same service, so the map and the
-    grant it explains are rendered together or not at all.
-
-    :param config: Full project configuration dictionary
-    :type config: dict
-    :param source_dir: Service source directory being rendered
-    :type source_dir: str
-    :param layer_root: Where a build in flight has rendered its renders;
-        ``None`` reads the published build zone
-    :type layer_root: str or None
-    :return: ``"<SUFFIX>=<username>,..."``, roster order; empty off this service
-    :rtype: str
-    """
-    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
-        return ""
-    from osprey.deployment.web_terminals.roster import bluesky_panel_roster_owners
-
-    return bluesky_panel_roster_owners(config, resolve_repo_root(config), layer_root)
 
 
 #: Basename of the one service directory the Bluesky plan-device file is staged
@@ -4793,8 +4806,90 @@ def _stage_control_identity_module(config, source_dir, out_dir):
     return True
 
 
+def service_render_context(
+    config,
+    source_dir,
+    out_dir,
+    *,
+    service_key=None,
+    dev_mode=False,
+    site_image_build_args=None,
+    layer_root=None,
+):
+    """The context one service's compose template renders from.
+
+    The one builder behind :func:`setup_build_dir` and its busy-build-dir
+    fallback :func:`_incremental_setup_build_dir`, so the two paths cannot
+    render a service from different names. On top of the full config it holds:
+
+    * ``service_key`` — the ``services.<k>`` key being rendered — and
+      ``service``, that block (``{}`` where the config has none);
+    * ``panel_grant`` — ``{secret_env_vars, roster_owners}`` for the service
+      holding a panel's roster grant, both empty elsewhere (:func:`_panel_grant`).
+      The template writes the accept flag itself, inside the grant block;
+    * ``bluesky_panel_secret_env_vars`` / ``bluesky_panel_roster_owners`` —
+      the same two values under their older names, on the bluesky_web
+      sidecar only;
+    * the staged-file flags (``channel_snapshot``, ``bluesky_devices``,
+      ``control_identity_staged``), each True only when its file landed in
+      *out_dir*, so a mount the fragment declares and the file it points at
+      cannot disagree.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :param out_dir: The service's build context, where staged files land
+    :type out_dir: str
+    :param service_key: The ``services.<k>`` key; ``None`` takes the
+        directory basename of *source_dir*
+    :type service_key: str or None
+    :param dev_mode: Whether a dev wheel landed in this context
+    :type dev_mode: bool
+    :param site_image_build_args: The site's build settings for this context
+    :type site_image_build_args: dict[str, str] or None
+    :param layer_root: Where a build in flight has rendered its renders;
+        ``None`` reads the published build zone
+    :type layer_root: str or None
+    :return: The render context
+    :rtype: dict
+    """
+    from osprey.deployment.web_terminals.roster import as_dict
+
+    key = service_key or _service_key(source_dir)
+    panel_grant = _panel_grant(config, key, layer_root)
+    bluesky_grant = _bluesky_grant(key, panel_grant)
+    return {
+        **config,
+        "service_key": key,
+        "service": as_dict(as_dict(config.get("services")).get(key)),
+        "panel_grant": panel_grant,
+        "dev_mode": dev_mode,
+        "site_image_build_args": site_image_build_args or {},
+        "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+        "bluesky_panel_secret_env_vars": bluesky_grant["secret_env_vars"],
+        "bluesky_panel_roster_owners": bluesky_grant["roster_owners"],
+        "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
+        # Mandatory where a fragment mounts it (the stager refuses otherwise);
+        # False, with any stale copy removed, everywhere else.
+        "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
+        "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
+        # A tiered dispatch worker's facility-bundle and ARIEL-mirror binds
+        # (see the helper); None elsewhere.
+        "dispatch_worker_corpus_mounts": _dispatch_worker_corpus_mounts(
+            config, source_dir, layer_root
+        ),
+    }
+
+
 def setup_build_dir(
-    template_path, config, container_cfg, dev_mode=False, layer_root=None, login_tiers=None
+    template_path,
+    config,
+    container_cfg,
+    dev_mode=False,
+    layer_root=None,
+    login_tiers=None,
+    service_key=None,
 ):
     """Create complete build environment for service deployment.
 
@@ -4824,12 +4919,18 @@ def setup_build_dir(
     :param dev_mode: Development mode - copy local framework to containers
     :type dev_mode: bool
     :param layer_root: Where a build in flight has rendered its render
-        projects, for the roster grant (:func:`_bluesky_panel_secret_env_vars`)
+        projects, for the roster grant (:func:`_panel_grant`)
     :type layer_root: str or None
     :param login_tiers: The login→tier map to stage into a shared container's
         ``config.yml`` (:func:`_stage_login_tiers`); ``None`` stages none.
         :func:`prepare_compose_files` computes it once per render.
     :type login_tiers: dict[str, str] or None
+    :param service_key: The ``services.<k>`` key being rendered, read into
+        the context by :func:`service_render_context`; ``None`` takes the
+        template directory's basename. Several services can render from one
+        template directory (every Bluesky lane does), so
+        :func:`prepare_compose_files` names it.
+    :type service_key: str or None
     :return: Path to the rendered Docker Compose file
     :rtype: str
 
@@ -4927,6 +5028,7 @@ def setup_build_dir(
                         dev_mode,
                         layer_root,
                         login_tiers=login_tiers,
+                        service_key=service_key,
                     )
             else:
                 raise
@@ -4973,28 +5075,15 @@ def setup_build_dir(
     # channel_snapshot and bluesky_devices are gated the same way: True only
     # when the staged file actually landed in this context, so a mount the
     # compose fragment declares and the file it points at cannot disagree.
-    render_config = {
-        **config,
-        "dev_mode": dev_mode and wheel_staged,
-        "site_image_build_args": site_image_build_args,
-        "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
-        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
-        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
-            config, source_dir, layer_root
-        ),
-        # Whose secret each of those variables is; "" elsewhere.
-        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(config, source_dir, layer_root),
-        "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
-        # Mandatory where a fragment mounts it (the stager refuses otherwise);
-        # False, with any stale copy removed, everywhere else.
-        "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
-        "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
-        # A tiered dispatch worker's facility-bundle and ARIEL-mirror binds
-        # (see the helper); None elsewhere.
-        "dispatch_worker_corpus_mounts": _dispatch_worker_corpus_mounts(
-            config, source_dir, layer_root
-        ),
-    }
+    render_config = service_render_context(
+        config,
+        source_dir,
+        out_dir,
+        service_key=service_key,
+        dev_mode=dev_mode and wheel_staged,
+        site_image_build_args=site_image_build_args,
+        layer_root=layer_root,
+    )
     compose_filepath = render_template(template_path, render_config, out_dir)
 
     if source_dir != SERVICES_DIR:  # ignore the top level dir
@@ -5137,6 +5226,7 @@ def _incremental_setup_build_dir(
     dev_mode=False,
     layer_root=None,
     login_tiers=None,
+    service_key=None,
 ):
     """Setup build directory using incremental updates when full cleanup fails.
 
@@ -5155,6 +5245,8 @@ def _incremental_setup_build_dir(
         login_tiers (dict | None): The login→tier map, as in
             :func:`setup_build_dir`; added to a shared container's
             ``config.yml`` left in place from the previous render
+        service_key (str | None): The ``services.<k>`` key, as in
+            :func:`setup_build_dir`
 
     Returns:
         str: Path to the rendered docker-compose.yml file
@@ -5200,28 +5292,15 @@ def _incremental_setup_build_dir(
     # Create/update the docker compose file from the template (dev_mode,
     # channel_snapshot and bluesky_devices gated on staging success, exactly as
     # in setup_build_dir; the site build args resolve the same way as there).
-    render_config = {
-        **config,
-        "dev_mode": dev_mode and wheel_staged,
-        "site_image_build_args": site_image_build_args,
-        "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
-        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
-        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
-            config, source_dir, layer_root
-        ),
-        # Whose secret each of those variables is; "" elsewhere.
-        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(config, source_dir, layer_root),
-        "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
-        # Mandatory where a fragment mounts it (the stager refuses otherwise);
-        # False, with any stale copy removed, everywhere else.
-        "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
-        "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
-        # A tiered dispatch worker's facility-bundle and ARIEL-mirror binds
-        # (see the helper); None elsewhere.
-        "dispatch_worker_corpus_mounts": _dispatch_worker_corpus_mounts(
-            config, source_dir, layer_root
-        ),
-    }
+    render_config = service_render_context(
+        config,
+        source_dir,
+        out_dir,
+        service_key=service_key,
+        dev_mode=dev_mode and wheel_staged,
+        site_image_build_args=site_image_build_args,
+        layer_root=layer_root,
+    )
     compose_filepath = render_template(template_path, render_config, out_dir)
 
     # Same rendered-config step as the full path (see setup_build_dir): a
@@ -5687,6 +5766,7 @@ def prepare_compose_files(
                 dev_mode,
                 layer_root=layer_root,
                 login_tiers=login_tiers,
+                service_key=service_name,
             )
             compose_files.append(out)
         else:
