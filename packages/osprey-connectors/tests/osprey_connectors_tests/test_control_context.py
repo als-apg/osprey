@@ -186,7 +186,7 @@ def test_the_stored_mirror_follows_the_switch():
         return json.loads(control_context.record_path().read_text(encoding="utf-8"))
 
     epoch = stored()["switch_epoch"]
-    control_context.set_switch(["live"], "on", epoch=epoch)
+    control_context.set_switch(["live"], "asked", epoch=epoch)
     assert stored()["posture"] == {"va": "sandbox", "standin": "sandbox"}
 
     control_context.set_switch(["live"], "off")
@@ -1533,17 +1533,20 @@ def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ({"live": "on", "va": "on"}, {"live": "on", "va": "on"}),
-        ({"live": "on", "va": "off"}, {"live": "on"}),
+        ({"live": "on", "va": "on"}, {"live": "asked", "va": "asked"}),
+        ({"live": "on", "va": "off"}, {"live": "asked"}),
         ({"live": True, "va": "ON", "standin": 1}, {}),
-        ({"unknown_target": "on"}, {"unknown_target": "on"}),
+        ({"unknown_target": "on"}, {"unknown_target": "asked"}),
         ("on", {}),
         (["live"], {}),
         (None, {}),
     ],
 )
-def test_only_on_survives_in_the_switch(value, expected):
-    """Rule 2: a degraded switch degrades to off, alone; the identity stands."""
+def test_only_a_position_survives_in_the_switch(value, expected):
+    """Rule 2: a degraded switch degrades to off, alone; the identity stands.
+
+    The legacy ``"on"`` is a position: it reads as ``"asked"``.
+    """
     record = control_context.parse_record(_payload(switch=value))
     assert record is not None
     assert record.switch == expected
@@ -1568,10 +1571,10 @@ def test_a_record_without_switch_fields_reads_switched_off_and_epoch_less():
 
 def test_the_switch_fields_round_trip_through_the_payload():
     record = control_context.ControlContext(
-        target="live", generation=3, switch={"live": "on"}, switch_epoch=42
+        target="live", generation=3, switch={"live": "asked"}, switch_epoch=42
     )
     payload = record.to_payload()
-    assert payload["switch"] == {"live": "on"} and payload["switch_epoch"] == 42
+    assert payload["switch"] == {"live": "asked"} and payload["switch_epoch"] == 42
     mirrored = replace(record, posture=control_context.posture_mirror(record.switch))
     assert control_context.parse_record(payload) == mirrored
     assert control_context.parse_record(json.dumps(payload)) == mirrored
@@ -1682,10 +1685,10 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
         data_root,
         target="standin",
         generation=5,
-        switch={"standin": "on"},
+        switch={"standin": "asked"},
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["switch"] == {"standin": "on"}
+    assert payload["switch"] == {"standin": "asked"}
     assert isinstance(payload["switch_epoch"], int)
     # The mirror: every machine not turned on reads as narrowed to an older reader.
     mirror = {"live": "sandbox", "va": "sandbox"}
@@ -1708,15 +1711,15 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
 def test_the_record_fixture_writes_a_switch_on_request(data_root):
     from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
-    path = write_control_context(data_root, switch={"va": "on"})
+    path = write_control_context(data_root, switch={"va": "asked"})
     first_epoch = control_context.read_record().switch_epoch
-    assert control_context.read_record().switch == {"va": "on"}
+    assert control_context.read_record().switch == {"va": "asked"}
     assert isinstance(first_epoch, int) and first_epoch > 0
 
     # A rewrite without switch= keeps what is on disk, the production rule;
     # a turn-on never moves the epoch.
     write_control_context(data_root, generation=2)
-    assert control_context.read_record().switch == {"va": "on"}
+    assert control_context.read_record().switch == {"va": "asked"}
     write_control_context(data_root, generation=3, switch={})
     assert control_context.read_record().switch == {}
     assert control_context.read_record().switch_epoch == first_epoch
