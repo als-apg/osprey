@@ -1536,6 +1536,27 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   text-align: right;
 }
 
+/* Said only while a "don't ask again" is recorded, with the way back beside it. */
+.ctc-ask-again {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.ctc-ask-again-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ctc-ask-again-link:hover {
+  color: var(--text-primary);
+}
+
 /* ---- Rail / tile-header context menu ---- */
 
 /* The right-click popover of a sidebar row and of a tile header: the panel's

@@ -98,7 +98,7 @@ test('a dialog about no machine has no data-target-kind', () => {
   expect(dialog.hasAttribute('data-target-kind')).toBe(false);
 });
 
-test('a real-machine turn-on offers no waiver when the raiser passes none', () => {
+test('a dialog offers no waiver when the raiser passes none', () => {
   showConfirm(spec({ live: 'Live — writes move hardware', targetKind: 'real', skipKeyBase: null }));
 
   expect(document.querySelector('.posture-modal-skip')).toBeNull();
@@ -109,12 +109,15 @@ test('a real-machine turn-on offers no waiver when the raiser passes none', () =
 
 test('a waivable move shows the checkbox, unticked, and confirming records the choice', () => {
   localStorage.clear();
-  const key = 'osprey-ctc-skip-confirm:writes-asked:va:simulator';
+  const key = 'osprey-ctc-skip-confirm:move';
   const onConfirm = vi.fn();
   showConfirm(spec({ targetKind: 'simulator', skipKeyBase: key, onConfirm }));
 
   const box = /** @type {HTMLInputElement} */ (document.querySelector('.posture-modal-skip input'));
   expect(box.checked).toBe(false);
+  expect(document.querySelector('.posture-modal-skip')?.textContent).toBe(
+    "Don't ask again on any machine"
+  );
   box.click();
   button('.posture-modal-confirm').click();
 
@@ -124,7 +127,7 @@ test('a waivable move shows the checkbox, unticked, and confirming records the c
 
 test('a recorded waiver re-shows ticked, and cancelling leaves it as it was', () => {
   localStorage.clear();
-  const key = 'osprey-ctc-skip-confirm:writes-asked:va:simulator';
+  const key = 'osprey-ctc-skip-confirm:move';
   localStorage.setItem(key, '1');
   showConfirm(spec({ skipKeyBase: key }));
 

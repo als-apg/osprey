@@ -1786,7 +1786,7 @@ describe("don't ask again", () => {
       new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true })
     );
 
-  test('ticking it on a switch confirm mutes the NEXT switch to that machine only', async () => {
+  test('ticking it on a switch confirm mutes the next switch, to any machine', async () => {
     await bootOpen();
     switchEl('va')?.click();
     await flush();
@@ -1795,10 +1795,9 @@ describe("don't ask again", () => {
     confirmBtn()?.click();
     await flush();
 
-    // The waiver is per gesture per machine, user-scoped (bare key here:
-    // no data-osprey-storage-scope on a single-user page).
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBe('1');
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:live')).toBeNull();
+    // One slot per gesture, user-scoped (bare key here: no
+    // data-osprey-storage-scope on a single-user page).
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBe('1');
 
     // The outcome lands (clearing the pending request), the session comes
     // back; then switch to va again: no dialog, straight to the POST.
@@ -1817,8 +1816,18 @@ describe("don't ask again", () => {
     expect(outcomes('va')).toContain('switching…');
   });
 
-  test('a waived switch to ANOTHER machine still asks', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+  test('the waiver covers a switch to the live machine', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await bootOpen();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'live' } });
+    switchEl('live')?.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toEqual({ session_id: null, target: 'live' });
+  });
+
+  test('a retired per-machine switch waiver answers for nothing', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch:live', '1');
     await bootOpen();
     switchEl('live')?.click();
     await flush();
@@ -1833,14 +1842,14 @@ describe("don't ask again", () => {
     inConfirm('.posture-modal-cancel').click();
     await flush();
 
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBeNull();
     switchEl('va')?.click();
     await flush();
     expect(confirmTitle()).toBe('Switch to Simulator?');
   });
 
   test('Shift re-shows a waived dialog, pre-ticked, and unticking there is the undo', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
     await bootOpen();
     shiftClick(switchEl('va'));
     await flush();
@@ -1852,11 +1861,11 @@ describe("don't ask again", () => {
     postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
     confirmBtn()?.click();
     await flush();
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBeNull();
   });
 
   test('a waived move to asked applies directly and says the sentence once', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     postAnswers.push({ ok: true, body: { target: 'va', state: 'asked', switch_epoch: EPOCH } });
     optionEl('va', 'asked')?.click();
@@ -1885,7 +1894,7 @@ describe("don't ask again", () => {
   });
 
   test('a waived move that is refused shows no sentence', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.off })] }));
     postAnswers.push({
       ok: false,
@@ -1898,23 +1907,21 @@ describe("don't ask again", () => {
     expect(outcomes('va')).toContain(`✗ ${TIER_NEVER_PHRASE}`);
   });
 
-  test('a move to asked on the live machine offers no waiver and ignores a stale one', async () => {
-    // The gesture after which hardware can move keeps asking, always — even a
-    // hand-planted waiver key changes nothing.
+  test('a retired per-machine waiver answers for nothing, so the live machine asks', async () => {
+    // Nobody inherits a silent live machine: the one waiver is ticked afresh.
     localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:live:real', '1');
     await bootOpen();
     optionEl('live', 'asked')?.click();
     await flush();
 
     expect(confirmTitle()).toBe('Set writes to asked on Live?');
-    expect(skipBox()).toBeNull();
     expect(posts()).toHaveLength(0);
   });
 
   test('a waived switch that is refused puts the server sentence on the row', async () => {
     // With no dialog up, the refusal's home is the row — same as a verb
     // click's.
-    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
     await bootOpen();
     postAnswers.push({
       ok: false,
@@ -2034,21 +2041,21 @@ describe('confirm and waiver paths', () => {
     expect(inConfirm('.posture-modal-body').textContent).toContain('still prompt');
   });
 
-  test('ticking the waiver records it under the writes-asked key base', async () => {
+  test('ticking the waiver records it in the one move slot', async () => {
     await bootOpen(only(KINDS.va, STATES.off));
     optionEl('va', 'asked')?.click();
     await flush();
     /** @type {HTMLInputElement} */ (skipBox()).click();
     confirmBtn()?.click();
     await flush();
-    expect(localStorage.getItem('osprey-ctc-skip-confirm:writes-asked:va:simulator')).toBe('1');
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:move')).toBe('1');
     // That POST followed a dialog, so it does not claim a waived confirm.
     expect(posts()[0].body.waived).toBe(false);
     expect(statusEl()).toBeNull();
   });
 
   test('Shift re-shows a waived move, and the POST it confirms is not waived', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(only(KINDS.va, STATES.off));
     optionEl('va', 'asked')?.dispatchEvent(
       new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true })
@@ -2071,12 +2078,12 @@ describe('confirm and waiver paths', () => {
     ['simulator', KINDS.va, STATES.asked],
     ['rehearsal', KINDS.standin, STATES.off],
     ['real', KINDS.live, STATES.asked],
-  ])('a move to allowed on the %s always confirms, with no waiver', async (kindName, kind, row) => {
+  ])('a move to allowed on the %s confirms and offers the waiver', async (kindName, kind, row) => {
     await bootOpen(only(kind, row));
     optionEl(kind.target, 'allowed')?.click();
     await flush();
     expect(posts()).toHaveLength(0);
-    expect(skipBox()).toBeNull();
+    expect(skipBox()).not.toBeNull();
     expect(confirmTitle()).toContain('Set writes to allowed on');
     expect(inConfirm('.posture-modal').dataset.targetKind).toBe(kindName);
     expect(inConfirm('.posture-modal-body').textContent).toContain('no prompt');
@@ -2086,19 +2093,45 @@ describe('confirm and waiver paths', () => {
     expect(posts()[0].body).toMatchObject({ state: 'allowed', waived: false });
   });
 
-  test('no waiver key can skip a move to allowed', async () => {
-    for (const key of [
-      'writes-allowed:va:simulator',
-      'writes-allowed:va',
-      'writes-asked:va:simulator',
-    ]) {
-      localStorage.setItem(`osprey-ctc-skip-confirm:${key}`, '1');
-    }
-    await bootOpen(only(KINDS.va, STATES.asked));
-    optionEl('va', 'allowed')?.click();
+  test.each([
+    ['asked', KINDS.live, STATES.off],
+    ['allowed', KINDS.live, STATES.asked],
+    ['allowed', KINDS.va, STATES.asked],
+  ])('the one waiver applies a move to %s directly on any machine', async (to, kind, row) => {
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
+    await bootOpen(only(kind, row));
+    postAnswers.push({ ok: true, body: { target: kind.target, state: to, switch_epoch: EPOCH } });
+    optionEl(kind.target, to)?.click();
+    await flush();
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toMatchObject({ target: kind.target, state: to, waived: true });
+  });
+
+  test('the move waiver does not answer for a target switch', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
+    await bootOpen();
+    switchEl('va')?.click();
+    await flush();
+    expect(confirmTitle()).toBe('Switch to Simulator?');
+  });
+
+  test('Ask again shows only while a waiver stands, and clears both', async () => {
+    await bootOpen(only(KINDS.va, STATES.off));
+    const link = () => document.querySelector('.ctc-ask-again-link');
+    expect(link()).toBeNull();
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:switch', '1');
+    await chipModule.refetch();
+    await flush();
+
+    /** @type {HTMLButtonElement} */ (link()).click();
+    await flush();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:move')).toBeNull();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch')).toBeNull();
+    expect(link()).toBeNull();
+    optionEl('va', 'asked')?.click();
     await flush();
     expect(confirmEl()).not.toBeNull();
-    expect(posts()).toHaveLength(0);
   });
 
   test.each([
@@ -2242,7 +2275,7 @@ describe('the keyboard model', () => {
   });
 
   test('Shift with Enter re-shows a waived dialog', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:va:simulator', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await bootOpen(view());
     const asked = /** @type {HTMLButtonElement} */ (optionEl('va', 'asked'));
     asked.focus();

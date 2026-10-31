@@ -1230,13 +1230,10 @@ describe('popover API', () => {
     expect(switchRefusal(refused(400, { reason: 'bulk_on_refused' }), 'asked').message).toBe(
       'bulk_on_refused'
     );
-    // The two refusals the route sends no phrase with read as the table's.
+    // The refusal the route sends no phrase with reads as the table's.
     expect(
       switchRefusal(refused(403, { reason: 'tier_caps', ceiling: 'asked' }), 'allowed').message
     ).toBe('your tier caps writes at asked');
-    expect(switchRefusal(refused(400, { reason: 'waiver_not_allowed' }), 'allowed').message).toBe(
-      'this move always confirms'
-    );
     expect(switchRefusal(new Error('network down'), 'off').message).toBe('network down');
   });
 

@@ -51,8 +51,8 @@ export function isConfirmUp() {
  * Build and show one confirm. The caller's popover stays open beneath it.
  *
  * A spec with a `skipKeyBase` renders the "don't ask again" checkbox above
- * the actions (a raiser passes one only for a waivable move, so a dialog with
- * none offers no way to mute it), pre-ticked when the waiver is already recorded (the Shift
+ * the actions (a dialog with none offers no way to mute it), pre-ticked when
+ * the waiver is already recorded (the Shift
  * re-show is where it can be unticked), and the waiver is written the moment
  * the operator confirms — before the POST, because the checkbox answers "ask
  * me next time?", not "did this request succeed?".
@@ -116,7 +116,7 @@ export function showConfirm(spec) {
     skipBox = /** @type {HTMLInputElement} */ (document.createElement('input'));
     skipBox.type = 'checkbox';
     skipBox.checked = confirmSkipped(spec.skipKeyBase);
-    skipRow.append(skipBox, el('span', undefined, "Don't ask again for this machine"));
+    skipRow.append(skipBox, el('span', undefined, "Don't ask again on any machine"));
   }
 
   const actions = el('div', 'posture-modal-actions');

@@ -788,7 +788,7 @@ describe("the chip's words and gestures", () => {
   });
 
   test('a waived move to asked applies directly and says the turn-on sentence in the status line', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:standin:rehearsal', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await rebootOn(
       viewOf({ any_armed: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
     );

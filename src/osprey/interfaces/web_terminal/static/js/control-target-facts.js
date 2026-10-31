@@ -296,7 +296,6 @@ export const REASON_PHRASES = {
   // Minted by the chip for a request nothing answered before its deadline.
   request_expired: 'no answer',
   tier_caps: TIER_CAPS_SENTENCE,
-  waiver_not_allowed: 'this move always confirms',
 };
 
 /**
@@ -621,25 +620,6 @@ export function switchConfirm(row, kind, word) {
   };
 }
 
-/**
- * Whether one confirm may offer "don't ask again". Per gesture and per machine
- * kind, because the dialogs guard different things: a target switch is
- * recoverable (switch back, and the position does not travel), so its ceremony
- * may be waived anywhere; a move to `writes-allowed` removes the prompt, and
- * that dialog keeps asking on every machine; a move to `writes-asked` is the
- * gesture after which a write can land, and on the real machine that write
- * moves hardware, so only the rehearsal and the simulator keep its waiver. Any
- * kind or gesture this module does not know is treated as the real machine,
- * the direction this must fail in. The route refuses the same waivers.
- * @param {'switch'|'writes-asked'|'writes-allowed'} gesture
- * @param {string} kind  kindAttr's answer for the row
- * @returns {boolean}
- */
-export function confirmSkippable(gesture, kind) {
-  if (gesture === 'switch') return true;
-  return gesture === 'writes-asked' && (kind === KIND_REHEARSAL || kind === KIND_SIMULATOR);
-}
-
 /* ---- has the switch this browser asked for landed? ---------------------- */
 
 /**
@@ -789,20 +769,11 @@ export function switchFailureNote(pid, detail = null) {
 }
 
 /**
- * The localStorage key BASE under which a waived confirm is remembered — one
- * slot per gesture per machine, so the first switch to each machine still
- * explains itself once. Callers resolve it through `scopedStorageKey()`
- * (storage-scope.js): on a multi-user mount one operator's waiver must not
- * silence the dialog for everyone else.
- *
- * A move to asked's slot also names the machine's kind: a waiver given while
- * `standin` was the rehearsal must not answer for it once it reads as the
- * real machine (C-KIND), whose moves are never waived.
- * @param {'switch'|'writes-asked'} gesture
- * @param {any} row
- * @returns {string}
+ * The localStorage key BASES under which a waived confirm is remembered: one
+ * slot for every move of the writes switch, to asked or allowed on any machine,
+ * and one for every switch of target. Callers resolve them through
+ * `scopedStorageKey()` (storage-scope.js): on a multi-user mount one operator's
+ * waiver must not silence the dialog for everyone else.
  */
-export function confirmSkipKeyBase(gesture, row) {
-  const base = `osprey-ctc-skip-confirm:${gesture}:${row.target}`;
-  return gesture === 'writes-asked' ? `${base}:${machineKind(row)}` : base;
-}
+export const SKIP_KEY_MOVE = 'osprey-ctc-skip-confirm:move';
+export const SKIP_KEY_SWITCH = 'osprey-ctc-skip-confirm:switch';

@@ -517,14 +517,14 @@ def test_every_widening_confirms_and_cancel_changes_nothing(
             assert recorded_position(POSTURE_TARGET) == "asked"
             assert write_verdict_for(app, POSTURE_TARGET).position == "asked"
 
-            # --- asked -> allowed: its own words, and no waiver anywhere ---
+            # --- asked -> allowed: its own words, and the waiver on offer ---
             _move(page, POSTURE_TARGET, "allowed")
             expect(page.locator(MODAL_TITLE)).to_have_text(
                 _widen_title(POSTURE_TARGET, "allowed"), timeout=TIMEOUT
             )
             expect(page.locator(MODAL_CONFIRM)).to_have_text("Set writes to allowed")
             expect(page.locator(f"{OPEN_MODAL} .posture-modal-body")).to_contain_text("no prompt")
-            expect(page.locator(f"{OPEN_MODAL} .posture-modal-skip")).to_have_count(0)
+            expect(page.locator(f"{OPEN_MODAL} .posture-modal-skip")).to_have_count(1)
             assert recorded_position(POSTURE_TARGET) == "asked"
             page.locator(MODAL_CONFIRM).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
@@ -877,16 +877,6 @@ def test_a_rehearsal_widening_to_asked_confirms_once_and_arms_only_that_login(
             assert not foreign.allowed, foreign
             assert_chip_matches_verdict(page, app)
 
-            # --- asked -> allowed: no waiver, even on the rehearsal ---
-            _move(page, POSTURE_TARGET, "allowed")
-            expect(page.locator(MODAL_TITLE)).to_have_text(
-                _widen_title(POSTURE_TARGET, "allowed"), timeout=TIMEOUT
-            )
-            expect(page.locator(f"{OPEN_MODAL} .posture-modal-skip")).to_have_count(0)
-            page.locator(MODAL_CANCEL).click()
-            expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            assert recorded_position(POSTURE_TARGET) == "asked"
-
             # --- off, then asked again: the waiver holds, so nothing asks ---
             _narrow(page, POSTURE_TARGET)
             _move(page, POSTURE_TARGET, "asked")
@@ -914,19 +904,18 @@ def test_a_rehearsal_widening_to_asked_confirms_once_and_arms_only_that_login(
 
 
 # ---------------------------------------------------------------------------
-# (h) the real machine: a confirm every time, and no waiver
+# (h) the live machine: a confirm until it is waived
 # ---------------------------------------------------------------------------
 
 
-def test_a_real_machine_widening_confirms_every_time_and_offers_no_waiver(
+def test_a_live_widening_confirms_until_the_operator_waives_it(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """Every widening of the real machine's writes asks, every single time.
+    """A widening of the live machine's writes asks until the waiver is ticked.
 
-    A write there moves hardware, so neither ``asked`` nor ``allowed`` may be
-    muted: the dialog offers no "don't ask again", carries the hardware banner,
-    and is raised again on the second asked exactly as on the first. Every
-    round ends in the record and the verdict.
+    The dialog carries the hardware banner and is raised again on the second
+    asked exactly as on the first; the waiver, ticked last, silences the next
+    one. Every round ends in the record and the verdict.
     """
     with chip_hub(tmp_path, monkeypatch, switch={}) as (base_url, app, _root):
         page, _session_id = settled_chip(chromium_browser, base_url)
@@ -943,11 +932,12 @@ def test_a_real_machine_widening_confirms_every_time_and_offers_no_waiver(
                 expect(page.locator(MODAL_TITLE)).to_have_text(
                     _widen_title(SWITCH_TARGET, position), timeout=TIMEOUT
                 )
-                expect(page.locator(f"{OPEN_MODAL} .posture-modal-skip")).to_have_count(0)
                 expect(page.locator(f"{OPEN_MODAL} .posture-modal-live")).to_contain_text(
                     "writes move hardware"
                 )
                 assert recorded_position(SWITCH_TARGET) == "off", round_
+                if position == "allowed":
+                    page.locator(f"{OPEN_MODAL} .posture-modal-skip input").check()
                 page.locator(MODAL_CONFIRM).click()
                 expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
                 expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
@@ -958,6 +948,12 @@ def test_a_real_machine_widening_confirms_every_time_and_offers_no_waiver(
                 assert_chip_matches_verdict(page, app)
                 _narrow(page, SWITCH_TARGET)
                 assert write_verdict_for(app, SWITCH_TARGET).reason == "switch_off", round_
+
+            _move(page, SWITCH_TARGET, "asked")
+            expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
+                "data-state", "asked", timeout=TIMEOUT
+            )
+            expect(page.locator(OPEN_MODAL)).to_have_count(0)
         finally:
             page.close()
 

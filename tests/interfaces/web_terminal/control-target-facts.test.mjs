@@ -21,8 +21,6 @@ import {
   STOP_NOT_TAKEN_SENTENCE,
   TURN_ON_SENTENCE,
   bannerNote,
-  confirmSkipKeyBase,
-  confirmSkippable,
   contextHolderWords,
   contextRefusalCode,
   contextRefusalPhrase,
@@ -230,53 +228,6 @@ describe('switchConfirm', () => {
     // The retired word arrives nowhere: it reads as the word that promises nothing.
     expect(textOf(switchConfirm(row, 'real', /** @type {any} */ ('on')).body)).toContain(
       'Writes are locked there.'
-    );
-  });
-});
-
-describe('confirmSkippable', () => {
-  test('a move to allowed is never waivable, on any machine', () => {
-    for (const kind of [...KINDS, 'live', '']) {
-      expect(confirmSkippable('writes-allowed', kind)).toBe(false);
-    }
-  });
-
-  test('no real-machine move to asked is ever waivable', () => {
-    expect(confirmSkippable('writes-asked', 'real')).toBe(false);
-    // Any kind this module does not know is the real machine — including
-    // every word of the retired vocabulary.
-    for (const kind of ['live', 'standin', 'va', '', 'something-new']) {
-      expect(confirmSkippable('writes-asked', kind)).toBe(false);
-    }
-  });
-
-  test('a move to asked on the rehearsal or the simulator keeps the waiver', () => {
-    expect(confirmSkippable('writes-asked', 'rehearsal')).toBe(true);
-    expect(confirmSkippable('writes-asked', 'simulator')).toBe(true);
-  });
-
-  test('a gesture this module does not know is not waivable', () => {
-    for (const kind of KINDS) {
-      for (const gesture of ['writes-on', '']) {
-        expect(confirmSkippable(/** @type {any} */ (gesture), kind)).toBe(false);
-      }
-    }
-  });
-
-  test('a target switch may be waived on any machine', () => {
-    for (const kind of KINDS) expect(confirmSkippable('switch', kind)).toBe(true);
-  });
-
-  test('a move-to-asked waiver is remembered per kind, so a demoted stand-in asks again', () => {
-    const rehearsal = confirmSkipKeyBase('writes-asked', {
-      target: 'standin',
-      machine_kind: 'rehearsal',
-    });
-    const real = confirmSkipKeyBase('writes-asked', { target: 'standin', machine_kind: 'real' });
-    expect(rehearsal).toBe('osprey-ctc-skip-confirm:writes-asked:standin:rehearsal');
-    expect(real).toBe('osprey-ctc-skip-confirm:writes-asked:standin:real');
-    expect(confirmSkipKeyBase('switch', { target: 'standin', machine_kind: 'real' })).toBe(
-      'osprey-ctc-skip-confirm:switch:standin'
     );
   });
 });
@@ -735,9 +686,8 @@ describe('contextWritable', () => {
 });
 
 describe('REASON_PHRASES', () => {
-  test('the two refusals the route sends with no phrase have one', () => {
+  test('the refusal the route sends with no phrase has one', () => {
     expect(REASON_PHRASES.tier_caps).toBe('your tier caps writes at asked');
-    expect(REASON_PHRASES.waiver_not_allowed).toBe('this move always confirms');
   });
 });
 
