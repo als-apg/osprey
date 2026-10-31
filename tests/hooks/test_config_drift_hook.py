@@ -1118,3 +1118,10 @@ def test_a_tier_edited_after_the_render_warns(tmp_path, rendered, edited, fragme
     assert message is not None
     assert fragment in message
     assert f"control_system.writes: {edited}" in message
+
+
+def test_the_arming_tiers_are_the_package_words_above_never():
+    """The hook restates the tier words in the stdlib; the package is their one producer."""
+    from osprey_connectors.types import TIER_WORDS
+
+    assert _hook()._TIER_ARMING == TIER_WORDS[1:]

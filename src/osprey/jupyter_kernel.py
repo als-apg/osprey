@@ -448,9 +448,10 @@ HINT_TARGET_CHANGED = "The control target changed while this cell ran. Re-run th
 
 #: Writes are off for the machine this cell writes to: its switch is off, or
 #: the cell was opened while it was (the launch pin). The chip is where the
-#: switch is turned on, and the next cell is stamped from it.
+#: switch is moved to asked or allowed, and the next cell is stamped from it.
 HINT_WRITES_OFF = (
-    "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
+    "Writes are off for this cell. Set the machine to asked or allowed on the chip, "
+    "then re-run the cell."
 )
 
 #: A cell tried to load a control-system client. No posture lets a client into

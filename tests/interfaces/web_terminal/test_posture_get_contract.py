@@ -1343,10 +1343,13 @@ class TestTheWriteColumns:
         with make_client(render(tmp_path=tmp_path, extra={"writes": "asked"})) as client:
             assert get_posture(client)["locks"] == {"readonly_run": False, "tier": "asked"}
 
-    def test_the_tier_lock_is_the_lower_of_tier_and_rung(self, make_client, tmp_path):
+    def test_on_a_host_the_tier_lock_is_the_verdicts_ceiling_not_the_rung(
+        self, make_client, tmp_path
+    ):
+        """``write_ceiling``: a host caps by its tier; a passing rung does not lower it."""
         config = armed(tmp_path, extra={"login_tiers": {acting_identity(): "asked"}})
         with make_client(config) as client:
-            assert get_posture(client)["locks"]["tier"] == "asked"
+            assert get_posture(client)["locks"]["tier"] == "allowed"
 
     def test_the_tier_lock_is_never_on_a_render_that_allows_no_writes(self, client):
         payload = get_posture(client)

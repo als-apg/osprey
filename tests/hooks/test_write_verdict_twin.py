@@ -221,6 +221,57 @@ def test_tree_position_is_the_stored_word_capped_by_the_rung(
     assert twin == package == expected
 
 
+_CEILING_PAIRS = [
+    ("asked", "allowed"),
+    ("allowed", "asked"),
+    ("asked", "asked"),
+    ("allowed", "allowed"),
+]
+
+
+@pytest.mark.usefixtures("case_environment")
+@pytest.mark.parametrize(("section_tier", "map_tier"), _CEILING_PAIRS)
+def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
+    monkeypatch, tmp_path, section_tier, map_tier
+):
+    """``write_ceiling`` is the one producer: the chip's ceiling never disagrees with the verdict."""
+    from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+
+    _stage_tree_switch(monkeypatch, tmp_path, {"live": "allowed"})
+    section = {"type": "epics", "writes": section_tier, "login_tiers": {"alice": map_tier}}
+
+    verdict = posture_store.write_verdict(section, "live", owner="alice")
+
+    assert verdict.position == map_tier
+    assert websocket_routes._login_tier(section, "alice") == verdict.position
+    assert posture_store.write_ceiling(section, "alice") == verdict.position
+
+
+@pytest.mark.usefixtures("case_environment")
+@pytest.mark.parametrize(("section_tier", "map_tier"), _CEILING_PAIRS)
+def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, map_tier):
+    from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+    from osprey_connectors.identity import acting_identity
+
+    _stage_host_switch(tmp_path, {"live": "allowed"})
+    login = acting_identity()
+    section = {"type": "epics", "writes": section_tier, "login_tiers": {login: map_tier}}
+
+    verdict = posture_store.write_verdict(section, "live", owner=login)
+
+    assert verdict.position == section_tier
+    assert websocket_routes._login_tier(section, login) == verdict.position
+    assert posture_store.write_ceiling(section, login) == verdict.position
+
+
+def test_a_ceiling_under_a_tree_with_no_map_is_unknown(monkeypatch):
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
+    assert posture_store.write_ceiling({"writes": "allowed"}, "alice") == "unknown"
+    assert posture_store.write_ceiling({"writes": "allowed"}, "alice", tree_bound=False) == (
+        "allowed"
+    )
+
+
 @pytest.mark.usefixtures("case_environment")
 def test_the_launch_pin_refuses_a_stored_allowed_with_no_position(monkeypatch, tmp_path):
     _stage_host_switch(tmp_path, {"live": "allowed"})

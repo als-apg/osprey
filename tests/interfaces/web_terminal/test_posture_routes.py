@@ -676,16 +676,12 @@ class TestTheCeiling:
             phrase=refusal_phrase("tier_never", "real"),
         )
 
-    def test_a_ceiling_from_the_logins_own_rung_caps(self, client, tmp_path):
+    def test_on_a_host_the_logins_own_rung_caps_no_more_than_the_verdict(self, client, tmp_path):
+        """The verdict caps a host's writes by its tier (``write_ceiling``), so the chip does too."""
         section = control_system_section(writes="allowed")
         section["login_tiers"] = {acting_identity(): "asked"}
         client.app.state.config_path = write_config(tmp_path, section, name="rung.yml")
-        assert_envelope(
-            post_switch(client, target="va", state="allowed"),
-            403,
-            reason="tier_caps",
-            ceiling="asked",
-        )
+        assert turn_on(client, "va", "allowed").status_code == 200
 
     def test_an_unknown_ceiling_is_not_a_cap(self, client, tmp_path):
         """Nothing at the route locks it today; the write verdict refuses it at the write."""
@@ -857,15 +853,17 @@ class TestTheLoginsOwnTierLock:
         ("deployment", "rung", "ceiling"),
         [
             ("allowed", "allowed", "allowed"),
-            ("allowed", "asked", "asked"),
+            ("allowed", "asked", "allowed"),
             ("asked", "allowed", "asked"),
             ("asked", "asked", "asked"),
             ("asked", "never", "never"),
             ("never", "allowed", "never"),
         ],
     )
-    def test_the_ceiling_is_the_lower_of_tier_and_rung(self, deployment, rung, ceiling):
-        """The one home of the ceiling, so the lower of the two wherever a map applies."""
+    def test_on_a_host_the_ceiling_is_the_tier_once_the_rung_passes(
+        self, deployment, rung, ceiling
+    ):
+        """The verdict's own ceiling (``write_ceiling``): a host caps by its tier, not the rung."""
         section = {**control_system_section(writes=deployment), "login_tiers": {"alice": rung}}
         assert websocket_routes._login_tier(section, "alice") == ceiling
 

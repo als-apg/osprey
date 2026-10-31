@@ -1266,16 +1266,16 @@ def _staged_login_tiers(repo_root):
 def _mapped_tier(section, login):
     """*login*'s entry in the staged map *section*: a tier word, or ``unknown``.
 
-    Read as the write verdict reads it
-    (:func:`~osprey_connectors.posture_store.owner_tier_term`), so a malformed
-    map is unreadable as a whole; no staged map (*section* ``None``) is
-    ``unknown`` too.
+    The ceiling a shared container's write verdict applies, under its bound
+    tree (:func:`~osprey_connectors.posture_store.write_ceiling`), so a
+    malformed map is unreadable as a whole; no staged map (*section* ``None``)
+    is ``unknown`` too.
     """
-    from osprey_connectors.posture_store import owner_tier_term
+    from osprey_connectors.posture_store import write_ceiling
 
     if section is None:
         return "unknown"
-    tier = owner_tier_term(section, login)
+    tier = write_ceiling(section, login, tree_bound=True)
     return tier if tier in TIER_WORDS else "unknown"
 
 
@@ -1337,8 +1337,12 @@ def _recorded_identities(tree):
 
 
 def _position_entry(target, position, tier):
-    """One armed machine as ``target:position``, marked when *tier* caps it at ``asked``."""
-    if tier == "asked" and position != tier:
+    """One armed machine as ``target:position``, marked when *tier* caps it at ``asked``.
+
+    *tier* is the login's ceiling (:func:`_mapped_tier`, or the deployment's
+    own tier); ``never`` is marked on the whole list instead.
+    """
+    if tier == "asked" and TIER_WORDS.index(position) > TIER_WORDS.index(tier):
         return f"{target}:{position} {CAPPED_AT_ASKED}"
     return f"{target}:{position}"
 

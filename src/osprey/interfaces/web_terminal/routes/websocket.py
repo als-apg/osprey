@@ -84,12 +84,12 @@ router = APIRouter()
 # by the login would meet (C-GET); it carries no narrowing.
 
 #: The switch position that arms nothing, and the one no waiver may reach.
-SWITCH_OFF = "off"
-SWITCH_ALLOWED = "allowed"
+SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
+SWITCH_ALLOWED = control_context.SWITCH_POSITIONS[-1]
 
 #: The positions in widening order. The login's ceiling compares on the same
 #: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
-_POSITION_RANK = {SWITCH_OFF: 0, "asked": 1, SWITCH_ALLOWED: 2}
+_POSITION_RANK = {position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)}
 
 
 #: The one spelling of a switch epoch on the wire: a canonical decimal string.
@@ -2894,18 +2894,20 @@ TIER_UNKNOWN = "unknown"
 def _login_tier(section: Any, login: str) -> str:
     """The login's write ceiling here: ``never``, ``asked``, ``allowed`` or ``unknown``.
 
-    The deployment's tier (:func:`~osprey_connectors.types.tier_writes`) first,
-    then the login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`)
-    — the two tier terms of the write verdict, in its order — and the lower of
-    the two. A rung that does not apply leaves the deployment's answer. Never raises.
+    The two tier terms of the write verdict first, in its order: the
+    deployment's tier (:func:`~osprey_connectors.types.tier_writes`), then the
+    login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`).
+    Otherwise the verdict's own ceiling
+    (:func:`~osprey_connectors.posture_store.write_ceiling`). Never raises.
     """
     try:
         from osprey_connectors.types import tier_writes
 
-        deployment = tier_writes(None if section is _UNREADABLE_SECTION else section)
-        if deployment == "never":
+        readable = None if section is _UNREADABLE_SECTION else section
+        if tier_writes(readable) == "never":
             return "never"
         rung = posture_store.owner_tier_term(section, login)
+        ceiling = posture_store.write_ceiling(readable, login)
     except Exception:  # an unreadable tier is not an allowed one
         logger.warning("Could not read the write tier for login %s", login)
         return TIER_UNKNOWN
@@ -2913,7 +2915,7 @@ def _login_tier(section: Any, login: str) -> str:
         return "never"
     if rung == "unknown":
         return TIER_UNKNOWN
-    return deployment if rung == "skip" else min(deployment, rung, key=_POSITION_RANK.__getitem__)
+    return ceiling
 
 
 def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVerdict:

@@ -26,7 +26,7 @@ left out. Absent is never filled in with the root tier: that would be a guess.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from osprey.deployment.web_terminals.roster import (
     UnresolvedRoleError,
@@ -38,11 +38,12 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
     sign_in_decides_tier,
 )
+from osprey_connectors.types import TierWord
 
 #: Where the map is rendered in a shared container's config.
 LOGIN_TIERS_KEY = "login_tiers"
 
-Tier = Literal["never", "asked", "allowed"]
+Tier = TierWord
 
 
 def _entry_login(entry: Any) -> tuple[str | None, dict[str, Any]]:

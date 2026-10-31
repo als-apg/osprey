@@ -157,7 +157,8 @@ SECOND_WRITE_FRACTION = 0.625
 #: than imported, because the wording IS the contract — it is the line an
 #: operator reads and acts on.
 HINT_WRITES_OFF = (
-    "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
+    "Writes are off for this cell. Set the machine to asked or allowed on the chip, "
+    "then re-run the cell."
 )
 
 #: The hint line the kernel prints before a refused client import's traceback.
