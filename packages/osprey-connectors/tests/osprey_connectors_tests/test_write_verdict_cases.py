@@ -91,11 +91,27 @@ def test_every_row_drives_the_package():
     assert {case.id for case in CASES} == {case.id for case in PACKAGE_CASES}
 
 
+#: Write rows staging an ``asked`` login tier, which the framework's twin does not
+#: read yet (it knows ``never | allowed``); the framework floor raise lifts them.
+_NOT_YET_TWIN = frozenset(
+    {
+        "position-allowed-under-asked-ceiling",
+        "position-asked-under-asked-ceiling",
+        "position-legacy-on-under-asked-ceiling",
+        "position-off-under-asked-ceiling",
+        "position-host-map-is-no-ceiling",
+        "tree-section-asked-map-allowed",
+        "tree-section-allowed-map-asked",
+        "tree-map-asked-stored-asked",
+    }
+)
+
+
 def test_write_rows_drive_the_twin():
-    """Every write row is a parity row; only the backstop is package-only."""
+    """Every write row is a parity row but the gated ones; the backstop is package-only."""
     for case in CASES:
         if case.verdict == "write":
-            assert "twin" in case.applies_to, case.id
+            assert ("twin" in case.applies_to) != (case.id in _NOT_YET_TWIN), case.id
 
 
 def test_a_row_with_a_reason_outside_reasons_fails_the_load():

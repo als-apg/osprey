@@ -76,7 +76,11 @@ def _project(surface: Surface, case: Case, tmp_path: Path) -> Any:
 
 
 def _rows_for(surface: Surface) -> list[Case]:
-    return [case for case in CASES if case.verdict == surface.verdict]
+    rows = [case for case in CASES if case.verdict == surface.verdict]
+    if surface.verdict == "write" and not surface.module.startswith("osprey_connectors"):
+        # A framework surface is held to the write rows the twin is held to.
+        rows = [case for case in rows if "twin" in case.applies_to]
+    return rows
 
 
 # -- the registry covers every caller ----------------------------------------
