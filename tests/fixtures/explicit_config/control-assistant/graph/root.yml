@@ -225,8 +225,8 @@ modules:
       groups:
       - label: Users
         type: users
-      - label: Apps
-        type: apps
+      - label: Shared logins
+        type: shared
       notices:
       - data/landing/working-safely.md
     renders:
@@ -235,15 +235,15 @@ modules:
         project: osprey-freeze-admin
         project_path: build/osprey-freeze-admin
       channel-finder:
-        kind: app
+        kind: tier
         project: osprey-freeze-channel-finder
         project_path: build/osprey-freeze-channel-finder
       knowledge:
-        kind: app
+        kind: tier
         project: osprey-freeze-knowledge
         project_path: build/osprey-freeze-knowledge
       logbook:
-        kind: app
+        kind: tier
         project: osprey-freeze-logbook
         project_path: build/osprey-freeze-logbook
       readonly:
