@@ -114,6 +114,8 @@ _HOOK_VARS = (
     "OSPREY_CONTROL_OWNER",
     "OSPREY_CONTROL_CONTEXT_TREE",
     "OSPREY_WEB_PORT",
+    # The bearer an application tool's approval prompt reads the panel's state with.
+    "OSPREY_PANEL_TOKEN",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
     # The record: the acting identity's own spool directory, which every
