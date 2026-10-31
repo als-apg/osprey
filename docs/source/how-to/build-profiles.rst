@@ -272,7 +272,7 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_limits.json``
+   * - ``data/channel_limits.json``
      - the build, from ``data/facility/limits.yaml``
    * - ``data/pyaml/<model>/``
      - the build: the pyAML view, per served model with a measurement file
