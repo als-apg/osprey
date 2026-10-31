@@ -1330,6 +1330,29 @@ def test_single_user_lists_its_record_at_the_deployments_own_tier(tmp_path):
     assert "not in the roster" not in text
 
 
+@pytest.mark.parametrize(
+    ("word", "writes"), [("asked", "standin"), ("allowed", "standin"), ("bogus", "off")]
+)
+def test_a_stored_switch_word_lists_the_machine_only_when_it_arms(
+    tmp_path, monkeypatch, word, writes
+):
+    """The upcoming connectors release stores its word as it is; ``asked`` and ``allowed`` are on."""
+    from osprey_connectors import control_context
+
+    monkeypatch.setattr(
+        control_context,
+        "_parse_switch",
+        lambda value: {k: v for k, v in value.items() if isinstance(v, str)},
+    )
+    control_context.invalidate_cache()
+    _write_record(tmp_path, "thorsten", target="standin", switch={"standin": word})
+    config = {"control_system": {"writes": "allowed"}}
+
+    assert status_display.writes_rows(config, tmp_path) == [
+        ("thorsten", "allowed", "standin", writes)
+    ]
+
+
 def test_single_user_with_no_record_says_every_machine_is_off(tmp_path):
     text = _writes_text({"control_system": {"writes": "allowed"}}, tmp_path)
 
