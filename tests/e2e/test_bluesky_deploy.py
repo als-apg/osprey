@@ -70,14 +70,8 @@ LLM secret/pre-flight probe this test doesn't need).
 
 from __future__ import annotations
 
-import json
-import os
 import shutil
 import subprocess
-import sys
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -91,8 +85,17 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
 )
+from tests.e2e import _queue_drive
+from tests.e2e._deploy_support import (
+    env_value,
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_container_health,
+    wait_for_health,
+)
+from tests.e2e._orm_stack import seed_repo_env
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
 
 # Deliberately NOT the bridge's slot in the deployment's port block: this is a
 # shared dev machine with other long-running services, and the bridge's port
@@ -101,15 +104,10 @@ from tests.e2e.profile_edits import set_pairs
 # than letting the layout place it.
 BRIDGE_PORT = 18090
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-# ``hello-world`` deploys the telemetry store and its gateway on their slots in
-# the port block, which a locally-running tutorial stack routinely holds — and
-# a bound-port collision aborts `up` before the bluesky containers it creates
-# alongside it ever start. Both are moved to high, unassigned ports, same
-# defensive convention as BRIDGE_PORT above, and PORT_BASE moves the block
-# itself, which carries the gateway's own metrics port that no key moves.
-# Nothing in this proof touches telemetry.
-TELEMETRY_GATEWAY_PORT = 24319
-TELEMETRY_STORE_PORT = 28124
+# A locally-running deployment routinely holds the default port block, and a
+# bound-port collision aborts `up` before the bluesky containers it creates
+# ever start. PORT_BASE moves this deployment's whole block off it, same
+# defensive convention as BRIDGE_PORT above.
 PORT_BASE = 22200
 # The fixture builds/deploys under this project name; the compose template
 # renders each container_name AND the bridge's locally-built image as
@@ -160,56 +158,17 @@ pytestmark = [
 ]
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
-def _seed_repo_env(repo: Path) -> None:
-    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
-
-    The repo root's ``.env`` is the deployment's whole secret store and the file
-    every compose invocation is pointed at, so ``up`` aborts when it is absent.
-    ``osprey init`` writes one only when the shell exports a key for the
-    profile's provider, which no bluesky lane has — this is the ``cp
-    .env.example .env`` the CLI itself recommends, done for the operator.
-    """
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
-
-
 @pytest.fixture(scope="module")
 def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Init + build + ``osprey up --dev`` a bluesky-only repo; tear down after."""
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("scan_deploy_build")
     repo = base / PROJECT_NAME
-
-    # A `config.`-scoped edit names one leaf of the rendered config:
-    # everything after `config.` is one key, so the rest of the `services:`
-    # block stays as the preset wrote it.
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
     # name IS the deployment name, so the container names above still hold.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -217,14 +176,6 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "hello-world",
             "--no-git",
-            *set_pairs(
-                {
-                    "config": {
-                        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
-                    }
-                }
-            ),
             "--set",
             f"port_base={PORT_BASE}",
             # The `bluesky.port` edit is what opts this project into the bluesky
@@ -237,22 +188,16 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
-    _seed_repo_env(repo)
+        pytest.fail(format_failure("osprey build", build))
+    seed_repo_env(repo)
 
     # Force a fresh image build so the deployed bridge runs CURRENT source —
     # `osprey up` does not pass --build to compose, so it would otherwise
@@ -262,20 +207,17 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up --dev", up))
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         yield repo
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -285,94 +227,12 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
-def _docker_inspect(container: str, fmt: str) -> str:
-    proc = subprocess.run(
-        ["docker", "inspect", "--format", fmt, container],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, f"docker inspect {container} failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _wait_for_container_health(container: str, timeout: float) -> None:
-    """Poll ``docker inspect .State.Health.Status`` until ``healthy``.
-
-    The bridge's HTTP-readiness gate can pass while Docker still reports
-    ``starting`` (the healthcheck runs only on its interval, after
-    ``start_period``), so an instant equality assert would be racy — and the
-    manager/Redis have no HTTP surface to wait on at all.
-    """
-    deadline = time.monotonic() + timeout
-    last = "(no status yet)"
-    while time.monotonic() < deadline:
-        last = _docker_inspect(container, "{{.State.Health.Status}}")
-        if last == "healthy":
-            return
-        time.sleep(2.0)
-    raise AssertionError(
-        f"{container} did not reach 'healthy' within {timeout:.0f}s (last status: {last!r})"
-    )
-
-
-def _env_value(repo: Path, key: str) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — nothing was minted"
-    value = parse_dotenv_file(env_path).get(key)
-    assert value, f"{key} missing/empty in the deployment repo's .env"
-    return value
-
-
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=15.0)
 
 
 def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method=method,
-        headers={"Content-Type": "application/json"} if data is not None else {},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
-def _refusal_code(body: Any) -> Any:
-    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
-
-    Returns ``None`` for any other shape so an assertion reports the drifted
-    body rather than a ``KeyError`` raised inside this helper.
-    """
-    detail = body.get("detail") if isinstance(body, dict) else None
-    return detail.get("code") if isinstance(detail, dict) else None
+    return _queue_drive.request(BRIDGE_URL, path, method, body)
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +282,7 @@ def test_queue_stack_containers_reach_healthy() -> None:
     can execute.
     """
     for container in (BRIDGE_CONTAINER, QUEUESERVER_CONTAINER, REDIS_CONTAINER):
-        _wait_for_container_health(container, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_container_health(container, CONTAINER_HEALTH_TIMEOUT_SEC)
 
 
 def test_launch_token_and_control_plane_keypair_were_minted(deployed_bridge: Path) -> None:
@@ -434,11 +294,11 @@ def test_launch_token_and_control_plane_keypair_were_minted(deployed_bridge: Pat
     so a successful deploy already implies they exist — this asserts their
     SHAPE, which the guards cannot).
     """
-    token = _env_value(deployed_bridge, "BLUESKY_LAUNCH_TOKEN")
+    token = env_value(deployed_bridge, "BLUESKY_LAUNCH_TOKEN")
     assert len(token) >= 40  # secrets.token_urlsafe(32) -> ~43 url-safe chars
 
-    private_key = _env_value(deployed_bridge, "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY")
-    public_key = _env_value(deployed_bridge, "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY")
+    private_key = env_value(deployed_bridge, "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY")
+    public_key = env_value(deployed_bridge, "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY")
     # Z85-encoded 32-byte CurveZMQ keys are 40 characters.
     assert len(private_key) == 40, f"unexpected control-plane private key shape: {len(private_key)}"
     assert len(public_key) == 40, f"unexpected control-plane public key shape: {len(public_key)}"
@@ -531,7 +391,7 @@ def test_plans_are_browsable_but_unqueueable() -> None:
 
     status, refusal = _request("/queue/items", "POST", {"draft_revision": patched["revision"]})
     assert status == 409, f"a browse-only enqueue must be refused: {status} {refusal}"
-    assert _refusal_code(refusal) == REASON_BROWSE_ONLY_CONNECTOR, (
+    assert _queue_drive.refusal_code(refusal) == REASON_BROWSE_ONLY_CONNECTOR, (
         f"wrong refusal code on a browse-only enqueue: {refusal}"
     )
 

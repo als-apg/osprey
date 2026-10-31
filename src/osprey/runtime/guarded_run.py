@@ -340,8 +340,8 @@ def _repo_root() -> Path:
     guarded-run directory planted wherever a process was started would be one
     no other process of the deployment finds.
     """
+    from osprey.utils.workspace import PROFILE_FILENAME
     from osprey_connectors.workspace import (
-        PROFILE_FILENAME,
         load_osprey_config,
         rendered_config_path,
         resolve_project_root,
@@ -410,7 +410,7 @@ def _run_dir_path(name: str) -> Path:
     Raises:
         GuardedRunDirError: The repo root cannot be resolved.
     """
-    from osprey_connectors.workspace import STATE_DIR_NAME
+    from osprey.utils.workspace import STATE_DIR_NAME
 
     return _repo_root() / STATE_DIR_NAME / GUARDED_RUN_DIR / name
 
@@ -652,7 +652,7 @@ def lock(
         OspreyRunBusy: Another run holds the target's lock.
         OSError: The lock could not be opened.
     """
-    from osprey_connectors.control_system import is_readonly_run
+    from osprey_connectors.posture_env import is_readonly_run
 
     if is_readonly_run():
         raise OspreyWriteRefused(_READONLY_REASON)

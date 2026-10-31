@@ -14,7 +14,6 @@ vacuously against a file nothing had touched.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -22,8 +21,12 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
+from osprey.agent_record.client import ClientAnswer
+from osprey.interfaces.web_terminal.routes import config as config_routes
 from osprey.interfaces.web_terminal.routes import router
 from osprey.utils.config_writer import config_update_fields
+from tests.agent_record.fakes import FakeRecordClient
 
 SAMPLE_CONFIG = """\
 # ============================================================
@@ -186,9 +189,10 @@ class TestPutEndpointStillWorks:
 class TestHookDebugEndpoints:
     """``/api/hooks/debug-status`` and ``/api/hooks/debug-log``.
 
-    Both read only ``app.state.config_path`` and ``app.state.project_cwd``, so
-    the bare router is their boundary; the lifespan that sets those attributes
-    is pinned by the app suites.
+    The status reads ``app.state.config_path``; the log reads hook ``debug``
+    entries from the agent record through the module's ``record_client``,
+    replaced here by a fake. The lifespan that sets the app state is pinned by
+    the app suites.
     """
 
     @pytest.mark.parametrize("debug", [True, False])
@@ -206,25 +210,117 @@ class TestHookDebugEndpoints:
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
 
-    def test_debug_log_returns_entries_newest_first(self, client, project_dir):
-        log_dir = project_dir / ".claude" / "hooks"
-        log_dir.mkdir(parents=True)
-        entries = [
-            {"ts": "2026-03-02T10:00:00Z", "hook": "PreToolUse", "tool": "Bash"},
-            {"ts": "2026-03-02T10:00:01Z", "hook": "PreToolUse", "tool": "Write"},
+    def test_debug_log_reads_hook_debug_entries_from_the_record(self, client, monkeypatch):
+        items = [
+            _debug_item("2026-03-02T10:00:01Z", hook="approval", tool="Write", status="ask"),
+            _debug_item("2026-03-02T10:00:00Z", hook="writes_check", tool="Bash", status="ok"),
         ]
-        (log_dir / "hook_debug.jsonl").write_text("\n".join(json.dumps(e) for e in entries))
+        fake = FakeRecordClient({"entries": ClientAnswer(data=items, complete=True)})
+        monkeypatch.setattr(config_routes, "record_client", lambda: fake)
 
         resp = client.get("/api/hooks/debug-log?limit=50")
 
         assert resp.status_code == 200
-        assert resp.json()["entries"] == list(reversed(entries))
+        body = resp.json()
+        assert body["record"] == "complete"
+        assert [e["tool"] for e in body["entries"]] == ["Write", "Bash"]
+        assert body["entries"][0] == items[0]["body"]
+        (call,) = fake.calls_to("entries")
+        assert call["kind"] == "debug"
+        assert call["source"] == "hook"
+        assert call["limit"] == 50
 
-    def test_debug_log_is_empty_without_a_log_file(self, client):
+    def test_debug_log_clamps_the_limit(self, client, monkeypatch):
+        fake = FakeRecordClient()
+        monkeypatch.setattr(config_routes, "record_client", lambda: fake)
+
+        client.get("/api/hooks/debug-log?limit=0")
+        client.get("/api/hooks/debug-log?limit=100000")
+
+        assert [c["limit"] for c in fake.calls_to("entries")] == [1, 500]
+
+    def test_debug_log_says_record_unavailable_when_the_record_does_not_answer(
+        self, client, monkeypatch
+    ):
+        fake = FakeRecordClient(unavailable="connection refused")
+        monkeypatch.setattr(config_routes, "record_client", lambda: fake)
+
         resp = client.get("/api/hooks/debug-log")
 
         assert resp.status_code == 200
-        assert resp.json()["entries"] == []
+        assert resp.json() == {
+            "entries": [],
+            "record": "unavailable",
+            "reason": "connection refused",
+        }
+
+    def test_debug_log_marks_an_incomplete_answer(self, client, monkeypatch):
+        items = [_debug_item("2026-03-02T10:00:00Z", hook="approval", tool="Write")]
+        fake = FakeRecordClient(
+            {"entries": ClientAnswer(data=items, complete=False, reason="scan limit")}
+        )
+        monkeypatch.setattr(config_routes, "record_client", lambda: fake)
+
+        body = client.get("/api/hooks/debug-log").json()
+
+        assert body["record"] == "incomplete"
+        assert body["reason"] == "scan limit"
+        assert len(body["entries"]) == 1
+
+    def test_debug_log_drops_any_debug_entry_not_written_by_a_hook(self, client, monkeypatch):
+        transcript = {"kind": "debug", "ts": "2026-03-02T10:00:02Z", "body": {"type": "x"}}
+        items = [transcript, _debug_item("2026-03-02T10:00:00Z", hook="approval", tool="Write")]
+        fake = FakeRecordClient({"entries": ClientAnswer(data=items, complete=True)})
+        monkeypatch.setattr(config_routes, "record_client", lambda: fake)
+
+        entries = client.get("/api/hooks/debug-log").json()["entries"]
+
+        assert [e["hook"] for e in entries] == ["approval"]
+
+    def test_transcript_debug_entries_never_appear_in_the_panel(
+        self, client, monkeypatch, tmp_path, spool_zone
+    ):
+        """Hook and transcript both produce ``debug`` entries; only the hook's are served.
+
+        Both are written and ingested for real, and read back through the
+        record's own reader with the ``source`` the route asks for.
+        """
+        from osprey.agent_record import contract, writer
+        from osprey.agent_record.reader import RecordReader
+
+        monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        hook_log._debug_from_config = None
+        hook_log.log_hook("approval", {"tool_name": "channel_write"}, status="ask")
+        # The transcript's debug body: the line type and its raw text, no source.
+        writer.write(contract.KIND_DEBUG, {"type": "progress", "raw": "{}"})
+        assert len(spool_zone.recorded_entries("debug")) == 2
+
+        reader = RecordReader(spool_zone._backend, spool_zone.config())
+
+        def entries(kind, since=None, limit=None, source=None, **_):
+            answer = reader.entries(
+                contract.Own(spool_zone.terminal), kind, since, limit, source=source
+            )
+            return ClientAnswer(
+                data=[item.to_json() for item in answer.data],
+                complete=answer.complete,
+                reason=answer.reason,
+            )
+
+        fake = FakeRecordClient({"entries": entries})
+        monkeypatch.setattr(config_routes, "record_client", lambda: fake)
+
+        body = client.get("/api/hooks/debug-log").json()
+
+        assert body["record"] == "complete"
+        assert [(e["hook"], e["status"]) for e in body["entries"]] == [("approval", "ask")]
+
+
+def _debug_item(ts, **fields):
+    """One hook debug entry as the record client serves it."""
+    body = {"source": "hook", "ts": ts, **fields}
+    return {"kind": "debug", "ts": ts, "body": body}
 
 
 class TestPanelGateFailsClosed:

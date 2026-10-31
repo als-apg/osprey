@@ -317,7 +317,8 @@ def copy_build(
     Returns:
         The copy.
     """
-    from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+    from osprey.utils.workspace import IMAGE_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     repo = repo.resolve()
     dest = parent.resolve() / repo.name

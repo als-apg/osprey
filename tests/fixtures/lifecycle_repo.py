@@ -19,7 +19,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
     │  ═ OUTPUT — ignored, disposable ════════════════
     ├── build/                     (never materialized here: a build makes it)
     │  ═ STATE — ignored, durable ════════════════════
-    └── var/agent_data/  var/audit/
+    └── var/agent_data/
 
 ``build/`` is deliberately absent. It is 100% derived, so the source repo the
 exemplar models is the repo *before* any build has run — which is also the
@@ -134,7 +134,7 @@ SHARED_APPS: tuple[str, ...] = ("logbook", "knowledge", "channel-finder")
 
 #: Durable state zone, created empty. A build recreates these when absent
 #: (FR-2), so a fresh clone and a reset repo look identical here.
-STATE_DIRS: tuple[str, ...] = ("var/agent_data", "var/audit")
+STATE_DIRS: tuple[str, ...] = ("var/agent_data",)
 
 #: Paths the shipped ``.gitignore`` must keep out of git, anchored to the repo
 #: root. Unanchored spellings are the foot-gun this list exists to pin: they
@@ -345,6 +345,19 @@ va_archiver:
   # your machine that always changes; delete the key for no check at all.
   freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
 
+# ── Agent record ─────────────────────────────────────────────────────────────
+# Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
+# it in a store container that `osprey up` runs beside the agent-record service.
+agent_record:
+  backend: clickhouse
+  # Days an entry is kept after it arrives. The history page reaches as far
+  # back, and the archive keeps every closed day for good.
+  retention_days: 90
+  # Who may read every session, beyond their own: the deployment admin on the
+  # roster below. `kinds:` and `days_back:` narrow a reader to less.
+  readers:
+    - name: carol
+
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
 # replace the whole subtree and silently drop the keys beside it.
@@ -358,7 +371,8 @@ va_archiver:
 # `provider:` / `model:` above), the channel-finder pipeline block (from
 # `channel_finder_mode:`), the panel selection (from `web_panels:`), every
 # host port, and everything the `bluesky:`, `virtual_accelerator:`,
-# `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
+# `va_archiver:`, `agent_record:`, `dispatch:` and `mcp_servers:` sections
+# above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
   # Your facility's own registry module — the file that registers its
@@ -663,20 +677,11 @@ config:
   approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # On here. Every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # On here. Every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
-
-  # ── Full tool-call record ──────────────────────────────────────────────────
-  # On here. Every osprey tool call — reads included — is written whole to
-  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
-  # one log line: arguments, result, control target, approval answer. A
-  # payload over the bound below is stored as an artifact and recorded as its
-  # size and sha256. The value-free audit files are unchanged either way.
-  audit.tool_call.enabled: true
-  audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
@@ -934,53 +939,6 @@ config:
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
-  # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs, metrics and traces to the telemetry gateway this
-  # deployment runs, which stamps each record with its sender and writes it to
-  # the telemetry store (`services.telemetry_store.*` below). On by default: the
-  # harness already records every prompt and API body to disk, so this adds no
-  # exposure, only a queryable local store you own.
-  claude_code.telemetry.enabled: true
-  # gateway | generic
-  claude_code.telemetry.backend: gateway
-  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
-  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
-  claude_code.telemetry.protocol: http/protobuf
-  # Signals to export, all three unless listed. Drop traces for a collector
-  # that takes no traces; built-in tool output rides traces and goes with them.
-  # claude_code.telemetry.signals: [metrics, logs]
-  # No endpoint key: with backend gateway it is derived per network
-  # context (the gateway's published port on the host, or its own listen port
-  # inside the deploy network), so the in-container dispatch worker does not
-  # emit to its own loopback.
-  # For a collector this deployment does not run, name it and the variable
-  # holding its bearer token; the variable goes in this repo's .env.
-  # claude_code.telemetry.backend: generic
-  # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
-  # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
-  # No credential key either: every sender logs in to the gateway with a
-  # login `osprey build` mints into a file of its own, outside the .env chain.
-  # Content gates, all on. The store captures full transcripts; a named
-  # reader, and anyone holding the store's admin credential on this host, can
-  # read everything. Set any gate to
-  # false to keep that category out of the emitted telemetry.
-  claude_code.telemetry.log_user_prompts: true
-  claude_code.telemetry.log_assistant_responses: true
-  claude_code.telemetry.log_tool_details: true
-  # Raw provider request and response bodies.
-  claude_code.telemetry.log_raw_api_bodies: true
-  # Built-in tool output as trace span events: what Read and Bash returned,
-  # and, with log_tool_details, what Edit and Write changed.
-  claude_code.telemetry.log_tool_content: true
-  # Longest content value one record carries, in UTF-16 code units, before
-  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
-  claude_code.telemetry.content_max_length: 262144
-
-  # ── Transcripts ────────────────────────────────────────────────────────────
-  # Days Claude Code keeps a session transcript before deleting it at startup
-  # (its own default is 30). Every terminal and the dispatch worker read it.
-  claude_code.transcripts.retention_days: 3650
-
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
@@ -998,19 +956,6 @@ config:
   # container and the agent's ARIEL DSN, which is derived from this block.
   services.postgresql.database_name: ariel
   services.postgresql.username: ariel
-  # The telemetry store and the gateway the agent emits to (see
-  # `claude_code.telemetry.*` above). Compose directories, under build/.
-  services.telemetry_store.path: ./services/telemetry_store
-  services.telemetry_gateway.path: ./services/telemetry_gateway
-  # Growth bound: the store drops rows older than N days. A named volume has
-  # no size cap, so age is the size knob.
-  services.telemetry_store.retention_days: 14
-  # Who may query the store with SQL: the deployment admin on the roster below.
-  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
-  # (0600) and prints the file and the query page, never the key. Delete the
-  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
-  services.telemetry_store.readers:
-    - name: carol
   # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
   # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
   # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
@@ -1066,8 +1011,6 @@ config:
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:
     - postgresql
-    - telemetry_store
-    - telemetry_gateway
     - qmd
     - graphdb
   # Host interface the services publish on. 127.0.0.1 keeps every port
@@ -1192,9 +1135,6 @@ config:
   # over `owner.email` above, on the same grounds as `github_repo`, and
   # commented for the same reason.
   # web.feedback.email: controls@example.org
-  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
-  # oldest saved session contexts are deleted; submission headers are kept.
-  web.feedback.max_store_bytes: 268435456
   # Channel-name typeahead in the web panels: the build snapshots the names in
   # this deployment's channel-finder database next to the generated config, so
   # a form field can complete what an operator types. No control-system
@@ -1402,8 +1342,8 @@ config:
   simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
-# Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
-# day of telemetry into var/archive/ once a day. Delete this block to turn it off.
+# Copies artifacts and plan-queue history into var/archive/ once a day, beside
+# the record's own export of each closed day. Delete this block to turn it off.
 services:
   archive:
     template: osprey.archive
@@ -1785,7 +1725,8 @@ APP_LOGBOOK_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/logbook.yml
 #
@@ -1904,7 +1845,8 @@ APP_KNOWLEDGE_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/knowledge.yml
 #
@@ -2012,7 +1954,8 @@ APP_CHANNEL_FINDER_YML = """\
 #
 # A complete agent definition of its own: the lists below are its whole
 # selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data, provider and model are profile.yml's, and its
+# from them. Services, data and provider are profile.yml's, and so is the model
+# unless a top-level `model:` here names one the provider serves. Its
 # config: keys are laid over profile.yml's. To see the combined result:
 #   osprey validate apps/channel-finder.yml
 #
@@ -2329,7 +2272,7 @@ in `profile.yml`, not the folder name.
 | Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
-| The agent's memory and audit log | `var/agent_data/`, `var/audit/` | no | yes |
+| The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
 In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
@@ -2408,8 +2351,8 @@ which nothing ever overwrites.
 osprey reset          # stops everything, then deletes containers, agent data and build/
 ```
 
-`reset` keeps `var/audit/` and your API keys. `osprey reset --purge-audit`
-deletes the audit log as well; that plus deleting this folder removes it all.
+`reset` keeps the agent record and your API keys. `osprey reset --purge-audit`
+deletes the record as well; that plus deleting this folder removes it all.
 
 ## Backups
 
@@ -2852,9 +2795,7 @@ fi
 # ── Deployed services ────────────────────────────────────────────────────────
 if wants services; then
   printf '\\n%s── Services ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064
-  probe_tcp  'telemetry-gateway: OTLP receiver on 10051'    localhost 10051
-  probe_http 'telemetry-store: query interface on 10804'    http://localhost:10804/ping
+  probe_tcp  'virtual-accelerator: Channel Access on 5064' localhost 5064
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────

@@ -1,4 +1,10 @@
-"""Reserve a loopback port that a test-started server binds later.
+"""Loopback ports for tests, named by what the number is.
+
+A port a test needs is one of three things. A server the test controls binds
+port 0 itself and reports the number. A port that is free and held, which
+nothing answers on or a server binds later, is a :func:`reserved_port`. A port
+that must be occupied, for a test of what a bind conflict does, is a
+:func:`bound_socket`.
 
 Picking a port by binding port 0 and releasing it leaves a gap before the
 server binds it, and the port is inside the kernel's ephemeral range: the kernel
@@ -8,11 +14,13 @@ ephemeral range are handed only to explicit binds. ``reserved_port()`` picks
 one there and holds an exclusive lock file named after it for the whole
 ``with`` block, which serializes explicit binds among test processes: no
 concurrent test process, in this run or another run on the same host, is
-handed the same port while the lock is held.
+handed the same port while the lock is held. The lock files live in one
+directory per host, whatever ``TMPDIR`` each process sees.
 """
 
 from __future__ import annotations
 
+import atexit
 import errno
 import fcntl
 import os
@@ -20,14 +28,21 @@ import random
 import socket
 import subprocess
 import sys
-import tempfile
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
 
 #: Lowest port a reservation hands out, clear of the well-known and registered
 #: ports fixed services listen on.
 PORT_FLOOR = 20000
+
+#: The one directory every test process on the host locks ports in, shared by
+#: every user of the host.
+LOCK_DIR = Path("/tmp/osprey-test-ports")
+
+#: The reservations :func:`hold_ports` keeps for the life of the process.
+_HELD = ExitStack()
+atexit.register(_HELD.close)
 
 _LINUX_RANGE = Path("/proc/sys/net/ipv4/ip_local_port_range")
 _MACOS_RANGE_KEY = "net.inet.ip.portrange.first"
@@ -58,7 +73,7 @@ def ephemeral_range_start() -> int:
 
 def lock_path(port: int) -> Path:
     """The lock file whose holder owns *port* among test processes."""
-    return Path(tempfile.gettempdir()) / "osprey-test-ports" / f"{port}.lock"
+    return LOCK_DIR / f"{port}.lock"
 
 
 def _candidates(first: int) -> list[int]:
@@ -73,9 +88,10 @@ def _candidates(first: int) -> list[int]:
 
 def _lock(port: int) -> int | None:
     """An open descriptor holding *port*'s lock, or ``None`` when another holds it."""
-    path = lock_path(port)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+    LOCK_DIR.mkdir(exist_ok=True)
+    with suppress(PermissionError):
+        LOCK_DIR.chmod(0o1777)
+    fd = os.open(lock_path(port), os.O_RDONLY | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
@@ -103,7 +119,9 @@ def reserved_port() -> Iterator[int]:
 
     The port's lock is held until the block ends, and at reservation time the
     port binds on 127.0.0.1 for both TCP and UDP; the probe sockets are closed
-    before the port is yielded, so the caller's server can bind it.
+    before the port is yielded, so the caller's server can bind it. Until the
+    caller binds it, no socket holds the port, so a connect to it on 127.0.0.1
+    is refused at once.
 
     Raises:
         RuntimeError: Every candidate below the ephemeral range was taken, or
@@ -124,3 +142,59 @@ def reserved_port() -> Iterator[int]:
     raise RuntimeError(
         f"no loopback port free below the ephemeral range: {len(candidates)} candidate(s) tried"
     )
+
+
+@contextmanager
+def reserved_ports(count: int) -> Iterator[list[int]]:
+    """Yield *count* distinct loopback ports, each a :func:`reserved_port`,
+    all held until the block ends."""
+    with ExitStack() as stack:
+        yield [stack.enter_context(reserved_port()) for _ in range(count)]
+
+
+@contextmanager
+def port_reserver() -> Iterator[Callable[[], int]]:
+    """Yield a call that reserves one more :func:`reserved_port` each time.
+
+    Each call returns a port distinct from every port the call returned before,
+    and every reservation is held until the block ends.
+    """
+    with ExitStack() as held:
+        yield lambda: held.enter_context(reserved_port())
+
+
+def hold_ports(count: int) -> list[int]:
+    """*count* distinct :func:`reserved_ports`, held until the process exits."""
+    return _HELD.enter_context(reserved_ports(count))
+
+
+@contextmanager
+def bound_socket(host: str = "127.0.0.1") -> Iterator[socket.socket]:
+    """Yield a TCP socket bound to ``(host, 0)``, closed when the block ends.
+
+    The socket is opened ``AF_INET6`` when *host* contains ``:`` and ``AF_INET``
+    otherwise. While the block is open no other bind can take its port; the
+    socket is never put in ``listen()`` here, and a caller that needs a
+    listener calls ``listen()`` on it.
+    """
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.bind((host, 0))
+        yield sock
+
+
+def require_ipv6_loopback() -> None:
+    """Skip the calling test unless this host can bind ``::1``.
+
+    Called from inside a test, never from a ``skipif`` condition: a condition
+    is evaluated at import, and the probe opens a socket.
+    """
+    import pytest
+
+    if not socket.has_ipv6:
+        pytest.skip("host has no IPv6 support")
+    try:
+        with bound_socket("::1"):
+            pass
+    except OSError as exc:
+        pytest.skip(f"host has no usable IPv6 loopback ({exc})")

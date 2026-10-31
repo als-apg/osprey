@@ -177,7 +177,8 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "model_free: tests/e2e test that reaches no model, so it runs when the session names "
-        "no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
+        "no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model and "
+        "agent-record-e2e CI lanes' selection",
     )
     config.addinivalue_line(
         "markers", "channel_finder_benchmark: Channel finder benchmark validation tests"

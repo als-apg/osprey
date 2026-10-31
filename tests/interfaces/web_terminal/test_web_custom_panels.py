@@ -27,6 +27,7 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 
@@ -34,13 +35,6 @@ from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 #: module attribute — so the memoization tests can drive the implementation the
 #: stub stands in for.
 _real_host_interface_addresses = panels_module._host_interface_addresses
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 #: The panel id of the sidecar under test, and the dotted path of the class the
@@ -671,11 +665,8 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
     web_cfg: dict = {"allow_runtime_panels": True}
     if allowlist is not None:
         web_cfg["runtime_panel_allowlist"] = allowlist
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
@@ -684,19 +675,14 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": web_cfg},
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    ) as c:
+        yield c
 
 
 def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panels):
     """Yield a TestClient where *hidden_panel_id* is enabled but hidden:true."""
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(enabled_panels), [], None),
@@ -705,10 +691,8 @@ def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panel
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": {"panels": {hidden_panel_id: {"enabled": True, "hidden": True}}}},
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    ) as c:
+        yield c
 
 
 def _make_client_runtime_with_config_events(workspace_dir):
@@ -719,11 +703,8 @@ def _make_client_runtime_with_config_events(workspace_dir):
     stamped with the production ``configDefined`` marker the reservation check
     relies on.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.load_osprey_config",
             return_value={
@@ -739,10 +720,8 @@ def _make_client_runtime_with_config_events(workspace_dir):
                 }
             },
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
+    ) as c:
+        yield c.app, c
 
 
 @pytest.fixture
@@ -989,31 +968,30 @@ class TestPanelRegisterAPI:
         # Assert
         assert resp.status_code == 422
 
-    def test_register_non_http_scheme_returns_422(self, client_runtime_panels):
-        """A URL with a non-http/https scheme is rejected with 422 without a DNS lookup."""
-        # Arrange — ftp:// is not a valid panel URL scheme
-
+    @pytest.mark.parametrize(
+        "panel",
+        [
+            # ftp:// is not a valid panel URL scheme.
+            pytest.param(
+                {"id": "ftp-panel", "label": "FTP", "url": "ftp://files.example.com/"},
+                id="non_http_scheme",
+            ),
+            # "ariel" is in BUILTIN_PANELS.
+            pytest.param(
+                {"id": "ariel", "label": "ARIEL", "url": "http://grafana.lan:3000"},
+                id="builtin_id",
+            ),
+        ],
+    )
+    def test_register_refused_without_a_dns_lookup_returns_422(self, client_runtime_panels, panel):
+        """A non-http(s) URL or a built-in panel id is rejected with 422 before any lookup."""
         # Act
-        resp = client_runtime_panels.post(
-            "/api/panels/register",
-            json={"id": "ftp-panel", "label": "FTP", "url": "ftp://files.example.com/"},
-        )
+        with patch(_GETADDRINFO_TARGET) as resolve:
+            resp = client_runtime_panels.post("/api/panels/register", json=panel)
 
         # Assert
         assert resp.status_code == 422
-
-    def test_register_builtin_id_returns_422(self, client_runtime_panels):
-        """Using a built-in panel id (e.g. 'ariel') for registration is rejected with 422."""
-        # Arrange — "ariel" is in BUILTIN_PANELS
-
-        # Act
-        resp = client_runtime_panels.post(
-            "/api/panels/register",
-            json={"id": "ariel", "label": "ARIEL", "url": "http://grafana.lan:3000"},
-        )
-
-        # Assert
-        assert resp.status_code == 422
+        resolve.assert_not_called()
 
     @pytest.mark.parametrize("panel_id", ["überblick", "..", "beam/viewer"])
     def test_register_id_the_panel_could_not_be_reached_by_returns_422(
@@ -1054,41 +1032,33 @@ class TestPanelRegisterAPI:
             "beam_viewer.2"
         ]
 
-    def test_register_host_not_in_allowlist_returns_422(self, client_runtime_panels_allowlist):
-        """A host not in runtime_panel_allowlist is rejected with 422 even with a LAN address."""
-        # Arrange — allowlist contains only "grafana.lan"; "other-host.lan" is not listed
-
+    @pytest.mark.parametrize(
+        ("panel", "status"),
+        [
+            # "other-host.lan" is not listed: refused even with a LAN address.
+            pytest.param(
+                {"id": "other", "label": "OTHER", "url": "http://other-host.lan:3000"},
+                422,
+                id="host_not_listed",
+            ),
+            # "grafana.lan" is listed and its address is not blocked.
+            pytest.param(
+                {"id": "grafana", "label": "GRAFANA", "url": "http://grafana.lan:3000"},
+                200,
+                id="host_listed",
+            ),
+        ],
+    )
+    def test_register_host_is_judged_against_the_allowlist(
+        self, client_runtime_panels_allowlist, panel, status
+    ):
+        """Only a host in runtime_panel_allowlist (here just "grafana.lan") registers."""
         # Act
         with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client_runtime_panels_allowlist.post(
-                "/api/panels/register",
-                json={
-                    "id": "other",
-                    "label": "OTHER",
-                    "url": "http://other-host.lan:3000",
-                },
-            )
+            resp = client_runtime_panels_allowlist.post("/api/panels/register", json=panel)
 
         # Assert
-        assert resp.status_code == 422
-
-    def test_register_host_in_allowlist_succeeds(self, client_runtime_panels_allowlist):
-        """A host present in runtime_panel_allowlist is accepted when the address is not blocked."""
-        # Arrange — allowlist contains "grafana.lan"; URL host matches
-
-        # Act
-        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client_runtime_panels_allowlist.post(
-                "/api/panels/register",
-                json={
-                    "id": "grafana",
-                    "label": "GRAFANA",
-                    "url": "http://grafana.lan:3000",
-                },
-            )
-
-        # Assert
-        assert resp.status_code == 200
+        assert resp.status_code == status
 
     def test_register_deploy_host_own_address_returns_422(self, client_runtime_panels):
         """A host resolving to one of THIS host's interface addresses is rejected.

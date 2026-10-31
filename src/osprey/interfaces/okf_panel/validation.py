@@ -157,8 +157,7 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
         # Map a link target like "/devices/bpm.md" or "devices/bpm.md" to an
         # OKF §2 concept id: strip a leading slash and a trailing ".md".
         link_id = target.lstrip("/")
-        if link_id.endswith(".md"):
-            link_id = link_id[:-3]
+        link_id = link_id.removesuffix(".md")
         if not link_id:
             continue
 

@@ -75,12 +75,9 @@ import contextlib
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -91,11 +88,21 @@ import yaml
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
+from osprey_connectors_tests._harness._ports import hold_ports
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
     dead_container_logs,
     queue_stack_logs,
+)
+from tests.e2e._deploy_support import (
+    docker_inspect,
+    env_value,
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_container_health,
+    wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -125,22 +132,19 @@ SCENARIO_VISIBLE_SEC = 30.0
 SP_ECHO_BAND = (280.0, 360.0)
 
 
-# Channel Access port the Virtual Accelerator serves on. An ephemeral free
-# port, not 5064: this module already plumbs the one value everywhere it
+# Channel Access port the Virtual Accelerator serves on. A port reserved for
+# the process, not 5064: this module already plumbs the one value everywhere it
 # matters (`--set virtual_accelerator.port=` at init, and the name-server
 # gateway below), and 5064 on a dev host belongs to whatever real deployment
 # the operator is running — `port_layout.CA_DEFAULT_PORT` keeps VA instance 1
 # there on purpose. The shipped 5064 default is covered at render level by
 # tests/cli/test_va_default_config.py and tests/cli/test_rendered_va_block.py.
-def _reserve_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 # import-time required because VA_CA_PORT seeds module-level constants
-# (_VA_GATEWAY, the fixture's --set args) built while the module imports.
-VA_CA_PORT = _reserve_free_port()
+# (_VA_GATEWAY, the fixture's --set args) built while the module imports. The
+# reservation is held until the process exits.
+(VA_CA_PORT,) = hold_ports(1)
 # The deployment repo's directory name IS the deployment's name; the compose
 # templates render each service's container_name AND its locally-built image as
 # ``<project>-<service>`` (services/*/docker-compose.yml.j2), so derive both
@@ -246,27 +250,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 # Build/deploy scaffold (mirrors tests/e2e/test_bluesky_deploy.py's shape)
 # ---------------------------------------------------------------------------
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
 
 
 def _numeric_gaps(diff: dict[str, dict[str, Any]]) -> dict[str, float]:
@@ -481,7 +464,7 @@ class DeployedStack:
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("va_substrate_build")
     repo = base / PROJECT_NAME
 
@@ -520,7 +503,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
     # name IS the deployment name, so the container names above still hold.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -546,10 +529,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # The pairs come from the source zone's facility tree, which exists once
     # `init` has written the repo, and their limits records and P5's scenario
@@ -561,16 +541,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     _author_stuck_scenario(repo, p5_sp)
     pairs = {"p3": sp3, "p4": sp4, "p5": (p5_sp, p5_rb)}
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     _write_env(repo)
     _arm_queue_owner(repo)
@@ -586,7 +563,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -598,7 +575,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         # HTTP readiness is not enqueue readiness -- the worker namespace the
@@ -613,7 +590,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         yield DeployedStack(repo=repo, pairs=pairs, limits=limits)
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -653,58 +630,8 @@ def _dead_container_logs() -> str:
     return dead_container_logs(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
-def _wait_for_container_health(container: str, timeout: float) -> None:
-    """Poll ``docker inspect .State.Health.Status`` until ``healthy`` or timeout.
-
-    The fixture's HTTP-readiness gate can pass while Docker still reports
-    ``starting`` (the healthcheck runs only on its interval, after
-    ``start_period``), so an instant equality assert is racy.
-    """
-    deadline = time.monotonic() + timeout
-    last = "(no status yet)"
-    while time.monotonic() < deadline:
-        last = _docker_inspect(container, "{{.State.Health.Status}}")
-        if last == "healthy":
-            return
-        time.sleep(2.0)
-    raise AssertionError(
-        f"{container} did not reach 'healthy' within {timeout:.0f}s (last status: {last!r})"
-    )
-
-
-def _minted_token(repo: Path) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
-    return token
-
-
 def _get(path: str) -> tuple[int, dict]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=10.0)
 
 
 def _find_column(columns: list[str], device_name: str) -> int:
@@ -716,17 +643,6 @@ def _find_column(columns: list[str], device_name: str) -> int:
         if col == device_name or col.startswith(f"{device_name}-"):
             return i
     raise AssertionError(f"no column for device {device_name!r} in {columns!r}")
-
-
-def _docker_inspect(container: str, fmt: str) -> str:
-    proc = subprocess.run(
-        ["docker", "inspect", "--format", fmt, container],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, f"docker inspect {container} failed: {proc.stderr}"
-    return proc.stdout.strip()
 
 
 def _published_pva_endpoint() -> str:
@@ -745,7 +661,7 @@ def _published_pva_endpoint() -> str:
     that collision into a sentence instead of an RPC timeout thirty seconds
     later.
     """
-    env = _docker_inspect(VA_CONTAINER, "{{range .Config.Env}}{{println .}}{{end}}")
+    env = docker_inspect(VA_CONTAINER, "{{range .Config.Env}}{{println .}}{{end}}")
     ports = [
         line.split("=", 1)[1].strip()
         for line in env.splitlines()
@@ -789,7 +705,7 @@ async def _run_scan(
     concurrently with the run, so this module's loop must never be blocked
     while a plan is under way.
     """
-    token = _minted_token(repo)
+    token = env_value(repo, "BLUESKY_LAUNCH_TOKEN")
     run_id = _queue_drive.stage_and_enqueue(
         BRIDGE_URL,
         plan_name,
@@ -884,10 +800,7 @@ def _parse_host_ca_result(proc: subprocess.CompletedProcess) -> dict[str, Any]:
     reached the read/write path itself rather than being skipped.
     """
     if proc.returncode != 0:
-        raise AssertionError(
-            f"host CA op subprocess failed (rc={proc.returncode}):\n"
-            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
-        )
+        raise AssertionError(format_failure("host CA op subprocess", proc))
     for line in proc.stdout.splitlines():
         if line.startswith(HOST_CA_RESULT_MARKER):
             return json.loads(line[len(HOST_CA_RESULT_MARKER) :])
@@ -925,8 +838,8 @@ def test_p1_co_deploy_health_binding_and_ordering() -> None:
     # Docker flips its healthcheck STATUS off "starting" (the healthcheck only
     # runs on its interval, after start_period) — so poll for "healthy" rather
     # than assert it the instant the fixture yields.
-    _wait_for_container_health(VA_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
-    _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+    wait_for_container_health(VA_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+    wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
 
     va_ports = subprocess.run(
         ["docker", "port", VA_CONTAINER], capture_output=True, text=True, timeout=30
@@ -952,8 +865,8 @@ def test_p1_co_deploy_health_binding_and_ordering() -> None:
     # cannot even start until the VA's healthcheck passes, so the VA's
     # StartedAt must precede the bridge's. RFC3339 UTC timestamps sort
     # lexicographically.
-    va_started = _docker_inspect(VA_CONTAINER, "{{.State.StartedAt}}")
-    bridge_started = _docker_inspect(BRIDGE_CONTAINER, "{{.State.StartedAt}}")
+    va_started = docker_inspect(VA_CONTAINER, "{{.State.StartedAt}}")
+    bridge_started = docker_inspect(BRIDGE_CONTAINER, "{{.State.StartedAt}}")
     assert va_started <= bridge_started, (
         f"expected the VA (depends_on: service_healthy) to start before the bridge — "
         f"VA StartedAt={va_started!r}, bridge StartedAt={bridge_started!r}"
@@ -974,7 +887,7 @@ def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # client pointed at this stack's port belongs in a process of its own (see
     # tests/va/e2e/conftest.py's `_readiness_pv_served`).
     # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
-    # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
+    # stack serves CA on the module's reserved VA_CA_PORT, so the subprocess
     # must be told explicitly (the in-process connectors get it via
     # _VA_GATEWAY instead). The view is the deployed render's, named
     # absolutely: the script's default is relative to its working directory.
@@ -1102,7 +1015,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     # Driven step by step rather than through `_run_scan`: the host read below
     # has to be spawned between the armed start and the first poll, so this
     # proof needs the start and the polling loop separated.
-    token = _minted_token(deployed_stack.repo)
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
     run_id = _queue_drive.stage_and_enqueue(
         BRIDGE_URL,
         "grid_scan",
@@ -1226,14 +1139,13 @@ def _sim_apply(repo: Path, *scenarios: str) -> None:
     from osprey_connectors.simulation import DEFAULT_TICK_S
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
-    applied = _run(
-        [str(_find_osprey_console_script()), "sim", "apply", *scenarios, "--no-seed"],
+    applied = run_command(
+        [str(find_osprey_console_script()), "sim", "apply", *scenarios, "--no-seed"],
         cwd=repo,
         timeout=120,
     )
-    assert applied.returncode == 0, (
-        f"osprey sim apply {' '.join(scenarios)} failed (rc={applied.returncode}):\n"
-        f"--- stdout ---\n{applied.stdout}\n--- stderr ---\n{applied.stderr}"
+    assert applied.returncode == 0, format_failure(
+        f"osprey sim apply {' '.join(scenarios)}", applied
     )
     rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     state_dir = resolve_simulation_state_dir(rendered, repo)
@@ -1365,7 +1277,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
     moves — which is also the blast-radius check, since a BPM reading error is
     a diagnostic fault and must perturb that BPM and nothing else.
     """
-    # Imported inside the test, the way `_minted_token` imports its parser: the
+    # Imported inside the test, the way `env_value` imports its parser: the
     # serving stack is an optional extra, and this module must still COLLECT on
     # a checkout that has docker but not the virtual-accelerator dependencies.
     from p4p.client.thread import Context

@@ -19,6 +19,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
     BuildArtifactCatalog,
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
+from osprey.agent_runner.launcher import resolve_thinking_display
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, SHELL_TOOLS, WRITE_CAPABLE_BUILTINS
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
@@ -82,7 +83,7 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     root anchors on the repo this render sits in. Resolved as the server resolves
     it, so a symlinked repo path reads the same on both sides.
     """
-    from osprey_connectors.workspace import CHAT_UPLOADS_SUBDIR
+    from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
 
     return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
 
@@ -471,9 +472,13 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
-        # How long Claude Code keeps session transcripts — settings.json.j2
-        # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
-        "transcripts_retention_days": _transcripts_retention_days(config),
+        # How long Claude Code keeps session transcripts on the volumes OSPREY
+        # owns — settings.json.j2 renders it as `cleanupPeriodDays`.
+        "cleanup_period_days": _cleanup_period_days(config),
+        # Whether Claude Code shows its thinking summaries — settings.json.j2
+        # renders it as `showThinkingSummaries`, true unless the deployment
+        # sets `claude_code.thinking.display: omitted`.
+        "show_thinking_summaries": _thinking_display(config) == "summarized",
     }
 
 
@@ -640,36 +645,50 @@ def _ariel_read_tools(ctx: Mapping) -> list[str]:
     return [t for t in ariel.permissions_allow if t not in excluded]
 
 
-def _transcripts_retention_days(config: dict) -> int | None:
-    """The days ``claude_code.transcripts.retention_days`` keeps a session transcript.
+_CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
+"""Claude Code's own transcript-deletion default, which the record never undercuts."""
 
-    Rendered as Claude Code's ``cleanupPeriodDays``: at startup Claude Code
-    deletes every transcript older than that, 30 days when nothing sets it. The
-    key reaches the web terminals and the dispatch worker alike, because both
-    load project settings only (the terminals launch with
-    ``--setting-sources project``; the worker's SDK options pass
-    ``setting_sources=["project"]``).
 
-    Returns ``None`` when the key is absent, so the line is not rendered and
-    Claude Code's own default applies.
+def _cleanup_period_days(config: dict) -> int:
+    """The ``cleanupPeriodDays`` OSPREY-owned Claude Code volumes render.
+
+    ``max(agent_record.retention_days, 30)``: Claude Code deletes a transcript
+    at startup once it is older than this, so a record that keeps entries for
+    ``retention_days`` is never outlived by a shorter deletion, and a short
+    record retention never tightens Claude Code below its own 30-day default.
+    The terminals and the dispatch worker load project settings only, so the
+    rendered ``.claude/settings.json`` is where this reaches them; host
+    settings are never written.
+
+    The record's own value is refused by ``agent_record_errors`` when it is not
+    a whole number of days; a value that cannot be one reads as the record's
+    default here.
+    """
+    from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
+
+    block = config.get("agent_record")
+    value = block.get("retention_days") if isinstance(block, Mapping) else None
+    if value is None:
+        value = config.get("agent_record.retention_days")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        value = DEFAULT_RETENTION_DAYS
+    return max(value, _CLAUDE_CODE_MIN_CLEANUP_DAYS)
+
+
+def _thinking_display(config: dict) -> str:
+    """The ``claude_code.thinking.display`` value: ``"summarized"`` (default) or ``"omitted"``.
+
+    The key path is walked by :func:`~osprey.agent_runner.launcher.resolve_thinking_display`
+    alone, so the build reads the key exactly as every launch does.
 
     Raises:
-        BuildProfileError: If the value is not a whole number of days of at
-            least 1. Unlike the theme helper this refuses rather than degrades:
-            a value silently dropped here leaves the 30-day deletion in force,
-            which is the loss the key exists to prevent.
+        BuildProfileError: If the value is neither ``summarized`` nor
+            ``omitted``, or the ``thinking`` block is not a mapping.
     """
-    transcripts = (config.get("claude_code") or {}).get("transcripts") or {}
-    value = transcripts.get("retention_days")
-    if value is None:
-        return None
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
-        return value
-    raise BuildProfileError(
-        f"claude_code.transcripts.retention_days must be a whole number of days, "
-        f"1 or more (got {value!r}). Claude Code refuses 0, and deletes transcripts "
-        f"older than this at startup."
-    )
+    try:
+        return resolve_thinking_display(config.get("claude_code") or {}, None).value
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
 
 
 def _terminal_theme(config: dict) -> str | None:
@@ -994,21 +1013,12 @@ def build_claude_code_context(
 
     # Model provider resolution for Claude Code
     from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
-    from osprey.build.claude_code_telemetry import build_gateway_url
 
     api_providers = config.get("api", {}).get("providers", {})
     try:
-        # Build time: telemetry credentials may legitimately be the
-        # deployment's to supply (the runtime re-resolves them at agent-spawn),
-        # so an unresolved ${VAR} omits the auth header instead of aborting.
-        # The gateway's address is the one this config publishes — never the
-        # builder's environment, which a rendered artifact must not bake in.
-        model_spec = ClaudeCodeModelResolver.resolve(
-            claude_code_config,
-            api_providers,
-            defer_unresolved_telemetry_creds=True,
-            gateway_url=build_gateway_url(config),
-        )
+        # Build time: no environment is handed in, so nothing the builder
+        # exports reaches the rendered artifact.
+        model_spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
     except ValueError as exc:
         warnings.warn(str(exc), stacklevel=2)
         model_spec = None
@@ -1589,19 +1599,17 @@ def _approval_outcome_rules(wired_servers: Iterable[dict]) -> list[dict]:
     for server in wired_servers:
         if not server.get("enabled"):
             continue
-        for rule in server.get("hooks_pre") or []:
+        rules.extend(
+            {
+                "matcher": rule["matcher"],
+                "hooks": [{"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}],
+            }
+            for rule in server.get("hooks_pre") or []
             if any(
                 _hook_name_of_command(hook.get("command", "")) == "approval"
                 for hook in rule.get("hooks") or []
-            ):
-                rules.append(
-                    {
-                        "matcher": rule["matcher"],
-                        "hooks": [
-                            {"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}
-                        ],
-                    }
-                )
+            )
+        )
     return rules
 
 

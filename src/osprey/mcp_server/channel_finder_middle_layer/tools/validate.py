@@ -33,14 +33,13 @@ def validate(channels: list[str]) -> str:
 
     try:
         registry = get_cf_ml_context()
-        results = []
-        for ch in channels:
-            results.append(
-                {
-                    "channel": ch,
-                    "valid": registry.database.validate_channel(ch),
-                }
-            )
+        results = [
+            {
+                "channel": ch,
+                "valid": registry.database.validate_channel(ch),
+            }
+            for ch in channels
+        ]
 
         return json.dumps({"results": results, "total": len(results)})
 

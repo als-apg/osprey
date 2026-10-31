@@ -42,6 +42,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import importlib.util
 import time
 from urllib.parse import quote
 
@@ -49,13 +50,11 @@ import pytest
 
 from osprey.interfaces.common_middleware import session_cookie_name
 from osprey.interfaces.web_auth import get_web_credentials
-from tests.interfaces.web_terminal.test_logout_resume_browser import (
-    _PLAYWRIGHT_AVAILABLE,
-    _launch_landing,
-    _launch_terminal,
-)
+from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
+
+_PLAYWRIGHT_AVAILABLE = importlib.util.find_spec("playwright") is not None
 
 #: How far the browser's stamped expiry may sit from the server's own deadline
 #: before the two count as disagreeing. Generous because it absorbs the whole
@@ -117,7 +116,7 @@ def test_login_cookie_survives_a_browser_restart(tmp_path, monkeypatch, chromium
     — and a brand-new context is built from what is left. The terminal then
     loads with no token anywhere in the URL.
     """
-    with _launch_terminal(tmp_path, monkeypatch) as base_url:
+    with launch_terminal(tmp_path, monkeypatch) as base_url:
         context = chromium_browser.new_context()
         try:
             cookie = _log_in(context, base_url)
@@ -176,8 +175,8 @@ def test_logout_ends_the_persistent_session_on_both_sides(tmp_path, monkeypatch,
     """
     user = "alice"
     with (
-        _launch_landing() as landing_url,
-        _launch_terminal(
+        launch_landing() as landing_url,
+        launch_terminal(
             tmp_path, monkeypatch, terminal_user=user, landing_url=landing_url
         ) as base_url,
     ):

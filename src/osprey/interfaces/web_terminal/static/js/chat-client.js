@@ -141,10 +141,12 @@ async function pump(reader, callbacks, untilClosed = false) {
  * commands the outgoing agent started that ending it would also end. It is
  * present only when the body carried one. `unread` is that refusal's word
  * that the server could not read what the agent started; it is present only
- * when the body carried it.
+ * when the body carried it. `command` is the slash command name a
+ * `command_not_available` refusal names; it is present only when the body
+ * carried one.
  * @typedef {Error & { status: number, slug: string,
  *   commands?: import('./started-commands.js').StartedCommandJson[],
- *   unread?: boolean }} TransportError
+ *   unread?: boolean, command?: string }} TransportError
  */
 
 /**
@@ -161,11 +163,14 @@ async function transportError(res) {
   let commands;
   /** @type {boolean | undefined} */
   let unread;
+  /** @type {string | undefined} */
+  let command;
   try {
     const detail = (await res.json())?.detail;
     if (detail && typeof detail.error === 'string') slug = detail.error;
     if (detail && Array.isArray(detail.commands)) commands = detail.commands;
     if (detail && typeof detail.unread === 'boolean') unread = detail.unread;
+    if (detail && typeof detail.command === 'string') command = detail.command;
   } catch {
     /* no body, or not the JSON error shape — the status carries the failure */
   }
@@ -174,6 +179,7 @@ async function transportError(res) {
   err.slug = slug;
   if (commands) err.commands = commands;
   if (unread !== undefined) err.unread = unread;
+  if (command !== undefined) err.command = command;
   return err;
 }
 
@@ -297,9 +303,10 @@ export async function answerPermission(chatId, body) {
  * Follow everything the agent behind *chatId* does, whichever tab asked, until
  * closed: `GET /api/chat/{chat_id}/events`. Each (re)connect opens with a
  * `hello` snapshot. A dropped connection is retried with backoff; a 204 (no
- * agent runs for the chat yet) more slowly.
+ * agent runs for the chat, yet or any longer) more slowly.
  * @param {string} chatId
- * @param {ChatCallbacks} callbacks - `onEvent` gets every frame
+ * @param {ChatCallbacks} callbacks - `onEvent` gets every frame; `onNoAgent`
+ *   hears each 204, the answer that no agent runs for the chat
  * @returns {ChatFeed}
  */
 export function followChat(chatId, callbacks) {
@@ -332,6 +339,9 @@ export function followChat(chatId, callbacks) {
       });
       if (res.status === 204) {
         next = 10000;
+        if (mine === generation && typeof callbacks.onNoAgent === 'function') {
+          callbacks.onNoAgent();
+        }
       } else if (res.ok && res.body) {
         delay = 1000;
         await pump(res.body.getReader(), callbacks, true);
@@ -430,7 +440,11 @@ export async function fetchHistory(key) {
   return Array.isArray(data?.turns) ? data.turns : [];
 }
 
-/** @typedef {{ name: string, description: string, argument_hint: string, kind: string }} SlashCommand */
+/**
+ * One slash command the chat agent accepts. `kind` is `skill`, `command` or
+ * `builtin`; `agent_invocable` says whether the agent may also run it on its own.
+ * @typedef {{ name: string, description: string, argument_hint: string, kind: string, agent_invocable?: boolean }} SlashCommand
+ */
 
 /**
  * Read the slash commands the chat agent accepts in this project.

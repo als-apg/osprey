@@ -38,7 +38,7 @@ shared with the library's
 :class:`~osprey_connectors.ipc.ConnectorHostPool`: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the write verdict for the target and
-:func:`~osprey_connectors.control_system.is_readonly_run`, and the
+:func:`~osprey_connectors.posture_env.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it, so this
 module and the process it describes cannot disagree about where a target lands,
 which port it lands on, or whether it may be written to once there.
@@ -112,7 +112,6 @@ from typing import Any
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
 from osprey_connectors.config import unresolved_placeholders
-from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.honesty import (
     VA_MOCK_ARCHIVER_WHY,
     invents_history,
@@ -128,6 +127,7 @@ from osprey_connectors.ipc import (
     live_collision,
     subsection,
 )
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.standin import (
     ARCHIVER_RECORDER_SERVICE,
     LIVE_STANDIN_PORT_KEY,

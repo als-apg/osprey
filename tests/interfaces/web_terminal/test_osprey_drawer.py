@@ -25,7 +25,7 @@ Covers the acceptance criteria for B.2/B.3:
     pinning the B.2 review's fixes: C1 (gate installs independent of
     `#tab-config`), M1 (a rapid second click never spawns a second dialog)
 
-Follows the harness pattern from ``test_load_smokes.py``'s ``_launch_web_terminal``:
+Follows the harness pattern from ``_launchers.py``'s ``launch_web_terminal``:
 a real uvicorn web_terminal server on a free port, over an empty ``tmp_path``,
 with the companion-backend spawns (artifact server, panel/web config loaders)
 patched out exactly as the smoke suite does, and a real chromium page via the
@@ -42,12 +42,10 @@ from __future__ import annotations
 import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -91,32 +89,15 @@ VIEWPORT = {"width": 1280, "height": 800}
 
 
 # ---------------------------------------------------------------------------
-# Live server launcher (mirrors test_load_smokes.py's _launch_web_terminal)
+# Live server launcher (mirrors _launchers.py's launch_web_terminal)
 # ---------------------------------------------------------------------------
 
 
 @contextmanager
 def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
     monkeypatch.chdir(tmp_path)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(tmp_path)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(tmp_path) as (base_url, _app):
+        yield base_url
 
 
 def _goto(page: Page, base_url: str) -> None:

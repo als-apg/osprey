@@ -31,7 +31,6 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
@@ -39,6 +38,7 @@ from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
 from tests.interfaces.web_terminal._fakes import FakePtySession
+from tests.interfaces.web_terminal._started_app import terminal_client
 from tests.interfaces.web_terminal._ws import recv_json
 
 # (page id, request path) -- both served HTML documents in scope.
@@ -168,37 +168,31 @@ class TestPrefixInjection:
     # one asserts on the prefix every page carries, so the id column is not read here.
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_alice_prefix_baked_into_every_page(self, workspace_dir, page_id, path):  # noqa: ARG002
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
+        with terminal_client(
+            workspace_dir,
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as c:
-                resp = c.get(path)
-                assert resp.status_code == 200
-                body = resp.text
+        ) as c:
+            resp = c.get(path)
+            assert resp.status_code == 200
+            body = resp.text
 
-                prefix_idx = body.index('window.__OSPREY_PREFIX__ = "/u/alice";')
-                importmap_idx = body.index('type="importmap"')
-                assert '"/design-system/": "/u/alice/design-system/"' in body
-                assert '"/static/": "/u/alice/static/"' in body
+            prefix_idx = body.index('window.__OSPREY_PREFIX__ = "/u/alice";')
+            importmap_idx = body.index('type="importmap"')
+            assert '"/design-system/": "/u/alice/design-system/"' in body
+            assert '"/static/": "/u/alice/static/"' in body
 
-                # The prefix global must be set before any module script loads.
-                first_module_idx = body.find('type="module"')
-                if first_module_idx != -1:
-                    assert prefix_idx < first_module_idx
-                    assert importmap_idx < first_module_idx
+            # The prefix global must be set before any module script loads.
+            first_module_idx = body.find('type="module"')
+            if first_module_idx != -1:
+                assert prefix_idx < first_module_idx
+                assert importmap_idx < first_module_idx
 
-                # Relative URLs resolve against the page, never a <base>.
-                assert "<base" not in body.lower()
+            # Relative URLs resolve against the page, never a <base>.
+            assert "<base" not in body.lower()
 
-                # root_path must stay empty even with a prefix configured: see
-                # test_static_mount_served_on_bare_path_when_prefix_set below.
-                assert app.root_path == ""
+            # root_path must stay empty even with a prefix configured: see
+            # test_static_mount_served_on_bare_path_when_prefix_set below.
+            assert c.app.root_path == ""
 
     def test_static_mount_served_on_bare_path_when_prefix_set(self, workspace_dir):
         """Regression: with a prefix configured, real StaticFiles-mounted
@@ -211,23 +205,16 @@ class TestPrefixInjection:
         multi-user UI with no CSS/JS/fonts. The last request pins the other
         half: the prefixed form is no route.
         """
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
-            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
-        ):
-            app = create_app(shell_command=["echo"])
-            assert app.root_path == ""  # never the prefix — see create_app note
-            with TestClient(app) as c:
-                # The bare paths nginx actually forwards must serve the assets.
-                assert c.get("/static/js/app.js").status_code == 200
-                assert c.get("/design-system/js/theme-boot.js").status_code == 200
-                # The literal prefixed form is never tolerated: nginx does not send
-                # it, and a route that answered it would mask the bare-path fix.
-                assert c.get("/u/alice/static/js/app.js").status_code == 404
+        with terminal_client(
+            workspace_dir, patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"})
+        ) as c:
+            assert c.app.root_path == ""  # never the prefix — see create_app note
+            # The bare paths nginx actually forwards must serve the assets.
+            assert c.get("/static/js/app.js").status_code == 200
+            assert c.get("/design-system/js/theme-boot.js").status_code == 200
+            # The literal prefixed form is never tolerated: nginx does not send
+            # it, and a route that answered it would mask the bare-path fix.
+            assert c.get("/u/alice/static/js/app.js").status_code == 404
 
 
 class TestHeadAssetAndEntrypointPrefixing:
@@ -237,52 +224,40 @@ class TestHeadAssetAndEntrypointPrefixing:
 
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_alice_prefixes_head_assets_and_entrypoint(self, workspace_dir, page_id, path):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
+        with terminal_client(
+            workspace_dir,
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as c:
-                body = c.get(path).text
+        ) as c:
+            body = c.get(path).text
 
-                # A classic <script src> and a <link href> shared by every page.
-                assert 'src="/u/alice/design-system/js/theme-boot.js"' in body
-                assert 'href="/u/alice/design-system/css/tokens.css"' in body
-                # The un-prefixed root-absolute forms must not remain.
-                assert 'src="/design-system/js/theme-boot.js"' not in body
-                assert 'href="/design-system/css/tokens.css"' not in body
+            # A classic <script src> and a <link href> shared by every page.
+            assert 'src="/u/alice/design-system/js/theme-boot.js"' in body
+            assert 'href="/u/alice/design-system/css/tokens.css"' in body
+            # The un-prefixed root-absolute forms must not remain.
+            assert 'src="/design-system/js/theme-boot.js"' not in body
+            assert 'href="/design-system/css/tokens.css"' not in body
 
-                entrypoint = _MODULE_ENTRYPOINTS[page_id]
-                if entrypoint is not None:
-                    assert f'src="/u/alice{entrypoint}"' in body
-                    assert f'src="{entrypoint}"' not in body
+            entrypoint = _MODULE_ENTRYPOINTS[page_id]
+            if entrypoint is not None:
+                assert f'src="/u/alice{entrypoint}"' in body
+                assert f'src="{entrypoint}"' not in body
 
-                # Every root-absolute asset link goes through ``prefixed()``, the
-                # stylesheets included, not only the three named above.
-                unprefixed = re.findall(r'(?:href|src)="/(?:static|design-system)/[^"]*"', body)
-                assert unprefixed == []
+            # Every root-absolute asset link goes through ``prefixed()``, the
+            # stylesheets included, not only the three named above.
+            unprefixed = re.findall(r'(?:href|src)="/(?:static|design-system)/[^"]*"', body)
+            assert unprefixed == []
 
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_empty_prefix_head_assets_and_entrypoint_unchanged(self, workspace_dir, page_id, path):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value=cfg,
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as c:
-                body = c.get(path).text
+        with terminal_client(workspace_dir) as c:
+            body = c.get(path).text
 
-                assert 'src="/design-system/js/theme-boot.js"' in body
-                assert 'href="/design-system/css/tokens.css"' in body
+            assert 'src="/design-system/js/theme-boot.js"' in body
+            assert 'href="/design-system/css/tokens.css"' in body
 
-                entrypoint = _MODULE_ENTRYPOINTS[page_id]
-                if entrypoint is not None:
-                    assert f'src="{entrypoint}"' in body
+            entrypoint = _MODULE_ENTRYPOINTS[page_id]
+            if entrypoint is not None:
+                assert f'src="{entrypoint}"' in body
 
 
 class TestPrefixEmptyWhenUnset:
@@ -292,23 +267,17 @@ class TestPrefixEmptyWhenUnset:
     # one asserts on the prefix every page carries, so the id column is not read here.
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_empty_prefix_baked_into_every_page(self, workspace_dir, page_id, path):  # noqa: ARG002
-        cfg = {"watch_dir": str(workspace_dir)}
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value=cfg,
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as c:
-                resp = c.get(path)
-                assert resp.status_code == 200
-                body = resp.text
+        with terminal_client(workspace_dir) as c:
+            resp = c.get(path)
+            assert resp.status_code == 200
+            body = resp.text
 
-                assert 'window.__OSPREY_PREFIX__ = "";' in body
-                assert '"/design-system/": "/design-system/"' in body
-                assert '"/static/": "/static/"' in body
-                assert "<base" not in body.lower()
+            assert 'window.__OSPREY_PREFIX__ = "";' in body
+            assert '"/design-system/": "/design-system/"' in body
+            assert '"/static/": "/static/"' in body
+            assert "<base" not in body.lower()
 
-                assert app.root_path == ""
+            assert c.app.root_path == ""
 
 
 # ---- The websocket route under a prefix ----
@@ -323,16 +292,9 @@ def ws_client(workspace_dir, tmp_path, monkeypatch):
     waits for always arrives and nothing is launched.
     """
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-    ):
-        app = create_app(shell_command=["echo"], project_dir=str(tmp_path))
-        with TestClient(app) as client:
-            app.state.pty_registry._spawn_session = lambda *_a, **_kw: FakePtySession()
-            yield client
+    with terminal_client(workspace_dir, project_dir=str(tmp_path)) as client:
+        client.app.state.pty_registry._spawn_session = lambda *_a, **_kw: FakePtySession()
+        yield client
 
 
 class TestWebSocketUnderPrefix:

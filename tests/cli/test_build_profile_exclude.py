@@ -199,34 +199,35 @@ def test_exclude_config_of_an_absent_key_is_a_silent_noop(tmp_path: Path) -> Non
     assert resolved.config["facility.name"] == "Ring"
 
 
-def test_exclude_config_of_a_non_list_value_raises(tmp_path: Path) -> None:
-    """A scalar is stated, not subtracted from: naming one under exclude is refused."""
-    _write(tmp_path / "base.yml", "name: Base\ndata: data\nconfig:\n  facility.name: Ring\n")
-    child = _write(
-        tmp_path / "child.yml",
-        "extends: ./base.yml\nname: Child\nexclude:\n  config:\n    facility.name: [Ring]\n",
+@pytest.mark.parametrize(
+    ("base_config", "exclude", "match"),
+    [
+        # A scalar is stated, not subtracted from: naming one under exclude is refused.
+        pytest.param(
+            "  facility.name: Ring\n",
+            "  config:\n    facility.name: [Ring]\n",
+            "is not a list",
+            id="of_a_non_list_value",
+        ),
+        pytest.param("", "  config: [x]\n", "exclude.config must be a mapping", id="not_a_mapping"),
+        pytest.param(
+            "  deployed_services: [alpha]\n",
+            "  config:\n    deployed_services: alpha\n",
+            "must be a list of entries",
+            id="entry_not_a_list",
+        ),
+    ],
+)
+def test_a_malformed_exclude_config_is_refused(
+    tmp_path: Path, base_config: str, exclude: str, match: str
+) -> None:
+    """``exclude: config:`` maps dotted keys to the lists of entries to take out."""
+    _write(
+        tmp_path / "base.yml",
+        "name: Base\ndata: data\n" + (f"config:\n{base_config}" if base_config else ""),
     )
-    with pytest.raises(BuildProfileError, match="is not a list"):
-        resolve_build_profile(child.resolve(), preset=None)
-
-
-def test_exclude_config_must_be_a_mapping(tmp_path: Path) -> None:
-    _write(tmp_path / "base.yml", "name: Base\ndata: data\n")
-    child = _write(
-        tmp_path / "child.yml",
-        "extends: ./base.yml\nname: Child\nexclude:\n  config: [x]\n",
-    )
-    with pytest.raises(BuildProfileError, match="exclude.config must be a mapping"):
-        resolve_build_profile(child.resolve(), preset=None)
-
-
-def test_exclude_config_entry_must_be_a_list(tmp_path: Path) -> None:
-    _write(tmp_path / "base.yml", "name: Base\ndata: data\nconfig:\n  deployed_services: [alpha]\n")
-    child = _write(
-        tmp_path / "child.yml",
-        "extends: ./base.yml\nname: Child\nexclude:\n  config:\n    deployed_services: alpha\n",
-    )
-    with pytest.raises(BuildProfileError, match="must be a list of entries"):
+    child = _write(tmp_path / "child.yml", f"extends: ./base.yml\nname: Child\nexclude:\n{exclude}")
+    with pytest.raises(BuildProfileError, match=match):
         resolve_build_profile(child.resolve(), preset=None)
 
 
@@ -292,28 +293,22 @@ def test_exclude_without_extends_applies_to_self(
     assert any("without 'extends'" in rec.message for rec in caplog.records)
 
 
-def test_exclude_unknown_field_raises(tmp_path: Path) -> None:
-    """Excluding a non-list / unknown field is rejected with a clear error."""
-    _write(tmp_path / "base.yml", "name: Base\ndata: data\n")
-    child = _write(
-        tmp_path / "child.yml",
-        "extends: ./base.yml\nname: Child\nexclude:\n  bogus: [x]\n",
-    )
-    with pytest.raises(BuildProfileError, match="unknown or non-list field"):
-        resolve_build_profile(child.resolve(), preset=None)
-
-
-def test_exclude_non_list_value_raises(tmp_path: Path) -> None:
-    """A field mapped to a non-list value is rejected."""
-    _write(
-        tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [a]\n",
-    )
-    child = _write(
-        tmp_path / "child.yml",
-        "extends: ./base.yml\nname: Child\nexclude:\n  skills: not-a-list\n",
-    )
-    with pytest.raises(BuildProfileError, match="must be a list"):
+@pytest.mark.parametrize(
+    ("base_skills", "exclude", "match"),
+    [
+        pytest.param("", "  bogus: [x]\n", "unknown or non-list field", id="unknown_field"),
+        pytest.param(
+            "skills: [a]\n", "  skills: not-a-list\n", "must be a list", id="non_list_value"
+        ),
+    ],
+)
+def test_a_malformed_exclude_is_refused(
+    tmp_path: Path, base_skills: str, exclude: str, match: str
+) -> None:
+    """Excluding an unknown field, or with a non-list value, is rejected with a clear error."""
+    _write(tmp_path / "base.yml", f"name: Base\ndata: data\n{base_skills}")
+    child = _write(tmp_path / "child.yml", f"extends: ./base.yml\nname: Child\nexclude:\n{exclude}")
+    with pytest.raises(BuildProfileError, match=match):
         resolve_build_profile(child.resolve(), preset=None)
 
 
@@ -363,19 +358,18 @@ def test_apply_exclude_skips_field_whose_value_is_not_a_list() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_extends_invalid_base_yaml_raises(tmp_path: Path) -> None:
-    """A base file with unparsable YAML raises with the offending path named."""
-    _write(tmp_path / "base.yml", "name: [unclosed\n")
+@pytest.mark.parametrize(
+    ("base", "match"),
+    [
+        pytest.param("name: [unclosed\n", "Invalid YAML", id="invalid_yaml"),
+        pytest.param("- a\n- b\n", "must be a YAML mapping", id="not_a_mapping"),
+    ],
+)
+def test_resolve_extends_refuses_an_unreadable_base(tmp_path: Path, base: str, match: str) -> None:
+    """A base whose YAML does not parse, or parses to a non-mapping, is refused."""
+    _write(tmp_path / "base.yml", base)
     child = _write(tmp_path / "child.yml", "extends: ./base.yml\nname: Child\n")
-    with pytest.raises(BuildProfileError, match="Invalid YAML"):
-        _resolve_extends({"extends": "./base.yml", "name": "Child"}, child.resolve())
-
-
-def test_resolve_extends_base_not_a_mapping_raises(tmp_path: Path) -> None:
-    """A base file whose YAML parses to a non-mapping (e.g. a list) is rejected."""
-    _write(tmp_path / "base.yml", "- a\n- b\n")
-    child = _write(tmp_path / "child.yml", "extends: ./base.yml\nname: Child\n")
-    with pytest.raises(BuildProfileError, match="must be a YAML mapping"):
+    with pytest.raises(BuildProfileError, match=match):
         _resolve_extends({"extends": "./base.yml", "name": "Child"}, child.resolve())
 
 

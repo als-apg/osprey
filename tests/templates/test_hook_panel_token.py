@@ -277,7 +277,7 @@ def test_focus_artifact_sends_bearer_when_token_set(approval, monkeypatch):
     assert _authorization_of(request) == "Bearer s3cret-panel-token"
     assert request.get_header("Content-type") == "application/json"
     assert request.get_method() == "POST"
-    assert json.loads(request.data) == {"artifact_id": "artifact-7"}
+    assert json.loads(request.data) == {"artifact_id": "artifact-7", "automatic": True}
 
 
 def test_focus_artifact_sends_no_header_when_token_unset(approval, monkeypatch):

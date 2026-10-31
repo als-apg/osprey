@@ -21,7 +21,6 @@ covers so a ``-k`` run selects the whole section.
 
 from __future__ import annotations
 
-import socket
 from unittest.mock import patch
 
 import pytest
@@ -151,24 +150,17 @@ async def test_set_draft_no_draft_409_does_not_emit():
 # =========================================================================
 
 
-def _dead_port() -> int:
-    """A localhost port with nothing listening on it."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-async def test_set_draft_result_identical_when_web_terminal_down(monkeypatch):
+async def test_set_draft_result_identical_when_web_terminal_down(reserve_port, monkeypatch):
     """The REAL notify helper runs against a dead port; it swallows the
     connection failure, so the tool result matches the success case exactly."""
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_dead_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     with patch(f"{_MOD}._http_patch_json", return_value=(200, _SET_RESP)):
         result = await _set_fn()(plan_name="grid_scan")
     assert extract_response_dict(result) == _SET_RESP
 
 
-async def test_clear_draft_result_identical_when_web_terminal_down(monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_dead_port()))
+async def test_clear_draft_result_identical_when_web_terminal_down(reserve_port, monkeypatch):
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     with patch(f"{_MOD}._http_delete_json", return_value=(200, _CLEAR_RESP)):
         result = await _clear_fn()()
     assert extract_response_dict(result) == _CLEAR_RESP
@@ -291,10 +283,12 @@ async def test_queue_stop_bridge_refusal_does_not_emit(tmp_path, monkeypatch):
     notify.assert_not_called()
 
 
-async def test_queue_stop_result_identical_when_web_terminal_down(tmp_path, monkeypatch):
+async def test_queue_stop_result_identical_when_web_terminal_down(
+    reserve_port, tmp_path, monkeypatch
+):
     """The REAL notify helper against a dead port leaves the halt's result intact."""
     _queue_stop_posture(tmp_path, monkeypatch, writes=False, token=None)
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_dead_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     with patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, _STOP_RESP)):
         result = await _queue_stop_fn()()
     assert extract_response_dict(result) == _STOP_RESP
@@ -429,17 +423,17 @@ async def test_validate_plan_bridge_error_does_not_emit():
     notify.assert_not_called()
 
 
-async def test_write_plan_result_identical_when_web_terminal_down(monkeypatch):
+async def test_write_plan_result_identical_when_web_terminal_down(reserve_port, monkeypatch):
     """The REAL notify helper against a dead port leaves the authored plan's
     result intact — the emit is best-effort, never load-bearing."""
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_dead_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     with patch(f"{_AUTHORING_MOD}._http_post_json", return_value=(200, _WRITE_RESP)):
         result = await _write_plan_fn()(**_WRITE_ARGS)
     assert extract_response_dict(result) == _WRITE_RESP
 
 
-async def test_validate_plan_result_identical_when_web_terminal_down(monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_dead_port()))
+async def test_validate_plan_result_identical_when_web_terminal_down(reserve_port, monkeypatch):
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
     with patch(f"{_AUTHORING_MOD}._http_post_json", return_value=(200, _PASS_RESP)):
         result = await _validate_plan_fn()(name="tiny")
     assert extract_response_dict(result) == _PASS_RESP

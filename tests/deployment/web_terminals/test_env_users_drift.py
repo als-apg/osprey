@@ -21,8 +21,9 @@ import os
 
 import pytest
 
+from osprey.deployment.dotenv import ENV_USERS_BANNER
 from osprey.deployment.web_terminals import env_production
-from osprey_connectors.dotenv import ENV_USERS_BANNER, parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 _CC_CONFIG = {
     "facility": {},

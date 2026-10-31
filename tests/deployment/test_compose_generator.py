@@ -2,9 +2,8 @@
 
 An "attached" project (built with ``deploy_services: false``, connecting to
 another project's already-deployed services stack) is what declares no
-deployed_services — the hello-world preset's own default build deploys two
-services (telemetry_store, telemetry_gateway). Two failure modes have to stay fixed for the empty
-case:
+deployed_services; the hello-world preset's own default build declares none
+either. Two failure modes have to stay fixed for the empty case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
    into the project, because the renderer references it unconditionally.
@@ -17,6 +16,7 @@ from __future__ import annotations
 import copy
 import errno
 import functools
+import importlib
 import json
 import logging
 import os
@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 from unittest import mock
@@ -153,7 +154,10 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
 
     result = _copy_service_templates(tmp_path)
 
-    assert result == 0, "no per-service templates should be copied"
+    # The agent record is derived and always deployed, so its template is the
+    # one service template a project with no deployed_services still gets.
+    assert result == 1, "only the agent-record template should be copied"
+    assert (tmp_path / "services" / "agent_record" / "docker-compose.yml.j2").is_file()
     root_template = tmp_path / "services" / "docker-compose.yml.j2"
     assert root_template.is_file(), (
         "root services/docker-compose.yml.j2 must be copied even when "
@@ -245,11 +249,16 @@ def test_prepare_compose_files_names_a_shared_template_once(
     assert compose_files == [
         str(build / "docker-compose.yml"),
         str(build / "virtual_accelerator" / "docker-compose.yml"),
+        str(build / "agent_record" / "docker-compose.yml"),
     ]
 
     bindings = host_ports.parse_host_port_bindings(compose_files)
-    # The one file still describes both containers.
-    assert {binding.service for binding in bindings} == {"virtual-accelerator", "live-standin"}
+    # The one file still describes both containers; agent-record publishes its own.
+    assert {binding.service for binding in bindings} == {
+        "virtual-accelerator",
+        "live-standin",
+        "agent-record",
+    }
 
     # And the preflight sees each published port once. Probes answer "free" so
     # only the intra-deploy check can speak.
@@ -484,12 +493,19 @@ def test_worker_template_declares_env_file_when_present() -> None:
     )
 
 
+_RECORD_LOGIN = ".env.agent-record.login.dispatch-worker-1"
+
+
 def test_worker_template_omits_env_file_when_absent() -> None:
+    """No chain file is listed when the project has no .env.
+
+    An ``env_file:`` entry pointing at a missing path errors ``compose up``.
+    The worker's agent-record login is the one entry left: ``osprey build``
+    writes it before the file is rendered.
+    """
     rendered = _render_worker_template(env_present=False)
-    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered, (
-        "no env_file should be emitted when the project has no .env "
-        "(an env_file: pointing at a missing path errors compose up)"
-    )
+    assert _ENV_FILE_LINE not in rendered
+    assert _worker_service(rendered)["env_file"] == [_RECORD_LOGIN]
 
 
 def test_inject_project_metadata_flags_env_presence(
@@ -1044,9 +1060,9 @@ def test_the_control_tree_is_never_mounted_writable(rel_path: str, config: dict[
 
 
 def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
-    """The opposite shape to this worker's audit bind, for the opposite reason.
+    """The opposite shape to this worker's spool bind, for the opposite reason.
 
-    Audit isolation IS the mount — a worker holds a bind to its own identity's
+    Spool isolation IS the mount — a worker holds a bind to its own identity's
     subdirectory and can read no other. The tree is what a worker reads about
     OTHER people: the owner of a dispatch job arrives with the request, so a
     mount narrowed to one identity would answer for nobody, and every worker
@@ -1061,9 +1077,9 @@ def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
     for i in (1, 2):
         volumes = doc["services"][f"dispatch-worker-{i}"]["volumes"]
         assert f"{source}:{target}:ro" in volumes
-        audit = [v for v in volumes if "/var/audit" in v]
-        assert audit and all(f"dispatch-worker-{i}" in v for v in audit), (
-            "the audit bind stays per-identity; only the tree is mounted whole"
+        spool = [v for v in volumes if "/var/spool/" in v]
+        assert spool and all(f"dispatch-worker-{i}" in v for v in spool), (
+            "the spool bind stays per-identity; only the tree is mounted whole"
         )
 
 
@@ -1433,25 +1449,6 @@ def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
     assert f"http://localhost:{worker_one}/health" in service["healthcheck"]["test"][1]
 
 
-def test_worker_telemetry_host_follows_the_axis() -> None:
-    """The gateway is the compose service on the bridge, the dial address on the host.
-
-    Under host the service name resolves to nothing, so host mode has to name
-    the interface the gateway publishes on rather than its service key.
-    """
-    bridge = _render_worker_template(env_present=True, deployed_services=["telemetry_gateway"])
-    host = _render_worker_template(
-        env_present=True,
-        deployed_services=["telemetry_gateway"],
-        dispatch_worker={"network": "host"},
-    )
-
-    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_GATEWAY_HOST"] == "telemetry_gateway"
-    host_value = _worker_service(host)["environment"]["OSPREY_OTEL_GATEWAY_HOST"]
-    assert host_value != "telemetry_gateway"
-    assert host_value in {"localhost", "127.0.0.1"}
-
-
 def test_worker_archiver_link_uses_the_published_port_on_the_host_namespace() -> None:
     """Host mode reaches the store where it PUBLISHES, not at its container port."""
     rendered = _render_worker_template(
@@ -1627,7 +1624,7 @@ def test_worker_env_file_lists_the_whole_chain_in_precedence_order() -> None:
     default overwrite the local secret it exists to be overridden by.
     """
     rendered = _render_worker_template(env_present=True, env_chain=_ENV_CHAIN_BOTH)
-    assert _worker_service(rendered)["env_file"] == _ENV_CHAIN_BOTH
+    assert _worker_service(rendered)["env_file"] == [*_ENV_CHAIN_BOTH, _RECORD_LOGIN]
     assert "env_file:\n      - ./.env.shared\n      - ./.env\n" in rendered
 
 
@@ -1638,12 +1635,12 @@ def test_worker_env_file_lists_only_the_chain_files_that_exist() -> None:
     whose path is missing errors ``compose up`` outright.
     """
     rendered = _render_worker_template(env_present=False, env_chain=["./.env.shared"])
-    assert _worker_service(rendered)["env_file"] == ["./.env.shared"]
+    assert _worker_service(rendered)["env_file"] == ["./.env.shared", _RECORD_LOGIN]
 
 
 def test_worker_env_file_block_is_absent_for_an_empty_chain() -> None:
     rendered = _render_worker_template(env_present=False, env_chain=[])
-    assert "env_file" not in _worker_service(rendered)
+    assert _worker_service(rendered)["env_file"] == [_RECORD_LOGIN]
 
 
 def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1879,7 +1876,8 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
     checks for presence.
     """
     _write_config(tmp_path, deployed_services=["bluesky"])
-    assert _copy_service_templates(tmp_path) == 1
+    # bluesky, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     permissions_path = tmp_path / "services" / "bluesky" / "user_group_permissions.yaml"
     assert permissions_path.is_file()
@@ -2240,9 +2238,9 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
-    assert container_lifecycle._project_image_build_target(dict(config), {}) is None, (
-        "the plan-stack lanes deploy no service on the project image, so `osprey up` "
-        f"builds none: {config.get('deployed_services')}"
+    assert container_lifecycle._deployed_project_image_services(dict(config)) == ["agent_record"], (
+        "the plan-stack lanes deploy no service on the project image; only the "
+        f"always-deployed agent record runs on it: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
@@ -3663,7 +3661,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
-# (postgresql, telemetry_store) never install the wheel.
+# (postgresql, mongodb) never install the wheel.
 # ---------------------------------------------------------------------------
 
 
@@ -4323,55 +4321,66 @@ def test_staging_fails_closed_when_manifest_write_fails(
 
 
 # ---------------------------------------------------------------------------
-# Nextcloud Talk bridge service template
+# Chat bridge service templates: what the three bridges share
 #
-# The bridge is an outbound-only poller: no published port, no healthcheck, and
-# a single named volume that IS its crash-safety ledger. Two properties of this
-# template are load-bearing beyond "the YAML parses":
-#
-#   * every credential is a BARE ``${VAR}`` reference — a ``:-default`` on any of
-#     them would let the container come up pointed at a guessable host or
-#     authenticating with a placeholder instead of failing closed at boot, so
-#     these tests assert the ABSENCE of a fallback, not just the presence of the
-#     name;
-#   * the rendered environment block is the bridge's whole configuration
-#     surface, so it is fed through the real ``NextcloudBridgeConfig.from_env``
-#     here rather than only string-matched — a renamed env var is dead config the
-#     runtime silently ignores, which no substring assertion would catch;
-#   * that block is also the ONLY way configuration reaches this service: it
-#     declares no ``env_file:``, so the project .env's provider keys never enter
-#     the container that faces the external Nextcloud instance.
+# The Nextcloud, Google Chat and Teams bridges are siblings: outbound-only
+# clients driving the same dispatch pair through the same `osprey.bridges.core`
+# config, rendered from templates built on the same macros. A `_ChatBridge`
+# names one of them the way its template and runtime spell it, so the contracts
+# every bridge honours are asserted once, over all three, below the per-bridge
+# sections; each section keeps only what is particular to its bridge.
 # ---------------------------------------------------------------------------
 
-_NEXTCLOUD_BRIDGE_TEMPLATE = "services/nextcloud_bridge/docker-compose.yml.j2"
 
-# Credentials and tokens that must render as bare ``${VAR}``. The three secrets
-# (the Talk app password and both dispatch tokens) are the security-critical
-# members; the base URL, bot account, and room list are here for the same reason
-# — a default would silently point the bridge at the wrong instance or room.
-_NEXTCLOUD_FAIL_CLOSED_VARS = [
-    "NEXTCLOUD_BASE_URL",
-    "NEXTCLOUD_BOT_ACCOUNT",
-    "NEXTCLOUD_APP_PASSWORD",
-    "NEXTCLOUD_ROOMS",
-    "EVENT_DISPATCHER_TOKEN",
-    "DISPATCH_WORKER_TOKEN",
-]
+@dataclass(frozen=True)
+class _ChatBridge:
+    """One chat bridge, as its compose template and its runtime name it."""
 
-# A single-variable compose substitution: ``${NAME}`` (bare, no fallback),
-# ``${NAME:-default}``, or the REQUIRED form ``${NAME:?message}``, on which
-# compose aborts instead of substituting. Anchored, so a value that merely
-# CONTAINS a reference does not parse as one.
-_COMPOSE_VAR_RE = re.compile(
-    r"^\$\{([A-Z_][A-Z0-9_]*)(?::-(?P<default>.*)|:\?(?P<required>.*))?\}$"
-)
+    #: The prefix of its config key, compose service key, env vars and trigger.
+    name: str
+    #: The runtime package the container runs with ``python -m``.
+    module: str
+    #: The config dataclass in ``<module>.config``.
+    config_class_name: str
+    #: The build-profile block in ``osprey.cli.build_profile``.
+    profile_class_name: str
+    #: Credentials and tokens that must render as bare ``${VAR}``.
+    fail_closed_vars: tuple[str, ...]
+
+    @property
+    def config_key(self) -> str:
+        return f"{self.name}_bridge"
+
+    @property
+    def service_key(self) -> str:
+        return f"{self.name}-bridge"
+
+    @property
+    def env_prefix(self) -> str:
+        return self.name.upper()
+
+    @property
+    def default_trigger(self) -> str:
+        return f"{self.name}-question"
+
+    def config_class(self) -> type:
+        return getattr(importlib.import_module(f"{self.module}.config"), self.config_class_name)
+
+    def profile_class(self) -> type:
+        return getattr(importlib.import_module("osprey.cli.build_profile"), self.profile_class_name)
 
 
-class _ComposeRequiredVarUnset(RuntimeError):
-    """Stands in for the compose CLI aborting on an unset ``${VAR:?message}``."""
+def _bridge_services(bridge: _ChatBridge, **block: object) -> dict:
+    """The default ``services:`` mapping, with ``block`` merged into the bridge's."""
+    return {
+        bridge.config_key: {"trigger": bridge.default_trigger, **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
 
 
-def _render_nextcloud_bridge_template(
+def _render_bridge_template(
+    bridge: _ChatBridge,
     *,
     env_present: bool = True,
     dispatcher_deployed: bool = True,
@@ -4379,25 +4388,21 @@ def _render_nextcloud_bridge_template(
     services: dict | None = None,
     project_name: str = "p",
 ) -> str:
-    """Render the packaged nextcloud-bridge compose template.
+    """Render a packaged chat-bridge compose template.
 
     Loads the packaged template through ``_packaged_compose_template`` — the
     same CWD-independent lookup and the same default-Undefined mode
     ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
     exactly as in production and the template's macro import resolves.
     """
-    template = _packaged_compose_template(_NEXTCLOUD_BRIDGE_TEMPLATE)
-    deployed = ["nextcloud_bridge"]
+    template = _packaged_compose_template(f"services/{bridge.config_key}/docker-compose.yml.j2")
+    deployed = [bridge.config_key]
     if dispatcher_deployed:
         deployed.append("event_dispatcher")
     if worker_deployed:
         deployed.append("dispatch_worker")
     if services is None:
-        services = {
-            "nextcloud_bridge": {"trigger": "nextcloud-question"},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
+        services = _bridge_services(bridge)
     return template.render(
         services=services,
         deployment={},
@@ -4414,10 +4419,23 @@ def _render_nextcloud_bridge_template(
     )
 
 
-def _nextcloud_bridge_service(**kwargs: object) -> dict:
-    """Return the parsed ``nextcloud-bridge`` service block."""
-    rendered = yaml.safe_load(_render_nextcloud_bridge_template(**kwargs))  # type: ignore[arg-type]
-    return rendered["services"]["nextcloud-bridge"]
+def _bridge_service(bridge: _ChatBridge, **kwargs: object) -> dict:
+    """Return the bridge's parsed compose service block."""
+    rendered = yaml.safe_load(_render_bridge_template(bridge, **kwargs))  # type: ignore[arg-type]
+    return rendered["services"][bridge.service_key]
+
+
+# A single-variable compose substitution: ``${NAME}`` (bare, no fallback),
+# ``${NAME:-default}``, or the REQUIRED form ``${NAME:?message}``, on which
+# compose aborts instead of substituting. Anchored, so a value that merely
+# CONTAINS a reference does not parse as one.
+_COMPOSE_VAR_RE = re.compile(
+    r"^\$\{([A-Z_][A-Z0-9_]*)(?::-(?P<default>.*)|:\?(?P<required>.*))?\}$"
+)
+
+
+class _ComposeRequiredVarUnset(RuntimeError):
+    """Stands in for the compose CLI aborting on an unset ``${VAR:?message}``."""
 
 
 def _resolve_compose_env(
@@ -4446,89 +4464,75 @@ def _resolve_compose_env(
     return resolved
 
 
-def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
-    """image = ${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-<project>-nextcloud-bridge:local}.
+# ---------------------------------------------------------------------------
+# Nextcloud Talk bridge service template
+#
+# The bridge is an outbound-only poller: no published port, no healthcheck, and
+# a single named volume that IS its crash-safety ledger. Two properties of this
+# template are load-bearing beyond "the YAML parses":
+#
+#   * every credential is a BARE ``${VAR}`` reference — a ``:-default`` on any of
+#     them would let the container come up pointed at a guessable host or
+#     authenticating with a placeholder instead of failing closed at boot, so
+#     these tests assert the ABSENCE of a fallback, not just the presence of the
+#     name;
+#   * the rendered environment block is the bridge's whole configuration
+#     surface, so it is fed through the real ``NextcloudBridgeConfig.from_env``
+#     here rather than only string-matched — a renamed env var is dead config the
+#     runtime silently ignores, which no substring assertion would catch;
+#   * that block is also the ONLY way configuration reaches this service: it
+#     declares no ``env_file:``, so the project .env's provider keys never enter
+#     the container that faces the external Nextcloud instance.
+# ---------------------------------------------------------------------------
 
-    Same three-level chain as every sibling service (env override wins, then a
-    config-declared image, then the project-namespaced ``:local`` tag that
-    ``osprey up`` builds). The local tag must carry the project name: it
-    is a host-global docker tag, so a static default would make two projects
-    fight over one image. A config-declared image also renders no build, so
-    compose pulls and runs it as named.
-    """
-    assert _nextcloud_bridge_service(project_name="proj-a")["image"] == (
-        "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-a-nextcloud-bridge:local}"
-    )
-    assert _nextcloud_bridge_service(project_name="proj-b")["image"] == (
-        "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-b-nextcloud-bridge:local}"
-    )
+# Credentials and tokens that must render as bare ``${VAR}``. The three secrets
+# (the Talk app password and both dispatch tokens) are the security-critical
+# members; the base URL, bot account, and room list are here for the same reason
+# — a default would silently point the bridge at the wrong instance or room.
+_NEXTCLOUD_FAIL_CLOSED_VARS = [
+    "NEXTCLOUD_BASE_URL",
+    "NEXTCLOUD_BOT_ACCOUNT",
+    "NEXTCLOUD_APP_PASSWORD",
+    "NEXTCLOUD_ROOMS",
+    "EVENT_DISPATCHER_TOKEN",
+    "DISPATCH_WORKER_TOKEN",
+]
 
-    # A config-declared image displaces the local tag but stays under the env
-    # override, so an operator can still repoint a published image at deploy
-    # time without a rebuild.
-    pinned = _nextcloud_bridge_service(
-        services={
-            "nextcloud_bridge": {
-                "trigger": "nextcloud-question",
-                "image": "ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3",
-            },
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    assert pinned["image"] == (
-        "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3}"
-    )
-    assert "build" not in pinned
-
-
-def test_nextcloud_bridge_build_context_is_project_dir_relative() -> None:
-    """The image builds from ./nextcloud_bridge (compose-project-dir relative).
-
-    With multiple ``-f`` compose files every relative path resolves against the
-    FIRST file's dir (build/services/), not this file's own subdir, so a
-    file-relative context ('.', '../nextcloud_bridge') breaks a fresh
-    ``osprey up`` with "unable to prepare context: path ... not found".
-    """
-    build = _nextcloud_bridge_service()["build"]
-    assert build["context"] == "./build/services/nextcloud_bridge"
-    assert build["dockerfile"] == "Dockerfile"
-
-
-def test_nextcloud_bridge_command_runs_the_bridge_module() -> None:
-    """The service runs the bridge entrypoint as an exec-form ``python -m``.
-
-    Exec form (a YAML list) and not a shell string: the container's PID 1 must be
-    python itself so SIGTERM from ``osprey down`` reaches the poll loop's
-    shutdown path instead of a shell that never forwards it.
-    """
-    assert _nextcloud_bridge_service()["command"] == [
-        "python",
-        "-m",
-        "osprey.bridges.nextcloud_talk",
-    ]
+_NEXTCLOUD_BRIDGE = _ChatBridge(
+    name="nextcloud",
+    module="osprey.bridges.nextcloud_talk",
+    config_class_name="NextcloudBridgeConfig",
+    profile_class_name="NextcloudBridgeProfileConfig",
+    fail_closed_vars=tuple(_NEXTCLOUD_FAIL_CLOSED_VARS),
+)
 
 
 def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger, history, and offsets.
+    """/data is a NAMED volume — it holds the dedup ledger and the poll offsets.
 
-    All three state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``, ``OFFSETS_PATH``). Without a persisted volume a restart
+    Both state files default to paths under /data (``DEDUP_PATH``,
+    ``OFFSETS_PATH``); conversation history lives in the agent record. Without a persisted volume a restart
     loses the in-flight dedup ledger (re-answering or dropping questions) and
     resets the poll offsets (replaying or skipping room history), so this is a
     correctness requirement, not a convenience. Named rather than a bind mount so
     it is namespaced per compose project and survives ``osprey down``.
     """
-    rendered = _render_nextcloud_bridge_template()
+    rendered = _render_bridge_template(_NEXTCLOUD_BRIDGE)
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["nextcloud-bridge"]
 
-    assert service["volumes"] == ["nextcloud_bridge_data:/data"]
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == "nextcloud_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/nextcloud-bridge",
+        "/nextcloud-bridge",
+    ]
     assert "nextcloud_bridge_data" in parsed["volumes"], (
         "the /data mount names nextcloud_bridge_data, so the compose file must "
         "declare it as a top-level named volume or `compose up` errors"
     )
-    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
         "bridge state must not be a host bind mount — a named volume is what "
         "keeps it project-namespaced and portable across runtimes"
     )
@@ -4546,7 +4550,7 @@ def test_nextcloud_bridge_credentials_render_without_a_default_fallback(var: str
     value and the raw text are checked — a substring test for the name alone
     would pass on the very regression this guards.
     """
-    rendered = _render_nextcloud_bridge_template()
+    rendered = _render_bridge_template(_NEXTCLOUD_BRIDGE)
     environment = yaml.safe_load(rendered)["services"]["nextcloud-bridge"]["environment"]
 
     assert environment[var] == f"${{{var}}}", (
@@ -4569,7 +4573,7 @@ def test_nextcloud_bridge_neutral_tunables_keep_their_defaults_in_code() -> None
     ``POLL_BUDGET`` is the deliberate exception — its default is derived from the
     worker cap (see the poll-budget test below).
     """
-    environment = _nextcloud_bridge_service()["environment"]
+    environment = _bridge_service(_NEXTCLOUD_BRIDGE)["environment"]
     for var in (
         "POLL_INTERVAL",
         "DRAIN_INTERVAL",
@@ -4588,29 +4592,10 @@ def test_nextcloud_bridge_neutral_tunables_keep_their_defaults_in_code() -> None
         )
 
 
-@pytest.mark.parametrize("env_present", [True, False])
-def test_nextcloud_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) -> None:
-    """The bridge gets named variables only — never the whole project .env.
-
-    The project .env holds the provider keys the dispatch worker needs
-    (``CBORG_API_KEY``, ``OPENAI_API_KEY``, ...). The bridge never calls an LLM
-    and it is the one component that talks to an external Nextcloud instance, so
-    handing it the file would widen its blast radius for nothing: every value it
-    actually reads arrives by interpolation into ``environment:``, resolved from
-    that same .env because ``osprey up`` runs compose with ``--env-file .env``
-    (and ``environment:`` outranks ``env_file:`` in compose regardless).
-    Asserted for a .env both present and absent, so reintroducing the mount
-    behind an ``osprey_env_present`` gate does not slip through.
-    """
-    rendered = _render_nextcloud_bridge_template(env_present=env_present)
-    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered
-    assert "env_file" not in yaml.safe_load(rendered)["services"]["nextcloud-bridge"]
-
-
 def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclasses' defaults.
 
-    These three are the only vars whose ``:-`` fallback restates a code default
+    These two are the only vars whose ``:-`` fallback restates a code default
     instead of passing through empty: their readers are plain
     ``e.get(NAME, default)`` calls, for which "" is an accepted value, so the
     empty-fallback trick the neutral tunables use would point the stores at the
@@ -4626,11 +4611,11 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     nextcloud_defaults = NextcloudBridgeConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
         "OFFSETS_PATH": nextcloud_defaults.offsets_path,
     }
 
-    environment = _nextcloud_bridge_service()["environment"]
+    environment = _bridge_service(_NEXTCLOUD_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -4658,11 +4643,10 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config objects under the names they read —
-    # an empty value would NOT, which is why these three are not passed through
+    # an empty value would NOT, which is why these two are not passed through
     # with an empty fallback.
     cfg = NextcloudBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
     assert cfg.offsets_path == "/srv/state/offsets_path.json"
 
 
@@ -4674,209 +4658,15 @@ def test_nextcloud_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
     A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
     compose fails hard on a ``depends_on`` naming an undefined service.
     """
-    with_dispatcher = _nextcloud_bridge_service(dispatcher_deployed=True)
+    with_dispatcher = _bridge_service(_NEXTCLOUD_BRIDGE, dispatcher_deployed=True)
     assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
 
-    external = _render_nextcloud_bridge_template(dispatcher_deployed=False)
+    external = _render_bridge_template(_NEXTCLOUD_BRIDGE, dispatcher_deployed=False)
     assert "depends_on:" not in external, (
         "a bridge deployed without the dispatcher must emit no depends_on — "
         "compose errors on a dependency naming an undefined service"
     )
     assert yaml.safe_load(external)["services"]["nextcloud-bridge"].get("depends_on") is None
-
-
-def test_nextcloud_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None:
-    """In-network URLs use the SAME ports the dispatch templates serve on.
-
-    Derived from the sibling templates' own rendered output rather than restated
-    here, so a port change in the dispatch pair cannot leave the bridge calling a
-    closed port. Service keys (not container names) are the DNS names on
-    osprey-network, and the worker is addressed directly because the bridge polls
-    run status and fetches artifacts from it, not through the dispatcher.
-    """
-    for services, expected_dispatcher_port, expected_worker_port in (
-        # Config-block defaults, and explicitly non-default ports.
-        (
-            {"nextcloud_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            default_port("dispatcher"),
-            default_port("worker", 1),
-        ),
-        (
-            {
-                "nextcloud_bridge": {"trigger": "t"},
-                "event_dispatcher": {"port": 8031},
-                "dispatch_worker": {"worker_port_base": 9201},
-            },
-            8031,
-            9201,
-        ),
-    ):
-        dispatcher = yaml.safe_load(
-            _render_service_template(
-                "event_dispatcher/docker-compose.yml.j2", "p", services=services
-            )
-        )["services"]["event-dispatcher"]
-        assert dispatcher["environment"]["FASTMCP_PORT"] == str(expected_dispatcher_port), (
-            "test premise: the dispatcher template must serve the port this case expects"
-        )
-
-        environment = _nextcloud_bridge_service(services=services)["environment"]
-        assert (
-            environment["DISPATCHER_URL"] == f"http://event-dispatcher:{expected_dispatcher_port}"
-        )
-        assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{expected_worker_port}"
-
-
-def test_nextcloud_bridge_dispatch_urls_pass_through_when_external() -> None:
-    """Without the dispatch pair co-deployed, both URLs are REQUIRED host vars.
-
-    An external dispatcher/worker is reached by whatever address the deploy env
-    supplies; hardcoding the in-network name would make the bridge call a
-    nonexistent host, and the code's localhost default is wrong from inside a
-    container either way. They render in compose's required form
-    (``${VAR:?message}``) rather than as bare references, because compose
-    resolves an unset bare reference to the EMPTY STRING and not to an absent
-    key: ``CoreConfig.from_env``'s localhost default would never fire,
-    ``require_startup`` does not cover these two, so the stack would boot and
-    then POST every dispatch to a protocol-less URL. Since a raising
-    ``handle_event`` deliberately leaves the persisted poll offset unadvanced,
-    that turns one missing variable into a room re-fetching the same batch
-    forever. ``:?`` makes it a startup abort instead.
-    """
-    environment = _nextcloud_bridge_service(
-        dispatcher_deployed=False,
-        worker_deployed=False,
-        services={"nextcloud_bridge": {"trigger": "t"}},
-    )["environment"]
-    for var in ("DISPATCHER_URL", "WORKER_URL"):
-        assert str(environment[var]).startswith(f"${{{var}:?"), (
-            f"{var} must render as compose's required form ${{{var}:?...}} when the "
-            f"dispatch pair is external (got {environment[var]!r}) — a bare reference "
-            "resolves to an empty string and boots a bridge that can never dispatch"
-        )
-
-    # Nothing on the host: the deploy must be REFUSED, not resolved to "".
-    with pytest.raises(_ComposeRequiredVarUnset, match="DISPATCHER_URL"):
-        _resolve_compose_env(environment)
-
-    # Supplied, they pass through verbatim — the point of the passthrough.
-    resolved = _resolve_compose_env(
-        environment,
-        host_env={
-            "DISPATCHER_URL": "https://dispatch.example.org",
-            "WORKER_URL": "https://worker.example.org",
-        },
-    )
-    assert resolved["DISPATCHER_URL"] == "https://dispatch.example.org"
-    assert resolved["WORKER_URL"] == "https://worker.example.org"
-
-    # The CO-DEPLOYED branch must NOT carry the guard: it renders the in-network
-    # address itself and needs no host variable, so a `:?` there would abort a
-    # perfectly valid single-stack deploy.
-    co_deployed = _nextcloud_bridge_service()["environment"]
-    for var in ("DISPATCHER_URL", "WORKER_URL"):
-        assert ":?" not in str(co_deployed[var]), (
-            f"{var} is rendered in-network when the dispatch pair is co-deployed; "
-            "requiring a host variable there would break the common deploy"
-        )
-
-
-def test_nextcloud_bridge_trigger_comes_from_the_profile_and_has_no_template_default() -> None:
-    """``DISPATCH_TRIGGER`` is rendered from the profile block, with no fallback here.
-
-    ``NextcloudBridgeProfileConfig.trigger`` is the ONLY place the
-    ``nextcloud-question`` default lives (the runtime's ``from_env`` applies none
-    either), so a template-side default would be a second definition that fires
-    some other facility's trigger when the config key goes missing.
-    """
-    from osprey.cli.build_profile import NextcloudBridgeProfileConfig
-
-    profile_default = NextcloudBridgeProfileConfig().trigger
-    rendered = _render_nextcloud_bridge_template(
-        services={
-            "nextcloud_bridge": {"trigger": profile_default},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    environment = yaml.safe_load(rendered)["services"]["nextcloud-bridge"]["environment"]
-    assert environment["DISPATCH_TRIGGER"] == profile_default
-
-    # A facility-chosen trigger must render verbatim, and the profile default
-    # must not survive as a template-side fallback.
-    custom = _render_nextcloud_bridge_template(
-        services={
-            "nextcloud_bridge": {"trigger": "als-talk-question"},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    custom_env = yaml.safe_load(custom)["services"]["nextcloud-bridge"]["environment"]
-    assert custom_env["DISPATCH_TRIGGER"] == "als-talk-question"
-
-    # A config that lost the key must render an EMPTY trigger, so the bridge
-    # aborts at boot naming DISPATCH_TRIGGER. A template-side default would
-    # instead fire whatever name the framework happened to pick.
-    keyless = _render_nextcloud_bridge_template(
-        services={"nextcloud_bridge": {}, "event_dispatcher": {}, "dispatch_worker": {}}
-    )
-    keyless_env = yaml.safe_load(keyless)["services"]["nextcloud-bridge"]["environment"]
-    assert keyless_env["DISPATCH_TRIGGER"] == "", (
-        f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
-        "the profile block is the single source of the trigger name"
-    )
-
-
-def _nextcloud_services(**block: object) -> dict:
-    return {
-        "nextcloud_bridge": {"trigger": "nextcloud-question", **block},
-        "event_dispatcher": {},
-        "dispatch_worker": {},
-    }
-
-
-def test_nextcloud_bridge_mentions_render_on_by_default() -> None:
-    """The helper's default services carry no key, and render mentions on."""
-    assert _nextcloud_bridge_service()["environment"]["NEXTCLOUD_MENTIONS"] == "true"
-
-
-@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
-def test_nextcloud_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
-    services = _nextcloud_services(mentions=value)
-    environment = _nextcloud_bridge_service(services=services)["environment"]
-    assert environment["NEXTCLOUD_MENTIONS"] == rendered
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_nextcloud_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
-    from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig
-
-    services = _nextcloud_services(mentions=value)
-    environment = _nextcloud_bridge_service(services=services)["environment"]
-    assert NextcloudBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
-
-
-def test_nextcloud_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
-    """The rendered env, resolved with nothing set on the host, refuses to boot.
-
-    Feeds the template's own output through the real
-    ``NextcloudBridgeConfig.from_env`` — so a renamed variable shows up as dead
-    config here rather than as a bridge that silently ignores it — and asserts
-    ``require_startup`` names exactly the fail-closed variables. The trigger is
-    absent from that list precisely because the template renders it as a literal.
-    """
-    from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
-
-    environment = _nextcloud_bridge_service()["environment"]
-    cfg = NextcloudBridgeConfig.from_env(_resolve_compose_env(environment))
-
-    with pytest.raises(ValueError) as excinfo:
-        cfg.require_startup()
-    missing = {name.strip() for name in str(excinfo.value).split(":", 1)[1].split(",")}
-    assert missing == set(_NEXTCLOUD_FAIL_CLOSED_VARS), (
-        "with nothing set on the host the bridge must abort naming exactly the "
-        f"bare-reference variables; got {sorted(missing)}"
-    )
 
 
 def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
@@ -4889,7 +4679,7 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     """
     from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
 
-    environment = _nextcloud_bridge_service()["environment"]
+    environment = _bridge_service(_NEXTCLOUD_BRIDGE)["environment"]
     resolved = _resolve_compose_env(
         environment,
         host_env={
@@ -4913,98 +4703,9 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     assert cfg.core.trigger == "nextcloud-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # The three state files must land on the mounted volume, not the image layer.
-    for path in (cfg.offsets_path, cfg.core.dedup_path, cfg.core.history_path):
+    # Both state files must land on the mounted volume, not the image layer.
+    for path in (cfg.offsets_path, cfg.core.dedup_path):
         assert path.startswith("/data/"), path
-
-
-@pytest.mark.parametrize("worker_timeout", [None, 600])
-def test_nextcloud_bridge_poll_budget_default_outlasts_the_worker_cap(
-    worker_timeout: int | None,
-) -> None:
-    """The bridge's poll budget is derived from the worker's cap, not restated.
-
-    ``CoreConfig.__post_init__`` rejects ``poll_budget < worker_timeout``, which
-    would crash-loop the bridge, and both halves read the cap from the same
-    ``services.dispatch_worker.timeout_sec`` key — so raising the cap in one
-    place must raise the budget here too. Constructing the config from the
-    resolved defaults is what proves the relation holds rather than asserting on
-    the numbers alone.
-    """
-    from osprey.bridges.core import CoreConfig
-
-    worker_config = {} if worker_timeout is None else {"timeout_sec": worker_timeout}
-    environment = _nextcloud_bridge_service(
-        services={
-            "nextcloud_bridge": {"trigger": "t"},
-            "event_dispatcher": {},
-            "dispatch_worker": worker_config,
-        }
-    )["environment"]
-
-    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
-    expected_timeout = float(worker_timeout if worker_timeout is not None else 300)
-    assert cfg.worker_timeout == expected_timeout
-    assert cfg.poll_budget == expected_timeout + 30, (
-        "the poll budget default must exceed the worker cap it waits out"
-    )
-
-
-def test_nextcloud_bridge_config_lookups_survive_explicit_null_values() -> None:
-    """A config key present but EMPTY must still render the documented default.
-
-    Jinja's ``default`` filter substitutes only on *Undefined*, so a key written
-    as ``timeout_sec:`` with no value — which YAML loads as ``None`` — sails past
-    a plain ``| default(300)`` and renders the literal string "None".
-    ``CoreConfig.from_env`` then dies on ``float("None")`` at boot, and
-    ``None | int`` silently degrades ``POLL_BUDGET`` to 0. The boolean form
-    (``default(300, true)``) substitutes on any falsy value, which is what keeps
-    a half-written config booting on the defaults instead of crash-looping.
-    """
-    from osprey.bridges.core import CoreConfig
-
-    environment = _nextcloud_bridge_service(
-        services={
-            "nextcloud_bridge": {"trigger": "t"},
-            "event_dispatcher": {"port": None},
-            "dispatch_worker": {"timeout_sec": None, "worker_port_base": None},
-        }
-    )["environment"]
-
-    assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == f"http://event-dispatcher:{default_port('dispatcher')}"
-    assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-
-    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
-    assert cfg.worker_timeout == 300.0
-    assert cfg.poll_budget == 330.0
-
-
-def test_nextcloud_bridge_container_name_is_project_namespaced() -> None:
-    """Two projects render distinct bridge container names.
-
-    ``container_name`` is a HOST-GLOBAL docker identifier, so a static name stops
-    two OSPREY projects from running a bridge on one host. Nothing reaches this
-    service in-network (it only makes outbound calls), so no network alias is
-    needed alongside the rename.
-    """
-    name_a = _nextcloud_bridge_service(project_name="proj-a")["container_name"]
-    name_b = _nextcloud_bridge_service(project_name="proj-b")["container_name"]
-    assert (name_a, name_b) == ("proj-a-nextcloud-bridge", "proj-b-nextcloud-bridge")
-
-
-def test_nextcloud_bridge_publishes_no_ports_and_declares_no_healthcheck() -> None:
-    """The bridge is a poller: no listening socket, so no ports and no probe.
-
-    A published port would be dead surface, and a healthcheck against a service
-    that opens no socket would mark a healthy bridge unhealthy — which
-    ``depends_on: service_healthy`` elsewhere would then act on.
-    """
-    service = _nextcloud_bridge_service()
-    assert "ports" not in service
-    assert "healthcheck" not in service
-    assert service["networks"] == ["osprey-network"]
-    assert service["restart"] == "unless-stopped"
 
 
 def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
@@ -5017,7 +4718,8 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
     """
     _write_config(tmp_path, deployed_services=["nextcloud_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "nextcloud_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -5052,8 +4754,6 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
 # store (the subscription's own ack state is the ingestion cursor).
 # ---------------------------------------------------------------------------
 
-_GCHAT_BRIDGE_TEMPLATE = "services/gchat_bridge/docker-compose.yml.j2"
-
 # Credentials and tokens that must render as bare ``${VAR}``. All five are
 # security- or destination-critical: a default would authenticate the bridge as
 # nobody, point it at another project's Pub/Sub queue, or let it dispatch with a
@@ -5068,58 +4768,17 @@ _GCHAT_FAIL_CLOSED_VARS = [
     "DISPATCH_WORKER_TOKEN",
 ]
 
+_GCHAT_BRIDGE = _ChatBridge(
+    name="gchat",
+    module="osprey.bridges.google_chat",
+    config_class_name="GoogleChatBridgeConfig",
+    profile_class_name="GChatBridgeProfileConfig",
+    fail_closed_vars=tuple(_GCHAT_FAIL_CLOSED_VARS),
+)
+
 # A fully-qualified pull subscription. Used wherever a test supplies one so the
 # config's shape check (which warns on a bare subscription id) stays quiet.
 _GCHAT_SUBSCRIPTION = "projects/als-apg/subscriptions/gchat-events"
-
-
-def _render_gchat_bridge_template(
-    *,
-    env_present: bool = True,
-    dispatcher_deployed: bool = True,
-    worker_deployed: bool = True,
-    services: dict | None = None,
-    project_name: str = "p",
-) -> str:
-    """Render the packaged gchat-bridge compose template.
-
-    Loads the packaged template through ``_packaged_compose_template`` — the
-    same CWD-independent lookup and the same default-Undefined mode
-    ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
-    exactly as in production and the template's macro import resolves.
-    """
-    template = _packaged_compose_template(_GCHAT_BRIDGE_TEMPLATE)
-    deployed = ["gchat_bridge"]
-    if dispatcher_deployed:
-        deployed.append("event_dispatcher")
-    if worker_deployed:
-        deployed.append("dispatch_worker")
-    if services is None:
-        services = {
-            "gchat_bridge": {"trigger": "gchat-question"},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    return template.render(
-        services=services,
-        deployment={},
-        system={"timezone": "UTC"},
-        deployed_services=deployed,
-        osprey_labels={
-            "project_name": project_name,
-            "project_root": f"/r/{project_name}",
-        },
-        osprey_images=_image_defaults(project_name),
-        osprey_ports=_layout_ports_for(),
-        osprey_version="",
-        osprey_env_present=env_present,
-    )
-
-
-def _gchat_bridge_service(**kwargs: object) -> dict:
-    """Return the parsed ``gchat-bridge`` service block."""
-    rendered = yaml.safe_load(_render_gchat_bridge_template(**kwargs))  # type: ignore[arg-type]
-    return rendered["services"]["gchat-bridge"]
 
 
 def _gchat_environment_text(rendered: str) -> str:
@@ -5136,82 +4795,18 @@ def _gchat_environment_text(rendered: str) -> str:
     return rendered[start : rendered.index("    volumes:", start)]
 
 
-def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
-    """image = ${OSPREY_GCHAT_BRIDGE_IMAGE:-<project>-gchat-bridge:local}.
-
-    Same three-level chain as every sibling service (env override wins, then a
-    config-declared image, then the project-namespaced ``:local`` tag that
-    ``osprey up`` builds). The local tag must carry the project name: it
-    is a host-global docker tag, so a static default would make two projects
-    fight over one image. A config-declared image also renders no build, so
-    compose pulls and runs it as named.
-    """
-    assert _gchat_bridge_service(project_name="proj-a")["image"] == (
-        "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-a-gchat-bridge:local}"
-    )
-    assert _gchat_bridge_service(project_name="proj-b")["image"] == (
-        "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-b-gchat-bridge:local}"
-    )
-
-    # A config-declared image displaces the local tag but stays under the env
-    # override, so an operator can still repoint a published image at deploy
-    # time without a rebuild.
-    pinned = _gchat_bridge_service(
-        services={
-            "gchat_bridge": {
-                "trigger": "gchat-question",
-                "image": "ghcr.io/als-apg/osprey-gchat-bridge:1.2.3",
-            },
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    assert pinned["image"] == (
-        "${OSPREY_GCHAT_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-gchat-bridge:1.2.3}"
-    )
-    assert "build" not in pinned
-
-
-def test_gchat_bridge_build_context_is_project_dir_relative() -> None:
-    """The image builds from ./gchat_bridge (compose-project-dir relative).
-
-    With multiple ``-f`` compose files every relative path resolves against the
-    FIRST file's dir (build/services/), not this file's own subdir, so a
-    file-relative context ('.', '../gchat_bridge') breaks a fresh
-    ``osprey up`` with "unable to prepare context: path ... not found".
-    """
-    build = _gchat_bridge_service()["build"]
-    assert build["context"] == "./build/services/gchat_bridge"
-    assert build["dockerfile"] == "Dockerfile"
-
-
-def test_gchat_bridge_command_runs_the_bridge_module() -> None:
-    """The service runs the bridge entrypoint as an exec-form ``python -m``.
-
-    Exec form (a YAML list) and not a shell string: the container's PID 1 must be
-    python itself so SIGTERM from ``osprey down`` reaches the subscriber's
-    shutdown path (which cancels the streaming-pull future) instead of a shell
-    that never forwards it.
-    """
-    assert _gchat_bridge_service()["command"] == [
-        "python",
-        "-m",
-        "osprey.bridges.google_chat",
-    ]
-
-
 def test_gchat_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+    """/data is a NAMED volume — it holds the dedup ledger.
 
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
+    history lives in the agent record. Without a persisted volume a restart loses the in-flight
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. Named rather than a
     bind mount so it is namespaced per compose project and survives
     ``osprey down``. Unlike the Nextcloud bridge there is no offsets store: the
     Pub/Sub subscription's own ack state is the ingestion cursor.
     """
-    rendered = _render_gchat_bridge_template()
+    rendered = _render_bridge_template(_GCHAT_BRIDGE)
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["gchat-bridge"]
 
@@ -5240,9 +4835,9 @@ def test_gchat_bridge_sa_key_is_mounted_read_only_at_its_own_path() -> None:
     with an error that never names the variable, whereas the ``/dev/null``
     sentinel is a harmless no-op that lets the container come up far enough for
     ``require_startup`` to name the missing variable itself (asserted by
-    ``test_gchat_bridge_rendered_env_parses_and_fails_closed_without_secrets``).
+    ``test_chat_bridge_rendered_env_parses_and_fails_closed_without_secrets[gchat]``).
     """
-    volumes = _gchat_bridge_service()["volumes"]
+    volumes = _bridge_service(_GCHAT_BRIDGE)["volumes"]
     sa_mounts = [v for v in volumes if "GCHAT_SA_KEY" in str(v)]
     assert len(sa_mounts) == 1, f"expected exactly one SA-key mount, got {sa_mounts}"
 
@@ -5286,7 +4881,7 @@ def test_gchat_bridge_credentials_render_without_a_default_fallback(var: str) ->
     substring test for the name alone would pass on the very regression this
     guards.
     """
-    rendered = _render_gchat_bridge_template()
+    rendered = _render_bridge_template(_GCHAT_BRIDGE)
     environment = yaml.safe_load(rendered)["services"]["gchat-bridge"]["environment"]
 
     assert environment[var] == f"${{{var}}}", (
@@ -5309,7 +4904,7 @@ def test_gchat_bridge_documents_the_single_subscriber_constraint() -> None:
     comment the only place the constraint is stated at deploy time; this pins it
     so an edit cannot quietly drop it.
     """
-    rendered = _render_gchat_bridge_template()
+    rendered = _render_bridge_template(_GCHAT_BRIDGE)
     subscription_line = next(
         i for i, line in enumerate(rendered.splitlines()) if "GCHAT_SUBSCRIPTION:" in line
     )
@@ -5338,7 +4933,7 @@ def test_gchat_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
     deliberate exception — its default is derived from the worker cap (see the
     poll-budget test below).
     """
-    environment = _gchat_bridge_service()["environment"]
+    environment = _bridge_service(_GCHAT_BRIDGE)["environment"]
     for var in (
         "POLL_INTERVAL",
         "DRAIN_INTERVAL",
@@ -5368,30 +4963,11 @@ def test_gchat_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
     assert (cfg.gcs_bucket, cfg.gcs_project, cfg.version_tag) == ("", "", "")
 
 
-@pytest.mark.parametrize("env_present", [True, False])
-def test_gchat_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) -> None:
-    """The bridge gets named variables only — never the whole project .env.
-
-    The project .env holds the provider keys the dispatch worker needs
-    (``CBORG_API_KEY``, ``OPENAI_API_KEY``, ...). The bridge never calls an LLM
-    and it is the one component holding Google service-account credentials, so
-    handing it the file would widen its blast radius for nothing: every value it
-    actually reads arrives by interpolation into ``environment:``, resolved from
-    that same .env because ``osprey up`` runs compose with ``--env-file .env``
-    (and ``environment:`` outranks ``env_file:`` in compose regardless).
-    Asserted for a .env both present and absent, so reintroducing the mount
-    behind an ``osprey_env_present`` gate does not slip through.
-    """
-    rendered = _render_gchat_bridge_template(env_present=env_present)
-    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered
-    assert "env_file" not in yaml.safe_load(rendered)["services"]["gchat-bridge"]
-
-
 def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclass's defaults.
 
-    These two are the only environment vars whose ``:-`` fallback restates a code
-    default instead of passing through empty: their reader is a plain
+    ``DEDUP_PATH`` is the only environment var whose ``:-`` fallback restates a
+    code default instead of passing through empty: its reader is a plain
     ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
     the empty-fallback trick the neutral tunables use would point the stores at
     the empty path. That duplication is the thing this test exists to bind — the
@@ -5404,10 +4980,10 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     core_defaults = CoreConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
     }
 
-    environment = _gchat_bridge_service()["environment"]
+    environment = _bridge_service(_GCHAT_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -5435,13 +5011,12 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config object under the names it reads — an
-    # empty value would NOT, which is why these two are not passed through with
+    # empty value would NOT, which is why it is not passed through with
     # an empty fallback.
     from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
 
     cfg = GoogleChatBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
 
 
 def test_gchat_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
@@ -5452,180 +5027,15 @@ def test_gchat_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
     A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
     compose fails hard on a ``depends_on`` naming an undefined service.
     """
-    with_dispatcher = _gchat_bridge_service(dispatcher_deployed=True)
+    with_dispatcher = _bridge_service(_GCHAT_BRIDGE, dispatcher_deployed=True)
     assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
 
-    external = _render_gchat_bridge_template(dispatcher_deployed=False)
+    external = _render_bridge_template(_GCHAT_BRIDGE, dispatcher_deployed=False)
     assert "depends_on:" not in external, (
         "a bridge deployed without the dispatcher must emit no depends_on — "
         "compose errors on a dependency naming an undefined service"
     )
     assert yaml.safe_load(external)["services"]["gchat-bridge"].get("depends_on") is None
-
-
-def test_gchat_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None:
-    """In-network URLs use the SAME ports the dispatch templates serve on.
-
-    Derived from the sibling templates' own rendered output rather than restated
-    here, so a port change in the dispatch pair cannot leave the bridge calling a
-    closed port. Service keys (not container names) are the DNS names on
-    osprey-network, and the worker is addressed directly because the bridge polls
-    run status and fetches artifacts from it, not through the dispatcher.
-    """
-    for services, expected_dispatcher_port, expected_worker_port in (
-        # Config-block defaults, and explicitly non-default ports.
-        (
-            {"gchat_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            default_port("dispatcher"),
-            default_port("worker", 1),
-        ),
-        (
-            {
-                "gchat_bridge": {"trigger": "t"},
-                "event_dispatcher": {"port": 8031},
-                "dispatch_worker": {"worker_port_base": 9201},
-            },
-            8031,
-            9201,
-        ),
-    ):
-        dispatcher = yaml.safe_load(
-            _render_service_template(
-                "event_dispatcher/docker-compose.yml.j2", "p", services=services
-            )
-        )["services"]["event-dispatcher"]
-        assert dispatcher["environment"]["FASTMCP_PORT"] == str(expected_dispatcher_port), (
-            "test premise: the dispatcher template must serve the port this case expects"
-        )
-
-        environment = _gchat_bridge_service(services=services)["environment"]
-        assert (
-            environment["DISPATCHER_URL"] == f"http://event-dispatcher:{expected_dispatcher_port}"
-        )
-        assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{expected_worker_port}"
-
-
-def test_gchat_bridge_dispatch_urls_pass_through_when_external() -> None:
-    """Without the dispatch pair co-deployed, both URLs are REQUIRED host vars.
-
-    An external dispatcher/worker is reached by whatever address the deploy env
-    supplies; hardcoding the in-network name would make the bridge call a
-    nonexistent host, and the code's localhost default is wrong from inside a
-    container either way. They render in compose's required form
-    (``${VAR:?message}``) rather than as bare references, because compose
-    resolves an unset bare reference to the EMPTY STRING and not to an absent
-    key: ``CoreConfig.from_env``'s localhost default would never fire,
-    ``require_startup`` does not cover these two, so the stack would boot and
-    then POST every dispatch to a protocol-less URL. Since a raising
-    ``handle_event`` deliberately leaves the Pub/Sub message unacknowledged, that
-    turns one missing variable into a subscription redelivering the same event
-    forever. ``:?`` makes it a startup abort instead.
-    """
-    environment = _gchat_bridge_service(
-        dispatcher_deployed=False,
-        worker_deployed=False,
-        services={"gchat_bridge": {"trigger": "t"}},
-    )["environment"]
-    for var in ("DISPATCHER_URL", "WORKER_URL"):
-        assert str(environment[var]).startswith(f"${{{var}:?"), (
-            f"{var} must render as compose's required form ${{{var}:?...}} when the "
-            f"dispatch pair is external (got {environment[var]!r}) — a bare reference "
-            "resolves to an empty string and boots a bridge that can never dispatch"
-        )
-
-    # Nothing on the host: the deploy must be REFUSED, not resolved to "".
-    with pytest.raises(_ComposeRequiredVarUnset, match="DISPATCHER_URL"):
-        _resolve_compose_env(environment)
-
-    # Supplied, they pass through verbatim — the point of the passthrough.
-    resolved = _resolve_compose_env(
-        environment,
-        host_env={
-            "DISPATCHER_URL": "https://dispatch.example.org",
-            "WORKER_URL": "https://worker.example.org",
-        },
-    )
-    assert resolved["DISPATCHER_URL"] == "https://dispatch.example.org"
-    assert resolved["WORKER_URL"] == "https://worker.example.org"
-
-    # The CO-DEPLOYED branch must NOT carry the guard: it renders the in-network
-    # address itself and needs no host variable, so a `:?` there would abort a
-    # perfectly valid single-stack deploy.
-    co_deployed = _gchat_bridge_service()["environment"]
-    for var in ("DISPATCHER_URL", "WORKER_URL"):
-        assert ":?" not in str(co_deployed[var]), (
-            f"{var} is rendered in-network when the dispatch pair is co-deployed; "
-            "requiring a host variable there would break the common deploy"
-        )
-
-
-def test_gchat_bridge_trigger_comes_from_the_profile_and_has_no_template_default() -> None:
-    """``DISPATCH_TRIGGER`` is rendered from the profile block, with no fallback here.
-
-    ``GChatBridgeProfileConfig.trigger`` is the ONLY place the ``gchat-question``
-    default lives (the runtime's ``from_env`` applies none either), so a
-    template-side default would be a second definition that fires some other
-    facility's trigger when the config key goes missing.
-    """
-    from osprey.cli.build_profile import GChatBridgeProfileConfig
-
-    profile_default = GChatBridgeProfileConfig().trigger
-    rendered = _render_gchat_bridge_template(
-        services={
-            "gchat_bridge": {"trigger": profile_default},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    environment = yaml.safe_load(rendered)["services"]["gchat-bridge"]["environment"]
-    assert environment["DISPATCH_TRIGGER"] == profile_default
-
-    # A facility-chosen trigger must render verbatim, and the profile default
-    # must not survive as a template-side fallback.
-    custom = _render_gchat_bridge_template(
-        services={
-            "gchat_bridge": {"trigger": "als-chat-question"},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    custom_env = yaml.safe_load(custom)["services"]["gchat-bridge"]["environment"]
-    assert custom_env["DISPATCH_TRIGGER"] == "als-chat-question"
-
-    # A config that lost the key must render an EMPTY trigger, so the bridge
-    # aborts at boot naming DISPATCH_TRIGGER. A template-side default would
-    # instead fire whatever name the framework happened to pick.
-    keyless = _render_gchat_bridge_template(
-        services={"gchat_bridge": {}, "event_dispatcher": {}, "dispatch_worker": {}}
-    )
-    keyless_env = yaml.safe_load(keyless)["services"]["gchat-bridge"]["environment"]
-    assert keyless_env["DISPATCH_TRIGGER"] == "", (
-        f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
-        "the profile block is the single source of the trigger name"
-    )
-
-
-def test_gchat_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
-    """The rendered env, resolved with nothing set on the host, refuses to boot.
-
-    Feeds the template's own output through the real
-    ``GoogleChatBridgeConfig.from_env`` — so a renamed variable shows up as dead
-    config here rather than as a bridge that silently ignores it — and asserts
-    ``require_startup`` names exactly the fail-closed variables. The trigger is
-    absent from that list precisely because the template renders it as a literal.
-    """
-    from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
-
-    environment = _gchat_bridge_service()["environment"]
-    cfg = GoogleChatBridgeConfig.from_env(_resolve_compose_env(environment))
-
-    with pytest.raises(ValueError) as excinfo:
-        cfg.require_startup()
-    missing = {name.strip() for name in str(excinfo.value).split(":", 1)[1].split(",")}
-    assert missing == set(_GCHAT_FAIL_CLOSED_VARS), (
-        "with nothing set on the host the bridge must abort naming exactly the "
-        f"bare-reference variables; got {sorted(missing)}"
-    )
 
 
 def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
@@ -5640,7 +5050,7 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     """
     from osprey.bridges.google_chat.config import GoogleChatBridgeConfig, require_boot
 
-    environment = _gchat_bridge_service()["environment"]
+    environment = _bridge_service(_GCHAT_BRIDGE)["environment"]
     resolved = _resolve_compose_env(
         environment,
         host_env={
@@ -5662,99 +5072,8 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.trigger == "gchat-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # Both state files must land on the mounted volume, not the image layer.
-    for path in (cfg.core.dedup_path, cfg.core.history_path):
-        assert path.startswith("/data/"), path
-
-
-@pytest.mark.parametrize("worker_timeout", [None, 600])
-def test_gchat_bridge_poll_budget_default_outlasts_the_worker_cap(
-    worker_timeout: int | None,
-) -> None:
-    """The bridge's poll budget is derived from the worker's cap, not restated.
-
-    ``CoreConfig.__post_init__`` rejects ``poll_budget < worker_timeout``, which
-    would crash-loop the bridge, and both halves read the cap from the same
-    ``services.dispatch_worker.timeout_sec`` key — so raising the cap in one
-    place must raise the budget here too. Constructing the config from the
-    resolved defaults is what proves the relation holds rather than asserting on
-    the numbers alone.
-    """
-    from osprey.bridges.core import CoreConfig
-
-    worker_config = {} if worker_timeout is None else {"timeout_sec": worker_timeout}
-    environment = _gchat_bridge_service(
-        services={
-            "gchat_bridge": {"trigger": "t"},
-            "event_dispatcher": {},
-            "dispatch_worker": worker_config,
-        }
-    )["environment"]
-
-    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
-    expected_timeout = float(worker_timeout if worker_timeout is not None else 300)
-    assert cfg.worker_timeout == expected_timeout
-    assert cfg.poll_budget == expected_timeout + 30, (
-        "the poll budget default must exceed the worker cap it waits out"
-    )
-
-
-def test_gchat_bridge_config_lookups_survive_explicit_null_values() -> None:
-    """A config key present but EMPTY must still render the documented default.
-
-    Jinja's ``default`` filter substitutes only on *Undefined*, so a key written
-    as ``timeout_sec:`` with no value — which YAML loads as ``None`` — sails past
-    a plain ``| default(300)`` and renders the literal string "None".
-    ``CoreConfig.from_env`` then dies on ``float("None")`` at boot, and
-    ``None | int`` silently degrades ``POLL_BUDGET`` to 0. The boolean form
-    (``default(300, true)``) substitutes on any falsy value, which is what keeps
-    a half-written config booting on the defaults instead of crash-looping.
-    """
-    from osprey.bridges.core import CoreConfig
-
-    environment = _gchat_bridge_service(
-        services={
-            "gchat_bridge": {"trigger": "t"},
-            "event_dispatcher": {"port": None},
-            "dispatch_worker": {"timeout_sec": None, "worker_port_base": None},
-        }
-    )["environment"]
-
-    assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == f"http://event-dispatcher:{default_port('dispatcher')}"
-    assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-
-    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
-    assert cfg.worker_timeout == 300.0
-    assert cfg.poll_budget == 330.0
-
-
-def test_gchat_bridge_container_name_is_project_namespaced() -> None:
-    """Two projects render distinct bridge container names.
-
-    ``container_name`` is a HOST-GLOBAL docker identifier, so a static name stops
-    two OSPREY projects from running a bridge on one host. Nothing reaches this
-    service in-network (it only makes outbound calls), so no network alias is
-    needed alongside the rename.
-    """
-    name_a = _gchat_bridge_service(project_name="proj-a")["container_name"]
-    name_b = _gchat_bridge_service(project_name="proj-b")["container_name"]
-    assert (name_a, name_b) == ("proj-a-gchat-bridge", "proj-b-gchat-bridge")
-
-
-def test_gchat_bridge_publishes_no_ports_and_declares_no_healthcheck() -> None:
-    """The bridge is a subscriber: no listening socket, so no ports and no probe.
-
-    Google Chat reaches it through Pub/Sub, never over an inbound HTTP request,
-    so a published port would be dead surface — and a healthcheck against a
-    service that opens no socket would mark a healthy bridge unhealthy, which
-    ``depends_on: service_healthy`` elsewhere would then act on.
-    """
-    service = _gchat_bridge_service()
-    assert "ports" not in service
-    assert "healthcheck" not in service
-    assert service["networks"] == ["osprey-network"]
-    assert service["restart"] == "unless-stopped"
+    # The state file must land on the mounted volume, not the image layer.
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
 def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
@@ -5767,7 +5086,8 @@ def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     """
     _write_config(tmp_path, deployed_services=["gchat_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "gchat_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -5811,33 +5131,6 @@ def test_gchat_bridge_image_installs_the_gchat_extra_over_the_shared_deps_layer(
     )
 
 
-def _gchat_services(**block: object) -> dict:
-    return {
-        "gchat_bridge": {"trigger": "gchat-question", **block},
-        "event_dispatcher": {},
-        "dispatch_worker": {},
-    }
-
-
-def test_gchat_bridge_mentions_render_on_by_default() -> None:
-    """A block without the key (a hand-edited or older config) renders mentions on."""
-    assert _gchat_bridge_service()["environment"]["GCHAT_MENTIONS"] == "true"
-
-
-@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
-def test_gchat_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
-    environment = _gchat_bridge_service(services=_gchat_services(mentions=value))["environment"]
-    assert environment["GCHAT_MENTIONS"] == rendered
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_gchat_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
-    from osprey.bridges.google_chat import GoogleChatBridgeConfig
-
-    environment = _gchat_bridge_service(services=_gchat_services(mentions=value))["environment"]
-    assert GoogleChatBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
-
-
 # ---------------------------------------------------------------------------
 # Teams bridge service template
 #
@@ -5848,8 +5141,6 @@ def test_gchat_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
 # enqueues each activity on Service Bus. This service drains that queue. Every
 # assertion below that talks about "no inbound path" follows from that split.
 # ---------------------------------------------------------------------------
-
-_TEAMS_BRIDGE_TEMPLATE = "services/teams_bridge/docker-compose.yml.j2"
 
 # Credentials and tokens that must render as bare ``${VAR}``. All seven are
 # security- or destination-critical: a default would authenticate the bridge as
@@ -5868,6 +5159,14 @@ _TEAMS_FAIL_CLOSED_VARS = [
     "DISPATCH_WORKER_TOKEN",
 ]
 
+_TEAMS_BRIDGE = _ChatBridge(
+    name="teams",
+    module="osprey.bridges.teams",
+    config_class_name="TeamsBridgeConfig",
+    profile_class_name="TeamsBridgeProfileConfig",
+    fail_closed_vars=tuple(_TEAMS_FAIL_CLOSED_VARS),
+)
+
 # A Service Bus connection string of the shape an operator copies out of the
 # portal, scoped to the listen-only policy the bridge is meant to use.
 _TEAMS_SERVICEBUS_CONNECTION_STRING = (
@@ -5876,152 +5175,11 @@ _TEAMS_SERVICEBUS_CONNECTION_STRING = (
 )
 
 
-def _render_teams_bridge_template(
-    *,
-    env_present: bool = True,
-    dispatcher_deployed: bool = True,
-    worker_deployed: bool = True,
-    services: dict | None = None,
-    project_name: str = "p",
-) -> str:
-    """Render the packaged teams-bridge compose template.
-
-    Loads the packaged template through ``_packaged_compose_template`` — the
-    same CWD-independent lookup and the same default-Undefined mode
-    ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
-    exactly as in production and the template's macro import resolves.
-    """
-    template = _packaged_compose_template(_TEAMS_BRIDGE_TEMPLATE)
-    deployed = ["teams_bridge"]
-    if dispatcher_deployed:
-        deployed.append("event_dispatcher")
-    if worker_deployed:
-        deployed.append("dispatch_worker")
-    if services is None:
-        services = {
-            "teams_bridge": {"trigger": "teams-question"},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    return template.render(
-        services=services,
-        deployment={},
-        system={"timezone": "UTC"},
-        deployed_services=deployed,
-        osprey_labels={
-            "project_name": project_name,
-            "project_root": f"/r/{project_name}",
-        },
-        osprey_images=_image_defaults(project_name),
-        osprey_ports=_layout_ports_for(),
-        osprey_version="",
-        osprey_env_present=env_present,
-    )
-
-
-def _teams_bridge_service(**kwargs: object) -> dict:
-    """Return the parsed ``teams-bridge`` service block."""
-    rendered = yaml.safe_load(_render_teams_bridge_template(**kwargs))  # type: ignore[arg-type]
-    return rendered["services"]["teams-bridge"]
-
-
-def _teams_services(**block: object) -> dict:
-    return {
-        "teams_bridge": {"trigger": "teams-question", **block},
-        "event_dispatcher": {},
-        "dispatch_worker": {},
-    }
-
-
-def test_teams_bridge_mentions_render_on_by_default() -> None:
-    """The helper's default services carry no key, and render mentions on."""
-    assert _teams_bridge_service()["environment"]["TEAMS_MENTIONS"] == "true"
-
-
-@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
-def test_teams_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
-    environment = _teams_bridge_service(services=_teams_services(mentions=value))["environment"]
-    assert environment["TEAMS_MENTIONS"] == rendered
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_teams_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
-    from osprey.bridges.teams.config import TeamsBridgeConfig
-
-    environment = _teams_bridge_service(services=_teams_services(mentions=value))["environment"]
-    assert TeamsBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
-
-
-def test_teams_bridge_image_follows_env_config_default_chain() -> None:
-    """image = ${OSPREY_TEAMS_BRIDGE_IMAGE:-<project>-teams-bridge:local}.
-
-    Same three-level chain as every sibling service (env override wins, then a
-    config-declared image, then the project-namespaced ``:local`` tag that
-    ``osprey up`` builds). The local tag must carry the project name: it is a
-    host-global docker tag, so a static default would make two projects fight
-    over one image. A config-declared image also renders no build, so compose
-    pulls and runs it as named.
-    """
-    assert _teams_bridge_service(project_name="proj-a")["image"] == (
-        "${OSPREY_TEAMS_BRIDGE_IMAGE:-proj-a-teams-bridge:local}"
-    )
-    assert _teams_bridge_service(project_name="proj-b")["image"] == (
-        "${OSPREY_TEAMS_BRIDGE_IMAGE:-proj-b-teams-bridge:local}"
-    )
-
-    # A config-declared image displaces the local tag but stays under the env
-    # override, so an operator can still repoint a published image at deploy
-    # time without a rebuild.
-    pinned = _teams_bridge_service(
-        services={
-            "teams_bridge": {
-                "trigger": "teams-question",
-                "image": "ghcr.io/als-apg/osprey-teams-bridge:1.2.3",
-            },
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    assert pinned["image"] == (
-        "${OSPREY_TEAMS_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-teams-bridge:1.2.3}"
-    )
-    assert "build" not in pinned
-
-
-def test_teams_bridge_build_context_is_project_dir_relative() -> None:
-    """The image builds from ./build/services/teams_bridge (project-dir relative).
-
-    With multiple ``-f`` compose files every relative path resolves against the
-    pinned compose project directory, not this file's own subdir, so a
-    file-relative context ('.', '../teams_bridge') breaks a fresh ``osprey up``
-    with "unable to prepare context: path ... not found".
-    """
-    build = _teams_bridge_service()["build"]
-    assert build["context"] == "./build/services/teams_bridge"
-    assert build["dockerfile"] == "Dockerfile"
-
-
-def test_teams_bridge_command_runs_the_bridge_module() -> None:
-    """The service runs the bridge entrypoint as an exec-form ``python -m``.
-
-    Exec form (a YAML list) and not a shell string: the container's PID 1 must be
-    python itself so SIGTERM from ``osprey down`` reaches the receive loop's
-    shutdown path instead of a shell that never forwards it — which for a
-    peek-lock consumer is the difference between settling the activity in hand
-    and leaving it to redeliver.
-    """
-    assert _teams_bridge_service()["command"] == [
-        "python",
-        "-m",
-        "osprey.bridges.teams",
-    ]
-
-
 def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+    """/data is a NAMED volume — it holds the dedup ledger.
 
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
+    history lives in the agent record. Without a persisted volume a restart loses the in-flight
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. There is no third
     state file: unlike the nextcloud poller the bridge keeps no read cursor of
@@ -6029,16 +5187,22 @@ def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     bind mount so it is namespaced per compose project and survives
     ``osprey down``.
     """
-    rendered = _render_teams_bridge_template()
+    rendered = _render_bridge_template(_TEAMS_BRIDGE)
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["teams-bridge"]
 
-    assert service["volumes"] == ["teams_bridge_data:/data"]
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == "teams_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/teams-bridge",
+        "/teams-bridge",
+    ]
     assert "teams_bridge_data" in parsed["volumes"], (
         "the /data mount names teams_bridge_data, so the compose file must "
         "declare it as a top-level named volume or `compose up` errors"
     )
-    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
         "bridge state must not be a host bind mount — a named volume is what "
         "keeps it project-namespaced and portable across runtimes"
     )
@@ -6056,7 +5220,7 @@ def test_teams_bridge_credentials_render_without_a_default_fallback(var: str) ->
     value and the raw text are checked — a substring test for the name alone
     would pass on the very regression this guards.
     """
-    rendered = _render_teams_bridge_template()
+    rendered = _render_bridge_template(_TEAMS_BRIDGE)
     environment = yaml.safe_load(rendered)["services"]["teams-bridge"]["environment"]
 
     assert environment[var] == f"${{{var}}}", (
@@ -6079,7 +5243,7 @@ def test_teams_bridge_documents_the_one_bridge_per_queue_constraint() -> None:
     comment the only place the constraint is stated at deploy time; this pins it
     so an edit cannot quietly drop it.
     """
-    rendered = _render_teams_bridge_template()
+    rendered = _render_bridge_template(_TEAMS_BRIDGE)
     queue_line = next(
         i for i, line in enumerate(rendered.splitlines()) if "TEAMS_SERVICEBUS_QUEUE:" in line
     )
@@ -6107,7 +5271,7 @@ def test_teams_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
     unset is the normal case. ``POLL_BUDGET`` is the deliberate exception — its
     default is derived from the worker cap (see the poll-budget test below).
     """
-    environment = _teams_bridge_service()["environment"]
+    environment = _bridge_service(_TEAMS_BRIDGE)["environment"]
     for var in (
         "POLL_INTERVAL",
         "DRAIN_INTERVAL",
@@ -6144,7 +5308,7 @@ def test_teams_bridge_empty_cloud_resolves_to_the_commercial_default() -> None:
     """
     from osprey.bridges.teams.config import DEFAULT_CLOUD, TeamsBridgeConfig
 
-    environment = _teams_bridge_service()["environment"]
+    environment = _bridge_service(_TEAMS_BRIDGE)["environment"]
 
     assert "${TEAMS_CLOUD:-}" == environment["TEAMS_CLOUD"], (
         "TEAMS_CLOUD must pass through plainly — a rendered placeholder would "
@@ -6160,31 +5324,11 @@ def test_teams_bridge_empty_cloud_resolves_to_the_commercial_default() -> None:
         TeamsBridgeConfig.from_env(typo)
 
 
-@pytest.mark.parametrize("env_present", [True, False])
-def test_teams_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) -> None:
-    """The bridge gets named variables only — never the whole project .env.
-
-    The project .env holds the provider keys the dispatch worker needs
-    (``CBORG_API_KEY``, ``OPENAI_API_KEY``, ...). The bridge never calls an LLM
-    and it is the one component holding the bot's client secret and a Service Bus
-    connection string, so handing it the file would widen its blast radius for
-    nothing: every value it actually reads arrives by interpolation into
-    ``environment:``, resolved from that same .env because ``osprey up`` runs
-    compose with ``--env-file .env`` (and ``environment:`` outranks ``env_file:``
-    in compose regardless). Asserted for a .env both present and absent, so
-    reintroducing the mount behind an ``osprey_env_present`` gate does not slip
-    through.
-    """
-    rendered = _render_teams_bridge_template(env_present=env_present)
-    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered
-    assert "env_file" not in yaml.safe_load(rendered)["services"]["teams-bridge"]
-
-
 def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclass's defaults.
 
-    These two are the only environment vars whose ``:-`` fallback restates a code
-    default instead of passing through empty: their reader is a plain
+    ``DEDUP_PATH`` is the only environment var whose ``:-`` fallback restates a
+    code default instead of passing through empty: its reader is a plain
     ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
     the empty-fallback trick the neutral tunables use would point the stores at
     the empty path. That duplication is the thing this test exists to bind — the
@@ -6197,10 +5341,10 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     core_defaults = CoreConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
     }
 
-    environment = _teams_bridge_service()["environment"]
+    environment = _bridge_service(_TEAMS_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -6228,13 +5372,12 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config object under the names it reads — an
-    # empty value would NOT, which is why these two are not passed through with
+    # empty value would NOT, which is why it is not passed through with
     # an empty fallback.
     from osprey.bridges.teams.config import TeamsBridgeConfig
 
     cfg = TeamsBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
 
 
 def test_teams_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
@@ -6245,10 +5388,11 @@ def test_teams_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
     A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
     compose fails hard on a ``depends_on`` naming an undefined service.
     """
-    co_deployed = _teams_bridge_service()
+    co_deployed = _bridge_service(_TEAMS_BRIDGE)
     assert co_deployed["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
 
-    external = _teams_bridge_service(
+    external = _bridge_service(
+        _TEAMS_BRIDGE,
         dispatcher_deployed=False,
         worker_deployed=False,
         services={"teams_bridge": {"trigger": "t"}},
@@ -6256,171 +5400,6 @@ def test_teams_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
     assert "depends_on" not in external, (
         "a depends_on naming a service this compose document never defines is a "
         "hard compose error, so the block must be absent entirely"
-    )
-
-
-def test_teams_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None:
-    """In-network URLs use the SAME ports the dispatch templates serve on.
-
-    Derived from the sibling templates' own rendered output rather than restated
-    here, so a port change in the dispatch pair cannot leave the bridge calling a
-    closed port. Service keys (not container names) are the DNS names on
-    osprey-network, and the worker is addressed directly because the bridge polls
-    run status and fetches artifacts from it, not through the dispatcher.
-    """
-    for services, expected_dispatcher_port, expected_worker_port in (
-        # Config-block defaults, and explicitly non-default ports.
-        (
-            {"teams_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            default_port("dispatcher"),
-            default_port("worker", 1),
-        ),
-        (
-            {
-                "teams_bridge": {"trigger": "t"},
-                "event_dispatcher": {"port": 8031},
-                "dispatch_worker": {"worker_port_base": 9201},
-            },
-            8031,
-            9201,
-        ),
-    ):
-        dispatcher = yaml.safe_load(
-            _render_service_template(
-                "event_dispatcher/docker-compose.yml.j2", "p", services=services
-            )
-        )["services"]["event-dispatcher"]
-        assert dispatcher["environment"]["FASTMCP_PORT"] == str(expected_dispatcher_port), (
-            "test premise: the dispatcher template must serve the port this case expects"
-        )
-
-        environment = _teams_bridge_service(services=services)["environment"]
-        assert (
-            environment["DISPATCHER_URL"] == f"http://event-dispatcher:{expected_dispatcher_port}"
-        )
-        assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{expected_worker_port}"
-
-
-def test_teams_bridge_dispatch_urls_pass_through_when_external() -> None:
-    """Without the dispatch pair co-deployed, both URLs are REQUIRED host vars.
-
-    An external dispatcher/worker is reached by whatever address the deploy env
-    supplies; hardcoding the in-network name would make the bridge call a
-    nonexistent host, and the code's localhost default is wrong from inside a
-    container either way. They render in compose's required form
-    (``${VAR:?message}``) rather than as bare references, because compose
-    resolves an unset bare reference to the EMPTY STRING and not to an absent
-    key: ``CoreConfig.from_env``'s localhost default would never fire, and
-    ``require_startup`` does not cover these two. The stack would boot and then
-    POST every dispatch to a protocol-less URL — quietly, because the receive
-    loop settles the activity whether or not the dispatch succeeded, so nothing
-    redelivers and nothing crashes. ``:?`` makes it a startup abort instead,
-    before the container reaches ``require_boot``'s own check of the same pair.
-    """
-    environment = _teams_bridge_service(
-        dispatcher_deployed=False,
-        worker_deployed=False,
-        services={"teams_bridge": {"trigger": "t"}},
-    )["environment"]
-    for var in ("DISPATCHER_URL", "WORKER_URL"):
-        assert str(environment[var]).startswith(f"${{{var}:?"), (
-            f"{var} must render as compose's required form ${{{var}:?...}} when the "
-            f"dispatch pair is external (got {environment[var]!r}) — a bare reference "
-            "resolves to an empty string and boots a bridge that can never dispatch"
-        )
-
-    # Nothing on the host: the deploy must be REFUSED, not resolved to "".
-    with pytest.raises(_ComposeRequiredVarUnset, match="DISPATCHER_URL"):
-        _resolve_compose_env(environment)
-
-    # Supplied, they pass through verbatim — the point of the passthrough.
-    resolved = _resolve_compose_env(
-        environment,
-        host_env={
-            "DISPATCHER_URL": "https://dispatch.example.org",
-            "WORKER_URL": "https://worker.example.org",
-        },
-    )
-    assert resolved["DISPATCHER_URL"] == "https://dispatch.example.org"
-    assert resolved["WORKER_URL"] == "https://worker.example.org"
-
-    # The CO-DEPLOYED branch must NOT carry the guard: it renders the in-network
-    # address itself and needs no host variable, so a `:?` there would abort a
-    # perfectly valid single-stack deploy.
-    co_deployed = _teams_bridge_service()["environment"]
-    for var in ("DISPATCHER_URL", "WORKER_URL"):
-        assert ":?" not in str(co_deployed[var]), (
-            f"{var} is rendered in-network when the dispatch pair is co-deployed; "
-            "requiring a host variable there would break the common deploy"
-        )
-
-
-def test_teams_bridge_trigger_comes_from_the_profile_and_has_no_template_default() -> None:
-    """``DISPATCH_TRIGGER`` is rendered from the profile block, with no fallback here.
-
-    ``TeamsBridgeProfileConfig.trigger`` is the ONLY place the ``teams-question``
-    default lives (the runtime's ``from_env`` applies none either), so a
-    template-side default would be a second definition that fires some other
-    facility's trigger when the config key goes missing.
-    """
-    from osprey.cli.build_profile import TeamsBridgeProfileConfig
-
-    profile_default = TeamsBridgeProfileConfig().trigger
-    rendered = _render_teams_bridge_template(
-        services={
-            "teams_bridge": {"trigger": profile_default},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    environment = yaml.safe_load(rendered)["services"]["teams-bridge"]["environment"]
-    assert environment["DISPATCH_TRIGGER"] == profile_default
-
-    # A facility-chosen trigger must render verbatim, and the profile default
-    # must not survive as a template-side fallback.
-    custom = _render_teams_bridge_template(
-        services={
-            "teams_bridge": {"trigger": "als-teams-question"},
-            "event_dispatcher": {},
-            "dispatch_worker": {},
-        }
-    )
-    custom_env = yaml.safe_load(custom)["services"]["teams-bridge"]["environment"]
-    assert custom_env["DISPATCH_TRIGGER"] == "als-teams-question"
-
-    # A config that lost the key must render an EMPTY trigger, so the bridge
-    # aborts at boot naming DISPATCH_TRIGGER. A template-side default would
-    # instead fire whatever name the framework happened to pick.
-    keyless = _render_teams_bridge_template(
-        services={"teams_bridge": {}, "event_dispatcher": {}, "dispatch_worker": {}}
-    )
-    keyless_env = yaml.safe_load(keyless)["services"]["teams-bridge"]["environment"]
-    assert keyless_env["DISPATCH_TRIGGER"] == "", (
-        f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
-        "the profile block is the single source of the trigger name"
-    )
-
-
-def test_teams_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
-    """The rendered env, resolved with nothing set on the host, refuses to boot.
-
-    Feeds the template's own output through the real ``TeamsBridgeConfig
-    .from_env`` — so a renamed variable shows up as dead config here rather than
-    as a bridge that silently ignores it — and asserts ``require_startup`` names
-    exactly the fail-closed variables. The trigger is absent from that list
-    precisely because the template renders it as a literal.
-    """
-    from osprey.bridges.teams.config import TeamsBridgeConfig
-
-    environment = _teams_bridge_service()["environment"]
-    cfg = TeamsBridgeConfig.from_env(_resolve_compose_env(environment))
-
-    with pytest.raises(ValueError) as excinfo:
-        cfg.require_startup()
-    missing = {name.strip() for name in str(excinfo.value).split(":", 1)[1].split(",")}
-    assert missing == set(_TEAMS_FAIL_CLOSED_VARS), (
-        "with nothing set on the host the bridge must abort naming exactly the "
-        f"bare-reference variables; got {sorted(missing)}"
     )
 
 
@@ -6436,7 +5415,7 @@ def test_teams_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     """
     from osprey.bridges.teams.config import TeamsBridgeConfig, require_boot
 
-    environment = _teams_bridge_service()["environment"]
+    environment = _bridge_service(_TEAMS_BRIDGE)["environment"]
     resolved = _resolve_compose_env(
         environment,
         host_env={
@@ -6462,99 +5441,8 @@ def test_teams_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.trigger == "teams-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # Both state files must land on the mounted volume, not the image layer.
-    for path in (cfg.core.dedup_path, cfg.core.history_path):
-        assert path.startswith("/data/"), path
-
-
-@pytest.mark.parametrize("worker_timeout", [None, 600])
-def test_teams_bridge_poll_budget_default_outlasts_the_worker_cap(
-    worker_timeout: int | None,
-) -> None:
-    """The bridge's poll budget is derived from the worker's cap, not restated.
-
-    ``CoreConfig.__post_init__`` rejects ``poll_budget < worker_timeout``, which
-    would crash-loop the bridge, and both halves read the cap from the same
-    ``services.dispatch_worker.timeout_sec`` key — so raising the cap in one
-    place must raise the budget here too. Constructing the config from the
-    resolved defaults is what proves the relation holds rather than asserting on
-    the numbers alone.
-    """
-    from osprey.bridges.core import CoreConfig
-
-    worker_config = {} if worker_timeout is None else {"timeout_sec": worker_timeout}
-    environment = _teams_bridge_service(
-        services={
-            "teams_bridge": {"trigger": "t"},
-            "event_dispatcher": {},
-            "dispatch_worker": worker_config,
-        }
-    )["environment"]
-
-    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
-    expected_timeout = float(worker_timeout if worker_timeout is not None else 300)
-    assert cfg.worker_timeout == expected_timeout
-    assert cfg.poll_budget == expected_timeout + 30, (
-        "the poll budget default must exceed the worker cap it waits out"
-    )
-
-
-def test_teams_bridge_config_lookups_survive_explicit_null_values() -> None:
-    """A config key present but EMPTY must still render the documented default.
-
-    Jinja's ``default`` filter substitutes only on *Undefined*, so a key written
-    as ``timeout_sec:`` with no value — which YAML loads as ``None`` — sails past
-    a plain ``| default(300)`` and renders the literal string "None".
-    ``CoreConfig.from_env`` then dies on ``float("None")`` at boot, and
-    ``None | int`` silently degrades ``POLL_BUDGET`` to 0. The boolean form
-    (``default(300, true)``) substitutes on any falsy value, which is what keeps
-    a half-written config booting on the defaults instead of crash-looping.
-    """
-    from osprey.bridges.core import CoreConfig
-
-    environment = _teams_bridge_service(
-        services={
-            "teams_bridge": {"trigger": "t"},
-            "event_dispatcher": {"port": None},
-            "dispatch_worker": {"timeout_sec": None, "worker_port_base": None},
-        }
-    )["environment"]
-
-    assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == f"http://event-dispatcher:{default_port('dispatcher')}"
-    assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-
-    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
-    assert cfg.worker_timeout == 300.0
-    assert cfg.poll_budget == 330.0
-
-
-def test_teams_bridge_container_name_is_project_namespaced() -> None:
-    """Two projects render distinct bridge container names.
-
-    ``container_name`` is a HOST-GLOBAL docker identifier, so a static name stops
-    two OSPREY projects from running a bridge on one host. Nothing reaches this
-    service in-network (it only makes outbound calls), so no network alias is
-    needed alongside the rename.
-    """
-    name_a = _teams_bridge_service(project_name="proj-a")["container_name"]
-    name_b = _teams_bridge_service(project_name="proj-b")["container_name"]
-    assert (name_a, name_b) == ("proj-a-teams-bridge", "proj-b-teams-bridge")
-
-
-def test_teams_bridge_publishes_no_ports_and_declares_no_healthcheck() -> None:
-    """The bridge is a queue consumer: no listening socket, so no ports and no probe.
-
-    Teams' own webhook terminates at the Azure Functions relay, never here, so a
-    published port would be dead surface — and a healthcheck against a service
-    that opens no socket would mark a healthy bridge unhealthy, which
-    ``depends_on: service_healthy`` elsewhere would then act on.
-    """
-    service = _teams_bridge_service()
-    assert "ports" not in service
-    assert "healthcheck" not in service
-    assert service["networks"] == ["osprey-network"]
-    assert service["restart"] == "unless-stopped"
+    # The state file must land on the mounted volume, not the image layer.
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
 def test_teams_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
@@ -6571,7 +5459,8 @@ def test_teams_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     """
     _write_config(tmp_path, deployed_services=["teams_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "teams_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -6643,6 +5532,397 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
     )
     assert 'pip install "${whl}[teams]"' in dockerfile
     assert '"${whl}"' not in dockerfile
+
+
+# ---------------------------------------------------------------------------
+# Contracts every chat bridge's template honours
+# ---------------------------------------------------------------------------
+
+_CHAT_BRIDGES = [
+    pytest.param(_NEXTCLOUD_BRIDGE, id="nextcloud"),
+    pytest.param(_GCHAT_BRIDGE, id="gchat"),
+    pytest.param(_TEAMS_BRIDGE, id="teams"),
+]
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_image_follows_env_config_default_chain(bridge: _ChatBridge) -> None:
+    """image = ${OSPREY_<BRIDGE>_BRIDGE_IMAGE:-<project>-<bridge>-bridge:local}.
+
+    Same three-level chain as every sibling service (env override wins, then a
+    config-declared image, then the project-namespaced ``:local`` tag that
+    ``osprey up`` builds). The local tag must carry the project name: it is a
+    host-global docker tag, so a static default would make two projects fight
+    over one image. A config-declared image also renders no build, so compose
+    pulls and runs it as named.
+    """
+    image_var = f"OSPREY_{bridge.env_prefix}_BRIDGE_IMAGE"
+    assert _bridge_service(bridge, project_name="proj-a")["image"] == (
+        f"${{{image_var}:-proj-a-{bridge.service_key}:local}}"
+    )
+    assert _bridge_service(bridge, project_name="proj-b")["image"] == (
+        f"${{{image_var}:-proj-b-{bridge.service_key}:local}}"
+    )
+
+    # A config-declared image displaces the local tag but stays under the env
+    # override, so an operator can still repoint a published image at deploy
+    # time without a rebuild.
+    published = f"ghcr.io/als-apg/osprey-{bridge.service_key}:1.2.3"
+    pinned = _bridge_service(bridge, services=_bridge_services(bridge, image=published))
+    assert pinned["image"] == f"${{{image_var}:-{published}}}"
+    assert "build" not in pinned
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_build_context_is_project_dir_relative(bridge: _ChatBridge) -> None:
+    """The image builds from ./build/services/<bridge> (project-dir relative).
+
+    With multiple ``-f`` compose files every relative path resolves against the
+    FIRST file's dir (build/services/), not this file's own subdir, so a
+    file-relative context ('.', '../<bridge>') breaks a fresh ``osprey up``
+    with "unable to prepare context: path ... not found".
+    """
+    build = _bridge_service(bridge)["build"]
+    assert build["context"] == f"./build/services/{bridge.config_key}"
+    assert build["dockerfile"] == "Dockerfile"
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_command_runs_the_bridge_module(bridge: _ChatBridge) -> None:
+    """The service runs the bridge entrypoint as an exec-form ``python -m``.
+
+    Exec form (a YAML list) and not a shell string: the container's PID 1 must be
+    python itself so SIGTERM from ``osprey down`` reaches the bridge's shutdown
+    path instead of a shell that never forwards it. That path is the Nextcloud
+    poll loop's, the Google Chat subscriber's (which cancels the streaming-pull
+    future), or the Teams receive loop's — which for a peek-lock consumer is the
+    difference between settling the activity in hand and leaving it to
+    redeliver.
+    """
+    assert _bridge_service(bridge)["command"] == ["python", "-m", bridge.module]
+
+
+@pytest.mark.parametrize("env_present", [True, False])
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_never_mounts_the_project_env_in_bulk(
+    bridge: _ChatBridge, env_present: bool
+) -> None:
+    """The bridge gets named variables only — never the whole project .env.
+
+    The project .env holds the provider keys the dispatch worker needs
+    (``CBORG_API_KEY``, ``OPENAI_API_KEY``, ...). A bridge never calls an LLM,
+    and each is the one component facing an outside service — the external
+    Nextcloud instance, Google service-account credentials, the Teams bot's
+    client secret and a Service Bus connection string — so handing it the file
+    would widen its blast radius for nothing: every value it actually reads
+    arrives by interpolation into ``environment:``, resolved from that same .env
+    because ``osprey up`` runs compose with ``--env-file .env`` (and
+    ``environment:`` outranks ``env_file:`` in compose regardless). Asserted for
+    a .env both present and absent, so reintroducing the mount behind an
+    ``osprey_env_present`` gate does not slip through.
+    """
+    rendered = _render_bridge_template(bridge, env_present=env_present)
+    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered
+    assert "env_file" not in yaml.safe_load(rendered)["services"][bridge.service_key]
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_dispatch_urls_track_the_dispatch_templates_ports(bridge: _ChatBridge) -> None:
+    """In-network URLs use the SAME ports the dispatch templates serve on.
+
+    Derived from the sibling templates' own rendered output rather than restated
+    here, so a port change in the dispatch pair cannot leave the bridge calling a
+    closed port. Service keys (not container names) are the DNS names on
+    osprey-network, and the worker is addressed directly because the bridge polls
+    run status and fetches artifacts from it, not through the dispatcher.
+    """
+    for services, expected_dispatcher_port, expected_worker_port in (
+        # Config-block defaults, and explicitly non-default ports.
+        (
+            {bridge.config_key: {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
+            default_port("dispatcher"),
+            default_port("worker", 1),
+        ),
+        (
+            {
+                bridge.config_key: {"trigger": "t"},
+                "event_dispatcher": {"port": 8031},
+                "dispatch_worker": {"worker_port_base": 9201},
+            },
+            8031,
+            9201,
+        ),
+    ):
+        dispatcher = yaml.safe_load(
+            _render_service_template(
+                "event_dispatcher/docker-compose.yml.j2", "p", services=services
+            )
+        )["services"]["event-dispatcher"]
+        assert dispatcher["environment"]["FASTMCP_PORT"] == str(expected_dispatcher_port), (
+            "test premise: the dispatcher template must serve the port this case expects"
+        )
+
+        environment = _bridge_service(bridge, services=services)["environment"]
+        assert (
+            environment["DISPATCHER_URL"] == f"http://event-dispatcher:{expected_dispatcher_port}"
+        )
+        assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{expected_worker_port}"
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_dispatch_urls_pass_through_when_external(bridge: _ChatBridge) -> None:
+    """Without the dispatch pair co-deployed, both URLs are REQUIRED host vars.
+
+    An external dispatcher/worker is reached by whatever address the deploy env
+    supplies; hardcoding the in-network name would make the bridge call a
+    nonexistent host, and the code's localhost default is wrong from inside a
+    container either way. They render in compose's required form
+    (``${VAR:?message}``) rather than as bare references, because compose
+    resolves an unset bare reference to the EMPTY STRING and not to an absent
+    key: ``CoreConfig.from_env``'s localhost default would never fire, and
+    ``require_startup`` does not cover these two, so the stack would boot and
+    then POST every dispatch to a protocol-less URL. For the Nextcloud and
+    Google Chat bridges a raising ``handle_event`` leaves the poll offset
+    unadvanced or the Pub/Sub message unacknowledged, which turns one missing
+    variable into the same batch or event redelivered forever; the Teams receive
+    loop settles the activity whether or not the dispatch succeeded, so there it
+    fails quietly instead. ``:?`` makes it a startup abort in every case.
+    """
+    environment = _bridge_service(
+        bridge,
+        dispatcher_deployed=False,
+        worker_deployed=False,
+        services={bridge.config_key: {"trigger": "t"}},
+    )["environment"]
+    for var in ("DISPATCHER_URL", "WORKER_URL"):
+        assert str(environment[var]).startswith(f"${{{var}:?"), (
+            f"{var} must render as compose's required form ${{{var}:?...}} when the "
+            f"dispatch pair is external (got {environment[var]!r}) — a bare reference "
+            "resolves to an empty string and boots a bridge that can never dispatch"
+        )
+
+    # Nothing on the host: the deploy must be REFUSED, not resolved to "".
+    with pytest.raises(_ComposeRequiredVarUnset, match="DISPATCHER_URL"):
+        _resolve_compose_env(environment)
+
+    # Supplied, they pass through verbatim — the point of the passthrough.
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "DISPATCHER_URL": "https://dispatch.example.org",
+            "WORKER_URL": "https://worker.example.org",
+        },
+    )
+    assert resolved["DISPATCHER_URL"] == "https://dispatch.example.org"
+    assert resolved["WORKER_URL"] == "https://worker.example.org"
+
+    # The CO-DEPLOYED branch must NOT carry the guard: it renders the in-network
+    # address itself and needs no host variable, so a `:?` there would abort a
+    # perfectly valid single-stack deploy.
+    co_deployed = _bridge_service(bridge)["environment"]
+    for var in ("DISPATCHER_URL", "WORKER_URL"):
+        assert ":?" not in str(co_deployed[var]), (
+            f"{var} is rendered in-network when the dispatch pair is co-deployed; "
+            "requiring a host variable there would break the common deploy"
+        )
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_trigger_comes_from_the_profile_and_has_no_template_default(
+    bridge: _ChatBridge,
+) -> None:
+    """``DISPATCH_TRIGGER`` is rendered from the profile block, with no fallback here.
+
+    The profile block's ``trigger`` is the ONLY place the ``<bridge>-question``
+    default lives (the runtime's ``from_env`` applies none either), so a
+    template-side default would be a second definition that fires some other
+    facility's trigger when the config key goes missing.
+    """
+    profile_default = bridge.profile_class()().trigger
+    rendered = _render_bridge_template(
+        bridge,
+        services={
+            bridge.config_key: {"trigger": profile_default},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        },
+    )
+    environment = yaml.safe_load(rendered)["services"][bridge.service_key]["environment"]
+    assert environment["DISPATCH_TRIGGER"] == profile_default
+
+    # A facility-chosen trigger must render verbatim, and the profile default
+    # must not survive as a template-side fallback.
+    custom = _render_bridge_template(
+        bridge,
+        services={
+            bridge.config_key: {"trigger": "als-facility-question"},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        },
+    )
+    custom_env = yaml.safe_load(custom)["services"][bridge.service_key]["environment"]
+    assert custom_env["DISPATCH_TRIGGER"] == "als-facility-question"
+
+    # A config that lost the key must render an EMPTY trigger, so the bridge
+    # aborts at boot naming DISPATCH_TRIGGER. A template-side default would
+    # instead fire whatever name the framework happened to pick.
+    keyless = _render_bridge_template(
+        bridge,
+        services={bridge.config_key: {}, "event_dispatcher": {}, "dispatch_worker": {}},
+    )
+    keyless_env = yaml.safe_load(keyless)["services"][bridge.service_key]["environment"]
+    assert keyless_env["DISPATCH_TRIGGER"] == "", (
+        f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
+        "the profile block is the single source of the trigger name"
+    )
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_mentions_render_on_by_default(bridge: _ChatBridge) -> None:
+    """A block without the key (a hand-edited or older config) renders mentions on."""
+    assert _bridge_service(bridge)["environment"][f"{bridge.env_prefix}_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_mentions_render_off_only_for_false(
+    bridge: _ChatBridge, value: object, rendered: str
+) -> None:
+    services = _bridge_services(bridge, mentions=value)
+    environment = _bridge_service(bridge, services=services)["environment"]
+    assert environment[f"{bridge.env_prefix}_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_rendered_mentions_reach_the_config(bridge: _ChatBridge, value: bool) -> None:
+    services = _bridge_services(bridge, mentions=value)
+    environment = _bridge_service(bridge, services=services)["environment"]
+    config = bridge.config_class().from_env(_resolve_compose_env(environment))
+    assert config.mentions is value
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_rendered_env_parses_and_fails_closed_without_secrets(
+    bridge: _ChatBridge,
+) -> None:
+    """The rendered env, resolved with nothing set on the host, refuses to boot.
+
+    Feeds the template's own output through the bridge's real config
+    ``from_env`` — so a renamed variable shows up as dead config here rather
+    than as a bridge that silently ignores it — and asserts ``require_startup``
+    names exactly the fail-closed variables. The trigger is absent from that list
+    precisely because the template renders it as a literal.
+    """
+    environment = _bridge_service(bridge)["environment"]
+    cfg = bridge.config_class().from_env(_resolve_compose_env(environment))
+
+    with pytest.raises(ValueError) as excinfo:
+        cfg.require_startup()
+    missing = {name.strip() for name in str(excinfo.value).split(":", 1)[1].split(",")}
+    assert missing == set(bridge.fail_closed_vars), (
+        "with nothing set on the host the bridge must abort naming exactly the "
+        f"bare-reference variables; got {sorted(missing)}"
+    )
+
+
+@pytest.mark.parametrize("worker_timeout", [None, 600])
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_poll_budget_default_outlasts_the_worker_cap(
+    bridge: _ChatBridge,
+    worker_timeout: int | None,
+) -> None:
+    """The bridge's poll budget is derived from the worker's cap, not restated.
+
+    ``CoreConfig.__post_init__`` rejects ``poll_budget < worker_timeout``, which
+    would crash-loop the bridge, and both halves read the cap from the same
+    ``services.dispatch_worker.timeout_sec`` key — so raising the cap in one
+    place must raise the budget here too. Constructing the config from the
+    resolved defaults is what proves the relation holds rather than asserting on
+    the numbers alone.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    worker_config = {} if worker_timeout is None else {"timeout_sec": worker_timeout}
+    environment = _bridge_service(
+        bridge,
+        services={
+            bridge.config_key: {"trigger": "t"},
+            "event_dispatcher": {},
+            "dispatch_worker": worker_config,
+        },
+    )["environment"]
+
+    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
+    expected_timeout = float(worker_timeout if worker_timeout is not None else 300)
+    assert cfg.worker_timeout == expected_timeout
+    assert cfg.poll_budget == expected_timeout + 30, (
+        "the poll budget default must exceed the worker cap it waits out"
+    )
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_config_lookups_survive_explicit_null_values(bridge: _ChatBridge) -> None:
+    """A config key present but EMPTY must still render the documented default.
+
+    Jinja's ``default`` filter substitutes only on *Undefined*, so a key written
+    as ``timeout_sec:`` with no value — which YAML loads as ``None`` — sails past
+    a plain ``| default(300)`` and renders the literal string "None".
+    ``CoreConfig.from_env`` then dies on ``float("None")`` at boot, and
+    ``None | int`` silently degrades ``POLL_BUDGET`` to 0. The boolean form
+    (``default(300, true)``) substitutes on any falsy value, which is what keeps
+    a half-written config booting on the defaults instead of crash-looping.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    environment = _bridge_service(
+        bridge,
+        services={
+            bridge.config_key: {"trigger": "t"},
+            "event_dispatcher": {"port": None},
+            "dispatch_worker": {"timeout_sec": None, "worker_port_base": None},
+        },
+    )["environment"]
+
+    assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
+    assert environment["DISPATCHER_URL"] == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{default_port('worker', 1)}"
+
+    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
+    assert cfg.worker_timeout == 300.0
+    assert cfg.poll_budget == 330.0
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_container_name_is_project_namespaced(bridge: _ChatBridge) -> None:
+    """Two projects render distinct bridge container names.
+
+    ``container_name`` is a HOST-GLOBAL docker identifier, so a static name stops
+    two OSPREY projects from running a bridge on one host. Nothing reaches this
+    service in-network (it only makes outbound calls), so no network alias is
+    needed alongside the rename.
+    """
+    name_a = _bridge_service(bridge, project_name="proj-a")["container_name"]
+    name_b = _bridge_service(bridge, project_name="proj-b")["container_name"]
+    assert (name_a, name_b) == (f"proj-a-{bridge.service_key}", f"proj-b-{bridge.service_key}")
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_publishes_no_ports_and_declares_no_healthcheck(bridge: _ChatBridge) -> None:
+    """A bridge opens no listening socket, so no ports and no probe.
+
+    The Nextcloud bridge polls; Google Chat reaches its bridge through Pub/Sub
+    and Teams' own webhook terminates at the Azure Functions relay, never over
+    an inbound request to the bridge. A published port would be dead surface,
+    and a healthcheck against a service that opens no socket would mark a
+    healthy bridge unhealthy — which ``depends_on: service_healthy`` elsewhere
+    would then act on.
+    """
+    service = _bridge_service(bridge)
+    assert "ports" not in service
+    assert "healthcheck" not in service
+    assert service["networks"] == ["osprey-network"]
+    assert service["restart"] == "unless-stopped"
 
 
 def test_find_existing_compose_files_answers_from_an_explicit_base(tmp_path, monkeypatch) -> None:
@@ -6764,26 +6044,9 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
 # would be the one that host mode fails to suppress.
 # ---------------------------------------------------------------------------
 
-#: (config key under `services:`, compose service key), for every chat bridge.
-_AXIS_BRIDGES = [
-    pytest.param("gchat_bridge", "gchat-bridge", id="gchat"),
-    pytest.param("nextcloud_bridge", "nextcloud-bridge", id="nextcloud"),
-    pytest.param("teams_bridge", "teams-bridge", id="teams"),
-]
-
-#: Config key -> the render helper for that bridge's packaged template. A
-#: lookup rather than a chain of conditionals so a bridge added to
-#: :data:`_AXIS_BRIDGES` without a renderer raises ``KeyError`` here instead of
-#: silently re-rendering another bridge's template under its name.
-_AXIS_BRIDGE_RENDERERS = {
-    "gchat_bridge": _render_gchat_bridge_template,
-    "nextcloud_bridge": _render_nextcloud_bridge_template,
-    "teams_bridge": _render_teams_bridge_template,
-}
-
 
 def _render_bridge_with_axis(
-    config_key: str, network: str | None = None, *, pair_network: str | None = None
+    bridge: _ChatBridge, network: str | None = None, *, pair_network: str | None = None
 ) -> str:
     """Render a bridge template with an explicit ``network:`` on one or both sides.
 
@@ -6791,22 +6054,21 @@ def _render_bridge_with_axis(
     dispatch pair's. ``None`` leaves the key off entirely, which is how a
     deployment that never heard of the axis renders.
     """
-    bridge: dict = {"trigger": "t"}
+    block: dict = {"trigger": "t"}
     if network is not None:
-        bridge["network"] = network
+        block["network"] = network
     pair: dict = {} if pair_network is None else {"network": pair_network}
     services = {
-        config_key: bridge,
+        bridge.config_key: block,
         "event_dispatcher": dict(pair),
         "dispatch_worker": dict(pair),
     }
-    return _AXIS_BRIDGE_RENDERERS[config_key](services=services)
+    return _render_bridge_template(bridge, services=services)
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_without_the_axis_renders_todays_network_blocks(
-    config_key: str,
-    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
+    bridge: _ChatBridge,
 ) -> None:
     """An undeclared axis reproduces the pre-macro bytes exactly.
 
@@ -6814,10 +6076,15 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     whitespace contract is that adopting it moves not one byte, and a parsed
     comparison would pass on a render that gained or lost a blank line.
     """
-    rendered = _render_bridge_with_axis(config_key)
+    rendered = _render_bridge_with_axis(bridge)
 
-    # Service-level membership, in place directly after the state volume.
-    assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
+    # Service-level membership, in place directly after the volumes: the
+    # state volume, then the bridge's own spool and state binds.
+    assert re.search(
+        r"_data:/data\n(?:      #.*\n)*(?:      - .*-bridge\n){2}"
+        r"    networks:\n      - osprey-network\n\nvolumes:\n",
+        rendered,
+    ), rendered
 
     # The file-level stanza still closes the file, still one blank line after
     # the volumes block, which ends at the bare volume name: a volume carries
@@ -6827,13 +6094,11 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     )
 
     # `bridge` is only the name of the behaviour the unset axis already had.
-    assert _render_bridge_with_axis(config_key, "bridge") == rendered
+    assert _render_bridge_with_axis(bridge, "bridge") == rendered
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_on_host_swaps_membership_and_drops_the_stanza(bridge: _ChatBridge) -> None:
     """`network: host` moves BOTH halves of the axis, never just one.
 
     A service on the host namespace that still declares a network leaves compose
@@ -6841,9 +6106,9 @@ def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
     service is a compose error. Neither is a template's to get half right, which
     is why both come from the same macro pair.
     """
-    rendered = _render_bridge_with_axis(config_key, "host")
+    rendered = _render_bridge_with_axis(bridge, "host")
     doc = yaml.safe_load(rendered)
-    svc = doc["services"][service_key]
+    svc = doc["services"][bridge.service_key]
 
     assert svc["network_mode"] == "host"
     assert "networks" not in svc, "host mode must not also join a network"
@@ -6856,10 +6121,8 @@ def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
     assert doc["volumes"], "the bridge's state volume must survive host mode"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(bridge: _ChatBridge) -> None:
     """A host-mode dispatch pair does not drag the bridge onto the host.
 
     The bridge reads `services.<bridge>.network` and nothing else. A mixed
@@ -6867,17 +6130,17 @@ def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(
     whether it is a deployable one, and it can only do that if the template
     reports the topology honestly instead of quietly matching the pair.
     """
-    rendered = _render_bridge_with_axis(config_key, pair_network="host")
-    svc = yaml.safe_load(rendered)["services"][service_key]
+    rendered = _render_bridge_with_axis(bridge, pair_network="host")
+    svc = yaml.safe_load(rendered)["services"][bridge.service_key]
 
     assert svc["networks"] == ["osprey-network"]
     assert "network_mode" not in svc
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_publishes_no_ports_in_any_network_mode(
-    config_key: str, service_key: str, network: str | None
+    bridge: _ChatBridge, network: str | None
 ) -> None:
     """Neither bridge opens a listening socket, so neither publishes a port.
 
@@ -6886,7 +6149,7 @@ def test_bridge_publishes_no_ports_in_any_network_mode(
     others. A future port belongs in the macro's `ports()` call, which suppresses
     it under host — never in a hand-written block that would not be.
     """
-    svc = yaml.safe_load(_render_bridge_with_axis(config_key, network))["services"][service_key]
+    svc = yaml.safe_load(_render_bridge_with_axis(bridge, network))["services"][bridge.service_key]
 
     assert "ports" not in svc
 
@@ -6920,7 +6183,7 @@ _BRIDGE_COMPOSE_URL_LINES = (
 
 
 def _render_bridge_pair_urls(
-    config_key: str,
+    bridge: _ChatBridge,
     *,
     network: str | None = None,
     pair_network: str | None = None,
@@ -6936,34 +6199,34 @@ def _render_bridge_pair_urls(
     addresses are built from. ``pair_deployed=False`` drops both halves from
     ``deployed_services``, the externally-hosted-pair case.
     """
-    bridge: dict = {"trigger": "t"}
+    block: dict = {"trigger": "t"}
     if network is not None:
-        bridge["network"] = network
+        block["network"] = network
     pair: dict = {} if pair_network is None else {"network": pair_network}
     services = {
-        config_key: bridge,
+        bridge.config_key: block,
         "event_dispatcher": {**pair, **(dispatcher or {})},
         "dispatch_worker": {**pair, **(worker or {})},
     }
-    return _AXIS_BRIDGE_RENDERERS[config_key](
+    return _render_bridge_template(
+        bridge,
         services=services,
         dispatcher_deployed=pair_deployed,
         worker_deployed=pair_deployed,
     )
 
 
-def _bridge_pair_urls(config_key: str, service_key: str, **kwargs: object) -> tuple[str, str]:
+def _bridge_pair_urls(bridge: _ChatBridge, **kwargs: object) -> tuple[str, str]:
     """Return the rendered ``(DISPATCHER_URL, WORKER_URL)`` pair."""
-    rendered = _render_bridge_pair_urls(config_key, **kwargs)  # type: ignore[arg-type]
-    env = yaml.safe_load(rendered)["services"][service_key]["environment"]
+    rendered = _render_bridge_pair_urls(bridge, **kwargs)  # type: ignore[arg-type]
+    env = yaml.safe_load(rendered)["services"][bridge.service_key]["environment"]
     return env["DISPATCHER_URL"], env["WORKER_URL"]
 
 
 @pytest.mark.parametrize("network", [None, "bridge"], ids=["unset", "bridge"])
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
-    config_key: str,
-    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
+    bridge: _ChatBridge,
     network: str | None,
 ) -> None:
     """A network-joined bridge keeps the service-key addresses, byte for byte.
@@ -6972,40 +6235,35 @@ def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
     render that every existing deployment already runs, and the host-mode
     branch beside them must not shift so much as their indentation.
     """
-    rendered = _render_bridge_pair_urls(config_key, network=network)
+    rendered = _render_bridge_pair_urls(bridge, network=network)
 
     for line in _BRIDGE_COMPOSE_URL_LINES:
         assert line in rendered, f"missing {line.strip()!r}"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_on_host_addresses_the_pair_over_loopback(config_key: str, service_key: str) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_on_host_addresses_the_pair_over_loopback(bridge: _ChatBridge) -> None:
     """On the host namespace both addresses become the host's own.
 
     The compose service keys are not resolvable names there, and the failure
     they cause is silent: the bridge boots, reports healthy, and fails every
     dispatch POST and every status poll for as long as it runs.
     """
-    dispatcher_url, worker_url = _bridge_pair_urls(
-        config_key, service_key, network="host", pair_network="host"
-    )
+    dispatcher_url, worker_url = _bridge_pair_urls(bridge, network="host", pair_network="host")
 
     assert dispatcher_url == f"http://localhost:{default_port('dispatcher')}"
     assert worker_url == f"http://localhost:{default_port('worker', 1)}"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_host_addresses_follow_the_pairs_configured_ports(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_host_addresses_follow_the_pairs_configured_ports(bridge: _ChatBridge) -> None:
     """Loopback is the host part; the ports stay the pair's own.
 
     A facility that moves either half's port moves the bridge's address for it
     — the alternative being a bridge that dials the default forever.
     """
     dispatcher_url, worker_url = _bridge_pair_urls(
-        config_key,
-        service_key,
+        bridge,
         network="host",
         pair_network="host",
         dispatcher={"port": 8123},
@@ -7016,10 +6274,8 @@ def test_bridge_host_addresses_follow_the_pairs_configured_ports(
     assert worker_url == "http://localhost:9500"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(bridge: _ChatBridge) -> None:
     """The worker port is derived from the walk, not restated as the base.
 
     Workers share one port space on the host namespace, so worker `i` listens
@@ -7029,8 +6285,7 @@ def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
     that and silently fail the day routing reaches worker 2.
     """
     _, worker_url = _bridge_pair_urls(
-        config_key,
-        service_key,
+        bridge,
         network="host",
         pair_network="host",
         worker={"worker_port_base": 9500, "worker_port_stride": 10},
@@ -7039,10 +6294,8 @@ def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
     assert worker_url == "http://localhost:9500"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_addresses_follow_its_own_axis_not_the_pairs(bridge: _ChatBridge) -> None:
     """A host-mode pair does not rewrite a network-joined bridge's addresses.
 
     The bridge is IN the compose network there, so the service keys are exactly
@@ -7050,16 +6303,16 @@ def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
     topology is the build's pair-parity check to reject, which it can only do
     if the render reports the topology honestly instead of quietly matching.
     """
-    dispatcher_url, worker_url = _bridge_pair_urls(config_key, service_key, pair_network="host")
+    dispatcher_url, worker_url = _bridge_pair_urls(bridge, pair_network="host")
 
     assert dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
-    config_key: str, service_key: str, network: str | None
+    bridge: _ChatBridge, network: str | None
 ) -> None:
     """Host mode addresses a CO-DEPLOYED pair, never an absent one.
 
@@ -7068,9 +6321,7 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
     boot by name — the alternative being a bridge that dials its own loopback
     and answers no one.
     """
-    dispatcher_url, worker_url = _bridge_pair_urls(
-        config_key, service_key, network=network, pair_deployed=False
-    )
+    dispatcher_url, worker_url = _bridge_pair_urls(bridge, network=network, pair_deployed=False)
 
     assert dispatcher_url.startswith("${DISPATCHER_URL:?")
     assert worker_url.startswith("${WORKER_URL:?")
@@ -8594,6 +7845,11 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_staged_device_set(
     (repo / "services" / "docker-compose.yml.j2").write_text(
         "networks:\n  osprey-network:\n", encoding="utf-8"
     )
+    # So does the always-rendered agent record.
+    (repo / "services" / "agent_record").mkdir()
+    (repo / "services" / "agent_record" / "docker-compose.yml.j2").write_text(
+        "networks:\n  osprey-network:\n", encoding="utf-8"
+    )
     _write_view(repo)
     config_path = repo / "config.yml"
     yaml_writer = YAML()
@@ -10013,8 +9269,8 @@ def test_dispatch_worker_mounts_the_staged_control_identity_directory_read_only(
 # ---------------------------------------------------------------------------
 
 
-def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
-    """A deployment running the store and gateway, its web terminals signing in by *auth_method*."""
+def _write_signed_in_config(tmp_path: Path, auth_method: str) -> Path:
+    """A deployment whose web terminals sign in by *auth_method*."""
     config_path = tmp_path / "config.yml"
     with config_path.open("w", encoding="utf-8") as handle:
         YAML().dump(
@@ -10024,11 +9280,7 @@ def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
                 "build_dir": str(tmp_path / "build"),
                 "system": {"timezone": "UTC"},
                 "deploy": {"host": "deploy-host", "fqdn": "deploy-host.example.org"},
-                "services": {
-                    "telemetry_store": {"path": "./services/telemetry_store"},
-                    "telemetry_gateway": {"path": "./services/telemetry_gateway"},
-                },
-                "deployed_services": ["telemetry_store", "telemetry_gateway"],
+                "deployed_services": [],
                 "modules": {
                     "web_terminals": {
                         "enabled": True,
@@ -10053,12 +9305,12 @@ def test_up_finds_exactly_the_compose_files_the_build_wrote(
     """Build and up agree on the stack, derived services included.
 
     The history page has no ``deployed_services`` entry: the build renders it
-    because the config deploys the store under sign-in. ``osprey up`` and
+    because the config's web terminals sign people in. ``osprey up`` and
     ``osprey down`` hand compose what :func:`find_existing_compose_files`
     reports, so a lookup that walked ``deployed_services`` alone left the
     container the build rendered out of every stack it started.
     """
-    config_path = _write_store_config(tmp_path, auth_method)
+    config_path = _write_signed_in_config(tmp_path, auth_method)
     _copy_service_templates(tmp_path)
     monkeypatch.chdir(tmp_path)
 

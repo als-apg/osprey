@@ -78,18 +78,17 @@ import os
 import shutil
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
-from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import env_value, format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
@@ -109,16 +108,13 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres, the telemetry gateway and the telemetry store are deployed
-# unconditionally by the control-assistant preset, and a locally-running
-# tutorial deploy routinely holds their ports. A bound-port collision aborts
-# `osprey up` before the containers this proof needs ever start, so all three
-# move to high, unassigned ports. Stated in this module's own `extra_config`
-# rather than added to _orm_stack: only this module needs them moved, and
-# _orm_stack's shape is shared with the render gate.
+# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# and a locally-running deployment routinely holds its port. A bound-port
+# collision aborts `osprey up` before the containers this proof needs ever
+# start, so it moves to a high, unassigned port. Stated in this module's own
+# `extra_config` rather than added to _orm_stack: only this module needs it
+# moved, and _orm_stack's shape is shared with the render gate.
 POSTGRES_PORT = 25434
-TELEMETRY_GATEWAY_PORT = 24321
-TELEMETRY_STORE_PORT = 28126
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name and locally-built image as ``<project>-<service>``,
@@ -156,28 +152,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
-def _minted_token(repo: Path) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
-    return token
-
-
 def _minted_sidecar_secret(repo: Path) -> str:
     """The sidecar's operator secret, read from the same .env `osprey up` wrote.
 
@@ -205,21 +179,6 @@ def _auth_headers() -> dict[str, str]:
     return {"X-Osprey-Terminal-Secret": _sidecar_secret} if _sidecar_secret else {}
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
 def _request(
     base: str,
     path: str,
@@ -227,28 +186,7 @@ def _request(
     body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    all_headers = {"Content-Type": "application/json"} if data is not None else {}
-    all_headers.update(headers or {})
-    req = urllib.request.Request(
-        f"{base}{path}",
-        data=data,
-        method=method,
-        headers=all_headers,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw.decode("utf-8"))
-            except ValueError:
-                return resp.status, raw.decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        try:
-            return exc.code, json.loads(raw.decode("utf-8"))
-        except ValueError:
-            return exc.code, raw.decode("utf-8", errors="replace")
+    return _queue_drive.request(base, path, method, body, headers=headers, timeout=15.0)
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
@@ -266,28 +204,21 @@ def _bridge_get(path: str) -> tuple[int, Any]:
 def _bridge_post(
     path: str, body: dict[str, Any], token: str | None = None, owner: str | None = None
 ) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["X-Launch-Token"] = token
-    if owner:
-        # The login the plan runs for: the worker's writes follow its switch.
-        headers[OWNER_HEADER] = owner
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    # *owner* is the login the plan runs for: the worker's writes follow its switch.
+    return _queue_drive.request(
+        BRIDGE_URL, path, "POST", body, token=token, owner=owner, timeout=15.0
+    )
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(f"{BLUESKY_WEB_URL}{path}", method="GET", headers=_auth_headers())
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", errors="replace")
+    resp = httpx.get(  # localhost only
+        f"{BLUESKY_WEB_URL}{path}",
+        headers=_auth_headers(),
+        timeout=10.0,
+        trust_env=False,
+        follow_redirects=True,
+    )
+    return resp.status_code, resp.text
 
 
 def _docker_port(container: str) -> str:
@@ -433,8 +364,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # _orm_stack.init_args()/build_project_subprocess() don't parameterize
     # the bluesky-web sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
-    # --set for it. The two port moves this module needs go through
-    # `extra_config`, which lands them beside _orm_stack's own `config:` pins.
+    # --set for it. The port move this module needs goes through
+    # `extra_config`, which lands it beside _orm_stack's own `config:` pins.
     args = _orm_stack.init_args(
         PROJECT_NAME,
         output_dir=base,
@@ -447,8 +378,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         extra_config={
             "config": {
                 "services.postgresql.port_host": POSTGRES_PORT,
-                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             }
         },
     )
@@ -456,23 +385,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
-    init = _run([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
+    init = run_command([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=1, model=model)
     bpms = _orm_stack.select_bpms(repo, count=2, model=model)
@@ -494,24 +417,21 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
+            pytest.fail(format_failure("osprey up -d --dev", up))
         # `osprey up` minted the sidecar's operator secret into the repo .env;
         # arm the sidecar helpers with it before anything talks to the gate
         # (the /health waits below are on the gate's exempt path).
         global _sidecar_secret
         _sidecar_secret = _minted_sidecar_secret(repo)
 
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See
@@ -531,7 +451,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             plan_args=plan_args,
         )
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -624,7 +544,7 @@ def _run_plan_via_bridge_as_owner(deployed_stack: DeployedStack, client_id: str)
     plan runs for (``X-Osprey-Owner``), whose switch the fixture turned on in the
     deployment's record. The plan must complete and produce rows.
     """
-    token = _minted_token(deployed_stack.repo)
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
     # Clear the shared draft first: a same-content PATCH is a no-op that keeps
     # the consumed revision (409 draft_revision_already_launched otherwise).
     _request(BRIDGE_URL, f"/draft?client_id={client_id}", "DELETE")
@@ -687,7 +607,7 @@ def test_plan_via_sidecar_owner_less_is_refused_and_named_route_completes(
     (b) The same writing plan completes through the named route: the bridge,
     enqueued for this login.
     """
-    token = _minted_token(deployed_stack.repo)
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
 
     def _assert_no_token(label: str, payload: Any) -> None:
         assert token not in json.dumps(payload), f"launch token leaked into the sidecar {label}"

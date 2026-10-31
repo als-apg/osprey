@@ -30,7 +30,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { makeDockApi as makeApi, addTerminal } from './_dock-fake.mjs';
+import { makeDockApi as makeApi, addTerminal, FakeResizeObserver } from './_dock-fake.mjs';
 
 const ADAPTER = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
 
@@ -49,13 +49,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   },
   onDragGesture: () => [],
 }));
-
-/** The adapter's live-follow observer; geometry itself is browser-suite turf. */
-class FakeResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
 
 beforeEach(() => {
   vi.resetModules();

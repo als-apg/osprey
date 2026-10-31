@@ -28,6 +28,8 @@ from osprey.bridges.nextcloud_talk.client import (
     REQUEST_TIMEOUT,
     ROOM_TYPE_ONE_TO_ONE,
 )
+from tests.bridges.conftest import recording_client
+from tests.bridges.nextcloud.conftest import ocs
 
 CFG = NextcloudBridgeConfig(
     base_url="https://cloud.example.org",
@@ -45,25 +47,16 @@ ROOM_PATH = "/ocs/v2.php/apps/spreed/api/v4/room/roomA"
 ROOM_PAYLOAD = {"type": 2, "displayName": "Ops", "lastMessage": {"id": 7}}
 
 
-def _ocs(data, *, status=200, headers=None):
-    """An OCS v2 envelope response carrying ``data``."""
-    return httpx.Response(
-        status,
-        json={"ocs": {"meta": {"status": "ok", "statuscode": status}, "data": data}},
-        headers=headers or {},
-    )
-
-
 def _talk(request):
     """A minimal Talk that answers every call with a valid payload."""
     # First: the participants route also contains /api/v4/room/.
     if request.url.path.endswith("/participants"):
-        return _ocs([])
+        return ocs([])
     if "/api/v4/room/" in request.url.path:
-        return _ocs(ROOM_PAYLOAD)
+        return ocs(ROOM_PAYLOAD)
     if request.method == "POST":
-        return _ocs({"id": 99})
-    return _ocs([], headers={LAST_GIVEN_HEADER: "41"})
+        return ocs({"id": 99})
+    return ocs([], last_given="41")
 
 
 def _client(handler=_talk, **client_kwargs):
@@ -172,12 +165,12 @@ def test_poll_ignores_a_cursor_header_on_a_304():
 
 def test_poll_returns_messages_and_the_cursor_header():
     messages = [{"id": 42, "message": "hello"}, {"id": 43, "message": "again"}]
-    client = _client(lambda request: _ocs(messages, headers={LAST_GIVEN_HEADER: "43"}))
+    client = _client(lambda request: ocs(messages, last_given="43"))
     assert client.poll_messages("roomA", 41) == (messages, 43)
 
 
 def test_poll_returns_no_cursor_when_the_header_is_absent():
-    client = _client(lambda request: _ocs([{"id": 42}]))
+    client = _client(lambda request: ocs([{"id": 42}]))
     batch, last_given = client.poll_messages("roomA", 41)
     assert batch == [{"id": 42}]
     assert last_given is None
@@ -186,7 +179,7 @@ def test_poll_returns_no_cursor_when_the_header_is_absent():
 def test_poll_keeps_the_batch_when_the_cursor_header_is_unparseable():
     # The cursor is advisory — the caller can fall back to the batch's highest
     # id — so a junk header must not throw away messages that did arrive.
-    client = _client(lambda request: _ocs([{"id": 42}], headers={LAST_GIVEN_HEADER: "not-an-id"}))
+    client = _client(lambda request: ocs([{"id": 42}], last_given="not-an-id"))
     assert client.poll_messages("roomA", 41) == ([{"id": 42}], None)
 
 
@@ -211,13 +204,8 @@ def test_credentials_come_from_the_config():
     cfg = NextcloudBridgeConfig(
         base_url="https://nc.example.org", bot_account="other-bot", app_password="other-pw"
     )
-    seen: list[httpx.Request] = []
-
-    def recorder(request):
-        seen.append(request)
-        return _ocs(ROOM_PAYLOAD)
-
-    client = TalkClient(cfg, client=httpx.Client(transport=httpx.MockTransport(recorder)))
+    http, seen = recording_client(lambda _request: ocs(ROOM_PAYLOAD))
+    client = TalkClient(cfg, client=http)
     client.room_info("roomA")
     expected = "Basic " + base64.b64encode(b"other-bot:other-pw").decode()
     assert seen[0].headers["authorization"] == expected
@@ -314,13 +302,13 @@ def test_post_includes_reply_to_when_given():
 
 
 def test_post_returns_the_new_message_id():
-    client = _client(lambda request: _ocs({"id": 99, "message": "hi"}))
+    client = _client(lambda request: ocs({"id": 99, "message": "hi"}))
     assert client.post_message("roomA", "hi") == 99
 
 
 @pytest.mark.parametrize("data", [{}, {"id": "not-an-int"}, []])
 def test_post_returns_none_when_the_response_carries_no_id(data):
-    client = _client(lambda request: _ocs(data))
+    client = _client(lambda request: ocs(data))
     assert client.post_message("roomA", "hi") is None
 
 
@@ -330,27 +318,27 @@ def test_post_returns_none_when_the_response_carries_no_id(data):
 
 
 def test_room_info_parses_type_name_and_last_message():
-    client = _client(lambda request: _ocs(ROOM_PAYLOAD))
+    client = _client(lambda request: ocs(ROOM_PAYLOAD))
     assert client.room_info("roomA") == RoomInfo(
         token="roomA", type=2, display_name="Ops", last_message_id=7
     )
 
 
 def test_room_info_reports_a_one_to_one_room():
-    client = _client(lambda request: _ocs({"type": ROOM_TYPE_ONE_TO_ONE, "displayName": "bob"}))
+    client = _client(lambda request: ocs({"type": ROOM_TYPE_ONE_TO_ONE, "displayName": "bob"}))
     assert client.room_info("roomA").type == ROOM_TYPE_ONE_TO_ONE
 
 
 def test_room_info_reads_no_last_message_from_talks_empty_array():
     # Talk serializes an absent lastMessage as an empty *list* (PHP's empty
     # array), not null and not an empty object.
-    client = _client(lambda request: _ocs({"type": 2, "displayName": "Ops", "lastMessage": []}))
+    client = _client(lambda request: ocs({"type": 2, "displayName": "Ops", "lastMessage": []}))
     assert client.room_info("roomA").last_message_id is None
 
 
 @pytest.mark.parametrize("payload", [{"type": 2}, {"type": 2, "displayName": None}])
 def test_room_info_display_name_falls_back_to_empty_string(payload):
-    client = _client(lambda request: _ocs(payload))
+    client = _client(lambda request: ocs(payload))
     assert client.room_info("roomA").display_name == ""
 
 
@@ -359,13 +347,13 @@ def test_room_info_raises_when_the_type_is_not_an_integer(payload):
     # The bridge must never guess a room type: guessing "group" drops every
     # message in a one-to-one, guessing "one-to-one" answers every unaddressed
     # message in a group room.
-    client = _client(lambda request: _ocs(payload))
+    client = _client(lambda request: ocs(payload))
     with pytest.raises(TalkApiError, match="no integer type"):
         client.room_info("roomA")
 
 
 def test_room_info_raises_when_data_is_not_an_object():
-    client = _client(lambda request: _ocs(["not", "a", "room"]))
+    client = _client(lambda request: ocs(["not", "a", "room"]))
     with pytest.raises(TalkApiError, match="not an object"):
         client.room_info("roomA")
 
@@ -428,7 +416,7 @@ def test_an_envelope_without_data_raises_talk_api_error(call):
 
 @pytest.mark.parametrize("data", [{"id": 42}, "nope", [{"id": 42}, "nope"]])
 def test_poll_raises_when_the_chat_payload_is_not_a_message_list(data):
-    client = _client(lambda request: _ocs(data))
+    client = _client(lambda request: ocs(data))
     with pytest.raises(TalkApiError, match="not a list of messages"):
         client.poll_messages("roomA", 41)
 
@@ -450,7 +438,7 @@ def test_default_client_honors_core_trust_env(trust_env):
 
 
 def test_injected_client_is_used_as_given():
-    injected = httpx.Client(transport=httpx.MockTransport(lambda request: _ocs([])))
+    injected = httpx.Client(transport=httpx.MockTransport(lambda request: ocs([])))
     client = TalkClient(CFG, client=injected)
     assert client._client is injected
     client.close()
@@ -486,13 +474,13 @@ def test_list_participants_targets_the_v4_participants_route():
 
 
 def test_list_participants_returns_the_attendee_list_unmodified():
-    client = _client(lambda request: _ocs(PARTICIPANTS))
+    client = _client(lambda request: ocs(PARTICIPANTS))
     assert client.list_participants("roomA") == PARTICIPANTS
 
 
 @pytest.mark.parametrize("data", [{}, [1], "x"])
 def test_list_participants_raises_on_a_payload_that_is_not_a_list_of_objects(data):
-    client = _client(lambda request: _ocs(data))
+    client = _client(lambda request: ocs(data))
     with pytest.raises(TalkApiError, match="not a list of participants"):
         client.list_participants("roomA")
 

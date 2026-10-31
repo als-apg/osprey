@@ -26,6 +26,7 @@ import pytest
 from osprey.bridges.core import PNG_MAGIC, CoreConfig, FetchedArtifact
 from osprey.bridges.google_chat import ops as ops_module
 from osprey.bridges.google_chat.ops import build_prior_artifact_fetcher
+from tests.bridges.conftest import recording_client
 
 WORKER_URL = "http://work:9190"
 WORKER_TOKEN = "work-token"
@@ -56,18 +57,6 @@ def descriptor(**overrides: Any) -> dict[str, Any]:
 
 
 # --- the two faked routes ----------------------------------------------------
-
-
-def route(handler: Handler) -> tuple[httpx.Client, list[httpx.Request]]:
-    """A client over ``handler``, plus the list of requests it was asked to make — which
-    is how a test asserts that a route was never touched at all."""
-    seen: list[httpx.Request] = []
-
-    def recording(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return handler(request)
-
-    return httpx.Client(transport=httpx.MockTransport(recording)), seen
 
 
 def worker_serving(artifacts: dict[str, tuple[bytes, str | None]]) -> Handler:
@@ -117,8 +106,8 @@ def fetch(
     Returns the fetcher's own result plus what each route was asked for, so a test can
     assert both the bytes and which route produced them.
     """
-    worker_client, worker_seen = route(worker)
-    public_client, public_seen = route(public)
+    worker_client, worker_seen = recording_client(worker)
+    public_client, public_seen = recording_client(public)
     with worker_client, public_client:
         fetcher = build_prior_artifact_fetcher(worker_http=worker_client, public_http=public_client)
         result = fetcher(cfg, run_id, descriptor() if desc is None else desc, max_bytes)
@@ -371,8 +360,8 @@ def test_every_client_the_fetcher_builds_is_closed(monkeypatch: pytest.MonkeyPat
 def test_an_injected_client_is_left_open_for_its_owner():
     # The entrypoint's wiring hands in shared clients it closes at shutdown; closing one
     # here would break every later re-fetch.
-    worker_client, _ = route(worker_serving({ARTIFACT_ID: (PNG_BYTES, "image/png")}))
-    public_client, _ = route(gcs_serving({PUBLIC_URL: (GCS_BYTES, "image/png")}))
+    worker_client, _ = recording_client(worker_serving({ARTIFACT_ID: (PNG_BYTES, "image/png")}))
+    public_client, _ = recording_client(gcs_serving({PUBLIC_URL: (GCS_BYTES, "image/png")}))
     fetcher = build_prior_artifact_fetcher(worker_http=worker_client, public_http=public_client)
 
     fetcher(CFG, RUN_ID, descriptor(), BUDGET)

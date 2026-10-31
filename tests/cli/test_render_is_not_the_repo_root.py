@@ -37,58 +37,24 @@ writes and what a regen writes; only the real renderer can show that.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
-    IMAGE_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     rendered_config_path,
     repo_root_for_config,
 )
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
+from tests.cli._lifecycle_build import invoke_build_in
 
 #: The env keys every OSPREY MCP server reads its config path from. Both names
 #: appear because the servers were wired at different times; the value is the
@@ -204,7 +170,7 @@ def test_naming_the_repo_root_does_not_cost_the_render_its_own_venv(tmp_path) ->
     pin that catches fixing one by breaking the other.
     """
     repo = tmp_path / "als-exemplar"
-    render = _create_project(
+    render = create_project_as_built(
         TemplateManager(),
         project_name=BUILD_DIR_NAME,
         output_dir=repo,
@@ -240,12 +206,7 @@ def built_repo(tmp_path_factory) -> Path:
     repo = build_exemplar_repo(
         tmp_path_factory.mktemp("regenroot") / EXEMPLAR_DIRNAME, seed_env=True
     )
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 

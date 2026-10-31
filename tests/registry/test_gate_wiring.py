@@ -495,7 +495,12 @@ def test_queue_read_tools_are_silent_allow() -> None:
 # Health server gate wiring (opt-in, read-only allow/ask split)
 # ---------------------------------------------------------------------------
 
-_HEALTH_CTX = {"project_root": "/tmp/test-project", "current_python_env": "/usr/bin/python3"}
+_HEALTH_CTX = {
+    "project_root": "/tmp/test-project",
+    "current_python_env": "/usr/bin/python3",
+    # Derived by the render funnel; settings.json.j2 renders it unconditionally.
+    "cleanup_period_days": 30,
+}
 
 
 def _render_settings(claude_code_config: dict) -> dict:

@@ -1,14 +1,15 @@
 """Tests for models logging module."""
 
 import contextvars
+import json
 from datetime import datetime
 from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
 from osprey.models.logging import (
+    _api_call_body,
     _api_call_context,
-    _format_metadata_header,
     _sanitize_result_for_logging,
     set_api_call_context,
 )
@@ -189,193 +190,106 @@ class TestSanitizeResultForLogging:
 
 
 # =============================================================================
-# Test Metadata Header Formatting
+# Test the api_call entry body
 # =============================================================================
 
 
-class TestFormatMetadataHeader:
-    """Test metadata header formatting."""
+def _body(caller_info, **overrides):
+    """An ``api_call`` body for *caller_info* with plain defaults."""
+    kwargs = {
+        "caller_info": caller_info,
+        "message": "in",
+        "result": "out",
+        "provider": "anthropic",
+        "model_id": "claude-3",
+        "max_tokens": 1000,
+        "temperature": 0.7,
+        "enable_thinking": False,
+        "budget_tokens": None,
+        "output_model": None,
+        "include_stack_trace": False,
+    }
+    kwargs.update(overrides)
+    return _api_call_body(**kwargs)
 
-    def test_formats_basic_header(self):
-        """Test formatting a basic metadata header."""
-        caller_info = {
-            "function": "test_function",
-            "module": "test_module",
-            "filename": "test_file.py",
-            "line_number": 42,
-        }
 
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="anthropic",
-            model_id="claude-3-sonnet",
-            max_tokens=1024,
-            temperature=0.7,
-            enable_thinking=False,
-            budget_tokens=None,
-            output_model=None,
+class TestApiCallBody:
+    """The body of one ``api_call`` entry."""
+
+    def test_carries_caller_model_configuration_input_and_output(self):
+        body = _body(
+            {"function": "fn", "module": "mod", "filename": "a/b.py", "line_number": 42},
+            message="the prompt",
+            result="the answer",
         )
 
-        # Check for expected sections
-        assert "LLM API CALL LOG" in header
-        assert "CALLER INFORMATION" in header
-        assert "MODEL CONFIGURATION" in header
-        assert "test_function" in header
-        assert "test_module" in header
-        assert "test_file.py" in header
-        assert "42" in header
-        assert "anthropic" in header
-        assert "claude-3-sonnet" in header
-        assert "1024" in header
-        assert "0.7" in header
-
-    def test_includes_class_context_when_present(self):
-        """Test header includes class name when provided."""
-        caller_info = {
-            "function": "method_name",
-            "module": "my_module",
-            "class": "MyClass",
-            "filename": "file.py",
-            "line_number": 10,
+        assert body == {
+            "caller": {"function": "fn", "module": "mod", "filename": "a/b.py", "line_number": 42},
+            "provider": "anthropic",
+            "model_id": "claude-3",
+            "max_tokens": 1000,
+            "temperature": 0.7,
+            "enable_thinking": False,
+            "budget_tokens": None,
+            "output_model": None,
+            "input": "the prompt",
+            "output": "the answer",
         }
 
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="openai",
-            model_id="gpt-4",
-            max_tokens=500,
-            temperature=0.0,
-            enable_thinking=False,
-            budget_tokens=None,
-            output_model=None,
+    def test_carries_class_threading_and_capability_when_present(self):
+        body = _body(
+            {
+                "function": "fn",
+                "module": "mod",
+                "class": "MyClass",
+                "threading": "asyncio.to_thread",
+                "capability": "python",
+                "source": "context_var",
+            }
         )
 
-        assert "MyClass" in header
-        assert "# Class: MyClass" in header
+        assert body["caller"]["class"] == "MyClass"
+        assert body["caller"]["threading"] == "asyncio.to_thread"
+        assert body["caller"]["capability"] == "python"
+        assert "source" not in body["caller"]
 
-    def test_includes_threading_context_when_present(self):
-        """Test header includes threading context when provided."""
-        caller_info = {
-            "function": "async_task",
-            "module": "async_module",
-            "filename": "async.py",
-            "line_number": 100,
-            "threading": "ThreadPoolExecutor",
-        }
+    def test_names_the_output_model(self):
+        class ResponseModel(BaseModel):
+            answer: str
 
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="google",
-            model_id="gemini-pro",
-            max_tokens=2048,
-            temperature=1.0,
-            enable_thinking=True,
-            budget_tokens=1000,
-            output_model=None,
-        )
+        assert _body({}, output_model=ResponseModel)["output_model"] == "ResponseModel"
 
-        assert "ThreadPoolExecutor" in header
-        assert "# Threading:" in header
+    def test_carries_thinking_parameters(self):
+        body = _body({}, enable_thinking=True, budget_tokens=5000)
 
-    def test_includes_capability_context_when_present(self):
-        """Test header includes capability when provided."""
-        caller_info = {
-            "function": "classify",
-            "module": "classifier",
-            "filename": "classifier.py",
-            "line_number": 50,
-            "capability": "python",
-        }
+        assert body["enable_thinking"] is True
+        assert body["budget_tokens"] == 5000
 
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="anthropic",
-            model_id="claude-3",
-            max_tokens=1000,
-            temperature=0.0,
-            enable_thinking=False,
-            budget_tokens=None,
-            output_model=None,
-        )
+    def test_the_output_is_the_sanitized_result(self):
+        class Result(BaseModel):
+            value: str
+            count: int
 
-        assert "python" in header
-        assert "# Capability:" in header
+        output = _body({}, result=Result(value="v", count=42))["output"]
 
-    def test_includes_output_model_info(self):
-        """Test header includes output model information."""
+        assert '"value": "v"' in output
+        assert '"count": 42' in output
 
-        class MyOutputModel(BaseModel):
-            field: str
+    def test_stack_and_skipped_frames_only_with_include_stack_trace(self):
+        caller = {"function": "fn", "skipped_frames": ["wrapper (completion.py)"]}
 
-        caller_info = {
-            "function": "test",
-            "module": "test",
-            "filename": "test.py",
-            "line_number": 1,
-        }
+        plain = _body(caller)
+        traced = _body(caller, include_stack_trace=True)
 
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="openai",
-            model_id="gpt-4",
-            max_tokens=1000,
-            temperature=0.0,
-            enable_thinking=False,
-            budget_tokens=None,
-            output_model=MyOutputModel,
-        )
+        assert "stack" not in plain
+        assert "skipped_frames" not in plain["caller"]
+        assert traced["caller"]["skipped_frames"] == ["wrapper (completion.py)"]
+        assert "test_stack_and_skipped_frames_only_with_include_stack_trace" in traced["stack"]
 
-        assert "MyOutputModel" in header
-        assert "# Output Model:" in header
+    def test_is_json_serialisable(self):
+        body = _body({"function": "fn"}, result={"when": datetime(2026, 1, 1)})
 
-    def test_includes_thinking_parameters(self):
-        """Test header includes thinking configuration."""
-        caller_info = {
-            "function": "think",
-            "module": "thinker",
-            "filename": "think.py",
-            "line_number": 1,
-        }
-
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="anthropic",
-            model_id="claude-3",
-            max_tokens=5000,
-            temperature=0.5,
-            enable_thinking=True,
-            budget_tokens=2000,
-            output_model=None,
-        )
-
-        assert "Enable Thinking: True" in header
-        assert "Budget Tokens: 2000" in header
-
-    def test_includes_timestamp(self):
-        """Test header includes timestamp."""
-        caller_info = {
-            "function": "test",
-            "module": "test",
-            "filename": "test.py",
-            "line_number": 1,
-        }
-
-        header = _format_metadata_header(
-            caller_info=caller_info,
-            provider="anthropic",
-            model_id="claude-3",
-            max_tokens=1000,
-            temperature=0.0,
-            enable_thinking=False,
-            budget_tokens=None,
-            output_model=None,
-        )
-
-        # Should include a timestamp
-        assert "# Timestamp:" in header
-        # Timestamp should be in YYYY-MM-DD format
-        current_year = datetime.now().year
-        assert str(current_year) in header
+        assert json.loads(json.dumps(body))["caller"] == {"function": "fn"}
 
 
 # =============================================================================
@@ -430,172 +344,118 @@ class TestGetCallerInfo:
 
 
 # =============================================================================
-# Test Complete API Call Logging
+# Test recording a complete API call
 # =============================================================================
 
 
+def _enable(monkeypatch, **api_calls):
+    """Point log_api_call at an ``api_calls`` config and a fixed caller."""
+    monkeypatch.setattr(
+        "osprey.models.logging.get_config_value",
+        MagicMock(return_value={"api_calls": api_calls}),
+    )
+    monkeypatch.setattr(
+        "osprey.models.logging._get_caller_info",
+        MagicMock(return_value={"function": "test", "module": "test", "line_number": 1}),
+    )
+
+
+def _call(**overrides):
+    from osprey.models.logging import log_api_call
+
+    kwargs = {
+        "message": "test input message",
+        "result": "test output",
+        "provider": "anthropic",
+        "model_id": "claude-3-sonnet",
+        "max_tokens": 1024,
+        "temperature": 0.7,
+    }
+    kwargs.update(overrides)
+    log_api_call(**kwargs)
+
+
 class TestLogApiCall:
-    """Test log_api_call function."""
+    """log_api_call records one ``api_call`` entry per call, when enabled."""
 
-    def test_logging_disabled_by_default(self, monkeypatch):
-        """Test that logging is disabled when save_all is False."""
-        from osprey.models.logging import log_api_call
+    def test_an_enabled_call_writes_one_entry(self, monkeypatch, recorded_entries):
+        _enable(monkeypatch, save_all=True)
 
-        # Mock config to disable logging
-        monkeypatch.setattr(
-            "osprey.models.logging.get_config_value",
-            MagicMock(return_value={"api_calls": {"save_all": False}}),
-        )
+        _call()
 
-        # Call log_api_call - should return early without writing files
-        log_api_call(
-            message="test message",
-            result="test result",
-            provider="anthropic",
-            model_id="claude-3",
-            max_tokens=1000,
-            temperature=0.7,
-        )
+        entries = recorded_entries("api_call")
+        assert len(entries) == 1
+        body = entries[0].body
+        assert body["input"] == "test input message"
+        assert body["output"] == "test output"
+        assert body["provider"] == "anthropic"
+        assert body["model_id"] == "claude-3-sonnet"
+        assert body["max_tokens"] == 1024
+        assert body["caller"] == {"function": "test", "module": "test", "line_number": 1}
 
-        # No files should be created
-        # (We can't easily test this without mocking file operations,
-        # but the function should return early)
+    def test_each_call_is_its_own_entry(self, monkeypatch, recorded_entries):
+        _enable(monkeypatch, save_all=True)
 
-    def test_logging_enabled_creates_file(self, tmp_path, monkeypatch):
-        """Test that logging creates file when enabled."""
-        from osprey.models.logging import log_api_call
+        _call(message="first")
+        _call(message="second")
 
-        # Mock config to enable logging
-        monkeypatch.setattr(
-            "osprey.models.logging.get_config_value",
-            MagicMock(return_value={"api_calls": {"save_all": True, "latest_only": True}}),
-        )
+        inputs = sorted(entry.body["input"] for entry in recorded_entries("api_call"))
+        assert inputs == ["first", "second"]
 
-        # Mock agent dir to use tmp_path
-        monkeypatch.setattr("osprey.models.logging.get_agent_dir", lambda x: tmp_path)
+    def test_a_disabled_call_writes_none(self, monkeypatch, recorded_entries, spool_zone):
+        _enable(monkeypatch, save_all=False)
 
-        # Mock caller info
-        monkeypatch.setattr(
-            "osprey.models.logging._get_caller_info",
-            MagicMock(return_value={"function": "test", "module": "test", "line_number": 1}),
-        )
+        _call()
 
-        # Call log_api_call
-        log_api_call(
-            message="test input message",
-            result="test output",
-            provider="anthropic",
-            model_id="claude-3-sonnet",
-            max_tokens=1024,
-            temperature=0.7,
-        )
+        assert recorded_entries() == []
+        assert not any(path.is_file() for path in spool_zone.root.rglob("*"))
 
-        # Check that a file was created
-        files = list(tmp_path.glob("*.txt"))
-        assert len(files) == 1
+    def test_disabled_by_default(self, monkeypatch, recorded_entries):
+        _enable(monkeypatch)
 
-        # Check file contents
-        content = files[0].read_text()
-        assert "LLM API CALL LOG" in content
-        assert "test input message" in content
-        assert "test output" in content
-        assert "anthropic" in content
-        assert "claude-3-sonnet" in content
+        _call()
 
-    def test_logging_with_pydantic_result(self, tmp_path, monkeypatch):
-        """Test logging with Pydantic model result."""
-        from osprey.models.logging import log_api_call
+        assert recorded_entries() == []
 
-        class TestResult(BaseModel):
-            value: str
-            count: int
+    def test_the_record_off_switch_writes_none(self, monkeypatch, recorded_entries, spool_zone):
+        from osprey.agent_record.contract import RECORD_OFF_ENV
 
-        # Mock config
-        monkeypatch.setattr(
-            "osprey.models.logging.get_config_value",
-            MagicMock(return_value={"api_calls": {"save_all": True, "latest_only": True}}),
-        )
-        monkeypatch.setattr("osprey.models.logging.get_agent_dir", lambda x: tmp_path)
+        _enable(monkeypatch, save_all=True)
+        monkeypatch.setenv(RECORD_OFF_ENV, "1")
+
+        _call()
+
+        assert recorded_entries() == []
+        assert not any(path.is_file() for path in spool_zone.root.rglob("*"))
+
+    def test_no_file_is_written_outside_the_record(self, monkeypatch, tmp_path):
+        """The retired ``api_calls`` .txt files are gone; nothing lands in the cwd."""
+        _enable(monkeypatch, save_all=True, latest_only=False)
+        monkeypatch.chdir(tmp_path)
+
+        _call()
+
+        assert list(tmp_path.glob("*.txt")) == []
+
+    def test_a_writer_failure_never_raises(self, monkeypatch, recorded_entries):
+        _enable(monkeypatch, save_all=True)
+
+        def failing_write(*_args, **_kwargs):
+            raise RuntimeError("the writer broke")
+
+        monkeypatch.setattr("osprey.models.logging.record_writer.write", failing_write)
+
+        _call()
+
+        assert recorded_entries() == []
+
+    def test_a_caller_info_failure_never_raises(self, monkeypatch, recorded_entries):
+        _enable(monkeypatch, save_all=True)
         monkeypatch.setattr(
             "osprey.models.logging._get_caller_info",
-            MagicMock(return_value={"function": "test", "module": "test", "line_number": 1}),
+            MagicMock(side_effect=RuntimeError("no stack")),
         )
 
-        result = TestResult(value="test", count=42)
+        _call()
 
-        log_api_call(
-            message="input",
-            result=result,
-            provider="openai",
-            model_id="gpt-4",
-            max_tokens=500,
-            temperature=0.0,
-        )
-
-        files = list(tmp_path.glob("*.txt"))
-        assert len(files) == 1
-
-        content = files[0].read_text()
-        assert '"value"' in content
-        assert '"count"' in content
-        assert "42" in content
-
-    def test_logging_handles_errors_gracefully(self, monkeypatch):
-        """Test that logging errors don't break execution."""
-        from osprey.models.logging import log_api_call
-
-        # Mock config to enable logging
-        monkeypatch.setattr(
-            "osprey.models.logging.get_config_value",
-            MagicMock(return_value={"api_calls": {"save_all": True}}),
-        )
-
-        # Mock get_agent_dir to raise an error
-        def failing_get_agent_dir(_x):
-            raise RuntimeError("Failed to get agent dir")
-
-        monkeypatch.setattr("osprey.models.logging.get_agent_dir", failing_get_agent_dir)
-
-        # Call should not raise, but log warning
-        log_api_call(
-            message="test",
-            result="test",
-            provider="test",
-            model_id="test",
-            max_tokens=100,
-            temperature=0.0,
-        )
-
-        # If we get here, the error was handled gracefully
-
-    def test_logging_with_timestamped_files(self, tmp_path, monkeypatch):
-        """Test logging with timestamped filenames instead of latest_only."""
-        from osprey.models.logging import log_api_call
-
-        monkeypatch.setattr(
-            "osprey.models.logging.get_config_value",
-            MagicMock(return_value={"api_calls": {"save_all": True, "latest_only": False}}),
-        )
-        monkeypatch.setattr("osprey.models.logging.get_agent_dir", lambda x: tmp_path)
-        monkeypatch.setattr(
-            "osprey.models.logging._get_caller_info",
-            MagicMock(return_value={"function": "test", "module": "test", "line_number": 1}),
-        )
-
-        log_api_call(
-            message="test",
-            result="result",
-            provider="anthropic",
-            model_id="claude",
-            max_tokens=1000,
-            temperature=0.5,
-        )
-
-        files = list(tmp_path.glob("*.txt"))
-        assert len(files) == 1
-
-        # Filename should contain timestamp (YYYYMMDD_HHMMSS format)
-        filename = files[0].name
-        assert filename.startswith("test_test_")
-        assert "_20" in filename  # Should have year starting with 20
-        assert filename.endswith(".txt")
+        assert recorded_entries() == []

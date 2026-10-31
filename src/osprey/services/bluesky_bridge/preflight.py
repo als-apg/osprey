@@ -362,7 +362,7 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
 
 
 #: The audit surface every pre-flight verdict is filed on, under the
-#: queueserver's own identity (``var/audit/<queueserver>/preflight.jsonl``).
+#: queueserver's own identity.
 SURFACE_PREFLIGHT = "preflight"
 
 
@@ -541,7 +541,7 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
 
     # `RunEngine._wait_for` creates the awaitable on its own loop and returns
     # the list of finished tasks, which is what makes a non-empty answer here
-    # mean "a RunEngine ran this". Contract read from bluesky 1.15.1
+    # mean "a RunEngine ran this". Contract read from bluesky 1.16.0
     # (`run_engine.py::_wait_for`), the floor this package pins; re-verify it
     # if that floor moves. Anything else driving this generator — the read-only
     # preview walk in `qserver_startup.collect_channel_moves` is the one that
@@ -663,7 +663,7 @@ def _refused_write(error: BaseException) -> ChannelWriteBlockedError | None:
     because a RunEngine that reported a failed status without chaining the
     exception onto it would still be handing over the refusal.
 
-    Contract read from bluesky 1.15.1
+    Contract read from bluesky 1.16.0
     (``run_engine.py::_status_object_completed`` raises ``FailedStatus(status)
     from status.exception()``), the floor this package pins; re-verify it if
     that floor moves. Duck-typed rather than imported, so this module stays

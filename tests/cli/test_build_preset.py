@@ -29,20 +29,15 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.init_cmd import init
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests._builds import BuiltProject
 from tests._preset_data import copy_bundle_data
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
@@ -66,7 +61,6 @@ _POSTURE_FLOOR = (
     "  archiver.type: mock_archiver\n"
     "  approval.enabled: true\n"
     "  approval.default_policy: always\n"
-    "  claude_code.telemetry.enabled: false\n"
     "  hooks.debug: false\n"
 )
 
@@ -117,10 +111,10 @@ def _materialize(runner: CliRunner, parent, name: str, preset: str, *extra: str)
     created = runner.invoke(init, [str(repo), "--preset", preset, "--no-git", *extra])
     if created.exit_code != 0:
         return created
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
-def _render_from(runner: CliRunner, profile_path, *extra: str):
+def _render_from(profile_path, *extra: str):
     """Render the deployment repo that *profile_path* is the source of.
 
     A profile file IS its repo's source zone, so the repo is simply the file's
@@ -129,7 +123,7 @@ def _render_from(runner: CliRunner, profile_path, *extra: str):
     disk has nothing left to bake.
     """
     repo = pathlib.Path(profile_path).parent
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 def _project(parent, name: str) -> pathlib.Path:
@@ -184,32 +178,50 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     assert manifest["artifacts"]["hooks"] == ["memory-guard", "writes-check"]
 
 
-def test_preset_control_assistant_ships_live_gateway_telemetry(
+def test_preset_control_assistant_keeps_its_record_on_clickhouse_for_90_days(
     built_control_assistant: BuiltProject,
 ) -> None:
-    """control_assistant is the production-shaped reference facility: telemetry
-    is wired LIVE through the co-deployed gateway into the telemetry store. This
-    pins the full wiring so a regression in the preset template (dropped
-    service, disabled switch, hardcoded endpoint, or a credential key) fails
-    loudly.
+    """control_assistant is the production-shaped reference facility: its agent
+    record is kept in a ClickHouse store for 90 days, its admin may read every
+    session, and the history page it serves reaches back the same 90 days. The
+    record replaces the telemetry store, so neither the store, its gateway nor
+    a telemetry block is rendered.
     """
+    from osprey.deployment.compose_generator import _resolve_history_render_context
+
     cfg = _config_yaml(built_control_assistant.build_dir)
 
-    # The store and its gateway are deployed (not merely declared).
-    assert "telemetry_store" in cfg["deployed_services"]
-    assert "telemetry_gateway" in cfg["deployed_services"]
+    record = cfg["agent_record"]
+    assert record["backend"] == "clickhouse"
+    assert record["retention_days"] == 90
+    assert record["readers"] == [{"name": "carol"}]
 
-    tel = cfg["claude_code"]["telemetry"]
-    assert tel["enabled"] is True
-    assert tel["backend"] == "gateway"
-    # The gateway backend derives the endpoint per network context — a
-    # hardcoded localhost endpoint would make the in-container worker emit to its
-    # own loopback and silently drop everything, so it must be absent.
-    assert "endpoint" not in tel
-    # No credential in the config: each sender logs in with a login
-    # `osprey build` mints into a file of its own, outside the config and the
-    # .env chain.
-    assert "auth" not in tel
+    assert _resolve_history_render_context(cfg)["max_days"] == 90
+    history = yaml.safe_load(
+        (
+            built_control_assistant.build_dir / "services" / "history" / "docker-compose.yml"
+        ).read_text(encoding="utf-8")
+    )
+    environments = [
+        service.get("environment") or {} for service in (history.get("services") or {}).values()
+    ]
+    assert any(env.get("OSPREY_HISTORY_MAX_DAYS") == "90" for env in environments), environments
+
+    assert "telemetry" not in cfg.get("claude_code", {})
+    assert "tool_call" not in (cfg.get("audit") or {})
+
+
+def test_preset_hello_world_keeps_its_record_embedded_with_no_containers(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """hello-world keeps its record in the embedded backend and deploys nothing."""
+    result = _materialize(runner, str(tmp_path), "smoke", "hello-world")
+    assert result.exit_code == 0, result.output
+
+    cfg = _config_yaml(_project(tmp_path, "smoke"))
+    assert cfg["agent_record"]["backend"] == "embedded"
+    assert cfg["deployed_services"] == []
+    assert "telemetry" not in cfg.get("claude_code", {})
 
 
 def test_preset_control_assistant_dispatches_on_the_host_network(
@@ -326,7 +338,7 @@ def test_preset_drift_guard() -> None:
 
 
 def test_unknown_profile_key_fails_the_build(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Unknown top-level keys fail the build, naming each typo.
 
@@ -346,7 +358,7 @@ def test_unknown_profile_key_fails_the_build(
         "permission: []\n"  # typo of permissions
     )
     with caplog.at_level(logging.ERROR):
-        result = _render_from(runner, str(profile))
+        result = _render_from(str(profile))
 
     assert result.exit_code != 0
     assert "mcp_server" in caplog.text
@@ -556,7 +568,7 @@ def test_set_malformed_pair_aborts(runner: CliRunner, tmp_path: Path) -> None:
     assert "non-empty" in empty_key.output.lower() or "empty" in empty_key.output.lower()
 
 
-def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
+def test_profile_mcp_servers_persisted_to_config(tmp_path: Path) -> None:
     """A profile's mcp_servers land in the built project's config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
@@ -574,7 +586,7 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
         "    permissions:\n"
         "      allow: [echo]\n"
     )
-    result = _render_from(runner, str(profile))
+    result = _render_from(str(profile))
     assert result.exit_code == 0, result.output
     config = _config_yaml(_project(tmp_path, "repo"))
     # NB: profile mcp_servers are persisted under claude_code.servers
@@ -614,7 +626,7 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
         )
     assert list(_profile_yaml(repo)["mcp_servers"]) == ["facility_tools"]
 
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
     tiers = sorted(path.stem for path in (repo / "tiers").glob("*.yml"))
@@ -654,7 +666,7 @@ def test_a_render_without_web_terminals_leaves_the_mcp_health_address_to_the_run
     assert "auto" not in (_config_yaml(_project(tmp_path, "smoke")).get("health") or {})
 
 
-def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
+def test_profile_categories_persisted_to_config(tmp_path: Path) -> None:
     """A profile's custom artifact categories land in the built config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
     profile.parent.mkdir()
@@ -671,7 +683,7 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
         "      label: Diagnostics\n"
         "      color: '#ff0066'\n"
     )
-    result = _render_from(runner, str(profile))
+    result = _render_from(str(profile))
     assert result.exit_code == 0, result.output
     config = _config_yaml(_project(tmp_path, "repo"))
     cats = config.get("artifact_server", {}).get("categories", {})
@@ -682,7 +694,7 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     assert "port" in config.get("artifact_server", {})
 
 
-def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: Path) -> None:
+def test_profile_md_files_registered_as_user_owned(tmp_path: Path) -> None:
     """Convention artifacts a profile ships are registered as user_owned in the
     manifest, so a later `osprey build` treats them as the operator's
     and never overwrites them."""
@@ -695,7 +707,7 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
         "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
         "provider: anthropic\nrules: [rules/extra]\n"
     )
-    result = _render_from(runner, str(profile))
+    result = _render_from(str(profile))
     assert result.exit_code == 0, result.output
     project_dir = _project(tmp_path, "repo")
     # 1. file actually landed
@@ -711,22 +723,18 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     )
 
 
-def test_extends_missing_base_aborts(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_extends_missing_base_aborts(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """A profile's `extends` pointing at a missing file produces a clear error,
     not a stack trace, when the build resolves it."""
     profile = tmp_path / "profile.yml"
     profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata: data\n")
     with caplog.at_level(logging.WARNING):
-        result = _render_from(runner, str(profile))
+        result = _render_from(str(profile))
     assert result.exit_code != 0
     _assert_build_error_logged(caplog, "does-not-exist", "not found")
 
 
-def test_extends_cycle_detected(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_extends_cycle_detected(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """A circular `extends` chain (a -> b -> a) is detected and aborted rather
     than recursing until the stack gives out."""
     a = tmp_path / "profile.yml"
@@ -734,7 +742,7 @@ def test_extends_cycle_detected(
     a.write_text("name: A\nextends: ./b.yml\ndata: data\n")
     b.write_text("name: B\nextends: ./profile.yml\ndata: data\n")
     with caplog.at_level(logging.WARNING):
-        result = _render_from(runner, str(a))
+        result = _render_from(str(a))
     assert result.exit_code != 0
     _assert_build_error_logged(caplog, "cycle", "circular")
 
@@ -792,7 +800,7 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     profile.setdefault("config", {})["web.panels.events.path"] = "/custom-route"
     (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
-    result = _render_from(runner, repo / "profile.yml")
+    result = _render_from(repo / "profile.yml")
     assert result.exit_code == 0, result.output
     events = _config_yaml(_project(tmp_path, "pathpin"))["web"]["panels"]["events"]
     assert events["path"] == "/custom-route"
@@ -847,9 +855,7 @@ def test_control_assistant_preset_wires_its_simulation(
     assert config["simulation"]["default_scenarios"] == ["rf-thermal"]
 
 
-def test_preset_yaml_must_be_mapping(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_preset_yaml_must_be_mapping(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """A profile YAML that parses to a list, not a mapping, raises
     BuildProfileError rather than failing deeper in the pipeline with an
     unhelpful AttributeError."""
@@ -863,7 +869,7 @@ def test_preset_yaml_must_be_mapping(
     bad = tmp_path / "profile.yml"
     bad.write_text("- one\n- two\n")
     with caplog.at_level(logging.WARNING):
-        result = _render_from(runner, str(bad))
+        result = _render_from(str(bad))
     assert result.exit_code != 0
     _assert_build_error_logged(caplog, "mapping")
     # Keep _load_preset_raw imported so the symbol is referenced and a future
@@ -928,9 +934,7 @@ class TestMirroredLogbookSeedNotMutated:
     so the build copies seed data verbatim instead of rewriting it in place.
     """
 
-    def test_mirrored_logbook_seed_is_copied_verbatim(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_mirrored_logbook_seed_is_copied_verbatim(self, tmp_path: Path) -> None:
         import json
 
         profile_dir = tmp_path / "repo"
@@ -956,7 +960,7 @@ class TestMirroredLogbookSeedNotMutated:
             "provider: anthropic\nmodel: claude-haiku-4-5\n"
         )
 
-        result = _render_from(runner, str(profile))
+        result = _render_from(str(profile))
         assert result.exit_code == 0, result.output
 
         built = json.loads(
@@ -978,7 +982,7 @@ class TestDeployServicesKnob:
     defaults true, so every existing (self-contained) build is unchanged.
     """
 
-    # A profile whose preset would normally scaffold postgresql + the telemetry store
+    # A profile whose preset would normally scaffold postgresql and the record's store
     # and whose ``bluesky:`` block would normally inject a bridge service — so
     # an attached build has real scaffolding to suppress. The inherited
     # ``va_archiver:`` block is dropped: a deployment that records its own
@@ -998,12 +1002,12 @@ class TestDeployServicesKnob:
         "  port: 10080\n"
     )
 
-    def _build(self, runner: CliRunner, tmp_path: Path, extra: str) -> Path:
-        result = self._attempt(runner, tmp_path, extra)
+    def _build(self, tmp_path: Path, extra: str) -> Path:
+        result = self._attempt(tmp_path, extra)
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")
 
-    def _attempt(self, runner: CliRunner, tmp_path: Path, extra: str) -> Result:
+    def _attempt(self, tmp_path: Path, extra: str) -> Result:
         profile = tmp_path / "smoke" / "profile.yml"
         profile.parent.mkdir()
         _facility_data(profile.parent, "control_assistant")
@@ -1017,18 +1021,16 @@ class TestDeployServicesKnob:
         # copies beside the profile from the bundled layer presets.
         for layer in ("tiers", "apps"):
             shutil.copytree(_presets_dir() / layer, profile.parent / layer)
-        return _render_from(runner, str(profile))
+        return _render_from(str(profile))
 
     @pytest.fixture(scope="class")
     def attached(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
         """The ``deploy_services: false`` build, made once for the tests that read it."""
-        return self._build(
-            CliRunner(), tmp_path_factory.mktemp("attached"), extra="deploy_services: false\n"
-        )
+        return self._build(tmp_path_factory.mktemp("attached"), extra="deploy_services: false\n")
 
-    def test_default_true_scaffolds_services(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_default_true_scaffolds_services(self, tmp_path: Path) -> None:
         """Baseline: the same profile without the knob deploys its own stack."""
-        project = self._build(runner, tmp_path, extra="")
+        project = self._build(tmp_path, extra="")
         cfg = _config_yaml(project)
         assert "postgresql" in cfg["deployed_services"]
         assert "bluesky" in cfg["deployed_services"]
@@ -1069,13 +1071,12 @@ class TestDeployServicesKnob:
         assert admin["web"]["config_panel"]["enabled"] is True
 
     def test_an_attached_base_that_lifts_a_refused_flag_still_refuses_the_tier(
-        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The control: the judgment still happens on an attached build, on the
         deployment's own base — a base that enables the Config panel hands it
         to the headless dispatch tier, which is refused by name."""
         result = self._attempt(
-            runner,
             tmp_path,
             extra="deploy_services: false\nconfig:\n  web.config_panel.enabled: true\n",
         )
@@ -1173,9 +1174,7 @@ def _render_project(repo: pathlib.Path, tier: str) -> pathlib.Path:
     return repo / "build" / f"{repo.name}-{tier}"
 
 
-def test_layer_delta_build_resolves_from_the_profile_root(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_layer_delta_build_resolves_from_the_profile_root(tmp_path: Path) -> None:
     """FR-10 anchoring: a delta under tiers/ inherits the root profile and
     everything it names anchors at the ROOT, not at the delta's own parent."""
     root = tmp_path / "prof"
@@ -1188,7 +1187,7 @@ def test_layer_delta_build_resolves_from_the_profile_root(
     )
     (root / TIERS_DIRNAME / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
-    result = _render_from(runner, str(root / "profile.yml"))
+    result = _render_from(str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
     project = _render_project(root, "readonly")
@@ -1202,9 +1201,7 @@ def test_layer_delta_build_resolves_from_the_profile_root(
     assert _config_yaml(root / "build")["claude_code"]["default_model"] == "claude-sonnet-5"
 
 
-def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(tmp_path: Path) -> None:
     """FR-10: an excluded convention artifact must not reach the project at all.
 
     Copying it anyway is worse than a no-op: the file shadows the framework's
@@ -1250,7 +1247,7 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
         "    - commands/osprey/scan\n"
     )
 
-    result = _render_from(runner, str(root / "profile.yml"))
+    result = _render_from(str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
     project = _render_project(root, "narrow")
@@ -1274,9 +1271,7 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
     assert "commands/osprey/scan" in wide_owned, wide_owned
 
 
-def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: Path) -> None:
     """``exclude: web_panels:`` must reach the render, not just the selection.
 
     The web terminal reads its tab strip from ``web.panels.<id>`` alone. A
@@ -1313,7 +1308,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(
         "name: Narrow\nexclude:\n  web_panels:\n    - lattice\n    - grafana\n"
     )
 
-    result = _render_from(runner, str(root / "profile.yml"))
+    result = _render_from(str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
     narrow = _config_yaml(_render_project(root, "narrow"))["web"]["panels"]
@@ -1338,9 +1333,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(
     assert wide["okf"]["enabled"] is True
 
 
-def test_a_dotted_panel_id_is_projected_into_its_own_block(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_a_dotted_panel_id_is_projected_into_its_own_block(tmp_path: Path) -> None:
     """A dotted id is switched on or off under its own key and nowhere else.
 
     The render keeps ``beam.viewer`` whole as a key of ``web.panels``, so the
@@ -1372,7 +1365,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
         "name: Narrow\nexclude:\n  web_panels:\n    - beam.viewer\n"
     )
 
-    result = _render_from(runner, str(root / "profile.yml"))
+    result = _render_from(str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
     wide_config = _config_yaml(root / "build")

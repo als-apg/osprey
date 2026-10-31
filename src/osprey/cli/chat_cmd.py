@@ -22,6 +22,7 @@ to launch at all — no ``build/``, no chat.
 
 from __future__ import annotations
 
+import contextlib
 import os
 
 # Module level so tests can scope a stand-in to this module without patching the
@@ -323,11 +324,17 @@ def chat(
       $ osprey chat --resume SESSION_ID
       $ osprey chat --repo ~/als-assistant
     """
-    import sys
 
     import yaml
 
-    from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
+    from osprey.agent_runner.launcher import (
+        _locate_claude,
+        build_claude_launch_argv,
+        build_session_argv,
+        launch_cli_version,
+        resolve_thinking_display,
+        warn_thinking_flag_withheld,
+    )
     from osprey.agent_runner.provider_env import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
@@ -352,10 +359,9 @@ def chat(
     # afterwards — it has to be taken while the overlay's values are not yet in.
     shell_managed_env = _snapshot_managed_env()
     _overlay_repo_env(repo_root)
-    # Who this session is, to the ledger and to the telemetry gateway alike:
-    # the one name the build recorded, with that name's login.
+    # Who this session is, to the ledger: the one name the build recorded.
+    from osprey.agent_record.credentials import export_built_host_identity
     from osprey.build.claude_code_telemetry import export_host_terminal_session
-    from osprey.deployment.telemetry_credentials import export_built_host_identity
 
     export_built_host_identity(os.environ, repo_root)
     export_host_terminal_session(os.environ)
@@ -368,6 +374,23 @@ def chat(
     cc_config: dict = config.get("claude_code", {}) or {}
     if not effort:
         effort = cc_config.get("effort")
+
+    # A --print run is the one chat launch that states its thinking display by
+    # flag; an interactive session reads it from the rendered settings. The
+    # version is the one this launch runs, looked up the way the launch prefix
+    # is, so an older CLI is never handed a flag it would refuse. Resolved here,
+    # before the proxy and the companion servers, so a bad value refuses first.
+    thinking_display = None
+    if print_mode:
+        try:
+            cli_version = launch_cli_version(cc_config, _locate_claude(), no_pin=no_pin)
+            thinking = resolve_thinking_display(cc_config, cli_version)
+        except ValueError as exc:
+            raise click.ClickException(f"{config_path}: {exc}") from exc
+        if thinking.flag_allowed:
+            thinking_display = thinking.value
+        else:
+            warn_thinking_flag_withheld(cli_version)
 
     # load_provider_spec re-reads the rendered config.yml and expands ${VAR} in
     # provider config (e.g. a custom provider's base_url: ${ARGO_PROD_URL})
@@ -445,8 +468,30 @@ def chat(
         resume_id=resume,
         print_mode=print_mode,
         effort=effort,
+        thinking_display=thinking_display,
         prompt=" ".join(prompt) if prompt else None,
     )
+
+    # The agent record, held for the whole session and handed to the agent and
+    # its MCP servers through this environment. Before the companion servers:
+    # a refusal starts nothing on behalf of a session that will not run.
+    from osprey.agent_record.host import HostRecordRefused
+    from osprey.agent_runner.provider_env import host_record_launch
+
+    record_stack = contextlib.ExitStack()
+    try:
+        record_stack.enter_context(host_record_launch(repo_root, config, config_path=config_path))
+    except HostRecordRefused as exc:
+        output.fail("No agent record for this session", str(exc))
+        raise SystemExit(1) from exc
+    with record_stack:
+        returncode = _run_agent(args, build_dir)
+    raise SystemExit(returncode)
+
+
+def _run_agent(args: list[str], build_dir: Path) -> int:
+    """Start the companion servers and run the agent in *build_dir*; its exit code."""
+    import sys
 
     # build/ IS the rendered project, and the agent CLI uses the working
     # directory as its project root — this is what points it at this
@@ -499,4 +544,4 @@ def chat(
     if started_servers:
         child_env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
 
-    raise SystemExit(subprocess.run(args, env=child_env).returncode)
+    return subprocess.run(args, env=child_env).returncode

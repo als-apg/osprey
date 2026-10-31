@@ -148,8 +148,7 @@ class TemplateManager:
         """
         # Convert snake_case to PascalCase
         words = package_name.split("_")
-        class_name = "".join(word.capitalize() for word in words)
-        return class_name
+        return "".join(word.capitalize() for word in words)
 
     def create_project(
         self,
@@ -312,16 +311,10 @@ class TemplateManager:
             ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
             from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
-            from osprey.build.claude_code_telemetry import build_gateway_url
 
             api_providers = rendered_config.get("api", {}).get("providers", {})
             try:
-                model_spec = ClaudeCodeModelResolver.resolve(
-                    cc_config,
-                    api_providers,
-                    defer_unresolved_telemetry_creds=True,
-                    gateway_url=build_gateway_url(rendered_config),
-                )
+                model_spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
             except ValueError:
                 model_spec = None
             ctx["claude_code_model_spec"] = model_spec

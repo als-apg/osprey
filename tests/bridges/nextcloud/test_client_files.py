@@ -31,6 +31,7 @@ from osprey.bridges.nextcloud_talk.client import (
     DavTooLargeError,
     upload_dir,
 )
+from tests.bridges.conftest import recording_client
 
 CFG = NextcloudBridgeConfig(
     base_url="https://cloud.example.org",
@@ -132,13 +133,8 @@ def test_download_quotes_a_bot_account_with_a_space():
         bot_account="osprey bot",
         app_password="app-pw",
     )
-    seen: list[httpx.Request] = []
-
-    def recorder(request):
-        seen.append(request)
-        return _ok(request)
-
-    client = TalkClient(cfg, client=httpx.Client(transport=httpx.MockTransport(recorder)))
+    http, seen = recording_client(_ok)
+    client = TalkClient(cfg, client=http)
     client.dav_download("Talk/shot.png")
 
     (request,) = seen

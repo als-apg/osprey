@@ -11,10 +11,10 @@ Two things here look like a copy-paste of
 ``tests/va/e2e/test_target_switch.py``'s container helpers and are not:
 
 * ``tests/va/e2e/test_target_switch.py`` keeps its own
-  ``_free_port``/``_docker``/``_serving`` trio, predating this module and not
-  yet folded into it. This module exists precisely so the *bench* IOC's
-  version of that trio is spelled once and imported, so new callers get the
-  boot contract (ephemeral port, port-suffixed name, stale cleanup, readiness
+  port, container and readiness helpers, predating this module and not yet
+  folded into it. This module exists precisely so the *bench* IOC's version of
+  those helpers is spelled once and imported, so new callers get the
+  boot contract (reserved port, port-suffixed name, stale cleanup, readiness
   gate, ``rm -f`` in ``finally``) rather than re-deriving it.
 * The image precondition is different in kind. The virtual accelerator's
   ``_require_image()`` greps the image's ``Cmd`` for a variable name; this one
@@ -51,8 +51,8 @@ from typing import Any
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey_connectors.types import TARGET_LIVE
+from osprey_connectors_tests._harness._ports import reserved_port
 
 # ---------------------------------------------------------------------------
 # The image, and what it serves
@@ -229,60 +229,58 @@ def bench_ioc(
     or startup problem, while an IOC that initialized but never answered on the
     port is a publishing or port-derivation problem.
     """
-    port = free_port()
-    name = f"{prefix}-{port}"
-    # Stale cleanup only. The port belongs to this run, so this can name nothing
-    # a concurrent run is using -- which is the point of the suffix.
-    docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        name = f"{prefix}-{port}"
+        # Stale cleanup only. The port belongs to this run, so this can name nothing
+        # a concurrent run is using -- which is the point of the suffix.
+        docker("rm", "-f", name, timeout=60)
 
-    started = docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        IMAGE,
-    )
-    if started.returncode != 0:
-        # Clean up before raising, which the test_target_switch.py trio this
-        # mirrors does not do. A run that fails AFTER the name is claimed --
-        # another process taking the port between the bind probe and here, a
-        # daemon that dies mid-start -- leaves a Created container under a name
-        # carrying this run's port. No later run picks that port, so no later
-        # stale cleanup ever names it, and it accumulates until someone prunes
-        # by hand.
-        with contextlib.suppress(subprocess.SubprocessError):
-            docker("rm", "-f", name, timeout=60)
-        raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
+        started = docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            IMAGE,
+        )
+        if started.returncode != 0:
+            # Clean up before raising, which the test_target_switch.py trio this
+            # mirrors does not do. A run that fails AFTER the name is claimed --
+            # a daemon that dies mid-start -- leaves a Created container under a
+            # name carrying this run's port, and only a later run that happens to
+            # reserve the same port would ever clean it up.
+            with contextlib.suppress(subprocess.SubprocessError):
+                docker("rm", "-f", name, timeout=60)
+            raise RuntimeError(f"docker run failed for {name}:\n{started.stdout}\n{started.stderr}")
 
-    try:
-        deadline = time.monotonic() + boot_timeout
-        initialized = False
-        while time.monotonic() < deadline:
-            if not initialized:
-                initialized = _initialized(name)
-            if initialized and _serving(port):
-                break
-            time.sleep(POLL_INTERVAL_S)
-        else:
-            stage = (
-                f"initialized but never answered {PROBE_CHANNEL} on port {port}"
-                if initialized
-                else f"never printed {READY_MARKER!r}"
-            )
-            raise RuntimeError(f"{name} {stage} within {boot_timeout}s.\n{_logs(name)}")
-        yield BenchIOC(port=port, container=name)
-    finally:
-        # A wedged daemon makes this call time out, and a raise from a finally
-        # block replaces whatever was already propagating -- turning a boot
-        # failure that carries the container's own log into a bare
-        # TimeoutExpired naming only docker. The cleanup is best effort; the
-        # diagnosis is not.
-        with contextlib.suppress(subprocess.SubprocessError):
-            docker("rm", "-f", name, timeout=60)
+        try:
+            deadline = time.monotonic() + boot_timeout
+            initialized = False
+            while time.monotonic() < deadline:
+                if not initialized:
+                    initialized = _initialized(name)
+                if initialized and _serving(port):
+                    break
+                time.sleep(POLL_INTERVAL_S)
+            else:
+                stage = (
+                    f"initialized but never answered {PROBE_CHANNEL} on port {port}"
+                    if initialized
+                    else f"never printed {READY_MARKER!r}"
+                )
+                raise RuntimeError(f"{name} {stage} within {boot_timeout}s.\n{_logs(name)}")
+            yield BenchIOC(port=port, container=name)
+        finally:
+            # A wedged daemon makes this call time out, and a raise from a finally
+            # block replaces whatever was already propagating -- turning a boot
+            # failure that carries the container's own log into a bare
+            # TimeoutExpired naming only docker. The cleanup is best effort; the
+            # diagnosis is not.
+            with contextlib.suppress(subprocess.SubprocessError):
+                docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------

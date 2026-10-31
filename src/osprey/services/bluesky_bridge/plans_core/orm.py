@@ -187,7 +187,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     whose correctors happen to idle at zero.
 
     The working point is the setpoint the corrector locates at
-    (``bps.locate``), because the restore is a setpoint write: it puts back
+    (``bps.loc``), because the restore is a setpoint write: it puts back
     what was demanded, and a readback sample carries the readback channel's
     drift and noise, so restoring one would leave the corrector shifted by
     exactly that much. It happens BEFORE the ``try``, so a corrector whose read fails is never
@@ -238,7 +238,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     )
     def _sweep():
         for name, corrector in correctors:
-            working_point = float((yield from bps.locate(corrector))["setpoint"])
+            working_point = float((yield from bps.loc(corrector))["setpoint"])
             if not math.isfinite(working_point):
                 raise ValueError(
                     f"orm plan: corrector {name!r} read back a non-finite working "

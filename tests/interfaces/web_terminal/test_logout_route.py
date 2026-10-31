@@ -14,27 +14,14 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
 def client(workspace_dir):
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command=["echo"])
-        with TestClient(app) as c:
-            yield c
+    with terminal_client(workspace_dir) as c:
+        yield c
 
 
 class TestLogoutEndpoint:
@@ -204,23 +191,18 @@ class TestLogoutRevokesBrowserSessions:
         monkeypatch.setenv("OSPREY_WEB_PORT", "8123")
         reset_web_credentials()
 
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command=["echo"])
-            with TestClient(app) as store_client:
-                credentials = get_web_credentials(store_client.app)
-                session = credentials.create_session()
+        with terminal_client(workspace_dir) as store_client:
+            credentials = get_web_credentials(store_client.app)
+            session = credentials.create_session()
 
-                store_path = tmp_path / "sessions-8123.json"
-                assert _digest(session) in json.loads(store_path.read_text())["sessions"]
+            store_path = tmp_path / "sessions-8123.json"
+            assert _digest(session) in json.loads(store_path.read_text())["sessions"]
 
-                name = session_cookie_name()
-                resp = store_client.post(
-                    "/api/terminal/logout",
-                    headers={"cookie": f"{name}={session}"},
-                )
+            name = session_cookie_name()
+            resp = store_client.post(
+                "/api/terminal/logout",
+                headers={"cookie": f"{name}={session}"},
+            )
 
         assert resp.status_code == 200
         assert resp.json()["sessions_revoked"] == 1

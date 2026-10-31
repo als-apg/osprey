@@ -183,7 +183,7 @@ PRESET_COUNT_RE = re.compile(
     r"(?<!\bno\s)(?<!\bleast\s)(?<!\bthan\s)"
     r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
     r"(?:\s+[\w`'-]+){0,2}?\s+presets?\b",
-    re.I,
+    re.IGNORECASE,
 )
 PATTERN_FIELDS = frozenset({"evidence", "regex"})
 
@@ -214,7 +214,6 @@ POSTURE_FLOOR_KEYS = frozenset(
         "archiver.type",
         "approval.enabled",
         "approval.default_policy",
-        "claude_code.telemetry.enabled",
         "hooks.debug",
     }
 )
@@ -433,11 +432,11 @@ class ConfigKeyGuard:
 
     @staticmethod
     def count_matches(pattern: str, text: str) -> int:
-        return len(re.findall(pattern, text, re.M))
+        return len(re.findall(pattern, text, re.MULTILINE))
 
     @staticmethod
     def has_match(pattern: str, text: str) -> bool:
-        return re.search(pattern, text, re.M) is not None
+        return re.search(pattern, text, re.MULTILINE) is not None
 
     def git(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -618,7 +617,7 @@ class ConfigKeyGuard:
         from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
         from osprey.port_layout import DEFAULT_PORT_BASE
-        from osprey_connectors.workspace import APPS_DIRNAME
+        from osprey.utils.workspace import APPS_DIRNAME
 
         host = preset_id(self.app_host)
         roots = {preset_id(rel) for rel in self.preset_rels}

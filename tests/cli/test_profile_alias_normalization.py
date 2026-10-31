@@ -45,21 +45,6 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     return path
 
 
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one.
-
-    One patch is enough: every reader of the directory goes through
-    ``build_profile_presets._presets_dir``, including the ``data:`` exemption
-    for a bundled preset, which asks ``is_bundled_preset_dir`` rather than
-    comparing against a directory it bound at import time.
-    """
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
-
-
 # ---------------------------------------------------------------------------
 # The bundle is preset-side: consumed on read, never part of the profile
 # ---------------------------------------------------------------------------

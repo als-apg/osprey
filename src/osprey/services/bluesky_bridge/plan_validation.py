@@ -198,9 +198,11 @@ def _check_import_allowlist(code: str) -> list[str]:
     tree = ast.parse(code)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                if not _is_allowed_import(alias.name):
-                    violations.append(f"Import not allowed for plan authoring: '{alias.name}'")
+            violations.extend(
+                f"Import not allowed for plan authoring: '{alias.name}'"
+                for alias in node.names
+                if not _is_allowed_import(alias.name)
+            )
         elif isinstance(node, ast.ImportFrom):
             if node.module is None:
                 violations.append(

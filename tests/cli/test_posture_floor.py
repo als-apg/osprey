@@ -54,6 +54,7 @@ from osprey.cli.build_posture_check import (
     missing_posture_errors,
 )
 from osprey.facility.errors import FacilityBuildError
+from tests.cli._lifecycle_build import rendered_config
 
 #: The presets the feature converts, and the ones the floor has to leave alone.
 PRESETS: tuple[str, ...] = (
@@ -100,7 +101,7 @@ def _rendered(**overrides: Any) -> dict[str, Any]:
         },
         "archiver": {"type": "mock_archiver"},
         "approval": {"enabled": True, "default_policy": "always"},
-        "claude_code": {"telemetry": {"enabled": True}},
+        "claude_code": {},
         "hooks": {"debug": False},
     }
     document.update(overrides)
@@ -127,8 +128,8 @@ def _named_keys(errors: list[str]) -> list[str]:
 class TestFloorKeySet:
     """What the floor can ask for, and nothing else."""
 
-    def test_the_floor_is_exactly_six_keys(self) -> None:
-        """The set is pinned: these six are the ones the build gate enforces,
+    def test_the_floor_is_exactly_five_keys(self) -> None:
+        """The set is pinned: these five are the ones the build gate enforces,
 
         out of the larger ``required`` set the manifest marks.
         """
@@ -137,7 +138,6 @@ class TestFloorKeySet:
             "archiver.type",
             "approval.enabled",
             "approval.default_policy",
-            "claude_code.telemetry.enabled",
             "hooks.debug",
         )
 
@@ -173,10 +173,7 @@ class TestControlsGate:
         rendered = _rendered(
             control_system={},
             archiver={},
-            claude_code={
-                "telemetry": {"enabled": True},
-                "servers": {"controls": {"enabled": False}},
-            },
+            claude_code={"servers": {"controls": {"enabled": False}}},
         )
         assert missing_posture_errors(rendered, [APPROVAL_HOOK]) == []
 
@@ -185,10 +182,7 @@ class TestControlsGate:
         rendered = _rendered(
             control_system={},
             archiver={},
-            claude_code={
-                "telemetry": {"enabled": True},
-                "servers": {"controls": {"enabled": True}},
-            },
+            claude_code={"servers": {"controls": {"enabled": True}}},
         )
         assert _named_keys(missing_posture_errors(rendered, [])) == [
             "control_system.type",
@@ -218,22 +212,16 @@ class TestApprovalHookGate:
 
 
 class TestUnconditionalKeys:
-    """Telemetry and hook debugging are asked of every deployment."""
+    """Hook debugging is asked of every deployment."""
 
     def test_required_with_no_controls_and_no_approval_hook(self) -> None:
         rendered = {"claude_code": {"servers": {"controls": {"enabled": False}}}}
-        assert _named_keys(missing_posture_errors(rendered, [])) == [
-            "claude_code.telemetry.enabled",
-            "hooks.debug",
-        ]
+        assert _named_keys(missing_posture_errors(rendered, [])) == ["hooks.debug"]
 
     def test_false_is_an_answer(self) -> None:
         """The floor asks to be told, not to be told ``true``."""
         rendered = _rendered(
-            claude_code={
-                "telemetry": {"enabled": False},
-                "servers": {"controls": {"enabled": False}},
-            },
+            claude_code={"servers": {"controls": {"enabled": False}}},
             hooks={"debug": False},
         )
         assert missing_posture_errors(rendered, [APPROVAL_HOOK]) == []
@@ -256,11 +244,11 @@ class TestWhatCountsAsStated:
         assert _named_keys(errors) == ["hooks.debug"], why
 
     def test_a_nested_key_is_read_through_its_parents(self) -> None:
-        """``claude_code.telemetry.enabled`` needs every segment, not just the leaf."""
-        rendered = _rendered(claude_code={"telemetry": {}})
-        assert _named_keys(missing_posture_errors(rendered, [])) == [
-            "claude_code.telemetry.enabled"
-        ]
+        """``hooks.debug`` needs its parent block, not just a leaf of that name."""
+        rendered = _rendered()
+        del rendered["hooks"]
+        rendered["debug"] = False
+        assert _named_keys(missing_posture_errors(rendered, [])) == ["hooks.debug"]
 
     @pytest.mark.parametrize("blank", ["", "   "])
     def test_a_blank_string_leaf_is_unstated(self, blank: str) -> None:
@@ -556,7 +544,7 @@ def test_each_preset_builds_green(preset: str, built_preset: Any) -> None:
     own output if either verb refuses.
     """
     repo = built_preset(preset)
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    rendered = rendered_config(repo)
     assert missing_posture_errors(rendered, _selected_hooks(repo)) == []
 
 

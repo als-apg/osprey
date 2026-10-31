@@ -1,7 +1,7 @@
 """Per-interface "loads clean in a real browser" smoke suite.
 
 Boots each OSPREY interface ``create_app()`` factory on a real uvicorn server
-(see ``_run_app_server`` in ``conftest.py``) and drives a real Chromium page
+(see ``_launchers.py``) and drives a real Chromium page
 against ``GET /``, asserting via :func:`assert_page_loads_clean` that the page
 loaded without an uncaught JS exception or a failed same-origin
 script/stylesheet fetch. This is the negative-space complement to
@@ -21,20 +21,22 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _run_app_server, launch_graph_channel_finder
+from tests.interfaces._launchers import (
+    launch_ariel,
+    launch_artifacts,
+    launch_channel_finder,
+    launch_lattice_dashboard,
+    launch_okf_panel,
+    launch_web_terminal,
+)
+from tests.interfaces.conftest import launch_graph_channel_finder
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from playwright.sync_api import Browser
 
 try:
@@ -45,104 +47,6 @@ except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
-
-
-# ---------------------------------------------------------------------------
-# Per-interface launchers
-# ---------------------------------------------------------------------------
-# Each is a @contextmanager yielding a live base_url, isolating cwd to
-# tmp_path first (matters for ariel's config lookup and artifacts' index
-# dir) and building the app with the same signature the interface's own
-# tests use (see test_app_setup_parametrized.py).
-
-
-@contextmanager
-def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    # Patch trio bypasses companion-backend spawn; must stay active while the
-    # lifespan runs (i.e. across both create_app() and _run_app_server).
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(tmp_path)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
-
-
-@contextmanager
-def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.artifacts.app import create_app
-
-    app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
-        yield base_url
-
-
-@contextmanager
-def _launch_ariel(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.ariel.app import create_app
-
-    app = create_app()
-    with _run_app_server(app) as base_url:
-        yield base_url
-
-
-@contextmanager
-def _launch_channel_finder(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.channel_finder.app import create_app
-
-    app = create_app(project_cwd=str(tmp_path))
-    with _run_app_server(app) as base_url:
-        yield base_url
-
-
-@contextmanager
-def _launch_channel_finder_graph(tmp_path, monkeypatch) -> Iterator[str]:
-    # Same interface, second paradigm: the graph mode serves a different
-    # explore view off the same factory, so it gets its own target. The
-    # launcher (shared with the visual lane) writes the graph config and
-    # points the app's store seam at the demo corpus -- no database is dialled.
-    with launch_graph_channel_finder(tmp_path, monkeypatch) as base_url:
-        yield base_url
-
-
-@contextmanager
-def _launch_lattice_dashboard(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.lattice_dashboard.app import create_app
-
-    app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
-        yield base_url
-
-
-@contextmanager
-def _launch_okf_panel(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.okf_panel.app import create_app
-
-    # Build over the shared on-disk fixture bundle the panel's own unit tests use
-    # (tests/interfaces/okf_panel/fixtures/bundle) so GET / renders real content.
-    bundle = Path(__file__).parent / "okf_panel" / "fixtures" / "bundle"
-    app = create_app(bundle_path=str(bundle))
-    with _run_app_server(app) as base_url:
-        yield base_url
 
 
 # ---------------------------------------------------------------------------
@@ -164,13 +68,17 @@ _ALLOWLISTS: dict[str, object] = {
 
 
 INTERFACE_LAUNCHERS = [
-    ("web_terminal", _launch_web_terminal),
-    ("artifacts", _launch_artifacts),
-    ("ariel", _launch_ariel),
-    ("channel_finder", _launch_channel_finder),
-    ("channel_finder_graph", _launch_channel_finder_graph),
-    ("lattice_dashboard", _launch_lattice_dashboard),
-    ("okf_panel", _launch_okf_panel),
+    ("web_terminal", launch_web_terminal),
+    ("artifacts", launch_artifacts),
+    ("ariel", launch_ariel),
+    ("channel_finder", launch_channel_finder),
+    # Same interface, second paradigm: the graph mode serves a different
+    # explore view off the same factory, so it gets its own target. The
+    # launcher (shared with the visual lane) writes the graph config and
+    # points the app's store seam at the demo corpus -- no database is dialled.
+    ("channel_finder_graph", launch_graph_channel_finder),
+    ("lattice_dashboard", launch_lattice_dashboard),
+    ("okf_panel", launch_okf_panel),
 ]
 
 
@@ -216,7 +124,7 @@ def test_interface_loads_clean(
 # ---------------------------------------------------------------------------
 # A static asset under the hub's own /static mount (configure_interface_app
 # mounts the whole static/ dir), not a second app -- a path-override on the
-# same _launch_web_terminal hub server above, mirroring test_visual.py's
+# same launch_web_terminal hub server above, mirroring test_visual.py's
 # _web_terminal_static_page_server (which likewise reuses its hub server
 # unchanged and only varies the VisualTarget's `path`).
 
@@ -238,7 +146,7 @@ def test_web_terminal_static_page_loads_clean(
     chromium_browser: Browser,
 ) -> None:
     """session.html loads with no uncaught error or failed asset."""
-    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         assert_page_loads_clean(page, f"{base_url}{path}", allowlist=_ALLOWLISTS[name])
         page.close()

@@ -29,11 +29,13 @@ from claude_agent_sdk.types import RateLimitInfo
 
 from osprey.agent_runner.events import (
     ApiErrorEvent,
+    DeltaEvent,
     ResultEvent,
     SystemEvent,
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolStartEvent,
     ToolUseEvent,
     translate_message,
 )
@@ -214,6 +216,71 @@ def test_stream_rate_limit_and_plain_user_text_translate_to_nothing() -> None:
 
     for message in (stream, rate, user_text, user_blocks):
         assert translate_message(message) == []
+
+
+def _stream(event: dict[str, Any], parent: str | None = None) -> StreamEvent:
+    return StreamEvent(uuid="u", session_id="s", event=event, parent_tool_use_id=parent)
+
+
+@pytest.mark.parametrize("block_type", ["thinking", "redacted_thinking"])
+def test_a_reasoning_block_opening_is_an_empty_thinking_delta(block_type: str) -> None:
+    """A model that hides its reasoning streams only empty pieces; its block's start still shows."""
+    start = _stream(
+        {"type": "content_block_start", "index": 0, "content_block": {"type": block_type}},
+        parent="toolu_agent",
+    )
+
+    assert translate_message(start) == [
+        DeltaEvent(kind="thinking", text="", parent_tool_use_id="toolu_agent")
+    ]
+
+
+def test_a_tool_call_starting_names_the_call_before_its_input_lands() -> None:
+    start = _stream(
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {}},
+        }
+    )
+
+    assert translate_message(start) == [
+        ToolStartEvent(name="Read", tool_use_id="toolu_1", parent_tool_use_id=None)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        pytest.param(
+            {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": ""}},
+            [],
+            id="hidden-reasoning-piece",
+        ),
+        pytest.param(
+            {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "Hm"}},
+            [DeltaEvent(kind="thinking", text="Hm", parent_tool_use_id=None)],
+            id="reasoning-piece",
+        ),
+        pytest.param(
+            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}},
+            [DeltaEvent(kind="text", text="Hi", parent_tool_use_id=None)],
+            id="text-piece",
+        ),
+        pytest.param(
+            {"type": "content_block_start", "content_block": {"type": "text", "text": ""}},
+            [],
+            id="text-block-start",
+        ),
+        pytest.param(
+            {"type": "content_block_delta", "delta": {"type": "signature_delta", "signature": "x"}},
+            [],
+            id="signature-piece",
+        ),
+    ],
+)
+def test_stream_pieces_translate_by_kind(event: dict[str, Any], expected: list[DeltaEvent]) -> None:
+    assert translate_message(_stream(event)) == expected
 
 
 def _walk(value: Any) -> list[Any]:

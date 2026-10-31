@@ -78,14 +78,11 @@ unrelated to control-system safety. That allowlist gap has since landed
 from __future__ import annotations
 
 import ast
-import json
 import os
 import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,6 +94,7 @@ from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import env_value, format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
@@ -325,52 +323,16 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # HTTP helpers (mirrors test_orm_roundtrip.py / test_bluesky_catalog_e2e.py)
 # ---------------------------------------------------------------------------
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=10.0)
 
 
 def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "POST", body, headers=headers, timeout=30.0)
 
 
 def _patch(path: str, body: dict) -> tuple[int, Any]:
     """A PATCH against the bridge (the shared draft is the only PATCH surface)."""
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=json.dumps(body).encode("utf-8"),
-        method="PATCH",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
-def _refusal_code(body: Any) -> Any:
-    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
-
-    ``None`` for any other shape, so an assertion reports the drifted body
-    rather than a ``KeyError`` from inside this helper.
-    """
-    detail = body.get("detail") if isinstance(body, dict) else None
-    return detail.get("code") if isinstance(detail, dict) else None
+    return _queue_drive.request(BRIDGE_URL, path, "PATCH", body, timeout=30.0)
 
 
 def _enqueue_session_plan(
@@ -400,32 +362,6 @@ def _enqueue_session_plan(
     if token:
         headers["X-Launch-Token"] = token
     return _post("/queue/items", {"draft_revision": patched["revision"]}, headers=headers)
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
-def _minted_token(repo: Path) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
-    return token
 
 
 # ---------------------------------------------------------------------------
@@ -537,11 +473,8 @@ def deployed_sandbox_stack(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up -d --dev", up))
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See
@@ -628,13 +561,13 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
     # to the queue server, so this asserts BOTH halves of that move: the retired
     # direct-execute route is gone and says so machine-readably, and the path
     # that replaced it refuses the same plan for the same reason.
-    token = _minted_token(deployed_sandbox_stack.repo)
+    token = env_value(deployed_sandbox_stack.repo, "BLUESKY_LAUNCH_TOKEN")
 
     # (c1) the retired route is an unconditional 410 -- never a silent 404, and
     # never something a caller could mistake for "this run does not exist".
     status, body = _post("/runs/not-a-real-run-id/launch", {}, headers={"X-Launch-Token": token})
     assert status == 410, f"expected 410 Gone from the retired launch route, got {status}: {body}"
-    assert _refusal_code(body) == "use_the_queue", (
+    assert _queue_drive.refusal_code(body) == "use_the_queue", (
         f"the retired route must say where the capability went: {body}"
     )
 
@@ -789,7 +722,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
     # two-step mint-then-launch flow had — the pinned revision and the launch
     # token — with the plan running in the queue server's worker rather than
     # in the bridge process.
-    token = _minted_token(deployed_sandbox_stack.repo)
+    token = env_value(deployed_sandbox_stack.repo, "BLUESKY_LAUNCH_TOKEN")
     status, body = _enqueue_session_plan(_POSITIVE_PLAN_NAME, plan_args, token=token)
     assert status == 200, f"POST /queue/items failed: {status} {body}"
     run_id = body["run_id"]

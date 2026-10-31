@@ -38,6 +38,8 @@ import { dirname, join, resolve } from 'node:path';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
+
 const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
 const MODULE = `../../../src/osprey/interfaces/web_terminal/static/js/${ENTRY}`;
@@ -210,25 +212,6 @@ function stubFetch() {
   );
 }
 
-/**
- * happy-dom ships no EventSource, and the chip reaches api.js's real shared
- * stream. A class stub keeps that path intact and counts the sockets.
- */
-class FakeEventSource {
-  /** @type {FakeEventSource[]} */
-  static opened = [];
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-    this.closed = false;
-    FakeEventSource.opened.push(this);
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
@@ -255,13 +238,12 @@ beforeEach(async () => {
     settings.disableCSSFileLoading = true;
     settings.handleDisabledFileLoadingAsSuccess = true;
   }
-  FakeEventSource.opened = [];
   served = viewOf();
   stubFetch();
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.
   localStorage.clear();
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource({ open: true });
   mountLabFixture();
   Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   // Importing the module is how the page runs it: there is no app shell on a

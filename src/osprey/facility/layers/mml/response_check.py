@@ -600,7 +600,7 @@ def _widths(block: Mapping[str, Any]) -> list[float | None]:
     if len(values) != rows:
         return [None] * rows
     widths = [exported_number(_first(value)) for value in values]
-    return [width if width else None for width in widths]
+    return [width or None for width in widths]
 
 
 def _kept_rows(

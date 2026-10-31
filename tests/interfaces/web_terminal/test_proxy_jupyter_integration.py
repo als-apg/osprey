@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
     STARTER_NOTEBOOK_NAME,
@@ -41,6 +41,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     kernel_notebook_path,
 )
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -86,9 +87,9 @@ KERNEL_WS_PROTOCOL_V1 = "v1.kernel.websocket.jupyter.org"
 def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """The environment a sidecar launch reads, and a root to keep it all under.
 
-    This module's own records land in the zone ``_isolate_module_audit_zone``
-    (tests/conftest.py) holds open for the whole module. It is
-    module-scoped, so the ledger's seam is already redirected before this
+    This module's own records land in the spool root
+    ``_isolate_module_spool_zone`` (tests/conftest.py) holds open for the whole
+    module. It is module-scoped, so the record writer is already redirected before this
     fixture is built — which is the window that matters here, the one in which
     ``proxied`` enters the app's lifespan and ``started_session`` posts a
     session through it, both of them module-scoped and so both set up before
@@ -138,11 +139,8 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
     """
     workspace = notebook_env / "_agent_data"
     workspace.mkdir(exist_ok=True)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
+    with terminal_client(
+        workspace,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
@@ -162,12 +160,10 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
             "osprey.infrastructure.server_launcher.ensure_web_server",
             lambda key: None,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            app.state.jupyter_server_url = sidecar.url
-            app.state.panel_auth_headers = {"jupyter": dict(sidecar.auth_headers)}
-            yield client
+    ) as client:
+        client.app.state.jupyter_server_url = sidecar.url
+        client.app.state.panel_auth_headers = {"jupyter": dict(sidecar.auth_headers)}
+        yield client
 
 
 @pytest.fixture(scope="module")
@@ -585,8 +581,8 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     empty and the launcher pops the name outright, so a cell holds neither. The
     ``OSPREY_TERMINAL_`` family is dropped by ``scrub_sandbox_child_env``, which
     is only visible because the terminal's environment set one — all but the
-    launch's terminal session, kept by exact name so the ledger lines a cell
-    writes file under the same session as its OTLP resource.
+    launch's terminal session, kept by exact name so the audit entries a cell
+    records file under the same session as its OTLP resource.
     """
     session_id = uuid.uuid4().hex
 

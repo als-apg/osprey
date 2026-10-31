@@ -8,10 +8,12 @@
 #
 # What an app shares with its deployment is everything that is not the agent:
 # the services (the logbook's Postgres, the qmd search sidecar, the graph
-# store, telemetry), the data tree, the provider and model. The build tells the
+# store, telemetry), the data tree and the provider. The build tells the
 # app's render where those services are (the Reach Contract,
 # `osprey.deployment.reach`), so the operators and this app look at one
 # logbook. The app's own config keys below are laid over the deployment's.
+# It runs the deployment's model too, unless a top-level `model:` here names
+# another one the deployment's provider serves.
 #
 # Every app render is read-only on the machine whatever its config says: the
 # build pins writes never and adds the writes-check hook itself. The write pin

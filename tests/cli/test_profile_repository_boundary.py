@@ -27,8 +27,9 @@ from osprey.cli.build_profile_merge import (
     resolve_profile_document,
 )
 from osprey.cli.main import cli
+from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import BUILD_DIR_NAME, PROFILE_FILENAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import init_project, run_build
 
 pytestmark = [pytest.mark.slow]
@@ -100,7 +101,7 @@ def _template_outside(repo: Path) -> Path:
 def _outside(repo: Path) -> tuple[Any, ...]:
     profile = repo / PROFILE_FILENAME
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
-    return inputs_outside_repository(profile, document)
+    return inputs_outside_repository(document)
 
 
 def test_an_extends_base_beside_the_repository_is_outside(repo: Path) -> None:
@@ -219,7 +220,7 @@ def test_a_repository_built_from_a_clone_images_every_input_its_stamp_folds(
 
     profile = repo / PROFILE_FILENAME
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
-    folded = {entry.path.resolve() for entry in profile_inputs(profile, document)}
+    folded = {entry.path.resolve() for entry in profile_inputs(document)}
     imaged = {(repo.resolve() / path) for path in _image_build_inputs(repo)}
 
     assert folded

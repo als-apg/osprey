@@ -33,6 +33,7 @@ from osprey.bridges.teams.client import (
     token_url,
 )
 from osprey.bridges.teams.config import TeamsBridgeConfig
+from tests.bridges.conftest import FakeClock
 
 APP_ID = "11111111-2222-3333-4444-555555555555"
 APP_SECRET = "a-client-secret"
@@ -48,19 +49,6 @@ def make_config(cloud: str = "commercial") -> TeamsBridgeConfig:
         tenant_id=TENANT,
         cloud=cloud,
     )
-
-
-class FakeClock:
-    """A monotonic clock the test moves by hand."""
-
-    def __init__(self, now: float = 1_000.0) -> None:
-        self.now = now
-
-    def __call__(self) -> float:
-        return self.now
-
-    def advance(self, seconds: float) -> None:
-        self.now += seconds
 
 
 class TokenEndpoint:

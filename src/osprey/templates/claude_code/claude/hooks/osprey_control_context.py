@@ -351,9 +351,9 @@ def _log(payload, status, detail=""):
     writes its memo into ``TMPDIR``, and a silent exit is its normal outcome for
     four different reasons — so "the agent got no block" and "the hook never ran"
     look identical from outside. :func:`osprey_hook_log.log_hook` is the channel
-    that separates them: off by default, and when on it appends one record per
-    run to ``<project>/.claude/hooks/hook_debug.jsonl``, which is also what the
-    web terminal's hook-activity feed reads.
+    that separates them: off by default, and when on it records one hook
+    ``debug`` entry per run on the agent record, which is also what the web
+    terminal's hook-activity feed reads.
 
     Wrapped the way every other hook wraps it (``osprey_writes_check``'s deny
     path is the precedent): a diagnostic may never cost the block it describes.

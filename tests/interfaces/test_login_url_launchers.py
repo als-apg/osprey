@@ -50,6 +50,20 @@ def _clear_published_port(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(WEB_PORT_ENV, raising=False)
 
 
+@pytest.fixture
+def port_at_uvicorn_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
+    """Patch out ``uvicorn.run``, recording the port published when it was called."""
+    seen: dict[str, str | None] = {}
+
+    def _fake_run(*args, **kwargs):
+        import os
+
+        seen["port"] = os.environ.get(WEB_PORT_ENV)
+
+    monkeypatch.setattr("uvicorn.run", _fake_run)
+    return seen
+
+
 class _FactoryRecorder:
     """Stands in for an app factory, recording the port visible when it ran."""
 
@@ -94,7 +108,7 @@ def test_ariel_run_web_publishes_the_port_before_building(monkeypatch):
     assert recorder.port_at_construction == "8185"
 
 
-def test_ariel_reload_publishes_the_port_for_the_spawned_worker(monkeypatch):
+def test_ariel_reload_publishes_the_port_for_the_spawned_worker(port_at_uvicorn_run):
     """Under ``--reload`` the worker inherits the port through the environment.
 
     The factory re-runs in a fresh process there, so the publication has to
@@ -103,35 +117,19 @@ def test_ariel_reload_publishes_the_port_for_the_spawned_worker(monkeypatch):
     """
     from osprey.interfaces.ariel import app as ariel_app
 
-    seen: dict[str, str | None] = {}
-
-    def _fake_run(*args, **kwargs):
-        import os
-
-        seen["port"] = os.environ.get(WEB_PORT_ENV)
-
-    monkeypatch.setattr("uvicorn.run", _fake_run)
     ariel_app.run_web(host="127.0.0.1", port=8185, reload=True)
 
-    assert seen["port"] == "8185"
+    assert port_at_uvicorn_run["port"] == "8185"
 
 
-def test_artifacts_cli_reload_publishes_the_port_for_the_spawned_worker(monkeypatch):
+def test_artifacts_cli_reload_publishes_the_port_for_the_spawned_worker(port_at_uvicorn_run):
     """``osprey artifacts web --reload`` does the same for its worker."""
     from osprey.cli.artifacts_cmd import artifacts
 
-    seen: dict[str, str | None] = {}
-
-    def _fake_run(*args, **kwargs):
-        import os
-
-        seen["port"] = os.environ.get(WEB_PORT_ENV)
-
-    monkeypatch.setattr("uvicorn.run", _fake_run)
     result = CliRunner().invoke(artifacts, ["web", "--port", "8187", "--reload"])
 
     assert result.exit_code == 0, result.output
-    assert seen["port"] == "8187"
+    assert port_at_uvicorn_run["port"] == "8187"
 
 
 def test_channel_finder_web_publishes_the_port_before_building(monkeypatch):

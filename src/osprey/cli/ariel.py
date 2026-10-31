@@ -1314,10 +1314,9 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
         )
     output.warn("this deletes ARIEL data for good", detail)
 
-    if not yes:
-        if not click.confirm("\nAre you sure you want to continue?"):
-            output.report("Nothing was deleted.")
-            return
+    if not yes and not click.confirm("\nAre you sure you want to continue?"):
+        output.report("Nothing was deleted.")
+        return
 
     try:
         asyncio.run(execute_purge(config_dict, embeddings_only, progress=output.report))

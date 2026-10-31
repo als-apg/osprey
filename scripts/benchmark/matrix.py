@@ -227,11 +227,12 @@ def expand_grid(
     }
     max_seed = max((s for seeds in per_model_seeds.values() for s in seeds), default=0)
 
-    cells: list[Cell] = []
-    for seed in range(1, max_seed + 1):
-        for m in models:
-            if seed in per_model_seeds[m["id"]]:
-                cells.append(build_cell(cfg, m, seed))
+    cells: list[Cell] = [
+        build_cell(cfg, m, seed)
+        for seed in range(1, max_seed + 1)
+        for m in models
+        if seed in per_model_seeds[m["id"]]
+    ]
     return cells
 
 

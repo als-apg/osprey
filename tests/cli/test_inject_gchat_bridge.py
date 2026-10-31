@@ -26,13 +26,13 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from jinja2 import Environment, FileSystemLoader
 from ruamel.yaml import YAML
 
-from osprey.cli.build_cmd import _inject_gchat_bridge, build
+from osprey.cli.build_cmd import _inject_gchat_bridge
 from osprey.cli.build_profile import GChatBridgeProfileConfig
 from osprey.deployment.compose_generator import _inject_project_metadata
+from tests.cli._lifecycle_build import invoke_build
 
 _TRIGGERS_YAML = """\
 dispatcher:
@@ -59,11 +59,6 @@ dispatch:
   triggers: triggers.yml
 {gchat_bridge}
 """
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 def _write_config(project_path: Path, *, deployed: list[str] | None = None) -> None:
@@ -112,7 +107,7 @@ def _walk_scalars(node: object, path: str = "") -> list[tuple[str, object]]:
 
 
 def _build_bridge_project(
-    runner: CliRunner, tmp_path: Path, *, gchat_bridge: str = "gchat_bridge: {}"
+    tmp_path: Path, *, gchat_bridge: str = "gchat_bridge: {}"
 ) -> tuple[Path, object]:
     """Run a full ``osprey build`` from a bridge-declaring profile.
 
@@ -126,10 +121,7 @@ def _build_bridge_project(
     (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(gchat_bridge=gchat_bridge), encoding="utf-8"
     )
-    result = runner.invoke(
-        build,
-        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(repo_dir)
     return repo_dir / "build", result
 
 
@@ -324,10 +316,10 @@ def test_inject_gchat_bridge_renders_without_dispatch_pair_deployed(tmp_path: Pa
 # ── full `osprey build` ──────────────────────────────────────────────────────
 
 
-def test_full_build_with_bridge_renders_service_dir(runner: CliRunner, tmp_path: Path) -> None:
+def test_full_build_with_bridge_renders_service_dir(tmp_path: Path) -> None:
     """A full build from a bridge-declaring profile scaffolds the service dir and
     registers the bridge in the project's config.yml."""
-    project_path, result = _build_bridge_project(runner, tmp_path)
+    project_path, result = _build_bridge_project(tmp_path)
 
     assert result.exit_code == 0, result.output
 
@@ -349,9 +341,7 @@ def test_full_build_with_bridge_renders_service_dir(runner: CliRunner, tmp_path:
     assert "dispatch_worker" in deployed
 
 
-def test_full_build_compose_renders_with_no_unrendered_jinja(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_full_build_compose_renders_with_no_unrendered_jinja(tmp_path: Path) -> None:
     """The built project's bridge compose renders clean: no leftover Jinja, and
     every template-substituted value is non-empty.
 
@@ -360,7 +350,7 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     it renders an empty value (or, for `services.gchat_bridge`, an undefined
     attribute error at deploy time), so exit code 0 proves nothing on its own.
     """
-    project_path, result = _build_bridge_project(runner, tmp_path)
+    project_path, result = _build_bridge_project(tmp_path)
     assert result.exit_code == 0, result.output
 
     rendered = _render_bridge_compose(project_path)
@@ -426,12 +416,10 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     assert "${GCHAT_SA_KEY:-/dev/null}:${GCHAT_SA_KEY:-/dev/null}:ro" in svc["volumes"]
 
 
-def test_full_build_custom_trigger_reaches_rendered_compose(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_full_build_custom_trigger_reaches_rendered_compose(tmp_path: Path) -> None:
     """A profile-declared trigger flows profile → config.yml → DISPATCH_TRIGGER."""
     project_path, result = _build_bridge_project(
-        runner, tmp_path, gchat_bridge="gchat_bridge:\n  trigger: other-trigger"
+        tmp_path, gchat_bridge="gchat_bridge:\n  trigger: other-trigger"
     )
     assert result.exit_code == 0, result.output
 
@@ -439,11 +427,9 @@ def test_full_build_custom_trigger_reaches_rendered_compose(
     assert svc["environment"]["DISPATCH_TRIGGER"] == "other-trigger"
 
 
-def test_full_build_without_bridge_scaffolds_no_bridge_service(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_full_build_without_bridge_scaffolds_no_bridge_service(tmp_path: Path) -> None:
     """The block is opt-in: a profile without it deploys no bridge (step 10b3 skipped)."""
-    project_path, result = _build_bridge_project(runner, tmp_path, gchat_bridge="")
+    project_path, result = _build_bridge_project(tmp_path, gchat_bridge="")
     assert result.exit_code == 0, result.output
 
     config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
@@ -452,7 +438,7 @@ def test_full_build_without_bridge_scaffolds_no_bridge_service(
     assert not (project_path / "services" / "gchat_bridge").exists()
 
 
-def test_full_build_both_bridges_coexist(runner: CliRunner, tmp_path: Path) -> None:
+def test_full_build_both_bridges_coexist(tmp_path: Path) -> None:
     """Declaring both chat bridges deploys both, each with its own trigger.
 
     The two channels are independent injectors writing disjoint config keys, so
@@ -471,10 +457,7 @@ def test_full_build_both_bridges_coexist(runner: CliRunner, tmp_path: Path) -> N
         _PROFILE_YAML.format(gchat_bridge="gchat_bridge: {}") + "nextcloud_bridge: {}\n",
         encoding="utf-8",
     )
-    result = runner.invoke(
-        build,
-        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(repo_dir)
     assert result.exit_code == 0, result.output
 
     project_path = repo_dir / "build"
@@ -502,7 +485,7 @@ def _build_errors(caplog: pytest.LogCaptureFixture) -> str:
 
 
 def test_full_build_bridge_without_dispatch_block_aborts(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A bridge declared with no dispatch: block aborts the build with the fix named.
 
@@ -519,10 +502,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
         encoding="utf-8",
     )
     with caplog.at_level(logging.ERROR):
-        result = runner.invoke(
-            build,
-            ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-        )
+        result = invoke_build(repo_dir)
 
     assert result.exit_code != 0
     errors = _build_errors(caplog)
@@ -532,13 +512,13 @@ def test_full_build_bridge_without_dispatch_block_aborts(
 
 
 def test_full_build_unknown_trigger_aborts(
-    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A trigger absent from the resolved triggers file aborts the build, listing
     the names that ARE declared."""
     with caplog.at_level(logging.ERROR):
         project_path, result = _build_bridge_project(
-            runner, tmp_path, gchat_bridge="gchat_bridge:\n  trigger: ghost"
+            tmp_path, gchat_bridge="gchat_bridge:\n  trigger: ghost"
         )
 
     assert result.exit_code != 0

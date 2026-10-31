@@ -24,20 +24,18 @@ Three conditions, all required, applied to every module and to the total:
 * something passed -- an empty or fully deselected run is not a green run.
 
 **Each module runs in a process of its own.** This is the one thing about the
-gate's shape that is not obvious, so: the live modules each pick a Channel
-Access port at import time with
-``os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())``. ``setdefault``
-means the FIRST module imported in a process wins, and every later one inherits
-its port -- so in a single combined pytest run, the second module stands a
-second ``pcaspy.SimpleServer`` up on a port the process-wide libca client has
-already latched onto the first server. The observed symptom was every test in
+gate's shape that is not obvious, so: the live modules each hold a Channel
+Access port for the process from import time (``hold_ports``), and libca
+latches the first CA settings a process uses -- so in a single combined pytest
+run, the second module stands a second ``pcaspy.SimpleServer`` up on a port the
+process-wide libca client has already latched onto the first server. The observed symptom was every test in
 the second module erroring at fixture setup with "the Channel Access server
 never became reachable", intermittently: twice in roughly twenty-seven combined
 runs, while the same module alone in a fresh process went twenty for twenty.
 
-Running one module per process is what makes that ``setdefault`` do what it
-looks like it does -- each module gets its own free port, its own server and
-its own libca -- and it is also the shape this repo's Channel Access notes
+Running one module per process is what makes each module's port the one its
+client uses -- each module gets its own held port, its own server and its own
+libca -- and it is also the shape this repo's Channel Access notes
 already point at (one server per process, unique PV names, no ``clear_cache``).
 
 Counts still come from pytest's own terminal reporter rather than its printed

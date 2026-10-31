@@ -285,9 +285,9 @@ def status_command(repo: Path | None, target: str | None) -> None:
     for model in models:
         output.report(f"{model}: {statuses[model]}")
 
+    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
     from osprey_connectors.simulation import format_overlap_record
     from osprey_connectors.simulation.composite import log_dir
-    from osprey_connectors.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
 
     logs = log_dir()
     if logs is None:

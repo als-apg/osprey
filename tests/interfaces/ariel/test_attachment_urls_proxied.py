@@ -22,14 +22,17 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.web_terminal.routes.proxy import _rewrite_content
-
-from .test_attachment_routes import _viewable_row
-from .test_routes import _PNG_URL, _att_entry, _row
+from tests.interfaces.ariel._attachments import (
+    PNG_URL,
+    attachment_entry,
+    attachment_row,
+    viewable_row,
+)
+from tests.interfaces.ariel._routes_app import routes_app
 
 _STATIC_JS = Path(__file__).resolve().parents[3] / "src/osprey/interfaces/ariel/static/js"
 _OUTER = "/u/alice"
@@ -40,10 +43,10 @@ _needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="needs nod
 
 def _viewable_display_url() -> tuple[str, str]:
     """The (attachment_id, display_url) the entry routes send for a viewable picture."""
-    item = {"url": _PNG_URL, "filename": "pic.png", "type": "image/png"}
-    row = _row("e-att", item, mime_type="image/png", viewable=True)
+    item = {"url": PNG_URL, "filename": "pic.png", "type": "image/png"}
+    row = attachment_row("e-att", item, mime_type="image/png", viewable=True)
     response = routes._entry_to_response(
-        _att_entry([item]), attachment_rows=[row], model_id=None, file_source=False
+        attachment_entry([item]), attachment_rows=[row], model_id=None, file_source=False
     )
     att = response.attachments[0]
     assert att.viewable is True and att.display_url
@@ -91,12 +94,9 @@ def test_standalone_page_requests_a_rendition_the_server_serves(tmp_path):
     service = AsyncMock()
     service.repository = AsyncMock()
     service.repository.get_rendition = AsyncMock(
-        return_value=_viewable_row(attachment_id=attachment_id, entry_id="e-att")
+        return_value=viewable_row(attachment_id=attachment_id, entry_id="e-att")
     )
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     served = TestClient(app).get(src)
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/jpeg"

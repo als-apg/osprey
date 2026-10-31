@@ -25,19 +25,22 @@
       }
 {%- endmacro -%}
 {
-  "showThinkingSummaries": true,
+{#- The deployment's `claude_code.thinking.display`: "summarized" (the default)
+    shows thinking summaries, "omitted" hides them. The key is always stated,
+    true or false, so a missing value never falls back silently. This setting
+    reaches interactive sessions only; `--print` and SDK runs take the display
+    as a launch argument instead. #}
+  "showThinkingSummaries": {{ "true" if show_thinking_summaries else "false" }},
 {%- if terminal_theme %}
 {#- The terminal follows the deployment's `web.theme`, and only when that
     value PINS a mode (a concrete theme id like "desy-light"). A family pins
     nothing and this line is absent — Claude Code's own default applies. -#}
   "theme": {{ terminal_theme | tojson }},
 {%- endif %}
-{%- if transcripts_retention_days %}
-{#- The deployment's `claude_code.transcripts.retention_days`: Claude Code
-    deletes transcripts older than this at startup. Absent, the line is absent
-    and Claude Code's own default (30 days) applies. -#}
-  "cleanupPeriodDays": {{ transcripts_retention_days }},
-{%- endif %}
+{#- Claude Code deletes transcripts older than this at startup:
+    max(`agent_record.retention_days`, 30), so the record's retention is
+    never cut short by the deletion. -#}
+  "cleanupPeriodDays": {{ cleanup_period_days }},
   "outputStyle": ".claude/output-styles/control-operator.md",
   "statusLine": {
     "type": "command",

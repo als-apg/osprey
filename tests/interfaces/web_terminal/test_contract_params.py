@@ -56,13 +56,13 @@ import time
 
 import pytest
 
-from tests.interfaces.test_load_smokes import (
-    _launch_ariel,
-    _launch_artifacts,
-    _launch_channel_finder,
-    _launch_lattice_dashboard,
-    _launch_okf_panel,
-    _launch_web_terminal,
+from tests.interfaces._launchers import (
+    launch_ariel,
+    launch_artifacts,
+    launch_channel_finder,
+    launch_lattice_dashboard,
+    launch_okf_panel,
+    launch_web_terminal,
 )
 
 try:
@@ -93,7 +93,7 @@ def test_hash_deep_links_to_concept(tmp_path, monkeypatch, chromium_browser):
     hash.
     """
     # Arrange
-    with _launch_okf_panel(tmp_path, monkeypatch) as base_url:
+    with launch_okf_panel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         # Act
@@ -129,7 +129,7 @@ def test_postmessage_theme_change_same_origin_only(tmp_path, monkeypatch, chromi
     role (it owns its own display menu) and ignores them by design.
     """
     # Arrange
-    with _launch_channel_finder(tmp_path, monkeypatch) as base_url:
+    with launch_channel_finder(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(f"{base_url}?theme=dark&embedded=true", wait_until="load")
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
@@ -173,7 +173,7 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
     request below needs no extra UI action to trigger it.
     """
     # Arrange
-    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+    with launch_artifacts(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as initial_info:
@@ -228,7 +228,7 @@ def test_postmessage_session_change_session_html_rejects_foreign_origin(
     fetch is the observable signal for whether the receiver updated it.
     """
     # Arrange
-    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         with page.expect_request(lambda r: "/api/session-agents" in r.url) as initial_info:
@@ -286,7 +286,7 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
     the socket itself stays open and paste still works.)
     """
     # Arrange
-    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         sent_frames: list[str] = []
 
@@ -350,7 +350,7 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # contract holds on every panel, not just the one or two it was developed
 # against.
 # web_terminal's own session.html joins as fleet page 7, via a
-# path-override on `_launch_web_terminal` (same hub server
+# path-override on `launch_web_terminal` (same hub server
 # test_load_smokes.py's own '/' case boots) rather than a distinct
 # launcher -- session.html is a static page under the hub's /static
 # mount, not a second app.
@@ -390,11 +390,11 @@ _CHROME_CONTRACT_PANELS = [
     # ariel hides its whole `.header` embedded (the tile bar is its only
     # header), so the branding assertion targets the element carrying the
     # rule -- `.logo` inside it still computes its own `display: flex`.
-    ("ariel", _launch_ariel, "", ".header", "osprey-display-menu", _toggle_via_display_menu),
-    ("artifacts", _launch_artifacts, "", ".logo", "osprey-display-menu", _toggle_via_display_menu),
+    ("ariel", launch_ariel, "", ".header", "osprey-display-menu", _toggle_via_display_menu),
+    ("artifacts", launch_artifacts, "", ".logo", "osprey-display-menu", _toggle_via_display_menu),
     (
         "channel_finder",
-        _launch_channel_finder,
+        launch_channel_finder,
         "",
         ".app-logo",
         "osprey-display-menu",
@@ -402,16 +402,16 @@ _CHROME_CONTRACT_PANELS = [
     ),
     (
         "lattice_dashboard",
-        _launch_lattice_dashboard,
+        launch_lattice_dashboard,
         "",
         ".topbar-logo",
         "osprey-display-menu",
         _toggle_via_display_menu,
     ),
-    ("okf_panel", _launch_okf_panel, "", None, "osprey-display-menu", _toggle_via_display_menu),
+    ("okf_panel", launch_okf_panel, "", None, "osprey-display-menu", _toggle_via_display_menu),
     (
         "web_terminal_session",
-        _launch_web_terminal,
+        launch_web_terminal,
         "/static/session.html",
         "header h1",
         "osprey-theme-switcher",
@@ -566,7 +566,7 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
     inside the viewport for the panel to remain switchable when embedded.
     """
     # Arrange
-    with _launch_channel_finder(tmp_path, monkeypatch) as base_url:
+    with launch_channel_finder(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         # Act

@@ -265,15 +265,14 @@ async def _nearest_pictures(
 ) -> dict[str, ImageHit]:
     """Each entry's nearest picture among the ``k`` pictures nearest ``vector``."""
     params = {"q": vector_literal(vector), "k": k}
-    async with pool.connection(timeout=IMAGE_LANE_SQL_TIMEOUT_S) as conn:
-        async with conn.transaction():
-            await conn.execute(
-                "SELECT set_config('hnsw.ef_search', %(ef)s, true), "
-                "set_config('statement_timeout', %(st)s, true)",
-                {"ef": _ef_search(k), "st": str(STATEMENT_TIMEOUT_MS)},
-            )
-            cursor = await conn.execute(_NEAREST_SQL.format(table=settings.table), params)
-            rows = await cursor.fetchall()
+    async with pool.connection(timeout=IMAGE_LANE_SQL_TIMEOUT_S) as conn, conn.transaction():
+        await conn.execute(
+            "SELECT set_config('hnsw.ef_search', %(ef)s, true), "
+            "set_config('statement_timeout', %(st)s, true)",
+            {"ef": _ef_search(k), "st": str(STATEMENT_TIMEOUT_MS)},
+        )
+        cursor = await conn.execute(_NEAREST_SQL.format(table=settings.table), params)
+        rows = await cursor.fetchall()
     hits: dict[str, ImageHit] = {}
     for row in rows:
         entry_id, attachment_id, similarity = _row_values(row)

@@ -894,9 +894,6 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
     not only the bluesky one the hole was found in."""
     cases = {
         "postgresql": {"ariel": {"search_modules": {}}},
-        "telemetry_gateway": {
-            "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}}
-        },
         # Switched on by the connector block a VA is configured from, and
         # naming no gateway address of its own — the shape that has to be
         # refused, since the fill would send the client to loopback.
@@ -974,7 +971,7 @@ def test_a_deploying_render_may_name_a_service_it_does_not_run():
         },
     ]
     for config in external:
-        assert reach_errors({**config, "deployed_services": ["telemetry_store"]}) == [], config
+        assert reach_errors({**config, "deployed_services": ["mongodb"]}) == [], config
 
 
 def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
@@ -993,7 +990,11 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
         for contract in REACH_CONTRACTS.values()
         if contract.derived_by or contract.no_client_reach
     ]
-    assert {c.service for c in silent} >= {"mongodb", "archiver_recorder", "dispatch_worker"}
+    assert {c.service for c in silent} >= {
+        "mongodb",
+        "archiver_recorder",
+        "dispatch_worker",
+    }
     for contract in silent:
         assert contract.consumers == (), contract.service
 

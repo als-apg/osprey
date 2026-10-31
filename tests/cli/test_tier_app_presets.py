@@ -66,7 +66,6 @@ from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.cli.build_profile_document import retired_write_answer
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.build_profile_presets import _presets_dir, list_apps, list_presets, list_tiers
-from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
@@ -86,8 +85,10 @@ from osprey.port_layout import (
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import configured_targets, tier_writes
-from tests._preset_data import bundle_data_root
+from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.cli._template_projects import graph_permission_entries
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 TIER_NAMES = ("readonly", "readwrite", "admin")
@@ -505,37 +506,6 @@ def test_no_stem_is_both_a_tier_and_an_app() -> None:
     assert not (set(TIER_NAMES) & set(APP_NAMES))
 
 
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -743,11 +713,8 @@ def _build_layered_stack(repo: Path) -> Path:
     Returns:
         The repo root; the renders live under ``<repo>/build/``.
     """
-    from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
-
-    built = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    built = invoke_build(repo)
     assert built.exit_code == 0, built.output
     return repo
 
@@ -776,19 +743,8 @@ def _build_render_stack(repo: Path) -> Path:
 
 def _render_dir(stack: Path, name: str) -> Path:
     """The render of tier or app *name* in a built *stack*."""
-    host = yaml.safe_load((stack / "build" / "config.yml").read_text(encoding="utf-8"))
+    host = rendered_config(stack)
     return stack / "build" / f"{host['project_name']}-{name}"
-
-
-def _graph_permission_entries() -> list[str]:
-    """The four rendered permission strings, derived from the registry.
-
-    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
-    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
-    qualification happens here rather than being restated where it could drift
-    from what the render emits.
-    """
-    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
 
 
 def _graph_entries(values) -> list[str]:
@@ -1445,9 +1401,7 @@ class TestControlAssistantTiersAndApps:
         assert project.is_dir(), f"{tier} was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
         # The store's address, projected from the host, beside the corpus the
         # tier stages for itself (render-local, never stripped).
         assert (config.get("services") or {}).get("graphdb") == {
@@ -1456,7 +1410,7 @@ class TestControlAssistantTiersAndApps:
         }
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions["allow"]) == graph_permission_entries()
         assert _graph_entries(permissions.get("ask") or []) == []
 
         graph_server = json.loads((project / ".mcp.json").read_text())["mcpServers"]["graph"]
@@ -1522,9 +1476,7 @@ class TestControlAssistantTiersAndApps:
         """
         project = _render_dir(built_layered_stack, tier)
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
 
         assert config["services"] == {
             "qmd": {"port": host["services"]["qmd"]["port"]},
@@ -1537,7 +1489,6 @@ class TestControlAssistantTiersAndApps:
                 "username": host["services"]["postgresql"]["username"],
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
-            "telemetry_gateway": {"port": host["services"]["telemetry_gateway"]["port"]},
             # The single lane declares no `target`: it is addressed by the
             # fallback, the simulator the baseline names.
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
@@ -1560,9 +1511,7 @@ class TestControlAssistantTiersAndApps:
                 encoding="utf-8"
             )
         )
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
         for panel in ("events", "bluesky"):
             told = config["web"]["panels"][panel]
             hosts = host["web"]["panels"][panel]
@@ -1629,7 +1578,7 @@ class TestControlAssistantTiersAndApps:
         assert graphdb.get("port_host") == default_port("graphdb_bolt"), graphdb
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions["allow"]) == graph_permission_entries()
 
         agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
         assert "facility-knowledge-graph" in agents
@@ -1947,7 +1896,7 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = _create_project(
+        project_dir = create_project_as_built(
             TemplateManager(),
             project_name="ctx-ship-test",
             output_dir=tmp_path,
@@ -1974,7 +1923,7 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = _create_project(
+        project_dir = create_project_as_built(
             TemplateManager(),
             project_name="ctx-ship-hello",
             output_dir=tmp_path,
@@ -2004,7 +1953,7 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        rendered = _create_project(
+        rendered = create_project_as_built(
             TemplateManager(),
             project_name="ctx-seed-hello",
             output_dir=tmp_path,

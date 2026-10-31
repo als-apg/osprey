@@ -49,6 +49,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest.mock import patch
 
 import click
 import pytest
@@ -58,8 +59,8 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.models.provider_registry import PROVIDER_API_KEYS
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import parse_dotenv_file
-from osprey_connectors.workspace import TIERS_DIRNAME
 
 # The provider key value the whole suite tracks. `hello-world` selects the
 # anthropic provider, so this is the one key `osprey init` seeds.
@@ -101,16 +102,12 @@ def _sanitized_provider_env() -> Iterator[None]:
     suite. ``monkeypatch`` is not used because the module-scoped fixture below
     is set up before pytest's function-scoped environment guards exist.
     """
-    saved = dict(os.environ)
-    try:
+    with patch.dict(os.environ):
         for var in PROVIDER_API_KEYS.values():
             if var:
                 os.environ.pop(var, None)
         os.environ[PROVIDER_VAR] = PROFILE_KEY_VALUE
         yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
 
 
 def _invoke(cli: click.Command, args: list[str]) -> Result:
@@ -738,7 +735,6 @@ config:
   control_system.connector.virtual_accelerator.serving: in_process
   archiver.type: mock_archiver
   approval.enabled: false
-  claude_code.telemetry.enabled: false
   hooks.debug: false
 """
 

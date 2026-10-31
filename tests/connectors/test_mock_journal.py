@@ -28,8 +28,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
-from osprey_connectors_tests._write_fakes import arm_switch
-from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
@@ -49,7 +48,7 @@ def _switch_on(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def writes_enabled(monkeypatch):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
 
 def _journal(view: Path) -> Path:

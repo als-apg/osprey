@@ -34,6 +34,20 @@ def _make_app(**state) -> FastAPI:
     return bare_route_app(router, **state)
 
 
+#: ``(OSPREY_TERMINAL_USER, the prefix it bakes in)``: under a user, and unset.
+_PREFIXES = [
+    pytest.param("alice", "/u/alice", id="under_user"),
+    pytest.param(None, "", id="empty_prefix"),
+]
+
+
+def _set_user(monkeypatch, user: str | None) -> None:
+    if user is None:
+        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+    else:
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", user)
+
+
 # ---- The *_server_config endpoints ----
 
 
@@ -50,25 +64,16 @@ def _make_app(**state) -> FastAPI:
     ],
 )
 class TestServerConfigEndpointsPrefix:
-    def test_prefixed_under_user(self, monkeypatch, path, state_key, panel_id):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+    @pytest.mark.parametrize(("user", "prefix"), _PREFIXES)
+    def test_url_carries_the_prefix(self, monkeypatch, path, state_key, panel_id, user, prefix):
+        _set_user(monkeypatch, user)
         app = _make_app(**{state_key: "http://127.0.0.1:9000"})
         client = TestClient(app)
 
         resp = client.get(path)
 
         assert resp.status_code == 200
-        assert resp.json()["url"] == f"/u/alice/panel/{panel_id}"
-
-    def test_empty_prefix_unchanged(self, monkeypatch, path, state_key, panel_id):
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        app = _make_app(**{state_key: "http://127.0.0.1:9000"})
-        client = TestClient(app)
-
-        resp = client.get(path)
-
-        assert resp.status_code == 200
-        assert resp.json()["url"] == f"/panel/{panel_id}"
+        assert resp.json()["url"] == f"{prefix}/panel/{panel_id}"
 
 
 # ---- GET /api/panels ----
@@ -116,8 +121,9 @@ class TestRegisterPanelPrefix:
         )
         return TestClient(app)
 
-    def test_register_response_and_broadcast_prefixed_under_user(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+    @pytest.mark.parametrize(("user", "prefix"), _PREFIXES)
+    def test_register_response_and_broadcast_carry_the_prefix(self, monkeypatch, user, prefix):
+        _set_user(monkeypatch, user)
         client = self._client()
 
         with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
@@ -127,24 +133,9 @@ class TestRegisterPanelPrefix:
             )
 
         assert resp.status_code == 200
-        assert resp.json()["url"] == "/u/alice/panel/grafana"
+        assert resp.json()["url"] == f"{prefix}/panel/grafana"
         event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == "/u/alice/panel/grafana"
-
-    def test_register_response_and_broadcast_empty_prefix_unchanged(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        client = self._client()
-
-        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
-            resp = client.post(
-                "/api/panels/register",
-                json={"id": "grafana", "label": "GRAFANA", "url": "http://grafana.lan:3000"},
-            )
-
-        assert resp.status_code == 200
-        assert resp.json()["url"] == "/panel/grafana"
-        event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == "/panel/grafana"
+        assert event["url"] == f"{prefix}/panel/grafana"
 
 
 # ---- POST /api/panel-focus broadcast ----
@@ -159,54 +150,31 @@ class TestSetPanelFocusPrefix:
         )
         return TestClient(app)
 
-    def test_root_absolute_url_prefixed_under_user(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+    @pytest.mark.parametrize(
+        ("user", "url", "broadcast"),
+        [
+            # A root-absolute URL is prefixed under a user ...
+            pytest.param("alice", "/panel/ariel", "/u/alice/panel/ariel", id="root_absolute"),
+            # ... and an already-absolute one is never touched.
+            pytest.param(
+                "alice",
+                "https://grafana.lan:3000/d/abc",
+                "https://grafana.lan:3000/d/abc",
+                id="absolute",
+            ),
+            pytest.param("alice", "//evil.example/x", "//evil.example/x", id="protocol_relative"),
+            pytest.param(None, "/panel/ariel", "/panel/ariel", id="root_absolute_empty_prefix"),
+        ],
+    )
+    def test_broadcast_url(self, monkeypatch, user, url, broadcast):
+        _set_user(monkeypatch, user)
         client = self._client()
 
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "ariel", "url": "/panel/ariel", "source": "agent"},
+            json={"panel": "ariel", "url": url, "source": "agent"},
         )
 
         assert resp.status_code == 200
         event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == "/u/alice/panel/ariel"
-
-    def test_absolute_url_passed_through_unchanged(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        client = self._client()
-
-        resp = client.post(
-            "/api/panel-focus",
-            json={"panel": "ariel", "url": "https://grafana.lan:3000/d/abc", "source": "agent"},
-        )
-
-        assert resp.status_code == 200
-        event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == "https://grafana.lan:3000/d/abc"
-
-    def test_protocol_relative_url_passed_through_unchanged(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        client = self._client()
-
-        resp = client.post(
-            "/api/panel-focus",
-            json={"panel": "ariel", "url": "//evil.example/x", "source": "agent"},
-        )
-
-        assert resp.status_code == 200
-        event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == "//evil.example/x"
-
-    def test_root_absolute_url_empty_prefix_unchanged(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        client = self._client()
-
-        resp = client.post(
-            "/api/panel-focus",
-            json={"panel": "ariel", "url": "/panel/ariel", "source": "agent"},
-        )
-
-        assert resp.status_code == 200
-        event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == "/panel/ariel"
+        assert event["url"] == broadcast

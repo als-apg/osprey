@@ -188,7 +188,7 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
     )
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
-    inputs = profile_inputs(profile, document)
+    inputs = profile_inputs(document)
     folded = [entry for entry in inputs if entry.role is not ProfileInputRole.DOCUMENT]
     labels = [entry.label for entry in folded]
     assert labels[0] == "data"
@@ -232,7 +232,7 @@ def test_the_data_key_is_the_tree_the_profile_names(tmp_path):
     profile = _write(tmp_path / "alice" / "profile.yml", "name: alice\ndata: ../data\n")
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
-    data = [entry for entry in profile_inputs(profile, document) if entry.label == "data"]
+    data = [entry for entry in profile_inputs(document) if entry.label == "data"]
 
     assert [entry.key for entry in data] == ["../data/"]
     assert data[0].path == (tmp_path / "data").resolve()
@@ -267,9 +267,7 @@ def test_the_documents_are_the_root_profile_and_its_extends_files(tmp_path):
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
     documents = [
-        entry
-        for entry in profile_inputs(profile, document)
-        if entry.role is ProfileInputRole.DOCUMENT
+        entry for entry in profile_inputs(document) if entry.role is ProfileInputRole.DOCUMENT
     ]
 
     assert [entry.path for entry in documents] == [
@@ -299,7 +297,7 @@ def test_a_profile_service_template_is_a_material_input(tmp_path):
         document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
         return [
             entry
-            for entry in profile_inputs(profile, document)
+            for entry in profile_inputs(document)
             if entry.label is not None and entry.label.startswith("services.")
         ]
 

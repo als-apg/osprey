@@ -838,11 +838,6 @@ def test_apply_pull_leaves_an_unchanged_target_alone(
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A deployment repo with nothing in it but the marker that makes it one.
 

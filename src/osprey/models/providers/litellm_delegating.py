@@ -24,7 +24,13 @@ import sys
 from typing import Any
 
 from .base import BaseProvider
-from .litellm_adapter import check_litellm_health, execute_litellm_completion
+from .health import HealthResult
+from .litellm_adapter import (
+    check_litellm_embedding_health,
+    check_litellm_health,
+    execute_litellm_completion,
+    execute_litellm_embedding,
+)
 
 
 class LiteLLMDelegatingProvider(BaseProvider):
@@ -91,5 +97,74 @@ class LiteLLMDelegatingProvider(BaseProvider):
             base_url=self.resolve_base_url(base_url),
             timeout=timeout,
             model_id=model_id or self.health_check_model_id,
+        )
+        return result
+
+
+class LiteLLMEmbeddingDelegatingProvider(LiteLLMDelegatingProvider):
+    """Opt-in base for delegating providers whose endpoint also serves text embeddings.
+
+    Adds :meth:`execute_embedding` / :meth:`check_embedding_health` delegating
+    to the ``litellm_adapter`` embedding helpers, looked up from the concrete
+    subclass's module as the chat helpers are. It is a separate base, not part
+    of :class:`LiteLLMDelegatingProvider`, because what a provider serves is
+    read from the endpoint methods it overrides: every delegating provider
+    would otherwise claim embeddings.
+    """
+
+    def execute_embedding(
+        self,
+        texts: list[str],
+        model_id: str | None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        dimensions: int | None = None,
+        timeout: float = 600.0,
+    ) -> list[list[float]]:
+        """Embed *texts* by delegating to the litellm embedding helper.
+
+        Raises:
+            ValueError: When the endpoint is required and unset, or no model is
+                given and the provider declares no default.
+        """
+        execute = getattr(
+            sys.modules[type(self).__module__],
+            "execute_litellm_embedding",
+            execute_litellm_embedding,
+        )
+        result: list[list[float]] = execute(
+            provider=self.name,
+            texts=texts,
+            model_id=model_id or self.default_embedding_model_id,
+            api_key=api_key,
+            base_url=self.resolve_base_url(base_url),
+            dimensions=dimensions,
+            timeout=timeout,
+        )
+        return result
+
+    def check_embedding_health(
+        self,
+        api_key: str | None,
+        base_url: str | None,
+        model_id: str | None = None,
+        timeout: float = 10.0,
+    ) -> HealthResult:
+        """Check the embedding endpoint by delegating to the litellm embedding health helper."""
+        try:
+            resolved = self.resolve_base_url(base_url)
+        except ValueError as e:
+            return HealthResult(False, str(e), "config")
+        check = getattr(
+            sys.modules[type(self).__module__],
+            "check_litellm_embedding_health",
+            check_litellm_embedding_health,
+        )
+        result: HealthResult = check(
+            provider=self.name,
+            api_key=api_key,
+            base_url=resolved,
+            model_id=model_id or self.health_check_embedding_model_id,
+            timeout=timeout,
         )
         return result

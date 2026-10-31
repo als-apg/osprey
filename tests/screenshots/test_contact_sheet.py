@@ -307,15 +307,16 @@ def test_extra_variants_unique_filenames() -> None:
         assert theme.startswith("retro") or rail is not None
 
 
-def test_capture_fake_session_is_discoverable(tmp_path: Path) -> None:
-    """The fake JSONL parses as a session whose id equals DEMO_SESSION_ID."""
-    path = _write_fake_session(tmp_path)
+def test_capture_fake_session_is_discoverable(tmp_path: Path, monkeypatch) -> None:
+    """The fake JSONL is a session id the hub sees on disk: DEMO_SESSION_ID."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
+    project_dir = tmp_path / "project"
+    discovery = SessionDiscovery(project_dir)
+
+    path = _write_fake_session(discovery._resolve_sessions_dir())
     assert path.name == f"{DEMO_SESSION_ID}.jsonl"
 
-    info = SessionDiscovery._parse_session_file(path)
-    assert info is not None
-    assert info.session_id == DEMO_SESSION_ID
-    assert info.first_message  # a non-empty first user message
+    assert discovery.snapshot_session_ids() == {DEMO_SESSION_ID}
 
     # It is valid JSONL.
     json.loads(path.read_text(encoding="utf-8").strip())

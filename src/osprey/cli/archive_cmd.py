@@ -1,4 +1,4 @@
-"""``osprey archive`` — copy the agent record into an append-only tree.
+"""``osprey archive`` — copy artifact stores and plan-queue history into an append-only tree.
 
 The command copies from a sources tree to a destination tree it is handed and
 knows nothing about compose, config or the repo: inside the bundled ``archive``
@@ -30,19 +30,12 @@ WATCH_FAILURE_CAP = 5
 _sleep = time.sleep
 
 
-def _one_pass(
-    sources: Path,
-    dest: Path,
-    store_url: str | None,
-    backfill_days: int,
-) -> int:
+def _one_pass(sources: Path, dest: Path) -> int:
     """Run one pass and report it; return the ``--once`` exit code."""
     from osprey.services.archive.run import ArchiveDestinationError, run_pass
-    from osprey.services.archive.telemetry_export import TelemetryExporter
 
-    telemetry = TelemetryExporter(url=store_url, backfill_days=backfill_days) if store_url else None
     try:
-        result = run_pass(sources, dest, telemetry=telemetry)
+        result = run_pass(sources, dest)
     except ArchiveDestinationError as exc:
         output.fail("Archive pass could not run.", str(exc))
         return 2
@@ -86,46 +79,25 @@ def _one_pass(
     show_default=True,
     help="Seconds between passes under --watch.",
 )
-@click.option(
-    "--store-url",
-    envvar="OSPREY_ARCHIVE_STORE_URL",
-    default=None,
-    help="Telemetry store HTTP address to export completed days from; unset, none is exported.",
-)
-@click.option(
-    "--store-backfill-days",
-    envvar="OSPREY_ARCHIVE_STORE_BACKFILL_DAYS",
-    type=click.IntRange(min=1),
-    default=14,
-    show_default=True,
-    help="Most completed days a pass exports.",
-)
 def archive(
     once: bool,
     sources: Path,
     dest: Path,
     interval: int,
-    store_url: str | None,
-    store_backfill_days: int,
 ) -> None:
-    """Copy the agent record into an append-only archive.
+    """Copy artifact stores and plan-queue history into an append-only archive.
 
-    Copies transcripts, dispatch run records, artifact stores, plan-queue
-    history, the audit ledger and completed days of telemetry into
-    <dest>/<YYYY-MM-DD>/ with a sha256 MANIFEST.jsonl. Nothing is deleted or
-    rewritten.
-
-    Every telemetry store table is exported per arrival day, and the store's
-    query log per event day, as Parquet. The store is read as the archive
-    account with OSPREY_TELEMETRY_ARCHIVE_PASSWORD from the environment.
+    Copies the artifact stores of web terminals and dispatch workers and the
+    plan-queue lanes' Redis files into <dest>/<YYYY-MM-DD>/ with a sha256
+    MANIFEST.jsonl. Nothing is deleted or rewritten.
     """
     if once:
-        raise SystemExit(_one_pass(sources, dest, store_url, store_backfill_days))
+        raise SystemExit(_one_pass(sources, dest))
 
     could_not_run = 0
     try:
         while True:
-            code = _one_pass(sources, dest, store_url, store_backfill_days)
+            code = _one_pass(sources, dest)
             could_not_run = could_not_run + 1 if code == 2 else 0
             if could_not_run >= WATCH_FAILURE_CAP:
                 output.fail(f"Archive stopped: {WATCH_FAILURE_CAP} passes in a row could not run.")

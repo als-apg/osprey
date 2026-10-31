@@ -33,6 +33,7 @@ import time
 
 import pytest
 
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
@@ -157,10 +158,4 @@ class TestOrbitResponse:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_orbit_response.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

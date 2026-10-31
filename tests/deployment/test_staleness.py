@@ -191,6 +191,6 @@ def test_every_folded_input_has_its_own_digest(tmp_path):
     }
     assert named == {
         staleness.MATERIAL_PREFIX + entry.key
-        for entry in profile_inputs(profile, document)
+        for entry in profile_inputs(document)
         if entry.role is not ProfileInputRole.DOCUMENT
     }

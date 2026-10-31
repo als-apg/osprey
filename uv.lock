@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -9,19 +9,19 @@ resolution-markers = [
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
 [options]
 
 [options.exclude-newer-package]
-lume-pyat = "2026-09-18T00:00:00Z"
-lume-pva-apg = "2026-09-30T00:00:00Z"
 accelerator-middle-layer-apg = "2026-10-11T00:00:00Z"
+lume-pva-apg = "2026-09-30T00:00:00Z"
+lume-pyat = "2026-09-18T00:00:00Z"
 
 [manifest]
 members = [
@@ -782,7 +782,7 @@ wheels = [
 
 [[package]]
 name = "bluesky"
-version = "1.15.1"
+version = "1.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cycler" },
@@ -796,9 +796,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/83/2e5d1956a1c4cd3d4f0bb34605cc2b11f2ce33e48249773292b27e6bba88/bluesky-1.15.1.tar.gz", hash = "sha256:956e161a8f34f698af28edcd501db118fa793a6c43241001e30ed8c6aaabd95c", size = 513978, upload-time = "2026-05-06T14:06:40.116Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/fb/9d72f62bb19fa10fad013a6039e51162ebaac84713a06a167083c4b68775/bluesky-1.16.0.tar.gz", hash = "sha256:e89884e5eb4e4e502d4f1e929f6862ed6827ad48272a928583bf67d2f1745261", size = 516370, upload-time = "2026-10-29T17:13:07.145Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/99/cc217b2a727fdf730d0c0064bc8c03473dfe5d0528f2bd0c4f59fdab4179/bluesky-1.15.1-py3-none-any.whl", hash = "sha256:7b3a0f04cf2bb0a7907771e014e59fe6fced777347df8df84adec7239f6c3d2a", size = 372701, upload-time = "2026-05-06T14:06:38.618Z" },
+    { url = "https://files.pythonhosted.org/packages/da/ca/ad113309c25d01d2166a0ed17fcdcfa453dbf267147d9e9530928dda82a6/bluesky-1.16.0-py3-none-any.whl", hash = "sha256:674b6547bcab7f4dcaf5d403ce2225d52711cbfa363853ce5e2cf5119b802d60", size = 369254, upload-time = "2026-10-29T17:13:05.466Z" },
 ]
 
 [[package]]
@@ -5009,6 +5009,18 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-proto"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/01/40ac4ae9a149263cc52c2cee200ddd80cb6d8db1a4610abf8eabce0fe771/opentelemetry_proto-1.44.0.tar.gz", hash = "sha256:c547a79c2f8c0c515d31509154682e5921c7cfd5ca67b70e1f9266e2c3e103f3", size = 46488, upload-time = "2026-07-16T15:25:45.34Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/7c/8be563d68e93bbefa5c8affb82ddcff91b3ad858ce49957ba7b16fd3e0ab/opentelemetry_proto-1.44.0-py3-none-any.whl", hash = "sha256:898b155a0e1557afd867478fb6158e8122a46329ca0bb8dc53cc55e98f017f56", size = 72483, upload-time = "2026-07-16T15:25:28.429Z" },
+]
+
+[[package]]
 name = "opentelemetry-sdk"
 version = "1.44.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5240,6 +5252,7 @@ dependencies = [
     { name = "numpy" },
     { name = "ollama" },
     { name = "openai" },
+    { name = "opentelemetry-proto" },
     { name = "ophyd-async", extra = ["ca"] },
     { name = "osprey-connectors" },
     { name = "pandas" },
@@ -5406,7 +5419,7 @@ requires-dist = [
     { name = "authlib", specifier = ">=1.7.2" },
     { name = "azure-servicebus", marker = "extra == 'all'", specifier = ">=7.11" },
     { name = "azure-servicebus", marker = "extra == 'teams'", specifier = ">=7.11" },
-    { name = "bluesky", specifier = ">=1.15.1" },
+    { name = "bluesky", specifier = ">=1.16.0" },
     { name = "bluesky-queueserver-api", specifier = "==0.0.13" },
     { name = "bluesky-tiled-plugins", specifier = "==2.0.9" },
     { name = "bokeh", specifier = ">=3.9.1" },
@@ -5466,6 +5479,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "ollama", specifier = ">=0.6.2" },
     { name = "openai", specifier = ">=2.53.0,<3" },
+    { name = "opentelemetry-proto", specifier = ">=1.44.0,<2" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
     { name = "pandas", specifier = ">=2.2.3" },

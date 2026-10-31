@@ -1528,12 +1528,12 @@ class ARIELConfig:
         if self.vocabulary.expand_modes:
             enabled_modules = self.get_enabled_search_modules()
             enabled_text = ", ".join(enabled_modules) or "(none)"
-            for mode in self.vocabulary.expand_modes:
-                if mode not in enabled_modules:
-                    errors.append(
-                        f"{_VOCABULARY_PREFIX}.expand_modes names no enabled search "
-                        f"module: {mode}. Enabled modules: {enabled_text}"
-                    )
+            errors.extend(
+                f"{_VOCABULARY_PREFIX}.expand_modes names no enabled search "
+                f"module: {mode}. Enabled modules: {enabled_text}"
+                for mode in self.vocabulary.expand_modes
+                if mode not in enabled_modules
+            )
 
         # Each search module's own knobs. The resolver that the search path uses
         # is the one consulted here, so a malformed knob surfaces at startup and

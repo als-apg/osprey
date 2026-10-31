@@ -48,15 +48,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -140,34 +138,16 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
     project_dir = repo / "build"
 
     # What `osprey web` does before it serves: the host identity the build
-    # recorded, with that identity's telemetry login. Exported through
-    # monkeypatch so nothing outlives the test.
-    from osprey.deployment.telemetry_credentials import export_built_host_identity
+    # recorded. Exported through monkeypatch so nothing outlives the test.
+    from osprey.agent_record.credentials import export_built_host_identity
 
     launch_env: dict[str, str] = {}
     export_built_host_identity(launch_env, repo)
     for name, value in launch_env.items():
         monkeypatch.setenv(name, value)
     monkeypatch.chdir(project_dir)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(project_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(project_dir) as (base_url, _app):
+        yield base_url
 
 
 def _goto(page: Page, base_url: str) -> None:

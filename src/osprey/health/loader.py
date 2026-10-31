@@ -36,7 +36,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.health.signatures import stat_signature
-from osprey_connectors.workspace import deployment_env_chain, repo_root_for_config
+from osprey.utils.workspace import deployment_env_chain
+from osprey_connectors.workspace import repo_root_for_config
 
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings

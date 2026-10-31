@@ -19,15 +19,14 @@ import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
     PhaseReporter,
     current_reporter,
-    install_reporter,
     is_verbose,
 )
+from tests.cli._reporters import installed
 
 
 class RecordingReporter(PhaseReporter):
@@ -51,32 +50,7 @@ def closed(reporter: RecordingReporter) -> list[str]:
     return [line.strip() for line in reporter.lines if line.lstrip()[:1] in {"✓", "✗", "⚠"}]
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Answer ``init``'s runtime preflight without consulting the host.
-
-    ``--reset`` and ``--up`` are refused up front when no container runtime
-    answers, which is the right behaviour and the wrong dependency for a unit
-    test: left unstubbed these tests pass on a developer's machine with Docker
-    Desktop open and fail on a CI runner that has no daemon, which is a
-    property of the runner rather than of the verb.
-
-    Patched on ``runtime_helper`` itself because that is where the preflight
-    reads it from, at call time. The other callers of this function bind it at
-    import into their own modules, so this reaches exactly the one check these
-    tests need to get past and none of theirs.
-    ``TestContainerRuntimePreflight`` patches it back down, in the test body,
-    where it wins over this.
-    """
-    monkeypatch.setattr(
-        "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
-    )
+pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
 
 
 @pytest.fixture
@@ -87,21 +61,8 @@ def recorder():
     report into it — the same path ``init --up`` puts ``build`` and ``up`` on.
     """
     recording = RecordingReporter()
-    previous = install_reporter(recording)
-    try:
+    with installed(recording):
         yield recording
-    finally:
-        install_reporter(previous)
-
-
-@pytest.fixture
-def restore_reporter():
-    """Put the module handle back, for tests that let a verb install its own."""
-    previous = current_reporter()
-    try:
-        yield
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture
@@ -155,7 +116,6 @@ class TestInstalledReporter:
     """A verb installs one reporter, and `--verbose` decides which."""
 
     @pytest.mark.parametrize("verb", ["up", "restart", "down"])
-    @pytest.mark.usefixtures("restore_reporter")
     def test_a_start_or_stop_verb_installs_a_real_reporter(self, runner, deploy_stubs, verb):
         result = runner.invoke(cli, [verb])
 
@@ -163,7 +123,6 @@ class TestInstalledReporter:
         assert deploy_stubs == [(verb, "PhaseReporter", False)]
 
     @pytest.mark.parametrize("verb", ["up", "restart", "down"])
-    @pytest.mark.usefixtures("restore_reporter")
     def test_verbose_installs_a_null_reporter_that_says_it_is_verbose(
         self, runner, deploy_stubs, verb
     ):
@@ -176,7 +135,7 @@ class TestInstalledReporter:
         assert result.exit_code == 0, result.output
         assert deploy_stubs == [(verb, "NullReporter", True)]
 
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs")
     def test_the_default_handle_is_restored_afterwards(self, runner):
         """The install is scoped to the verb: a process that goes on to do
         something else must not keep printing into a finished run's reporter."""
@@ -302,6 +261,7 @@ class TestBuildPhases:
 
     @pytest.fixture
     def build_stubs(self, monkeypatch, tmp_path: Path, seen):
+        from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
 
@@ -335,6 +295,8 @@ class TestBuildPhases:
             inherited_preset = None
             # No panel selection: nothing for the bar-items warning to check.
             web_panels: list[str] = []
+            # The default record: every build renders agent-record from it.
+            agent_record = AgentRecordConfig()
 
             def resolved_data_root(self, profile_dir: Path) -> Path:
                 return profile_dir / "data"
@@ -426,7 +388,7 @@ class TestBuildPhases:
         assert titles(recorder) == ["→ Rendering the configuration"]
 
     @pytest.fixture
-    def installed(self, monkeypatch):
+    def reporter_at_render(self, monkeypatch):
         """What `build` had installed by the time the render would have run."""
         from osprey.cli import build_cmd
 
@@ -438,22 +400,22 @@ class TestBuildPhases:
         )
         return recorded
 
-    @pytest.mark.usefixtures("build_stubs", "restore_reporter")
-    def test_build_installs_its_own_reporter(self, runner, installed):
+    @pytest.mark.usefixtures("build_stubs")
+    def test_build_installs_its_own_reporter(self, runner, reporter_at_render):
         result = runner.invoke(cli, ["build"])
 
         assert result.exit_code == 0, result.output
-        assert installed == [("PhaseReporter", False)]
+        assert reporter_at_render == [("PhaseReporter", False)]
 
-    @pytest.mark.usefixtures("build_stubs", "restore_reporter")
-    def test_verbose_silences_the_build_phases(self, runner, installed):
+    @pytest.mark.usefixtures("build_stubs")
+    def test_verbose_silences_the_build_phases(self, runner, reporter_at_render):
         """The render is the biggest captured-subprocess consumer on the build
         path, so `is_verbose()` being True here is what makes `--verbose` mean
         "stream it" rather than just "print no phases"."""
         result = runner.invoke(cli, ["--verbose", "build"])
 
         assert result.exit_code == 0, result.output
-        assert installed == [("NullReporter", True)]
+        assert reporter_at_render == [("NullReporter", True)]
 
 
 class TestResetPhases:
@@ -477,7 +439,6 @@ class TestResetPhases:
         assert reset_stub == [("reset", "RecordingReporter", False)]
         assert recorder.lines == []
 
-    @pytest.mark.usefixtures("restore_reporter")
     def test_verbose_reaches_reset_too(self, runner, reset_stub):
         """Reset's teardown reaches the same captured-subprocess helpers the
         start verbs do, and `--verbose` has to mean the same thing there."""
@@ -596,7 +557,6 @@ class TestInitPhases:
         assert len({handle for _, _, handle in init_stubs}) == 1
         assert titles(recorder) == ["→ Creating probe", "→ Preflight", "→ Starting probe"]
 
-    @pytest.mark.usefixtures("restore_reporter")
     def test_the_chain_shares_the_reporter_init_installed(self, runner, init_stubs, tmp_path):
         """Same property with nothing pre-installed: the reporter the chained
         verbs report into is the one `init` installed, not one of their own."""
@@ -632,7 +592,6 @@ class _RecordSink(logging.Handler):
 def debug_probe(
     monkeypatch,
     deploy_stubs,  # noqa: ARG001 - stubs the layer the verb this probe watches runs through
-    restore_reporter,  # noqa: ARG001 - gives back the reporter handle that verb installs
 ):
     """One DEBUG record emitted from inside a running verb, and what survived.
 

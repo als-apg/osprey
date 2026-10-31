@@ -265,6 +265,22 @@ def test_an_edited_logbook_retired_tier_stays_a_tier_and_the_manual_step_is_prin
     assert "tiers/logbook.yml was made from `control-assistant-logbook`" in result.output
 
 
+def test_the_manual_step_for_an_edited_logbook_names_its_model(tmp_path: Path) -> None:
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    layer_file = root / f"{RETIRED_CATALOG_KEY}" / "logbook.yml"
+    layer_file.write_text(
+        layer_file.read_text(encoding="utf-8") + "model: claude-sonnet-5\n", encoding="utf-8"
+    )
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert (root / "tiers" / "logbook.yml").is_file()
+    assert "its `model: claude-sonnet-5` among them, into apps/logbook.yml" in " ".join(
+        result.output.split()
+    )
+
+
 def test_an_edited_tier_retired_tier_is_kept_as_written(tmp_path: Path) -> None:
     root = _previous_release_repo(tmp_path / "als-exemplar")
     layer_file = root / f"{RETIRED_CATALOG_KEY}" / "readwrite.yml"

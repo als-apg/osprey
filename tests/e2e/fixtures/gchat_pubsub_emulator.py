@@ -54,7 +54,6 @@ import base64
 import json
 import os
 import shutil
-import socket
 import subprocess
 import time
 from collections.abc import Iterator, Mapping
@@ -63,6 +62,9 @@ from typing import Any
 
 import httpx
 import pytest
+
+from osprey_connectors_tests._harness._ports import reserved_port
+from tests.e2e._deploy_support import RUNTIME
 
 __all__ = [
     "PUBSUB_CONTAINER",
@@ -73,19 +75,6 @@ __all__ = [
     "pubsub_emulator",
     "runtime_available",
 ]
-
-# ---------------------------------------------------------------------------
-# Container runtime selection — ``docker`` by default, ``podman`` opt-in via
-# OSPREY_E2E_RUNTIME. Any other value fails clearly at import time rather than
-# silently falling back to docker. Same contract as
-# tests/e2e/test_nextcloud_talk_bridge_e2e.py, so one env var drives both lanes.
-# ---------------------------------------------------------------------------
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # ---------------------------------------------------------------------------
 # Fixture identity — the one runtime resource this module creates.
@@ -144,13 +133,6 @@ def image_available() -> bool:
     if _runtime("image", "inspect", IMAGE, check=False).returncode == 0:
         return True
     return _runtime("pull", IMAGE, check=False, timeout=PULL_TIMEOUT_SEC).returncode == 0
-
-
-def _free_port() -> int:
-    """Bind to :0, read the assigned port, release it (standard free-port trick)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _container_logs(name: str, tail: int = 60) -> str:
@@ -272,23 +254,24 @@ class PubSubEmulator:
         died without teardown does not block this one.
         """
         _remove_container(PUBSUB_CONTAINER)
-        port = _free_port()
-        _runtime(
-            "run",
-            "-d",
-            "--name",
-            PUBSUB_CONTAINER,
-            "-p",
-            f"127.0.0.1:{port}:{EMULATOR_CONTAINER_PORT}",
-            IMAGE,
-            "gcloud",
-            "beta",
-            "emulators",
-            "pubsub",
-            "start",
-            f"--host-port=0.0.0.0:{EMULATOR_CONTAINER_PORT}",
-            f"--project={project}",
-        )
+        # The published port is held as a reservation until the runtime binds it.
+        with reserved_port() as port:
+            _runtime(
+                "run",
+                "-d",
+                "--name",
+                PUBSUB_CONTAINER,
+                "-p",
+                f"127.0.0.1:{port}:{EMULATOR_CONTAINER_PORT}",
+                IMAGE,
+                "gcloud",
+                "beta",
+                "emulators",
+                "pubsub",
+                "start",
+                f"--host-port=0.0.0.0:{EMULATOR_CONTAINER_PORT}",
+                f"--project={project}",
+            )
         emulator = cls(port=port, project=project)
         try:
             emulator._wait_until_ready()

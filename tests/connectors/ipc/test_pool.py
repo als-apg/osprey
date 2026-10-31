@@ -22,7 +22,6 @@ import signal
 import subprocess
 import sys
 import textwrap
-import time
 from pathlib import Path
 
 import pytest
@@ -48,6 +47,8 @@ from osprey_connectors_tests._harness._control_context_fixtures import write_con
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests._child_stubs import CHILD_STUBS
+from tests._live import async_wait_until, wait_until
+from tests._processes import pid_alive
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -192,14 +193,6 @@ def asyncio_errors(caplog):
         return [record.getMessage() for record in caplog.records if record.name == "asyncio"]
 
     return collected
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 def _abandon(pid: int) -> None:
@@ -517,7 +510,7 @@ async def test_a_killed_child_fails_its_call_once_and_the_next_call_respawns(poo
     first_pid = live.pid
 
     write = asyncio.create_task(live.write_channel("SLOW:SP", 7.0))
-    await _wait_for(lambda: log.exists() and log.read_text().strip())
+    await async_wait_until(lambda: log.exists() and log.read_text().strip())
     os.kill(first_pid, signal.SIGKILL)
 
     with pytest.raises(ConnectorHostLostError) as caught:
@@ -560,7 +553,7 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
         await asyncio.wait_for(bystander, 10.0)
     assert also.value.cause == "unresponsive"
 
-    assert not _alive(first_pid)
+    assert not pid_alive(first_pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert live.pid != first_pid
 
@@ -578,7 +571,7 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
-    assert live.pid == pid and _alive(pid)
+    assert live.pid == pid and pid_alive(pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
     _abandon(pid)
@@ -603,7 +596,7 @@ async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills
     assert isinstance(timed_out, ConnectorHostLostError)
     assert (timed_out.target, timed_out.pid, timed_out.cause) == ("live", pid, "write_timeout")
     assert "may or may not have landed" in str(timed_out)
-    assert not _alive(pid)
+    assert not pid_alive(pid)
     assert pool.pids() == {}
 
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
@@ -622,7 +615,7 @@ async def test_kill_on_write_timeout_leaves_a_read_that_times_out_on_the_ping_ru
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
-    assert live.pid == pid and _alive(pid)
+    assert live.pid == pid and pid_alive(pid)
     _abandon(pid)
 
 
@@ -634,7 +627,7 @@ async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):
     with pytest.raises(ConnectorHostUnresponsiveError):
         await live.read_channel("WEDGE:X")
 
-    assert not _alive(first_pid)
+    assert not pid_alive(first_pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert live.pid != first_pid
 
@@ -644,7 +637,7 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     live = await pool.connector("live")
     old = pool._children[("live", None)]
     os.kill(old.pid, signal.SIGKILL)
-    await _wait_for(lambda: old.proxy.dead_reason is not None)
+    await async_wait_until(lambda: old.proxy.dead_reason is not None)
 
     # The next call replaces the child ...
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
@@ -654,7 +647,7 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     # ... and a failure for the OLD child processed afterwards leaves it alone.
     await pool._discard(old, "stale failure", "exited")
     assert live.pid == replacement
-    assert _alive(replacement)
+    assert pid_alive(replacement)
 
 
 async def test_a_connection_error_from_a_healthy_child_leaves_it_in_place(pools):
@@ -715,7 +708,7 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
         await pool.connector("live")
 
     assert caught.value.stage == "init"
-    await _wait_for(lambda: not _alive(caught.value.pid))
+    await async_wait_until(lambda: not pid_alive(caught.value.pid))
     names = [name for name, _ in caught.value.phases]
     assert names == list(START_PHASES[: len(names)])
     assert "connected" not in names
@@ -918,7 +911,7 @@ async def test_close_stops_every_child(pools):
 
     await pool.close()
 
-    await _wait_for(lambda: not any(_alive(pid) for pid in pids))
+    await async_wait_until(lambda: not any(pid_alive(pid) for pid in pids))
     with pytest.raises(RuntimeError, match="closed"):
         await pool.connector("live")
 
@@ -926,7 +919,7 @@ async def test_close_stops_every_child(pools):
 async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
 
     await pool.close()
 
@@ -941,7 +934,7 @@ async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
 async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_running(pools, spawns):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
 
     # A handle on the key, from before the start has handed one out.
     await PooledConnector(pool, ("live", None)).disconnect()
@@ -949,7 +942,7 @@ async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_runnin
     # The disconnect waited for the start and stopped the child it produced ...
     process = spawns[0][1]
     assert process.returncode is not None
-    assert not _alive(process.pid)
+    assert not pid_alive(process.pid)
     assert pool.pids() == {}
     # ... and the start itself completed, handing back a handle whose child is
     # already gone; its next call would start a fresh one.
@@ -971,7 +964,7 @@ async def test_close_with_a_call_in_flight_fails_it_as_stopped(pools):
         await asyncio.wait_for(hung, 10.0)
     assert not isinstance(caught.value, ConnectorHostUnresponsiveError)
     assert caught.value.cause == "stopped"
-    assert not _alive(pid)
+    assert not pid_alive(pid)
 
 
 async def test_the_pool_refuses_a_second_event_loop(pools):
@@ -1009,15 +1002,16 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
         line = parent.stdout.readline()
         pids = [int(pid) for pid in line.split()]
         assert len(pids) == 2, line
-        assert all(_alive(pid) for pid in pids)
+        assert all(pid_alive(pid) for pid in pids)
     finally:
         parent.kill()
         parent.wait()
 
-    deadline = time.monotonic() + 10.0
-    while time.monotonic() < deadline and any(_alive(pid) for pid in pids):
-        time.sleep(0.1)
-    assert not any(_alive(pid) for pid in pids), "a child outlived its parent"
+    wait_until(
+        lambda: not any(pid_alive(pid) for pid in pids),
+        interval=0.1,
+        what="every child exiting with its parent",
+    )
 
 
 # ------------------------------------------------------------ handles and batches
@@ -1086,7 +1080,7 @@ async def test_a_call_in_flight_on_a_child_killed_for_another_writes_timeout_is_
     assert "killed because another write on it missed its deadline" in str(lost)
     assert f"while {method!r} was in flight" in str(lost)
     assert ("The write may or may not have landed." in str(lost)) is lands
-    assert not _alive(pid)
+    assert not pid_alive(pid)
 
 
 # ------------------------------------------------------------ start refusals
@@ -1218,7 +1212,7 @@ async def test_a_child_whose_report_disagrees_with_the_derivation_is_refused_and
     process = spawns[0][1]
     assert caught.value.pid == process.pid
     assert process.returncode is not None
-    assert not _alive(process.pid)
+    assert not pid_alive(process.pid)
     assert pool.pids() == {}
 
 
@@ -1279,9 +1273,9 @@ async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool
     async with ConnectorHostPool(_section(SLOW), start_timeout_s=CHILD_START_TIMEOUT_S) as pool:
         live = await pool.connector("live")
         pid = live.pid
-        assert _alive(pid)
+        assert pid_alive(pid)
 
-    await _wait_for(lambda: not _alive(pid))
+    await async_wait_until(lambda: not pid_alive(pid))
     assert pool.pids() == {}
     with pytest.raises(RuntimeError, match="ConnectorHostPool is closed"):
         await pool.connector("live")
@@ -1292,7 +1286,7 @@ async def test_a_caller_queued_behind_a_start_that_close_interrupts_is_refused_a
 ):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
     queued = asyncio.create_task(pool.connector("live"))
     # Past the pool's first closed check, and waiting on the key's lock.
     await asyncio.sleep(0.1)
@@ -1313,14 +1307,3 @@ async def test_disconnecting_a_key_with_no_child_starts_nothing(pools, spawns):
 
     assert spawns == []
     assert pool.pids() == {}
-
-
-# ------------------------------------------------------------ helpers
-
-
-async def _wait_for(predicate, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while not predicate():
-        if time.monotonic() > deadline:
-            raise AssertionError("condition never became true")
-        await asyncio.sleep(0.05)

@@ -34,8 +34,7 @@ __all__ = [
 #: through this pair, and **the environment wins**.
 #:
 #: That is the ordinary environment-override contract, not a container special
-#: case: set in a host shell these win there too, exactly as
-#: ``OSPREY_OTEL_GATEWAY_HOST`` does. Compose templates are simply the
+#: case: set in a host shell these win there too. Compose templates are simply the
 #: caller that has a reason to set them.
 #:
 #: Read by two consumers — the MongoDB archiver connector and the archiver-recorder service —

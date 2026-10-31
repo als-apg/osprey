@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,7 @@ _RESUME_FLAG = "--resume"
 _SESSION_ID_FLAG = "--session-id"
 _PRINT_FLAG = "--print"
 _EFFORT_FLAG = "--effort"
+_THINKING_DISPLAY_FLAG = "--thinking-display"
 
 #: What ``--resume <id>`` prints before exiting 1 when no transcript for the id
 #: exists. A caller that resumes a conversation watches the child's early output
@@ -117,10 +119,7 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
             ``no_pin`` is ``False``).
     """
     cli_version = None if no_pin else pinned_cli_version(cc_config)
-    if cli_version is None:
-        base = [CLI_NAME]
-    else:
-        base = ["npx", "-y", f"{_CLI_PACKAGE}@{cli_version}"]
+    base = [CLI_NAME] if cli_version is None else ["npx", "-y", f"{_CLI_PACKAGE}@{cli_version}"]
     return base + _SETTING_SOURCES_ARGS + _MCP_ISOLATION_ARGS
 
 
@@ -314,6 +313,160 @@ def agent_cli_path(cc_config: Mapping[str, Any]) -> str:
     )
 
 
+#: The ``config.yml`` key that sets how Claude Code shows its thinking.
+THINKING_DISPLAY_KEY = "claude_code.thinking.display"
+
+#: What :data:`THINKING_DISPLAY_KEY` may be: thinking summaries shown, or
+#: thinking left out.
+THINKING_DISPLAY_VALUES = ("summarized", "omitted")
+
+#: The display a project that states none gets.
+THINKING_DISPLAY_DEFAULT = "summarized"
+
+#: The oldest Claude Code that accepts ``--thinking-display``. A launch through
+#: an older build, a prerelease of this one, or a build whose version is
+#: unknown is not sent the flag.
+THINKING_DISPLAY_MIN_CLI_VERSION = "2.1.228"
+
+
+@dataclass(frozen=True)
+class ThinkingDisplay:
+    """How a launch shows thinking, and whether its CLI may be told so by flag.
+
+    Attributes:
+        value: One of :data:`THINKING_DISPLAY_VALUES`.
+        flag_allowed: Whether the CLI the launch runs accepts
+            ``--thinking-display``.
+    """
+
+    value: str
+    flag_allowed: bool
+
+
+@dataclass(frozen=True)
+class ResolvedAgentCli:
+    """The Claude Code every headless run of one project executes.
+
+    Attributes:
+        path: The executable, as :func:`agent_cli_path` resolves it.
+        version: The version it runs as: the pin, or the version the
+            executable reported, or ``None`` when that is unknown.
+        thinking: The project's thinking display, judged against *version*.
+    """
+
+    path: str
+    version: str | None
+    thinking: ThinkingDisplay
+
+
+def _thinking_display_error(value: object) -> ValueError:
+    allowed = " or ".join(f'"{v}"' for v in THINKING_DISPLAY_VALUES)
+    return ValueError(f"{THINKING_DISPLAY_KEY} must be {allowed}; got {value!r}.")
+
+
+def validate_thinking_display(value: object) -> str:
+    """Return a ``claude_code.thinking.display`` value as the display it states.
+
+    Args:
+        value: The configured value; ``None`` when the project states none.
+
+    Returns:
+        The value itself, or :data:`THINKING_DISPLAY_DEFAULT` for ``None``.
+
+    Raises:
+        ValueError: If the value is anything other than one of
+            :data:`THINKING_DISPLAY_VALUES`.
+    """
+    if value is None:
+        return THINKING_DISPLAY_DEFAULT
+    if not isinstance(value, str) or value not in THINKING_DISPLAY_VALUES:
+        raise _thinking_display_error(value)
+    return value
+
+
+def _cli_accepts_thinking_display(cli_version: str | None) -> bool:
+    from packaging.version import InvalidVersion, Version
+
+    if not cli_version:
+        return False
+    try:
+        return Version(cli_version) >= Version(THINKING_DISPLAY_MIN_CLI_VERSION)
+    except InvalidVersion:
+        return False
+
+
+def resolve_thinking_display(
+    cc_config: Mapping[str, Any], cli_version: str | None
+) -> ThinkingDisplay:
+    """Return the thinking display of a ``claude_code`` block for one CLI.
+
+    Pure: it reads nothing and logs nothing.
+
+    Args:
+        cc_config: The ``claude_code`` block from ``config.yml`` (may be empty).
+        cli_version: The version of the CLI the launch runs, or ``None`` when
+            it is unknown.
+
+    Returns:
+        The display, with ``flag_allowed`` true only when *cli_version* parses
+        and is at least :data:`THINKING_DISPLAY_MIN_CLI_VERSION` (a
+        prerelease of that version is below it).
+
+    Raises:
+        ValueError: As :func:`validate_thinking_display`, also when the
+            ``thinking`` block is present but not a mapping.
+    """
+    block = cc_config.get("thinking")
+    if block is None:
+        value = None
+    elif isinstance(block, Mapping):
+        value = block.get("display")
+    else:
+        raise _thinking_display_error(block)
+    return ThinkingDisplay(
+        validate_thinking_display(value), _cli_accepts_thinking_display(cli_version)
+    )
+
+
+def launch_cli_version(
+    cc_config: Mapping[str, Any], executable: str | None, *, no_pin: bool = False
+) -> str | None:
+    """Return the version of the CLI one launch runs. Uncached.
+
+    Args:
+        cc_config: The ``claude_code`` block from ``config.yml`` (may be empty).
+        executable: The ``claude`` the launch runs when unpinned, as
+            :func:`_locate_claude` finds it, or ``None`` when there is none.
+        no_pin: The launch ignores the pin and runs *executable*.
+
+    Returns:
+        The pin when one is set and *no_pin* is false; otherwise the version
+        *executable* reports; ``None`` when that is unknown.
+
+    Raises:
+        ValueError: From :func:`validate_cli_version`, for a pin that is not
+            one exact version.
+    """
+    pin = None if no_pin else pinned_cli_version(cc_config)
+    if pin is not None:
+        return pin
+    return None if executable is None else cli_version_of(executable)
+
+
+def warn_thinking_flag_withheld(cli_version: str | None) -> None:
+    """Log that a launch's CLI is not sent ``--thinking-display``, and the fix."""
+    found = f"Claude Code {cli_version}" if cli_version else "a Claude Code of unknown version"
+    logger.warning(
+        "This launch runs %s, which is not known to accept --thinking-display (it needs "
+        "%s or later), so the flag is withheld and thinking is not recorded for launches "
+        "that set it by flag. Set claude_code.cli_version to %s or later under `config:` "
+        "in profile.yml and run `osprey build`.",
+        found,
+        THINKING_DISPLAY_MIN_CLI_VERSION,
+        THINKING_DISPLAY_MIN_CLI_VERSION,
+    )
+
+
 def project_agent_cli_path(project_dir: Path) -> str:
     """Return the Claude Code every headless run of *project_dir* executes.
 
@@ -324,15 +477,36 @@ def project_agent_cli_path(project_dir: Path) -> str:
     pinned version is installed goes ahead.
 
     Raises:
-        ValueError: As :func:`agent_cli_path`.
+        ValueError: As :func:`agent_cli_path` and :func:`resolve_thinking_display`.
         AgentCliUnavailableError: As :func:`agent_cli_path`.
     """
-    return _project_agent_cli_path(os.path.abspath(project_dir))
+    return _project_agent_cli(os.path.abspath(project_dir)).path
+
+
+def project_thinking_display(project_dir: Path) -> ThinkingDisplay:
+    """Return the thinking display every headless run of *project_dir* uses.
+
+    Taken from the same once-per-process resolution as
+    :func:`project_agent_cli_path`, so it is judged against the very binary
+    those runs execute.
+
+    Raises:
+        ValueError: As :func:`project_agent_cli_path`.
+        AgentCliUnavailableError: As :func:`project_agent_cli_path`.
+    """
+    return _project_agent_cli(os.path.abspath(project_dir)).thinking
 
 
 @cache
-def _project_agent_cli_path(project_dir: str) -> str:
-    return agent_cli_path(project_claude_code_config(Path(project_dir)))
+def _project_agent_cli(project_dir: str) -> ResolvedAgentCli:
+    cc_config = project_claude_code_config(Path(project_dir))
+    path = agent_cli_path(cc_config)
+    # agent_cli_path has already proved a pinned binary reports the pin.
+    version = launch_cli_version(cc_config, path)
+    thinking = resolve_thinking_display(cc_config, version)
+    if not thinking.flag_allowed:
+        warn_thinking_flag_withheld(version)
+    return ResolvedAgentCli(path, version, thinking)
 
 
 def resolve_cli_name(argv: Sequence[str]) -> list[str]:
@@ -374,15 +548,19 @@ def build_session_argv(
     session_id: str | None = None,
     print_mode: bool = False,
     effort: str | None = None,
+    thinking_display: str | None = None,
     prompt: str | None = None,
 ) -> list[str]:
     """Extend a launch prefix with the conversation flags, as a new list.
 
     The flags follow ``base`` in a fixed order: ``--resume <resume_id>`` or
     ``--session-id <session_id>``, then ``--print``, then ``--effort <effort>``,
-    then ``prompt``. The prompt is last because the CLI reads one trailing
-    positional as the opening message. An empty ``resume_id``, ``session_id``
-    or ``effort`` adds no flag; an empty ``prompt`` is still passed.
+    then ``--thinking-display <thinking_display>``, then ``prompt``. The prompt
+    is last because the CLI reads one trailing positional as the opening
+    message. An empty ``resume_id``, ``session_id``, ``effort`` or
+    ``thinking_display`` adds no flag; an empty ``prompt`` is still passed.
+    ``--thinking-display`` is emitted with ``--print`` only: an interactive
+    session takes its display from the project settings.
 
     Args:
         base: The launch prefix, normally one :func:`build_claude_launch_argv`
@@ -391,6 +569,8 @@ def build_session_argv(
         session_id: The id a new conversation is forced onto.
         print_mode: Run non-interactively and print the answer.
         effort: The reasoning effort level.
+        thinking_display: How a ``--print`` run shows its thinking; ignored
+            without ``print_mode``.
         prompt: The opening message.
 
     Returns:
@@ -411,6 +591,8 @@ def build_session_argv(
         argv.append(_PRINT_FLAG)
     if effort:
         argv.extend([_EFFORT_FLAG, effort])
+    if print_mode and thinking_display:
+        argv.extend([_THINKING_DISPLAY_FLAG, thinking_display])
     if prompt is not None:
         argv.append(prompt)
     return argv

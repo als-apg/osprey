@@ -61,10 +61,9 @@
 # the manifest otherwise). The bare entries are domain identifiers, not English
 # words, so deleting the reader really would drop the count toward zero. Where
 # an obvious anchored form existed it was preferred instead — e.g.
-# claude_code.telemetry.backend cites `telemetry_cfg.get("backend")` rather
-# than the bare word, and services.postgresql.path cites
-# the compose generator's `service_config["path"]` read after the bare word
-# crossed the ceiling. The rest have no clean single reader to anchor on (the
+# services.postgresql.path cites the compose generator's
+# `service_config["path"]` read after the bare word crossed the ceiling. The
+# rest have no clean single reader to anchor on (the
 # value is unpacked from a block, or read in several places with different
 # shapes), and forcing an anchor would mean inventing one.
 #
@@ -79,7 +78,7 @@
 #   required       No fallback exists and none may be invented. Exactly the
 #                  posture floor — control_system.type, archiver.type,
 #                  approval.enabled, approval.default_policy,
-#                  claude_code.telemetry.enabled, hooks.debug — plus
+#                  hooks.debug — plus
 #                  facility_knowledge.bundle_path. The guard checks this set
 #                  in BOTH directions.
 #   n/a            The leaf has no independent reader, so the parent block's
@@ -152,17 +151,46 @@ keys:
     evidence: 'config\.get\("deployed_services", \[\]\)'
     note: >-
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
-      [telemetry_store, telemetry_gateway] / [postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]). The guard must
-      not assert value equality here.
+      [postgresql, qmd, graphdb]). The guard must not assert value equality
+      here.
     default: []
   deployment.host_identity:
     rendered: false
     evidence: 'get\("host_identity"\)'
     note: >-
-      The identity host launches send telemetry and file their records under.
-      Unset in the presets: the build records the account that ran it.
+      The identity host launches send their OTLP events and file their records
+      under, and the identity the agent record reads the host's transcripts as.
+      Unset in the presets: every build records the account that ran it.
     default: derived
     default_note: the account that ran `osprey build`
+  # The agent record's block, written by the build from the profile's
+  # top-level `agent_record:` block (defaults included) into the top-level
+  # `agent_record` key the record service reads. No preset spells it under
+  # `config:` — the profile parser refuses that spelling — so every row is
+  # `rendered: false`.
+  agent_record: {rendered: false, evidence: 'AGENT_RECORD_BLOCK = "agent_record"', default: {}}
+  agent_record.backend:
+    rendered: false
+    evidence: '"agent_record\.backend"'
+    note: >-
+      Where the record is kept: `embedded` in the agent-record service itself,
+      with no store container, or `clickhouse` in a ClickHouse store the
+      deployment runs. Any other value is refused at build.
+    default: embedded
+  agent_record.retention_days: {rendered: false, evidence: '"agent_record\.retention_days"', default: 14}
+  agent_record.readers:
+    rendered: false
+    evidence: '"agent_record\.readers"'
+    note: >-
+      The named readers: each entry's `name`, the `kinds` it may read (every
+      kind when left out), its `days_back` window (retention_days when left
+      out) and an optional `oidc_subject` for a reader not on the roster.
+    default: []
+  agent_record.port: {rendered: false, evidence: '"agent_record\.port"', default: derived, default_note: the layout's agent_record slot at this deployment's port base}
+  agent_record.memory: {rendered: false, evidence: '"agent_record\.memory"', default: 1g}
+  agent_record.clickhouse: {rendered: false, evidence: 'class ClickHouseConfig', default: {}}
+  agent_record.clickhouse.image: {rendered: false, evidence: '"agent_record\.clickhouse\.image"', default: 'clickhouse/clickhouse-server:26.8.18.2'}
+  agent_record.clickhouse.memory: {rendered: false, evidence: '"agent_record\.clickhouse\.memory"', default: 2g}
   deployment.port_base:
     rendered: false
     evidence: 'deployment\.get\("port_base"\)'
@@ -259,70 +287,6 @@ keys:
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
-  # The telemetry store and the gateway that feeds it. Every key below is read
-  # in one place, deployment/telemetry_config.py, so each regex anchors there:
-  # the module spells a key's dotted name in the refusal it raises for an
-  # unusable value, which is the one string that leaves with the reader.
-  services.telemetry_store: {evidence: 'STORE_SERVICE = "telemetry_store"', default: {}}
-  services.telemetry_store.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the presets write ./services/telemetry_store"}
-  services.telemetry_store.port: {evidence: '"services\.telemetry_store\.port"', default: derived, default_note: the layout's telemetry_store slot at this deployment's port base}
-  services.telemetry_store.retention_days: {same-value: true, evidence: '"services\.telemetry_store\.retention_days"', default: 14}
-  services.telemetry_store.image:
-    rendered: false
-    evidence: 'DEFAULT_STORE_IMAGE = "clickhouse/clickhouse-server'
-    note: Upstream pin (ClickHouse). Point it at an internal mirror or a digest on a host that cannot pull from Docker Hub.
-    default: clickhouse/clickhouse-server:26.8.18.2
-  services.telemetry_store.memory:
-    rendered: false
-    evidence: '"services\.telemetry_store\.memory"'
-    note: >-
-      The store container's memory limit, as compose takes it. The store memory
-      lint holds limits.reader_slots and limits.query_memory to 0.9 of it.
-    default: 2g
-  services.telemetry_store.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.telemetry_store', default: []}
-  services.telemetry_store.readers:
-    evidence: 'get\("readers"\)'
-    note: >-
-      The named readers, as a LIST: one entry per reader (`name`, `tables`,
-      `days_back`, `oidc_subject`). A list has no dotted paths below it, so the
-      per-entry keys never enter the union. Every preset that deploys the store
-      ships one default reader: the admin roster user, or `operator` where the
-      preset has no roster.
-    default: []
-  services.telemetry_store.limits:
-    rendered: false
-    evidence: 'services\.telemetry_store\.limits must be a mapping'
-    note: >-
-      Per-reader query limits, plus `reader_slots`, the pool all readers share.
-      Read whole by telemetry_config.store_limits, which refuses an unknown
-      leaf and fills each absent one from DEFAULT_LIMITS.
-    default: {}
-  services.telemetry_store.limits.result_rows: {rendered: false, covered-by: services.telemetry_store.limits, default: 1000}
-  services.telemetry_store.limits.result_bytes: {rendered: false, covered-by: services.telemetry_store.limits, default: 10000000}
-  services.telemetry_store.limits.seconds: {rendered: false, covered-by: services.telemetry_store.limits, default: 30}
-  services.telemetry_store.limits.concurrent: {rendered: false, covered-by: services.telemetry_store.limits, default: 2}
-  services.telemetry_store.limits.reader_slots: {rendered: false, covered-by: services.telemetry_store.limits, default: 2}
-  services.telemetry_store.limits.per_minute: {rendered: false, covered-by: services.telemetry_store.limits, default: 60}
-  services.telemetry_store.limits.rows_read: {rendered: false, covered-by: services.telemetry_store.limits, default: 1000000}
-  services.telemetry_store.limits.bytes_read: {rendered: false, covered-by: services.telemetry_store.limits, default: 500000000}
-  services.telemetry_store.limits.query_memory: {rendered: false, covered-by: services.telemetry_store.limits, default: 200000000}
-  services.telemetry_gateway: {evidence: 'GATEWAY_SERVICE = "telemetry_gateway"', default: {}}
-  services.telemetry_gateway.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the presets write ./services/telemetry_gateway"}
-  services.telemetry_gateway.port: {evidence: '"services\.telemetry_gateway\.port"', default: derived, default_note: the layout's telemetry_gateway slot at this deployment's port base}
-  services.telemetry_gateway.image:
-    rendered: false
-    evidence: 'DEFAULT_GATEWAY_IMAGE = \('
-    note: Upstream pin (OpenTelemetry Collector contrib). Same mirror rule as the store's.
-    default: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.162.0
-  services.telemetry_gateway.memory:
-    rendered: false
-    evidence: '"services\.telemetry_gateway\.memory"'
-    note: >-
-      The gateway container's memory limit. Unset, it is the floor the gateway
-      memory lint computes from the number of audit directories it reads; a
-      stated value below that floor is refused.
-    default: derived
-    default_note: telemetry_config.gateway_memory_floor for the rendered receiver count
   services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
   services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
@@ -346,7 +310,7 @@ keys:
   services.qmd.path:
     evidence: 'service_config\["path"\]'
     note: >-
-      Same generic compose-generator read as the telemetry_store/postgresql `path`
+      Same generic compose-generator read as the postgresql `path`
       keys — it resolves any service's fragment directory, qmd included.
     default: no-fallback
     default_note: >-
@@ -428,7 +392,7 @@ keys:
   services.graphdb.path:
     evidence: 'service_config\["path"\]'
     note: >-
-      Same generic compose-generator read as the telemetry_store/postgresql/qmd
+      Same generic compose-generator read as the postgresql/qmd
       `path` keys — it resolves any service's fragment directory, graphdb
       included.
     default: no-fallback
@@ -668,7 +632,7 @@ keys:
     default_note: osprey_images.worker — the archive runs the worker image
   services.history.image:
     rendered: false
-    evidence: 'set svc = services\.history \| default'
+    evidence: 'set svc = \(services \| default\(\{\}, true\)\)\.history \| default'
     note: >-
       OSPREY-built image, same layering as `services.archive.image`: the
       history page runs the bare project image and shares `OSPREY_WORKER_IMAGE`
@@ -1047,9 +1011,9 @@ keys:
       where under the templates it was a per-template divergence.
     default: required
     default_note: >-
-      true or false. true logs one line per hook call to stderr and appends to
-      .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
-      panel hook feed reads; false writes neither.
+      true or false. true logs one line per hook call to stderr and records it
+      as a hook debug entry on the agent record, which is what the web
+      terminal's Safety panel hook feed reads; false writes neither.
 
   # ── Simulation ──────────────────────────────────────────────────────
   simulation: {evidence: 'rendered_config\.get\("simulation"\)', default: {}}
@@ -1707,7 +1671,7 @@ keys:
     default: {}
   archiver.doocs_archiver.avg_window:
     rendered: false
-    evidence: 'config\.get\("avg_window", None\)'
+    evidence: 'config\.get\("avg_window"\)'
     note: >-
       Centered moving average, in seconds, applied to the samples a read
       returns. Unset returns the raw samples.
@@ -1870,17 +1834,12 @@ keys:
   file_paths:
     evidence: 'config\.get\("file_paths", \{\}\)'
     default: {}
-  file_paths.api_calls_dir:
-    evidence: 'get_agent_dir\("api_calls_dir"\)'
+  file_paths.registry_exports_dir:
+    evidence: 'get_agent_dir\("registry_exports_dir"\)'
     note: >-
       Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
       (utils/config.get_agent_dir), so a missing entry silently renames the
       directory rather than failing.
-    default: derived
-    default_note: >-
-      the key's own name, api_calls_dir, as a directory under agent_data.base_dir
-  file_paths.registry_exports_dir:
-    evidence: 'get_agent_dir\("registry_exports_dir"\)'
     default: derived
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
@@ -2034,89 +1993,27 @@ keys:
   claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search, default: derived, default_note: the logbook-search agent's FRAMEWORK_AGENTS default_enabled}
   claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research', default: n/a}
   claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
-  claude_code.telemetry:
-    all-templates: true
-    covered-by: claude_code
-    default: {}
-  claude_code.telemetry.enabled:
-    all-templates: true
-    covered-by: claude_code.telemetry
-    default: required
-    default_note: >-
-      true or false. true exports the agent's OTLP metrics, logs and traces
-      (the ones claude_code.telemetry.signals names) to the backend named
-      below; false exports none and the rest of the block is inert.
-  claude_code.telemetry.backend:
-    evidence: 'telemetry_cfg\.get\("backend"\)'
-    default: null
-  claude_code.telemetry.protocol: {evidence: 'http/protobuf', default: http/protobuf}
-  claude_code.telemetry.endpoint:
+  claude_code.cli_version:
     rendered: false
-    evidence: 'telemetry_cfg\.get\("endpoint"\)'
+    evidence: 'get\("cli_version"\)'
     note: >-
-      The collector's OTLP/HTTP base URL on the generic backend. The gateway
-      backend derives its own address per network context, and a stated
-      endpoint there is refused. Documented as a commented example in the
-      control-assistant preset.
+      Pins the Claude Code CLI every launch runs, as one exact version; OSPREY
+      then launches it through `npx`. Unset, the installed `claude` runs.
     default: null
-  claude_code.telemetry.resource_attributes:
+  claude_code.thinking: {rendered: false, evidence: 'get\("thinking"\)', default: {}}
+  claude_code.thinking.display:
     rendered: false
-    evidence: 'telemetry_cfg\.get\("resource_attributes"\)'
+    evidence: '_thinking_display'
     note: >-
-      Extra OTLP resource attributes every record carries, as a mapping (or a
-      `k=v,k=v` string). Under the gateway the terminal session is OSPREY's
-      own attribute and may not be named here.
-    default: {}
-  claude_code.telemetry.auth:
-    rendered: false
-    evidence: 'telemetry_cfg\.get\("auth"\)'
-    note: Documented as a commented example in the control-assistant preset.
-    default: {}
-  claude_code.telemetry.auth.token_env:
-    rendered: false
-    covered-by: claude_code.telemetry.auth
-    default: null
-    note: >-
-      The environment variable holding the collector's bearer token; the agent
-      sends `Authorization: Bearer <value>`. Web terminals receive it through
-      their own compose environment, never `.env.users`.
-  claude_code.telemetry.signals:
-    rendered: false
-    evidence: 'telemetry_cfg\.get\("signals"\)'
-    note: >-
-      Which of metrics, logs and traces the agent exports. A signal left out
-      is exported as `none`, so no inherited setting turns it back on. Empty
-      or an unknown name is refused at build; `enabled: false` exports
-      nothing. Documented as a commented example in the control-assistant
-      preset.
-    default: [metrics, logs, traces]
-  # Every preset that ships the bundled store opens its gate block "Content gates, all on",
-  # so the capture posture is one claim about one store.
-  claude_code.telemetry.log_user_prompts: {same-value: true, evidence: 'log_user_prompts', default: true}
-  claude_code.telemetry.log_assistant_responses: {same-value: true, evidence: 'log_assistant_responses', default: true}
-  claude_code.telemetry.log_tool_details: {same-value: true, evidence: 'log_tool_details', default: true}
-  claude_code.telemetry.log_raw_api_bodies: {same-value: true, evidence: 'log_raw_api_bodies', default: true}
-  claude_code.transcripts: {evidence: '\.get\("transcripts"\)', default: {}}
-  claude_code.transcripts.retention_days:
-    evidence: '_transcripts_retention_days'
-    note: >-
-      Days Claude Code keeps a session transcript before deleting it at
-      startup, rendered as `cleanupPeriodDays` into the project settings
-      every terminal and the dispatch worker load. Unset, Claude Code's own
-      default (30) applies. 0 is refused.
-    default: null
-  claude_code.telemetry.log_tool_content: {evidence: 'log_tool_content', default: true}
-  claude_code.telemetry.content_max_length:
-    evidence: '_content_max_length'
-    note: >-
-      The longest content value Claude Code puts in one telemetry attribute
-      before it truncates it, in UTF-16 code units. Unset, Claude Code's own
-      limit (61440) applies.
-    default: null
-  audit: {evidence: 'audit\.tool_call\.enabled', default: {}}
-  audit.tool_call: {covered-by: audit, default: {}}
-  audit.tool_call.enabled: {evidence: 'audit\.tool_call\.enabled', default: false}
-  audit.tool_call.max_inline_bytes: {evidence: 'audit\.tool_call\.max_inline_bytes', default: 262144}
+      How Claude Code shows its thinking: `summarized` shows the thinking
+      summaries, `omitted` leaves thinking out. It reaches every launch by
+      three routes: `showThinkingSummaries` in the project settings the
+      terminals load, the SDK options' `--thinking-display` extra argument
+      for headless runs, and `--thinking-display` on `osprey chat --print`.
+      The flag is sent only to Claude Code 2.1.228 or newer; an older or
+      unknown version gets the settings route alone. Any other value is
+      refused at build.
+    default: summarized
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
@@ -3076,12 +2973,14 @@ keys:
       it: the formatter wraps this call across lines on length alone.
     default: true
   web.feedback:
+    rendered: false
     evidence: 'get_config_value\("web\.feedback\.'
     note: >-
-      The block is never read as a mapping — each of the three leaves below
-      has its own dotted lookup in the web terminal's lifespan. The evidence
-      anchors on the prefix those readers share, so this entry dies with the
-      last of them rather than outliving them all.
+      The block is never read as a mapping — each leaf below has its own
+      dotted lookup in the web terminal's lifespan. The evidence anchors on
+      the prefix those readers share, so this entry dies with the last of
+      them rather than outliving them all. No preset states a live leaf, so
+      nothing renders the block.
     default: {}
   web.feedback.github_repo:
     # Documented in every preset that carries a `web:` block as a commented
@@ -3174,9 +3073,6 @@ keys:
     evidence: 'get_config_value\("provenance\.preset_hash", None\)'
     default: derived
     default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
-  web.feedback.max_store_bytes:
-    evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
-    default: 268435456
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)', default: {}}
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)', default: true}
   web.channel_suggestions.max_channels:
@@ -3421,19 +3317,20 @@ keys:
     default_note: >-
       written by the build from tiers/ and apps/; a local-mode start with no
       renders catalog is refused
-  modules.web_terminals.reader_port:
+  modules.web_terminals.history_port:
     rendered: false
-    evidence: '"modules\.web_terminals\.reader_port"'
+    evidence: '"modules\.web_terminals\.history_port"'
     note: >-
-      The port of the readers' origin, a second nginx server beside the
-      terminals'. Unset in the presets: it sits on the layout's `reader` slot.
+      The port of the history page's origin, a second nginx server beside the
+      terminals'. Unset in the presets: it sits on the layout's
+      `history_origin` slot.
     default: derived
-    default_note: the layout's reader slot at this deployment's port base
-  modules.web_terminals.reader_origin:
+    default_note: the layout's history_origin slot at this deployment's port base
+  modules.web_terminals.history_origin:
     rendered: false
-    evidence: 'web_terminals\.get\("reader_origin"\)'
+    evidence: 'web_terminals\.get\("history_origin"\)'
     note: >-
-      Verbatim override of the readers' origin, the mirror of
+      Verbatim override of the history page's origin, the mirror of
       `external_origin`. Required beside it, on the same host.
     default: null
   modules.web_terminals.authorization.roles:
@@ -3458,10 +3355,35 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
-  # The OpenObserve store and its ingest account. The store is
-  # `services.telemetry_store`, fed by `services.telemetry_gateway`; a sender
-  # logs in with a credential the build mints, so no key names one. A profile
-  # that still states one is rejected like any other unknown key.
+  # The ClickHouse store and the Collector gateway that fed it. The agent
+  # record is the one store, stated in the top-level `agent_record:` block; the
+  # profile parser refuses each of these keys with that replacement.
+- services.telemetry_store
+- services.telemetry_store.path
+- services.telemetry_store.port
+- services.telemetry_store.retention_days
+- services.telemetry_store.image
+- services.telemetry_store.memory
+- services.telemetry_store.env
+- services.telemetry_store.readers
+- services.telemetry_store.limits
+- services.telemetry_store.limits.result_rows
+- services.telemetry_store.limits.result_bytes
+- services.telemetry_store.limits.seconds
+- services.telemetry_store.limits.concurrent
+- services.telemetry_store.limits.reader_slots
+- services.telemetry_store.limits.per_minute
+- services.telemetry_store.limits.rows_read
+- services.telemetry_store.limits.bytes_read
+- services.telemetry_store.limits.query_memory
+- services.telemetry_gateway
+- services.telemetry_gateway.path
+- services.telemetry_gateway.port
+- services.telemetry_gateway.image
+- services.telemetry_gateway.memory
+  # The OpenObserve store and its ingest account. A sender logs in to the
+  # agent record with a credential the build mints, so no key names one. A
+  # profile that still states one is rejected like any other unknown key.
 - services.openobserve
 - services.openobserve.image
 - services.openobserve.path
@@ -3471,9 +3393,39 @@ deleted:
 - claude_code.telemetry.openobserve.user
 - claude_code.telemetry.openobserve.password
 - claude_code.telemetry.openobserve.org
-  # A collector's token is named by claude_code.telemetry.auth.token_env; there
-  # is no free-form header map.
+  # Claude Code's `cleanupPeriodDays` on OSPREY-owned volumes is
+  # max(`agent_record.retention_days`, 30); there is no key of its own.
+- claude_code.transcripts
+- claude_code.transcripts.retention_days
+  # Claude Code's OTLP logs always go to the agent record, and every tool call
+  # is an agent-record entry: no key selects a destination, a collector, a
+  # signal or a capture level. The profile parser refuses each with its
+  # replacement (osprey.agent_record.config.RETIRED_CONFIG_KEYS).
+- claude_code.telemetry
 - claude_code.telemetry.headers
+- claude_code.telemetry.enabled
+- claude_code.telemetry.backend
+- claude_code.telemetry.protocol
+- claude_code.telemetry.endpoint
+- claude_code.telemetry.resource_attributes
+- claude_code.telemetry.auth
+- claude_code.telemetry.auth.token_env
+- claude_code.telemetry.signals
+- claude_code.telemetry.log_user_prompts
+- claude_code.telemetry.log_assistant_responses
+- claude_code.telemetry.log_tool_details
+- claude_code.telemetry.log_raw_api_bodies
+- claude_code.telemetry.log_tool_content
+- claude_code.telemetry.content_max_length
+- audit
+- audit.tool_call
+- audit.tool_call.enabled
+- audit.tool_call.max_inline_bytes
+  # The history page's origin is `modules.web_terminals.history_port` /
+  # `history_origin`; the profile parser refuses the reader-named keys with
+  # the history-named ones.
+- modules.web_terminals.reader_port
+- modules.web_terminals.reader_origin
   # Ledger 1 / 5 / — : the whole write_verification block. The three inert
   # knobs went first; `default_level` and `default_tolerance_percent` followed
   # when confirmation became a per-channel `confirm: true|false` in the limits
@@ -3614,6 +3566,10 @@ deleted:
   # A derived key born and retired on one unreleased branch; no orphan_sites
   # row, because the back-test baseline never held a site of it.
 - approval.hook_wired
+  # Recorded API calls and feedback submissions are agent-record entries, so
+  # no file directory names the one and no on-disk store bounds the other.
+- file_paths.api_calls_dir
+- web.feedback.max_store_bytes
   # The roster's retired spellings. A person's access level is a tier and a
   # shared card is an app: `default_tier` and `shared` are authored, and the
   # render catalog is the build's `renders`. A profile that still spells either
@@ -4037,7 +3993,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 391
+  expected_union_size: 364
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

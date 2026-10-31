@@ -18,7 +18,7 @@ import yaml
 from tests._vocabulary import RATCHET_WORD
 
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.workspace import APPS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME
 
 SKILL = "claude_code/claude/skills/pyaml-tools/SKILL.md.j2"
 PROMPT = "claude_code/CLAUDE.md.j2"

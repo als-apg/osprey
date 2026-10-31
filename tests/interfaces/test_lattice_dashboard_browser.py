@@ -18,9 +18,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from osprey.interfaces._serving import run_app_server
 from osprey.interfaces.lattice_dashboard.catalog import NO_SERVED_MODEL_TEXT, NO_VIEW_TEXT
 from osprey.interfaces.lattice_dashboard.state import SINGLE_PASS_UNAVAILABLE
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -90,7 +90,7 @@ def assert_selected_model_draws(page: Page, points: int | None = None) -> None:
 def _serve(render_root: Path | None, workspace: Path):
     from osprey.interfaces.lattice_dashboard.app import create_app
 
-    return _run_app_server(create_app(workspace_root=workspace, render_root=render_root))
+    return run_app_server(create_app(workspace_root=workspace, render_root=render_root))
 
 
 @pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")

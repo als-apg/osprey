@@ -80,10 +80,10 @@ when DISCOVER recorded the source the area consumes, `never` when the facility h
 thing — and the reason is that fact, in plain words. `later` is never proposed: it is the
 user's override for an area whose source exists but is not at hand, and an `adopt`
 stays recommended until the user says so. Two areas consume no facility source:
-TELEMETRY is proposed `adopt` (the reference example runs it and it needs nothing from
-the facility), DEPLOYMENT is proposed `later` unless the user named a deploy host
-(the block is filled once the deployment leaves the laptop). The user changes any area
-on the card.
+AGENT RECORD is always `adopt` (every deployment runs it and it needs nothing from the
+facility), DEPLOYMENT is proposed `later` unless the user named a deploy host
+(the block is filled once the deployment leaves the laptop). The user changes any other
+area on the card.
 
 The areas, and where each one's components are read from at run time:
 
@@ -95,7 +95,7 @@ The areas, and where each one's components are read from at run time:
 | WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); the tiers in `tiers/` and the roster's `shared:` apps in `apps/`; the login wall |
 | SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `lattice` panel; `data/facility/models.yaml`, `data/facility/decks/`, `data/facility/measurement/` and `data/facility/scenarios/` (written by `osprey facility import mml`, or authored) |
 | EVENT DISPATCH | a trigger source (facility events) | `dispatch:` block; `events` panel; `dispatch.triggers` |
-| TELEMETRY | nothing external | `services.telemetry_store.*`, `services.telemetry_gateway.*`; `claude_code.telemetry.*` |
+| AGENT RECORD | nothing external | top-level `agent_record:` block (`backend`, `retention_days`, `readers`) |
 | DEPLOYMENT | a CI platform and a deploy host | `deploy:` block; `osprey scaffold ci` |
 
 Read the component list from the preset each time — the table says where to look, the

@@ -9,6 +9,12 @@
  * @module chat-system
  */
 
+/** The loader's label when the agent is between steps. */
+export const WORKING_LABEL = 'Working…';
+
+/** The loader's label while the turn waits on a background agent. */
+export const BACKGROUND_WAIT_LABEL = 'Waiting for the background agent…';
+
 /**
  * @typedef {object} SystemEffect
  * @property {boolean} [stopStreaming] - the reply text being streamed ends here
@@ -30,7 +36,7 @@ export function systemFrame(event) {
       // until it reports, and the loader says what it is waiting on.
       return {
         stopStreaming: true,
-        activity: 'Waiting for the background agent…',
+        activity: BACKGROUND_WAIT_LABEL,
         closeText: true,
       };
     case 'agent_done':

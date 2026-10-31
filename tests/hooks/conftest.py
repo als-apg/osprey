@@ -13,7 +13,10 @@ They also run against a throwaway deployment repo rather than this checkout —
 see :func:`_hook_project_dir`. A hook resolves its own root with the standard
 library in its own process, so the seams in ``tests/conftest.py`` cannot reach
 it, and a run left to the last rung of that ladder files real records into
-``<repo>/var/audit``.
+``<repo>/var/spool``. The suite's own spool zone reaches a hook subprocess the
+way a deployment's reaches a real one: ``OSPREY_SPOOL_DIR`` is forwarded, so
+:func:`hook_audit_records` finds a hook's audit entries under the test's
+``tmp_path``.
 
 Unit tests that need a hook's *helpers* rather than its end-to-end behaviour
 import the module in-process through :func:`import_hook`, which contains the
@@ -28,11 +31,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 from itertools import count
 from pathlib import Path
 
 import pytest
 import yaml
+
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
@@ -110,6 +116,13 @@ _HOOK_VARS = (
     "OSPREY_WEB_PORT",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
+    # The record: the acting identity's own spool directory, which every
+    # launcher names and every hook inherits, and the record off switch. The
+    # suite-wide spool zone sets the first per test, so forwarding it is what
+    # keeps a hook's audit entries in the test's own spool rather than the
+    # throwaway repo's ``var/spool``.
+    "OSPREY_SPOOL_DIR",
+    "OSPREY_AGENT_RECORD_OFF",
 )
 
 _hook_config_seq = count()
@@ -202,10 +215,100 @@ def import_hook(name):
         sys.path[:] = [entry for entry in sys.path if os.path.abspath(entry) != hooks_dir]
 
 
+def ask_reason(result):
+    """The reason an approval prompt shows, asserting the hook asked."""
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    return output["permissionDecisionReason"]
+
+
+def pending_review_items(root):
+    """The items in the feedback hook's ``pending_reviews.json`` under *root*, or ``{}``.
+
+    The store lives under the agent-data root: it is written while the agent runs,
+    and a project's ``data/`` tree is build-owned while ``build/`` is re-rendered by
+    every build. No config names a ``base_dir`` in these runs, so the hook resolves
+    the framework default read here.
+    """
+    store = root / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
+    if not store.exists():
+        return {}
+    return json.loads(store.read_text()).get("items", {})
+
+
 @pytest.fixture
 def hook_module():
     """Give a test :func:`import_hook` without importing anything itself."""
     return import_hook
+
+
+@pytest.fixture
+def approval(hook_module, monkeypatch):
+    """The `osprey_approval` module, imported through the test seam.
+
+    Every test starts with the prompt's pre-flight budget unspent. The hook
+    stamps its entry instant at import, which in the process that serves one
+    prompt is when that prompt began; a test worker keeps the module for its
+    whole life, so without this a row's budget would depend on how long the
+    worker had been running and a slow suite would render trajectories
+    differently from a fast one.
+
+    The plan lanes' URLs must come from the config under test, not from a
+    variable a developer happens to export, so those are cleared too.
+    """
+    module = hook_module("osprey_approval")
+    monkeypatch.setattr(module, "_HOOK_ENTERED_AT", time.monotonic())
+    for name in ("BLUESKY_BRIDGE_URL", "BLUESKY_VA_BRIDGE_URL", "BLUESKY_LIVE_BRIDGE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    return module
+
+
+@pytest.fixture
+def reader(approval):
+    """The reader module the approval hook actually bound at import time.
+
+    Taken off the hook rather than imported here: the point is that the hook's
+    own binding resolves, and a separate import could pass while the hook's
+    sibling-import path was broken.
+    """
+    module = approval._target_state
+    assert module is not None, "the approval hook did not bind osprey_target_state"
+    return module
+
+
+@pytest.fixture
+def bridge_calls():
+    """Recorder for the (base_url, path) pairs the approval hook asks the bridge for."""
+    return []
+
+
+@pytest.fixture
+def fake_bridge(approval, bridge_calls, monkeypatch):
+    """Factory replacing the hook's bridge verbs with a routing table.
+
+    Takes ``{path: body}``; an unmapped path yields `None`, which is exactly what
+    the real helper returns for a 404, an unreachable bridge or a malformed
+    body — so a route left out of the table is a genuine failure case, not a
+    test-harness gap. ``post=True`` answers ``_bridge_post_json`` from the same
+    table. Every call is recorded with its base URL, which on a two-lane
+    deployment is the only evidence of which lane a queue came from.
+    """
+
+    def _install(routes: dict[str, object], *, post=False):
+        def _get(base_url, path, _timeout=3.0):
+            bridge_calls.append((base_url, path))
+            return routes.get(path)
+
+        def _post(base_url, path, _body, _timeout):
+            bridge_calls.append((base_url, path))
+            return routes.get(path)
+
+        monkeypatch.setattr(approval, "_bridge_get_json", _get)
+        if post:
+            monkeypatch.setattr(approval, "_bridge_post_json", _post)
+
+    return _install
 
 
 #: Module-level memos in ``osprey_hook_log``, all of them ``None`` when cold.
@@ -329,10 +432,9 @@ def _hook_root_never_the_checkout(_throwaway_repo, monkeypatch):
     the opposite reason. Clearing a variable does not stop a hook writing; it
     aims the write at the last rung of that ladder, which is the process working
     directory, which is this checkout. A hook that records there files real
-    audit lines into ``<repo>/var/audit`` that an operator cannot tell from
-    records of things that really happened, and
-    ``tests/conftest.py::no_audit_ledger_in_the_repo`` fails the session over
-    it. The seams in ``tests/conftest.py`` cannot reach this: the hook resolves
+    audit entries into ``<repo>/var/spool`` that an operator cannot tell from
+    records of things that really happened, and the repo guards in
+    ``tests/conftest.py`` fail the session over it. The seams in ``tests/conftest.py`` cannot reach this: the hook resolves
     its root with the standard library alone, in its own process.
 
     A test that pins the variable itself outranks this, because a test body runs
@@ -363,6 +465,62 @@ def _curated_env(config_path=None, hook_config_path=None, cwd=None, stamped_root
     return env
 
 
+def hook_audit_records(root, surface=None):
+    """Every hook audit entry body in a sealed spool segment under *root*.
+
+    A hook writes each decision as one ``audit`` line of its own sealed
+    segment, in whichever spool directory it resolved, so the search is
+    recursive. *surface* (``hook_approval``, ...) narrows to one hook. Bodies
+    come oldest first, by the start time each segment's name carries.
+    """
+    import re
+
+    def started(path):
+        match = re.search(r"-([0-9]+)\.sealed$", path.name)
+        return int(match[1]) if match else 0
+
+    bodies = []
+    for path in sorted(Path(root).rglob("*.sealed"), key=started):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            line = json.loads(raw)
+            body = line.get("body") or {}
+            if line.get("kind") != "audit" or not str(body.get("surface", "")).startswith("hook_"):
+                continue
+            if surface is None or body.get("surface") == surface:
+                bodies.append(body)
+    return bodies
+
+
+def hook_debug_records(root, hook=None):
+    """Every hook debug entry body in a sealed spool segment under *root*.
+
+    With hook debug on, ``log_hook`` writes each line as one ``debug`` entry
+    whose body names ``source: "hook"``, in its own sealed segment. *hook*
+    (``control_context``, ...) narrows to one hook. Bodies come oldest first,
+    by the start time each segment's name carries.
+    """
+    import re
+
+    def started(path):
+        match = re.search(r"-([0-9]+)\.sealed$", path.name)
+        return int(match[1]) if match else 0
+
+    bodies = []
+    for path in sorted(Path(root).rglob("*.sealed"), key=started):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            line = json.loads(raw)
+            body = line.get("body") or {}
+            if line.get("kind") != "debug" or body.get("source") != "hook":
+                continue
+            if hook is None or body.get("hook") == hook:
+                bodies.append(body)
+    return bodies
+
+
 def _write_hook_config(tmp_path, hook_config):
     """Serialise a hook_config dict into a per-test temp file."""
     path = tmp_path / f"hook_config_{next(_hook_config_seq)}.json"
@@ -373,7 +531,7 @@ def _write_hook_config(tmp_path, hook_config):
 def _hook_project_dir(throwaway_repo, cwd=None):
     """The project directory a hook subprocess resolves its repo root from.
 
-    A hook anchors its durable state — the audit ledger above all — on the root
+    A hook anchors its durable state — its spool above all — on the root
     ``osprey_hook_log.get_repo_root`` answers. With no config in play that root
     is the project dir, which is ``CLAUDE_PROJECT_DIR`` if set and otherwise the
     payload's own ``cwd`` field, and which is the process working directory when

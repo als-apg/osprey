@@ -689,8 +689,9 @@ def test_lint_accepts_a_roster_entry_naming_a_declared_role() -> None:
     "name", ["sidecar", "dispatch-worker-1", "dispatch-worker-12"], ids=lambda n: n
 )
 def test_lint_rejects_a_roster_name_that_is_a_service_s_audit_identity(name: str) -> None:
-    """Each user's container binds `var/audit/<user>/` read-write, so such a user
-    would read and rewrite the audit trail of the component that records them.
+    """Each user's container binds `var/spool/<user>/` and `var/state/<user>/`
+    read-write, so such a user would read and rewrite the spool and state of a
+    service.
     The render already refuses it; lint says so earlier, and `--no-lint` is the
     only path that reaches the render's raise."""
     # Arrange / Act
@@ -706,7 +707,7 @@ def test_lint_rejects_a_roster_name_that_is_a_service_s_audit_identity(name: str
     ids=["service-key", "no-index", "non-numeric-index", "superstring"],
 )
 def test_lint_accepts_a_roster_name_that_merely_resembles_one(name: str) -> None:
-    """The rule is about names that ARE a service's audit subdirectory, not names
+    """The rule is about names that ARE a service's spool and state subdirectory, not names
     that look service-ish: a user's compose service key is `web-<user>`, so
     `nginx` collides with nothing."""
     # Arrange / Act

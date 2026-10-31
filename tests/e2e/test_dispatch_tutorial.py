@@ -31,12 +31,8 @@ a runner that lacks it must fail this test loudly, not skip it.
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
-import socket
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -47,6 +43,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e._dispatch_harness import build_repo, log_tail, running_dispatch_stack
+from tests.e2e._worker_record import WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
@@ -70,13 +68,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    """Bind to :0, read the assigned port, release it (standard free-port trick)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _http_get_json(
     url: str, timeout: float = 5.0, headers: dict[str, str] | None = None
 ) -> dict | list:
@@ -85,132 +76,19 @@ def _http_get_json(
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _drain_output(proc: subprocess.Popen) -> str:
-    """Best-effort grab of a subprocess's combined output for failure messages."""
-    if proc.stdout is None:
-        return "(no captured output)"
-    try:
-        data = proc.stdout.read1(16384) if hasattr(proc.stdout, "read1") else b""
-    except Exception:
-        data = b""
-    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
-    return f"--- subprocess output (partial) ---\n{text}" if text else "(no captured output)"
-
-
-def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
-    """Poll ``url`` until it returns HTTP 200, or fail with captured stderr."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise AssertionError(
-                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(proc)}"
-            )
-        try:
-            req = urllib.request.Request(url, method="GET")  # localhost only
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(0.5)
-    raise AssertionError(
-        f"timed out after {timeout:.0f}s waiting for {url} (last error: {last_err}).\n"
-        f"{_drain_output(proc)}"
-    )
-
-
-def _terminate(proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        # Process ignored SIGKILL within the grace window; teardown is
-        # best-effort, so leave it for the OS to reap rather than hang the test.
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=5)
-
-
-def _find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for the active interpreter."""
-    import shutil
-
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError(
-        "Could not locate the 'osprey' console script. "
-        f"Tried {Path(sys.executable).parent / 'osprey'} and PATH."
-    )
-
-
 # ---------------------------------------------------------------------------
 # Build fixture + shipped-triggers loader
 # ---------------------------------------------------------------------------
 
 
-def _run_osprey(argv: list[str], cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(_find_osprey_console_script()), *argv],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a real control-assistant deployment repo once per module.
-
-    Two steps because the surface has two: ``init`` writes the repo's source zone
-    from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps
-    the build fast (no project venv); the worker/dispatcher run with this repo's
-    interpreter, so the project venv is not needed.
-    """
-    base = tmp_path_factory.mktemp("dispatch_tutorial_build")
-    repo = base / "proj"
-
-    init = _run_osprey(
-        [
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            f"provider={e2e_provider()}",
-            "--set",
-            f"model={E2E_MODEL}",
-        ],
-        cwd=base,
+    """Init + build a real control-assistant deployment repo once per module."""
+    return build_repo(
+        tmp_path_factory.mktemp("dispatch_tutorial_build"),
+        provider=e2e_provider(),
+        model=E2E_MODEL,
     )
-    if init.returncode != 0:
-        pytest.fail(
-            f"osprey init ({e2e_provider()}) failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
-
-    build = _run_osprey(
-        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
-        cwd=base,
-    )
-    if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
-    if not (repo / "build" / "config.yml").is_file():
-        pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
-    return repo
 
 
 def _shipped_triggers_doc() -> dict:
@@ -231,69 +109,26 @@ def _write_local_triggers(dst: Path, worker_port: int) -> None:
 
 
 @pytest.fixture
-def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
+def agent_record(built_repo: Path, tmp_path: Path) -> Iterator[WorkerRecord]:
+    """The record the worker records its runs in and reads them back from."""
+    with worker_record(tmp_path / "agent_record", built_repo) as record:
+        yield record
+
+
+@pytest.fixture
+def dispatch_stack(built_repo: Path, agent_record: WorkerRecord, tmp_path: Path) -> Iterator[dict]:
     """Start a real worker + dispatcher as subprocesses; tear them down after."""
-    worker_port = _free_port()
-    dispatcher_port = _free_port()
-    triggers_path = tmp_path / "triggers.yml"
-    _write_local_triggers(triggers_path, worker_port)
-
-    worker_proc: subprocess.Popen | None = None
-    dispatcher_proc: subprocess.Popen | None = None
-    try:
-        worker_env = {
-            **os.environ,
-            "DISPATCH_WORKER_PORT": str(worker_port),
-            "DISPATCH_WORKER_TOKEN": TOKEN,
-            # The repo root, exactly as the deployed worker gets it: the compose
-            # template sets OSPREY_PROJECT_DIR to the project root and CONFIG_FILE
-            # to the render's config.yml one level down, in build/.
-            "OSPREY_PROJECT_DIR": str(built_repo),
-            # The spawned Claude CLI resolves OSPREY config from CWD / CONFIG_FILE.
-            "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
-            "CLAUDECODE": "",
-        }
-        worker_proc = subprocess.Popen(
-            [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-            cwd=str(built_repo),
-            env=worker_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        _wait_for_health(f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc)
-
-        dispatcher_env = {
-            **os.environ,
-            "TRIGGERS_YML": str(triggers_path),
-            "EVENT_DISPATCHER_TOKEN": TOKEN,
-            "DISPATCH_WORKER_TOKEN": TOKEN,
-            "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": str(dispatcher_port),
-            "FASTMCP_HOST": "127.0.0.1",
-            "MCP_TRANSPORT": "http",
-            "MCP_PORT": str(dispatcher_port),
-            "CLAUDECODE": "",
-        }
-        dispatcher_proc = subprocess.Popen(
-            [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(built_repo),
-            env=dispatcher_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        _wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health", HEALTH_TIMEOUT_SEC, dispatcher_proc
-        )
-
-        yield {
-            "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
-            "worker_url": f"http://127.0.0.1:{worker_port}",
-            "repo": built_repo,
-            "worker_proc": worker_proc,
-        }
-    finally:
-        _terminate(dispatcher_proc)
-        _terminate(worker_proc)
+    with running_dispatch_stack(
+        built_repo,
+        tmp_path / "triggers.yml",
+        _write_local_triggers,
+        token=TOKEN,
+        health_timeout=HEALTH_TIMEOUT_SEC,
+        # A run that is no longer in flight is read back from the record, as
+        # the deployed worker reads it from the stack's.
+        worker_env=agent_record.worker_env(),
+    ) as stack:
+        yield stack
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +154,9 @@ def _fire_webhook(dispatcher_url: str, trigger: str, payload: dict) -> str:
     return dispatch_id
 
 
-def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess.Popen) -> dict:
+def _wait_for_run(
+    dispatcher_url: str, dispatch_id: str, worker_proc: subprocess.Popen, worker_log: Path
+) -> dict:
     """Poll the dispatcher run feed for the run with ``dispatch_id``; return it terminal.
 
     We correlate on the dispatch_id returned by firing rather than "any terminal
@@ -335,8 +172,7 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
     while time.monotonic() < deadline:
         if worker_proc.poll() is not None:
             raise AssertionError(
-                f"worker exited mid-run (rc={worker_proc.returncode}).\n"
-                f"{_drain_output(worker_proc)}"
+                f"worker exited mid-run (rc={worker_proc.returncode}).\n{log_tail(worker_log)}"
             )
         runs = _http_get_json(
             f"{dispatcher_url}/dashboard/runs",
@@ -353,7 +189,7 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
         time.sleep(2.0)
     raise AssertionError(
         f"run for dispatch_id={dispatch_id} did not reach a terminal state within "
-        f"{RUN_TIMEOUT_SEC:.0f}s.\n{_drain_output(worker_proc)}"
+        f"{RUN_TIMEOUT_SEC:.0f}s.\n{log_tail(worker_log)}"
     )
 
 
@@ -387,7 +223,10 @@ def test_tutorial_trigger_completes(dispatch_stack: dict, trigger: str, payload:
 
     dispatch_id = _fire_webhook(dispatch_stack["dispatcher_url"], trigger, payload)
     run = _wait_for_run(
-        dispatch_stack["dispatcher_url"], dispatch_id, dispatch_stack["worker_proc"]
+        dispatch_stack["dispatcher_url"],
+        dispatch_id,
+        dispatch_stack["worker_proc"],
+        dispatch_stack["worker_log"],
     )
 
     assert run["status"] == "completed", (

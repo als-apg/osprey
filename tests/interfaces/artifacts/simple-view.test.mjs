@@ -18,7 +18,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   fetchArtifacts,
+  getArtifacts,
   getSelectedArtifact,
+  setArtifacts,
   setSelectedArtifact,
   setFocusedArtifact,
   fileUrl,
@@ -46,6 +48,10 @@ function mountFixture() {
       <span class="simple-list-count" id="simple-list-count">0</span>
       <button class="simple-show-all" id="simple-show-all" hidden>Show all &rarr;</button>
       <div class="simple-list-body" id="simple-list-body"></div>
+      <details class="simple-runs" id="simple-runs" hidden>
+        <summary>Script runs <span id="simple-runs-count">0</span></summary>
+        <div class="simple-list-body" id="simple-runs-body"></div>
+      </details>
     </section>
   `;
 }
@@ -102,6 +108,49 @@ async function seed(artifacts, total = artifacts.length) {
 
 function rows() {
   return Array.from(document.querySelectorAll('#simple-list-body .simple-list-item'));
+}
+
+function runRows() {
+  return Array.from(document.querySelectorAll('#simple-runs-body .simple-list-item'));
+}
+
+/**
+ * The three records one approved Execute call leaves, newer than `at`:
+ * the hook's review, the executor's notebook, and its result record.
+ * @param {string} at - ISO timestamp the run happens after
+ * @returns {any[]}
+ */
+function makeRun(at) {
+  const t = (/** @type {number} */ s) => new Date(Date.parse(at) + s * 1000).toISOString();
+  return [
+    makeArtifact({
+      id: 'review',
+      title: 'Pre-Execution Review',
+      artifact_type: 'notebook',
+      category: '',
+      tool_source: 'osprey_approval',
+      metadata: { run_record: true },
+      timestamp: t(1),
+    }),
+    makeArtifact({
+      id: 'nb',
+      title: 'Notebook: test run',
+      artifact_type: 'notebook',
+      category: '',
+      tool_source: 'execute',
+      metadata: { run_record: true },
+      timestamp: t(2),
+    }),
+    makeArtifact({
+      id: 'record',
+      title: 'test run',
+      artifact_type: 'json',
+      category: 'code_output',
+      tool_source: 'execute',
+      metadata: { run_record: true },
+      timestamp: t(3),
+    }),
+  ];
 }
 
 /** @type {import('vitest').Mock<(container: HTMLElement, artifact: any) => void>} */
@@ -268,6 +317,25 @@ describe('the result card', () => {
     expect(img.getAttribute('src')).toBe(fileUrl(a));
   });
 
+  test('a focus on the artifact already shown keeps its preview; an update rebuilds it', async () => {
+    await seed([makeArtifact({ id: 'a1' }), makeArtifact({ id: 'a2', timestamp: FRESH })]);
+    const simple = view();
+    simple.render();
+    const before = qs(byId('simple-result-preview'), 'img', HTMLImageElement);
+
+    // The agent focuses the artifact the card already shows.
+    setFocusedArtifact(getArtifacts().find((a) => a.id === 'a2'));
+    simple.render();
+    expect(qs(byId('simple-result-preview'), 'img', HTMLImageElement)).toBe(before);
+
+    // The same artifact rewritten in place arrives as a new entry.
+    setArtifacts(getArtifacts().map((a) => (a.id === 'a2' ? { ...a, title: 'Rewritten' } : a)));
+    setFocusedArtifact(getArtifacts().find((a) => a.id === 'a2'));
+    simple.render();
+    expect(qs(byId('simple-result-preview'), 'img', HTMLImageElement)).not.toBe(before);
+    expect(title()).toBe('Rewritten');
+  });
+
   test('hands a timeseries artifact to onTimeseriesNeeded with its mounted container', async () => {
     const ts = makeArtifact({
       id: 'ts',
@@ -377,5 +445,100 @@ describe('the session list', () => {
 
     expect(getSelectedArtifact()).toBeNull();
     expect(title()).toBe('Plot 2');
+  });
+});
+
+describe('script runs', () => {
+  const plot = makeArtifact({ id: 'plot', title: 'Orbit plot', timestamp: '2026-07-01T10:00:00Z' });
+
+  test('a newer script run neither takes the card nor joins the results', async () => {
+    await seed([plot, ...makeRun(plot.timestamp)]);
+    view().render();
+
+    expect(title()).toBe('Orbit plot');
+    expect(rows().map((r) => r.getAttribute('data-id'))).toEqual(['plot']);
+    expect(byId('simple-list-count').textContent).toBe('1');
+    expect(byId('simple-runs').hidden).toBe(false);
+    expect(byId('simple-runs-count').textContent).toBe('3');
+    expect(runRows().map((r) => r.getAttribute('data-id'))).toEqual(['record', 'nb', 'review']);
+  });
+
+  test('a focused script run is passed over, but one the operator picks is shown', async () => {
+    const run = makeRun(plot.timestamp);
+    await seed([plot, ...run]);
+    const simple = view();
+
+    setFocusedArtifact(run[0]);
+    simple.render();
+    expect(title()).toBe('Orbit plot');
+
+    qs(runRows()[2], '.simple-list-item-name').click();
+    expect(getSelectedArtifact()?.id).toBe('review');
+    expect(title()).toBe('Pre-Execution Review');
+    expect(runRows()[2].classList.contains('selected')).toBe(true);
+  });
+
+  test('a session with only script runs shows the newest run rather than an empty card', async () => {
+    await seed(makeRun('2026-07-01T10:00:00Z'));
+    view().render();
+
+    expect(title()).toBe('test run');
+    expect(rows()).toEqual([]);
+    expect(byId('simple-list-count').textContent).toBe('0');
+  });
+
+  test('records saved before the run-record mark are still told apart', async () => {
+    await seed([
+      plot,
+      makeArtifact({
+        id: 'old-review',
+        title: 'Pre-Execution Review',
+        artifact_type: 'notebook',
+        category: '',
+        tool_source: 'osprey_approval',
+        timestamp: '2026-07-02T10:00:00Z',
+      }),
+      makeArtifact({
+        id: 'old-nb',
+        title: 'Notebook: old run',
+        artifact_type: 'notebook',
+        category: '',
+        tool_source: 'execute',
+        timestamp: '2026-07-02T10:00:01Z',
+      }),
+      makeArtifact({
+        id: 'old-record',
+        title: 'old run',
+        artifact_type: 'json',
+        category: 'code_output',
+        tool_source: 'execute',
+        timestamp: '2026-07-02T10:00:02Z',
+      }),
+      makeArtifact({
+        id: 'analysis',
+        title: 'Orbit analysis',
+        artifact_type: 'notebook',
+        category: '',
+        tool_source: 'execute',
+        timestamp: '2026-07-02T10:00:03Z',
+      }),
+    ]);
+    view().render();
+
+    expect(title()).toBe('Orbit analysis');
+    expect(rows().map((r) => r.getAttribute('data-id'))).toEqual(['analysis', 'plot']);
+    expect(runRows().map((r) => r.getAttribute('data-id'))).toEqual([
+      'old-record',
+      'old-nb',
+      'old-review',
+    ]);
+  });
+
+  test('the group stays hidden while the session holds no script run', async () => {
+    await seed([plot]);
+    view().render();
+
+    expect(byId('simple-runs').hidden).toBe(true);
+    expect(runRows()).toEqual([]);
   });
 });

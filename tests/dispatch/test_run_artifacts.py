@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -337,7 +338,11 @@ class TestResolveRunArtifacts:
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch) -> Iterator[tuple[TestClient, ArtifactStore, dict]]:
+def client(
+    tmp_path,
+    monkeypatch,
+    worker_record,  # noqa: ARG001 - the worker reads its record
+) -> Iterator[tuple[TestClient, ArtifactStore, dict]]:
     monkeypatch.setenv("DISPATCH_WORKER_TOKEN", TOKEN)
     store = _rooted_store(tmp_path, monkeypatch)
     ids = {
@@ -496,28 +501,34 @@ class TestCoherence:
 
 def _list_via_status(c, run_id):
     """Read the artifact descriptors from the run-status body."""
-    from osprey.mcp_server.dispatch_worker import dispatch_api
 
-    # Seed the status body the way completion does, then read it back over HTTP.
-    dispatch_api._runs[run_id] = {
-        "status": "completed",
-        "artifacts": resolve_mod.describe_run_artifacts(run_id),
-    }
+    # Record the run the way completion does, then read it back over HTTP.
+    _record_finished_run(run_id, resolve_mod.describe_run_artifacts(run_id))
     return c.get(f"/dispatch/{run_id}", headers=_auth()).json()["artifacts"]
 
 
-class TestStatusBodyDiskFallback:
-    def test_evicted_run_still_served_from_disk(self, client, tmp_path):
-        c, _, _ = client
-        from osprey.mcp_server.dispatch_worker import dispatch_api
+def _record_finished_run(run_id: str, artifacts: list) -> None:
+    """Write the run's accept and terminal entries, as a finished run leaves them."""
+    from osprey.mcp_server.dispatch_worker import dispatch_api
 
-        dispatch_api._runs.pop("run-1", None)  # evicted from memory
-        log_dir = tmp_path / "project" / "var" / "agent_data" / "dispatch"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        (log_dir / "run-1.json").write_text(json.dumps({"status": "completed", "artifacts": []}))
+    now = time.time()
+    dispatch_api._write_run_accept(run_id, {"created_at": now, "session_id": f"s-{run_id}"})
+    dispatch_api._write_run_terminal(
+        run_id, {"status": "completed", "completed_at": now, "artifacts": artifacts}
+    )
+    dispatch_api._runs.pop(run_id, None)
+
+
+class TestStatusBodyFromTheRecord:
+    def test_a_run_this_process_no_longer_holds_is_served_from_the_record(self, client):
+        c, _, ids = client
+        _record_finished_run("run-1", resolve_mod.describe_run_artifacts("run-1"))
+
         r = c.get("/dispatch/run-1", headers=_auth())
+
         assert r.status_code == 200
         assert r.json()["status"] == "completed"
+        assert {d["artifact_id"] for d in r.json()["artifacts"]} == {ids["a1"], ids["a2"]}
 
     def test_truly_unknown_run_is_404(self, client):
         c, _, _ = client
@@ -657,7 +668,6 @@ async def _drive_failing_task(monkeypatch, tmp_path, *, kind: str) -> dict:
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda rid, r: None)
 
     if kind == "exception":
 

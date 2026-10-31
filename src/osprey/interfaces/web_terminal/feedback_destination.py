@@ -12,9 +12,8 @@ because before this module existed the app owned the constants and
 with a comment blaming an ``app -> routes -> panels`` import cycle. The cycle
 is real for a top-level ``from ...app import`` (the app pulls the router in at
 import time), but it was never a reason to duplicate a value: a sibling leaf
-beside :mod:`~osprey.interfaces.web_terminal.feedback_composer` and
-:mod:`~osprey.interfaces.web_terminal.feedback_store` is reachable from both
-sides with no cycle at all.
+beside :mod:`~osprey.interfaces.web_terminal.feedback_composer` is reachable
+from both sides with no cycle at all.
 
 Duplicating them was worse than untidy. The copies lived on the *fallback*
 path — ``getattr(app.state, "feedback_email", "<literal>")`` — which only runs
@@ -52,14 +51,10 @@ FEEDBACK_TRACKER_LABELS: dict[str, str] = {"github": "GitHub", "gitlab": "GitLab
 #: reads it is a decision only the deployment's owner can make — a site with
 #: incident-reporting or export-control rules cannot inherit one. Unconfigured,
 #: the Email channel is simply not offered; the issue tracker
-#: (:data:`DEFAULT_FEEDBACK_GITHUB_REPO`) remains, and ``osprey feedback
-#: list``/``export`` still records every submission locally.
+#: (:data:`DEFAULT_FEEDBACK_GITHUB_REPO`) remains, and every submission is
+#: still an entry in the agent record, which ``osprey feedback list``/``export``
+#: read.
 DEFAULT_FEEDBACK_EMAIL = ""
-
-#: Ceiling (bytes) on the on-disk feedback store before the oldest saved
-#: contexts are pruned; 256 MB unless ``web.feedback.max_store_bytes`` says
-#: otherwise. Submission headers are never pruned, only their contexts.
-DEFAULT_FEEDBACK_MAX_STORE_BYTES = 256 * 1024 * 1024
 
 
 def coerce_config_str(key: str, value: object, default: str) -> str:
@@ -270,43 +265,6 @@ def resolve_feedback_trackers(
     return resolved
 
 
-def coerce_store_ceiling(value: object, default: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES) -> int:
-    """Return ``web.feedback.max_store_bytes`` as a positive byte count.
-
-    Guarded rather than trusted: the pruner deletes stored contexts until the
-    store fits under this number, so a ``0``, a negative, or a ``True`` that
-    ``int()`` would happily turn into ``1`` would empty the store on the next
-    submission while looking like ordinary pruning. A human-written ``256MB``
-    is rejected the same way — this key is a plain byte count.
-
-    Args:
-        value: Whatever the config reader returned.
-        default: The shipped ceiling to fall back to.
-
-    Returns:
-        A positive integer byte ceiling.
-    """
-    if value is None:
-        return default
-    if not isinstance(value, bool) and isinstance(value, (int, float, str)):
-        try:
-            ceiling = int(value)
-        except (TypeError, ValueError, OverflowError):
-            # OverflowError is not hypothetical: YAML parses `.inf` and any
-            # overflowing exponent (1.0e+400) to float("inf"), which int()
-            # refuses. This helper is called outside the lifespan's try, so an
-            # escaping exception would abort startup outright.
-            ceiling = 0
-        if ceiling > 0:
-            return ceiling
-    logger.warning(
-        "web.feedback.max_store_bytes is %r, not a positive byte count; using %d",
-        value,
-        default,
-    )
-    return default
-
-
 @dataclass(frozen=True)
 class FeedbackDestination:
     """Everything the Documentation and Feedback controls need, resolved.
@@ -330,9 +288,6 @@ class FeedbackDestination:
     trackers: list[dict[str, str]] = field(default_factory=list)
     """The outbound channels the dialog offers, in render order."""
 
-    max_store_bytes: int = DEFAULT_FEEDBACK_MAX_STORE_BYTES
-    """Ceiling on the on-disk record store. Server-side only."""
-
     owner_name: str = ""
     """``web.feedback.owner.name`` — how this deployment's owner is written in a
     report. ``""`` when no owner block names one, including the unconfigured
@@ -346,7 +301,6 @@ def resolve_feedback_destination(
     email: object = None,
     github_repo: object = None,
     trackers: object = None,
-    max_store_bytes: object = None,
     owner: object = None,
 ) -> FeedbackDestination:
     """Resolve the raw config values into one coherent destination.
@@ -369,8 +323,8 @@ def resolve_feedback_destination(
 
     Each field is coerced separately. A single unusable value must not drag the
     others back to project defaults — silently redirecting a facility's
-    feedback address to the upstream maintainers because its store ceiling was
-    written ``256MB`` is exactly the failure a fail-open path must not produce.
+    feedback address to the upstream maintainers because its tracker list was
+    malformed is exactly the failure a fail-open path must not produce.
 
     ``web.feedback.owner`` names the destination as one block. The two leaf
     keys still outrank it wherever they are spelled, which is what keeps every
@@ -386,7 +340,6 @@ def resolve_feedback_destination(
         email: Raw ``web.feedback.email``.
         github_repo: Raw ``web.feedback.github_repo``.
         trackers: Raw ``web.feedback.trackers``.
-        max_store_bytes: Raw ``web.feedback.max_store_bytes``.
         owner: Raw ``web.feedback.owner``.
 
     Returns:
@@ -419,7 +372,6 @@ def resolve_feedback_destination(
         ),
         github_repo=resolved_repo,
         trackers=resolve_feedback_trackers(coerce_feedback_trackers(trackers), owner_tracker),
-        max_store_bytes=coerce_store_ceiling(max_store_bytes),
         owner_name=owner_name,
     )
 

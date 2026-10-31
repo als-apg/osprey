@@ -25,16 +25,7 @@ from osprey.cli.build_profile import (
 from osprey.cli.build_profile_presets import resolve_triggers_path
 from osprey_connectors.errors import BuildProfileError
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _profile(**fields: Any) -> BuildProfile:

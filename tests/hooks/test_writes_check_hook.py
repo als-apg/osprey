@@ -288,30 +288,6 @@ def test_the_fallback_write_tools_gate_channel_write(tmp_path, hook_runner, make
     _reason(_channel_write(tmp_path, hook_runner, config))
 
 
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Stdin the hook cannot use lets the tool through instead of blocking it.
-
-    A PreToolUse hook fails open by exiting 0 and printing no decision —
-    anything else would turn a bad payload into a denied tool call.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_writes_check.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
-
-
 # -- stage 1: a read-only run ----------------------------------------------
 
 

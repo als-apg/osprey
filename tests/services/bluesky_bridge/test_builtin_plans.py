@@ -340,7 +340,7 @@ def test_orm_declares_no_dimensionality_hint() -> None:
 
 def test_mock_settable_locates_its_demand_and_its_readback() -> None:
     """The dry run and the plan tests drive plans on `MockSettable`, so it
-    answers `bps.locate` the way a connector-mediated device does."""
+    answers `bps.loc` the way a connector-mediated device does."""
     from bluesky.protocols import Locatable
 
     device = asyncio.run(connect_all({"hcm1": MockSettable("hcm1", initial_value=2.5)}))["hcm1"]
@@ -357,7 +357,7 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
     generator by hand. Walked by hand, nothing answers the plan's
-    working-point read: a hand-walked `bps.locate` answers `None`, so the
+    working-point read: a hand-walked `bps.loc` answers `None`, so the
     plan cannot even index a working point, let alone sweep about the
     device's real one. The `msg_hook` gets the identical `Msg` stream with a
     live device on the other end of it.
@@ -1124,7 +1124,7 @@ def _record_writes(commands: list[tuple[str, float]]) -> Callable[[Any], None]:
     """A `msg_hook` collecting every `(device, value)` the plan commands.
 
     A `msg_hook` on a live `RunEngine`, not a hand-walked generator: a
-    hand-walked `bps.locate` answers `None`, so the plan cannot even index a
+    hand-walked `bps.loc` answers `None`, so the plan cannot even index a
     working point — see `_corrector_sweep_setpoints` above.
     """
 

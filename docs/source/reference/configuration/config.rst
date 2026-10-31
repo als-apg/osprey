@@ -14,12 +14,12 @@ diagnostic suite (``health:``), the browser UI's documentation and feedback
 settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
-full tool-call record (``audit.tool_call:``), the links from an answer to a
+links from an answer to a
 logbook entry (``ariel.entry_url_template``), the login the agent's SQL tool
 uses on a logbook database you run yourself (``ariel.database.readonly_uri``),
-how much of each logbook entry the agent reads (``ariel.entry_text``), the signals the agent exports
-(``claude_code.telemetry.signals``), the collector token the agent sends
-(``claude_code.telemetry.auth.token_env``), the Phoebus display bridge
+how much of each logbook entry the agent reads (``ariel.entry_text``), whether
+the agent shows its thinking (``claude_code.thinking.display``), the Phoebus
+display bridge
 (``phoebus:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
 in. Settings that only
@@ -227,8 +227,7 @@ configured or deployed, so a minimal build shows no empty tiles.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
   graph MCP server (the graph store), the ARIEL panel and MCP server
-  (Postgres), agent telemetry (the telemetry gateway), the Bluesky MCP server
-  (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+  (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
   process running the check — so the same category answers a different
@@ -238,22 +237,6 @@ configured or deployed, so a minimal build shows no empty tiles.
   names the config key the client resolved it from, and a client switched on
   with nothing to resolve warns with the key that would give it one — the
   same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
-- ``telemetry_store`` — appears when ``telemetry_store`` is in
-  ``deployed_services``. One row, **ping**: ``GET /ping`` against the store's
-  HTTP interface at the address that fits where the check runs (the service
-  name from a container on the compose network, loopback and the published port
-  from the host). ``ok`` on HTTP 200, ``warning`` otherwise: a store that is
-  down loses no record, because the gateway queues on disk and retries.
-- ``telemetry_gateway`` — appears when ``telemetry_gateway`` is in
-  ``deployed_services``. Reads the gateway's own counters page and reports
-  whether it answers, a ``warning`` when an exporter's queue is more than 80 %
-  full (fix the store before restarting the gateway, or a full queue can lose a
-  batch), the refusals since the gateway started (information only), any
-  ``*.jsonl`` under ``var/audit`` that is not a regular file, and the audit
-  directories no feed reads until the next build. On the host it also keeps the
-  previous sample in ``var/health/telemetry_gateway.json`` and warns when send
-  failures or refusals rose since then, or when a queue has not drained for
-  five minutes.
 
 .. note::
 
@@ -517,10 +500,6 @@ Documentation and feedback keys
      - Recipient of the prefilled mail draft the dialog's Email channel opens.
        Nothing ships here: the draft can carry a session's scrollback, so name
        the mailbox your operators should reach before offering the channel.
-   * - ``web.feedback.max_store_bytes``
-     - ``268435456`` (256 MB)
-     - Ceiling on the on-disk feedback store. Over it, the oldest saved session
-       contexts are dropped; the submissions themselves are always kept.
    * - ``web.app_name``
      - unset (no badge)
      - Optional name badge in the terminal header, so otherwise-identical
@@ -558,7 +537,6 @@ Documentation and feedback keys
            label: OSPREY upstream
        github_repo: ""
        email: controls-support@example.org
-       max_store_bytes: 268435456
 
 ``docs_url``, ``trackers``, ``github_repo`` and ``email`` are unset in every
 shipped preset — each is documented there as a commented example, so nothing
@@ -613,14 +591,12 @@ Three ways of writing one of the three **string** keys (``docs_url``,
   and it reads as *absent*, not blank — "I have not decided yet" rather than
   "there is none" — so you get the default. Write ``""`` when you mean none.
 
-``max_store_bytes`` takes a positive byte count; anything else — blank
-included — is reported in the log and the default is used. ``trackers`` has
-no blank posture of its own: an empty list, or none, simply adds no channel.
+``trackers`` has no blank posture of its own: an empty list, or none, simply adds no channel.
 The feedback dialog's Local channel is always available and needs no
 configuration at all.
 
 A build profile overrides any of these keys from its ``config:`` block in the
-dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
+dotted form, e.g. ``web.feedback.email: controls-support@example.org``.
 
 .. _config-web-tour:
 
@@ -936,35 +912,6 @@ The list takes exact names only. It cannot add a credential osprey itself
 holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
 naming one is an error, and the run does not start.
 
-.. _config-audit-tool-call:
-
-``audit.tool_call:`` — the full record of every tool call
----------------------------------------------------------
-
-``audit.tool_call.enabled`` (default ``false``) turns on the full record: every
-osprey tool call, reads included, is written whole to
-``var/audit/<identity>/tool_call.jsonl`` --- arguments, result, control
-target, approval answer. Where the telemetry store is deployed, its gateway
-reads the file into ``telemetry.audit_ledger`` with every other ledger file.
-The control-assistant preset turns it on; delete the lines to opt out.
-
-.. code-block:: yaml
-
-   config:
-     audit.tool_call.enabled: true
-     audit.tool_call.max_inline_bytes: 262144
-
-``audit.tool_call.max_inline_bytes`` (default ``262144``) bounds each payload,
-arguments and result on their own. A larger payload is saved as a JSON artifact
-and the record keeps ``{"size", "sha256", "artifact_id"}`` in its place. A value
-that is not a positive integer falls back to the default with a warning.
-
-Both keys are read once per MCP server process, so a change lands after
-``osprey build`` and a restart. Unlike the rest of the audit trail, this file
-and those artifacts hold values: treat them with the access you give the
-control system's own data. The fields are listed in
-:ref:`audit-trail-tool-call`.
-
 .. _config-ariel-entry-url:
 
 ``ariel.entry_url_template`` — links from an answer to the logbook entry
@@ -1046,54 +993,44 @@ keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.
 
-.. _config-telemetry-signals:
+.. _config-thinking-display:
 
-``claude_code.telemetry.signals`` — which signals the agent exports
--------------------------------------------------------------------
+``claude_code.thinking.display`` — whether the agent shows its thinking
+-----------------------------------------------------------------------
 
-``claude_code.telemetry.signals`` lists the OpenTelemetry signals the agent
-exports while ``claude_code.telemetry.enabled`` is ``true``: any of
-``metrics``, ``logs`` and ``traces``. Unset, it exports all three.
-
-.. code-block:: yaml
-
-   config:
-     claude_code.telemetry.signals: [metrics, logs]
-
-A signal left out is exported as ``none``, so an exporter variable in the
-shell or the project's ``.env`` cannot turn it back on. An empty list or any
-other name stops ``osprey build`` with a message naming the key; to export
-nothing, set ``claude_code.telemetry.enabled: false``. Built-in tool output
-(``claude_code.telemetry.log_tool_content``) is recorded as trace span events,
-so a list without ``traces`` leaves it out of the store; the tool-call record
-(``audit.tool_call.enabled``) is unaffected. Every launch reads the key: the
-web terminals, the dispatch worker, ``osprey chat`` and SDK agent runs. The
-rest of the block is covered in
-:doc:`/how-to/health-and-monitoring/monitor-agent`.
-
-.. _config-telemetry-auth:
-
-``claude_code.telemetry.auth.token_env`` — the collector's token
-----------------------------------------------------------------
-
-``claude_code.telemetry.auth.token_env`` names the environment variable that
-holds the bearer token of an OTLP collector this deployment does not run. The
-agent sends it as ``Authorization: Bearer <value>``. The key holds the
-variable's name; the token goes in the project's ``.env``.
+``claude_code.thinking.display`` sets whether Claude Code shows a summary of
+its thinking. ``summarized``, the default, shows the summaries, and they are
+recorded with the session, where the Simple-view chat and the agent timeline
+display them. ``omitted`` leaves thinking out. Any other value stops
+``osprey build`` with a message naming the key.
 
 .. code-block:: yaml
 
    config:
-     claude_code.telemetry.backend: generic
-     claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
-     claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
+     claude_code.thinking.display: omitted
 
-Every web terminal that exports telemetry receives the variable from the deploy
-``.env`` through its own compose environment, never ``.env.users``, and
-``osprey up`` refuses the deploy when it is unset. The ``gateway`` backend
-refuses the key: every sender authenticates to the deployment's telemetry
-gateway with its own login. See
-:doc:`/how-to/health-and-monitoring/monitor-agent`.
+The key reaches a launch by one of three routes:
+
+- Project settings: ``osprey build`` writes ``showThinkingSummaries`` into
+  the project's ``.claude/settings.json``. This route covers interactive
+  sessions only: the web terminals and ``osprey chat`` without ``--print``.
+- SDK runs: headless agent runs, such as the dispatch worker's, pass
+  ``--thinking-display`` to the CLI.
+- ``osprey chat --print``: the command line carries ``--thinking-display``.
+
+The two flag routes need Claude Code 2.1.228 or later. A launch through an
+older build, or one whose version cannot be read, starts without the flag,
+records no thinking, and logs one warning. The warning names the fix: pin the
+agent CLI to 2.1.228 or later under ``config:`` in ``profile.yml`` and run
+``osprey build``.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.cli_version: "2.1.228"
+
+The key changes only how thinking is shown. Whether the model thinks, and how
+much, is unchanged.
 
 .. _config-phoebus:
 
@@ -1273,12 +1210,9 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-The telemetry store and the telemetry gateway are upstream pins with no row and
-no environment variable: ``services.telemetry_store.image`` and
-``services.telemetry_gateway.image`` in ``config.yml`` are the only way to
-change them. The store's tag decides whether the readers' query page is served
-at all — OSPREY serves that page only for an image tag whose page script it
-knows — so the tag comes from the config alone.
+The agent record's ClickHouse store is an upstream pin with no row and no
+environment variable: the profile's ``agent_record.clickhouse.image`` is the
+only way to change it.
 
 Which of these images a deploy builds, and what naming another image does to
 that, is in :ref:`deployment-image-builds`.
@@ -1293,8 +1227,13 @@ axes below.
 row value on purpose: all four run the bare project image, so all four read
 ``OSPREY_WORKER_IMAGE``. Set that variable and all four services move to the
 image you name. ``history`` (the history page) is rendered whenever the
-deployment runs the telemetry store and its web terminals sign people in; it is
-never listed in ``deployed_services``.
+deployment's web terminals sign people in (``auth.method`` of ``password`` or
+``oidc``); it is never listed in ``deployed_services``. Browsers reach it on
+the history page's origin, a second server of the web tier on its own port:
+``modules.web_terminals.history_port`` (``deployment.port_base`` + 2 by
+default), or ``modules.web_terminals.history_origin``, the address stated
+verbatim beside ``modules.web_terminals.external_origin`` when a load balancer
+is what browsers reach. The two must share a host.
 
 .. _deployment-image-axes:
 
@@ -1410,7 +1349,8 @@ the key families that gate writes and approval (``control_system.*``,
 are owned by the build profile: edit them in the profile and run
 ``osprey build``. Every refused attempt names the owning channel and is
 recorded in :ref:`the audit trail <reference-audit-trail>`, under
-``var/audit/<identity>/``, in a file named for the surface that refused it.
+an ``audit`` entry filed under the acting identity, whose ``surface`` names
+the surface that refused it.
 
 .. seealso::
 

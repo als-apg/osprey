@@ -13,8 +13,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _init_repo(tmp_path: Path, *config_lines: str) -> Path:
@@ -52,15 +52,11 @@ def _site_helper(repo: Path, model: str) -> None:
     )
 
 
-def _build(repo: Path):
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 def test_a_pin_naming_no_agent_is_refused_with_the_agent_names(tmp_path, caplog):
     repo = _init_repo(tmp_path, "claude_code.agent_models.chanel-finder: claude-sonnet-5")
 
     with caplog.at_level(logging.ERROR):
-        result = _build(repo)
+        result = invoke_build(repo)
 
     assert result.exit_code != 0
     assert "claude_code.agent_models.chanel-finder: no agent is called" in caplog.text
@@ -70,7 +66,7 @@ def test_a_pin_naming_no_agent_is_refused_with_the_agent_names(tmp_path, caplog)
 def test_a_pin_on_a_framework_agent_this_deployment_does_not_ship_builds(tmp_path):
     repo = _init_repo(tmp_path, "claude_code.agent_models.channel-finder: claude-haiku-4-5")
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
 
@@ -80,7 +76,7 @@ def test_a_pin_the_profile_agent_file_overrides_is_refused(tmp_path, caplog):
     _site_helper(repo, "claude-sonnet-5")
 
     with caplog.at_level(logging.ERROR):
-        result = _build(repo)
+        result = invoke_build(repo)
 
     assert result.exit_code != 0
     assert "claude-haiku-4-5 is not what agents/site-helper.md runs (claude-sonnet-5)" in (
@@ -93,7 +89,7 @@ def test_a_pin_the_profile_agent_file_already_runs_builds(tmp_path):
     repo = _init_repo(tmp_path, "claude_code.agent_models.site-helper: claude-haiku-4-5")
     _site_helper(repo, "claude-haiku-4-5")
 
-    result = _build(repo)
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     shipped = (repo / "build" / ".claude" / "agents" / "site-helper.md").read_text()

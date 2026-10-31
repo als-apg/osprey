@@ -94,7 +94,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -126,6 +125,12 @@ from osprey_connectors.types import (
     tier_allows,
 )
 from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_health,
+)
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -385,27 +390,6 @@ pytestmark = [
 ]
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 #: The two probe actions, each declared under one panel-fired and one
 #: webhook-fired name. Appended to the deployment's OWN triggers file rather than
 #: shipped in the preset: they exist to read one run's environment and to attempt
@@ -585,38 +569,32 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
     repo = base / PROJECT_NAME
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it — including one
     # render project per ``tiers/`` file.
-    init = _run(
+    init = run_command(
         [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     # Append the owner probes to the deployment's own trigger set BEFORE the
     # build, so the render the dispatcher loads carries them.
     _append_owner_probe_triggers(repo)
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     # Before anything is deployed: the render must agree with this module about
     # which roster user holds which tier, and the read-write render must carry
@@ -679,17 +657,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up", up))
+        wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
         # The dispatcher being healthy does not mean the worker is: the worker runs
         # the heavier project image and boots later. Gate on its proxied feed so
         # tests never race a still-warming worker (and a worker that never comes up
@@ -706,7 +681,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # the render image tags are namespaced by this repo's name (see
         # COEXISTENCE), so removing them cannot untag a real deployment's
         # images.
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -719,21 +694,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         subprocess.run(["docker", "rm", "-f", NGINX_CONTAINER], capture_output=True, text=True)
         for image in (READONLY_IMAGE, READWRITE_IMAGE):
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _dump_stack_diagnostics(context: str) -> str:
@@ -923,8 +883,7 @@ def _worker_run_evidence(run: dict | None) -> str:
     The ``.mcp.json`` probe above says whether the save tool *could* have
     existed; it cannot say whether the agent saw it or what the run did instead.
     Both are on the worker: the run feed carries the tool count and the agent's
-    final text, the persisted record at ``<agent_data>/dispatch/<run_id>.json``
-    carries every tool call, and the container log says which MCP servers were
+    final text, the run's timeline in the agent record carries every tool call, and the container log says which MCP servers were
     ready before the first turn. The stack is torn down before any CI diagnostics
     step runs, so a failure that does not carry these here loses them for good.
     """
@@ -943,15 +902,9 @@ def _worker_run_evidence(run: dict | None) -> str:
     run_id = run.get("run_id")
     if run_id:
         record = _docker_capture(
-            [
-                "docker",
-                "exec",
-                WORKER_CONTAINER,
-                "cat",
-                f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json",
-            ]
+            ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id]
         )
-        lines.append(f"--- persisted run record ({run_id}.json) ---\n{record}")
+        lines.append(f"--- recorded run ({run_id}) ---\n{record}")
     listing = _docker_capture(
         ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_AGENT_DATA}/artifacts"]
     )
@@ -1422,10 +1375,7 @@ def _run_manual_fire_client(mode: str, trigger: str, payload: dict | None = None
         text=True,
         timeout=180,
     )
-    assert result.returncode == 0, (
-        f"the in-container MCP client failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
+    assert result.returncode == 0, format_failure("the in-container MCP client", result)
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
@@ -1477,26 +1427,71 @@ def _wait_for_terminal_run(trigger: str, timeout: float = RUN_TIMEOUT_SEC) -> di
     )
 
 
-def _persisted_run_record(run_id: str) -> dict:
-    """The worker's own record of a run — the one artifact carrying tool results.
+#: Run inside the worker container, under the worker's own record login: the
+#: run's timeline from the agent record, as ``{name, input, result}`` per tool
+#: call. Retries while the read is incomplete (the transcript still ingesting).
+_RECORDED_RUN_CLIENT = r"""
+import json, os, sys, time
+from osprey.agent_record.client import RecordClient
 
-    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED
-    lives only in ``<agent_data>/dispatch/<run_id>.json``, which the worker
-    writes with a ``{name, input, result}`` entry per call. These rows assert on
-    the tool's answer, so they read it there rather than trusting the agent's
-    prose summary of it.
+client = RecordClient.from_env(os.environ)
+deadline = time.monotonic() + 60
+while True:
+    answer = client.run_timeline(sys.argv[1])
+    if answer.complete or time.monotonic() > deadline:
+        break
+    time.sleep(2)
+
+
+def text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return "" if content is None else json.dumps(content)
+
+
+calls = []
+for node in answer.data or []:
+    if node.get("kind") != "tool_call":
+        continue
+    body = node.get("body") or {}
+    result = (node.get("result") or {}).get("body") or {}
+    calls.append(
+        {"name": body.get("name"), "input": body.get("input"), "result": text(result.get("content"))}
+    )
+print(json.dumps({
+    "complete": answer.complete,
+    "unavailable": answer.unavailable,
+    "reason": answer.reason,
+    "tool_calls": calls,
+}))
+"""
+
+
+def _persisted_run_record(run_id: str) -> dict:
+    """The run as the agent record holds it — the one place carrying tool results.
+
+    The dispatcher feed reports status and a tool COUNT; what a tool ANSWERED is
+    in the run's timeline in the agent record, read here from inside the worker
+    under its own record login, as ``tool_calls`` of ``{name, input, result}``.
+    These rows assert on the tool's answer, so they read it there rather than
+    trusting the agent's prose summary of it.
     """
-    record = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "cat", f"{WORKER_AGENT_DATA}/dispatch/{run_id}.json"],
+    proc = subprocess.run(
+        ["docker", "exec", WORKER_CONTAINER, "python3", "-c", _RECORDED_RUN_CLIENT, run_id],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    assert record.returncode == 0, (
-        f"could not read the persisted record for run {run_id}: "
-        f"{(record.stderr or record.stdout).strip()}"
+    assert proc.returncode == 0, (
+        f"could not read run {run_id} from the agent record: {(proc.stderr or proc.stdout).strip()}"
     )
-    return json.loads(record.stdout)
+    recorded = json.loads(proc.stdout)
+    assert recorded["complete"], (
+        f"the record's timeline of run {run_id} is not complete: {recorded}"
+    )
+    return recorded
 
 
 def _tool_answers(record: dict, tool_suffix: str) -> list[str]:
@@ -1517,7 +1512,7 @@ def _owner_run_evidence(trigger: str, run: dict, record: dict | None = None) -> 
         lines.append(f"agent text_output:\n{text[:_EVIDENCE_CAP]}")
     if record is not None:
         calls = json.dumps(record.get("tool_calls"), indent=2)
-        lines.append(f"persisted tool_calls:\n{calls[:_EVIDENCE_CAP]}")
+        lines.append(f"recorded tool_calls:\n{calls[:_EVIDENCE_CAP]}")
     lines.append(
         f"--- {WORKER_CONTAINER} (last 200 log lines) ---\n"
         + _docker_capture(["docker", "logs", "--tail", "200", WORKER_CONTAINER])

@@ -1,0 +1,66 @@
+# agent-record: the one writer of this deployment's agent record. It ingests
+# what every source appends to the spool, tails the Claude Code transcripts of
+# every terminal and dispatch worker, and answers the record's read API. The
+# host build's transcripts, which Claude Code writes for the host account
+# alone, reach it through the spool: the host session forwards them. Every
+# deployment runs it; it is never a `deployed_services` entry.
+#
+# It runs the PROJECT image (<project>:local) that `osprey up` builds from the
+# project root, with the image's own entrypoint, which drops privileges before
+# it runs the command. OSPREY_WORKER_IMAGE overrides with a prebuilt/published
+# image. There is deliberately NO `build:` block: the project image is built
+# once by `osprey up`, and a second `build:` for the same tag would race it.
+
+services:
+  agent-record:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run an agent record on one host.
+    container_name: golden-project-agent-record
+    command: ["osprey", "agent-record", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      # Recreates the container when one of its credential files changes:
+      # each is read once, at start.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_AGENT_RECORD:-}"
+    restart: unless-stopped
+    # Its own credential files at the repo root and nothing else: the verifier
+    # of every login and the set of secrets ingest scrubs, plus its store
+    # account when the record lives in ClickHouse. `osprey build` and
+    # `osprey up` write them before compose reads them. No credential file is
+    # mounted.
+    env_file:
+      - .env.agent-record.service
+    environment:
+      # The spool every source appends to, the embedded store's directory and
+      # the archive the record exports its closed days into. The image's
+      # entrypoint joins each directory's group and leaves its ownership alone.
+      OSPREY_AGENT_RECORD_SPOOL_ROOT: /app/golden-project/var/spool
+      OSPREY_AGENT_RECORD_DIR: /app/golden-project/var/agent_record
+      OSPREY_AGENT_RECORD_ARCHIVE_DIR: /app/golden-project/var/archive
+      # One transcript root per source below this directory, each named as
+      # the record names it.
+      OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR: /data/transcripts
+      TZ: UTC
+    # Published on loopback only: readers on this host and the web tier reach
+    # the read API there; nothing else may.
+    ports:
+      - "127.0.0.1:10053:8000"
+    # The spool, the record directory and the archive are the three writable
+    # mounts; the archive service is the only other container that mounts the
+    # archive. Every transcripts volume is mounted whole and read-only; no
+    # claude-config volume and no workspace is.
+    volumes:
+      - ./var/spool:/app/golden-project/var/spool
+      - ./var/agent_record:/app/golden-project/var/agent_record
+      - ./var/archive:/app/golden-project/var/archive
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  osprey-network:

@@ -88,6 +88,7 @@ from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._deploy_support import wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
@@ -289,7 +290,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         # HTTP readiness is not enqueue readiness -- the worker namespace the

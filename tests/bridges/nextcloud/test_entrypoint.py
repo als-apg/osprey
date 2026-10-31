@@ -35,9 +35,10 @@ from osprey.bridges.nextcloud_talk import (
     RoomTypeUnresolved,
 )
 from osprey.bridges.nextcloud_talk import __main__ as entry
-from osprey.bridges.nextcloud_talk.client import LAST_GIVEN_HEADER, ROOM_TYPE_ONE_TO_ONE
+from osprey.bridges.nextcloud_talk.client import ROOM_TYPE_ONE_TO_ONE
 from osprey.bridges.nextcloud_talk.ops import ACK_TEXT, NextcloudTalkOps
 from osprey.bridges.nextcloud_talk.poller import RoomPoller
+from tests.bridges.nextcloud.conftest import ocs
 
 ROOM = "roomA"
 OTHER_ROOM = "roomB"
@@ -69,7 +70,6 @@ NEUTRAL_ENV = (
     "GITLAB_PROJECT",
     "GITLAB_ISSUES_TOKEN",
     "DEDUP_PATH",
-    "HISTORY_PATH",
     "HISTORY_ANSWER_LIMIT",
 )
 """Every name ``CoreConfig.from_env`` reads. Cleared before each env-driven test: the
@@ -101,7 +101,6 @@ def _core(tmp_path, **overrides):
         "dispatch_worker_token": "worker-token",
         "trigger": TRIGGER,
         "dedup_path": str(tmp_path / "dedup.json"),
-        "history_path": str(tmp_path / "history.json"),
     }
     settings.update(overrides)
     return CoreConfig(**settings)
@@ -138,7 +137,6 @@ def _env(monkeypatch, tmp_path, **overrides):
         "NEXTCLOUD_ROOMS": ROOM,
         "OFFSETS_PATH": str(tmp_path / "offsets.json"),
         "DEDUP_PATH": str(tmp_path / "dedup.json"),
-        "HISTORY_PATH": str(tmp_path / "history.json"),
         "DISPATCHER_URL": DISPATCHER,
         "WORKER_URL": WORKER,
         "EVENT_DISPATCHER_TOKEN": "dispatcher-token",
@@ -151,15 +149,6 @@ def _env(monkeypatch, tmp_path, **overrides):
             monkeypatch.delenv(name, raising=False)
         else:
             monkeypatch.setenv(name, value)
-
-
-def _ocs(data, *, last_given=None):
-    headers = {} if last_given is None else {LAST_GIVEN_HEADER: str(last_given)}
-    return httpx.Response(
-        200,
-        json={"ocs": {"meta": {"status": "ok", "statuscode": 200}, "data": data}},
-        headers=headers,
-    )
 
 
 def _message(message_id, text):
@@ -203,14 +192,14 @@ class FakeNextcloud:
             payload = {"type": self.room_type, "displayName": "Ops"}
             if self.last_message_id is not None:
                 payload["lastMessage"] = {"id": self.last_message_id}
-            return _ocs(payload)
+            return ocs(payload)
 
         if request.method == "POST":
             text = httpx.QueryParams(request.content.decode())["message"]
             self.timeline.append(f"post:{text}")
             if self.posts_expected is not None and len(self.posted) >= self.posts_expected:
                 self.reached.set()
-            return _ocs({"id": 900 + len(self.posted)})
+            return ocs({"id": 900 + len(self.posted)})
 
         self.timeline.append("poll:" + request.url.params["lastKnownMessageId"])
         batch = self.chat.pop(0) if self.chat else None
@@ -218,7 +207,7 @@ class FakeNextcloud:
             # Talk's 304: the ordinary idle outcome. Answered for every further poll, so
             # the loop under test idles instead of replaying the script.
             return httpx.Response(httpx.codes.NOT_MODIFIED)
-        return _ocs(batch, last_given=max(item["id"] for item in batch))
+        return ocs(batch, last_given=max(item["id"] for item in batch))
 
 
 class FakePair:

@@ -93,6 +93,7 @@ import yaml
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
@@ -282,10 +283,7 @@ def _host_read(repo: Path, address: str) -> float:
         timeout=HOST_CA_OP_TIMEOUT_SEC,
     )
     if proc.returncode != 0:
-        raise AssertionError(
-            f"host CA read of {address} failed (rc={proc.returncode}):\n"
-            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
-        )
+        raise AssertionError(format_failure(f"host CA read of {address}", proc))
     for line in proc.stdout.splitlines():
         if line.startswith(HOST_CA_RESULT_MARKER):
             return float(json.loads(line[len(HOST_CA_RESULT_MARKER) :])["read_value"])
@@ -376,11 +374,8 @@ def preflight_stack(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up -d --dev", up))
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace the
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See

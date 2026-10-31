@@ -54,16 +54,6 @@ _TOOL_MODULE = {
 
 
 @pytest.fixture(autouse=True)
-def audit_zone(tmp_path, monkeypatch):
-    """Every refusal here records; keep the records out of the real ledger."""
-    from osprey.audit import writer
-
-    zone = tmp_path / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
-
-
-@pytest.fixture(autouse=True)
 def _no_ambient_deployment(control_context_root, monkeypatch):
     """Answer the posture gates from a scratch deployment, never the machine's.
 

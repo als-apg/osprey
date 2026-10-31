@@ -36,6 +36,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
 from tests._builds import BuiltProject
+from tests._simulator_view import view_channel
 
 TOKEN = "s3cret"
 STATUS = "T:SIM:M:STATUS"
@@ -98,28 +99,12 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
 
 
-def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": fields.pop("pair", address if role == "setpoint" else None),
-        "value_type": "float",
-        "unit": fields.pop("unit", None),
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": fields.pop("value_range", None),
-        "owner": owner,
-        "on": None,
-    }
-
-
 def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
     channels = [
-        _channel("M:BPM:X", "M", unit="mm"),
-        _channel("M:SP", "M", role="setpoint", writable=True, value_range=[-5.0, 5.0]),
-        _channel("T:RB"),
-        _channel("T:SP", role="setpoint", pair="T:RB", writable=True),
+        view_channel("M:BPM:X", "M", unit="mm"),
+        view_channel("M:SP", "M", role="setpoint", writable=True, value_range=[-5.0, 5.0]),
+        view_channel("T:RB"),
+        view_channel("T:SP", role="setpoint", pair="T:RB", writable=True),
     ]
     addresses = {"channels": sorted(c["address"] for c in channels), "status": [STATUS]}
     documents = {
@@ -556,11 +541,12 @@ GATED = (GATED_SUM, GATED_VALID, GATED_COUNT)
 def _gate_view(path: Path, *, paddle: str = "FALSE") -> Path:
     """A texture-only view: one paddle whose in-state gates a sum, a valid flag and a count."""
     channels = [
-        _channel(GATE_SP, role="setpoint", pair=GATE_RB, writable=True) | {"value_type": "bool"},
-        _channel(GATE_RB) | {"value_type": "bool"},
-        _channel(GATED_SUM),
-        _channel(GATED_VALID) | {"value_type": "bool"},
-        _channel(GATED_COUNT) | {"value_type": "int"},
+        view_channel(GATE_SP, role="setpoint", pair=GATE_RB, writable=True)
+        | {"value_type": "bool"},
+        view_channel(GATE_RB) | {"value_type": "bool"},
+        view_channel(GATED_SUM),
+        view_channel(GATED_VALID) | {"value_type": "bool"},
+        view_channel(GATED_COUNT) | {"value_type": "int"},
     ]
     inputs = {GATE_RB: "TRUE"}
     documents = {

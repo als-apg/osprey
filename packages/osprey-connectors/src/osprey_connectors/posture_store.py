@@ -128,6 +128,7 @@ from pathlib import Path
 from typing import Any, Final, Literal, NamedTuple
 
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     CONTROL_TARGETS,
     machine_kind,
@@ -1023,7 +1024,7 @@ def launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable
         return "unreadable"
     if launch_posture != POSTURE_SANDBOX:
         return "none"
-    if stamped == LAUNCH_POSTURE_ALL_TARGETS or not target or stamped == target:
+    if stamped in (LAUNCH_POSTURE_ALL_TARGETS, target) or not target:
         return "pinned"
     return "none"
 
@@ -1205,9 +1206,6 @@ def backstop_verdict(section: Any) -> WriteVerdict:
         ``None``. Never raises: a tier that cannot be read refuses as
         ``tier_never``.
     """
-    # Imported here, not at module scope: ``control_system._base`` imports this module.
-    from osprey_connectors.control_system._base import is_readonly_run
-
     if is_readonly_run():
         reason: str | None = "readonly_run"
     else:
@@ -1223,10 +1221,8 @@ def _write_refusal(
     section: Any, target: Any, owner: str | NoOwner | None, ignore_launch_pin: bool
 ) -> str | None:
     """The first term of :func:`write_verdict` that refuses, or ``None``. May raise."""
-    # Imported here, not at module scope: ``control_system._base`` imports this
-    # module, and ``control_context`` does too.
+    # Imported here, not at module scope: ``control_context`` imports this module.
     from osprey_connectors import control_context
-    from osprey_connectors.control_system._base import is_readonly_run
 
     if is_readonly_run():
         return "readonly_run"

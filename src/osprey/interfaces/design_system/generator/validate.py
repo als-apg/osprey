@@ -457,15 +457,15 @@ def _completeness_errors(
         reference |= paths
     errors: list[TokenFinding] = []
     for name, paths in path_sets.items():
-        for path in sorted(reference - paths):
-            errors.append(
-                TokenFinding(
-                    rule=ValidationRule.MISSING_TOKEN,
-                    message=f"{label} {name!r} is missing token {path!r} (defined elsewhere)",
-                    source_file=source_files[name],
-                    path=path,
-                )
+        errors.extend(
+            TokenFinding(
+                rule=ValidationRule.MISSING_TOKEN,
+                message=f"{label} {name!r} is missing token {path!r} (defined elsewhere)",
+                source_file=source_files[name],
+                path=path,
             )
+            for path in sorted(reference - paths)
+        )
     return errors
 
 
@@ -708,7 +708,7 @@ def _check_family_label_agreement(tree: TokenTree) -> list[TokenFinding]:
                         f"theme family {family!r} declares conflicting "
                         f"$extensions.family_label values: {rendered}"
                     ),
-                    source_file=sorted(labels.values())[0],
+                    source_file=min(labels.values()),
                     path="",
                 )
             )
@@ -911,15 +911,15 @@ def check_interface_mode_completeness(tree: TokenTree) -> list[TokenFinding]:
                     path=mode,
                 )
             )
-        for mode in sorted(observed.keys() - expected_modes):
-            errors.append(
-                TokenFinding(
-                    rule=ValidationRule.MISSING_MODE_GROUP,
-                    message=f"interface {stem!r} has mode group {mode!r} matching no known theme",
-                    source_file=source_file,
-                    path=mode,
-                )
+        errors.extend(
+            TokenFinding(
+                rule=ValidationRule.MISSING_MODE_GROUP,
+                message=f"interface {stem!r} has mode group {mode!r} matching no known theme",
+                source_file=source_file,
+                path=mode,
             )
+            for mode in sorted(observed.keys() - expected_modes)
+        )
 
         matched = {mode: paths for mode, paths in observed.items() if mode in expected_modes}
         source_files = dict.fromkeys(matched, source_file)

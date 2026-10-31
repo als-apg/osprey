@@ -35,39 +35,7 @@ import yaml
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.cli.templates import manifest
 from osprey.cli.templates.manager import TemplateManager
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 PRESETS_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "profiles" / "presets"
@@ -439,7 +407,7 @@ class TestOperatingBlueskyPlansInstall:
 
     def test_control_assistant_build_installs_the_skill(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_as_built(
             manager,
             project_name="operating-bluesky-plans-install-test",
             output_dir=tmp_path,

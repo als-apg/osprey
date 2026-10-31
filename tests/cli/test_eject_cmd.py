@@ -3,15 +3,7 @@
 Tests the list and service subcommands.
 """
 
-import pytest
-from click.testing import CliRunner
-
 from osprey.cli.eject_cmd import eject
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 class TestEjectList:

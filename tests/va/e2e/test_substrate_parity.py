@@ -181,7 +181,6 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     os._exit(0)
 
 import math  # noqa: E402
-import socket  # noqa: E402
 import subprocess  # noqa: E402
 from collections.abc import Iterator, Mapping  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
@@ -202,6 +201,8 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     Channel,
     SimulatorView,
 )
+from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
+from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -402,13 +403,7 @@ def _family_z(count: int) -> float:
 
 def _ca_call(port: int, request: dict, *, timeout: float = 600.0) -> dict:
     """Run one worker operation against the container published on ``port``."""
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
+    environment = e2e_conftest.ca_client_environment(port)
     result = subprocess.run(
         [sys.executable, __file__, "--worker", json.dumps(request)],
         capture_output=True,
@@ -694,44 +689,6 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
 # ---------------------------------------------------------------------------
 
 
-def _docker(*args: str, timeout: float = 60.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _served(port: int) -> bool:
-    """Whether the container published on ``port`` serves the readiness channel.
-
-    Asked out of process, leaving through ``os._exit`` for the reason the
-    directory conftest's probe gives.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, "
-        "throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
-
-
 @dataclass(frozen=True)
 class NoisyVa:
     """The noise container: its published port and the view it serves."""
@@ -768,9 +725,9 @@ def noisy_va() -> Iterator[NoisyVa]:
     port, _ = e2e_conftest.run_on_free_port(container)
     try:
         deadline = time.monotonic() + e2e_conftest.CONTAINER_BOOT_TIMEOUT_S
-        while not _served(port):
+        while not e2e_conftest.ca_served(port, timeout=10):
             if time.monotonic() > deadline:
-                logs = _docker("logs", "--tail", "40", NOISE_CONTAINER)
+                logs = e2e_conftest.docker("logs", "--tail", "40", NOISE_CONTAINER, timeout=60)
                 raise RuntimeError(
                     f"{NOISE_CONTAINER} never served {e2e_conftest.READINESS_ADDRESS} within "
                     f"{e2e_conftest.CONTAINER_BOOT_TIMEOUT_S}s.\n"
@@ -780,7 +737,7 @@ def noisy_va() -> Iterator[NoisyVa]:
             time.sleep(0.5)
         yield NoisyVa(port=port, view=View.read(root / VIEW_RELPATH.name))
     finally:
-        _docker("rm", "-f", NOISE_CONTAINER)
+        e2e_conftest.docker("rm", "-f", NOISE_CONTAINER, timeout=60)
 
 
 def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channels(
@@ -882,38 +839,30 @@ def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
 
     No container: the name server is a port nothing listens on.
     """
-    with socket.socket() as unused:
-        unused.bind(("127.0.0.1", 0))
-        port = unused.getsockname()[1]
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
+    with reserved_port() as port:
+        environment = {
+            **os.environ,
+            "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
+            "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        }
+        request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
 
-    started = time.monotonic()
-    result = subprocess.run(
-        [sys.executable, __file__, "--worker", json.dumps(request)],
-        capture_output=True,
-        text=True,
-        timeout=120.0,
-        env=environment,
-    )
-    elapsed = time.monotonic() - started
+        started = time.monotonic()
+        result = subprocess.run(
+            [sys.executable, __file__, "--worker", json.dumps(request)],
+            capture_output=True,
+            text=True,
+            timeout=120.0,
+            env=environment,
+        )
+        elapsed = time.monotonic() - started
 
-    assert result.returncode != 0
-    assert "never connected to ['PARITY:NOT:SERVED']" in result.stderr
-    # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
-    assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
+        assert result.returncode != 0
+        assert "never connected to ['PARITY:NOT:SERVED']" in result.stderr
+        # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
+        assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_substrate_parity.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

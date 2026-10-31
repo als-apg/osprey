@@ -14,10 +14,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from click.testing import CliRunner
-
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_reach import pva_address_source_advisories
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _config(**epics: Any) -> dict[str, Any]:
@@ -117,7 +115,7 @@ def _build(tmp_path: Path, profile: str) -> str:
     (repo / "data").mkdir(exist_ok=True)
     (repo / "profile.yml").write_text(profile, encoding="utf-8")
 
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     # Rich wraps to the console width; single-space the output before matching.

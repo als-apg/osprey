@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests.hooks.conftest import pending_review_items
 
 HOOK_NAME = "osprey_cf_feedback_capture.py"
 READ_CYPHER_TOOL = "mcp__channel-finder__read_cypher"
@@ -119,18 +119,6 @@ def _hook_extra(tmp_path, transcript="/tmp/transcript.jsonl"):
     }
 
 
-def _pending_items(tmp_path):
-    """Read items from pending_reviews.json, return dict or empty.
-
-    The store lives under the agent-data root. No config names a ``base_dir`` in
-    these runs, so the hook resolves the framework default the helper reads.
-    """
-    store = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
-    if not store.exists():
-        return {}
-    return json.loads(store.read_text()).get("items", {})
-
-
 def _capture(hook_runner, tmp_path, response, tool_input=None, tool=READ_CYPHER_TOOL):
     """Run the hook over one recorded response and return the stored item.
 
@@ -144,7 +132,7 @@ def _capture(hook_runner, tmp_path, response, tool_input=None, tool=READ_CYPHER_
         tool_response=response,
         hook_input_extra=_hook_extra(tmp_path),
     )
-    items = _pending_items(tmp_path)
+    items = pending_review_items(tmp_path)
     if not items:
         return None
     assert len(items) == 1, f"Expected exactly one captured item, got: {items}"

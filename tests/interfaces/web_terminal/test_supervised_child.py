@@ -30,6 +30,7 @@ from osprey.interfaces.web_terminal.supervised_child import (
     HeldSocket,
     SupervisedChild,
 )
+from tests._processes import pid_alive
 
 BINDING_MOVED = 75
 TRANSPORT_STALE = 76
@@ -70,14 +71,6 @@ CHILD = textwrap.dedent(
     sys.exit(code)
     """
 )
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 def _wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> bool:
@@ -271,7 +264,7 @@ class TestRespawn:
         child = harness.supervise("answer", 3, backoff_s=(1.0,))
         child.start()
         first, _ = _ask(port)
-        assert _wait_for(lambda: not _alive(first) and child.pid is None)
+        assert _wait_for(lambda: not pid_alive(first) and child.pid is None)
         assert child.starts == 1, "the crash is waiting out its backoff"
 
         # No child is alive: the connection is completed by the parent's
@@ -497,7 +490,7 @@ class TestStop:
 
         child.stop()
 
-        assert not _alive(pid)
+        assert not pid_alive(pid)
         assert child.pid is None
         assert not child.running
         time.sleep(0.5)
@@ -515,7 +508,7 @@ class TestStop:
         child.stop()
         took = time.monotonic() - began
 
-        assert not _alive(pid)
+        assert not pid_alive(pid)
         assert took >= 0.5, "the grace was waited before SIGKILL"
         time.sleep(0.3)
         assert child.starts == 1
@@ -561,7 +554,7 @@ class TestStop:
         assert os.getpgid(pid) == pid, "the child leads its own group"
         assert os.getpgid(pid) != os.getpgid(0)
         child.stop()
-        assert not _alive(pid)
+        assert not pid_alive(pid)
 
 
 def test_the_held_socket_outlives_a_killed_child(harness: Harness) -> None:

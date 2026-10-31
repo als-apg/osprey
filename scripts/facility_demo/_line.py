@@ -257,15 +257,15 @@ def channels() -> list[dict[str, Any]]:
     """The line's channels, sorted by address."""
     rows: list[dict[str, Any]] = []
     for n in _cells():
-        for axis in ("X", "Y"):
-            rows.append(
-                {
-                    "id": _address("BPM", n, f"POSITION:{axis}"),
-                    "on": {"device": f"{MODEL}/BPM{n}"},
-                    "signal": f"position_{axis.lower()}_readback",
-                    "unit": "m",
-                }
-            )
+        rows.extend(
+            {
+                "id": _address("BPM", n, f"POSITION:{axis}"),
+                "on": {"device": f"{MODEL}/BPM{n}"},
+                "signal": f"position_{axis.lower()}_readback",
+                "unit": "m",
+            }
+            for axis in ("X", "Y")
+        )
         for family in ("HCM", "VCM"):
             rows += _setpoint_pair(family, n, CORRECTOR_TOLERANCE)
         for family in ("QF", "QD"):
@@ -296,30 +296,30 @@ def _calibration(gain: float) -> dict[str, Any]:
 def _wiring() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for n in _cells():
-        for axis in ("X", "Y"):
-            rows.append(
-                {
-                    "address": _address("BPM", n, f"POSITION:{axis}"),
-                    "element": f"BPM{n}",
-                    "engine": {"axis": axis.lower()},
-                    "calibration": _calibration(1.0),
-                }
-            )
+        rows.extend(
+            {
+                "address": _address("BPM", n, f"POSITION:{axis}"),
+                "element": f"BPM{n}",
+                "engine": {"axis": axis.lower()},
+                "calibration": _calibration(1.0),
+            }
+            for axis in ("X", "Y")
+        )
         for family, engine, gain in (
             ("HCM", {"attribute": "KickAngle", "index": 0}, CORRECTOR_GAIN),
             ("VCM", {"attribute": "KickAngle", "index": 1}, CORRECTOR_GAIN),
             ("QF", {"attribute": "PolynomB", "index": 1}, QUAD_GAIN),
             ("QD", {"attribute": "PolynomB", "index": 1}, -QUAD_GAIN),
         ):
-            for tail in ("CURRENT:RB", "CURRENT:SP"):
-                rows.append(
-                    {
-                        "address": _address(family, n, tail),
-                        "element": f"{family}{n}",
-                        "engine": dict(engine),
-                        "calibration": _calibration(gain),
-                    }
-                )
+            rows.extend(
+                {
+                    "address": _address(family, n, tail),
+                    "element": f"{family}{n}",
+                    "engine": dict(engine),
+                    "calibration": _calibration(gain),
+                }
+                for tail in ("CURRENT:RB", "CURRENT:SP")
+            )
     return sorted(rows, key=lambda row: row["address"])
 
 

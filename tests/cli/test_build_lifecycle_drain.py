@@ -21,8 +21,9 @@ import pytest
 
 from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
-from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import NullReporter, PhaseReporter
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._reporters import installed
 from tests.cli._scoped_subprocess import patch_subprocess
 
 # Every wait here is a deadline an assertion polls to, never a sleep sized to
@@ -83,11 +84,8 @@ class _RecordingReporter(PhaseReporter):
 def reporter() -> Iterator[_RecordingReporter]:
     """Install a recording reporter for the duration of one test."""
     recording = _RecordingReporter()
-    previous = install_reporter(recording)
-    try:
+    with installed(recording):
         yield recording
-    finally:
-        install_reporter(previous)
 
 
 def _script_cmd(path: Path, body: str) -> str:
@@ -194,13 +192,10 @@ def test_a_streamed_child_is_visible_under_every_reporter(
     run = _script_cmd(tmp_path / "chatty.py", "print('from the child')\n")
     steps = [LifecycleStep(name="stream visible", run=run, timeout=30, stream=True)]
 
-    previous = install_reporter(make_reporter())
-    try:
+    with installed(make_reporter()):
         build_lifecycle._run_lifecycle_phase(
             "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
         )
-    finally:
-        install_reporter(previous)
 
     printed = capsys.readouterr().out
     assert "    from the child" in printed

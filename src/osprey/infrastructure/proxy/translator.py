@@ -111,18 +111,17 @@ def anthropic_to_openai_request(
 
     # tool_choice mapping
     tc = body.get("tool_choice")
-    if tc:
-        if isinstance(tc, dict):
-            tc_type = tc.get("type")
-            if tc_type == "auto":
-                openai_body["tool_choice"] = "auto"
-            elif tc_type == "any":
-                openai_body["tool_choice"] = "required"
-            elif tc_type == "tool":
-                openai_body["tool_choice"] = {
-                    "type": "function",
-                    "function": {"name": tc.get("name", "")},
-                }
+    if tc and isinstance(tc, dict):
+        tc_type = tc.get("type")
+        if tc_type == "auto":
+            openai_body["tool_choice"] = "auto"
+        elif tc_type == "any":
+            openai_body["tool_choice"] = "required"
+        elif tc_type == "tool":
+            openai_body["tool_choice"] = {
+                "type": "function",
+                "function": {"name": tc.get("name", "")},
+            }
 
     return TranslatedRequest(openai_body, frozenset(notes.dropped), notes.images_sent)
 
@@ -264,7 +263,7 @@ def _convert_user_message(content, notes: _Notes) -> list[dict]:
         elif parts:
             messages.append({"role": "user", "content": "\n".join(str(p) for p in parts)})
 
-        return messages if messages else [{"role": "user", "content": ""}]
+        return messages or [{"role": "user", "content": ""}]
 
     return [{"role": "user", "content": str(content)}]
 
@@ -314,19 +313,17 @@ def _convert_tools_to_openai(anthropic_tools: list[dict] | None) -> list[dict] |
     if not anthropic_tools:
         return None
 
-    openai_tools = []
-    for tool in anthropic_tools:
-        openai_tools.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.get("name", ""),
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("input_schema", {}),
-                },
-            }
-        )
-    return openai_tools
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.get("name", ""),
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", {}),
+            },
+        }
+        for tool in anthropic_tools
+    ]
 
 
 # ── Response: OpenAI → Anthropic ─────────────────────────────────────

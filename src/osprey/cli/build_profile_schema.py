@@ -23,8 +23,8 @@ from typing import Any, Literal
 from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_owns_binding
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
+from osprey.utils.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
 
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""

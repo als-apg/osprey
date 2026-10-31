@@ -25,7 +25,7 @@ from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS, is_mixed_matcher
 from osprey_connectors.errors import BuildProfileError
-from tests.cli.test_killswitch_bluesky_deny import _create_project
+from tests._preset_data import create_project_as_built
 
 _PROJECT_COUNTER = 0
 
@@ -65,8 +65,9 @@ def _project(tmp_path, *, writes, servers=None, write_tools=None, drop_hooks=(),
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
+        facility_views=True,
         project_name=f"killswitch-tier-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
         data_bundle="control_assistant",

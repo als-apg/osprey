@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from osprey_connectors.simulation.view import VIEW_RELPATH
+from tests.va._collection import assert_module_collected
 from tests.va.e2e.conftest import sweep_check
 
 FULL_SWEEP_WALL_CLOCK_BUDGET_S = 60.0
@@ -53,13 +54,7 @@ class TestFullSweep:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_full_sweep.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)
 
 
 if __name__ == "__main__":

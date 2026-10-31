@@ -102,8 +102,7 @@ import requests
 
 from osprey.interfaces.web_terminal.app import BAR_LAYOUT_VERSION
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -197,18 +196,6 @@ def _launch_web_terminal(
     agent_data.mkdir(exist_ok=True)
 
     patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
         # The store seam. Patched at the resolver, never through
         # OSPREY_AGENT_DATA_ROOT -- see test_bar_items_routes.py's fixture.
         patch(
@@ -223,12 +210,8 @@ def _launch_web_terminal(
                 return_value=ZoneInfo(facility_timezone),
             )
         )
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url, app
+    with hub_server(workspace, *patches) as served:
+        yield served
 
 
 @pytest.fixture

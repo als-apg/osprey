@@ -361,10 +361,21 @@ let sseSource = null;
  * target, re-render, and optionally enter fullscreen. Shared by the SSE
  * "focus" handler's two branches (artifact already local vs. fetched on
  * retry) so the select→focus→render→fullscreen sequence has one definition.
+ *
+ * An `automatic` focus (the approval hook showing its review notebook) only
+ * records the focus in the Simple layout: the chat's approval card already
+ * shows that code, and taking the selection would pin the result card to it.
  * @param {any} artifact
  * @param {boolean} wantFullscreen
+ * @param {boolean} [automatic]
  */
-function applyFocus(artifact, wantFullscreen) {
+function applyFocus(artifact, wantFullscreen, automatic = false) {
+  if (automatic && document.documentElement.dataset.uiMode === 'simple') {
+    setFocusedArtifact(artifact);
+    sidebarRenderer.renderSidebar();
+    simpleView.render();
+    return;
+  }
   setSelectedArtifact(artifact);
   setFocusedArtifact(artifact);
   sidebarRenderer.renderSidebar();
@@ -395,10 +406,11 @@ function connectSSE() {
       // Agent called artifact_focus — select that artifact in the gallery
       const focusId = eventData.id;
       const wantFullscreen = !!eventData.fullscreen;
+      const automatic = !!eventData.automatic;
       if (focusId) {
         const a = getArtifacts().find((x) => x.id === focusId);
         if (a) {
-          applyFocus(a, wantFullscreen);
+          applyFocus(a, wantFullscreen, automatic);
           // Scroll the selected item into view
           requestAnimationFrame(() => {
             const sel = sidebarBody.querySelector(`[data-id="${focusId}"]`);
@@ -413,7 +425,11 @@ function connectSSE() {
             .then((entry) => {
               if (!entry || !inCurrentScope(entry)) return;
               addArtifact(entry, { counted: true });
-              applyFocus(getArtifacts().find((x) => x.id === focusId) || entry, wantFullscreen);
+              applyFocus(
+                getArtifacts().find((x) => x.id === focusId) || entry,
+                wantFullscreen,
+                automatic
+              );
             })
             .catch(() => {});
         }

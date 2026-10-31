@@ -41,26 +41,21 @@ dispatcher needed. Requires als-apg credentials; skips cleanly without.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
-import sys
-import time
 import urllib.request
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
+from tests._live import wait_until
+from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
+from tests.e2e._worker_record import WORKER_IDENTITY, WorkerRecord, worker_record
 from tests.e2e.provider import E2E_MODEL, e2e_provider
-from tests.e2e.test_dispatch_tutorial import (
-    HEALTH_TIMEOUT_SEC,
-    _find_osprey_console_script,
-    _free_port,
-    _terminate,
-    _wait_for_health,
-)
+from tests.e2e.test_dispatch_tutorial import HEALTH_TIMEOUT_SEC
 
 TOKEN = "parity-e2e-token"
 RUN_TIMEOUT_SEC = 320.0  # worker's own DISPATCH_TIMEOUT (300s) + polling slack
@@ -95,47 +90,12 @@ def _denied_by_policy(result_text: str | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _run_osprey(argv: list[str], cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(_find_osprey_console_script()), *argv],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Init + build a real control-assistant deployment repo once per module."""
-    base = tmp_path_factory.mktemp("parity_build")
-    repo = base / "proj"
-
-    init = _run_osprey(
-        [
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            f"provider={e2e_provider()}",
-            "--set",
-            f"model={E2E_MODEL}",
-        ],
-        cwd=base,
+    return build_repo(
+        tmp_path_factory.mktemp("parity_build"), provider=e2e_provider(), model=E2E_MODEL
     )
-    if init.returncode != 0:
-        pytest.fail(f"osprey init failed (rc={init.returncode}):\n{init.stdout}\n{init.stderr}")
-
-    build = _run_osprey(
-        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
-        cwd=base,
-    )
-    if build.returncode != 0:
-        pytest.fail(f"osprey build failed (rc={build.returncode}):\n{build.stdout}\n{build.stderr}")
-    return repo
 
 
 def _copy_repo(src: Path, dst: Path) -> Path:
@@ -186,38 +146,32 @@ def approval_off_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory
 # ---------------------------------------------------------------------------
 
 
-def _start_worker(repo: Path) -> tuple[subprocess.Popen, str]:
-    port = _free_port()
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-        cwd=str(repo),
-        env={
-            **os.environ,
-            "DISPATCH_WORKER_PORT": str(port),
-            "DISPATCH_WORKER_TOKEN": TOKEN,
-            # Repo root + the render's config one level down, exactly as the
-            # dispatch_worker compose template wires the deployed worker.
-            "OSPREY_PROJECT_DIR": str(repo),
-            "CONFIG_FILE": str(repo / "build" / "config.yml"),
-            "CLAUDECODE": "",
-        },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+def _start_worker(repo: Path, log: Path, record: WorkerRecord) -> tuple[subprocess.Popen, str]:
+    """A worker on *repo* that records its runs in *record* and reads them back from it."""
+    proc, port = start_worker(
+        repo, log, token=TOKEN, health_timeout=HEALTH_TIMEOUT_SEC, env=record.worker_env()
     )
-    url = f"http://127.0.0.1:{port}"
-    _wait_for_health(f"{url}/health", HEALTH_TIMEOUT_SEC, proc)
-    return proc, url
+    return proc, f"http://127.0.0.1:{port}"
+
+
+@dataclass(frozen=True)
+class Worker:
+    """A running worker and the record it records its runs in."""
+
+    url: str
+    record: WorkerRecord
 
 
 @pytest.fixture
-def worker(request) -> Iterator[str]:
-    """Start a real worker on the repo fixture named by the test param."""
+def worker(request, tmp_path: Path) -> Iterator[Worker]:
+    """Start a real worker, recording into its own record, on the repo fixture named by the param."""
     repo = request.getfixturevalue(request.param)
-    proc, url = _start_worker(repo)
-    try:
-        yield url
-    finally:
-        _terminate(proc)
+    with worker_record(tmp_path / "agent_record", repo) as record:
+        proc, url = _start_worker(repo, tmp_path / "worker.log", record)
+        try:
+            yield Worker(url, record)
+        finally:
+            terminate(proc)
 
 
 def _http_json(url: str, payload: dict | None = None) -> dict:
@@ -232,20 +186,44 @@ def _http_json(url: str, payload: dict | None = None) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def dispatch_and_wait(worker_url: str, prompt: str, allowed_tools: list[str]) -> dict:
-    """POST /dispatch and poll until the run leaves 'running'."""
+def dispatch_and_wait(worker: Worker, prompt: str, allowed_tools: list[str]) -> dict:
+    """POST /dispatch, poll until the run leaves 'running', and add its tool calls.
+
+    A run's status names its outcome and how many tool calls it made; the calls
+    themselves are its session's timeline in the record, read here under the
+    worker's own login as ``{"name", "result"}`` per MCP call, subagents' included.
+    """
     accepted = _http_json(
-        f"{worker_url}/dispatch",
+        f"{worker.url}/dispatch",
         {"prompt": prompt, "allowed_tools": allowed_tools, "max_turns": 15},
     )
     run_id = accepted["run_id"]
-    deadline = time.monotonic() + RUN_TIMEOUT_SEC
-    while time.monotonic() < deadline:
-        run = _http_json(f"{worker_url}/dispatch/{run_id}")
-        if run.get("status") not in ("running", "pending"):
-            return run
-        time.sleep(3.0)
-    pytest.fail(f"dispatch run {run_id} did not finish within {RUN_TIMEOUT_SEC}s")
+
+    def finished() -> dict | None:
+        run = _http_json(f"{worker.url}/dispatch/{run_id}")
+        return run if run.get("status") not in ("running", "pending") else None
+
+    run = wait_until(
+        finished, timeout=RUN_TIMEOUT_SEC, interval=3.0, what=f"dispatch run {run_id} to finish"
+    )
+    return {**run, "tool_calls": _recorded_tool_calls(worker.record, run)}
+
+
+def _recorded_tool_calls(record: WorkerRecord, run: dict) -> list[dict]:
+    """Every MCP tool call of *run*'s session, as the record holds it."""
+    from osprey.agent_record.client import RecordClient
+    from osprey.mcp_server import session as session_record
+
+    session = run.get("session_id")
+    assert session, f"the run names no session: {run}"
+    login, _, token = record.login(WORKER_IDENTITY).partition(":")
+    read = session_record.read_timeline(session, client=RecordClient(record.url, login, token))
+    assert read.record == session_record.RECORD_COMPLETE, read.reason
+    return [
+        {"name": event["full_tool_name"], "result": event["result_summary"]}
+        for event in session_record.session_events(read.nodes, session)
+        if event["type"] == "tool_call"
+    ]
 
 
 def _calls(run: dict, prefix: str) -> list[dict]:

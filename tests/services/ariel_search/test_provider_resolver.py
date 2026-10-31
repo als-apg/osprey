@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.models.provider_registry import ProviderRegistry
 from osprey.models.providers import _local_server
 from osprey.services.ariel_search.enhancement.provider_resolver import (
@@ -321,10 +320,12 @@ class TestResolveReachableBaseUrl:
         assert resolve_reachable_base_url(OllamaProviderAdapter, url) == url
         assert probes.calls == []
 
-    def test_a_refusing_localhost_falls_back_to_the_docker_host(self, probes, stubs, monkeypatch):
+    def test_a_refusing_localhost_falls_back_to_the_docker_host(
+        self, reserve_port, probes, stubs, monkeypatch
+    ):
         monkeypatch.delenv("X_HOST", raising=False)
         stub = stubs()
-        port = free_port()
+        port = reserve_port()
         probes.docker_target = stub.url
         configured = f"http://127.0.0.1:{port}"
 
@@ -343,11 +344,11 @@ class TestResolveReachableBaseUrl:
 
         assert probes.calls == [stub.url]
 
-    def test_a_fallback_walk_is_cached(self, probes, stubs, monkeypatch):
+    def test_a_fallback_walk_is_cached(self, reserve_port, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         cls = _fallback_class()
-        configured = f"http://127.0.0.1:{free_port()}"
+        configured = f"http://127.0.0.1:{reserve_port()}"
 
         first = resolve_reachable_base_url(cls, configured)
         walked = len(probes.calls)
@@ -356,26 +357,26 @@ class TestResolveReachableBaseUrl:
 
         assert len(probes.calls) == walked
 
-    def test_the_env_override_is_tried_first(self, probes, stubs, monkeypatch):
+    def test_the_env_override_is_tried_first(self, reserve_port, probes, stubs, monkeypatch):
         stub = stubs()
         monkeypatch.setenv("X_HOST", stub.url)
-        configured = f"http://127.0.0.1:{free_port()}"
+        configured = f"http://127.0.0.1:{reserve_port()}"
 
         assert resolve_reachable_base_url(_fallback_class(), configured) == stub.url
         assert probes.calls == [stub.url]
 
     @pytest.mark.usefixtures("probes")
-    def test_nothing_answering_returns_the_configured_url(self, monkeypatch):
+    def test_nothing_answering_returns_the_configured_url(self, reserve_port, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
-        configured = f"http://127.0.0.1:{free_port()}"
+        configured = f"http://127.0.0.1:{reserve_port()}"
 
         assert resolve_reachable_base_url(_fallback_class(), configured) == configured
 
-    def test_refresh_finds_a_server_that_moved(self, probes, stubs, monkeypatch):
+    def test_refresh_finds_a_server_that_moved(self, reserve_port, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         fallback = stubs()
         probes.docker_target = fallback.url
-        port = free_port()
+        port = reserve_port()
         configured = f"http://127.0.0.1:{port}"
         cls = _fallback_class()
         assert resolve_reachable_base_url(cls, configured) == (
@@ -388,11 +389,11 @@ class TestResolveReachableBaseUrl:
 
         assert resolve_reachable_base_url(cls, configured, refresh=True) == configured
 
-    def test_a_late_walk_still_writes_the_cache(self, probes, stubs, monkeypatch):
+    def test_a_late_walk_still_writes_the_cache(self, reserve_port, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         probes.delay_s = 0.3
-        port = free_port()
+        port = reserve_port()
         configured = f"http://127.0.0.1:{port}"
         cls = _fallback_class()
 
@@ -452,13 +453,13 @@ class TestTextEmbeddingResolution:
 
     @pytest.mark.asyncio
     async def test_a_refusing_localhost_embeds_through_the_fallback(
-        self, monkeypatch, probes, stubs
+        self, reserve_port, monkeypatch, probes, stubs
     ):
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         cls = _fallback_class()
         _register(monkeypatch, fakellama=cls)
-        port = free_port()
+        port = reserve_port()
         module = _text_module({"name": "fakellama", "base_url": f"http://127.0.0.1:{port}"})
 
         await module.enhance({"entry_id": "e1", "raw_text": "beam"}, _tables_exist_conn())
@@ -471,13 +472,56 @@ class TestTextEmbeddingResolution:
 
     @pytest.mark.asyncio
     async def test_configure_with_no_server_succeeds_and_health_reports_unreachable(
-        self, monkeypatch
+        self, reserve_port, monkeypatch
     ):
         monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
         monkeypatch.setattr(_local_server, "probe", lambda url, path, timeout: False)
 
-        module = _text_module({"name": "llama-cpp", "base_url": f"http://127.0.0.1:{free_port()}"})
+        module = _text_module(
+            {"name": "llama-cpp", "base_url": f"http://127.0.0.1:{reserve_port()}"}
+        )
         verdict = await module.health_check()
 
         assert verdict.reachable is False
         assert verdict.reason == "unreachable"
+
+
+class TestLiteLLMProxyEmbeddingProviders:
+    """The CBorg and AmSC i2 proxies serve text embeddings to ARIEL (#2092)."""
+
+    @pytest.mark.parametrize("name", ["cborg", "amsc-i2"])
+    def test_the_module_resolver_accepts_the_proxy(self, name):
+        from osprey.services.ariel_search.enhancement.provider_resolver import (
+            resolve_provider_class,
+        )
+
+        cls = resolve_provider_class(name, provider_key=KEY, default="ollama")
+
+        assert cls.name == name
+
+    @pytest.mark.parametrize("name", ["cborg", "amsc-i2"])
+    def test_the_proxy_serves_no_image_embeddings(self, name):
+        from osprey.services.ariel_search.enhancement.provider_resolver import (
+            resolve_provider_class,
+        )
+
+        with pytest.raises(ModuleConfigError):
+            resolve_provider_class(
+                name, provider_key=IMAGE_KEY, default=None, serves="image_embeddings"
+            )
+
+    def test_the_reembed_guard_accepts_cborg(self, provider_configs):
+        from types import SimpleNamespace
+
+        from osprey.models.providers.cborg import CBorgProviderAdapter
+        from osprey.services.ariel_search.cli_operations import _reembed_provider
+
+        provider_configs["cborg"] = {"base_url": "https://gateway.example.org/v1"}
+        config = SimpleNamespace(
+            get_enhancement_module_config=lambda name: {"provider": "cborg", "provider_key": KEY}
+        )
+
+        cls, entry = _reembed_provider(config)
+
+        assert cls is CBorgProviderAdapter
+        assert entry == {"base_url": "https://gateway.example.org/v1"}

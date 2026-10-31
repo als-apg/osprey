@@ -18,10 +18,8 @@ from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.cli import build_profile as bp
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import (
     BlueskyWebConfig,
     BuildProfile,
@@ -38,6 +36,9 @@ from osprey.cli.build_profile_presets import (
 )
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build
+
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:
@@ -287,8 +288,7 @@ def turnkey_plan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     tmp_path = tmp_path_factory.mktemp("turnkey-plan")
     repo = build_exemplar_repo(tmp_path / "turnkey-plan")
-    runner = CliRunner()
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     project_dir = repo / "build"
     assert (project_dir / "config.yml").exists()
@@ -716,17 +716,6 @@ class TestEnvironmentValidation:
 
 
 SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
-
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
 
 
 def _profile(**fields: Any) -> BuildProfile:

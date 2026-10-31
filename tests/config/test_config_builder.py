@@ -425,13 +425,13 @@ class TestToFacilityIso:
         config_module._default_configurable = None
 
     def test_none_passes_through(self):
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         assert to_facility_iso(None) is None
 
     def test_non_datetime_degrades_to_str(self):
         """A value already serialized upstream (or any non-datetime) must not crash."""
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         assert to_facility_iso("2026-06-01T00:00:00+00:00") == "2026-06-01T00:00:00+00:00"
 
@@ -441,7 +441,7 @@ class TestToFacilityIso:
         $TZ dependence on the egress side — mirrors the parse-side contract."""
         from datetime import datetime
 
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00
@@ -457,7 +457,7 @@ class TestToFacilityIso:
         """A UTC instant is rendered in the configured facility zone, with offset."""
         from datetime import UTC, datetime
 
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00, no DST

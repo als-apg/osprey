@@ -36,7 +36,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
 
 from .test_golden_render import EXAMPLE_CONFIG

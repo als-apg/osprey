@@ -51,7 +51,7 @@ scaffolding that goes with it:
    ├── services/facility-mcp/            the facility's own container
    ├── scripts/verify.sh                 the post-deploy health check
    ├── .env                              the deployment's secrets
-   ├── .env.telemetry-*                  telemetry store credentials, one file per account
+   ├── .env.agent-record.*               agent record credentials, one file per login
    ├── build/                            render target, kept out of git
    ├── var/                              agent memory and audit log, kept out of git
    ├── .gitlab-ci.yml                    emitted from the profile's deploy: block
@@ -67,13 +67,14 @@ Four services run:
    * - Service
      - Comes from
      - What it does
-   * - ``telemetry_store``
+   * - ``agent-record``
      - packaged
-     - Telemetry store for the agent's logs, metrics and traces and the audit
-       ledger, queried with SQL.
-   * - ``telemetry_gateway``
+     - Keeps the agent record: what the agent was asked, what it answered and
+       what it did (:doc:`health-and-monitoring/agent-record`).
+   * - ``agent-record-clickhouse``
      - packaged
-     - Admits each sender by its own login and feeds the telemetry store.
+     - The ClickHouse store the record is kept in, from the preset's
+       ``agent_record.backend: clickhouse``.
    * - ``virtual_accelerator``
      - packaged
      - A containerized simulator with LUME-backed physics
@@ -84,10 +85,10 @@ Four services run:
      - The facility's own MCP server on port 10900, built from a Dockerfile that
        lives in the profile.
 
-The first two are packaged with OSPREY and come from their own upstreams. The
-third is the interesting one: it is the part no framework can ship for you, and
-everything about how a facility-owned container is declared, built, and reached
-is in :ref:`deploy-a-facility-own-service`.
+The first three are packaged with OSPREY. The last is the interesting one: it
+is the part no framework can ship for you, and everything about how a
+facility-owned container is declared, built, and reached is in
+:ref:`deploy-a-facility-own-service`.
 
 
 .. _perimeter-limits:
@@ -238,9 +239,7 @@ are already present with a different value; some ship commented out.
      control_system.type: virtual_accelerator
      claude_code.servers.health.enabled: true
      system.timezone: America/Los_Angeles
-     deployed_services:
-       - telemetry_store
-       - telemetry_gateway
+     deployed_services: []
 
 ``control_system.type: virtual_accelerator`` points the agent at the deployed
 simulator, so correctors move and BPMs read through exactly the approval and
@@ -273,9 +272,10 @@ block no target ever reaches. See
 
 ``deployed_services`` looks too short, and is not. The ``virtual_accelerator:``
 block and the ``services:`` entry you add in Step 4 each append their own
-service to this list at build time. Naming the two telemetry services
-explicitly is what keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
-and this list is what ``osprey up`` reads.
+service to this list at build time. Starting it empty is what keeps the
+preset's ``postgresql``, ``qmd`` and ``graphdb`` *out* — declared is not
+deployed, and this list is what ``osprey up`` reads. The agent record's
+services come from the ``agent_record:`` block, never from this list.
 
 The web tier is named from ``project_name`` like the rest of the deployment, so
 this one runs ``demo-facility-nginx`` and one ``demo-facility-web-<user>`` per
@@ -552,12 +552,11 @@ Either way, edit ``.env`` and set ``ANTHROPIC_API_KEY`` (or the key for
 whichever provider your profile names) and ``DEMO_REGISTRY_TOKEN``. The
 repository's ``.gitignore`` keeps ``.env`` out of git.
 
-The telemetry credentials do not go in ``.env``. The telemetry store's accounts
-and the senders' logins are minted into files of their own, ``.env.telemetry-*`` at
-the repo root, mode 0600 and outside the ``.env`` chain: ``osprey build`` writes
-them, and ``osprey up`` adds a key file per reader. A later rebuild keeps them,
-so the stack comes up on the same credentials its volumes were initialized
-with.
+The agent record's credentials do not go in ``.env``. Each login is minted
+into a file of its own, ``.env.agent-record.*`` at the repo root, mode 0600 and
+outside the ``.env`` chain: ``osprey build`` writes them, and ``osprey up`` adds
+a key file per reader. A later rebuild keeps them, so the stack comes up on the
+same credentials its volumes were initialized with.
 
 ``.env.example`` is written by ``osprey init``. After you change
 ``env.required``, update the example alongside it — it is the documented list
@@ -646,14 +645,14 @@ Watch for these lines in the output:
 * ``Persisted 1 MCP server(s) to config.yml`` — the agent can reach
   ``facility-mcp``.
 
-Confirm the service list is exactly the four you expect:
+Confirm the service list is exactly the two you expect:
 
 .. code-block:: bash
 
    osprey config --rendered | grep -A4 '^deployed_services:'
 
-It should read ``telemetry_store``, ``telemetry_gateway``, ``facility-mcp``,
-``virtual_accelerator``.
+It should read ``facility-mcp`` and ``virtual_accelerator``; the record's two
+services are rendered beside them.
 
 
 Step 9 — Deploy and check
@@ -798,7 +797,7 @@ Everything past "the stack is up" runs from anywhere inside the repository:
 
    osprey status                  # what is running, where it answers
    osprey logs event_dispatcher   # one service's output; -f to follow
-   osprey health                  # config, environment, providers, telemetry
+   osprey health                  # config, environment, providers, agent record
    osprey restart                 # stop and start again
    osprey down                    # stop it, keeping the volumes
 

@@ -83,7 +83,7 @@ describe('renderMarkdownInto', () => {
     renderMarkdownInto(el, '# hi');
 
     expect(parse).toHaveBeenCalledWith('# hi');
-    expect(sanitize).toHaveBeenCalledWith('<p>hi</p><pre><code>x</code></pre>');
+    expect(sanitize).toHaveBeenCalledWith('<p>hi</p><pre><code>x</code></pre>', expect.any(Object));
     expect(el.innerHTML).toBe('<p>hi</p><pre><code>x</code></pre>');
     // one `pre code` block -> highlighted once
     expect(highlightElement).toHaveBeenCalledTimes(1);
@@ -369,8 +369,8 @@ describe('createChatRenderer', () => {
   });
 
   describe('activity-line state machine', () => {
-    // The loader is the activity line: it shows while a turn runs and nothing
-    // is streaming, and steps aside while text streams.
+    // The loader is the activity line: it stays at the foot of the log for the
+    // whole turn, and its label follows what the agent is doing.
     test('thinking marker shows "Thinking…"', () => {
       const r = createChatRenderer(container);
       r.beginTurn();
@@ -385,13 +385,162 @@ describe('createChatRenderer', () => {
       expect(qs(container, '.op-loader-label').textContent).toBe('Reading control channels…');
     });
 
-    test('text clears the activity line', () => {
+    test('the line stays up through a whole turn, and its label follows each phase', () => {
       const r = createChatRenderer(container);
       r.beginTurn();
-      r.handleEvent({ type: 'thinking' });
-      expect(container.querySelector('.op-loader')).not.toBeNull();
-      r.handleEvent({ type: 'text', content: 'answer' });
+      const label = () => qs(container, '.op-loader-label').textContent;
+      const pinned = () => container.lastElementChild?.classList.contains('op-loader');
+
+      r.handleEvent({ type: 'delta', kind: 'text', content: 'Reading the channels now.' });
+      expect([pinned(), label()]).toEqual([true, 'Writing…']);
+      // The call is named as soon as it starts, before its input arrives.
+      r.handleEvent({ type: 'tool_start', tool_name: 'Channel Read', tool_use_id: 't1' });
+      expect([pinned(), label()]).toEqual([true, 'Reading control channels…']);
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read', tool_use_id: 't1', input: {} });
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '1.0' });
+      r.handleEvent({ type: 'delta', kind: 'text', content: 'Done.' });
+      expect([pinned(), label()]).toEqual([true, 'Writing…']);
+
+      r.handleEvent({ type: 'result', is_error: false, duration_ms: 10 });
       expect(container.querySelector('.op-loader')).toBeNull();
+    });
+
+    test("a tool's phrase leaves the line when its result arrives", () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read', tool_use_id: 't1', input: {} });
+      expect(label()).toBe('Reading control channels…');
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '1.0' });
+      expect(label()).toBe('Working…');
+    });
+
+    test('the phrase stays while another call of the turn is still running', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read', tool_use_id: 't1', input: {} });
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Write', tool_use_id: 't2', input: {} });
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '1.0' });
+      expect(label()).not.toBe('Working…');
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't2', is_error: false, preview: 'ok' });
+      expect(label()).toBe('Working…');
+    });
+
+    test("a subagent's own result does not reset the line", () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'channel-finder', description: 'find' },
+      });
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Channel Read',
+        tool_use_id: 'n1',
+        parent_tool_use_id: 'a1',
+        input: {},
+      });
+      r.handleEvent({
+        type: 'tool_result',
+        tool_use_id: 'n1',
+        parent_tool_use_id: 'a1',
+        is_error: false,
+        preview: '1.0',
+      });
+      expect(qs(container, '.op-loader-label').textContent).toBe(
+        'channel-finder · Reading control channels…'
+      );
+    });
+
+    test('"Waiting for the background agent…" ends when that agent reports', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'channel-finder', description: 'find', run_in_background: true },
+      });
+      r.handleEvent({ type: 'system', subtype: 'background_wait' });
+      expect(label()).toBe('Waiting for the background agent…');
+      r.handleEvent({
+        type: 'system',
+        subtype: 'agent_done',
+        tool_use_id: 'a1',
+        status: 'completed',
+      });
+      expect(label()).toBe('Working…');
+    });
+
+    test('the wait goes on while a second background agent is still out', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      for (const id of ['a1', 'a2']) {
+        r.handleEvent({
+          type: 'tool_use',
+          tool_name: 'Agent',
+          tool_name_raw: 'Agent',
+          tool_use_id: id,
+          input: { subagent_type: 'channel-finder', description: id },
+        });
+      }
+      r.handleEvent({ type: 'system', subtype: 'background_wait' });
+      r.handleEvent({
+        type: 'system',
+        subtype: 'agent_done',
+        tool_use_id: 'a1',
+        status: 'completed',
+      });
+      expect(label()).toBe('Waiting for the background agent…');
+      r.handleEvent({
+        type: 'system',
+        subtype: 'agent_done',
+        tool_use_id: 'a2',
+        status: 'completed',
+      });
+      expect(label()).toBe('Working…');
+    });
+
+    test("a subagent's call starting names the agent, and draws no row", () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'channel-finder', description: 'find' },
+      });
+      r.handleEvent({ type: 'tool_start', tool_name: 'Channel Read', parent_tool_use_id: 'a1' });
+      expect(qs(container, '.op-loader-label').textContent).toBe(
+        'channel-finder · Reading control channels…'
+      );
+      expect(container.querySelectorAll('.op-tool:not(.op-agent)')).toHaveLength(0);
+    });
+
+    test('while the reply streams a drawing, the line says "Drawing…", then "Writing…" again', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({
+        type: 'delta',
+        kind: 'text',
+        content: 'Quick look:\n\n```svg\n<svg viewBox',
+      });
+      expect(label()).toBe('Drawing…');
+      r.handleEvent({
+        type: 'delta',
+        kind: 'text',
+        content: '="0 0 1 1"></svg>\n```\n\nThat is all',
+      });
+      expect(label()).toBe('Writing…');
     });
 
     test('the activity line stays pinned below the latest entry', () => {
@@ -400,6 +549,23 @@ describe('createChatRenderer', () => {
       r.beginTurn();
       r.handleEvent({ type: 'tool_use', tool_name: 'Read' });
       expect(container.lastElementChild?.classList.contains('op-loader')).toBe(true);
+    });
+
+    test('while a card waits on the operator, the line says so', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.beginTurn();
+      r.handleEvent({
+        type: 'permission_request',
+        request_id: 'req-1',
+        kind: 'tool',
+        tool_name: 'Execute',
+        tool_name_raw: 'mcp__python__execute',
+        tool_use_id: 'x1',
+        input: { code: 'print(1)' },
+        reason: null,
+        can_allow_session: false,
+      });
+      expect(qs(container, '.op-loader-label').textContent).toBe('Waiting for your answer');
     });
   });
 
@@ -583,6 +749,123 @@ describe('createChatRenderer', () => {
       expect(agents[1].querySelector('.op-entry-body')?.textContent).toBe('live');
     });
 
+    test('a replayed turn whose history has no end stays open, and the live frames continue it', () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        { role: 'user', content: 'read the orbit' },
+        { role: 'assistant', content: 'Reading.', events: [{ type: 'text', content: 'Reading.' }] },
+      ]);
+      expect(r.hasOpenTurn()).toBe(true);
+      expect(container.querySelector('.op-footer')).toBeNull();
+
+      // The feed joins the turn still running.
+      r.beginTurn();
+      r.handleEvent({ type: 'text', content: 'It is flat.' });
+      r.handleEvent({ type: 'result', is_error: false, duration_ms: 4000 });
+
+      const agents = container.querySelectorAll('.op-entry.assistant');
+      expect(agents).toHaveLength(1);
+      expect([...agents[0].querySelectorAll('.op-entry-body')].map((b) => b.textContent)).toEqual([
+        'Reading.',
+        'It is flat.',
+      ]);
+      expect(agents[0].querySelectorAll('.op-footer')).toHaveLength(1);
+      expect(r.hasOpenTurn()).toBe(false);
+    });
+
+    test('a replayed turn that ended is closed, and a live frame after it opens a new entry', () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        {
+          role: 'assistant',
+          content: 'Done.',
+          events: [
+            { type: 'text', content: 'Done.' },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+      expect(r.hasOpenTurn()).toBe(false);
+      r.beginTurn();
+      r.handleEvent({ type: 'text', content: 'Something new.' });
+
+      expect(container.querySelectorAll('.op-entry.assistant')).toHaveLength(2);
+    });
+
+    test('a replayed turn with a run of calls and an approval draws exactly what the live turn drew', () => {
+      /** A read of one channel, as the stream carries it. */
+      const read = (/** @type {string} */ id) => ({
+        type: 'tool_use',
+        tool_name: 'Channel Read',
+        tool_name_raw: 'mcp__osprey__channel_read',
+        tool_use_id: id,
+        input: { channel: `SR:${id}:BPM` },
+      });
+      const done = (/** @type {string} */ id, /** @type {boolean} */ isError = false) => ({
+        type: 'tool_result',
+        tool_use_id: id,
+        is_error: isError,
+        preview: isError ? 'timeout' : '1.0',
+        truncated: false,
+      });
+      const write = {
+        type: 'tool_use',
+        tool_name: 'Channel Write',
+        tool_name_raw: 'mcp__osprey__channel_write',
+        tool_use_id: 'w1',
+        input: { channel: 'SR:C01:HCOR', value: 0.5 },
+      };
+      const events = [
+        read('t1'),
+        read('t2'),
+        read('t3'),
+        done('t1'),
+        done('t2', true),
+        done('t3'),
+        write,
+        {
+          type: 'permission_request',
+          request_id: 'req-w1',
+          kind: 'tool',
+          tool_name: 'Channel Write',
+          tool_name_raw: 'mcp__osprey__channel_write',
+          tool_use_id: 'w1',
+          input: write.input,
+          reason: null,
+          can_allow_session: false,
+        },
+        { type: 'permission_resolved', request_id: 'req-w1', allow: true, answers: null },
+        done('w1'),
+        { type: 'text', content: 'Corrected.' },
+        { type: 'result', is_error: false, duration_ms: 53_000 },
+      ];
+
+      const live = createChatRenderer(container, { answerPermission: vi.fn() });
+      live.beginTurn();
+      for (const event of events) live.handleEvent(event);
+
+      const replayed = document.createElement('div');
+      createChatRenderer(replayed, { answerPermission: vi.fn() }).replay([
+        { role: 'assistant', content: 'Corrected.', events },
+      ]);
+
+      expect(replayed.innerHTML).toBe(container.innerHTML);
+      // What both drew: the reads folded with the failure on the run row, the
+      // write on its own heavier row with the decision, and the footer's counts.
+      const run = qs(container, '.op-run');
+      expect(qs(run, '.op-row-label').textContent).toBe('Read 3 channels');
+      expect(run.dataset.state).toBe('error');
+      expect(run.nextElementSibling?.getAttribute('data-kind')).toBe('control-write');
+      expect(qs(container, '.op-tool-decision').dataset.decision).toBe('allowed');
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect([...container.querySelectorAll('.op-footer-part')].map((p) => p.textContent)).toEqual([
+        '53s',
+        '4 actions',
+        '1 approval',
+      ]);
+      expect(container.querySelectorAll('.pulse')).toHaveLength(0);
+    });
+
     test('an empty or missing turn list renders nothing', () => {
       const r = createChatRenderer(container);
       expect(r.replay([])).toBe(0);
@@ -668,8 +951,8 @@ describe('createChatRenderer', () => {
     r.handleEvent({ type: 'delta', kind: 'text', content: 'this first.' });
     await flushFrame();
 
-    // No chip, no group, and the CLI's planning instructions never reach the log.
-    expect(container.querySelector('.op-tool, .op-tools')).toBeNull();
+    // No row, no run, and the CLI's planning instructions never reach the log.
+    expect(container.querySelector('.op-tool, .op-run')).toBeNull();
     expect(container.textContent).not.toContain('Entered plan mode');
     // The text block stays open across the hidden call: one body, not two.
     const bodies = container.querySelectorAll('.op-entry-body');
@@ -748,21 +1031,22 @@ describe('createChatRenderer', () => {
       expect(first.nextElementSibling).toBe(second);
     });
 
-    test('the group holding a waiting approval stays open once the agent moves on, and the operator cannot fold it away', () => {
+    test('a waiting approval stays in view once the agent moves on: its row never folds away', () => {
       const r = createChatRenderer(container, { answerPermission: vi.fn() });
       r.handleEvent(call('t1'));
-      r.handleEvent(ask('t1', 'req-1'));
+      r.handleEvent(call('t2'));
+      r.handleEvent(ask('t2', 'req-2'));
       r.handleEvent({ type: 'text', content: 'Waiting on you.' });
 
-      const group = qs(container, '.op-tools');
-      expect(group.classList.contains('open')).toBe(true);
-      expect(qs(container, '.op-approval').closest('[hidden]')).toBeNull();
-
-      qs(container, '.op-tools-head').click();
-      expect(group.classList.contains('open')).toBe(true);
+      const card = qs(container, '.op-approval');
+      expect(card.closest('[hidden]')).toBeNull();
+      expect(card.closest('.op-run')).toBeNull();
+      // The row that carries the card stands on its own in the turn, under no run.
+      expect(card.previousElementSibling).toBe(rows()[1]);
+      expect(rows()[1].parentElement?.classList.contains('op-entry')).toBe(true);
     });
 
-    test('once answered, a group the agent has left folds again', async () => {
+    test('once answered, the row keeps the decision in view where the card was', async () => {
       const answerPermission = vi.fn(async () => {});
       const r = createChatRenderer(container, { answerPermission });
       r.handleEvent(call('t1'));
@@ -772,7 +1056,9 @@ describe('createChatRenderer', () => {
       await settle();
 
       expect(answerPermission).toHaveBeenCalledWith('req-1', { allow: true });
-      expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
+      const badge = qs(container, '.op-tool-decision');
+      expect(badge.closest('[hidden]')).toBeNull();
+      expect(badge.closest('.op-run')).toBeNull();
     });
 
     test.each([
@@ -854,7 +1140,7 @@ describe('createChatRenderer', () => {
       expect(row.dataset.state).toBe('error');
       const badge = qs(row, '.op-tool-decision');
       expect(badge.textContent).toBe('Allowed by you');
-      expect(badge.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+      expect(badge.nextElementSibling?.classList.contains('op-row-status')).toBe(true);
       expect(qs(row, '.op-tool-pre.op-tool-error').textContent).toContain('NameError');
       expect(container.querySelector('.op-approval, .op-card-line')).toBeNull();
     });
@@ -940,7 +1226,7 @@ describe('createChatRenderer', () => {
       );
 
       const card = qs(container, '.op-approval');
-      expect(card.closest('.op-tools')).toBeNull();
+      expect(card.closest('.op-run, .op-tool')).toBeNull();
       qs(container, '.op-btn-primary').click();
       await settle();
 
@@ -1051,7 +1337,7 @@ describe('createChatRenderer', () => {
         } else {
           expect(/** @type {HTMLElement} */ (badge).dataset.decision).toBe(decision);
           expect(badge?.textContent).toBe(label);
-          expect(badge?.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+          expect(badge?.nextElementSibling?.classList.contains('op-row-status')).toBe(true);
         }
         expect(container.querySelector('.op-approval')).toBeNull();
         expect(qs(container, '.op-tool').dataset.state).toBe(state);
@@ -1095,7 +1381,171 @@ describe('createChatRenderer', () => {
       expect(container.querySelector('.op-approval')).toBeNull();
       expect(container.querySelector('.op-tool-decision')).toBeNull();
       expect(rows()).toHaveLength(1);
-      expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
+      expect(qs(container, '.op-tool').closest('.op-run')).toBeNull();
+    });
+  });
+
+  describe('settled questions leave a trace', () => {
+    const QUESTIONS = [
+      {
+        question: 'Which lattice?',
+        header: 'Lattice',
+        multiSelect: false,
+        options: [
+          { label: 'Top-off', description: '' },
+          { label: 'Hybrid', description: '' },
+        ],
+      },
+      {
+        question: 'Say "go" when ready?',
+        header: 'Ready',
+        multiSelect: false,
+        options: [
+          { label: 'Go', description: '' },
+          { label: 'Wait', description: '' },
+        ],
+      },
+    ];
+
+    /** @param {HTMLElement} root */
+    const items = (root) =>
+      [...root.querySelectorAll('.op-qtrace-item')].map((item) => [
+        item.querySelector('.op-qtrace-q')?.textContent,
+        item.querySelector('.op-qtrace-a')?.textContent,
+      ]);
+
+    test('an answered question folds to a closed line that opens to each question and its answer', async () => {
+      const answerPermission = vi.fn(async () => {});
+      const r = createChatRenderer(container, { answerPermission });
+      r.handleEvent({
+        type: 'permission_request',
+        request_id: 'q-1',
+        kind: 'question',
+        input: { questions: QUESTIONS },
+      });
+      const card = qs(container, '.op-card');
+      const key = (/** @type {string} */ k) =>
+        card.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+      key('2');
+      qs(card, '.op-btn-primary').click();
+      key('1');
+      qs(card, '.op-btn-primary').click();
+      await vi.waitFor(() => expect(card.dataset.state).toBe('answered'));
+
+      expect(answerPermission).toHaveBeenCalledWith('q-1', {
+        allow: true,
+        answers: { 'Which lattice?': 'Hybrid', 'Say "go" when ready?': 'Go' },
+      });
+      const head = qs(card, '.op-qtrace-head');
+      expect(head.textContent).toBe('Answered · 2 questions');
+      expect(qs(card, '.op-qtrace-body').hidden).toBe(true);
+      head.click();
+      expect(head.getAttribute('aria-expanded')).toBe('true');
+      expect(qs(card, '.op-qtrace-body').hidden).toBe(false);
+      expect(items(card)).toEqual([
+        ['Which lattice?', 'Hybrid'],
+        ['Say "go" when ready?', 'Go'],
+      ]);
+    });
+
+    test('a replayed question is redrawn as its trace, answers read back from the result', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [
+            {
+              type: 'tool_use',
+              tool_name: 'AskUserQuestion',
+              tool_name_raw: 'AskUserQuestion',
+              tool_use_id: 'u1',
+              input: { questions: QUESTIONS },
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 'u1',
+              is_error: false,
+              preview:
+                'Your questions have been answered: "Which lattice?"="Hybrid, then "top-off"", ' +
+                '"Say "go" when ready?"="Go". You can now continue with these answers in mind.',
+            },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+
+      const card = qs(container, '.op-card');
+      expect(card.dataset.state).toBe('answered');
+      expect(items(card)).toEqual([
+        ['Which lattice?', 'Hybrid, then "top-off"'],
+        ['Say "go" when ready?', 'Go'],
+      ]);
+      expect(container.querySelector('.op-tool')).toBeNull();
+    });
+
+    test('a replayed question whose call ended in an error reads as skipped, with no answers', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [
+            {
+              type: 'tool_use',
+              tool_name: 'AskUserQuestion',
+              tool_name_raw: 'AskUserQuestion',
+              tool_use_id: 'u2',
+              input: { questions: [QUESTIONS[0]] },
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 'u2',
+              is_error: true,
+              preview: 'The user declined.',
+            },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+
+      const card = qs(container, '.op-card');
+      expect(card.dataset.state).toBe('skipped');
+      expect(qs(card, '.op-qtrace-head').textContent).toBe('Skipped · Lattice');
+      expect(items(card)).toEqual([['Which lattice?', 'No answer']]);
+    });
+  });
+
+  describe('artifact ids in agent answers', () => {
+    /** @param {string} markdown */
+    const links = (markdown) => {
+      createChatRenderer(container).addAgentMessage(markdown);
+      return [...container.querySelectorAll('.op-artifact-link')].map((b) => [
+        /** @type {HTMLElement} */ (b).dataset.artifactId,
+        b.textContent,
+      ]);
+    };
+
+    test('the artifact_id phrase becomes a control that reads as written', () => {
+      expect(
+        links('<p>Tunes (artifact_id: a57934cf00dd), and artifact_id=7AC86013F4B4.</p>')
+      ).toEqual([
+        ['a57934cf00dd', 'artifact_id: a57934cf00dd'],
+        ['7ac86013f4b4', 'artifact_id=7AC86013F4B4'],
+      ]);
+      expect(container.textContent).toBe(
+        'Tunes (artifact_id: a57934cf00dd), and artifact_id=7AC86013F4B4.'
+      );
+    });
+
+    test('an id in inline code after the phrase is linked; a code block and a link are not', () => {
+      expect(
+        links(
+          '<p>artifact_id: <code>a57934cf00dd</code></p>' +
+            '<pre><code>artifact_id: 7ac86013f4b4</code></pre>' +
+            '<p><a href="/x">artifact_id: 0123456789ab</a></p>'
+        )
+      ).toEqual([['a57934cf00dd', 'artifact_id: a57934cf00dd']]);
     });
   });
 });

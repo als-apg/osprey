@@ -37,13 +37,13 @@ import asyncio
 import json
 import time
 from contextlib import contextmanager
-from unittest.mock import patch
 
 import pytest
 import requests
 
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _free_port, _run_app_server
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces._hub import hub_app
+from tests.interfaces._panel_launch import unserved_url
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -98,7 +98,7 @@ def _unhealthy_panel(panel_id: str = "beam-cam") -> dict:
     return {
         "id": panel_id,
         "label": panel_id.upper(),
-        "url": f"http://127.0.0.1:{_free_port()}",
+        "url": unserved_url(),
         "healthEndpoint": "/health",
         "path": "/",
     }
@@ -136,27 +136,9 @@ def _live_server(
     Yields:
         (base_url: str, app: FastAPI) — live server address and the app object.
     """
-    if custom_panels is None:
-        custom_panels = []
-
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled_panels, custom_panels, None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-
+    with hub_app(
+        workspace_dir, enabled_panels=enabled_panels, custom_panels=custom_panels or []
+    ) as app:
         if panels_delay:
 
             @app.middleware("http")
@@ -165,7 +147,7 @@ def _live_server(
                     await asyncio.sleep(panels_delay)
                 return await call_next(request)
 
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             # Set AFTER startup: the lifespan assigns project_cwd and the preset
             # list from config, so a pre-startup value would be clobbered.
             if project_cwd is not None:

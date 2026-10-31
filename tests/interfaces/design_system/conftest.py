@@ -1,4 +1,4 @@
-"""pytest options local to the design-system test package.
+"""pytest options and fixtures local to the design-system test package.
 
 ``--regen-baselines`` belongs here (rather than the root ``tests/conftest.py``)
 because it is scoped to ``test_visual.py``'s Playwright screenshot baselines —
@@ -7,6 +7,16 @@ command-line parsing, a plain test module is imported too late.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
+
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def pytest_addoption(parser):
@@ -22,3 +32,10 @@ def pytest_addoption(parser):
             "baselines that are NOT authoritative for CI."
         ),
     )
+
+
+@pytest.fixture
+def dashboard_url() -> Iterator[str]:
+    """The dispatch dashboard with no state route; suites that need one override this."""
+    with run_app_server(create_dispatch_dashboard_app()) as base_url:
+        yield base_url

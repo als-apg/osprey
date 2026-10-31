@@ -12,12 +12,11 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-import time
 from pathlib import Path
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from tests.interfaces.lattice_dashboard._render import fodo_deck, settle, write_render
 
 from osprey.interfaces.lattice_dashboard import app as app_mod
 from osprey.interfaces.lattice_dashboard.app import create_app
@@ -30,70 +29,9 @@ from osprey.interfaces.lattice_dashboard.state import (
 )
 from osprey.interfaces.lattice_dashboard.workers._base import save_data
 from osprey_connectors.process import ExitCause
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    SCHEMAS,
-    SEEDS_FILE,
-    SERVED_MODELS_FILE,
-    TEXTURE,
-    VARIABLES_FILE,
-)
-
-at = pytest.importorskip("at")
+from osprey_connectors.simulation.view import SERVED_MODELS_FILE, TEXTURE
 
 TWISS_IN = {"beta": [8.0, 4.0], "alpha": [0.0, 0.0]}
-
-
-def _deck(kf: float = 1.0) -> at.Lattice:
-    d = at.Drift("DR", 0.5)
-    qf = at.Quadrupole("QF", 0.2, kf)
-    qd = at.Quadrupole("QD", 0.2, -kf)
-    b = at.Dipole("BM", 0.5, np.pi / 8)
-    return at.Lattice([qf, d, b, d, qd, d, b, d] * 2, name="FODO", energy=2e9)
-
-
-def _write_render(root, *, served, models):
-    """Write a render's simulator view.
-
-    ``models`` is ``{name: settings.pyat or None}`` (None = no deck); a model is
-    served when ``served`` names it, and the texture model is listed too.
-    """
-    view = root / "data" / "simulator"
-    (view / "decks").mkdir(parents=True, exist_ok=True)
-    records = [
-        {
-            "name": "texture",
-            "engine": "texture",
-            "served": "texture" in served,
-            "settings": {},
-            "deck": None,
-        }
-    ]
-    for name, pyat in models.items():
-        deck = None
-        if pyat is not None:
-            deck = f"decks/{name}.json"
-            _deck().save(str(view / deck))
-        records.append(
-            {
-                "name": name,
-                "engine": "pyat",
-                "served": name in served,
-                "settings": {"pyat": pyat} if pyat is not None else {},
-                "deck": deck,
-            }
-        )
-    documents = {
-        SERVED_MODELS_FILE: {
-            "models": [name for name in served if name in models or name == TEXTURE]
-        },
-        ADDRESSES_FILE: {"channels": [], "status": []},
-        VARIABLES_FILE: {"code": "T", "models": records, "channels": []},
-        SEEDS_FILE: {"seeds": {}},
-    }
-    for name, document in documents.items():
-        (view / name).write_text(json.dumps({"schema": SCHEMAS[name], **document}))
-    return root
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +43,7 @@ def launched(fake_slots):
 @pytest.fixture
 def render(tmp_path):
     """SR (periodic) and TRANSFER (single_pass) served, BOOSTER unserved, SPARE deckless."""
-    return _write_render(
+    return write_render(
         tmp_path / "render",
         served=["SR", "TRANSFER", "texture"],
         models={
@@ -115,17 +53,6 @@ def render(tmp_path):
             "TRANSFER": {"solve": "single_pass", "twiss_in": TWISS_IN},
         },
     )
-
-
-def settle(client) -> dict:
-    """Return the state once no resolve is loading."""
-    deadline = time.monotonic() + 20
-    while True:
-        state = client.get("/api/state").json()
-        if state["selection"]["status"] != "loading":
-            return state
-        assert time.monotonic() < deadline, "the selection never resolved"
-        time.sleep(0.02)
 
 
 def select(client, name: str) -> dict:
@@ -229,7 +156,7 @@ class TestNoView:
         assert launched == []
 
     def test_texture_only_render(self, tmp_path, launched):
-        render = _write_render(tmp_path / "render", served=["texture"], models={})
+        render = write_render(tmp_path / "render", served=["texture"], models={})
         app = create_app(workspace_root=tmp_path / "ws", render_root=render)
         with TestClient(app) as client:
             state = settle(client)
@@ -282,7 +209,7 @@ class TestModels:
 
     def test_changed_deck_reloads(self, client, render, launched):
         client.post("/api/state/param", json={"family": "QF", "value": 1.05})
-        _deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
+        fodo_deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
         launched.clear()
 
         client.get("/api/state")
@@ -338,7 +265,7 @@ class TestModels:
         assert settle(client)["selection"]["model"] == "SR"
 
     def test_select_answers_while_the_catalog_is_read_again(self, client, render, monkeypatch):
-        _write_render(
+        write_render(
             render,
             served=["SR", "TRANSFER", "BOOSTER", "texture"],
             models={
@@ -379,7 +306,7 @@ class TestModels:
         self, client, render
     ):
         select(client, "BOOSTER")
-        _write_render(
+        write_render(
             render,
             served=["SR", "TRANSFER", "BOOSTER", "texture"],
             models={
@@ -444,7 +371,7 @@ class TestModels:
 
 class TestCatalog:
     def test_bad_pyat_settings_name_the_engine_stop(self, tmp_path):
-        render = _write_render(
+        render = write_render(
             tmp_path / "render",
             served=["SR", "BAD"],
             models={"SR": {"solve": "periodic"}, "BAD": {"solve": "periodic", "bogus": 1}},
@@ -487,7 +414,7 @@ class TestSelection:
 
     def test_model_gone_from_render_is_no_model(self, client, render):
         select(client, "BOOSTER")
-        _write_render(
+        write_render(
             render,
             served=["SR", "TRANSFER", "texture"],
             models={"SR": {"solve": "periodic"}, "TRANSFER": {"solve": "periodic"}},
@@ -505,7 +432,7 @@ class TestSelection:
     def test_served_only_rebuild_reresolves(self, client, render, launched):
         client.post("/api/state/param", json={"family": "QF", "value": 1.05})
         launched.clear()
-        _write_render(
+        write_render(
             render,
             served=["SR", "TRANSFER", "BOOSTER", "texture"],
             models={
@@ -600,7 +527,7 @@ class TestKeyedFigures:
 
     def test_deck_change_via_sync_never_serves_the_old_deck(self, client, render, fake_slots):
         land(client, fake_slots, "optics", _OPTICS_RAW)
-        _deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
+        fodo_deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
 
         client.get("/api/state")
         settle(client)

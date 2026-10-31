@@ -306,7 +306,7 @@ def serialize_entry(
     """
     from osprey.services.ariel_search.attachments.summaries import build_attachment_summaries
     from osprey.services.ariel_search.models import entry_text_fields
-    from osprey_connectors.config import to_facility_iso
+    from osprey.utils.facility import to_facility_iso
 
     ts = to_facility_iso(entry["timestamp"])
 

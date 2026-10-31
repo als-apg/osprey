@@ -236,7 +236,7 @@ def test_init_reset_reports_condensed_steps_not_the_plan(target: Path) -> None:
     assert PLAN_OPENS_WITH not in result.stdout
     flowed = " ".join(result.stdout.split())
     assert "removed 1 container, 1 volume" in flowed
-    assert "kept the audit log" in flowed
+    assert "kept the audit log, the agent record, .env provider keys" in flowed
 
 
 @pytest.mark.usefixtures("runtime", "no_destruction", "no_survivor_check")
@@ -351,3 +351,39 @@ def test_init_reset_waives_the_prompt_rather_than_answering_it(
 
     assert result.exit_code == 0, result.output
     assert len(no_destruction) == 1
+
+
+# ---------------------------------------------------------------------------
+# The host-local record refuses both verbs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("runtime", "no_survivor_check")
+def test_both_verbs_refuse_while_a_host_session_holds_the_record(
+    target: Path, no_destruction
+) -> None:
+    """Neither verb reaches the removals while a lease names a live session."""
+    import json
+    import os
+
+    from osprey.agent_record import host
+
+    run_init_reset(target)
+    no_destruction.clear()
+    lease_dir = target / "var" / "state" / "operator" / host.LEASE_DIR_NAME
+    lease_dir.mkdir(parents=True)
+    (lease_dir / f"{os.getpid()}-parity.lease").write_text(
+        json.dumps({"pid": os.getpid(), "start": host._process_start(os.getpid())}),
+        encoding="utf-8",
+    )
+
+    from_reset = run_reset(target, "-y")
+    from_init = CliRunner().invoke(
+        cli, ["init", str(target), "--preset", "hello-world", "--no-git", "--reset"]
+    )
+
+    assert from_reset.exit_code == 1
+    assert f"pid {os.getpid()}" in from_reset.stderr
+    assert from_init.exit_code == 1
+    assert f"pid {os.getpid()}" in from_init.output
+    assert no_destruction == []

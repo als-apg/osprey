@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import print_run_summary, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -57,15 +57,7 @@ async def test_safe_python_execution_succeeds(safety_project):
     )
 
     # -- Debug output --
-    print("\n--- Scenario 8: safe python execution ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  num_turns: {result.num_turns}")
-    print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-    for trace in result.tool_traces:
-        print(f"  tool: {trace.name}")
-        print(f"    is_error: {trace.is_error}")
-        result_preview = (trace.result or "")[:300]
-        print(f"    result preview: {result_preview}")
+    print_run_summary("Scenario 8: safe python execution", result)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"

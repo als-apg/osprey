@@ -20,6 +20,10 @@ A refused write ends its text with the trailer ``[osprey-refusal: <reason>]``
 (``osprey_connectors.refusals.refusal_text``). The trailer sits at the END, which a
 head cut loses, so :func:`tool_result_refusal` reads it from the full text before
 any preview is cut, and both surfaces call it.
+
+The notes the CLI appends to a result for the model (``<system-reminder>…``)
+are not part of the tool's output and are left out of the preview; the model
+still receives them.
 """
 
 from __future__ import annotations
@@ -72,6 +76,9 @@ _REFUSAL_TRAILER = re.compile(r"\r?\n\[osprey-refusal: ([a-z_]+)\][ \t]*(?=\r?\n
 
 #: The lead the CLI puts before a PreToolUse hook's deny reason in a tool result.
 _HOOK_ERROR_LEAD = re.compile(r"\APreToolUse:\S+ hook error: (?:\[[^\]\n]*\]: )?")
+
+#: A note the CLI adds to a tool result for the model's eyes only.
+_SYSTEM_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 
 
 def tool_result_text(content: str | list[Any] | None) -> str:
@@ -179,7 +186,7 @@ def tool_result_preview(text: str) -> tuple[str, bool]:
     :data:`STRUCTURED_CHARS`. If even the tightest cut is too large, the text is clipped to
     that budget. Anything else is cut at :data:`PLAIN_TEXT_CHARS`.
     """
-    payload = _payload(text)
+    payload = _payload(_without_reminders(text))
     if isinstance(payload, str):
         return _head(payload, PLAIN_TEXT_CHARS)
     for string_chars, items in _CUTS:
@@ -191,6 +198,12 @@ def tool_result_preview(text: str) -> tuple[str, bool]:
     # Its depth is capped, unlike the payload's, so it is safe to serialize.
     tightest = _dump(_shrink(payload, _Limits(*_CUTS[-1]), depth=0))
     return _head(tightest, STRUCTURED_CHARS)
+
+
+def _without_reminders(text: str) -> str:
+    """*text* with the CLI's ``<system-reminder>`` notes taken out; unchanged when it has none."""
+    cleaned = _SYSTEM_REMINDER.sub("", text)
+    return text if cleaned == text else cleaned.strip()
 
 
 def _payload(text: str) -> str | list[Any] | dict[str, Any]:

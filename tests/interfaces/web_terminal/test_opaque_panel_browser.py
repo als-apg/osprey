@@ -38,7 +38,6 @@ from contextlib import contextmanager
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import requests
@@ -46,8 +45,7 @@ import requests
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, PANEL_CAP_SEGMENT
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal.panel_discovery import DiscoveredPanel
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _free_port, _run_app_server
+from tests.interfaces._hub import hub_server
 
 try:
     from playwright.sync_api import Frame, Page, expect
@@ -137,9 +135,7 @@ class _QuietHandler(SimpleHTTPRequestHandler):
 @contextmanager
 def _runtime_backend(directory: Path) -> Iterator[str]:
     """Serve ``directory`` over real HTTP on loopback; yield its base URL."""
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", _free_port()), partial(_QuietHandler, directory=str(directory))
-    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_QuietHandler, directory=str(directory)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -174,33 +170,16 @@ def _hub(tmp_path: Path) -> Iterator[tuple[str, object]]:
             # credential upstream and is opaque.
             {"id": "agent-dash", "label": "RUNTIME", "url": backend_url, "path": "/"},
         ]
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace)},
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.app._load_panel_config",
-                return_value=({"artifacts"}, custom, None),
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.app._launch_panel_server",
-                side_effect=publish_artifact_url(),
-            ),
-        ):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=["echo", "hello"])
-            with _run_app_server(app) as base_url:
-                app.state.discovered_panel_dirs = {
-                    "agent-bundle": DiscoveredPanel(
-                        id="agent-bundle",
-                        label="BUNDLE",
-                        entry="index.html",
-                        directory=bundle,
-                    )
-                }
-                yield base_url, app
+        with hub_server(workspace, custom_panels=custom) as (base_url, app):
+            app.state.discovered_panel_dirs = {
+                "agent-bundle": DiscoveredPanel(
+                    id="agent-bundle",
+                    label="BUNDLE",
+                    entry="index.html",
+                    directory=bundle,
+                )
+            }
+            yield base_url, app
 
 
 def _operator_get(base_url: str, path: str) -> dict:

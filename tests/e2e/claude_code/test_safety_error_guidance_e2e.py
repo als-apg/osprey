@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import combined_text, print_run_summary, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -67,16 +67,7 @@ async def test_execution_error_triggers_guidance(safety_project):
     )
 
     # -- Debug output --
-    print("\n--- 3a: execution error triggers guidance ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  num_turns: {result.num_turns}")
-    for trace in result.tool_traces:
-        print(f"  tool: {trace.name}")
-        print(f"    is_error: {trace.is_error}")
-        result_preview = (trace.result or "")[:300]
-        print(f"    result preview: {result_preview}")
-    for tb in result.text_blocks[:3]:
-        print(f"  text: {tb[:200]}")
+    print_run_summary("3a: execution error triggers guidance", result)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
@@ -141,16 +132,7 @@ async def test_error_response_no_retry_protocol(safety_project):
     )
 
     # -- Debug output --
-    print("\n--- 3b: error response no-retry protocol ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  num_turns: {result.num_turns}")
-    for trace in result.tool_traces:
-        print(f"  tool: {trace.name}")
-        print(f"    is_error: {trace.is_error}")
-        result_preview = (trace.result or "")[:300]
-        print(f"    result preview: {result_preview}")
-    for tb in result.text_blocks[:3]:
-        print(f"  text: {tb[:200]}")
+    print_run_summary("3b: error response no-retry protocol", result)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"

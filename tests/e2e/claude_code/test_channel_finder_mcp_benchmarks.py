@@ -33,7 +33,6 @@ import asyncio
 import json
 import logging
 import shutil
-import socket
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -664,15 +663,8 @@ def test_annotate_categories_labels_the_slice(tmp_path: Path) -> None:
     assert all(r.eval_meta["category"] == labelled[r.query_id] for r in run.query_results)
 
 
-def _closed_local_port() -> int:
-    """A loopback port with nothing listening on it."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
 def test_graph_lane_fails_loud_when_the_store_is_gone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reserve_port
 ) -> None:
     """With the store stopped the lane raises; it never records ``channel_count`` 0.
 
@@ -685,7 +677,7 @@ def test_graph_lane_fails_loud_when_the_store_is_gone(
     listening is the same thing the container fixture's store being stopped
     would produce, and it costs no Docker.
     """
-    port = _closed_local_port()
+    port = reserve_port()
     monkeypatch.setenv("GRAPHDB_PASSWORD", GRAPHDB_TEST_PASSWORD)
     (tmp_path / "config.yml").write_text(
         yaml.dump(

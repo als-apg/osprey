@@ -235,11 +235,6 @@ def test_packaged_bundle_seeds_its_servers(tmp_path: Path) -> None:
 SENTINEL = "written-by-the-operator\n"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _init(runner: CliRunner, target: Path, preset: str = PRESET, *extra: str):
     """Run the verb the way an operator does, minus the git repository.
 

@@ -21,55 +21,15 @@
  * keep interrupting the agent.
  *
  * Same isolation scheme as terminal-resume.test.mjs: fresh module per test,
- * xterm and WebSocket stubbed.
+ * xterm and WebSocket stubbed from _terminal-fake.mjs.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FakeTerminal, stubTerminalGlobals } from './_terminal-fake.mjs';
+
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js')} */
 let terminal;
-
-/** Fake xterm.js Terminal that records its options and the custom key handler. */
-class FakeTerminal {
-  /** @param {any} options */
-  constructor(options) {
-    this.cols = 80;
-    this.rows = 24;
-    this.options = options ?? {};
-    /** @type {((ev: KeyboardEvent) => boolean)|null} */
-    this.keyHandler = null;
-    this.selection = '';
-    /** @type {any[]} */
-    this.addons = [];
-    FakeTerminal.last = this;
-  }
-  /** @param {any} addon */
-  loadAddon(addon) {
-    this.addons.push(addon);
-  }
-  open() {}
-  onData() {}
-  onResize() {}
-  write() {}
-  reset() {}
-  focus() {}
-  /** @param {(ev: KeyboardEvent) => boolean} handler */
-  attachCustomKeyEventHandler(handler) {
-    this.keyHandler = handler;
-  }
-  hasSelection() {
-    return this.selection !== '';
-  }
-  getSelection() {
-    return this.selection;
-  }
-}
-/** @type {FakeTerminal|null} */
-FakeTerminal.last = null;
-
-class FakeAddon {
-  fit() {}
-}
 
 /** Fake `@xterm/addon-clipboard` Base64 codec, standing in for the real one. */
 class FakeBase64 {}
@@ -95,24 +55,6 @@ function clipboardProvider() {
   const addon = term().addons.find((a) => a instanceof FakeClipboardAddon);
   if (!addon) throw new Error('initTerminal() loaded no clipboard addon');
   return addon.provider;
-}
-
-class FakeWebSocket {
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 0;
-    /** @type {any[]} */
-    this.sent = [];
-    this.onopen = null;
-    this.onmessage = null;
-    this.onclose = null;
-  }
-  /** @param {any} data */
-  send(data) {
-    this.sent.push(data);
-  }
-  close() {}
 }
 
 /**
@@ -148,11 +90,7 @@ beforeEach(async () => {
   // @ts-expect-error -- test stub, not a full FontFaceSet
   document.fonts = { ready: Promise.resolve() };
 
-  vi.stubGlobal('Terminal', FakeTerminal);
-  vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
-  vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
-  vi.stubGlobal('ClipboardAddon', { ClipboardAddon: FakeClipboardAddon, Base64: FakeBase64 });
-  vi.stubGlobal('WebSocket', FakeWebSocket);
+  stubTerminalGlobals({ ClipboardAddon: FakeClipboardAddon, Base64: FakeBase64 });
   writeText = vi.fn(() => Promise.resolve());
   readText = vi.fn(() => Promise.resolve('secret from another app'));
   vi.stubGlobal('navigator', {
@@ -163,7 +101,6 @@ beforeEach(async () => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-  FakeTerminal.last = null;
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
   terminal.initTerminal('terminal-container');
 });

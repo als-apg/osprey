@@ -16,20 +16,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
 from io import StringIO
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli import build_cmd
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import status_display
+from tests._text import flat
+from tests.cli._lifecycle_build import invoke_build_in
+from tests.cli._reporters import ConsoleReporter, installed
 from tests.cli.conftest import TerminalProbe
 
 SUBSTITUTION = "haiku, sonnet, opus aliases run the main model gpt-6-sol"
@@ -37,17 +36,6 @@ UNLISTED = "'openai' does not list gpt-6-preview"
 DROPPED = "claude_code.aliases: ignoring key(s) sonet"
 
 _WITNESS = "MODELWARNINGSWITNESSMARKER"
-
-
-class _Capture(PhaseReporter):
-    """A reporter whose console is a buffer, so printed lines are readable."""
-
-    def __init__(self, console: Console) -> None:
-        super().__init__(color=False)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
 
 
 class _RecordSink(logging.Handler):
@@ -59,11 +47,6 @@ class _RecordSink(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.records.append(record)
-
-
-def _flowed(text: str) -> str:
-    """``text`` with its whitespace collapsed, so console wrapping does not matter."""
-    return " ".join(text.split())
 
 
 @pytest.fixture(scope="module")
@@ -99,23 +82,15 @@ def openai_build(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
     previous_level = root.level
     root.addHandler(sink)
     root.setLevel(logging.DEBUG)
-    previous_cwd = Path.cwd()
-    os.chdir(repo)
-    previous_reporter = install_reporter(_Capture(console))
     try:
-        with pytest.MonkeyPatch.context() as patch:
+        with installed(ConsoleReporter(console)), pytest.MonkeyPatch.context() as patch:
             patch.setattr(styles, "err_console", console)
-            result = CliRunner().invoke(build_cmd.build, ["--skip-deps", "--skip-lifecycle"])
+            result = invoke_build_in(repo)
     finally:
-        install_reporter(previous_reporter)
-        os.chdir(previous_cwd)
         root.removeHandler(sink)
         root.setLevel(previous_level)
 
     assert result.exit_code == 0, result.output
-    # Status resolves telemetry with the provider, and the gateway refuses a
-    # sender without a login: without it status reads no spec at all.
-    (repo / ".env").write_text("OSPREY_TELEMETRY_LOGIN=probe:probe-token\n")
     return SimpleNamespace(repo=repo, printed=buffer.getvalue(), records=sink.records)
 
 
@@ -123,18 +98,18 @@ class TestTheBuildSaysItOnce:
     """Every render pass resolves the provider; the build states each fact once."""
 
     def test_the_substitution_is_one_line_naming_the_aliases_and_the_main_model(self, openai_build):
-        flowed = _flowed(openai_build.printed)
+        flowed = flat(openai_build.printed)
         assert flowed.count("run the main model") == 1, flowed
         assert SUBSTITUTION in flowed
         assert "claude_code.aliases.<name>" in flowed
 
     def test_the_configured_ids_outside_the_list_are_named_on_one_line(self, openai_build):
-        flowed = _flowed(openai_build.printed)
+        flowed = flat(openai_build.printed)
         assert flowed.count("does not list") == 1, flowed
         assert UNLISTED in flowed
 
     def test_the_dropped_alias_key_is_one_line_with_its_remedy(self, openai_build):
-        flowed = _flowed(openai_build.printed)
+        flowed = flat(openai_build.printed)
         assert flowed.count(DROPPED) == 1, flowed
         assert "Rename or remove each ignored key." in flowed
 
@@ -184,7 +159,7 @@ def test_status_says_it_once_and_the_log_handler_paints_nothing(
     result = CliRunner().invoke(cli, ["status", "--agents", "--repo", str(openai_build.repo)])
     assert result.exit_code == 0, result.output
 
-    flowed = _flowed(result.output)
+    flowed = flat(result.output)
     assert flowed.count("run the main model") == 1, flowed
     assert SUBSTITUTION in flowed
     assert "gpt-6-sol (main model)" in flowed

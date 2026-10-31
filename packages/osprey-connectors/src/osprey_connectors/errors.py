@@ -323,8 +323,6 @@ class RegistryError(Exception):
     management within the framework's registry system.
     """
 
-    pass
-
 
 class ConfigurationError(Exception):
     """Exception for configuration-related errors.
@@ -333,10 +331,6 @@ class ConfigurationError(Exception):
     or contain incompatible values that prevent proper system operation.
     """
 
-    pass
-
 
 class BuildProfileError(ConfigurationError):
     """Raised when a build profile is invalid or missing required files."""
-
-    pass

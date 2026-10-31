@@ -150,17 +150,6 @@ def _assert_matches_golden(payload: dict[str, Any], verb: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Shared fixtures
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    """A Click runner that captures stdout and stderr separately."""
-    return CliRunner()
-
-
-# --------------------------------------------------------------------------- #
 # osprey audit --json
 # --------------------------------------------------------------------------- #
 

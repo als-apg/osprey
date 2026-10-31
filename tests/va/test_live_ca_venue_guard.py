@@ -47,6 +47,8 @@ from typing import Any
 
 import pytest
 
+from tests.va._collection import assert_module_collected
+
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
 MIN_COLLECTED_TESTS = 15
@@ -296,10 +298,4 @@ class TestTheGuardWatchesTheRightModule:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_live_ca_venue_guard.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

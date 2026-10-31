@@ -38,20 +38,18 @@ import threading
 import time
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 from urllib.parse import urlparse
 
 import pytest
 import uvicorn
 
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all
+from tests.interfaces._hub import hub_app
 
 # The standalone-ARIEL launcher the seven-interface smoke suite already owns —
 # imported rather than re-declared so this suite boots the app exactly the way
 # that suite does (cwd isolation included).
-from tests.interfaces.test_load_smokes import _launch_ariel
+from tests.interfaces._launchers import launch_ariel
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -169,31 +167,11 @@ def _serve_on_port(app: FastAPI, port: int) -> Iterator[str]:
 def _launch_hub_on_port(workspace_dir: Path, port: int) -> Iterator[str]:
     """Launch a real web-terminal hub on *port*.
 
-    Same patch set as ``design_system/test_behavioral.py``'s
-    ``_hub_live_server`` (config lookup, panel config, panel-server spawn); the
-    only difference is the fixed port.
+    The standard hub (:func:`tests.interfaces._hub.hub_app`); the only
+    difference is the fixed port.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _serve_on_port(app, port) as base_url:
-            yield base_url
+    with hub_app(workspace_dir) as app, _serve_on_port(app, port) as base_url:
+        yield base_url
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +218,7 @@ def test_popover_opens_with_its_three_rows(
     tmp_path, monkeypatch, chromium_browser: Browser
 ) -> None:
     """The trigger reveals a card carrying Appearance, View and Theme."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
 
@@ -285,7 +263,7 @@ def test_popover_opens_with_its_three_rows(
 
 def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
     """Family, appearance and view picks land on <html> without a reload."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
         _seed_explicit_theme(page, "dark")
@@ -324,7 +302,7 @@ def test_theme_and_view_survive_reload_over_a_query_mode_deep_link(
     tmp_path, monkeypatch, chromium_browser: Browser
 ) -> None:
     """An explicit view pick strips a leftover ``?mode=`` and wins on reload."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, f"{base_url}/?mode=simple")
         html = page.locator("html")
@@ -374,7 +352,7 @@ def test_family_picked_on_ariel_is_adopted_by_the_hub(
     context = chromium_browser.new_context()
     page = context.new_page()
     try:
-        with _launch_ariel(tmp_path, monkeypatch) as ariel_url:
+        with launch_ariel(tmp_path, monkeypatch) as ariel_url:
             port = urlparse(ariel_url).port
             assert port is not None
             menu = _goto_ariel(page, ariel_url)
@@ -412,7 +390,7 @@ def test_embedded_hides_the_popover(tmp_path, monkeypatch, chromium_browser: Bro
     proves the ``body.embedded osprey-display-menu`` rule the component injects
     for itself is what took the popover out.
     """
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         _goto_ariel(page, f"{base_url}/?embedded=true")
 

@@ -166,7 +166,7 @@ def _resolve_panel_url(scope: Request | WebSocket, panel_id: str) -> str | None:
     for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             url = cp.get("url", "")
-            return url if url else None
+            return url or None
 
     return None
 
@@ -647,9 +647,7 @@ def _same_origin(parsed: ParseResult, other_url: str) -> bool:
     other = urlparse(other_url)
     if parsed.netloc.lower() != other.netloc.lower():
         return False
-    if parsed.scheme and other.scheme and parsed.scheme.lower() != other.scheme.lower():
-        return False
-    return True
+    return not (parsed.scheme and other.scheme and parsed.scheme.lower() != other.scheme.lower())
 
 
 def _rewrite_redirect_location(
@@ -712,11 +710,7 @@ def _rewrite_redirect_location(
         # so the re-base is idempotent: a path already carrying the prefix is
         # relayed as it stands. Segment-boundary comparison, so a panel id
         # that is a prefix of another (``x`` vs ``x-2``) is never conflated.
-        return (
-            path == panel_prefix
-            or path.startswith(panel_prefix + "/")
-            or path.startswith(panel_prefix + "?")
-        )
+        return path == panel_prefix or path.startswith((panel_prefix + "/", panel_prefix + "?"))
 
     try:
         parsed = urlparse(location)
@@ -916,9 +910,7 @@ def _rewrite_content(
 
     # Rewrite href="/" to href="/panel/{id}/"
     body = body.replace('href="/"', f'href="{prefix}/"')
-    body = body.replace("href='/'", f"href='{prefix}/'")
-
-    return body
+    return body.replace("href='/'", f"href='{prefix}/'")
 
 
 #: The hub's own copy of the shared design system — the same directory
@@ -1805,7 +1797,7 @@ async def _forward_to_panel(
                     method=request.method,
                     url=target,
                     headers=fwd_headers,
-                    content=body if body else None,
+                    content=body or None,
                     # SSE streams idle between events — disable the read
                     # timeout so quiet periods don't kill the connection.
                     timeout=httpx.Timeout(None, connect=5.0),
@@ -1857,7 +1849,7 @@ async def _forward_to_panel(
             method=request.method,
             url=target,
             headers=fwd_headers,
-            content=body if body else None,
+            content=body or None,
         )
         if _is_redirect(resp):
             return _relay_redirect(
@@ -1896,7 +1888,7 @@ async def _forward_to_panel(
             content=resp.content,
             status_code=resp.status_code,
             headers=resp_headers,
-            media_type=content_type if content_type else None,
+            media_type=content_type or None,
         )
 
     # Rewrite root-absolute paths in HTML/JS/CSS — skip vendor assets
@@ -1984,7 +1976,7 @@ async def _forward_to_panel(
         content=resp.content,
         status_code=resp.status_code,
         headers=resp_headers,
-        media_type=content_type if content_type else None,
+        media_type=content_type or None,
     )
 
 

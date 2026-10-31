@@ -5,6 +5,27 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey.agent_record.client import ClientAnswer
+from tests.agent_record.fakes import FakeRecordClient
+
+#: The session's first time as the agent record holds it.
+RECORD_START = "2026-02-22T10:00:00+00:00"
+
+
+@pytest.fixture(autouse=True)
+def fake_record(monkeypatch):
+    """No harness session id leaks in, and the record answers from a fake.
+
+    The record lists the transcript's session with its first time.
+    """
+    monkeypatch.delenv("OSPREY_TELEMETRY_SESSION_ID", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
+    rows = [{"session_id": "session-abc123", "first_ts": RECORD_START}]
+    fake = FakeRecordClient({"list_sessions": ClientAnswer(data=rows, complete=True)})
+    monkeypatch.setattr("osprey.mcp_server.session.record_client", lambda: fake)
+    return fake
+
 
 @pytest.fixture()
 def fake_project(tmp_path, monkeypatch):
@@ -123,9 +144,51 @@ class TestGatherSessionMetadata:
         ):
             result = gather_session_metadata("test")
 
-        assert result["session_id"] == "sess-42"
+        # The transcript's file name is its session id; the start is the record's.
+        assert result["session_id"] == "session-abc123"
         assert result["transcript_path"] == str(fake_transcript)
-        assert result["session_start_time"] == "2026-02-22T10:00:00Z"
+        assert result["session_start_time"] == RECORD_START
+
+    @pytest.mark.usefixtures("fake_project")
+    def test_the_start_is_read_with_a_drain_naming_the_session(self, fake_transcript, fake_record):
+        from osprey.agent_record.contract import Drain
+        from osprey.mcp_server.session import gather_session_metadata
+
+        with patch(
+            "osprey.mcp_server.workspace.transcript_reader.TranscriptReader",
+            **{"return_value.find_current_transcript.return_value": fake_transcript},
+        ):
+            gather_session_metadata("test")
+
+        (call,) = fake_record.calls_to("list_sessions")
+        assert call["wait"] == Drain(session_id="session-abc123")
+        assert call["narrow_session"] is None
+
+    @pytest.mark.usefixtures("fake_project", "fake_transcript")
+    def test_inside_a_dispatch_worker_the_read_is_narrowed(self, fake_record, monkeypatch):
+        from osprey.mcp_server.session import gather_session_metadata
+
+        monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+        monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "run-sess")
+        gather_session_metadata("test")
+        (call,) = fake_record.calls_to("list_sessions")
+        assert call["narrow_session"] == "run-sess"
+
+    @pytest.mark.usefixtures("fake_project")
+    def test_an_unavailable_record_leaves_the_start_unknown(self, fake_transcript, monkeypatch):
+        from osprey.mcp_server.session import gather_session_metadata
+
+        monkeypatch.setattr(
+            "osprey.mcp_server.session.record_client",
+            lambda: FakeRecordClient(unavailable="down"),
+        )
+        with patch(
+            "osprey.mcp_server.workspace.transcript_reader.TranscriptReader",
+            **{"return_value.find_current_transcript.return_value": fake_transcript},
+        ):
+            result = gather_session_metadata("test")
+        assert result["session_id"] == "session-abc123"
+        assert result["session_start_time"] is None
 
     @pytest.mark.usefixtures("fake_project")
     def test_session_id_env_fallback(self, monkeypatch):

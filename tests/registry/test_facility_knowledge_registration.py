@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 
 from osprey.registry.mcp import FRAMEWORK_SERVERS, resolve_servers
-from tests.registry._ctx import base_ctx
+from tests.registry._ctx import base_ctx, render_ctx
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -181,7 +181,7 @@ class TestFacilityKnowledgeTemplates:
     """Facility-knowledge server appears correctly in rendered .mcp.json and settings.json."""
 
     def _full_ctx(self, **overrides):
-        ctx = base_ctx(**overrides)
+        ctx = render_ctx(**overrides)
         claude_code_cfg = overrides.pop("_claude_code_config", {})
         ctx.setdefault("facility_permissions", {})
         ctx["servers"] = resolve_servers(claude_code_cfg, ctx)

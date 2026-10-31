@@ -53,11 +53,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
     POSTURE_SOURCE_ENV,
@@ -71,6 +69,7 @@ from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store
 from osprey_connectors.ipc._launch import host_env
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -86,13 +85,6 @@ POSTURE_WRITES = posture_store.POSTURE_WRITES
 # --------------------------------------------------------------------------- #
 # Harness
 # --------------------------------------------------------------------------- #
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture
@@ -149,13 +141,8 @@ def shared_root(tmp_path, monkeypatch):
 def make_client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                yield client
+        with terminal_client(workspace_dir) as client:
+            yield client
 
     return _make
 

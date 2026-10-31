@@ -237,7 +237,7 @@ async def build_execution_response(
         nb = create_notebook_from_code(code, description, stdout_text, stderr_text)
         nb_bytes = nbformat.writes(nb).encode()
 
-        from osprey.stores.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import RUN_RECORD_KEY, get_artifact_store
 
         store = get_artifact_store()
         nb_entry = store.save_file(
@@ -248,6 +248,7 @@ async def build_execution_response(
             description=description,
             mime_type="application/x-ipynb+json",
             tool_source=tool_source,
+            metadata={RUN_RECORD_KEY: True},
         )
         notebook_artifact_id = nb_entry.id
         artifact_ids.append(notebook_artifact_id)
@@ -292,7 +293,7 @@ async def build_execution_response(
     }
 
     # Save via ArtifactStore (unified)
-    from osprey.stores.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import RUN_RECORD_KEY, get_artifact_store
 
     store = get_artifact_store()
     entry = store.save_data(
@@ -303,6 +304,7 @@ async def build_execution_response(
         summary=summary,
         access_details=access_details,
         category="code_output",
+        metadata={RUN_RECORD_KEY: True},
     )
 
     response = entry.to_tool_response()

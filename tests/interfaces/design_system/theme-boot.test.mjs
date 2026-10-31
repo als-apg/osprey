@@ -22,6 +22,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import { stubOSPreference } from './js/os-preference.mjs';
 import { runBootScript } from './js/boot-harness.mjs';
 
 const STORAGE_KEY = 'osprey-theme';
@@ -44,23 +45,6 @@ function storePreference(preference) {
     STORAGE_KEY,
     typeof preference === 'string' ? preference : JSON.stringify(preference)
   );
-}
-
-/**
- * Force the OS preference so 'auto' resolution can be asserted in both
- * directions. Without this the assertions would pass for the wrong reason
- * whenever the host's own OS preference happened to agree.
- * @param {boolean} prefersDark
- */
-function stubOSPreference(prefersDark) {
-  vi.stubGlobal('matchMedia', (/** @type {string} */ query) => ({
-    matches: query.includes('dark') ? prefersDark : !prefersDark,
-    media: query,
-    addEventListener() {},
-    removeEventListener() {},
-    addListener() {},
-    removeListener() {},
-  }));
 }
 
 describe('theme-boot.js resolution ladder', () => {

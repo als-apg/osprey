@@ -71,17 +71,15 @@ from osprey.config_guards import is_positive_int
 # module; the terminal cookie and this sidecar share it.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
-from .audit import AUDIT_DIR_ENV, audit_directory
 from .identity_headers import same_domain, same_identity
 from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
-from .revocation import RevocationStore
+from .revocation import STATE_DIR_ENV, RevocationStore, state_directory
 from .roster_env import (
     HISTORY_ALL,
     HISTORY_ORIGIN_VAR,
     PW_HASH_VAR_PREFIX,
     READER_SUBJECT_VAR_PREFIX,
-    READER_TABLES_VAR_PREFIX,
     READERS_VAR,
     ROLE_HISTORY_VAR_PREFIX,
     ROSTER_HISTORY_VAR_PREFIX,
@@ -545,7 +543,7 @@ class AuthSettings:
             ``OSPREY_AUTH_ROSTER_LABEL_<SUFFIX>`` is non-blank — the shared app
             cards, titled by the app's ``name:``. Use :meth:`label`, which
             answers the card's own name for every other card.
-        history_origin: The readers' origin the history page is served on,
+        history_origin: The origin the history page is served on,
             ``scheme://host[:port]``, or ``""`` when this deployment serves no
             history page. A login may return to an absolute URL under its
             ``/history/`` path and nowhere else off this origin.
@@ -553,8 +551,7 @@ class AuthSettings:
         history_all_roles: :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`
             of every role marked ``history: all``. Read through
             :meth:`role_history_all`.
-        readers: Every configured telemetry reader's name, in config order.
-        reader_tables: ``{reader: tables}`` — the tables each reader may read.
+        readers: Every configured agent-record reader's name, in config order.
         reader_subjects: ``{reader: IdP identity}`` for the readers that sign in
             through the provider without a roster entry.
     """
@@ -582,7 +579,6 @@ class AuthSettings:
     history_all_users: frozenset[str] = frozenset()
     history_all_roles: frozenset[str] = frozenset()
     readers: tuple[str, ...] = ()
-    reader_tables: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     reader_subjects: Mapping[str, str] = field(default_factory=dict)
     web_theme: str = ""
     web_app_name: str = ""
@@ -655,11 +651,9 @@ class AuthSettings:
             and _is_history_all(value)
         )
         readers = _roster(source.get(READERS_VAR))
-        reader_tables: dict[str, tuple[str, ...]] = {}
         reader_subjects: dict[str, str] = {}
         for reader in readers:
             suffix = env_var_suffix(reader)
-            reader_tables[reader] = _roster(source.get(f"{READER_TABLES_VAR_PREFIX}{suffix}"))
             reader_subject = (source.get(f"{READER_SUBJECT_VAR_PREFIX}{suffix}") or "").strip()
             if reader_subject:
                 reader_subjects[reader] = reader_subject
@@ -697,7 +691,6 @@ class AuthSettings:
             history_all_users=history_all_users,
             history_all_roles=history_all_roles,
             readers=readers,
-            reader_tables=reader_tables,
             reader_subjects=reader_subjects,
             web_theme=(source.get(ENV_WEB_THEME) or "").strip(),
             web_app_name=(source.get(ENV_WEB_APP_NAME) or "").strip(),
@@ -991,16 +984,12 @@ class AuthSettings:
         return bool(role) and env_var_suffix(role) in self.history_all_roles
 
     def knows_reader(self, name: str) -> bool:
-        """Whether ``name`` is a configured telemetry reader now."""
+        """Whether ``name`` is a configured agent-record reader now."""
         return name in self.readers
 
     def reader_subject(self, name: str) -> str | None:
         """The IdP identity reader ``name`` signs in as, or ``None`` for none."""
         return self.reader_subjects.get(name)
-
-    def tables_for_reader(self, name: str) -> tuple[str, ...]:
-        """The tables reader ``name`` may read; empty for a name that is no reader."""
-        return self.reader_tables.get(name, ())
 
 
 def get_settings(request: Request) -> AuthSettings:
@@ -1260,18 +1249,18 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
     # (`time.time` for the store, to match the absolute expiries in session
     # cookies; `time.monotonic` for the throttle, so a clock step cannot open a
     # window early) — deliberately not the codec's. The revocation store is the
-    # one of these that also keeps a copy on disk, in the audit directory, so a
+    # one of these that also keeps a copy on disk, in the state directory, so a
     # logout survives a restart; the in-process instance is still the
-    # authoritative one. The directory comes from this factory's `env`, so a test
-    # that configures the app with an explicit mapping never picks up a variable
-    # from the real process environment.
-    revocation_directory = audit_directory(env) if servable else None
+    # authoritative one. The directory comes from this factory's `env`, so a
+    # test that configures the app with an explicit mapping never picks up a
+    # variable from the real process environment.
+    revocation_directory = state_directory(env) if servable else None
     app.state.revocation_store = RevocationStore(revocation_directory) if servable else None
     if servable and revocation_directory is None:
         logger.warning(
             "logouts are held in memory only: %s names no absolute directory, so a restart "
             "of this service forgets them",
-            AUDIT_DIR_ENV,
+            STATE_DIR_ENV,
         )
     app.state.attempt_throttle = (
         AttemptThrottle(**settings.throttle_parameters) if servable else None

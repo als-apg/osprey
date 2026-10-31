@@ -7,7 +7,6 @@ Exposes:
   GET  /dispatch/{id}/artifacts       — descriptors of the artifacts the run produced
   GET  /dispatch/{id}/artifacts/{aid} — resolved (renderable) bytes of one artifact the run produced
   DELETE /dispatch/{id}               — cancel an in-flight run
-  DELETE /dispatch/runs               — delete finished runs from the history
   GET  /health                        — liveness check with run statistics
   GET  /dashboard/runs                — JSON feed consumed by the dispatcher dashboard (token-gated)
 
@@ -15,6 +14,22 @@ Which artifacts belong to a run is decided by the artifact store's write-time
 ``run_id`` tag (created-by), so all three artifact surfaces — the status-body
 list, the list route, and the byte route — share one strict isolation gate and
 cannot disagree. See ``osprey.agent_runner.artifact_resolve``.
+
+Every run is also recorded as two ``run`` entries in the worker's own spool
+(:mod:`osprey.agent_record.writer`): ``run:<run_id>:accept`` when the run is
+accepted, before the agent starts, naming the session the run was minted and
+who asked for it; and ``run:<run_id>:terminal`` once, at the run's end,
+holding its outcome fields and none of its text. The prompt, the answer and
+the thinking are the transcript's facts, read from the run's session.
+
+A run in flight is answered from this process's memory. Every other read of a
+run — its status once terminal, the dashboard's run list, a cancel of a run
+this process does not hold, the run counts on ``/health`` and the stale-run
+sweep — reads the agent record through :class:`~osprey.agent_record.client.RecordClient`
+under this worker's own login, so a worker that restarts loses nothing. A
+terminal status is reported only from a complete read: while the record is
+unavailable or still catching up, a run reads ``pending`` with a ``record``
+field saying which, never terminal with a missing answer.
 """
 
 from __future__ import annotations
@@ -27,25 +42,30 @@ import logging
 import os
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
+from osprey.agent_record import contract as record_contract
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.client import DEFAULT_TIMEOUT, ClientAnswer, RecordClient
 from osprey.agent_runner import launcher
 from osprey.agent_runner.artifact_resolve import (
     deployed_config_path,
+    deployed_record_retention_days,
     deployed_render_dir,
     deployed_repo_root,
     describe_run_artifacts,
     describe_run_input_artifacts,
-    dispatch_log_dir,
     get_run_store,
-    load_run_record,
+    record_lacks_run,
     resolve_single_run_artifact,
 )
 from osprey.agent_runner.errors import AgentCliUnavailableError
@@ -121,49 +141,226 @@ _tasks: dict[str, asyncio.Task] = {}
 _MAX_RUNS = 1000
 
 
-# Persistent log directory — one JSON record per completed run, on the durable
-# agent-data volume so it survives container restarts. Resolved per call (see
-# ``artifact_resolve.dispatch_log_dir``) from the config the worker was pointed
-# at, which is the same derivation the compose generator renders the volume's
-# mount target from — so the records land inside the mount rather than on the
-# container's writable layer, where a restart would drop them.
-def _log_dir() -> str:
-    return str(dispatch_log_dir())
+#: How a status body names a read of the record that could not settle the run:
+#: the record did not answer, or answered without everything the run needs.
+RECORD_UNAVAILABLE = "unavailable"
+RECORD_INCOMPLETE = "incomplete"
+
+#: Seconds ``/health`` waits on the record for its run counts: a liveness
+#: probe must answer whether or not the record does.
+_HEALTH_RECORD_TIMEOUT = 5.0
+
+#: The most runs one dashboard answer lists.
+_DASHBOARD_RUNS = 50
+
+#: The fields of a run's in-memory record a pending status body repeats.
+_PENDING_FIELDS = ("created_at", "prompt", "session_id", "owner")
 
 
-def _persist_run(run_id: str, run: dict[str, Any]) -> None:
-    """Write a completed run to disk as JSON."""
-    log_dir = _log_dir()
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-        path = os.path.join(log_dir, f"{run_id}.json")
-        with open(path, "w") as f:
-            json.dump({"run_id": run_id, **run}, f, indent=2, default=str)
-    except Exception:
-        logger.exception("Failed to persist run %s", run_id)
+def record_client(*, timeout: float = DEFAULT_TIMEOUT) -> RecordClient:
+    """The worker's agent-record client, resolved per call from the environment.
+
+    The worker's login is a ``Source`` login, so every read sees this worker's
+    own runs (every worker's, in the shared mode) and nothing else.
+    """
+    return RecordClient.from_env(os.environ, timeout=timeout)
 
 
-def _load_persisted_runs() -> None:
-    """Load previously persisted runs from disk into _runs."""
-    log_dir = _log_dir()
-    if not os.path.isdir(log_dir):
-        return
-    loaded = 0
-    for fname in sorted(os.listdir(log_dir), reverse=True):
-        if not fname.endswith(".json"):
-            continue
-        if loaded >= _MAX_RUNS:
-            break
-        try:
-            with open(os.path.join(log_dir, fname)) as f:
-                data = json.load(f)
-            run_id = data.pop("run_id", fname.removesuffix(".json"))
-            _runs[run_id] = data
-            loaded += 1
-        except Exception:
-            logger.warning("Failed to load %s", fname)
-    if loaded:
-        logger.info("Loaded %d persisted runs from %s", loaded, log_dir)
+#: The outcome fields a run's terminal entry holds, named as the status body
+#: names them. None is text: the answer is the transcript's, and the tool-call
+#: count is derived from the run's timeline when it is read.
+RUN_OUTCOME_FIELDS: tuple[str, ...] = (
+    "status",
+    "failure_class",
+    "error_code",
+    "error",
+    "cancelled",
+    "cost_usd",
+    "num_turns",
+    "duration_sec",
+    "completed_at",
+    "artifacts",
+    "input_artifacts",
+)
+
+#: The outcome fields that are lists, recorded as ``[]`` when the run has none.
+_RUN_LIST_FIELDS = frozenset({"artifacts", "input_artifacts"})
+
+
+def _entry_ts(epoch: Any) -> datetime | None:
+    """The entry time for an epoch-seconds record field; ``None`` means now."""
+    if isinstance(epoch, int | float) and not isinstance(epoch, bool) and epoch > 0:
+        return datetime.fromtimestamp(epoch, UTC)
+    return None
+
+
+def _write_run_accept(run_id: str, record: Mapping[str, Any]) -> None:
+    """Record that ``run_id`` was accepted, under which session and for whom.
+
+    Written before the agent starts, so the run's transcript always has an
+    accept to be attributed by. The requester is the run's guarded owner, or
+    ``None`` for a fire nobody asked for. A write that fails is reported by the
+    writer and never fails the run.
+    """
+    session_id = record.get("session_id")
+    record_writer.write(
+        record_contract.KIND_RUN,
+        {
+            record_contract.RUN_PHASE_FIELD: record_contract.RUN_ACCEPT,
+            "run_id": run_id,
+            record_contract.RUN_SESSION_FIELD: session_id,
+            "requester": record.get("owner"),
+            "created_at": record.get("created_at"),
+        },
+        run_id=run_id,
+        session_id=session_id,
+        ts=_entry_ts(record.get("created_at")),
+    )
+
+
+def _write_run_terminal(run_id: str, record: Mapping[str, Any]) -> None:
+    """Record ``run_id``'s outcome: :data:`RUN_OUTCOME_FIELDS` and nothing else.
+
+    Called once per run, by whichever of the run's own task and the stale sweep
+    makes its record terminal. A write that fails is reported by the writer and
+    never fails the run.
+    """
+    body: dict[str, Any] = {
+        record_contract.RUN_PHASE_FIELD: record_contract.RUN_TERMINAL,
+        "run_id": run_id,
+    }
+    for field in RUN_OUTCOME_FIELDS:
+        value = record.get(field)
+        if field in _RUN_LIST_FIELDS:
+            value = value or []
+        elif field == "cancelled":
+            value = bool(value)
+        body[field] = value
+    record_writer.write(
+        record_contract.KIND_RUN,
+        body,
+        run_id=run_id,
+        ts=_entry_ts(record.get("completed_at")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reading runs from the record
+# ---------------------------------------------------------------------------
+
+#: Status bodies of runs a complete read found terminal, by run id. A run's
+#: terminal facts never change once read whole, so each is read once.
+_settled: OrderedDict[str, dict[str, Any]] = OrderedDict()
+
+
+def _body_of(item: Any) -> Mapping[str, Any]:
+    """The body of a record item as the client returns it, ``{}`` when it has none."""
+    body = item.get("body") if isinstance(item, Mapping) else None
+    return body if isinstance(body, Mapping) else {}
+
+
+def _terminal_body(run_id: str, facts: Any) -> dict[str, Any] | None:
+    """The status body of a run whose record facts hold a terminal outcome.
+
+    Named as every status body names it: the terminal entry's outcome
+    fields, the answer of the run's session as ``text_output``, the tool-call
+    count of its timeline, and the accept's time, session and requester (as
+    ``owner``, present only when someone asked). ``None`` when *facts* hold no
+    terminal outcome.
+    """
+    if not isinstance(facts, Mapping):
+        return None
+    outcome = _body_of(facts.get("terminal"))
+    if outcome.get("status") not in _TERMINAL_STATUSES:
+        return None
+    accepted = _body_of(facts.get("accept"))
+    body: dict[str, Any] = {"run_id": run_id}
+    for field in RUN_OUTCOME_FIELDS:
+        value = outcome.get(field)
+        body[field] = (value or []) if field in _RUN_LIST_FIELDS else value
+    answer = facts.get("answer")
+    body["text_output"] = answer if isinstance(answer, str) else ""
+    body["num_tool_calls"] = facts.get("num_tool_calls")
+    body["created_at"] = accepted.get("created_at")
+    body["session_id"] = facts.get("session_id")
+    requester = accepted.get("requester")
+    if isinstance(requester, str) and requester:
+        body["owner"] = requester
+    return body
+
+
+def _pending_body(run_id: str, state: str, known: Mapping[str, Any]) -> dict[str, Any]:
+    """A ``pending`` status body for a run the record could not settle.
+
+    *state* is :data:`RECORD_UNAVAILABLE` or :data:`RECORD_INCOMPLETE`; *known*
+    is what this process holds of the run, if anything.
+    """
+    body = {field: known[field] for field in _PENDING_FIELDS if field in known}
+    body.update({"run_id": run_id, "status": "pending", "record": state})
+    return body
+
+
+def _remember(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    _settled[run_id] = body
+    _settled.move_to_end(run_id)
+    while len(_settled) > _MAX_RUNS:
+        _settled.popitem(last=False)
+    return body
+
+
+def _read_run_status(run_id: str, known: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The status body of ``run_id`` from the record, or ``None`` when it holds no such run.
+
+    Terminal only from a complete read. A read the record could not answer,
+    or answered incomplete, gives a ``pending`` body saying which; ``None`` is
+    answered only when the record served the read and said it has no entry of
+    the run at all. Blocking: route handlers call it off the event loop.
+    """
+    settled = _settled.get(run_id)
+    if settled is not None:
+        return settled
+    answer = record_client().run(run_id)
+    if not answer.available:
+        return _pending_body(run_id, RECORD_UNAVAILABLE, known)
+    if record_lacks_run(answer, run_id):
+        return None
+    if answer.complete:
+        body = _terminal_body(run_id, answer.data)
+        if body is not None:
+            return _remember(run_id, body)
+    return _pending_body(run_id, RECORD_INCOMPLETE, known)
+
+
+def _record_runs(answer: ClientAnswer) -> dict[str, dict[str, Mapping[str, Any]]]:
+    """The run entries of an ``entries("run")`` answer, by run id and phase."""
+    runs: dict[str, dict[str, Mapping[str, Any]]] = {}
+    for item in answer.data if isinstance(answer.data, list) else []:
+        body = _body_of(item)
+        run_id = body.get("run_id") or (item.get("run_id") if isinstance(item, Mapping) else None)
+        phase = body.get(record_contract.RUN_PHASE_FIELD)
+        if (
+            isinstance(run_id, str)
+            and run_id
+            and phase
+            in (
+                record_contract.RUN_ACCEPT,
+                record_contract.RUN_TERMINAL,
+            )
+        ):
+            runs.setdefault(run_id, {}).setdefault(phase, body)
+    return runs
+
+
+def _list_record_runs(
+    client: RecordClient | None = None, *, wait: record_contract.Drain | None = None
+) -> tuple[ClientAnswer, dict[str, dict[str, Mapping[str, Any]]]]:
+    """The run entries the record keeps (``agent_record.retention_days``), by run id.
+
+    Blocking: route handlers call it off the event loop.
+    """
+    since = datetime.now(UTC) - timedelta(days=deployed_record_retention_days())
+    answer = (client or record_client()).entries(record_contract.KIND_RUN, since=since, wait=wait)
+    return answer, (_record_runs(answer) if answer.available else {})
 
 
 #: How every refusal to start opens, whatever its cause.
@@ -190,7 +387,6 @@ def _inject_provider_env_once() -> None:
     launch_env: Mapping[str, str] = {}
     try:
         from osprey.agent_runner.provider_env import inject_provider_env, load_provider_spec
-        from osprey.build.claude_code_telemetry import TelemetryConfigError
 
         # Read the spec from the render (the directory holding that config.yml)
         # while expanding ``${VAR}`` against the REPO root's ``.env``: secrets
@@ -198,22 +394,10 @@ def _inject_provider_env_once() -> None:
         # render, so a custom provider's ``base_url: ${ARGO_PROD_URL}`` resolves
         # from the repo or not at all. (In a container the value normally
         # arrives as process env via the compose ``env_file``, which the overlay
-        # includes either way.)
-        #
-        # Telemetry is an observability add-on; a misconfigured telemetry block
-        # must never take down the worker's provider auth. Degrade telemetry
-        # (loud ERROR) and re-resolve without it, keeping auth/base-url/model.
-        render_dir = config_path.parent
-        try:
-            spec = load_provider_spec(render_dir, env_dir=repo_root)
-        except TelemetryConfigError:
-            logger.error(
-                "claude_code.telemetry is misconfigured — continuing WITHOUT "
-                "telemetry so provider auth is preserved. Fix the telemetry "
-                "block to restore emit.",
-                exc_info=True,
-            )
-            spec = load_provider_spec(render_dir, env_dir=repo_root, include_telemetry=False)
+        # includes either way.) The OTLP block comes from the same environment:
+        # the record address and the worker's own record login its compose
+        # service hands it.
+        spec = load_provider_spec(config_path.parent, env_dir=repo_root)
         if spec:
             injected = inject_provider_env(os.environ, spec, project_dir=repo_root)
             logger.info("Provider env injected: %s (provider=%s)", injected, spec.provider)
@@ -284,7 +468,7 @@ def _settle_agent_cli() -> str:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    """Startup/shutdown lifecycle — provider env injection and run recovery.
+    """Startup/shutdown lifecycle — provider env injection and the periodic sweeps.
 
     ``.claude/`` and ``data/`` (MCP config, safety hooks, skills) are already in
     the image: ``osprey build`` renders them into the repo's ``build/`` zone on
@@ -301,7 +485,6 @@ async def _lifespan(_app: FastAPI):
     # Route every _stamp's per-class increment into the process-lifetime counters
     # before any run can fail, so no early failure goes uncounted.
     counters.install()
-    _load_persisted_runs()
     task = asyncio.create_task(_stale_run_cleanup())
     retention_task = _start_retention_sweep()
     yield
@@ -351,46 +534,86 @@ def _is_denied(tool: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _sweep_stale_runs() -> None:
-    """One cleanup sweep: mark stale pending runs as error (cancelling their
-    orphaned tasks) and discard old SSE queues.
+def _stale_cutoff() -> int:
+    """Seconds after its accept a run with no terminal counts as stale."""
+    return DISPATCH_TIMEOUT_SEC + 30
 
-    Extracted from the periodic loop so it is directly unit-testable without
-    driving the ``while True`` / ``sleep`` loop.
+
+def _find_stale_runs(now: float) -> dict[str, Mapping[str, Any]] | None:
+    """The runs to end as stale: accepted longer ago than the cutoff, with no terminal.
+
+    Read from the record after draining this worker's spool, so a terminal
+    written but not yet ingested is seen, and a run accepted before this
+    process started is found. Each run maps to its accept entry's body. In-flight
+    runs this process holds count too, accepted or not. ``None`` — sweep
+    nothing — when the record is unavailable or could not drain.
     """
-    now = time.time()
-    stale_cutoff = DISPATCH_TIMEOUT_SEC + 30
+    answer, runs = _list_record_runs(wait=record_contract.Drain())
+    if not answer.available or not answer.complete:
+        logger.warning(
+            "Stale-run sweep skipped: the record is %s (%s)",
+            RECORD_UNAVAILABLE if not answer.available else RECORD_INCOMPLETE,
+            answer.unavailable or answer.reason,
+        )
+        return None
+    cutoff = _stale_cutoff()
+    stale: dict[str, Mapping[str, Any]] = {}
+    for run_id, phases in runs.items():
+        accepted = phases.get(record_contract.RUN_ACCEPT)
+        if accepted is None or record_contract.RUN_TERMINAL in phases:
+            continue
+        created = accepted.get("created_at")
+        if isinstance(created, int | float) and created and (now - created) > cutoff:
+            stale[run_id] = accepted
+    for run_id, run in _runs.items():
+        if run_id in stale or run.get("status") != "pending":
+            continue
+        if record_contract.RUN_TERMINAL in runs.get(run_id, {}):
+            continue
+        created = run.get("created_at", 0)
+        if created and (now - created) > cutoff:
+            stale[run_id] = {}
+    return stale
 
-    for run_id, run in list(_runs.items()):
-        if run.get("status") == "pending":
-            created = run.get("created_at", 0)
-            if created and (now - created) > stale_cutoff:
-                logger.warning(
-                    "Marking stale run %s as error (pending > %ds)", run_id, stale_cutoff
-                )
-                swept = {
-                    **run,
-                    "status": "error",
-                    "error": f"Timed out after {stale_cutoff}s",
-                    "completed_at": now,
-                    "tool_calls": run.get("tool_calls", []),
-                }
-                # A stale run is a worker-side fault: stamp it infrastructure with
-                # the honest tool-call count and persist it as THE terminal record.
-                # When this run's orphaned coroutine later unwinds with
-                # CancelledError, that branch sees an already-terminal record and
-                # merges instead of stamping again — one terminal record, one count.
-                num_tool_calls = run_stats.get_run_stats(run_id)["num_tool_calls"]
-                failure_class._stamp(swept, failure_class.FAILURE_INFRASTRUCTURE, num_tool_calls)
-                _runs[run_id] = swept
-                _persist_run(run_id, swept)
-                # Cancel the orphaned task so its Claude CLI subprocess exits;
-                # marking the run error alone would leave it running.
-                task = _tasks.get(run_id)
-                if task is not None and not task.done():
-                    task.cancel()
 
-    # Clean up unconsumed SSE queues for completed runs
+def _end_stale_runs(stale: Mapping[str, Mapping[str, Any]], now: float) -> None:
+    """Give each stale run its one infrastructure-error terminal and stop its task."""
+    cutoff = _stale_cutoff()
+    for run_id, accepted in stale.items():
+        known = _runs.get(run_id) or {
+            "status": "pending",
+            "created_at": accepted.get("created_at"),
+            "session_id": accepted.get(record_contract.RUN_SESSION_FIELD),
+            **({"owner": accepted["requester"]} if accepted.get("requester") else {}),
+        }
+        logger.warning("Marking stale run %s as error (no terminal after %ds)", run_id, cutoff)
+        swept = {
+            **known,
+            "status": "error",
+            "error": f"Timed out after {cutoff}s",
+            "completed_at": now,
+            "tool_calls": known.get("tool_calls", []),
+        }
+        # A stale run is a worker-side fault: stamp it infrastructure with the
+        # honest tool-call count and record it as THE terminal. Its key is the
+        # run's one terminal key, so whichever terminal the record keeps first is
+        # the run's only one. When this run's orphaned coroutine later unwinds
+        # with CancelledError, that branch sees an already-terminal record and
+        # keeps it instead of stamping again — one terminal, one count.
+        num_tool_calls = run_stats.get_run_stats(run_id)["num_tool_calls"]
+        failure_class._stamp(swept, failure_class.FAILURE_INFRASTRUCTURE, num_tool_calls)
+        if run_id in _runs:
+            _runs[run_id] = swept
+        _write_run_terminal(run_id, swept)
+        # Cancel the orphaned task so its Claude CLI subprocess exits; marking
+        # the run error alone would leave it running.
+        task = _tasks.get(run_id)
+        if task is not None and not task.done():
+            task.cancel()
+
+
+def _drop_stale_queues(now: float) -> None:
+    """Discard the unconsumed SSE queues of runs that ended a while ago."""
     for run_id in list(_queues.keys()):
         run = _runs.get(run_id, {})
         completed_at = run.get("completed_at")
@@ -398,11 +621,31 @@ def _sweep_stale_runs() -> None:
             del _queues[run_id]
 
 
+def _sweep_stale_runs() -> None:
+    """One cleanup sweep: end the stale runs the record shows, and drop old SSE queues.
+
+    The blocking whole of one :func:`_stale_run_cleanup` cycle, callable
+    directly. While the record is unavailable no run is ended.
+    """
+    now = time.time()
+    stale = _find_stale_runs(now)
+    if stale:
+        _end_stale_runs(stale, now)
+    _drop_stale_queues(now)
+
+
 async def _stale_run_cleanup() -> None:
-    """Periodically run :func:`_sweep_stale_runs`."""
+    """Periodically sweep stale runs, reading the record off the event loop."""
     while True:
         await asyncio.sleep(60)
-        _sweep_stale_runs()
+        try:
+            now = time.time()
+            stale = await asyncio.to_thread(_find_stale_runs, now)
+            if stale:
+                _end_stale_runs(stale, now)
+            _drop_stale_queues(now)
+        except Exception:
+            logger.exception("Stale-run sweep failed — continuing")
 
 
 def _in_flight_run_ids() -> frozenset[str]:
@@ -411,7 +654,7 @@ def _in_flight_run_ids() -> frozenset[str]:
 
 
 def _start_retention_sweep() -> asyncio.Task | None:
-    """Start the opt-in retention sweep task, or return ``None`` when disabled.
+    """Start the opt-in artifact retention sweep task, or return ``None`` when disabled.
 
     Enabled only when ``RETENTION_DAYS`` is a positive integer. The store factory
     mirrors the artifact resolver's root logic (the module singleton is rooted at
@@ -425,10 +668,6 @@ def _start_retention_sweep() -> asyncio.Task | None:
 
     return asyncio.create_task(
         retention.retention_loop(
-            # The function, not its result: this runs during lifespan startup,
-            # so a config that is not readable yet would otherwise pin the sweep
-            # to the fallback root for the whole process.
-            _log_dir,
             _get_store,
             retention_days,
             _in_flight_run_ids,
@@ -702,17 +941,17 @@ def _attributed(record: dict[str, Any], owner: str | None) -> dict[str, Any]:
 def _record_terminal(
     run_id: str, accepted: Mapping[str, Any], outcome: dict[str, Any], owner: str | None
 ) -> dict[str, Any]:
-    """Store and persist a run's terminal record, and return it.
+    """Store and record a run's terminal outcome, and return it.
 
     A terminal record is the run's accepted record with the outcome laid over
     it, so the fields stamped when the run was accepted (``created_at``,
-    ``prompt``, ``owner``) survive every outcome; the outcome's keys win. This
-    is the one place ``_run_dispatch_task`` stores and persists a terminal
-    record.
+    ``prompt``, ``owner``, ``session_id``) survive every outcome; the outcome's
+    keys win. This is the one place ``_run_dispatch_task`` stores and records a
+    terminal outcome.
     """
     record = _attributed({**accepted, **outcome}, owner)
     _runs[run_id] = record
-    _persist_run(run_id, record)
+    _write_run_terminal(run_id, record)
     return record
 
 
@@ -750,6 +989,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 surface_tools=request.surface_tools,
                 owner=request.owner,
                 prior_answer_runs=request.prior_answer_runs,
+                session_id=accepted.get("session_id"),
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )
@@ -864,84 +1104,22 @@ async def dispatch(request: DispatchRequest) -> DispatchResponse:
             _queues.pop(key, None)
 
     run_id = str(uuid.uuid4())
-    _runs[run_id] = _attributed(
+    # The run's session is minted here, at accept, so the accept entry and the
+    # agent's transcript name one session; the task hands it to the SDK.
+    accepted = _attributed(
         {
             "status": "pending",
             "created_at": time.time(),
             "prompt": request.prompt,
+            "session_id": str(uuid.uuid4()),
         },
         request.owner,
     )
+    _runs[run_id] = accepted
+    _write_run_accept(run_id, accepted)
     # Use create_task (not BackgroundTasks) so we retain a handle for cancellation.
     _tasks[run_id] = asyncio.create_task(_run_dispatch_task(run_id, request))
     return DispatchResponse(status="accepted", run_id=run_id)
-
-
-class ClearRunsRequest(BaseModel):
-    """Body of ``DELETE /dispatch/runs``. Optional; an absent body clears all."""
-
-    older_than_days: int = Field(default=0, ge=0)
-
-
-# Declared BEFORE ``/dispatch/{run_id}``: Starlette matches routes in
-# registration order, so the parameterised cancel route below would otherwise
-# swallow this path as a cancel of a run literally named "runs".
-@app.delete("/dispatch/runs", dependencies=[Depends(_verify_token)])
-async def clear_dispatch_runs(body: ClearRunsRequest | None = None) -> dict[str, Any]:
-    """Delete finished runs from the history — the dashboard's clear action.
-
-    Unlinks every persisted ``{run_id}.json`` the retention sweep would consider
-    eligible AND drops the matching in-memory entries, so the run list comes
-    back empty instead of repopulating from disk on the next reload.
-
-    Both layers are cleared against the same predicate rather than against each
-    other's results: a run can live in ``_runs`` with no file (a persist that
-    failed) and on disk with no ``_runs`` entry (evicted by the cap), and either
-    one left behind would keep showing up.
-
-    A run still in flight is never touched, at either layer. Eligibility is
-    ``retention.record_is_deletable`` plus the worker's own pending set — the
-    same pair the periodic sweep uses. With ``older_than_days`` set this is that
-    sweep's horizon on demand; without it there is no age floor.
-
-    Run records only. The artifacts those runs produced stay in the artifact
-    store — clearing a history should not silently delete a plot someone is
-    still looking at. Ageing artifacts out is the retention sweep's job.
-    """
-    older_than_days = body.older_than_days if body is not None else 0
-    in_flight = _in_flight_run_ids()
-    now = time.time()
-
-    cleared_ids = set(
-        retention.delete_run_records(
-            _log_dir(),
-            now,
-            older_than_days=older_than_days,
-            in_flight_run_ids=in_flight,
-        )
-    )
-    records_deleted = len(cleared_ids)
-
-    for run_id, run in list(_runs.items()):
-        if run_id in in_flight:
-            continue
-        if not retention.record_is_deletable(run, now, older_than_days):
-            continue
-        del _runs[run_id]
-        _queues.pop(run_id, None)
-        cleared_ids.add(run_id)
-
-    logger.info(
-        "Cleared %d finished run(s) from history (%d persisted record(s), older_than_days=%d)",
-        len(cleared_ids),
-        records_deleted,
-        older_than_days,
-    )
-    return {
-        "cleared": len(cleared_ids),
-        "records_deleted": records_deleted,
-        "older_than_days": older_than_days,
-    }
 
 
 @app.delete("/dispatch/{run_id}", dependencies=[Depends(_verify_token)])
@@ -951,10 +1129,15 @@ async def cancel_dispatch(run_id: str) -> dict[str, Any]:
     Looks up the running asyncio.Task and requests cancellation. The run status
     transitions to `error` with `cancelled: true`. Measured cancel latency is
     ~0.6s end-to-end; a few seconds longer if a tool call is mid-flight.
+
+    A run this process does not hold is looked up in the record: one it has no
+    entry of is a 404, and any other cannot be cancelled here, which the answer
+    says along with why (finished, no task in this process, or the record could
+    not say).
     """
     run = _runs.get(run_id)
     if run is None:
-        raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
+        return await _cancel_unheld(run_id)
     if run.get("status") != "pending":
         return {"run_id": run_id, "cancelled": False, "reason": "already finished"}
 
@@ -967,21 +1150,38 @@ async def cancel_dispatch(run_id: str) -> dict[str, Any]:
     return {"run_id": run_id, "cancelled": True}
 
 
+async def _cancel_unheld(run_id: str) -> dict[str, Any]:
+    """The cancel answer for a run this process holds no record of."""
+    if not record_contract.is_token(run_id):
+        raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
+    body = await asyncio.to_thread(_read_run_status, run_id, {})
+    if body is None:
+        raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
+    if body.get("status") in _TERMINAL_STATUSES:
+        return {"run_id": run_id, "cancelled": False, "reason": "already finished"}
+    if body.get("record"):
+        return {"run_id": run_id, "cancelled": False, "reason": f"record {body['record']}"}
+    return {"run_id": run_id, "cancelled": False, "reason": "no task handle"}
+
+
 @app.get("/dispatch/{run_id}", dependencies=[Depends(_verify_token)])
 async def get_dispatch_result(run_id: str) -> dict[str, Any]:
-    """Poll a run by its run_id. Returns the stored result dict.
+    """Poll a run by its run_id.
 
-    Falls through to the persisted on-disk record when the run has aged out of
-    the in-memory ``_runs`` cap, so the status body (and its ``artifacts``
-    descriptors) stays available for exactly as long as the artifact routes,
-    which resolve from the same on-disk store.
+    A run in flight in this process answers from memory. Every other run
+    answers from the record: terminal only from a complete read, ``pending``
+    with ``record: "unavailable" | "incomplete"`` while the record cannot settle
+    it, and 404 only when the record says it holds no entry of the run.
     """
-    result = _runs.get(run_id)
-    if result is None:
-        result = load_run_record(run_id)
-    if result is None:
+    run = _runs.get(run_id)
+    if run is not None and not _is_terminal(run):
+        return run
+    if not record_contract.is_token(run_id):
         raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
-    return result
+    body = await asyncio.to_thread(_read_run_status, run_id, run or {})
+    if body is None:
+        raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
+    return body
 
 
 @app.get("/dispatch/{run_id}/artifacts", dependencies=[Depends(_verify_token)])
@@ -1053,36 +1253,53 @@ async def stream_dispatch(run_id: str, request: Request) -> StreamingResponse:
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+def _record_run_counts() -> dict[str, Any]:
+    """The run counts ``/health`` reports from the record, with the read's state."""
+    answer, runs = _list_record_runs(record_client(timeout=_HEALTH_RECORD_TIMEOUT))
+    if not answer.available:
+        return {"completed": None, "error": None, "ids": None, "record": RECORD_UNAVAILABLE}
+    counts: dict[str, Any] = {"completed": 0, "error": 0, "ids": set(runs)}
+    for phases in runs.values():
+        status_ = phases.get(record_contract.RUN_TERMINAL, {}).get("status")
+        if status_ in counts:
+            counts[status_] += 1
+    counts["record"] = None if answer.complete else RECORD_INCOMPLETE
+    return counts
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Liveness check with run statistics — no auth required.
 
-    Carries the worker's control-identity fields; see
-    :func:`osprey.deployment.control_identity.health_fields`.
+    Pending runs are this process's in-flight runs; the finished counts and
+    the total come from the record, within its retention. While the record is
+    unavailable those three are ``None`` and ``record`` says so; the check
+    itself still answers ``ok``. Carries the worker's control-identity fields;
+    see :func:`osprey.deployment.control_identity.health_fields`.
     """
     from osprey.deployment.control_identity import health_fields
 
-    counts = {"pending": 0, "completed": 0, "error": 0}
-    for run in _runs.values():
-        s = run.get("status", "")
-        if s in counts:
-            counts[s] += 1
+    pending = _in_flight_run_ids()
+    counts = await asyncio.to_thread(_record_run_counts)
+    ids = counts["ids"]
     # Process-lifetime failure counters — monotonic and independent of the
-    # evictable _runs map above (see counters module docstring). The _runs-derived
-    # error_runs field below is a separate, evictable count.
+    # record (see counters module docstring).
     lifetime = counters.get_counts()
-    return {
+    body: dict[str, Any] = {
         "status": "ok",
-        "pending_runs": counts["pending"],
+        "pending_runs": len(pending),
         "completed_runs": counts["completed"],
         "error_runs": counts["error"],
-        "total_runs": len(_runs),
+        "total_runs": None if ids is None else len(ids | pending),
         "provider_errors": lifetime[failure_class.FAILURE_PROVIDER],
         "infrastructure_errors": lifetime[failure_class.FAILURE_INFRASTRUCTURE],
         "boot_nonce": _BOOT_NONCE,
         "capabilities": _CAPABILITIES,
         **health_fields(),
     }
+    if counts["record"] is not None:
+        body["record"] = counts["record"]
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -1090,40 +1307,86 @@ async def health() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _dashboard_row(run_id: str, run: Mapping[str, Any], now: float) -> dict[str, Any]:
+    created = run.get("created_at") or 0
+    row = {
+        "run_id": run_id,
+        "status": run.get("status", "unknown"),
+        "created_at": created,
+        "age_sec": round(now - created, 1) if created else None,
+        "duration_sec": run.get("duration_sec"),
+        "text_output": run.get("text_output") or "",
+        "tool_count": (
+            run["num_tool_calls"]
+            if isinstance(run.get("num_tool_calls"), int)
+            else len(run.get("tool_calls") or [])
+        ),
+        "error": run.get("error"),
+        "num_turns": run.get("num_turns"),
+        # The run's session: the OSPREY-forced telemetry session UUID (see
+        # sdk_runner) its transcript and the record's timeline are keyed by, so
+        # the dashboard can link a run to its history. None when unrecorded.
+        "session_id": run.get("session_id"),
+        # The person the fire was attributed to, or None for an owner-less
+        # fire (the key is always present, like session_id).
+        "owner": run.get("owner"),
+        "has_stream": run_id in _queues,
+    }
+    if run.get("record"):
+        row["record"] = run["record"]
+    return row
+
+
 @app.get("/dashboard/runs", dependencies=[Depends(_verify_token)])
 async def dashboard_runs() -> list[dict[str, Any]]:
     """Recent runs for the dispatcher dashboard — token-gated, most recent first.
 
-    Returns full text_output/error per run, so this is bearer-gated like the
-    other worker endpoints. The dispatcher (the only caller) holds the token and
-    proxies this feed to its own browser-facing dashboard.
+    The runs the record keeps (``agent_record.retention_days``) plus the ones
+    in flight in this process, newest :data:`_DASHBOARD_RUNS`. A finished run
+    reads its status body from the record, so a row is terminal only from a
+    complete read; any other row of a run that has ended is ``pending`` with a
+    ``record`` field. Carries each run's answer and error, so this is
+    bearer-gated like the other worker endpoints; the dispatcher (the only
+    caller) holds the token and proxies this feed to its own dashboard. A
+    record that cannot be read answers 503.
     """
-    now = time.time()
-    runs = []
-    for run_id, run in _runs.items():
-        created = run.get("created_at", 0)
-        runs.append(
-            {
-                "run_id": run_id,
-                "status": run.get("status", "unknown"),
-                "created_at": created,
-                "age_sec": round(now - created, 1) if created else None,
-                "duration_sec": run.get("duration_sec"),
-                "text_output": run.get("text_output") or "",
-                "tool_count": len(run.get("tool_calls", [])),
-                "error": run.get("error"),
-                "num_turns": run.get("num_turns"),
-                # The OSPREY-forced telemetry session UUID (see sdk_runner), i.e.
-                # the value the OTEL emitter tags this run's records with as
-                # session.id. Carried so the dashboard can deep-link a run to its
-                # own telemetry; None for runs that predate the forcing or that
-                # never reached the SDK.
-                "session_id": run.get("session_id"),
-                # The person the fire was attributed to, or None for an
-                # owner-less fire (the key is always present, like session_id).
-                "owner": run.get("owner"),
-                "has_stream": run_id in _queues,
-            }
+    answer, runs = await asyncio.to_thread(_list_record_runs)
+    if not answer.available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"record unavailable: {answer.unavailable}",
         )
-    runs.sort(key=lambda r: r["created_at"] or 0, reverse=True)
-    return runs[:50]
+    now = time.time()
+    candidates: dict[str, dict[str, Any]] = {}
+    for run_id, phases in runs.items():
+        accepted = phases.get(record_contract.RUN_ACCEPT, {})
+        candidates[run_id] = {
+            "status": "pending",
+            "created_at": accepted.get("created_at"),
+            "session_id": accepted.get(record_contract.RUN_SESSION_FIELD),
+            "owner": accepted.get("requester"),
+            "ended": record_contract.RUN_TERMINAL in phases,
+        }
+    for run_id, run in _runs.items():
+        candidates[run_id] = {**candidates.get(run_id, {}), **run, "ended": _is_terminal(run)}
+    newest = sorted(
+        candidates.items(), key=lambda item: item[1].get("created_at") or 0, reverse=True
+    )[:_DASHBOARD_RUNS]
+    ended = [(run_id, run) for run_id, run in newest if run.pop("ended", False)]
+    read = await asyncio.gather(
+        *(asyncio.to_thread(_read_run_status, run_id, run) for run_id, run in ended)
+    )
+    settled = {run_id: body for (run_id, _), body in zip(ended, read, strict=True)}
+    rows = []
+    for run_id, run in newest:
+        if run_id in settled:
+            body = settled[run_id]
+            if body is None:
+                continue
+            if body.get("record"):
+                # Unsettled: nothing this process still holds of the run's
+                # outcome is shown beside a status that is not terminal.
+                run = {field: run[field] for field in _PENDING_FIELDS if field in run}
+            run = {**run, **body}
+        rows.append(_dashboard_row(run_id, run, now))
+    return rows

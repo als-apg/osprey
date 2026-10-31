@@ -22,8 +22,6 @@ client B must not move) is covered by the browser suite.
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 _MODULE = "osprey.interfaces.artifacts.logbook"
 
 
@@ -56,15 +54,6 @@ def _message_listener_body() -> str:
     # Sections in this file are separated by `/* ---- <name> ---- */` banners.
     end = src.index("/* ----", start + 1)
     return src[start:end]
-
-
-@pytest.fixture
-def app_client(tmp_path):
-    from fastapi.testclient import TestClient
-
-    from osprey.interfaces.artifacts.app import create_app
-
-    return TestClient(create_app(workspace_root=tmp_path))
 
 
 class TestSubmitDoesNotBroadcast:

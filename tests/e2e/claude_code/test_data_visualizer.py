@@ -20,6 +20,7 @@ from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
     find_html_files,
     init_project,
+    print_run_summary,
     run_sdk_query,
 )
 
@@ -77,18 +78,7 @@ class TestDataVisualizerAgent:
         )
 
         # -- Debug output --
-        print("\n--- data-visualizer data_source regression test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        for trace in result.tool_traces:
-            error_flag = " [ERROR]" if trace.is_error else ""
-            parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
-            )
-            print(f"  tool: {trace.name}{error_flag}{parent_flag}")
-            if trace.is_error and trace.result:
-                print(f"    error: {trace.result[:300]}")
+        print_run_summary("data-visualizer data_source regression test", result)
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"
@@ -193,15 +183,7 @@ class TestDataVisualizerAgent:
         )
 
         # -- Debug output --
-        print("\n--- archiver_read → interactive plot test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        for trace in result.tool_traces:
-            error_flag = " [ERROR]" if trace.is_error else ""
-            print(f"  tool: {trace.name}{error_flag}")
-            if trace.is_error and trace.result:
-                print(f"    error: {trace.result[:300]}")
+        print_run_summary("archiver_read → interactive plot test", result)
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"

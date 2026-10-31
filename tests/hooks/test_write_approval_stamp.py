@@ -61,20 +61,6 @@ SESSION_B = "kernel:9f3c1a2b"
 
 
 @pytest.fixture
-def approval(hook_module):
-    """The `osprey_approval` module, imported through the test seam."""
-    return hook_module("osprey_approval")
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time."""
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
-
-
-@pytest.fixture
 def root(tmp_path, monkeypatch):
     """A deployment's agent-data root, stamped so every reader resolves to it.
 

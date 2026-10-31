@@ -15,7 +15,6 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import (
     _KNOWN_PROFILE_KEYS,
     BuildProfile,
@@ -23,23 +22,14 @@ from osprey.cli.build_profile import (
     resolve_build_profile,
 )
 from osprey.cli.profile_root import ProfileKind, resolve_profile_root
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
-
-
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one."""
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
 
 
 # ---------------------------------------------------------------------------

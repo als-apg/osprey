@@ -309,7 +309,7 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "refused" in value or _SOLVED_KEYS <= value.keys():
+    if "refused" in value or value.keys() >= _SOLVED_KEYS:
         return value
     return None
 

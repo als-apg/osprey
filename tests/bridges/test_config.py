@@ -23,7 +23,6 @@ def test_from_env_maps_all_neutral_fields():
         "GITLAB_PROJECT": "team/proj",
         "GITLAB_ISSUES_TOKEN": "gl-token",
         "DEDUP_PATH": "/data/email_dedup.json",
-        "HISTORY_PATH": "/data/email_history.json",
         "HISTORY_ANSWER_LIMIT": "5000",
     }
     cfg = CoreConfig.from_env(env)
@@ -42,7 +41,6 @@ def test_from_env_maps_all_neutral_fields():
     assert cfg.gitlab_project == "team/proj"
     assert cfg.gitlab_issues_token == "gl-token"
     assert cfg.dedup_path == "/data/email_dedup.json"
-    assert cfg.history_path == "/data/email_history.json"
     assert cfg.history_answer_limit == 5000
 
 

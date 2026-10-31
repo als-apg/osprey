@@ -1,10 +1,13 @@
 """Tests for the channel-agnostic per-message pipeline (``handle_event``).
 
-This suite DEFINES the pipeline's ordering contract — it is not a port. The stores are
-the real ``DedupStore``/``HistoryStore`` (tmp-file backed, subclassed only to ``mark``
-their calls into the ``RecordingChannelOps`` timeline); the dispatcher is a stub that
-records its payload and returns a canned terminal result; the retry-queue park defaults
-to the REAL :func:`osprey.bridges.core.retry_queue.park` unless a test injects a seam.
+This suite DEFINES the pipeline's ordering contract — it is not a port. The dedup store
+is the real ``DedupStore`` (tmp-file backed) and the history the real
+``ConversationHistory`` over an in-memory record
+(:class:`~tests.bridges.record_double.MemoryRecord`), each subclassed only to ``mark``
+their calls into the ``RecordingChannelOps`` timeline; the dispatcher is a stub that
+records its payload, records its run's answer into that record the way a dispatch
+worker does, and returns a canned terminal result; the retry-queue park defaults to the
+REAL :func:`osprey.bridges.core.retry_queue.park` unless a test injects a seam.
 
 The load-bearing invariants, each with a named test:
 
@@ -34,10 +37,11 @@ from osprey.bridges.core.artifacts import FetchedArtifact
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.errors import UndeliverableError
-from osprey.bridges.core.history import HistoryStore
+from osprey.bridges.core.history import FAILED_TURN_ANSWER, RECORD_INCOMPLETE, TURN_FAILED
 from osprey.bridges.core.people import MENTION_RULE
 from osprey.bridges.core.pipeline import (
     EXPIRED_NOTE,
+    HISTORY_RECORD_KEY,
     OVER_BUDGET_REASON,
     REINJECT_MAX_IMAGE_BYTES,
     SERVER_TOO_OLD_REASON,
@@ -53,6 +57,7 @@ from osprey.bridges.core.ports import (
     RoomPeople,
 )
 from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
+from tests.bridges.record_double import MemoryRecord, RecordHistory
 
 MSG = "spaces/AAA/messages/1"
 MSG2 = "spaces/AAA/messages/2"
@@ -102,56 +107,31 @@ class MarkingDedup(DedupStore):
         return claimed
 
 
-class MarkingHistory(HistoryStore):
-    """Real history store that marks reads/writes into the shared timeline.
-
-    Note ``append_failed`` delegates to ``append`` internally, so a failed turn
-    marks BOTH ``history_append_failed`` and ``history_append``.
-    """
-
-    def __init__(self, path: str, ops: RecordingChannelOps) -> None:
-        super().__init__(path)
-        self._ops = ops
-
-    def recent(self, key: str, *, shorten_over: int = 0) -> list[dict[str, Any]]:
-        turns = super().recent(key, shorten_over=shorten_over)
-        self._ops.mark("history_recent", key=key, turns=len(turns))
-        return turns
-
-    def append(
-        self,
-        key: str,
-        question: str,
-        answer: str,
-        run_id: str | None = None,
-        artifacts: list[dict[str, Any]] | None = None,
-        asked_by: dict[str, Any] | None = None,
-    ) -> None:
-        self._ops.mark("history_append", key=key, question=question, answer=answer)
-        super().append(key, question, answer, run_id=run_id, artifacts=artifacts, asked_by=asked_by)
-
-    def append_failed(
-        self, key: str, question: str, asked_by: dict[str, Any] | None = None
-    ) -> None:
-        self._ops.mark("history_append_failed", key=key, question=question)
-        super().append_failed(key, question, asked_by=asked_by)
-
-
 class StubDispatcher:
     """Records each dispatch payload (deep-copied at call time) and marks the shared
     timeline; fires ``on_run_id`` before returning the canned terminal result, the
     way the real client persists the run id mid-handshake."""
 
-    def __init__(self, ops: RecordingChannelOps, result: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        ops: RecordingChannelOps,
+        result: dict[str, Any] | None = None,
+        record: MemoryRecord | None = None,
+    ) -> None:
         self._ops = ops
         self.result = dict(COMPLETED if result is None else result)
+        self.record = record
         self.calls: list[dict[str, Any]] = []
 
     def run(self, question: str, extra: dict | None = None, *, on_run_id=None) -> dict[str, Any]:
         self.calls.append({"question": question, "extra": copy.deepcopy(extra)})
         self._ops.mark("dispatch", question=question)
-        if on_run_id is not None and self.result.get("run_id"):
-            on_run_id(self.result["run_id"])
+        run_id = self.result.get("run_id")
+        if on_run_id is not None and run_id:
+            on_run_id(run_id)
+        if self.record is not None and run_id:
+            # The worker records its run, final answer included, before it answers.
+            self.record.answer(run_id, self.result.get("text_output"))
         return dict(self.result)
 
 
@@ -196,12 +176,13 @@ def make_deps(
     park=None,
     cfg: CoreConfig | None = None,
 ) -> PipelineDeps:
+    record = MemoryRecord()
     kwargs: dict[str, Any] = {
         "cfg": cfg if cfg is not None else CoreConfig(),
         "ops": ops,
         "dedup": MarkingDedup(str(tmp_path / "dedup.json"), ops),
-        "dispatcher": StubDispatcher(ops, result=result),
-        "history": MarkingHistory(str(tmp_path / "history.json"), ops) if history else None,
+        "dispatcher": StubDispatcher(ops, result=result, record=record),
+        "history": RecordHistory(record, ops) if history else None,
         "probe_capability": probe if probe is not None else CountingProbe(True),
         "fetch_prior_artifact": (
             fetch_prior if fetch_prior is not None else lambda cfg, rid, desc, mb: None
@@ -332,7 +313,7 @@ def test_reply_context_resolved_after_claim_and_persisted(tmp_path):
 def test_history_rides_the_payload(tmp_path):
     ops = RecordingChannelOps(parse_result=make_event())
     deps = make_deps(tmp_path, ops)
-    deps.history.append(HISTORY_KEY, "prior question", "prior answer", run_id="run-0")
+    deps.history.seed(HISTORY_KEY, "prior question", "prior answer", run_id="run-0")
 
     handle_event({}, deps)
 
@@ -345,13 +326,103 @@ def test_history_rides_the_payload(tmp_path):
     ]
 
 
+def test_the_second_question_sees_the_first_answer(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+
+    handle_event({}, deps)
+    ops.parse_result = make_event(message_id=MSG2, text="and yesterday?")
+    handle_event({}, deps)
+
+    first, second = (call["extra"] for call in deps.dispatcher.calls)
+    assert "conversation_so_far" not in first and HISTORY_RECORD_KEY not in first
+    (turn,) = second["conversation_so_far"]
+    assert (turn["question"], turn["answer"], turn["run_id"]) == (
+        QUESTION,
+        COMPLETED["text_output"],
+        "run-1",
+    )
+    assert HISTORY_RECORD_KEY not in second
+
+
+def test_each_dispatch_reads_its_conversation_once_with_a_drain(tmp_path):
+    from osprey.agent_record.contract import Drain
+
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, probe=CapabilityProbe(prior_answers=False))
+    deps.history.seed(HISTORY_KEY, "long one", LONG_ANSWER, run_id="run-0")
+
+    handle_event({}, deps)
+
+    # The capability fallback re-cuts the same read rather than reading again.
+    assert deps.history.record.reads == [
+        {"conversation": HISTORY_KEY, "limit": deps.history.max_turns, "wait": Drain()}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("knob", "state"), [("unavailable", "unavailable"), ("incomplete", RECORD_INCOMPLETE)]
+)
+def test_a_history_read_the_record_cannot_answer_dispatches_without_history(tmp_path, knob, state):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+    deps.history.seed(HISTORY_KEY, "prior question", "prior answer", run_id="run-0")
+    setattr(deps.history.record, knob, "agent-record is unreachable")
+
+    assert handle_event({}, deps) == "handled"
+
+    extra = deps.dispatcher.calls[0]["extra"]
+    assert "conversation_so_far" not in extra
+    assert extra[HISTORY_RECORD_KEY] == state
+    assert extra["asker"] == ASKER
+    # The answer still lands and the turn is still recorded.
+    assert ops.count("post_answer") == 1
+    assert [b["question"] for b in deps.history.record.bodies(HISTORY_KEY)] == [
+        "prior question",
+        QUESTION,
+    ]
+
+
+def test_an_answered_turn_is_one_bridge_turn_naming_its_run(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+
+    handle_event({}, deps)
+
+    (turn,) = deps.history.record.turns
+    assert turn["run_id"] == "run-1"
+    assert turn["body"] == {
+        "conversation": HISTORY_KEY,
+        "run_id": "run-1",
+        "question": QUESTION,
+        "artifacts": [],
+        "status": "answered",
+        "asked_by": ASKER,
+    }
+
+
+def test_a_failed_turn_names_no_run_and_replays_the_marker(tmp_path):
+    result = {"status": "error", "failure_class": "fatal", "run_id": "run-1"}
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, result=result)
+
+    handle_event({}, deps)
+
+    (turn,) = deps.history.record.turns
+    assert turn["run_id"] is None
+    assert turn["body"]["status"] == TURN_FAILED and turn["body"]["run_id"] == "run-1"
+    deps.history.record.runs.clear()  # its replay needs no run lookup
+    (replayed,) = deps.history.recent(HISTORY_KEY)
+    assert replayed["answer"] == FAILED_TURN_ANSWER and replayed["run_id"] is None
+
+
 def test_empty_history_key_skips_history_entirely(tmp_path):
     ops = RecordingChannelOps(parse_result=make_event(history_key=""))
     deps = make_deps(tmp_path, ops)
 
     assert handle_event({}, deps) == "handled"
 
-    assert ops.count("history_recent") == 0
+    assert ops.count("history_read") == 0
     assert ops.count("history_append") == 0
     assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
 
@@ -620,7 +691,7 @@ def test_capability_probe_runs_once_for_all_three_consumers(tmp_path):
     ops = RecordingChannelOps(parse_result=make_event(), inputs=inputs)
     probe = CountingProbe(True)
     deps = make_deps(tmp_path, ops, probe=probe, fetch_prior=_prior(b"PRIOR"))
-    deps.history.append(
+    deps.history.seed(
         HISTORY_KEY,
         "plot it",
         "done",
@@ -912,7 +983,7 @@ def test_reply_meta_reserved_key_collision_is_stripped_loudly(tmp_path, caplog):
 
 
 def _seed_prior_image(deps: PipelineDeps) -> None:
-    deps.history.append(
+    deps.history.seed(
         HISTORY_KEY,
         "plot it",
         "done",
@@ -940,9 +1011,9 @@ def test_unfetchable_prior_flagged_expired_without_store_pollution(tmp_path):
     # The outgoing payload's descriptor carries the note...
     (turn,) = extra["conversation_so_far"]
     assert turn["artifacts"][0]["note"] == EXPIRED_NOTE
-    # ...but the persisted history copy was never mutated (the settled exchange
-    # appended a second turn behind it; the seeded turn is the first).
-    stored = HistoryStore(str(tmp_path / "history.json")).recent(HISTORY_KEY)[0]
+    # ...but the recorded turn was never changed (the settled exchange recorded a
+    # second turn behind it; the seeded turn is the first).
+    stored = deps.history.recent(HISTORY_KEY)[0]
     assert "note" not in stored["artifacts"][0]
 
 

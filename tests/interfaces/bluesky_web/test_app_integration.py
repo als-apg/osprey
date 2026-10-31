@@ -34,19 +34,10 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.bluesky_web.app import app
 from osprey.interfaces.vendor import asset_cdn_url
 from osprey.port_layout import default_port
+from tests.interfaces.bluesky_web._relay import BRIDGE_URL
 
 TOKEN = "s3cr3t-launch-token"
 RUN_ID = "run-xyz789"
-_BRIDGE_URL = "http://bridge.test"
-
-
-@pytest.fixture(autouse=True)
-def _isolate_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Mirrors test_queue_relay.py's isolation fixture: point config resolution
-    # at a config.yml that does not exist, so ambient repo/user config can never
-    # leak a real launch token (or bridge URL) into these tests.
-    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
-    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
 
 
 def _wire_mock_bridge(handler: Callable[[httpx.Request], httpx.Response]) -> None:
@@ -55,7 +46,7 @@ def _wire_mock_bridge(handler: Callable[[httpx.Request], httpx.Response]) -> Non
     Must be called from inside a ``with TestClient(app) as client:`` block.
     """
     app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    app.state.bridge_url = _BRIDGE_URL
+    app.state.bridge_url = BRIDGE_URL
 
 
 # ---------------------------------------------------------------------------
@@ -63,78 +54,41 @@ def _wire_mock_bridge(handler: Callable[[httpx.Request], httpx.Response]) -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_list_plans_round_trips_through_composed_app() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/plans"
-        return httpx.Response(200, json=[{"name": "grid_scan", "provenance": "shipped"}])
-
-    with TestClient(app) as client:
-        _wire_mock_bridge(handler)
-        response = client.get("/plans")
-
-    assert response.status_code == 200
-    assert response.json() == [{"name": "grid_scan", "provenance": "shipped"}]
-
-
-def test_get_plan_source_round_trips_through_composed_app() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/plans/grid_scan/source"
-        return httpx.Response(200, json={"name": "grid_scan", "source": "def grid_scan(): ..."})
-
-    with TestClient(app) as client:
-        _wire_mock_bridge(handler)
-        response = client.get("/plans/grid_scan/source")
-
-    assert response.status_code == 200
-    assert response.json()["source"] == "def grid_scan(): ..."
-
-
-def test_list_runs_round_trips_through_composed_app() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs"
-        return httpx.Response(200, json=[{"run_id": "abc123", "status": "completed"}])
-
-    with TestClient(app) as client:
-        _wire_mock_bridge(handler)
-        response = client.get("/runs")
-
-    assert response.status_code == 200
-    assert response.json() == [{"run_id": "abc123", "status": "completed"}]
-
-
-def test_get_run_round_trips_through_composed_app() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs/abc123"
-        return httpx.Response(200, json={"run_id": "abc123", "status": "completed"})
-
-    with TestClient(app) as client:
-        _wire_mock_bridge(handler)
-        response = client.get("/runs/abc123")
-
-    assert response.status_code == 200
-    assert response.json()["run_id"] == "abc123"
-
-
-def test_get_run_data_round_trips_through_composed_app() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/runs/abc123/data"
-        return httpx.Response(
-            200,
-            json={
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        pytest.param("/plans", [{"name": "grid_scan", "provenance": "shipped"}], id="plans"),
+        pytest.param(
+            "/plans/grid_scan/source",
+            {"name": "grid_scan", "source": "def grid_scan(): ..."},
+            id="plan-source",
+        ),
+        pytest.param("/runs", [{"run_id": "abc123", "status": "completed"}], id="runs"),
+        pytest.param("/runs/abc123", {"run_id": "abc123", "status": "completed"}, id="run"),
+        pytest.param(
+            "/runs/abc123/data",
+            {
                 "run_uid": "uid-1",
                 "columns": ["x"],
                 "rows": [[1]],
                 "row_count": 1,
                 "truncated": False,
             },
-        )
+            id="run-data",
+        ),
+    ],
+)
+def test_read_round_trips_through_composed_app(path: str, body: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == path
+        return httpx.Response(200, json=body)
 
     with TestClient(app) as client:
         _wire_mock_bridge(handler)
-        response = client.get("/runs/abc123/data")
+        response = client.get(path)
 
     assert response.status_code == 200
-    assert response.json()["row_count"] == 1
+    assert response.json() == body
 
 
 # ---------------------------------------------------------------------------

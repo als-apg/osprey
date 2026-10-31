@@ -21,7 +21,7 @@ What each group pins:
 
 ``TestReadOnlyRenderZone`` — the render zone is the agent's ceiling. The
 config the agent runs under is root-owned and unwritable by ``osprey``; the
-state zone (``var/audit``) it must write is writable; the server the image
+state zone (``var/spool``) it must write is writable; the server the image
 actually starts runs as uid 1000; and the entrypoint demonstrably ran and
 dropped privileges before it did.
 
@@ -89,6 +89,7 @@ Skipped entirely when docker is unavailable.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import http.cookiejar
 import json
@@ -100,6 +101,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -113,9 +115,9 @@ from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
-from osprey_connectors.workspace import container_image_context
+from osprey.utils.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason_once
-from tests.e2e._telemetry_sender import sender_env_file_args
+from tests.e2e._image_record import record_credential_mounts
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
@@ -218,6 +220,52 @@ def _exec_python(cid: str, script: str, user: str = "0", env: dict[str, str] | N
     )
 
 
+#: Where a probe's own writer spools inside the container: a fresh directory
+#: per probe, so every audit line in it is one this probe's call wrote, and the
+#: assertion is a delta by construction rather than a line count around a
+#: shared file.
+PROBE_SPOOL_ROOT = "/tmp/e2e-privsplit-spool"
+
+
+def _spool_audit_bodies(pattern: str) -> str:
+    """A probe script printing every ``audit`` body spooled under *pattern*.
+
+    *pattern* globs spool DIRECTORIES; every ``.open``/``.sealed`` segment in
+    them is read, and each ``audit`` line's body is printed as one JSON line.
+    The record's reader is not in this image's process, so the spool is the
+    only place the writer's lines are visible from inside the container.
+    """
+    return (
+        "import glob, json\n"
+        "from pathlib import Path\n"
+        f"for directory in sorted(glob.glob({pattern!r})):\n"
+        "    for seg in sorted(Path(directory).iterdir()):\n"
+        "        if not seg.name.endswith(('.open', '.sealed')):\n"
+        "            continue\n"
+        "        for line in seg.read_text().splitlines():\n"
+        "            if line.strip():\n"
+        "                entry = json.loads(line)\n"
+        "                if entry.get('kind') == 'audit':\n"
+        "                    print(json.dumps(entry['body']))\n"
+    )
+
+
+#: The tail of a restore probe: seal this process's segment and collect the
+#: ``audit`` bodies it spooled into ``$OSPREY_SPOOL_DIR``.
+_SPOOLED_AUDIT_PY = (
+    "from osprey.agent_record import writer as record_writer\n"
+    "record_writer.seal_all()\n"
+    "spool = record_writer.spool_dir()\n"
+    "appended = [\n"
+    "    json.loads(line)['body']\n"
+    "    for seg in (sorted(spool.iterdir()) if spool.is_dir() else [])\n"
+    "    if seg.name.endswith(('.open', '.sealed'))\n"
+    "    for line in seg.read_text().splitlines()\n"
+    "    if line.strip() and json.loads(line).get('kind') == 'audit'\n"
+    "]\n"
+)
+
+
 def _logs(cid: str) -> str:
     out = _docker("logs", cid, timeout=30)
     return (out.stdout or "") + (out.stderr or "")
@@ -300,11 +348,25 @@ def preset_repo(tmp_path_factory) -> Path:
 
     ``--no-git`` because nothing reads history and the tmp tree may sit inside
     another repository; ``--skip-deps``/``--skip-lifecycle`` because the images
-    install their own dependencies and no service is started here.
+    install their own dependencies and no service is started here. The images
+    boot on their own, outside any stack, where a terminal's agent record is
+    the host-local one, which keeps the embedded backend: a ClickHouse store
+    runs only in a stack.
     """
     repo = tmp_path_factory.mktemp("privilege-split") / REPO_NAME
     runner = CliRunner()
-    created = runner.invoke(cli, ["init", str(repo), "--preset", PRESET, "--no-git"])
+    created = runner.invoke(
+        cli,
+        [
+            "init",
+            str(repo),
+            "--preset",
+            PRESET,
+            "--no-git",
+            "--set",
+            "agent_record.backend=embedded",
+        ],
+    )
     assert created.exit_code == 0, created.output
     built = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert built.exit_code == 0, built.output
@@ -390,17 +452,12 @@ def admin_image(preset_repo: Path, admin_project: str):
         _docker("rmi", "-f", tag, timeout=120)
 
 
-@pytest.fixture(scope="module")
-def sender_args(preset_repo: Path, rendered_config: dict) -> list[str]:
-    """The env-file arguments that hand ``osprey web`` its telemetry sender login."""
-    return sender_env_file_args(preset_repo, rendered_config)
-
-
-def _run_web(tag: str, sender_args: list[str], *extra: str) -> str:
+def _run_web(tag: str, *extra: str) -> str:
     """Start a container on the image's own CMD, port published on loopback.
 
-    *sender_args* hand the server its sender login the way a deployment does:
-    the image's pre-flight refuses a gateway-telemetry launch without one.
+    The CMD is ``osprey web``, which holds the agent record: *extra* carries the
+    record's credentials (:func:`tests.e2e._image_record.record_credential_mounts`),
+    supplied at run time like every other secret.
     """
     name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
     run = _docker(
@@ -410,7 +467,6 @@ def _run_web(tag: str, sender_args: list[str], *extra: str) -> str:
         name,
         "-p",
         f"127.0.0.1:0:{_WEB_SLOT}",
-        *sender_args,
         *extra,
         tag,
         timeout=120,
@@ -423,7 +479,7 @@ def _run_web(tag: str, sender_args: list[str], *extra: str) -> str:
 
 
 @pytest.fixture(scope="class")
-def ro_container(ro_image, sender_args):
+def ro_container(ro_image, preset_repo: Path, tmp_path_factory):
     """The base image, running its real CMD (``osprey web``), healthy.
 
     The real CMD and not ``sleep infinity``: the uid assertion below is about
@@ -436,7 +492,9 @@ def ro_container(ro_image, sender_args):
     and the second one's health wait is where that shows up.
     """
     tag, project = ro_image
-    cid = _run_web(tag, sender_args)
+    cid = _run_web(
+        tag, *record_credential_mounts(preset_repo, project, tmp_path_factory.mktemp("ro-creds"))
+    )
     try:
         _wait_for_health(f"http://127.0.0.1:{_host_port(cid)}", cid)
         yield SimpleNamespace(cid=cid, project=project, root=f"/app/{project}")
@@ -463,13 +521,13 @@ class TestReadOnlyRenderZone:
         assert touch.returncode != 0, "the agent's user could write the render zone's config.yml"
         assert "Permission denied" in touch.stderr
 
-    def test_agent_user_can_write_the_audit_zone(self, ro_container):
+    def test_agent_user_can_write_the_spool_zone(self, ro_container):
         """The other half, and the one a too-broad chown would break: a refusal
         nobody can record is a refusal only the agent's own transcript saw."""
-        probe = f"{ro_container.root}/var/audit/e2e-privsplit-probe"
+        probe = f"{ro_container.root}/var/spool/e2e-privsplit-probe"
         touch = _exec(ro_container.cid, "gosu", "osprey", "touch", probe)
         assert touch.returncode == 0, (
-            f"the agent's user cannot write the audit zone:\n{touch.stderr}"
+            f"the agent's user cannot write the spool zone:\n{touch.stderr}"
         )
 
     def test_the_served_process_runs_as_the_runtime_uid(self, ro_container):
@@ -498,8 +556,76 @@ class TestReadOnlyRenderZone:
 # ── the admin tier: config writes survive the split ──────────────────────────
 
 
+#: The port the record listens on inside its container, as compose runs it.
+_RECORD_CONTAINER_PORT = 8000
+
+
+def _admin_render_user(rendered_config: dict, project: str) -> str:
+    """The roster user whose tier renders *project*: the terminal the admin image runs."""
+    web_terminals = rendered_config["modules"]["web_terminals"]
+    for entry in web_terminals["users"]:
+        if (
+            isinstance(entry, dict)
+            and web_terminals["renders"][entry["tier"]]["project"] == project
+        ):
+            return entry["name"]
+    raise AssertionError(f"no roster user runs the {project} render")
+
+
+@contextlib.contextmanager
+def _record_beside(deployment_tag: str, preset_repo: Path) -> Iterator[tuple[str, str]]:
+    """An agent-record from the deployment's image on a network of its own.
+
+    A tier image is a terminal of the stack, and a terminal reads the record
+    compose runs beside it: this runs that service, with the build's service
+    file, and yields the network and the record's URL on it.
+    """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record import service as record_service
+
+    token = uuid.uuid4().hex[:8]
+    network = f"{TAG_PREFIX}-net-{token}"
+    name = f"{TAG_PREFIX}-record-{token}"
+    base = "/tmp/agent-record"
+    made = _docker("network", "create", network, timeout=60)
+    assert made.returncode == 0, made.stderr
+    try:
+        run = _docker(
+            "run",
+            "-d",
+            "--name",
+            name,
+            "--network",
+            network,
+            "--env-file",
+            str(preset_repo / creds.SERVICE_FILE),
+            "-e",
+            f"{record_service.SPOOL_ROOT_ENV}={base}/spool",
+            "-e",
+            f"{record_service.RECORD_DIR_ENV}={base}/record",
+            "-e",
+            f"{record_service.ARCHIVE_DIR_ENV}={base}/archive",
+            "-e",
+            f"{record_service.TRANSCRIPTS_DIR_ENV}={base}/transcripts",
+            deployment_tag,
+            "sh",
+            "-c",
+            f"mkdir -p {base}/spool {base}/record {base}/archive {base}/transcripts && "
+            "exec osprey agent-record serve --host 0.0.0.0 "
+            f"--port {_RECORD_CONTAINER_PORT}",
+            timeout=120,
+        )
+        assert run.returncode == 0, f"docker run failed: {run.stderr}"
+        try:
+            yield network, f"http://{name}:{_RECORD_CONTAINER_PORT}"
+        finally:
+            _docker("rm", "-f", name, timeout=120)
+    finally:
+        _docker("network", "rm", network, timeout=60)
+
+
 @pytest.fixture(scope="module")
-def admin_state(admin_image, sender_args):
+def admin_state(admin_image, ro_image, preset_repo: Path, rendered_config: dict):
     """Drive the admin tier's whole config-write lifecycle once, and snapshot it.
 
     One container, one restart, four assertions — because the restart is the
@@ -511,19 +637,38 @@ def admin_state(admin_image, sender_args):
     the multi-user compose service mounts it, because the reserved-record probe
     below needs the durable store that only exists when it is there.
     """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record import identities as record_ids
+    from osprey.agent_record.client import URL_ENV
+    from osprey_connectors.identity import AUDIT_IDENTITY_ENV
+
     tag, project = admin_image
     root = f"/app/{project}"
     render = f"{root}/build"
     settings = f"{render}/.claude/settings.json"
     volume = f"{TAG_PREFIX}-cfg-{uuid.uuid4().hex[:8]}"
+    user = _admin_render_user(rendered_config, project)
+    record = contextlib.ExitStack()
+    network, record_url = record.enter_context(_record_beside(ro_image[0], preset_repo))
 
+    # As compose starts the user's terminal: its own login file, the record's
+    # URL and the user's identity. The identity is the audit rung, not
+    # OSPREY_TERMINAL_USER: that one also mounts the app under /u/<user>, a
+    # prefix only the stack's nginx strips, and this boot is reached directly.
     cid = _run_web(
         tag,
-        sender_args,
+        "--network",
+        network,
         "-v",
         f"{volume}:{CLAUDE_CONFIG_DIR}",
         "-e",
         f"CLAUDE_CONFIG_DIR={CLAUDE_CONFIG_DIR}",
+        "--env-file",
+        str(preset_repo / creds.login_file(record_ids.login_for(user))),
+        "-e",
+        f"{URL_ENV}={record_url}",
+        "-e",
+        f"{AUDIT_IDENTITY_ENV}={user}",
     )
     try:
         base_url = f"http://127.0.0.1:{_host_port(cid)}"
@@ -593,15 +738,14 @@ def admin_state(admin_image, sender_args):
         _wait_for_health(base_url, cid)
 
         after = _exec(cid, "cat", settings)
-        # The root maintenance phase runs under the writer's ``maintenance``
-        # marker, so everything the entrypoint's restore records lands in
-        # ``var/audit/<identity>/maintenance.jsonl`` -- a file the app user
-        # never appends to, which is how the ledger keeps one uid per file. The
-        # identity directory is globbed rather than named: it is whatever the
-        # container's identity resolves to.
-        audit = _exec(cid, "sh", "-c", f"cat {root}/var/audit/*/maintenance.jsonl")
+        # Everything the entrypoint's root restore records is an ``audit`` line
+        # in the spool segment that root process wrote under
+        # ``var/spool/<identity>/`` and sealed at exit. The identity directory
+        # is globbed rather than named: it is whatever the container's identity
+        # resolves to. Read as root, because the segments are 0640.
+        audit = _exec_python(cid, _spool_audit_bodies(f"{root}/var/spool/*"))
         installed = _exec(cid, "test", "-e", f"{render}/{RESERVED_OUTPUT_PATH}")
-        audit_owner = _exec(cid, "sh", "-c", f"stat -c '%U %G %a' {root}/var/audit/*/ | head -1")
+        audit_owner = _exec(cid, "sh", "-c", f"stat -c '%U %G %a' {root}/var/spool/*/ | head -1")
         restored_body = _exec(cid, "cat", f"{render}/{RESTORED_OUTPUT_PATH}")
         restored_owner = _exec(cid, "stat", "-c", "%U", f"{render}/{RESTORED_OUTPUT_PATH}")
 
@@ -627,6 +771,7 @@ def admin_state(admin_image, sender_args):
     finally:
         _docker("rm", "-f", cid, timeout=120)
         _docker("volume", "rm", "-f", volume, timeout=60)
+        record.close()
 
 
 class TestAdminTierConfigWrites:
@@ -739,12 +884,12 @@ class TestScaffoldRestoreReservedGate:
         durable audit line — because a gate that refuses silently is a gate an
         operator learns about only from the file that is missing.
 
-        The audit assertion is a DELTA, taken inside the probe around its own
-        restore call. The log is append-only and the root entrypoint already
-        wrote a matching record into it at container start, so "a matching line
-        exists in the file" would pass here even if this call audited nothing at
-        all. Only the lines this restore appended are evidence about it.
+        The audit assertion is a DELTA: the probe's writer spools into a fresh
+        directory of its own (``OSPREY_SPOOL_DIR``), so the root entrypoint's
+        matching record from container start cannot be mistaken for this call's.
+        Only the lines this restore spooled are evidence about it.
         """
+        spool = f"{PROBE_SPOOL_ROOT}-reserved"
         probe = _exec_python(
             admin_state.cid,
             "import json\n"
@@ -754,25 +899,21 @@ class TestScaffoldRestoreReservedGate:
             ")\n"
             "from osprey.interfaces.web_terminal.ownership import resolve_ownership\n"
             f"render = Path({admin_state.root!r}) / 'build'\n"
-            "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
-            "from osprey.audit.writer import ledger_path\n"
-            "from osprey_connectors.identity import acting_identity\n"
-            f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
-            "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
-            "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
-            "before = len(read())\n"
-            "DIAG = str(ledger_path(SURFACE_SCAFFOLD_RESTORE))\n"
             "mode = resolve_ownership(render).mode.value\n"
             "restored = restore_scaffold_bodies(render)\n"
-            "print(json.dumps({\n"
+            + _SPOOLED_AUDIT_PY
+            + "print(json.dumps({\n"
             "    'mode': mode,\n"
             "    'restored': restored,\n"
             f"    'installed': (render / {RESERVED_OUTPUT_PATH!r}).exists(),\n"
-            "    'appended': [json.loads(line) for line in read()[before:] if line.strip()],\n"
-            "    'diag_log': DIAG,\n"
+            "    'appended': appended,\n"
             "}))\n",
             user="1000",
-            env={"CLAUDE_CONFIG_DIR": CLAUDE_CONFIG_DIR, "HOME": "/home/osprey"},
+            env={
+                "CLAUDE_CONFIG_DIR": CLAUDE_CONFIG_DIR,
+                "HOME": "/home/osprey",
+                "OSPREY_SPOOL_DIR": spool,
+            },
         )
         assert probe.returncode == 0, f"{probe.stdout}\n{probe.stderr}"
         result = json.loads(probe.stdout.strip().splitlines()[-1])
@@ -790,39 +931,40 @@ class TestScaffoldRestoreReservedGate:
             if r.get("surface") == "scaffold_restore" and r.get("subject") == RESERVED_OUTPUT_PATH
         ]
         assert matching, (
-            f"this restore appended no scaffold_restore refusal: {result['appended']}; "
-            f"the process writes its log to {result['diag_log']}"
+            f"this restore spooled no scaffold_restore refusal: {result['appended']}; "
+            f"the process spools to {spool}"
         )
         assert matching[-1]["reason"] == "reserved path in ownership store"
         assert "channel=" in matching[-1]["detail"], "the refusal recorded no owning channel"
 
-    def test_the_entrypoint_leaves_the_audit_zone_writable_by_the_runtime_user(self, admin_state):
-        """Whoever creates the identity directory first decides who can file in it.
+    def test_the_entrypoint_leaves_the_spool_writable_by_the_runtime_user(self, admin_state):
+        """Whoever creates the identity's spool directory first decides who can
+        spool into it.
 
         The entrypoint's restore runs as root and is the FIRST writer into
-        ``var/audit/<identity>/`` on a fresh deployment. Its own records go to
-        ``maintenance.jsonl`` — root and the app user never share a file, which
-        is what the writer's maintenance marker is for — but they share the
-        DIRECTORY, and a root-owned 0755 directory would leave the server, as
-        uid 1000, unable to create ``scaffold_restore.jsonl`` at all. The
-        recorder never raises, so every later refusal would be dropped in
-        silence: the exact failure the audit trail exists to prevent.
+        ``var/spool/<identity>/`` on a fresh deployment. Its own records go to a
+        segment of its own — a process appends only to a segment it created —
+        but root and the app user share the DIRECTORY, and a root-owned
+        directory without group write would leave the server, as uid 1000,
+        unable to start a segment at all. The writer never raises, so every
+        later refusal would be dropped in silence: the exact failure the audit
+        trail exists to prevent.
 
         Two shapes pass, and both are the invariant rather than a patch: the
         directory is handed back to the agent user (the state zone is theirs by
         construction — the image chowns ``var/`` wholesale), or it is the
-        group-shared setgid directory a bind-mounted audit zone is provisioned
-        as, which the hand-back deliberately prunes and the entrypoint joins by
+        group-shared setgid directory a bind-mounted spool is provisioned as,
+        which the hand-back deliberately prunes and the entrypoint joins by
         group instead.
         """
         assert admin_state.audit_owner.returncode == 0, (
-            f"no audit identity directory after the restart: {admin_state.audit_owner.stderr}"
+            f"no spool identity directory after the restart: {admin_state.audit_owner.stderr}"
         )
         owner, _group, mode = admin_state.audit_owner.stdout.split()[:3]
         group_writable = int(mode[-2]) & 0o2 != 0
         assert owner == "osprey" or group_writable, (
-            "the audit directory is root-owned with no group write, so the server "
-            "cannot file a record in it and every refusal it makes is silently "
+            "the spool directory is root-owned with no group write, so the server "
+            "cannot spool a record in it and every refusal it makes is silently "
             f"lost: {admin_state.audit_owner.stdout!r}"
         )
 
@@ -877,22 +1019,20 @@ class TestScaffoldRestoreReservedGate:
             "    restore_scaffold_bodies,\n"
             ")\n"
             f"render = Path({admin_state.root!r}) / 'build'\n"
-            "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
-            "from osprey_connectors.identity import acting_identity\n"
-            f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
-            "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
-            "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
-            "before = len(read())\n"
             "restored = restore_scaffold_bodies(render)\n"
             "target = render / '.claude' / 'agents' / 'pwn.md'\n"
-            "print(json.dumps({\n"
+            + _SPOOLED_AUDIT_PY
+            + "print(json.dumps({\n"
             "    'restored': restored,\n"
             "    'installed': target.exists(),\n"
             "    'body': target.read_text() if target.is_file() else None,\n"
-            "    'appended': [json.loads(line) for line in read()[before:] if line.strip()],\n"
+            "    'appended': appended,\n"
             "}))\n",
             user="0",
-            env={"CLAUDE_CONFIG_DIR": CLAUDE_CONFIG_DIR},
+            env={
+                "CLAUDE_CONFIG_DIR": CLAUDE_CONFIG_DIR,
+                "OSPREY_SPOOL_DIR": f"{PROBE_SPOOL_ROOT}-symlink",
+            },
         )
         assert probe.returncode == 0, f"{probe.stdout}\n{probe.stderr}"
         result = json.loads(probe.stdout.strip().splitlines()[-1])
@@ -922,7 +1062,7 @@ class TestScaffoldRestoreReservedGate:
             "the entrypoint installed a reserved path from the ownership store"
         )
         assert admin_state.audit.returncode == 0, (
-            "the entrypoint's restore left no protected-write audit record: "
+            "could not read the entrypoint restore's spooled audit records: "
             f"{admin_state.audit.stderr}"
         )
         records = [
@@ -1156,7 +1296,7 @@ IDENTITY = "alice"
 #: carry that membership over to the identity's name, or ``gosu 1000`` (which
 #: resolves uid 1000 to the identity and asks ``initgroups`` for ITS groups)
 #: would drop the very directories the card writes its records into.
-AUDIT_GID = 4242
+SPOOL_GID = 4242
 CONTEXT_GID = 4343
 
 #: The in-container probe. Fed to the image's python on stdin, never collected.
@@ -1244,7 +1384,7 @@ def identity_containers(ro_image, tmp_path_factory):
     staged from THIS tree, so the rewrite under test is the local one whatever
     the image carries, and the script's sibling import resolves from that
     read-only directory alone. Two
-    group-shared binds with foreign gids stand in for the audit and
+    group-shared binds with foreign gids stand in for the spool and
     control-context directories, so the join-then-rewrite order is exercised
     on real memberships.
 
@@ -1258,7 +1398,7 @@ def identity_containers(ro_image, tmp_path_factory):
 
     tag, project = ro_image
     root = f"/app/{project}"
-    audit_dir = f"{root}/var/audit/{IDENTITY}"
+    spool_dir = f"{root}/var/spool/{IDENTITY}"
     context_dir = f"{root}/var/agent_data/control_target/{IDENTITY}"
     staged_dir = tmp_path_factory.mktemp("control-identity")
     files = BuildArtifactCatalog.default().files_beside(
@@ -1272,7 +1412,7 @@ def identity_containers(ro_image, tmp_path_factory):
     volumes: list[str] = []
     names: list[str] = []
     try:
-        volumes.append(_group_volume(tag, AUDIT_GID))
+        volumes.append(_group_volume(tag, SPOOL_GID))
         volumes.append(_group_volume(tag, CONTEXT_GID))
         names.append(
             _run_sleeper(
@@ -1284,9 +1424,9 @@ def identity_containers(ro_image, tmp_path_factory):
                 "-v",
                 f"{staged_dir}:{staged_path}:ro",
                 "-v",
-                f"{volumes[0]}:{audit_dir}",
+                f"{volumes[0]}:{spool_dir}",
                 "-e",
-                f"OSPREY_AUDIT_DIR={audit_dir}",
+                f"OSPREY_SPOOL_DIR={spool_dir}",
                 "-v",
                 f"{volumes[1]}:{context_dir}",
                 "-e",
@@ -1300,7 +1440,7 @@ def identity_containers(ro_image, tmp_path_factory):
             cid=names[0],
             plain=names[1],
             root=root,
-            audit_dir=audit_dir,
+            spool_dir=spool_dir,
             context_dir=context_dir,
             logs=identity_logs,
         )
@@ -1353,13 +1493,13 @@ class TestControlIdentity:
         named = _exec(identity_containers.cid, "stat", "-c", "%U", state)
         assert named.stdout.strip() == IDENTITY, named.stdout
 
-        probe = f"{identity_containers.audit_dir}/e2e-identity-probe"
+        probe = f"{identity_containers.spool_dir}/e2e-identity-probe"
         touch = _exec(identity_containers.cid, "gosu", "osprey", "touch", probe)
         assert touch.returncode == 0, (
-            f"the dropped user cannot write its audit bind:\n{touch.stderr}"
+            f"the dropped user cannot write its spool bind:\n{touch.stderr}"
         )
         owner = _exec(identity_containers.cid, "stat", "-c", "%u:%g", probe)
-        assert owner.stdout.strip() == f"1000:{AUDIT_GID}", owner.stdout
+        assert owner.stdout.strip() == f"1000:{SPOOL_GID}", owner.stdout
 
     @pytest.mark.parametrize("spelling", ["osprey", "1000"])
     def test_both_gosu_spellings_carry_the_mount_gids(self, identity_containers, spelling):
@@ -1369,7 +1509,7 @@ class TestControlIdentity:
         ids = _exec(identity_containers.cid, "gosu", spelling, "id", "-G")
         assert ids.returncode == 0, ids.stderr
         gids = set(ids.stdout.split())
-        assert {str(AUDIT_GID), str(CONTEXT_GID)} <= gids, (
+        assert {str(SPOOL_GID), str(CONTEXT_GID)} <= gids, (
             f"`gosu {spelling} id -G` lacks a mount gid: {ids.stdout!r}\n"
             f"{identity_containers.logs[-4000:]}"
         )

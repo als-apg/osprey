@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_record.config import RETIRED_CONFIG_KEYS
 from osprey.deployment.web_terminals import lint
 from osprey.deployment.web_terminals.lint import (
     Finding,
@@ -25,7 +26,7 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey_connectors.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
 from tests._renders import app_render, tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
@@ -39,7 +40,6 @@ _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
     "registry": {"url": "registry.example.org/demo"},
     "services": {
-        "telemetry_gateway": {"port": 4318},
         "postgresql": {"port_host": 5432},
         "event_dispatcher": {"port": 8020},
         # Reaches the dispatcher over the compose network and publishes nothing
@@ -109,9 +109,9 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     any port a deployed service publishes."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    # artifact_base_port's band starts at index 0 above; move the telemetry gateway onto
+    # artifact_base_port's band starts at index 0 above; move the event dispatcher onto
     # index 1, the port the second configured user would bind.
-    config["services"]["telemetry_gateway"]["port"] = default_port(
+    config["services"]["event_dispatcher"]["port"] = default_port(
         "artifact", 1, base=_OVERRIDE_PORT_BASE
     )
 
@@ -123,7 +123,7 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
     assert overlap_findings
     assert any("artifact_base_port" in f.message for f in overlap_findings)
-    assert any("services.telemetry_gateway.port" in f.message for f in overlap_findings)
+    assert any("services.event_dispatcher.port" in f.message for f in overlap_findings)
 
 
 def test_lint_nginx_port_colliding_with_a_user_port_is_an_error() -> None:
@@ -229,9 +229,9 @@ def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
 
 @pytest.mark.parametrize("name", ["sidecar", "dispatch-worker-1"])
 def test_lint_username_matching_a_service_audit_identity_is_an_error(name: str) -> None:
-    """Each user's container binds `var/audit/<user>/` read-write, so a user
-    named after a service's audit identity would read and rewrite the trail of
-    the component that records them. The render refuses it outright; this is the
+    """Each user's container binds `var/spool/<user>/` and `var/state/<user>/`
+    read-write, so a user named after a service's identity would read and
+    rewrite that service's spool and state. The render refuses it outright; this is the
     same rejection at scaffold time, before a deploy is attempted."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -826,13 +826,27 @@ def test_lint_empty_access_list_is_an_error() -> None:
     assert "empty access list" in offenders[0].message
 
 
-def test_lint_unknown_access_prefix_is_an_error() -> None:
-    """A member carrying a prefix outside the vocabulary is refused, quoting the
+@pytest.mark.parametrize(
+    ("member", "reason"),
+    [
+        pytest.param("team:controls", "unknown prefix", id="unknown-prefix"),
+        # `group:` is the kind the vocabulary is expected to grow next, so lint
+        # refuses it by name — "not supported yet" is a different instruction to
+        # an operator than "unknown prefix".
+        pytest.param("group:operators", "not supported yet", id="group-prefix"),
+        # Only `self` and `roster` are written bare. A word that names no kind at
+        # all is the slip a reader of the shorthands makes, so the refusal says
+        # which members carry a prefix rather than only that this one is wrong.
+        pytest.param("everyone", "names no principal kind", id="bare-word"),
+    ],
+)
+def test_lint_access_member_outside_the_vocabulary_is_an_error(member: str, reason: str) -> None:
+    """A member outside the vocabulary is refused with its reason, quoting the
     member so the operator knows which line to edit."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["team:controls"]}
+        {"name": "alice", "index": 0, "access": [member]}
     ]
 
     # Act
@@ -841,8 +855,8 @@ def test_lint_unknown_access_prefix_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'team:controls'" in offenders[0].message
-    assert "unknown prefix" in offenders[0].message
+    assert f"'{member}'" in offenders[0].message
+    assert reason in offenders[0].message
 
 
 def test_lint_non_string_access_member_is_an_error() -> None:
@@ -862,46 +876,6 @@ def test_lint_non_string_access_member_is_an_error() -> None:
     assert len(offenders) == 1
     assert "'alice'" in offenders[0].message
     assert "not a string" in offenders[0].message
-
-
-def test_lint_group_access_member_says_not_supported_yet() -> None:
-    """`group:` is the kind the vocabulary is expected to grow next, so lint
-    refuses it by name — "not supported yet" is a different instruction to an
-    operator than "unknown prefix"."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["group:operators"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'group:operators'" in offenders[0].message
-    assert "not supported yet" in offenders[0].message
-
-
-def test_lint_bare_access_word_outside_the_vocabulary_is_an_error() -> None:
-    """Only `self` and `roster` are written bare. A word that names no kind at
-    all is the slip a reader of the shorthands makes, so the refusal says which
-    members carry a prefix rather than only that this one is wrong."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["everyone"]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert "'everyone'" in offenders[0].message
-    assert "names no principal kind" in offenders[0].message
 
 
 def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
@@ -1676,18 +1650,36 @@ def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> N
     assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
 
 
-def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
-    """A project_path directory with no Dockerfile can't be built."""
+@pytest.mark.parametrize(
+    ("present", "missing_code"),
+    [
+        # A project_path directory with no Dockerfile can't be built.
+        pytest.param("config.yml", "render_missing_dockerfile", id="no-dockerfile"),
+        # One with no config.yml can't be existence-checked for its own
+        # project_name, and can't confirm the render's identity.
+        pytest.param("Dockerfile", "render_missing_config_yml", id="no-config-yml"),
+    ],
+)
+@pytest.mark.parametrize("build_profile", [False, True], ids=["unbuilt", "with-build-profile"])
+def test_lint_local_mode_incomplete_project_dir_is_an_error(
+    tmp_path, present: str, missing_code: str, build_profile: bool
+) -> None:
+    """A local-mode project_path directory missing its Dockerfile or config.yml is
+    a hard error. A build_profile does NOT rescue a directory that already exists
+    but is incomplete: the warning is for a render that has not happened yet, and
+    a directory that is there but missing one of the two is a partial render."""
     # Arrange
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
-    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    contents = {"config.yml": "project_name: als-assistant\n", "Dockerfile": "FROM scratch\n"}
+    (project_dir / present).write_text(contents[present])
+    extra = {"build_profile": f"{TIERS_DIRNAME}/assistant.yml"} if build_profile else {}
     config = _render_config(
         web_terminals={
             "image_source": "local",
             "renders": {
                 "assistant": tier_render(
-                    "assistant", "als-assistant", project_path=str(project_dir)
+                    "assistant", "als-assistant", project_path=str(project_dir), **extra
                 ),
             },
         }
@@ -1698,33 +1690,11 @@ def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
-
-
-def test_lint_local_mode_missing_config_yml_is_an_error(tmp_path) -> None:
-    """A project_path directory with no config.yml can't be existence-checked
-    for its own project_name, and can't confirm the render's identity."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant", "als-assistant", project_path=str(project_dir)
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
+    assert any(f.code == f"web_terminals.{missing_code}" for f in errors)
+    if build_profile:
+        assert not any(
+            f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings
+        )
 
 
 def test_lint_local_mode_well_formed_project_path_reports_no_error(tmp_path) -> None:
@@ -1888,68 +1858,6 @@ def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_err
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
-    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
-
-
-def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_path) -> None:
-    """A build_profile does NOT rescue a directory that already exists but is
-    incomplete. The warning is for a render that has not happened yet; a
-    directory that is there but missing its Dockerfile is a partial render, and
-    that stays a hard error."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant",
-                    "als-assistant",
-                    project_path=str(project_dir),
-                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
-    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
-
-
-def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_path) -> None:
-    """Same partial-render rule for a missing config.yml inside an existing dir:
-    the build_profile does not demote it."""
-    # Arrange
-    project_dir = tmp_path / "als-assistant"
-    project_dir.mkdir()
-    (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _render_config(
-        web_terminals={
-            "image_source": "local",
-            "renders": {
-                "assistant": tier_render(
-                    "assistant",
-                    "als-assistant",
-                    project_path=str(project_dir),
-                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
-                ),
-            },
-        }
-    )
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
     assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
@@ -4706,14 +4614,14 @@ def test_lint_profile_config_reports_a_port_collision_with_a_declared_service() 
     config = _profile_config()
     # The second user's web-terminal port: a facility service parked on a port
     # the layout has already spent is what the rule is for.
-    config["services.telemetry_gateway.port"] = default_port("web", 1)
+    config["services.event_dispatcher.port"] = default_port("web", 1)
 
     # Act
     findings = lint_profile_config(config)
 
     # Assert
     overlap = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
-    assert any("services.telemetry_gateway.port" in f.message for f in overlap)
+    assert any("services.event_dispatcher.port" in f.message for f in overlap)
 
 
 def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> None:
@@ -6205,3 +6113,259 @@ def test_lint_profile_tier_files_do_not_mutate_the_caller_config(tmp_path) -> No
 
     # Assert
     assert "renders" not in config["modules.web_terminals"]
+
+
+# ── The history page ─────────────────────────────────────────────────────────
+#
+# The history page's origin, its scope values, its readers' carriers and who is
+# starting a deployment that records host sessions: the rules about the page are
+# this lint's, asked where the page is deployed and with no store in sight.
+
+#: Password sign-in over TLS, which is what deploys the history page.
+_HISTORY_WEB = {"tls": {"enabled": True}, "auth": {"method": "password"}}
+
+
+def _history_config(web=None, **top):
+    return {"modules": {"web_terminals": {"enabled": True, **_HISTORY_WEB, **(web or {})}}, **top}
+
+
+def _history_codes(config, prefix="web_terminals.") -> list[str]:
+    history = (
+        "history",
+        "history_origin",
+        "unbound_history_role",
+        "invalid_history",
+        "history_carrier_collision",
+    )
+    return [
+        f.code
+        for f in lint.lint_web_terminals(config)
+        if f.code.startswith(prefix) and any(word in f.code for word in history)
+    ]
+
+
+def _history_one(config, code: str):
+    (finding,) = [f for f in lint.lint_web_terminals(config) if f.code == code]
+    return finding
+
+
+def test_an_external_origin_needs_a_history_origin_beside_it() -> None:
+    web = {"external_origin": "https://osprey.lab.example"}
+    finding = _history_one(_history_config(web), "web_terminals.history_origin_required")
+    assert finding.severity == "error"
+    assert "modules.web_terminals.history_origin" in finding.message
+    web["history_origin"] = "https://osprey.lab.example:8443"
+    assert _history_codes(_history_config(web)) == []
+
+
+def test_the_two_origins_share_a_host() -> None:
+    web = {
+        "external_origin": "https://osprey.lab.example",
+        "history_origin": "https://history.lab.example",
+    }
+    finding = _history_one(_history_config(web), "web_terminals.history_origin_host")
+    assert finding.severity == "error"
+    assert "'history.lab.example'" in finding.message and "'osprey.lab.example'" in finding.message
+    web["history_origin"] = "https://OSPREY.lab.example:8443"
+    assert _history_codes(_history_config(web)) == []
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["osprey.lab.example", "https://h/", "https://h/path", "ftp://h", "https://h:port", "", 7],
+)
+def test_a_history_origin_is_an_origin_and_nothing_else(origin) -> None:
+    config = _history_config({"history_origin": origin})
+    assert _history_one(config, "web_terminals.invalid_history_origin").severity == "error"
+
+
+def test_a_history_origin_alone_is_allowed() -> None:
+    config = _history_config({"history_origin": "https://osprey.lab.example:8443"})
+    assert _history_codes(config) == []
+
+
+@pytest.mark.parametrize("port", ["10002", 0, 70000, True])
+def test_a_history_port_is_a_port(port) -> None:
+    finding = _history_one(
+        _history_config({"history_port": port}), "web_terminals.invalid_history_port"
+    )
+    assert "modules.web_terminals.history_port" in finding.message
+
+
+def test_without_the_history_page_there_is_no_history_origin_to_check() -> None:
+    """Token sign-in serves no history page, so ``history_origin`` is read by nothing."""
+    config = {
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "tls": {"enabled": True},
+                "auth": {"method": "token"},
+                "external_origin": "https://osprey.lab.example",
+                "history_port": "not a port",
+            }
+        }
+    }
+    codes = [f.code for f in lint.lint_web_terminals(config)]
+    assert "web_terminals.history_origin_required" not in codes
+    assert "web_terminals.invalid_history_port" not in codes
+
+
+def test_no_history_rule_names_the_retired_reader_keys() -> None:
+    retired_web_keys = [
+        key.rsplit(".", 1)[1]
+        for key in RETIRED_CONFIG_KEYS
+        if key.startswith("modules.web_terminals.")
+    ]
+    assert len(retired_web_keys) == 2, retired_web_keys
+    web = {"external_origin": "https://osprey.lab.example", "history_port": "x"}
+    for finding in lint.lint_web_terminals(_history_config(web)):
+        for key in retired_web_keys:
+            assert key not in finding.message
+        assert "readers' origin" not in finding.message
+
+
+def _record_readers(config, *names: str):
+    config["agent_record"] = {"readers": [{"name": name} for name in names]}
+    return config
+
+
+def test_jean_luc_and_jean_underscore_luc_share_a_carrier_suffix() -> None:
+    """The sidecar's reader carriers are keyed by the agent record's reader names."""
+    config = _record_readers(_history_config(), "jean-luc", "jean_luc", "carol")
+    finding = _history_one(config, lint.HISTORY_CARRIER_COLLISION)
+    assert finding.severity == "error"
+    assert "agent_record.readers 'jean-luc' and 'jean_luc'" in finding.message
+    assert "JEAN_LUC" in finding.message
+    assert lint.history_carrier_collision_problems(_history_config()) == []
+
+
+def test_a_carrier_collision_is_refused_only_with_the_page() -> None:
+    with_page = _record_readers(_history_config(), "jean-luc", "jean_luc")
+    assert lint.HISTORY_CARRIER_COLLISION in _history_codes(with_page)
+    no_page = _record_readers(
+        {"modules": {"web_terminals": {"enabled": True, "auth": {"method": "token"}}}},
+        "jean-luc",
+        "jean_luc",
+    )
+    assert lint.HISTORY_CARRIER_COLLISION not in _history_codes(no_page)
+    assert lint.history_preflight_problems(no_page) == []
+
+
+def test_the_history_preflight_holds_the_carrier_rule() -> None:
+    config = _record_readers(_history_config(), "jean-luc", "jean_luc")
+    ((problem, remedy),) = lint.history_preflight_problems(config)
+    assert "'jean-luc' and 'jean_luc'" in problem and remedy == "Rename one of them"
+    assert lint.history_preflight_problems(_history_config()) == []
+
+
+def _roles_web(**extra):
+    return {
+        "users": [{"name": "alice", "index": 0, "role": "operator", "history": "own"}],
+        "authorization": {
+            "roles": {
+                "operator": {"tier": "operator"},
+                "lead": {"tier": "operator", "history": "all"},
+            },
+        },
+        **extra,
+    }
+
+
+def test_history_all_on_a_role_nobody_holds_draws_a_warning() -> None:
+    finding = _history_one(_history_config(_roles_web()), "web_terminals.unbound_history_role")
+    assert finding.severity == "warn"
+    assert "roles.lead" in finding.message
+
+
+def test_a_roster_bound_role_is_bound() -> None:
+    web = _roles_web()
+    web["users"].append({"name": "bob", "index": 1, "role": "lead"})
+    assert "web_terminals.unbound_history_role" not in _history_codes(_history_config(web))
+
+
+@pytest.mark.parametrize("wrong", [["lead"], {"lead": 1}, 7, None])
+def test_a_wrong_typed_role_or_claim_target_binds_nothing_and_raises_nothing(wrong) -> None:
+    web = _roles_web()
+    web["users"].append({"name": "bob", "index": 1, "role": wrong})
+    web["authorization"]["claims"] = {"claim": "groups", "map": {"lab-leads": wrong}}
+    assert "web_terminals.unbound_history_role" in _history_codes(_history_config(web))
+
+
+def test_a_claim_granted_role_is_bound() -> None:
+    web = _roles_web()
+    web["authorization"]["claims"] = {"claim": "groups", "map": {"lab-leads": "lead"}}
+    assert "web_terminals.unbound_history_role" not in _history_codes(_history_config(web))
+
+
+@pytest.mark.parametrize("value", ["everyone", "All", True, None, ["all"]])
+def test_history_is_own_or_all_on_a_user_and_on_a_role(value) -> None:
+    web = _roles_web()
+    web["users"][0]["history"] = value
+    finding = _history_one(_history_config(web), "web_terminals.invalid_history")
+    assert finding.severity == "error" and "'alice'" in finding.message
+
+    web = _roles_web()
+    web["authorization"]["roles"]["operator"]["history"] = value
+    message = _history_one(_history_config(web), "web_terminals.invalid_history").message
+    assert "roles.operator" in message
+
+
+def test_a_history_value_is_checked_without_the_page_too() -> None:
+    web = _roles_web()
+    web["users"][0]["history"] = "everyone"
+    web["auth"] = {"method": "token"}
+    assert "web_terminals.invalid_history" in _history_codes(_history_config(web))
+
+
+def test_a_different_runtime_account_draws_an_advisory() -> None:
+    config = {"deployment": {"host_identity": "builder"}}
+    (said,) = lint.host_identity_advisories(config, "operator")
+    assert "'builder'" in said and "'operator'" in said
+
+
+def test_the_same_account_an_unasked_command_and_an_unstamped_config_draw_none() -> None:
+    config = {"deployment": {"host_identity": "builder"}}
+    assert lint.host_identity_advisories(config, "builder") == []
+    assert lint.host_identity_advisories(config, None) == []
+    assert lint.host_identity_advisories({}, "operator") == []
+
+
+def test_a_start_says_so_and_goes_on(tmp_path, monkeypatch) -> None:
+    from osprey.deployment import container_lifecycle
+
+    said: list[str] = []
+    monkeypatch.setattr(container_lifecycle, "_required_env_problems", lambda *a, **k: [])
+    monkeypatch.setattr(container_lifecycle, "_unreleased_pin_problem", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_invoking_account", lambda: "operator")
+    monkeypatch.setattr(container_lifecycle, "_warn_fact", said.append)
+    monkeypatch.setattr(
+        "osprey.agent_record.credentials.credential_file_problems", lambda *a, **k: []
+    )
+    config = {"deployment": {"host_identity": "builder"}}
+
+    container_lifecycle._collect_unmet_preconditions(
+        config, tmp_path, {}, dev_mode=False, web_terminals_enabled=False
+    )
+
+    assert said == lint.host_identity_advisories(config, "operator")
+    assert len(said) == 1
+
+
+def test_osprey_up_refuses_a_start_over_a_carrier_collision(tmp_path, monkeypatch) -> None:
+    from osprey.deployment import container_lifecycle
+    from osprey.deployment.errors import UnmetPreconditionsError
+
+    monkeypatch.setattr(container_lifecycle, "_required_env_problems", lambda *a, **k: [])
+    monkeypatch.setattr(container_lifecycle, "_unreleased_pin_problem", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "osprey.agent_record.credentials.credential_file_problems", lambda *a, **k: []
+    )
+    config = _record_readers(_history_config(), "jean-luc", "jean_luc")
+    with pytest.raises(UnmetPreconditionsError) as raised:
+        container_lifecycle._collect_unmet_preconditions(
+            config, tmp_path, {}, dev_mode=False, web_terminals_enabled=False
+        )
+    assert "'jean-luc' and 'jean_luc'" in str(raised.value.reason)
+    container_lifecycle._collect_unmet_preconditions(
+        _history_config(), tmp_path, {}, dev_mode=False, web_terminals_enabled=False
+    )

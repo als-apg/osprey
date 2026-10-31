@@ -41,6 +41,13 @@ import yaml
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import default_port
 from tests._renders import tier_render
+from tests.deployment.web_terminals._nginx import (
+    nginx_directives,
+    nginx_location_body,
+    nginx_server_blocks,
+    nginx_terminals_part,
+    render_nginx,
+)
 
 _BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
 
@@ -101,40 +108,6 @@ def _auth_config(users: list[str] | None = None, *, tls: bool = False) -> dict:
     return config
 
 
-def _render_nginx(config: dict) -> str:
-    return render_web_terminals(config)["nginx/nginx.conf"]
-
-
-def _directives(conf: str) -> str:
-    """`conf` with its comment lines dropped.
-
-    Counting and absence assertions have to ignore comment prose, which in this
-    template frequently names the very construct being counted or ruled out (the
-    comments explain `auth_request`, `$request_uri` and `/verify` at length).
-    """
-    return "\n".join(line for line in conf.splitlines() if not line.lstrip().startswith("#"))
-
-
-def _server_blocks(conf: str) -> list[str]:
-    """The top-level `server { … }` bodies, in render order.
-
-    Under TLS there are THREE: the redirect-only plain-port server first, then
-    the 443 content server, then the redirect for every other name on the TLS
-    listener. Without TLS there are TWO: the content server, then the redirect
-    for every other name on the plain port. Split on the closing brace in
-    column 0, which only a top-level block has.
-    """
-    blocks = re.findall(r"^server \{\n(.*?)^\}$", conf, flags=re.DOTALL | re.MULTILINE)
-    assert blocks, "no top-level server block in the rendered fragment"
-    return blocks
-
-
-def _location_body(conf: str, header: str) -> str:
-    match = re.search(rf"{re.escape(header)} \{{(.*?)\n    \}}", conf, flags=re.DOTALL)
-    assert match is not None, f"no {header!r} block in the rendered fragment"
-    return match.group(1)
-
-
 def test_seam_auth_method_set_gates_every_user_behind_its_own_internal_target() -> None:
     """SEAM 1 (auth fail-closed): a configured `auth.method` must gate every
     proxied `/u/<user>/` location behind an `auth_request` naming that user's own
@@ -150,15 +123,15 @@ def test_seam_auth_method_set_gates_every_user_behind_its_own_internal_target() 
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    nginx_conf = _render_nginx(config)
-    directives = _directives(nginx_conf)
+    nginx_conf = render_nginx(config)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
 
     # Assert — every proxied user location is gated, and by its OWN target
     gated_locations = directives.count("location /u/")
     assert gated_locations == len(users)
     assert directives.count("auth_request ") == gated_locations
     for user in users:
-        assert f"auth_request /_osprey_auth/{user};" in _location_body(
+        assert f"auth_request /_osprey_auth/{user};" in nginx_location_body(
             nginx_conf, f"location /u/{user}/"
         )
         assert f"location = /_osprey_auth/{user} {{" in nginx_conf
@@ -190,13 +163,13 @@ def test_seam_no_roster_key_opts_an_entry_out_of_the_wall() -> None:
     )
 
     # Act
-    nginx_conf = _render_nginx(config)
-    directives = _directives(nginx_conf)
+    nginx_conf = render_nginx(config)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
 
     # Assert — one gate per entry, each with its own verify target
     assert directives.count("auth_request ") == 3
     for user in ("alice", "ariel", "bob"):
-        body = _location_body(nginx_conf, f"location /u/{user}/")
+        body = nginx_location_body(nginx_conf, f"location /u/{user}/")
         assert f"auth_request /_osprey_auth/{user};" in body
         assert f"location = /_osprey_auth/{user} {{" in nginx_conf
         assert f"include /etc/nginx/osprey/secret-{user}.conf;" in body
@@ -220,13 +193,14 @@ def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> Non
     config = _auth_config(["alice", "bob"])
     users = config["modules"]["web_terminals"]["users"]
 
-    # Act
-    nginx_conf = _render_nginx(config)
-    directives = _directives(nginx_conf)
+    # Act — the terminals' servers: the history page's origin asks the sidecar about
+    # its history page, from the signed-in session, at its own target.
+    nginx_conf = render_nginx(config)
+    directives = nginx_directives(nginx_terminals_part(nginx_conf))
 
     # Assert
     for user in users:
-        body = _location_body(nginx_conf, f"location = /_osprey_auth/{user}")
+        body = nginx_location_body(nginx_conf, f"location = /_osprey_auth/{user}")
         auth_port = default_port("auth")
         assert f"proxy_pass http://127.0.0.1:{auth_port}/verify?user={user};" in body
         assert "proxy_pass_request_body off;" in body
@@ -277,9 +251,9 @@ def test_seam_auth_denied_subrequest_redirects_only_an_allowlisted_return_path()
     a plain terminal path must collapse to the empty default.
     """
     # Act
-    nginx_conf = _render_nginx(_auth_config())
-    handler = _location_body(nginx_conf, "location @osprey_auth_401")
-    handler_directives = _directives(handler)
+    nginx_conf = render_nginx(_auth_config())
+    handler = nginx_location_body(nginx_conf, "location @osprey_auth_401")
+    handler_directives = nginx_directives(handler)
 
     # Assert — the sanitized variable is what the redirect emits
     assert "return 302 /auth/login?user=$osprey_auth_user&next=$osprey_auth_next;" in handler
@@ -291,7 +265,7 @@ def test_seam_auth_denied_subrequest_redirects_only_an_allowlisted_return_path()
     # Assert — the allowlist is an allowlist: a default of "" and an anchored
     # pattern. `\z`, not `$`: PCRE's `$` also matches before a trailing newline,
     # so a path ending in `%0a` would otherwise be emitted, newline and all.
-    allowlist = _directives(nginx_conf)
+    allowlist = nginx_directives(nginx_conf)
     assert "map $uri $osprey_auth_next {" in allowlist
     assert '\n    default "";' in allowlist
     assert re.search(r'\n    "~\^/u/\[[^"]+\\z" \$uri;', allowlist) is not None
@@ -310,15 +284,15 @@ def test_seam_auth_redirects_stay_on_the_clients_own_origin() -> None:
     `method: none` render must not carry it at all.
     """
     # Act
-    content = _server_blocks(_render_nginx(_auth_config(["alice"])))[0]
+    content = nginx_server_blocks(render_nginx(_auth_config(["alice"])))[0]
 
     # Assert — server scope, before any location, and only there
-    preamble = _directives(content).split("location", 1)[0]
+    preamble = nginx_directives(content).split("location", 1)[0]
     assert "absolute_redirect off;" in preamble
     assert content.count("absolute_redirect off;") == 1
 
     # Assert — gated on auth: the unauthenticated render is unchanged by it
-    assert "absolute_redirect" not in _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    assert "absolute_redirect" not in render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
 
 def test_seam_auth_none_or_absent_emits_no_auth_surface_even_with_tls_on() -> None:
@@ -333,7 +307,7 @@ def test_seam_auth_none_or_absent_emits_no_auth_surface_even_with_tls_on() -> No
     config["modules"]["web_terminals"]["tls"] = copy.deepcopy(_TLS_STANZA)
 
     # Act
-    nginx_conf = _render_nginx(config)
+    nginx_conf = render_nginx(config)
 
     # Assert
     assert "listen 443 ssl;" in nginx_conf
@@ -345,7 +319,7 @@ def test_seam_auth_none_or_absent_emits_no_auth_surface_even_with_tls_on() -> No
     config_explicit_none["modules"]["web_terminals"]["auth"] = {"method": "none"}
 
     # Act
-    nginx_conf_explicit_none = _render_nginx(config_explicit_none)
+    nginx_conf_explicit_none = render_nginx(config_explicit_none)
 
     # Assert
     for absent in ("auth_request", "_osprey_auth", "location /auth/", "error_page 401"):
@@ -401,7 +375,7 @@ def test_seam_auth_over_cleartext_is_refused_unless_explicitly_accepted() -> Non
         render_web_terminals(config)
 
     # Act / Assert — the explicit opt-in renders the auth surface
-    assert "auth_request " in _directives(_render_nginx(_auth_config()))
+    assert "auth_request " in nginx_directives(render_nginx(_auth_config()))
 
 
 def test_seam_tls_enabled_with_both_cert_and_key_emits_ssl_listen_and_paths() -> None:
@@ -414,7 +388,7 @@ def test_seam_tls_enabled_with_both_cert_and_key_emits_ssl_listen_and_paths() ->
     config["modules"]["web_terminals"]["tls"] = copy.deepcopy(_TLS_STANZA)
 
     # Act
-    blocks = _server_blocks(_render_nginx(config))
+    blocks = nginx_server_blocks(render_nginx(config))
 
     # Assert — three servers: the plain port redirects, 443 serves, and 443
     # redirects every other name
@@ -449,7 +423,7 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    redirect, content, catch_all = _server_blocks(_render_nginx(config))
+    redirect, content, catch_all, readers = nginx_server_blocks(render_nginx(config))
 
     # Assert — both listeners follow the configured port, and 443 is gone
     assert f"listen {_ALT_TLS_PORT} ssl;" in content
@@ -466,9 +440,12 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     assert "location" not in catch_all
     assert "auth_request" not in catch_all
     assert "http2" not in catch_all
-    assert _directives(content).count("auth_request ") == len(users)
+    assert nginx_directives(content).count("auth_request ") == len(users)
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
+    # The history page's origin is encrypted on its own port, never on the moved one.
+    assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)
+    assert f"listen {_ALT_TLS_PORT} " not in readers
 
 
 def test_seam_tls_content_server_speaks_http2_and_cleartext_servers_do_not() -> None:
@@ -483,8 +460,8 @@ def test_seam_tls_content_server_speaks_http2_and_cleartext_servers_do_not() -> 
     config["modules"]["web_terminals"]["tls"] = copy.deepcopy(_TLS_STANZA)
 
     # Act
-    redirect, content, catch_all = _server_blocks(_render_nginx(config))
-    plain = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    redirect, content, catch_all = nginx_server_blocks(render_nginx(config))
+    plain = render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     assert "http2 on;" in content
@@ -519,7 +496,7 @@ def test_tls_host_cert_dir_mounts_the_certificate_where_nginx_looks_for_it() -> 
     # Assert — the mount target is DERIVED from tls.cert, so it cannot name a
     # directory other than the one ssl_certificate reads.
     assert "/etc/ssl/dls:/etc/nginx/certs:ro" in volumes
-    content = _server_blocks(_render_nginx(config))[1]
+    content = nginx_server_blocks(render_nginx(config))[1]
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
 
 
@@ -591,7 +568,7 @@ def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    redirect, content, catch_all = _server_blocks(_render_nginx(config))
+    redirect, content, catch_all, readers = nginx_server_blocks(render_nginx(config))
 
     # Assert — the redirect servers carry nothing but the 301
     assert "location" not in catch_all
@@ -599,11 +576,16 @@ def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:
     assert "http2" not in catch_all
     assert redirect.count("location") == 0
     assert "_osprey_auth" not in redirect
-    assert _directives(redirect).count("auth_request ") == 0
+    assert nginx_directives(redirect).count("auth_request ") == 0
 
     # Assert — the secure listener carries the whole gated surface, in full
-    assert _directives(content).count("location /u/") == len(users)
-    assert _directives(content).count("auth_request ") == len(users)
+    assert nginx_directives(content).count("location /u/") == len(users)
+    assert nginx_directives(content).count("auth_request ") == len(users)
     assert content.count("location = /_osprey_auth/") == len(users)
     assert "location /auth/ {" in content
     assert "return 200;" not in content
+
+    # Assert — the history page's origin holds none of the per-user gates, and is
+    # itself served only behind TLS
+    assert "_osprey_auth" not in readers
+    assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)

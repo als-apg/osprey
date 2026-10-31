@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 import threading
 import time
 from types import SimpleNamespace
@@ -46,10 +45,8 @@ def test_query_timeout_is_twice_the_measured_p95_and_never_under_five():
 # ---------------------------------------------------------------------------
 
 
-def _refused_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+def _refused_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
 
 
 def _ariel_config(url: str = "http://127.0.0.1:1", **block: Any) -> ARIELConfig:
@@ -664,10 +661,10 @@ class TestAgainstServer:
         assert len(stub.embeddings) == posts
 
     async def test_fallback_found_after_cooldown(
-        self, llama_stub, monkeypatch, clock, search_calls
+        self, reserve_port, llama_stub, monkeypatch, clock, search_calls
     ):
         stub = llama_stub()
-        configured = _refused_url()
+        configured = _refused_url(reserve_port())
         real_probe = _local_server.probe
 
         def _probe(url, path, timeout):

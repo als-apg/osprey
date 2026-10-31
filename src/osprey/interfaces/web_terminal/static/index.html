@@ -37,6 +37,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Web Terminal</title>
+  <link rel="icon" type="image/svg+xml" href="{{ prefixed(favicon_url) }}">
 
   <!-- Per-user URL prefix contract (multi-user deployments): the JS source
        of truth, and the import map retargeting root-absolute /design-system/
@@ -148,7 +149,7 @@
     drift into rendering different markup for the same item. -#}
 {% macro bar_body(type) -%}
 {%- if type == 'logo' -%}
-      <span class="header-logo">OSPREY</span>
+      <span class="header-logo"><svg class="header-logo-mark" viewBox="0 0 16 8" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path fill="currentColor" d="M0 0h2v1h-2zM14 0h2v1h-2zM1 1h3v1h-3zM12 1h3v1h-3zM2 2h4v1h-4zM10 2h4v1h-4zM3 3h4v1h-4zM9 3h4v1h-4zM4 4h8v1h-8zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z"/></svg>OSPREY</span>
 {%- elif type == 'identity' -%}
       <!-- Deployment identity (web.app_name / OSPREY_WEB_APP_NAME): WHICH
            deployment this is, the same kind of fact as the product name it

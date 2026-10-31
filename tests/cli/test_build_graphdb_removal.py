@@ -39,13 +39,12 @@ import logging
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner, Result
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import load_profile
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The preset that ships the graph store. Every project here starts from it.
 PRESET = "control-assistant"
@@ -53,8 +52,6 @@ PRESET = "control-assistant"
 #: Non-graph paradigm, so the mode never supplies the store the tests remove.
 #: The graph mode gets its own project, in :class:`TestGraphModeNeedsAStore`.
 MODE = "hierarchical"
-
-BUILD_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 #: Dotted-key prefix an operator deletes to run no store, and the
 #: ``deployed_services`` member that goes with it.
@@ -136,11 +133,7 @@ def _remove_graph_app(project: Path) -> None:
 def _build(project: Path, monkeypatch) -> Result:
     """Run ``osprey build`` in *project* and return the click result."""
     monkeypatch.chdir(project)
-    return CliRunner().invoke(build, BUILD_FLAGS)
-
-
-def _rendered_config(project: Path) -> dict:
-    return yaml.safe_load((project / "build" / "config.yml").read_text())
+    return invoke_build()
 
 
 def _mcp_servers(project: Path) -> dict:
@@ -183,7 +176,7 @@ class TestBaselineShipsTheStore:
     must really render everything the removal then takes away."""
 
     def test_render_carries_every_trace_of_the_store(self, baseline_render: Path):
-        config = _rendered_config(baseline_render)
+        config = rendered_config(baseline_render)
         assert "graphdb" in config["services"]
         assert "graphdb" in [str(s) for s in config["deployed_services"]]
         assert (baseline_render / "build" / "services" / "graphdb").is_dir()
@@ -200,12 +193,12 @@ class TestDeletingTheKeysRemovesTheStore:
     def test_rendered_config_has_no_graphdb_block(self, storeless_render: tuple[Path, Result]):
         project, result = storeless_render
         assert result.exit_code == 0, result.output
-        assert "graphdb" not in (_rendered_config(project).get("services") or {})
+        assert "graphdb" not in (rendered_config(project).get("services") or {})
 
     def test_graphdb_is_not_in_deployed_services(self, storeless_render: tuple[Path, Result]):
         project, result = storeless_render
         assert result.exit_code == 0, result.output
-        deployed = _rendered_config(project).get("deployed_services") or []
+        deployed = rendered_config(project).get("deployed_services") or []
         assert "graphdb" not in [str(s) for s in deployed]
 
     def test_no_compose_fragment_is_bundled(self, storeless_render: tuple[Path, Result]):
@@ -224,8 +217,8 @@ class TestDeletingTheKeysRemovesTheStore:
         """Deleting the store's keys removes the store and nothing else."""
         project, result = storeless_render
         assert result.exit_code == 0, result.output
-        storeless = _rendered_config(project)
-        baseline = _rendered_config(baseline_render)
+        storeless = rendered_config(project)
+        baseline = rendered_config(baseline_render)
         assert set(baseline["services"]) - set(storeless["services"]) == {"graphdb"}
         assert [s for s in baseline["deployed_services"] if s != "graphdb"] == list(
             storeless["deployed_services"]

@@ -608,7 +608,7 @@ def _refuse_unknown_devices(
     the fix is in the caller's hands — pick a name `GET /devices` lists.
     """
     unknown = unknown_movable | unknown_readable
-    first = sorted(unknown_movable or unknown_readable)[0]
+    first = min(unknown_movable or unknown_readable)
     label = "session plan" if session_tier else "plan"
     cap = device_page_size()
     facts: dict[str, Any] = {"plan": plan_name, "devices": sorted(unknown)}

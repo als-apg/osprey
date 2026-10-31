@@ -26,7 +26,6 @@ from pathlib import Path
 import nbformat
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal import jupyter_sidecar
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
@@ -36,6 +35,8 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     starter_read_channel,
 )
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
+from tests._live import wait_until
+from tests._processes import pid_alive
 
 READY_TIMEOUT = 90.0
 
@@ -100,21 +101,13 @@ def _get_no_redirect(url: str, headers: dict[str, str] | None = None) -> tuple[i
         return int(exc.code), exc.headers.get("Location", "")
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
 def _wait_gone(pid: int, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if not _alive(pid):
+        if not pid_alive(pid):
             return True
         time.sleep(0.1)
-    return not _alive(pid)
+    return not pid_alive(pid)
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +188,7 @@ def test_stop_leaves_no_process_and_removes_the_tempdir(shared_root: Path) -> No
     finally:
         sidecar.stop()
 
-    assert not _alive(pid)
+    assert not pid_alive(pid)
     assert not runtime_dir.parent.exists()
     assert sidecar.pid is None
     assert sidecar.runtime_dir is None
@@ -329,7 +322,7 @@ def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path
         line = parent.stdout.readline()
         assert line.strip(), "the parent did not report a sidecar pid"
         sidecar_pid = int(line)
-        assert _alive(sidecar_pid)
+        assert pid_alive(sidecar_pid)
 
         os.kill(parent.pid, signal.SIGKILL)
         parent.wait(10)
@@ -339,7 +332,7 @@ def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path
         if parent.poll() is None:
             parent.kill()
             parent.wait()
-        if sidecar_pid is not None and _alive(sidecar_pid):
+        if sidecar_pid is not None and pid_alive(sidecar_pid):
             os.killpg(sidecar_pid, signal.SIGKILL)
 
 
@@ -702,12 +695,10 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
     sidecar.spawn()
     orphan: int | None = None
     try:
-        deadline = time.monotonic() + 10
-        while not pid_file.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert pid_file.exists(), "the stand-in never reported its orphan"
+        wait_until(pid_file.exists, timeout=10, what="the stand-in to report its orphan")
+
         orphan = int(pid_file.read_text())
-        assert _alive(orphan)
+        assert pid_alive(orphan)
 
         stopper = threading.Thread(target=sidecar.stop, daemon=True)
         started = time.monotonic()
@@ -716,13 +707,13 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
 
         assert not stopper.is_alive(), "stop() hung on the orphan's pipe"
         assert time.monotonic() - started < jupyter_sidecar._STOP_GRACE + 5
-        assert _alive(orphan), "the orphan is the test's own; stop() must not need it gone"
+        assert pid_alive(orphan), "the orphan is the test's own; stop() must not need it gone"
     finally:
         # The orphan lives in its own session, so neither the group signal nor
         # the reap reaches it: it is killed here whichever assertion failed.
         if orphan is None and pid_file.exists():
             orphan = int(pid_file.read_text())
-        if orphan is not None and _alive(orphan):
+        if orphan is not None and pid_alive(orphan):
             os.kill(orphan, signal.SIGKILL)
         sidecar.stop()
 
@@ -1039,8 +1030,8 @@ def test_a_refused_request_resolves_to_nothing(sessions_server: str) -> None:
     assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
 
 
-def test_no_sidecar_at_that_url_resolves_to_nothing() -> None:
+def test_no_sidecar_at_that_url_resolves_to_nothing(reserve_port) -> None:
     """The panel can die between the marker being written and the switch."""
-    dead = f"http://127.0.0.1:{free_port()}/panel/jupyter"
+    dead = f"http://127.0.0.1:{reserve_port()}/panel/jupyter"
 
     assert jupyter_sidecar.kernel_notebook_path(dead, {}, "wanted") is None

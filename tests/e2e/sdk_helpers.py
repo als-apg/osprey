@@ -207,21 +207,6 @@ def is_claude_code_available() -> bool:
         return False
 
 
-def has_anthropic_api_key() -> bool:
-    """Check if ANTHROPIC_API_KEY is set."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
-
-
-def has_als_apg_api_key() -> bool:
-    """Check if ALS_APG_API_KEY is set.
-
-    The als-apg gateway authenticates with this token; the safety/SDK E2E
-    suite skip-gates on it because the Claude Code CLI subprocess reaches the
-    gateway through the project's `.env`.
-    """
-    return bool(os.environ.get("ALS_APG_API_KEY"))
-
-
 #: The ARIEL database a run uses when it names none: a Postgres on the host's
 #: standard port, the one tests/e2e/README.md tells a developer to run.
 _DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
@@ -479,6 +464,10 @@ def init_project(
         pins["config"]["control_system.connector.virtual_accelerator.serving"] = "in_process"
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
+    # These projects run host sessions and never a stack, so their record is the
+    # host-local one, which keeps the embedded backend: a ClickHouse store runs
+    # only in a stack.
+    pins["agent_record"] = {"backend": "embedded"}
     init_args.extend(set_pairs(pins))
     init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     if channel_finder_mode is not None:
@@ -1041,24 +1030,135 @@ def find_html_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.html") if p.name != "index.html")
 
 
+#: Most timeline pages :func:`read_audit_events` reads of one session.
+_AUDIT_TIMELINE_PAGES = 50
+
+
 def read_audit_events(repo: Path) -> list[dict]:
-    """Read MCP tool-call events from Claude Code native transcripts.
+    """The OSPREY tool-call events of the newest session, read from the agent record.
 
-    Takes the REPO ROOT. Claude Code keys its transcript directory on the
-    session's working directory, which is the RENDER, so that is what the reader
-    is pointed at.
-
-    Uses TranscriptReader to extract events from the most recent transcript
-    in ``<config-dir>/projects/<encoded>/``, the Claude Code state directory
-    the run uses (``CLAUDE_CONFIG_DIR``, else ``~/.claude``).
+    Takes the REPO ROOT. Holds the host's agent record for the read
+    (:func:`~osprey.agent_record.host.ensure_host_record`, which starts the
+    host-local service when none runs) and reads it through
+    :class:`~osprey.agent_record.client.RecordClient` with the host login: the
+    newest session it lists, every page of that session's timeline, subagent
+    work included.
 
     Returns:
-        List of event dicts (tool_call, agent_start, agent_stop).
+        Event dicts, in timeline order: ``tool_call`` for every MCP tool call
+        (``timestamp``, ``tool``, ``server``, ``full_tool_name``, ``is_error``,
+        ``session_id``, ``agent_id``, ``arguments``, ``result_summary``), and an
+        ``agent_start``/``agent_stop`` pair for every Agent (or Task) call.
     """
-    from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
+    from osprey.agent_record.client import RecordClient
+    from osprey.agent_record.contract import Drain
+    from osprey.agent_record.host import ensure_host_record
 
-    reader = TranscriptReader(render_dir(repo))
-    return reader.read_current_session()
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    with ensure_host_record(repo, config) as record:
+        client = RecordClient(record.url, record.login, record.token)
+        # Drained, because the caller reads right after a run ends: the run's
+        # last transcript steps reach the record only once the tailer has
+        # ingested them, and an undrained read races that.
+        sessions = client.list_sessions(limit=1, wait=Drain())
+        assert sessions.available, f"the agent record is unavailable: {sessions.unavailable}"
+        assert sessions.complete, f"the session list is incomplete: {sessions.reason}"
+        if not sessions.data:
+            return []
+        session_id = str(sessions.data[0]["session_id"])
+        nodes: list[dict] = []
+        after: str | None = None
+        for _ in range(_AUDIT_TIMELINE_PAGES):
+            page = client.timeline(session_id, after=after, wait=Drain(session_id=session_id))
+            assert page.available, f"the agent record is unavailable: {page.unavailable}"
+            assert page.complete, (
+                f"the timeline page of session {session_id} is incomplete: {page.reason}"
+            )
+            nodes.extend(node for node in page.data or [] if isinstance(node, dict))
+            after = page.next
+            if after is None:
+                break
+        else:
+            raise AssertionError(
+                f"session {session_id} has more than {_AUDIT_TIMELINE_PAGES} timeline "
+                "pages; refusing to return a truncated event list"
+            )
+    return _tool_events(nodes, session_id, agent_id=None)
+
+
+def _tool_events(nodes: list[dict], session_id: str, *, agent_id: str | None) -> list[dict]:
+    """The tool-call and subagent events of *nodes*, descending into each subagent."""
+    from osprey.mcp_server.workspace.transcript_reader import (
+        _extract_text,
+        _is_error_response,
+        _split_mcp_tool_name,
+        _truncate,
+    )
+
+    events: list[dict] = []
+    for node in nodes:
+        body = node.get("body") if isinstance(node.get("body"), dict) else {}
+        result = node.get("result") or {}
+        result_body = result.get("body") if isinstance(result.get("body"), dict) else {}
+        subagent = node.get("subagent") or {}
+        if node.get("kind") == "tool_call":
+            name = str(body.get("name", ""))
+            match = _split_mcp_tool_name(name)
+            if match:
+                short_name, server, full_name = match
+                content = result_body.get("content", "")
+                if isinstance(content, list):
+                    text = _extract_text(content)
+                elif isinstance(content, dict):
+                    text = json.dumps(content)
+                else:
+                    text = str(content)
+                is_error = bool(result_body.get("is_error")) or _is_error_response(text)
+                events.append(
+                    {
+                        "type": "tool_call",
+                        "timestamp": node.get("ts"),
+                        "tool": short_name,
+                        "tool_name": short_name,
+                        "full_tool_name": full_name,
+                        "server": server,
+                        "server_name": server,
+                        "is_error": is_error,
+                        "session_id": session_id,
+                        "agent_id": agent_id,
+                        "arguments": body.get("input", {}),
+                        "result_summary": _truncate(text, is_error),
+                    }
+                )
+            elif name in ("Agent", "Task"):
+                tool_input = body.get("input") if isinstance(body.get("input"), dict) else {}
+                agent_type = tool_input.get("subagent_type", tool_input.get("description", ""))
+                started = subagent.get("agent_id") or body.get("id", "")
+                events.append(
+                    {
+                        "type": "agent_start",
+                        "timestamp": node.get("ts"),
+                        "agent_id": started,
+                        "agent_type": agent_type,
+                    }
+                )
+                events.extend(
+                    _tool_events(subagent.get("timeline") or [], session_id, agent_id=started)
+                )
+                events.append(
+                    {
+                        "type": "agent_stop",
+                        "timestamp": result.get("ts") or node.get("ts"),
+                        "agent_id": started,
+                        "agent_type": agent_type,
+                    }
+                )
+                continue
+        if subagent.get("timeline"):
+            events.extend(
+                _tool_events(subagent["timeline"], session_id, agent_id=subagent.get("agent_id"))
+            )
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -1205,6 +1305,35 @@ def _harvest_subagent_traces(
                     if matched is not None:
                         matched.result = _result_text(block.get("content"))
                         matched.is_error = bool(block.get("is_error"))
+
+
+def print_run_summary(title: str, result: SDKWorkflowResult) -> None:
+    """Print what a live run did, under ``title``: tools, turns, cost, approvals, results.
+
+    Debug output only -- shown under ``pytest -s`` or with a failure -- so a run that
+    went wrong is diagnosable from its log without paying for it again. Approval
+    decisions are printed for a :class:`HookObservedResult`.
+    """
+    print(f"\n--- {title} ---")
+    print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
+    print(f"  num_turns: {result.num_turns}")
+    print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+    hook_events = getattr(result, "hook_events", None)
+    if hook_events is not None:
+        print(f"  hook_events: {len(hook_events)}")
+        for evt in hook_events:
+            print(f"    {evt.tool_name}: {evt.decision}")
+    for trace in result.tool_traces:
+        error_flag = " [ERROR]" if trace.is_error else ""
+        parent_flag = (
+            f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
+        )
+        print(f"  tool: {trace.name}{error_flag}{parent_flag}")
+        print(f"    input keys: {list(trace.input)}")
+        if trace.result:
+            print(f"    result preview: {trace.result[:300]}")
+    for block in result.text_blocks[:3]:
+        print(f"  text: {block[:200]}")
 
 
 def assert_agent_ran(result: SDKWorkflowResult) -> None:

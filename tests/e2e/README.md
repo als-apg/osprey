@@ -317,10 +317,14 @@ no provider. `-m model_free` selects exactly those:
 uv run pytest tests/e2e/ -m model_free -v
 ```
 
-The marked set equals the selection of the `e2e-no-model` CI lane, and a wiring
-test in `tests/deployment/test_ci_workflow_wiring.py` holds the two equal.
-Adding a model-free module therefore means marking it and naming it in that
-lane in one change.
+The marked set equals the selection of the two model-free CI lanes —
+`e2e-no-model`, and `agent-record-e2e`, which runs the agent record's replay
+(`test_agent_record_e2e.py`) on its own because it deploys two stacks in turn
+(hello-world on the embedded record, control-assistant on ClickHouse) and
+waits out a stopped source twice. A wiring test in
+`tests/deployment/test_ci_workflow_wiring.py` holds the two sets equal. Adding
+a model-free module therefore means marking it and naming it in one of those
+lanes in one change.
 
 ### Scripted gate tests
 
@@ -436,7 +440,8 @@ async def test_my_workflow(e2e_project_factory):
    when it builds with `e2e_provider()` and therefore follows the run, the
    gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
    pins a provider itself. A test that reaches no model carries `model_free`, and
-   its module is named in the `e2e-no-model` lane in the same change.
+   its module is named in a model-free lane (`e2e-no-model`, or
+   `agent-record-e2e` for the record's replay) in the same change.
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 
 ## CI/CD Integration

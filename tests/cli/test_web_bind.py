@@ -16,7 +16,6 @@ import os
 import socket
 
 import pytest
-from click.testing import CliRunner
 
 # Imported for effect: ``server_launcher`` builds its ``_launchers`` dict once,
 # at import, by comprehending ``FRAMEWORK_WEB_SERVERS``. A test below stands
@@ -33,12 +32,8 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
+from osprey_connectors_tests._harness._ports import bound_socket
 from tests.cli._lifecycle_build import stub_build
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 @pytest.fixture(autouse=True)
@@ -96,59 +91,18 @@ def _inside_a_deployment(lifecycle_repo, monkeypatch):
     monkeypatch.chdir(lifecycle_repo)
 
 
-def _free_ports(count: int) -> list[int]:
-    """Reserve then release ``count`` DISTINCT OS-assigned ports.
-
-    Every socket is held until all of them are bound, which is what makes the
-    numbers distinct: two live binds to one ``(host, port)`` cannot coexist, so
-    the OS is forced to hand out a fresh port each time. Calling
-    :func:`_free_port` twice instead gives no such guarantee — the first port is
-    back in the ephemeral pool before the second bind asks for one, and the OS
-    is free to hand out the same number again.
-
-    That distinction is load-bearing for every test whose premise is a CONFLICT
-    between a declared env var and a flag: ``_notice_declared_override`` prints
-    nothing when the flag already agrees with the declaration (the deliberate
-    matching declaration `TestResolveWebPort` pins), so a repeated port turns
-    such a test into a silent no-op or an outright failure.
-    """
-    socks = []
-    try:
-        for _ in range(count):
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.bind(("127.0.0.1", 0))
-            socks.append(sock)
-        return [sock.getsockname()[1] for sock in socks]
-    finally:
-        for sock in socks:
-            sock.close()
-
-
-def _free_port() -> int:
-    """Reserve then release one OS-assigned port so nothing is listening on it.
-
-    For the tests that need A free port. Where two ports must DIFFER, take them
-    from a single :func:`_free_ports` call instead.
-    """
-    return _free_ports(1)[0]
-
-
 @contextlib.contextmanager
 def _occupied_port(host: str = "127.0.0.1"):
-    """Hold a real listener on an OS-assigned port for the block's duration.
+    """Hold a real listener on a port for the block's duration.
 
     A second bind to this exact ``(host, port)`` fails with ``EADDRINUSE`` even
     with ``SO_REUSEADDR`` (that only shares TIME_WAIT sockets, not two live
     binds), so it deterministically drives the ``osprey web`` pre-flight bind
     into its busy-port branch.
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((host, 0))
-    sock.listen(1)
-    try:
+    with bound_socket(host) as sock:
+        sock.listen(1)
         yield sock.getsockname()[1]
-    finally:
-        sock.close()
 
 
 class TestResolveBindHost:
@@ -178,7 +132,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
-    def test_multiuser_env_pins_loopback_reaches_run_web(self, runner, monkeypatch):
+    def test_multiuser_env_pins_loopback_reaches_run_web(self, reserve_port, runner, monkeypatch):
         """The scenario this whole fix exists for: a stale/hostile image CMD
         passes --host 0.0.0.0, but the multi-user container has declared
         OSPREY_TERMINAL_BIND_HOST=127.0.0.1. The host that reaches run_web
@@ -203,7 +157,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
                 "--host",
                 "0.0.0.0",
                 "--port",
-                str(_free_port()),
+                str(reserve_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -214,7 +168,9 @@ class TestWebCommandHonorsDeclaredBindEnv:
         assert result.exit_code == 0
         assert captured.get("host") == "127.0.0.1"
 
-    def test_notice_printed_when_declared_env_overrides_flag(self, runner, monkeypatch):
+    def test_notice_printed_when_declared_env_overrides_flag(
+        self, reserve_port, runner, monkeypatch
+    ):
         monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
         # Declared bind host => container shape => the deployment supplies the
         # secret; without it the launch refuses to mint before reaching the bind.
@@ -227,7 +183,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
                 "--host",
                 "0.0.0.0",
                 "--port",
-                str(_free_port()),
+                str(reserve_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -239,7 +195,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
         assert "is authoritative" in result.stderr
         assert DECLARED_BIND_ENV in result.stderr
 
-    def test_single_user_no_env_keeps_0000(self, runner, monkeypatch):
+    def test_single_user_no_env_keeps_0000(self, reserve_port, runner, monkeypatch):
         """Without the declared env (single-user `osprey web`), --host 0.0.0.0
         must still be honored verbatim."""
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
@@ -257,7 +213,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
                 "--host",
                 "0.0.0.0",
                 "--port",
-                str(_free_port()),
+                str(reserve_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -277,9 +233,9 @@ class TestPortEnvvar:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
         monkeypatch.delenv("OSPREY_TERMINAL_BIND_HOST", raising=False)
 
-    def test_env_port_honored_when_flag_absent(self, runner, monkeypatch):
+    def test_env_port_honored_when_flag_absent(self, reserve_port, runner, monkeypatch):
         self._stub_launch(monkeypatch)
-        env_port = _free_port()
+        env_port = reserve_port()
         monkeypatch.setenv("OSPREY_WEB_PORT", str(env_port))
         captured = {}
         monkeypatch.setattr(
@@ -291,11 +247,11 @@ class TestPortEnvvar:
         assert result.exit_code == 0
         assert captured.get("port") == env_port
 
-    def test_explicit_port_flag_wins_over_env(self, runner, monkeypatch):
+    def test_explicit_port_flag_wins_over_env(self, reserve_port, runner, monkeypatch):
         self._stub_launch(monkeypatch)
         # Distinct by construction: an env port that happened to equal the flag
         # port would assert nothing about which of the two won.
-        env_port, flag_port = _free_ports(2)
+        env_port, flag_port = reserve_port(), reserve_port()
         monkeypatch.setenv("OSPREY_WEB_PORT", str(env_port))
         captured = {}
         monkeypatch.setattr(
@@ -357,7 +313,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
-    def test_multiuser_env_pins_port_reaches_run_web(self, runner, monkeypatch):
+    def test_multiuser_env_pins_port_reaches_run_web(self, reserve_port, runner, monkeypatch):
         """A stale/hostile image CMD passes a mismatched --port, but the
         multi-user container has declared OSPREY_TERMINAL_WEB_PORT. The port
         that reaches run_web must be the declared one, NOT the flag —
@@ -366,7 +322,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         # Distinct by construction: a flag port that happened to equal the
         # declared one would satisfy the assertion without the declaration
         # having overridden anything.
-        declared_port, flag_port = _free_ports(2)
+        declared_port, flag_port = reserve_port(), reserve_port()
         monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(declared_port))
         captured = {}
 
@@ -391,11 +347,13 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         assert result.exit_code == 0
         assert captured.get("port") == declared_port
 
-    def test_notice_printed_when_declared_env_overrides_port_flag(self, runner, monkeypatch):
+    def test_notice_printed_when_declared_env_overrides_port_flag(
+        self, reserve_port, runner, monkeypatch
+    ):
         # The notice fires on a CONFLICT and is deliberately silent when the
         # flag already agrees with the declaration, so the two ports have to be
         # distinct by construction for the test to have a premise at all.
-        declared_port, flag_port = _free_ports(2)
+        declared_port, flag_port = reserve_port(), reserve_port()
         monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(declared_port))
         self._stub_launch(monkeypatch)
 
@@ -415,7 +373,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         assert "is authoritative" in result.stderr
         assert DECLARED_WEB_PORT_ENV in result.stderr
 
-    def test_single_user_no_env_keeps_explicit_port(self, runner, monkeypatch):
+    def test_single_user_no_env_keeps_explicit_port(self, reserve_port, runner, monkeypatch):
         """Without the declared env (single-user `osprey web`), --port must
         still be honored verbatim."""
         monkeypatch.delenv(DECLARED_WEB_PORT_ENV, raising=False)
@@ -427,7 +385,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
-        flag_port = _free_port()
+        flag_port = reserve_port()
         result = runner.invoke(
             web,
             ["--port", str(flag_port), "--shell", "true", "--skip-preflight"],
@@ -649,7 +607,7 @@ class TestExposureWarning:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
     @pytest.mark.parametrize("host", ["0.0.0.0", "::", "10.0.0.7"])
-    def test_detached_start_warns_before_it_returns(self, runner, monkeypatch, host):
+    def test_detached_start_warns_before_it_returns(self, reserve_port, runner, monkeypatch, host):
         """`osprey web -d` printed nothing: the warning sat below the return.
 
         Also the only path that reaches the check with a non-IPv4 host: the
@@ -665,7 +623,7 @@ class TestExposureWarning:
                 host,
                 "--detach",
                 "--port",
-                str(_free_port()),
+                str(reserve_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -675,7 +633,7 @@ class TestExposureWarning:
         assert "exposes the terminal to the network" in result.stderr
 
     @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
-    def test_loopback_bind_stays_quiet(self, runner, monkeypatch, host):
+    def test_loopback_bind_stays_quiet(self, reserve_port, runner, monkeypatch, host):
         """Both spellings of "this machine only": the literal and the name.
 
         ``localhost`` is the one hostname the check accepts as loopback, so it
@@ -689,7 +647,7 @@ class TestExposureWarning:
                 "--host",
                 host,
                 "--port",
-                str(_free_port()),
+                str(reserve_port()),
                 "--shell",
                 "true",
                 "--skip-preflight",

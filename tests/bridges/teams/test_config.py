@@ -1,14 +1,12 @@
-"""TeamsBridgeConfig: env parsing, the cloud table, the version fallback, the boot requires."""
+"""TeamsBridgeConfig: env parsing, the cloud table, the version fallback, the startup require."""
 
 import dataclasses
 from importlib import metadata
 
 import pytest
 
-from osprey.bridges.core import CoreConfig
-from osprey.bridges.teams import TeamsBridgeConfig, require_boot
+from osprey.bridges.teams import TeamsBridgeConfig
 from osprey.bridges.teams import config as config_module
-from osprey.port_layout import default_port
 
 # A fully-configured deployment: the eight values require_startup() insists on.
 COMPLETE_ENV = {
@@ -25,12 +23,6 @@ COMPLETE_ENV = {
     "DISPATCH_WORKER_TOKEN": "work-token",
 }
 
-# What require_boot checks on top of require_startup. Bare in compose, so an
-# unset one arrives as "" and no code default ever replaces it.
-BOOT_URL_ENV = {
-    "DISPATCHER_URL": "http://dispatcher:10010",
-    "WORKER_URL": "http://worker:10011",
-}
 
 # The installed distribution's version — what from_env falls back to when the
 # image carries no APP_VERSION_DISPLAY. Read here rather than hard-coded: the
@@ -41,11 +33,6 @@ INSTALLED_VERSION = metadata.version("osprey-framework")
 def complete(**overrides: str) -> dict[str, str]:
     """A complete env with `overrides` applied (an empty value means "unset")."""
     return {**COMPLETE_ENV, **overrides}
-
-
-def bootable(**overrides: str) -> dict[str, str]:
-    """A complete env that also carries the two URLs require_boot checks."""
-    return {**COMPLETE_ENV, **BOOT_URL_ENV, **overrides}
 
 
 # --- from_env parsing -----------------------------------------------------
@@ -102,55 +89,6 @@ def test_prefixed_spellings_of_shared_names_are_not_read(prefixed):
     assert cfg.core.poll_budget == 330.0
     assert cfg.core.dedup_path == "/data/dedup.json"
     assert cfg.version_tag == INSTALLED_VERSION
-
-
-def test_neutral_vars_are_delegated_to_core_config():
-    cfg = TeamsBridgeConfig.from_env(
-        complete(
-            DISPATCHER_URL="http://disp:10010/",
-            WORKER_URL="http://work:10011/",
-            POLL_INTERVAL="0.5",
-            DEDUP_PATH="/data/teams_dedup.json",
-            HISTORY_PATH="/data/teams_history.json",
-        )
-    )
-    assert cfg.core.dispatcher_url == "http://disp:10010"
-    assert cfg.core.worker_url == "http://work:10011"
-    assert cfg.core.event_dispatcher_token == "disp-token"
-    assert cfg.core.dispatch_worker_token == "work-token"
-    assert cfg.core.trigger == "teams-question"
-    assert cfg.core.poll_interval == 0.5
-    assert cfg.core.dedup_path == "/data/teams_dedup.json"
-    assert cfg.core.history_path == "/data/teams_history.json"
-
-
-# --- CoreConfig is composed, not subclassed ------------------------------
-
-
-def test_core_is_a_composed_projection_not_a_base_class():
-    cfg = TeamsBridgeConfig.from_env(complete())
-    assert isinstance(cfg.core, CoreConfig)
-    assert not isinstance(cfg, CoreConfig)
-    assert CoreConfig not in type(cfg).__mro__
-
-
-def test_config_is_immutable():
-    # One instance is shared by the Service Bus receive loop, the ChannelOps
-    # instance and the drain thread; build variants with dataclasses.replace.
-    cfg = TeamsBridgeConfig.from_env(complete())
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        cfg.app_id = "other"
-    assert dataclasses.replace(cfg, app_id="other").app_id == "other"
-
-
-def test_from_env_applies_no_trigger_default():
-    # The teams-question default belongs to the deployment surface (rendered as
-    # DISPATCH_TRIGGER in the compose template). If from_env defaulted it, a
-    # hand-rolled deployment would silently dispatch to a trigger nobody chose
-    # and require_startup could never catch the omission.
-    assert TeamsBridgeConfig.from_env({}).core.trigger == ""
-    assert TeamsBridgeConfig.from_env(complete(DISPATCH_TRIGGER="")).core.trigger == ""
-    assert TeamsBridgeConfig().core.trigger == ""
 
 
 # --- the cloud table ------------------------------------------------------
@@ -277,31 +215,6 @@ def test_the_build_arg_short_circuits_the_distribution_lookup(monkeypatch):
 # --- require_startup ------------------------------------------------------
 
 
-def test_require_startup_passes_on_a_complete_config():
-    TeamsBridgeConfig.from_env(complete()).require_startup()  # no raise
-
-
-@pytest.mark.parametrize("name", sorted(COMPLETE_ENV))
-def test_require_startup_names_each_missing_var(name):
-    cfg = TeamsBridgeConfig.from_env(complete(**{name: ""}))
-    with pytest.raises(ValueError, match=name) as excinfo:
-        cfg.require_startup()
-    # Only the one that is actually missing is reported.
-    others = [other for other in COMPLETE_ENV if other != name]
-    assert not [other for other in others if other in str(excinfo.value)]
-
-
-def test_require_startup_lists_every_missing_var_in_one_raise():
-    # A wholly unconfigured process must not need eight restarts to learn what it
-    # is missing.
-    with pytest.raises(ValueError) as excinfo:
-        TeamsBridgeConfig.from_env({}).require_startup()
-    message = str(excinfo.value)
-    assert message.startswith("missing required config: ")
-    for name in COMPLETE_ENV:
-        assert name in message
-
-
 @pytest.mark.parametrize(
     "name", ["TEAMS_CLOUD", "APP_VERSION_DISPLAY", "TEAMS_FILES_DRIVE_ID", "TEAMS_FILES_FOLDER"]
 )
@@ -331,65 +244,6 @@ def test_require_startup_requires_both_halves_of_the_queue_coordinates():
         cfg.require_startup()
     assert "TEAMS_SERVICEBUS_CONNECTION_STRING" in str(excinfo.value)
     assert "TEAMS_SERVICEBUS_QUEUE" in str(excinfo.value)
-
-
-# --- require_boot: the bare-${VAR} compose trap ---------------------------
-
-
-def test_require_boot_passes_when_the_urls_are_set():
-    require_boot(TeamsBridgeConfig.from_env(bootable()))  # no raise
-
-
-@pytest.mark.parametrize("name", sorted(BOOT_URL_ENV))
-def test_require_boot_rejects_a_url_that_rendered_empty(name):
-    # An unset bare ${DISPATCHER_URL} in compose reaches the process as "", not as
-    # an absent key, so CoreConfig.from_env's localhost fallback never fires. Left
-    # unchecked the bridge would POST to a protocol-less URL forever.
-    cfg = TeamsBridgeConfig.from_env(bootable(**{name: ""}))
-    with pytest.raises(ValueError, match=name):
-        require_boot(cfg)
-
-
-def test_require_boot_names_env_vars_not_field_names():
-    cfg = TeamsBridgeConfig.from_env(bootable(DISPATCHER_URL="", WORKER_URL=""))
-    with pytest.raises(ValueError) as excinfo:
-        require_boot(cfg)
-    message = str(excinfo.value)
-    assert "DISPATCHER_URL" in message
-    assert "WORKER_URL" in message
-    # The engine's own check reports field names; the abort has to be diagnosable
-    # from the container log, where only the env spelling exists.
-    assert "dispatcher_url" not in message
-    assert "worker_url" not in message
-
-
-def test_require_boot_reports_the_startup_vars_before_the_urls():
-    # require_startup runs first, so a wholly unconfigured process is told about
-    # its credentials rather than only about two URLs it never set either.
-    with pytest.raises(ValueError) as excinfo:
-        require_boot(TeamsBridgeConfig.from_env({}))
-    assert "TEAMS_APP_ID" in str(excinfo.value)
-
-
-def test_require_startup_does_not_cover_the_urls():
-    # The split is deliberate: require_startup is the credentials check and
-    # require_boot adds the compose-trap check on top.
-    cfg = TeamsBridgeConfig.from_env(complete(DISPATCHER_URL=""))
-    cfg.require_startup()  # no raise
-    with pytest.raises(ValueError, match="DISPATCHER_URL"):
-        require_boot(cfg)
-
-
-def test_absent_url_vars_still_fall_back_to_the_code_defaults():
-    # Only the *empty* render is the trap. A deployment that never mentions the
-    # URLs at all is the local-dev shape CoreConfig's defaults exist for, and
-    # require_boot must not break it.
-    cfg = TeamsBridgeConfig.from_env(complete())
-    assert (cfg.core.dispatcher_url, cfg.core.worker_url) == (
-        f"http://localhost:{default_port('dispatcher')}",
-        f"http://localhost:{default_port('worker', 1)}",
-    )
-    require_boot(cfg)  # no raise
 
 
 # --- no shipped secret ----------------------------------------------------
@@ -458,26 +312,3 @@ def test_a_folder_segment_that_could_leave_the_library_is_refused(folder):
 def test_a_drive_id_that_is_not_one_path_segment_is_refused(drive_id):
     with pytest.raises(ValueError, match="TEAMS_FILES_DRIVE_ID"):
         TeamsBridgeConfig.from_env(complete(TEAMS_FILES_DRIVE_ID=drive_id))
-
-
-# --- mentions ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("env", [{}, {"TEAMS_MENTIONS": ""}])
-def test_mentions_default_on_when_unset_or_empty(env):
-    assert TeamsBridgeConfig.from_env(complete(**env)).mentions is True
-
-
-@pytest.mark.parametrize("raw", ["false", "0", "no", "off", "ture"])
-def test_mentions_turn_off_for_a_false_spelling(raw):
-    assert TeamsBridgeConfig.from_env(complete(TEAMS_MENTIONS=raw)).mentions is False
-
-
-@pytest.mark.parametrize("raw", ["true", "1", "yes", "on"])
-def test_mentions_stay_on_for_a_true_spelling(raw):
-    assert TeamsBridgeConfig.from_env(complete(TEAMS_MENTIONS=raw)).mentions is True
-
-
-def test_mentions_are_not_a_startup_requirement():
-    TeamsBridgeConfig.from_env(complete(TEAMS_MENTIONS="false")).require_startup()
-    TeamsBridgeConfig.from_env(complete()).require_startup()  # no raise

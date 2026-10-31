@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.services.ariel_search.config import (
     ARIELConfig,
     DatabaseConfig,
@@ -609,7 +608,7 @@ class TestReachableQueryServer:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("no_provider_configs")
     async def test_a_refusing_localhost_reaches_the_fallback_with_one_walk(
-        self, monkeypatch, mock_repository, search_calls
+        self, reserve_port, monkeypatch, mock_repository, search_calls
     ):
         from osprey.models.providers import _local_server
         from tests.services.ariel_search.test_provider_resolver import (
@@ -627,7 +626,7 @@ class TestReachableQueryServer:
             monkeypatch.setattr(_local_server, "probe", probes)
             cls = _fallback_class()
             _register(monkeypatch, fakellama=cls)
-            port = free_port()
+            port = reserve_port()
             config = _fallback_config(port)
             embedder = _embedder_for(config)
             assert type(embedder) is cls

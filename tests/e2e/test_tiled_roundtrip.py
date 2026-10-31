@@ -59,14 +59,10 @@ safety/acceptance proof is never swept into lenient reruns).
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -74,10 +70,17 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
-from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import (
+    env_value,
+    find_osprey_console_script,
+    format_failure,
+    run_command,
+    wait_for_container_health,
+    wait_for_health,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
@@ -96,14 +99,11 @@ TILED_PORT = 18192
 # services.virtual_accelerator.port -- moving the deployed soft-IOC's port is a
 # one-place edit, and the connector follows it.
 VA_CA_PORT = 15065
-# ariel-postgres, the telemetry gateway and the telemetry store are deployed
-# unconditionally by the control-assistant preset, and a locally-running
-# tutorial stack routinely holds their ports. A bound-port collision aborts
-# `osprey up` before the bridge/Tiled containers it creates alongside them ever
-# start, so all three are moved to high, unassigned ports.
+# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# and a locally-running deployment routinely holds its port. A bound-port
+# collision aborts `osprey up` before the bridge/Tiled containers it creates
+# alongside it ever start, so it is moved to a high, unassigned port.
 POSTGRES_PORT = 25433
-TELEMETRY_GATEWAY_PORT = 24320
-TELEMETRY_STORE_PORT = 28125
 
 # The deployment repo's directory name IS the deployment's name; the compose
 # template renders each container_name AND the bridge's locally-built image as
@@ -145,27 +145,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 class DeployedStack:
     """The one deployed repo, plus the devices its plan will drive."""
 
@@ -187,7 +166,7 @@ class DeployedStack:
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
     """Build + co-deploy the VA, bridge, RE manager, Redis and Tiled."""
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     base = tmp_path_factory.mktemp("tiled_roundtrip_build")
     repo = base / PROJECT_NAME
 
@@ -218,8 +197,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
     }
@@ -227,7 +204,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it. The repo directory
     # name IS the deployment name, so the container names above still hold.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -257,21 +234,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without. The plan devices are not among what
     # `up` appends here: they reach the worker as the device file the build staged.
@@ -290,27 +261,24 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
+            pytest.fail(format_failure("osprey up -d --dev", up))
         # The VA first, so that a soft-IOC that never came up is NAMED rather
         # than reported as the bridge failing to answer. Compose already orders
         # the bridge and the RE manager behind this same healthcheck
         # (`depends_on: virtual-accelerator: service_healthy`), so on the happy
         # path this returns on its first poll -- it is a diagnostic, not the
         # thing that makes the ordering true.
-        _wait_for_container_health(VA_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
-        _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
-        _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_container_health(VA_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
+        wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         # Every container is healthy here and the stack STILL may not accept a
         # plan: the bridge opens the RE worker environment off the readiness
         # path, and `POST /queue/items` validates against the worker namespace
@@ -334,10 +302,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             correctors=correctors,
             bpms=bpms,
             limits=_orm_stack.channel_limits(repo),
-            token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
+            token=env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=600)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -347,62 +315,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
-def _env_value(repo: Path, key: str) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path}"
-    value = parse_dotenv_file(env_path).get(key)
-    assert value, f"{key} missing/empty in the deployment repo's .env"
-    return value
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
-def _wait_for_container_health(container: str, timeout: float) -> None:
-    """Poll ``docker inspect .State.Health.Status`` until ``healthy`` or timeout.
-
-    The fixture's HTTP-readiness gate can pass while Docker still reports
-    ``starting`` (the healthcheck runs only on its interval, after
-    ``start_period``), so an instant equality assert is racy. Also used after
-    the bridge restart below, where there is no HTTP-readiness gate at all.
-    """
-    deadline = time.monotonic() + timeout
-    last = "(no status yet)"
-    while time.monotonic() < deadline:
-        last = _docker_inspect(container, "{{.State.Health.Status}}")
-        if last == "healthy":
-            return
-        time.sleep(2.0)
-    raise AssertionError(
-        f"{container} did not reach 'healthy' within {timeout:.0f}s (last status: {last!r})"
-    )
-
-
-def _docker_inspect(container: str, fmt: str) -> str:
-    proc = subprocess.run(
-        ["docker", "inspect", "--format", fmt, container],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, f"docker inspect {container} failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
 def _request(
     path: str,
     method: str,
@@ -410,21 +322,10 @@ def _request(
     token: str | None = None,
     owner: str | None = None,
 ) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers: dict[str, str] = {}
-    if data is not None:
-        headers["Content-Type"] = "application/json"
-    if token:
-        headers["X-Launch-Token"] = token
-    if owner:
-        # The login the plan runs for: the worker's writes follow its switch.
-        headers[OWNER_HEADER] = owner
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    # *owner* is the login the plan runs for: the worker's writes follow its switch.
+    return _queue_drive.request(
+        BRIDGE_URL, path, method, body, token=token, owner=owner, timeout=30.0
+    )
 
 
 def _get(path: str) -> tuple[int, Any]:
@@ -559,8 +460,8 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     assert restart.returncode == 0, f"docker restart {BRIDGE_CONTAINER} failed: {restart.stderr}"
 
     # --- 7. wait for the bridge to come back healthy -----------------------
-    _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-    _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+    wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC, probe_timeout=5.0)
+    wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
 
     # --- 8. read the SAME run id back through the SAME endpoint -----------
     # The live-row buffer died with the bridge process; the only thread back to

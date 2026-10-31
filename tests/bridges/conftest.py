@@ -11,6 +11,9 @@ assertion::
 
 Import it directly (``from tests.bridges.conftest import RecordingChannelOps``) when a test
 needs custom construction, or use the ``channel_ops`` fixture for a fresh default instance.
+
+The adapters' suites share three smaller doubles from here too: :class:`FakeClock`,
+:class:`StubDispatcher` and :func:`recording_client`.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 import pytest
 
 from osprey.bridges.core.ports import InboundEvent, InputDownload, ReplyContext, RoomPeople
@@ -245,3 +249,46 @@ class RosterChannelOps(RecordingChannelOps):
         if isinstance(knob, BaseException):
             raise knob
         return knob(entry) if callable(knob) else knob
+
+
+class FakeClock:
+    """Injectable monotone clock (epoch seconds) advanced explicitly by tests."""
+
+    def __init__(self, t: float = 1_000_000.0) -> None:
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, dt: float) -> None:
+        self.t += dt
+
+
+class StubDispatcher:
+    """A dispatcher that completes every run and keeps the ``extra`` payload it was given."""
+
+    def __init__(self) -> None:
+        self.extras: list[Any] = []
+
+    def run(self, question: str, extra: Any = None, *, on_run_id: Any = None) -> dict[str, Any]:
+        del question, on_run_id
+        self.extras.append(extra)
+        return {"status": "completed", "text_output": "done", "run_id": "run-1"}
+
+
+def recording_client(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> tuple[httpx.Client, list[httpx.Request]]:
+    """A client over ``handler``, plus the requests it was asked to make.
+
+    The request list is the assertion that matters: an injected client that the wiring
+    dropped on the floor records nothing, whatever the call happens to return, and an
+    empty list is how a test asserts that a route was never touched at all.
+    """
+    seen: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return handler(request)
+
+    return httpx.Client(transport=httpx.MockTransport(record)), seen

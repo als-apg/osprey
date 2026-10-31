@@ -15,10 +15,10 @@ the ``var/`` skeleton created by whichever command runs first in a fresh clone.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import logging
-import os
 import shutil
 import signal
 import subprocess
@@ -28,7 +28,6 @@ from pathlib import Path
 
 import click
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.cli import build_cmd
@@ -36,12 +35,8 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_environment import _ProjectVenvPlan
 from osprey.deployment import staleness
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import CI_FLAGS, rendered_config
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
-
-# Every build in this module renders without a venv and without lifecycle
-# hooks: neither is what the atomic swap is about, and a real `uv` install per
-# test would dominate the runtime of the suite.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 # A plan with nothing to install, for builds whose environment step is faked.
 _EMPTY_PLAN = _ProjectVenvPlan(
@@ -55,19 +50,10 @@ _EMPTY_PLAN = _ProjectVenvPlan(
 )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _build(runner: CliRunner, cwd: Path, *args: str, flags: list[str] | None = None):
     """Run ``osprey build`` from *cwd*, as an operator standing there would."""
-    previous = Path.cwd()
-    os.chdir(cwd)
-    try:
+    with contextlib.chdir(cwd):
         return runner.invoke(build, [*(CI_FLAGS if flags is None else flags), *args])
-    finally:
-        os.chdir(previous)
 
 
 @pytest.fixture(scope="module")
@@ -80,10 +66,6 @@ def built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> Path:
     result = _build(CliRunner(), repo)
     assert result.exit_code == 0, result.output
     return repo
-
-
-def _rendered_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def _manifest(repo: Path) -> dict:
@@ -101,7 +83,7 @@ class TestRendersTheOutputZone:
         # The deployment name is the repo's; it names the project, never a
         # directory inside build/.
         assert not (build_dir / built_exemplar.name).exists()
-        assert _rendered_config(built_exemplar)["project_name"] == built_exemplar.name
+        assert rendered_config(built_exemplar)["project_name"] == built_exemplar.name
 
     def test_manifest_lands_where_the_drift_check_looks(self, built_exemplar):
         manifest_path = staleness.build_manifest_path(built_exemplar)
@@ -116,14 +98,14 @@ class TestRendersTheOutputZone:
     def test_state_zone_is_created_when_absent(self, runner, lifecycle_repo_factory, tmp_path):
         """A fresh clone carries no git-ignored directory; the build makes them."""
         repo = lifecycle_repo_factory(tmp_path / "clone")
-        for relative in ("var/agent_data", "var/audit"):
-            (repo / relative).rmdir()
+        (repo / "var" / "agent_data").rmdir()
         (repo / "var").rmdir()
 
         assert _build(runner, repo).exit_code == 0
 
         assert (repo / "var" / "agent_data").is_dir()
-        assert (repo / "var" / "audit").is_dir()
+        # The pre-upgrade audit tree is only ever read and purged, never made.
+        assert not (repo / "var" / "audit").exists()
 
     def test_state_zone_creation_keeps_what_is_already_there(self, runner, lifecycle_repo):
         keeper = lifecycle_repo / "var" / "agent_data" / "memory.json"
@@ -154,12 +136,12 @@ class TestRepoIdentity:
     """``project_root`` is the repo, not the directory being written."""
 
     def test_project_root_is_the_repo_not_the_render(self, built_exemplar):
-        assert _rendered_config(built_exemplar)["project_root"] == str(built_exemplar)
+        assert rendered_config(built_exemplar)["project_root"] == str(built_exemplar)
 
     def test_runtime_root_substitutes_the_path_a_container_sees(self, runner, lifecycle_repo):
         _build(runner, lifecycle_repo, "--runtime-root", "/app/als-exemplar")
 
-        assert _rendered_config(lifecycle_repo)["project_root"] == "/app/als-exemplar"
+        assert rendered_config(lifecycle_repo)["project_root"] == "/app/als-exemplar"
 
     def test_runs_from_any_subdirectory(self, runner, lifecycle_repo):
         result = _build(runner, lifecycle_repo / "data" / "facility" / "knowledge")

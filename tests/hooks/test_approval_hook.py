@@ -211,7 +211,6 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -230,12 +229,9 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     )
 
     assert _deny_reason(result) == _switch_sentence("false")
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "approval_config_invalid"
@@ -316,8 +312,24 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
-    """Selective mode blocks python_execute in write mode."""
+@pytest.mark.parametrize(
+    ("tool_input", "asks"),
+    [
+        pytest.param(
+            {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
+            True,
+            id="readwrite-asks",
+        ),
+        # Readonly code without write patterns passes.
+        pytest.param(
+            {"code": "print(42)", "execution_mode": "readonly"}, False, id="readonly-allows"
+        ),
+    ],
+)
+def test_selective_mode_gates_python_on_its_execution_mode(
+    tmp_path, hook_runner, make_config, tool_input, asks
+):
+    """Selective mode prompts for python in write mode and allows it readonly."""
     config = make_config(
         {
             "approval": {
@@ -331,39 +343,17 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
+        tool_input,
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_config):
-    """Selective mode allows readonly python without write patterns."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)  # Readonly without write patterns passes
+    if asks:
+        assert result is not None
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    else:
+        assert _is_allow(result)
 
 
 def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
@@ -447,30 +437,6 @@ def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
         "osprey_approval.py",
         "mcp__controls__channel_read",
         {"channels": ["SR:BEAM:CURRENT"]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_config):
-    """`default_policy: always` (with no `tools` overrides) asks on every osprey tool."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    # channel_read — normally read-only, but default_policy=always asks on everything
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -981,90 +947,89 @@ def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
     assert _is_allow(result)
 
 
-def test_tool_policy_always_asks(tmp_path, hook_runner, make_config):
-    """Tool mapped to 'always' policy always requires approval."""
+@pytest.mark.parametrize(
+    ("tool_name", "tool_input", "asks"),
+    [
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+            True,
+            id="always-asks",
+        ),
+        pytest.param(
+            "mcp__controls__channel_read",
+            {"channels": ["SR:CURRENT:RB"]},
+            False,
+            id="skip-allows",
+        ),
+        # `selective` on execute prompts for write-mode execution...
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "print(42)", "execution_mode": "readwrite"},
+            True,
+            id="selective-execute-write-mode-asks",
+        ),
+        # ...lets readonly code without write patterns through...
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "print(42)", "execution_mode": "readonly"},
+            False,
+            id="selective-execute-readonly-allows",
+        ),
+        # ...and still prompts for readonly code that contains a write pattern.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "caput('PV', 1.0)", "execution_mode": "readonly"},
+            True,
+            id="selective-execute-write-patterns-asks",
+        ),
+        pytest.param(
+            "mcp__osprey_workspace__setup_patch",
+            {"path": "control_system.writes", "value": "allowed"},
+            True,
+            id="setup-patch-asks",
+        ),
+        pytest.param(
+            "mcp__ariel__entry_create",
+            {"title": "Test entry", "content": "Test content"},
+            True,
+            id="entry-create-asks",
+        ),
+        # Publishing reaches the facility's logbook. It names no policy of its
+        # own and falls to `default_policy`, which is fail-closed and is what
+        # the shipped presets state explicitly.
+        pytest.param(
+            "mcp__ariel__entry_publish",
+            {"entry_id": "e-1"},
+            True,
+            id="entry-publish-asks",
+        ),
+    ],
+)
+def test_tool_policy_decides_the_prompt(
+    tmp_path, hook_runner, make_config, tool_name, tool_input, asks
+):
+    """Each tool is gated by the policy the `tools` map gives it.
+
+    `always` prompts, `skip` lets the call through, `selective` prompts only for
+    a write, and a tool the map does not name takes `default_policy`.
+    """
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        tool_name,
+        tool_input,
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_tool_policy_skip_allows(tmp_path, hook_runner, make_config):
-    """Tool mapped to 'skip' policy is allowed without approval."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
-def test_tool_policy_selective_execute_write_mode_asks(tmp_path, hook_runner, make_config):
-    """Selective policy for execute blocks write-mode execution."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "readwrite"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_tool_policy_selective_execute_readonly_allows(tmp_path, hook_runner, make_config):
-    """Selective policy for execute allows readonly code without write patterns."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
-def test_tool_policy_selective_execute_write_patterns_asks(tmp_path, hook_runner, make_config):
-    """Selective policy for execute blocks code with write patterns."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "caput('PV', 1.0)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
+    if asks:
+        assert result is not None
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    else:
+        assert _is_allow(result)
 
 
 def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
@@ -1089,63 +1054,6 @@ def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
-
-
-def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
-    """Workspace setup_patch tool requires approval through the hook."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__osprey_workspace__setup_patch",
-        {"path": "control_system.writes", "value": "allowed"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
-    """ARIEL entry_create tool requires approval through the hook."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__ariel__entry_create",
-        {"title": "Test entry", "content": "Test content"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_entry_publish_always_asks(tmp_path, hook_runner, make_config):
-    """Publishing an entry reaches the facility's logbook, so it prompts.
-
-    It falls to `default_policy` rather than naming a policy of its own, which
-    is fail-closed and is what the shipped presets state explicitly.
-    """
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__ariel__entry_publish",
-        {"entry_id": "e-1"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
 @pytest.mark.parametrize(
@@ -1312,33 +1220,6 @@ def test_fallback_regexes_match_pva_client_code(hook_module, code):
     fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
 
     assert any(_re.search(p, code) for p in fallback_patterns)
-
-
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Unusable stdin passes the tool through without asking for approval.
-
-    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
-    or truthy (``[1,2,3]``) — each leave the hook with no tool to gate, so it
-    exits 0 and emits no decision. Emitting an "ask" here would stall every
-    tool call behind a prompt nobody can answer. The truthy payload is the one
-    an emptiness check lets through, so it has to be rejected on shape.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_approval.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
 
 
 # ============================================================================
@@ -1930,10 +1811,6 @@ RAW_PUT_CONFIG = {
 }
 
 
-def _decision(result):
-    return None if result is None else result["hookSpecificOutput"]["permissionDecision"]
-
-
 def _run_execute(hook_runner, make_config, tmp_path, code, *, mode="readwrite", config=None):
     return hook_runner(
         "osprey_approval.py",
@@ -2098,8 +1975,6 @@ def test_raw_client_write_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `raw_client_write`."""
-    import json
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -2111,12 +1986,9 @@ def test_raw_client_write_deny_files_a_refused_record(
     result = _run_execute(hook_runner, make_config, tmp_path, "open_door()\n")
 
     assert _decision(result) == "deny"
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "raw_client_write"

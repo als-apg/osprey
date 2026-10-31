@@ -11,39 +11,19 @@ shared ``ariel``/``ariel`` default on fresh volumes.
 
 from __future__ import annotations
 
-import subprocess
-
 import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.service_tokens import _generate_token, _validate_var
+from tests.deployment._dotenv import project_env
 
 
 @pytest.fixture
-def captured_argv(monkeypatch, tmp_path):
+def captured_argv(stub_deploy_up, monkeypatch):
     """Patch deploy_up's collaborators for a project with only 'postgresql' deployed."""
-    captured: dict = {}
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: ({"deployed_services": ["postgresql"]}, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-
-    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
-        captured["cmd"] = cmd
-        # run_captured re-wraps this result to carry its spool path, so the
-        # stand-in has to be a real completed process, and it passes redirection
-        # kwargs this ignores.
-        return subprocess.CompletedProcess(list(cmd), 0)
-
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-    return captured
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    return stub_deploy_up({"deployed_services": ["postgresql"]}, seam="subprocess.run")
 
 
 @pytest.fixture
@@ -53,18 +33,11 @@ def _clean_token_env(monkeypatch):
     monkeypatch.delenv("ARIEL_DSN", raising=False)
 
 
-def _parse_env(tmp_path):
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    path = tmp_path / ".env"
-    return parse_dotenv_file(path) if path.is_file() else {}
-
-
 @pytest.mark.usefixtures("captured_argv")
 def test_postgresql_deploy_mints_ariel_db_password(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("ARIEL_DB_PASSWORD")
     # token_hex(32) → 64 hex chars, 256 bits of entropy.
     assert len(env["ARIEL_DB_PASSWORD"]) == 64
@@ -95,7 +68,7 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     bluesky-scoped test to generalize across the token map.
 
     Both spellings are covered: ``local`` is the legacy name for the same
-    subprocess backend (see ``osprey_connectors.config.resolve_execution_method``)
+    subprocess backend (see ``osprey.utils.execution_method.resolve_execution_method``)
     and is the value the deleted guard keyed on.
     """
     monkeypatch.setattr(
@@ -113,7 +86,7 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("ARIEL_DB_PASSWORD")
     assert len(env["ARIEL_DB_PASSWORD"]) == 64
     assert _validate_var("ARIEL_DB_PASSWORD", env["ARIEL_DB_PASSWORD"])
@@ -131,9 +104,9 @@ def test_ariel_db_password_generator_is_uri_safe_every_time():
 @pytest.mark.usefixtures("captured_argv")
 def test_postgresql_mint_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    first = _parse_env(tmp_path)
+    first = project_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    second = _parse_env(tmp_path)
+    second = project_env(tmp_path)
 
     assert first["ARIEL_DB_PASSWORD"] == second["ARIEL_DB_PASSWORD"]
     assert (tmp_path / ".env").read_text().count("ARIEL_DB_PASSWORD=") == 1
@@ -143,7 +116,7 @@ def test_postgresql_mint_is_idempotent(_clean_token_env, tmp_path):
 def test_existing_ariel_db_password_is_preserved(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=preexistingvalue\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-    assert _parse_env(tmp_path)["ARIEL_DB_PASSWORD"] == "preexistingvalue"
+    assert project_env(tmp_path)["ARIEL_DB_PASSWORD"] == "preexistingvalue"
 
 
 @pytest.mark.usefixtures("captured_argv")
@@ -165,7 +138,7 @@ def test_postgresql_deploy_mints_the_readonly_password_too(_clean_token_env, tmp
     """
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
-    env = _parse_env(tmp_path)
+    env = project_env(tmp_path)
     assert env.get("ARIEL_DB_READONLY_PASSWORD")
     assert len(env["ARIEL_DB_READONLY_PASSWORD"]) == 64
     assert env["ARIEL_DB_READONLY_PASSWORD"] != env["ARIEL_DB_PASSWORD"]

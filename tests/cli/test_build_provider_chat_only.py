@@ -15,10 +15,10 @@ from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner, Result
+from click.testing import Result
 
-from osprey.cli.build_cmd import build
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
+from tests.cli._lifecycle_build import invoke_build
 
 #: The refusal the build and the agent resolver both give for ``llama-cpp``.
 REFUSAL = (
@@ -62,24 +62,20 @@ def _repo(tmp_path: Path, provider: str | None, catalog: dict[str, Any] | None =
     return repo
 
 
-def _run(repo: Path) -> Result:
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 def _flat(result: Result) -> str:
     """The output with line wrapping undone, so a sentence reads whole."""
     return " ".join(result.output.split())
 
 
 def test_the_packaged_llama_cpp_entry_is_refused_as_the_provider(tmp_path: Path) -> None:
-    result = _run(_repo(tmp_path, "llama-cpp"))
+    result = invoke_build(_repo(tmp_path, "llama-cpp"))
 
     assert result.exit_code != 0
     assert REFUSAL in _flat(result)
 
 
 def test_a_repo_catalogs_llama_cpp_entry_is_refused_as_the_provider(tmp_path: Path) -> None:
-    result = _run(_repo(tmp_path, "llama-cpp", _catalog()))
+    result = invoke_build(_repo(tmp_path, "llama-cpp", _catalog()))
 
     assert result.exit_code != 0
     assert REFUSAL in _flat(result)
@@ -90,7 +86,7 @@ def test_a_repo_catalogs_llama_cpp_entry_is_refused_as_the_provider(tmp_path: Pa
 def test_the_refusal_lists_the_catalog_only_gateway_and_not_llama_cpp(
     tmp_path: Path, provider: str | None
 ) -> None:
-    result = _run(_repo(tmp_path, provider, _catalog()))
+    result = invoke_build(_repo(tmp_path, provider, _catalog()))
 
     assert result.exit_code != 0
     flat = _flat(result)
@@ -99,7 +95,7 @@ def test_the_refusal_lists_the_catalog_only_gateway_and_not_llama_cpp(
 
 
 def test_the_packaged_names_leave_llama_cpp_out(tmp_path: Path) -> None:
-    result = _run(_repo(tmp_path, "no-such-gateway"))
+    result = invoke_build(_repo(tmp_path, "no-such-gateway"))
 
     assert result.exit_code != 0
     flat = _flat(result)

@@ -61,11 +61,6 @@ CI_PATH, VERIFY_PATH = EMITTED
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """The exemplar repo with deployment coordinates and no CI files yet.
 

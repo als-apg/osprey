@@ -162,6 +162,7 @@ from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._deploy_support import wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
@@ -217,9 +218,9 @@ QUEUE_CONTROL = frozenset(
 # Ports + names for the live stack (the deploy scaffold at the end of this
 # module). Every published port is deliberately outside BOTH the thousand-port
 # block a deployment claims from ``deployment.port_base`` (10000-10999 at the
-# default base — bridge, tiled, panels and the telemetry gateway in the
-# services band, postgres, mongodb and the telemetry store in the stores band; the VA's Channel Access 5064 is the
-# one port the base does not move) and every sibling e2e module's pinned port,
+# default base — bridge, tiled and panels in the services band, postgres and
+# mongodb in the stores band; the VA's Channel Access 5064 is the one port the
+# base does not move) and every sibling e2e module's pinned port,
 # so this module can run on a shared dev machine beside an already-deployed
 # tutorial stack —
 # and beside any sibling suite — without touching, or being blocked by,
@@ -239,9 +240,6 @@ QUEUE_CONTROL = frozenset(
 #               (5064 is _orm_stack's default, which the tutorial holds)
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
 #               25434 test_bluesky_web_deploy
-#   telemetry   gateway 24318 / store 28123 test_bluesky_queue_e2e
-#               24319 / 28124 test_bluesky_deploy · 24320 / 28125 test_tiled_roundtrip
-#               24321 / 28126 test_bluesky_web_deploy
 #   mongodb     no sibling pins one — the archiver's Mongo published the
 #               service default, and a tutorial stack deployed on this host
 #               holds it. The preflight refuses to touch any container when a
@@ -256,8 +254,6 @@ PANELS_PORT = 18097
 TILED_PORT = 18193
 VA_CA_PORT = 15066
 POSTGRES_PORT = 25435
-TELEMETRY_GATEWAY_PORT = 24322
-TELEMETRY_STORE_PORT = 28127
 MONGODB_PORT = 27117
 
 #: Compose project this module deploys under. Container names and locally-built
@@ -3176,9 +3172,9 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
 #:
-#: - ``services.postgresql.port_host`` / ``services.telemetry_gateway.port`` /
-#:   ``services.telemetry_store.port`` are CONFIG keys — those services are in the preset's config template, so a
-#:   dotted key under ``config:`` edits them in place.
+#: - ``services.postgresql.port_host`` is a CONFIG key — that service is in the
+#:   preset's config template, so a dotted key under ``config:`` edits it in
+#:   place.
 #: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
 #:   (see ``profiles/presets/control-assistant.yml``). Their ``services.*``
@@ -3223,8 +3219,6 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 _EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
-        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
         "approval.tools.queue_remove": "skip",
@@ -3483,7 +3477,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         # HTTP readiness is not enqueue readiness -- the worker namespace an

@@ -28,16 +28,13 @@ render no stand-in block at all.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from ruamel.yaml import YAML
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_schema import VAConfig
 from osprey.cli.build_profile_standin import (
     LIVE_STANDIN_DERIVED_KEYS,
@@ -46,6 +43,7 @@ from osprey.cli.build_profile_standin import (
     live_standin_config_overrides,
     live_standin_duplicate_key_errors,
 )
+from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 
 #: The port the stand-in is reserved on throughout the codebase — both config
 #: templates' gateway examples read 5094 rather than this, on purpose, so an
@@ -311,10 +309,6 @@ def test_live_standin_overrides_refuse_nothing_without_the_key() -> None:
 
 # ── The whole build ──────────────────────────────────────────────────────────
 
-#: Neither a venv nor lifecycle hooks is what the stand-in's keys are about,
-#: and a real `uv` install per build would dominate this module's runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 _ruamel = YAML(typ="rt")
 
 
@@ -358,32 +352,18 @@ def _remove_config_entries(repo: Path, *keys: str) -> None:
         _ruamel.dump(profile, fh)
 
 
-def _build(runner: CliRunner, repo: Path):
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return runner.invoke(build, CI_FLAGS)
-    finally:
-        os.chdir(previous)
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 @pytest.mark.slow
 class TestTheRenderedDeploymentDialsTheStandIn:
     """What ``osprey build`` writes into ``build/config.yml``, both ways."""
 
-    def test_live_standin_overrides_reach_the_rendered_config(self, runner, lifecycle_repo) -> None:
+    def test_live_standin_overrides_reach_the_rendered_config(self, lifecycle_repo) -> None:
         """The stand-in's own block, as the connector will read it."""
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        config = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())
+        config = rendered_config(lifecycle_repo)
         standin = config["control_system"]["connector"]["live_standin"]
         assert standin["gateways"] == {
             "read_only": {
@@ -399,9 +379,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         }
         assert standin["probe_channel"] == VA_PROBE_CHANNEL
 
-    def test_live_standin_overrides_leave_the_live_target_alone(
-        self, runner, lifecycle_repo
-    ) -> None:
+    def test_live_standin_overrides_leave_the_live_target_alone(self, lifecycle_repo) -> None:
         """The facility's authored ``epics`` block reads exactly as it was shipped.
 
         ``live`` means the machine the facility named, on a deployment running a
@@ -410,22 +388,20 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         """
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
-            "control_system"
-        ]
+        control_system = rendered_config(lifecycle_repo)["control_system"]
         assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]
 
     def test_live_standin_overrides_take_the_limits_posture_from_the_profile(
-        self, runner, lifecycle_repo
+        self, lifecycle_repo
     ) -> None:
         """The limits pair is rendered because the profile authored it."""
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
         assert result.exit_code == 0, result.output
 
         rendered = (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
@@ -434,7 +410,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert limits["mode"] == "optional"
 
     def test_live_standin_overrides_build_with_an_unstated_limits_posture(
-        self, runner, lifecycle_repo
+        self, lifecycle_repo
     ) -> None:
         """Take the pair out of the profile and nothing puts it back — nor is it required.
 
@@ -455,32 +431,30 @@ class TestTheRenderedDeploymentDialsTheStandIn:
             "control_system.limits_checking.mode",
         )
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
-            "control_system"
-        ]
+        control_system = rendered_config(lifecycle_repo)["control_system"]
         assert "limits_checking" not in control_system, (
             "an unstated posture must not be filled in by the build"
         )
 
     def test_live_standin_overrides_leave_the_sandbox_gateways_portless(
-        self, runner, lifecycle_repo
+        self, lifecycle_repo
     ) -> None:
         """The VA's own rows are default-filled from its service port, so no port."""
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        config = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())
+        config = rendered_config(lifecycle_repo)
         va_gateways = config["control_system"]["connector"]["virtual_accelerator"]["gateways"]
         for row in va_gateways.values():
             assert "port" not in row, va_gateways
 
     def test_live_standin_overrides_refuse_a_baseline_with_no_stand_in(
-        self, runner, lifecycle_repo, caplog
+        self, lifecycle_repo, caplog
     ) -> None:
         """A baseline on the stand-in with no stand-in built names a machine nobody serves.
 
@@ -496,7 +470,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         _add_config_entry(lifecycle_repo, "control_system.type", "live_standin")
 
         with caplog.at_level(logging.ERROR):
-            result = _build(runner, lifecycle_repo)
+            result = invoke_build_in(lifecycle_repo)
 
         assert result.exit_code != 0
         assert "control_system.type: live_standin with no" in caplog.text
@@ -504,7 +478,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert not (lifecycle_repo / "build" / "config.yml").exists()
 
     def test_live_standin_overrides_change_nothing_when_the_key_is_absent(
-        self, runner, lifecycle_repo
+        self, lifecycle_repo
     ) -> None:
         """No stand-in: no third target, and the shipped production block stands.
 
@@ -515,7 +489,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         """
         _set_live_standin(lifecycle_repo, None)
 
-        result = _build(runner, lifecycle_repo)
+        result = invoke_build_in(lifecycle_repo)
         assert result.exit_code == 0, result.output
 
         rendered = (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
@@ -530,7 +504,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert control_system["limits_checking"]["mode"] == "optional"
 
     def test_live_standin_overrides_refuse_a_duplicate_at_build_time(
-        self, runner, lifecycle_repo, caplog
+        self, lifecycle_repo, caplog
     ) -> None:
         """The refusal is reached by a real build, not only by its unit.
 
@@ -545,7 +519,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         )
 
         with caplog.at_level(logging.ERROR):
-            result = _build(runner, lifecycle_repo)
+            result = invoke_build_in(lifecycle_repo)
 
         assert result.exit_code != 0
         assert "The stand-in owns that key" in caplog.text

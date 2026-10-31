@@ -59,7 +59,7 @@ def disk_signature(config_path: str | Path | None) -> tuple[Any, ...]:
     # Same rule as `loader.HealthConfigLoader.load` — deliberately, and
     # through the same helper. A signature that stats different files
     # than the loader watches is a cache that never invalidates.
-    from osprey_connectors.workspace import deployment_env_chain
+    from osprey.utils.workspace import deployment_env_chain
 
     return (
         stat_signature(path),

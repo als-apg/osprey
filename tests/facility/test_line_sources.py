@@ -183,8 +183,10 @@ def test_every_line_group_has_a_one_line_description_and_names() -> None:
         assert group["names"], group["id"]
 
 
-def test_the_line_place_spans_the_deck_from_its_start_marker() -> None:
-    sys.path.insert(0, str(GENERATOR.parent))
+def test_the_line_place_spans_the_deck_from_its_start_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(str(GENERATOR.parent))
     import _line
 
     places = read_yaml((EXAMPLE / "records/places.yaml").read_text(encoding="utf-8"))
@@ -193,11 +195,11 @@ def test_the_line_place_spans_the_deck_from_its_start_marker() -> None:
     assert place["span"] == {"model": "LINE", "from_marker": _line.START_MARKER}
 
 
-def test_the_losing_kick_loses_the_particle_on_the_deck() -> None:
+def test_the_losing_kick_loses_the_particle_on_the_deck(monkeypatch: pytest.MonkeyPatch) -> None:
     at = pytest.importorskip("at")
     import numpy as np
 
-    sys.path.insert(0, str(GENERATOR.parent))
+    monkeypatch.syspath_prepend(str(GENERATOR.parent))
     import _line
 
     lattice = at.load_lattice(str(EXAMPLE / "decks/LINE.json"))

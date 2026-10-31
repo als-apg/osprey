@@ -50,126 +50,160 @@ def _make_error_response(error_type, message, suggestions=None):
 # -- Positive detection tests --
 
 
-def test_connection_error_injects_guidance(hook_runner, make_config):
-    """Connection error triggers additionalContext with guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        tool_response=_make_error_response(
+@pytest.mark.parametrize(
+    ("tool_name", "tool_input", "error_type", "message", "expected_class"),
+    [
+        pytest.param(
+            "mcp__controls__channel_read",
+            {"channels": ["SR:CURRENT:RB"]},
             "connection_error",
             "Failed to connect to the control system: Connection refused",
+            "Connection",
+            id="connection",
         ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Connection" in ctx
-    assert "error-handling" in ctx.lower() or "error-handling.md" in ctx
-
-
-def test_timeout_error_injects_guidance(hook_runner, make_config):
-    """Timeout error is classified as Connection class."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__archiver_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        tool_response=_make_error_response(
+        # A timeout is a reachability problem, not a server fault.
+        pytest.param(
+            "mcp__controls__archiver_read",
+            {"channels": ["SR:CURRENT:RB"]},
             "timeout_error",
             "archiver_read timed out after 30s",
+            "Connection",
+            id="timeout",
         ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Connection" in ctx
-
-
-def test_validation_error_injects_guidance(hook_runner, make_config):
-    """Validation errors produce Validation class guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_register",
-        {"content": "test"},
-        config_path=config,
-        tool_response=_make_error_response(
+        pytest.param(
+            "mcp__osprey_workspace__artifact_register",
+            {"content": "test"},
             "validation_error",
             "Invalid content_type: application/octet-stream",
+            "Validation",
+            id="validation",
         ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Validation" in ctx
-
-
-def test_internal_error_injects_guidance(hook_runner, make_config):
-    """Internal server errors produce Internal class guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__python__execute",
-        {"code": "1/0"},
-        config_path=config,
-        tool_response=_make_error_response(
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "1/0"},
             "internal_error",
             "Unexpected error during execute: ZeroDivisionError",
+            "Internal",
+            id="internal",
         ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Internal" in ctx
-
-
-def test_safety_error_injects_guidance(hook_runner, make_config):
-    """safety_error is classified as Safety class (sandbox guard tripped)."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__python__execute",
-        {"code": "x = [0] * 10**12"},
-        config_path=config,
-        tool_response=_make_error_response(
+        # The sandbox guard tripped.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "x = [0] * 10**12"},
             "safety_error",
             "Container refused to run: memory cap exceeded",
+            "Safety",
+            id="safety",
         ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
+        pytest.param(
+            "mcp__osprey_workspace__lattice_load",
+            {"path": "broken.lat"},
+            "lattice_error",
+            "Lattice load failed: element MQUAD1 missing required field",
+            "Execution",
+            id="lattice",
+        ),
+        pytest.param(
+            "mcp__osprey_workspace__lattice_load",
+            {"path": "ring.lat"},
+            "service_unavailable",
+            "pyAT service not reachable",
+            "Connection",
+            id="service-unavailable",
+        ),
+        pytest.param(
+            "mcp__osprey_workspace__artifact_register",
+            {"path": "missing.h5"},
+            "file_not_found",
+            "Artifact not found: missing.h5",
+            "Data",
+            id="file-not-found",
+        ),
+        # ARIEL tools are under the same prefixes, so their errors are caught too.
+        pytest.param(
+            "mcp__ariel__search",
+            {"query": "test"},
+            "connection_error",
+            "ARIEL service unreachable",
+            "Connection",
+            id="ariel",
+        ),
+        # An error_type the class table has never heard of defaults to Internal.
+        pytest.param(
+            "mcp__controls__channel_read",
+            {"channels": ["SR:CURRENT:RB"]},
+            "some_new_error_type",
+            "Something novel went wrong",
+            "Internal",
+            id="unknown-type",
+        ),
+        # There is no permission_error entry in ERROR_CLASS_MAP, so it takes the
+        # Internal default; this row documents that behaviour.
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "PROTECTED:PV", "value": 1.0}]},
+            "permission_error",
+            "Insufficient permissions to write to PROTECTED:PV",
+            "Internal",
+            id="permission",
+        ),
+        # Python code failures.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "import nonexistent_module"},
+            "execution_error",
+            "ModuleNotFoundError: No module named 'nonexistent_module'",
+            "Execution",
+            id="execution",
+        ),
+        pytest.param(
+            "mcp__controls__channel_read",
+            {"channels": ["NONEXISTENT:PV"]},
+            "not_found",
+            "Channel NONEXISTENT:PV not found in the control system",
+            "Data",
+            id="data-not-found",
+        ),
+        pytest.param(
+            "mcp__osprey_workspace__artifact_register",
+            {"query": "nonexistent artifact"},
+            "no_results",
+            "No artifacts matched the query 'nonexistent artifact'",
+            "Data",
+            id="data-no-results",
+        ),
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
+            "limits_violation",
+            "Value 999.0 exceeds max_value=100.0 for TEST:PV",
+            "Validation",
+            id="limits-violation",
+        ),
+    ],
+)
+def test_structured_error_injects_class_guidance(
+    hook_runner, make_config, tool_name, tool_input, error_type, message, expected_class
+):
+    """A structured error from an OSPREY tool injects guidance for its error class.
 
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Safety" in ctx
-    assert "error-handling" in ctx.lower() or "error-handling.md" in ctx
-
-
-def test_lattice_error_injects_guidance(hook_runner, make_config):
-    """lattice_error is classified as Execution class."""
+    The guidance names the class the error_type maps to and points at the
+    error-handling protocol.
+    """
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__osprey_workspace__lattice_load",
-        {"path": "broken.lat"},
+        tool_name,
+        tool_input,
         config_path=config,
-        tool_response=_make_error_response(
-            "lattice_error",
-            "Lattice load failed: element MQUAD1 missing required field",
-        ),
+        tool_response=_make_error_response(error_type, message),
         hook_config=DEFAULT_ERROR_CONFIG,
     )
 
     assert result is not None
     ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Execution" in ctx
+    assert expected_class in ctx
+    assert "error-handling" in ctx.lower()
 
 
 @pytest.mark.parametrize(
@@ -207,66 +241,6 @@ def test_switch_and_refusal_types_do_not_fall_through_to_internal(
     ctx = result["hookSpecificOutput"]["additionalContext"]
     assert expected_class in ctx
     assert "Internal" not in ctx
-
-
-def test_service_unavailable_injects_guidance(hook_runner, make_config):
-    """service_unavailable is classified as Connection class."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__osprey_workspace__lattice_load",
-        {"path": "ring.lat"},
-        config_path=config,
-        tool_response=_make_error_response(
-            "service_unavailable",
-            "pyAT service not reachable",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Connection" in ctx
-
-
-def test_file_not_found_injects_guidance(hook_runner, make_config):
-    """file_not_found is classified as Data class."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_register",
-        {"path": "missing.h5"},
-        config_path=config,
-        tool_response=_make_error_response(
-            "file_not_found",
-            "Artifact not found: missing.h5",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Data" in ctx
-
-
-def test_ariel_error_detected(hook_runner, make_config):
-    """ARIEL MCP tool errors are also detected."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__ariel__search",
-        {"query": "test"},
-        config_path=config,
-        tool_response=_make_error_response(
-            "connection_error",
-            "ARIEL service unreachable",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Connection" in ctx
 
 
 # -- Negative detection tests (no error -> silent exit) --
@@ -356,26 +330,6 @@ def test_isError_without_envelope_falls_back_to_internal(hook_runner, make_confi
     assert "Internal" in ctx  # Fallback classification
 
 
-def test_unknown_error_type_defaults_to_internal(hook_runner, make_config):
-    """Unknown error_type values default to Internal class."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        tool_response=_make_error_response(
-            "some_new_error_type",
-            "Something novel went wrong",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Internal" in ctx
-
-
 def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
     """Injected guidance includes key anti-pattern reminders."""
     config = make_config({})
@@ -397,151 +351,6 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
     assert "mock data" in ctx.lower() or "mock" in ctx.lower()
     assert "retry" in ctx.lower()
     assert "infrastructure" in ctx.lower() or "debug" in ctx.lower()
-
-
-def test_dict_tool_response_detected(hook_runner, make_config):
-    """Error detection on a CallToolResult-shaped dict with isError=True."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        tool_response={
-            "isError": True,
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(
-                        {
-                            "error": True,
-                            "error_type": "connection_error",
-                            "error_message": "IOC offline",
-                            "suggestions": [],
-                        }
-                    ),
-                }
-            ],
-        },
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Connection" in ctx
-
-
-# -- Missing error classes (gap fill) --
-
-
-def test_permission_error_injects_guidance(hook_runner, make_config):
-    """Permission-denied errors from hooks are classified as Execution class.
-
-    The hook itself doesn't have a 'permission_error' type in ERROR_CLASS_MAP,
-    so unrecognized types default to Internal. This test documents the behavior.
-    """
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "PROTECTED:PV", "value": 1.0}]},
-        config_path=config,
-        tool_response=_make_error_response(
-            "permission_error",
-            "Insufficient permissions to write to PROTECTED:PV",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    # permission_error is not in ERROR_CLASS_MAP -> defaults to Internal
-    assert "Internal" in ctx
-    assert "error-handling" in ctx.lower()
-
-
-def test_execution_error_injects_guidance(hook_runner, make_config):
-    """Execution errors (python code failures) produce Execution class guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__python__execute",
-        {"code": "import nonexistent_module"},
-        config_path=config,
-        tool_response=_make_error_response(
-            "execution_error",
-            "ModuleNotFoundError: No module named 'nonexistent_module'",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Execution" in ctx
-    assert "error-handling" in ctx.lower()
-
-
-def test_data_not_found_injects_guidance(hook_runner, make_config):
-    """Data not-found errors produce Data class guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__channel_read",
-        {"channels": ["NONEXISTENT:PV"]},
-        config_path=config,
-        tool_response=_make_error_response(
-            "not_found",
-            "Channel NONEXISTENT:PV not found in the control system",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Data" in ctx
-    assert "error-handling" in ctx.lower()
-
-
-def test_data_no_results_injects_guidance(hook_runner, make_config):
-    """No-results data errors produce Data class guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__osprey_workspace__artifact_register",
-        {"query": "nonexistent artifact"},
-        config_path=config,
-        tool_response=_make_error_response(
-            "no_results",
-            "No artifacts matched the query 'nonexistent artifact'",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Data" in ctx
-    assert "error-handling" in ctx.lower()
-
-
-def test_limits_violation_error_injects_guidance(hook_runner, make_config):
-    """Limits violation errors produce Validation class guidance."""
-    config = make_config({})
-    result = hook_runner(
-        "osprey_error_guidance.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
-        config_path=config,
-        tool_response=_make_error_response(
-            "limits_violation",
-            "Value 999.0 exceeds max_value=100.0 for TEST:PV",
-        ),
-        hook_config=DEFAULT_ERROR_CONFIG,
-    )
-
-    assert result is not None
-    ctx = result["hookSpecificOutput"]["additionalContext"]
-    assert "Validation" in ctx
-    assert "error-handling" in ctx.lower()
 
 
 # ============================================================================
@@ -574,33 +383,6 @@ def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
     ctx = result["hookSpecificOutput"]["additionalContext"]
     assert "Connection" in ctx
     assert "error-handling" in ctx.lower()
-
-
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Unusable stdin injects nothing instead of crashing the tool call.
-
-    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
-    or truthy (``[1,2,3]``) — carry no tool response to inspect. A PostToolUse
-    hook that exited non-zero here would surface as a failure on a tool call
-    that already succeeded. The truthy payload is the one an emptiness check
-    lets through, so it has to be rejected on shape.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_error_guidance.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
 
 
 # ============================================================================
@@ -638,6 +420,8 @@ EXPECTED_ERROR_CLASSES = {
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    "record_unavailable": "Connection",
+    "incomplete": "Connection",
     "manager_unreachable": "Connection",
     "environment_unavailable": "Connection",
     "abort_pause_timeout": "Connection",

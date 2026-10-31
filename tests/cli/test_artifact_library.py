@@ -17,14 +17,44 @@ from osprey.cli.templates.artifact_library import (
 
 
 class TestListArtifacts:
-    def test_hooks_returns_list(self):
-        names = list_artifacts("hooks")
+    @pytest.mark.parametrize("kind", ["hooks", "rules", "skills", "agents", "output_styles"])
+    def test_returns_a_non_empty_list(self, kind):
+        names = list_artifacts(kind)
         assert isinstance(names, list)
         assert len(names) > 0
 
-    def test_hooks_are_sorted(self):
-        names = list_artifacts("hooks")
+    @pytest.mark.parametrize("kind", ["hooks", "rules", "skills", "agents"])
+    def test_is_sorted(self, kind):
+        names = list_artifacts(kind)
         assert names == sorted(names)
+
+    @pytest.mark.parametrize(
+        ("kind", "known"),
+        [
+            # Hooks use user-facing short names: osprey_ prefix stripped, underscores → hyphens
+            pytest.param(
+                "hooks",
+                ("approval", "writes-check", "limits", "hook-log", "hook-config"),
+                id="hooks",
+            ),
+            pytest.param(
+                "rules", ("safety", "error-handling", "artifacts", "python-execution"), id="rules"
+            ),
+            pytest.param("skills", ("diagnose", "setup-mode", "session-report"), id="skills"),
+            pytest.param("agents", ("channel-finder", "data-visualizer"), id="agents"),
+            pytest.param("output_styles", ("control-operator",), id="output_styles"),
+        ],
+    )
+    def test_contains_the_known_artifacts(self, kind, known):
+        names = list_artifacts(kind)
+        for name in known:
+            assert name in names
+
+    @pytest.mark.parametrize("kind", ["rules", "agents", "output_styles"])
+    def test_short_names_have_no_template_suffix(self, kind):
+        for name in list_artifacts(kind):
+            assert not name.endswith(".j2"), f"{kind} name should not end with .j2: {name}"
+            assert not name.endswith(".md"), f"{kind} name should not end with .md: {name}"
 
     def test_hooks_excludes_pycache(self):
         names = list_artifacts("hooks")
@@ -36,92 +66,11 @@ class TestListArtifacts:
         assert "hook-config" in names
         assert "hook_config" not in names  # Raw stem should not appear
 
-    def test_hooks_contains_known_hooks(self):
-        names = list_artifacts("hooks")
-        # Hooks use user-facing short names: osprey_ prefix stripped, underscores → hyphens
-        assert "approval" in names
-        assert "writes-check" in names
-        assert "limits" in names
-        assert "hook-log" in names
-        assert "hook-config" in names
-
-    def test_rules_returns_list(self):
-        names = list_artifacts("rules")
-        assert isinstance(names, list)
-        assert len(names) > 0
-
-    def test_rules_are_sorted(self):
-        names = list_artifacts("rules")
-        assert names == sorted(names)
-
-    def test_rules_contains_known_rules(self):
-        names = list_artifacts("rules")
-        assert "safety" in names
-        assert "error-handling" in names
-        assert "artifacts" in names
-        assert "python-execution" in names
-
-    def test_rules_short_names_have_no_j2_suffix(self):
-        names = list_artifacts("rules")
-        for name in names:
-            assert not name.endswith(".j2"), f"Rule name should not end with .j2: {name}"
-            assert not name.endswith(".md"), f"Rule name should not end with .md: {name}"
-
-    def test_skills_returns_list(self):
-        names = list_artifacts("skills")
-        assert isinstance(names, list)
-        assert len(names) > 0
-
-    def test_skills_are_sorted(self):
-        names = list_artifacts("skills")
-        assert names == sorted(names)
-
-    def test_skills_contains_known_skills(self):
-        names = list_artifacts("skills")
-        assert "diagnose" in names
-        assert "setup-mode" in names
-        assert "session-report" in names
-
     def test_skills_excludes_underscore_dirs(self):
         # e.g. _terminology should be excluded
         names = list_artifacts("skills")
         for name in names:
             assert not name.startswith("_"), f"Skill name should not start with _: {name}"
-
-    def test_agents_returns_list(self):
-        names = list_artifacts("agents")
-        assert isinstance(names, list)
-        assert len(names) > 0
-
-    def test_agents_are_sorted(self):
-        names = list_artifacts("agents")
-        assert names == sorted(names)
-
-    def test_agents_contains_known_agents(self):
-        names = list_artifacts("agents")
-        assert "channel-finder" in names
-        assert "data-visualizer" in names
-
-    def test_agents_short_names_have_no_j2_suffix(self):
-        names = list_artifacts("agents")
-        for name in names:
-            assert not name.endswith(".j2")
-            assert not name.endswith(".md")
-
-    def test_output_styles_returns_list(self):
-        names = list_artifacts("output_styles")
-        assert isinstance(names, list)
-        assert len(names) > 0
-
-    def test_output_styles_contains_control_operator(self):
-        names = list_artifacts("output_styles")
-        assert "control-operator" in names
-
-    def test_output_styles_short_names_have_no_suffix(self):
-        names = list_artifacts("output_styles")
-        for name in names:
-            assert not name.endswith(".j2")
-            assert not name.endswith(".md")
 
     def test_unknown_type_raises(self):
         with pytest.raises(ValueError, match="Unknown artifact type"):
@@ -139,21 +88,19 @@ class TestListArtifacts:
 
 
 class TestValidateArtifacts:
-    def test_valid_hooks_passes(self):
-        # Hooks use user-facing short names (osprey_ prefix stripped, _ → -)
-        validate_artifacts({"hooks": ["approval", "writes-check"]})
-
-    def test_valid_rules_passes(self):
-        validate_artifacts({"rules": ["safety", "error-handling"]})
-
-    def test_valid_skills_passes(self):
-        validate_artifacts({"skills": ["diagnose", "setup-mode"]})
-
-    def test_valid_agents_passes(self):
-        validate_artifacts({"agents": ["channel-finder"]})
-
-    def test_valid_output_styles_passes(self):
-        validate_artifacts({"output_styles": ["control-operator"]})
+    @pytest.mark.parametrize(
+        "selection",
+        [
+            # Hooks use user-facing short names (osprey_ prefix stripped, _ → -)
+            pytest.param({"hooks": ["approval", "writes-check"]}, id="hooks"),
+            pytest.param({"rules": ["safety", "error-handling"]}, id="rules"),
+            pytest.param({"skills": ["diagnose", "setup-mode"]}, id="skills"),
+            pytest.param({"agents": ["channel-finder"]}, id="agents"),
+            pytest.param({"output_styles": ["control-operator"]}, id="output_styles"),
+        ],
+    )
+    def test_valid_names_pass(self, selection):
+        validate_artifacts(selection)
 
     def test_empty_dict_passes(self):
         validate_artifacts({})

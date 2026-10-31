@@ -393,9 +393,9 @@ def test_the_endpoints_section_is_the_deploys_own_block(tmp_path, rendered):
     compose.write_text(
         f"""
 services:
-  telemetry_gateway:
+  qmd:
     ports:
-      - "127.0.0.1:{ports["telemetry_gateway"]}:4318"
+      - "127.0.0.1:{ports["qmd"]}:8000"
   postgresql:
     ports:
       - "127.0.0.1:{ports["postgres"]}:5432"
@@ -408,9 +408,9 @@ services:
     output = rendered.export_text()
 
     assert deploy_summary.summary_title(config) in output
-    assert output.index("services") < output.index("telemetry_gateway")
+    assert output.index("services") < output.index("qmd")
     assert output.index("stores") < output.index("postgresql")
-    assert f"127.0.0.1:{ports['telemetry_gateway']}" in output
+    assert f"127.0.0.1:{ports['qmd']}" in output
     assert f"127.0.0.1:{ports['postgres']}" in output
 
 

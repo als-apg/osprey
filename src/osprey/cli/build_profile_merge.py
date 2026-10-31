@@ -19,13 +19,13 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
     tier_writes,
 )
-from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
 from . import build_profile_document as _document
 from .build_profile_document import RENDER_KEYS, _read_profile_document, retired_write_origin
@@ -37,6 +37,7 @@ from .build_profile_presets import (
     list_presets,
     resolve_triggers_path,
 )
+from .derived_keys import derived_key_errors
 from .profile_root import ProfileKind, resolve_profile_root
 
 _LOGGER = logging.getLogger(__name__)
@@ -731,7 +732,7 @@ def _drop_config_path(config: dict[str, Any], parts: list[str]) -> dict[str, Any
 def _refuse_layer_spellings(
     layer: dict[str, Any], layer_rel: str, kind: Any, *, legacy: bool
 ) -> None:
-    """Refuse what a tier or app file may not say: subtraction, attachment, runtime.
+    """Refuse what a tier or app file may not say: subtraction, attachment, runtime, derived keys.
 
     A tier adds by name, so ``exclude:`` has no meaning in it; the same holds
     for an app, whose lists are its own. Attachment is a fact of the kind, set
@@ -739,7 +740,10 @@ def _refuse_layer_spellings(
     file in the retired layer directory (``legacy``) keeps ``exclude:`` and may restate the
     attachment it gets anyway, but never contradict it. The container runtime
     is a fact of the build, stated in the deployment's own profile and written
-    into every render of it, so no layer file, legacy or not, may spell it.
+    into every render of it, so no layer file, legacy or not, may spell it. A
+    ``config:`` key the build renders (:mod:`~osprey.cli.derived_keys`) is
+    refused here, on the file's own block, so the refusal names this file
+    rather than the merged render's ``profile.yml``.
 
     Raises:
         BuildProfileError: Naming the file and the offending key.
@@ -773,6 +777,9 @@ def _refuse_layer_spellings(
             f"{layer_rel}; to change what the deployment runs, edit its "
             f"{PROFILE_FILENAME}."
         )
+    derived = derived_key_errors(layer.get("config"), layer_rel)
+    if derived:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(derived))
 
 
 def _strip_attachment(layer: dict[str, Any]) -> dict[str, Any]:
@@ -816,6 +823,10 @@ _APP_OWNED_KEYS: tuple[str, ...] = (
     "claude_md_template",
     "channel_finder_mode",
 )
+
+#: The one top-level key an app file may set over the host's value rather than
+#: own outright: an app that names no model runs the host's.
+_APP_MODEL_KEY = "model"
 
 _CLAUDE_CODE_SECTION = "claude_code"
 _CONTROL_SYSTEM_SECTION = "control_system"
@@ -1092,9 +1103,11 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     ``claude_code.permissions`` is
     kept, so the host's floor denies union with the app's own — all but the
     host's ``remove_deny`` lifts, which grant the host's own render. The app's
-    ``mcp_servers`` declarations are added to the host's. Every other
-    top-level key, ``provenance`` and ``data`` among them, is the host's
-    verbatim, which is what keeps the data bundle the deployment's. Nothing is
+    ``mcp_servers`` declarations are added to the host's. A ``model:`` the
+    app names replaces the host's, served by the host's provider; an app that
+    names none runs the host's model. Every other top-level key, ``provider``,
+    ``provenance`` and ``data`` among them, is the host's verbatim, which is
+    what keeps the data bundle the deployment's. Nothing is
     read from the package: the app file is a materialized, explicit copy.
 
     Guards are a floor: every ``PreToolUse`` hook in force on the host — a
@@ -1132,6 +1145,10 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     for key in (*_APP_OWNED_KEYS, *sorted(RENDER_KEYS)):
         if key in app:
             render[key] = app[key]
+    # The model is the app's when it names one, else the host's; the provider
+    # that serves it is always the host's.
+    if app.get(_APP_MODEL_KEY) is not None:
+        render[_APP_MODEL_KEY] = app[_APP_MODEL_KEY]
 
     app_servers = app.get("mcp_servers")
     if isinstance(app_servers, dict) and app_servers:
@@ -1545,7 +1562,11 @@ class ResolvedProfileDocument:
 
 
 def resolve_profile_document(
-    raw: dict[str, Any], profile_path: Path, *, warn: bool = True
+    raw: dict[str, Any],
+    profile_path: Path,
+    *,
+    warn: bool = True,
+    root_overlays: Sequence[dict[str, Any]] = (),
 ) -> ResolvedProfileDocument:
     """Resolve a profile document, following the implicit render merge.
 
@@ -1570,6 +1591,13 @@ def resolve_profile_document(
             skip. The loader is the user-facing surface, so it keeps the
             warnings. The same flag gates the write-posture warnings of
             :func:`judge_retired_posture`.
+        root_overlays: Host-variant overlays, already read. They lay over the
+            DEPLOYMENT — the root ``profile.yml`` — before its ``extends`` is
+            resolved: over ``raw`` when it is the root, over the root beside
+            it when ``raw`` is a tier or app. A layer therefore sees the
+            variant only through the root it merges over, and the layer-file
+            refusals judge what the layer file itself spells, never what the
+            host's variant said.
 
     Returns:
         The resolved document and its anchor.
@@ -1613,6 +1641,8 @@ def resolve_profile_document(
         )
 
     if not is_layer:
+        for overlay in root_overlays:
+            normalized = _deep_merge(normalized, overlay)
         chain: list[Path] = []
         resolved = _resolve_extends(
             normalized,
@@ -1666,6 +1696,8 @@ def resolve_profile_document(
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile root must be a YAML mapping: {root_path}")
+    for overlay in root_overlays:
+        root_raw = _deep_merge(root_raw, overlay)
     host_chain: list[Path] = []
     root_resolved = _resolve_extends(
         dict(root_raw),
@@ -1720,7 +1752,7 @@ def _fold_source_tree(
     so the digest depends on content alone and not on filesystem walk order.
 
     ``skip_runtime_output`` is passed for the ``data:`` tree only: the
-    top-level :data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`
+    top-level :data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`
     subtree is where ``osprey up`` mints its own material (per-lane CURVE
     certificates), and hashing it would make every successful start mark its
     own build OUT OF DATE (#716). The subtree is skipped statically — by its
@@ -1751,7 +1783,7 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
     if source.is_dir():
         entries = []
@@ -1838,7 +1870,7 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
       so it resolves exactly where the build copies it from — minus the
       reserved ``data/.runtime/`` subtree
-      (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`), which is
+      (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`), which is
       runtime-minted material (the Bluesky lanes' CURVE certificates) and
       never build input: fold it and every successful ``osprey up`` marks its
       own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
@@ -1951,7 +1983,7 @@ class ProfileInput:
 
 
 def profile_inputs(
-    profile_path: Path, document: ResolvedProfileDocument, *, conventions: bool = True
+    document: ResolvedProfileDocument, *, conventions: bool = True
 ) -> tuple[ProfileInput, ...]:
     """Every file a build of *document* reads, in fold order.
 
@@ -1970,14 +2002,14 @@ def profile_inputs(
        order), then each profile-relative service template
        (``services.<name>.template``, sorted by name; a bundled ``osprey.<name>``
        template is package content and has none);
-    3. the overlay ``.env.variant`` beside *profile_path* selects (``variant``).
+    3. the overlay ``.env.variant`` in ``document.root_dir`` selects (``variant``).
 
-    Material and document entries anchor at ``document.root_dir``; the overlay
-    alone is read beside *profile_path*, so a layer path selects none.
+    Every entry anchors at ``document.root_dir``. A tier or app reads its
+    deployment's overlay there, because the variant reaches its render through
+    the deployment root.
 
     Args:
-        profile_path: The profile file that was resolved. Need not exist.
-        document: Its resolution, from :func:`resolve_profile_document`.
+        document: The profile's resolution, from :func:`resolve_profile_document`.
         conventions: ``False`` for a bundled preset: the ``data:`` root alone.
             A preset is one file among many in a shared package directory, so
             its neighbours, its own file and any overlay are package content.
@@ -1991,10 +2023,10 @@ def profile_inputs(
     entries: list[ProfileInput] = []
 
     if conventions:
-        for path in (root / PROFILE_FILENAME, *document.extends_files):
-            entries.append(
-                ProfileInput(_document_key(path, root), None, path, ProfileInputRole.DOCUMENT)
-            )
+        entries.extend(
+            ProfileInput(_document_key(path, root), None, path, ProfileInputRole.DOCUMENT)
+            for path in (root / PROFILE_FILENAME, *document.extends_files)
+        )
 
     data = document.raw.get("data")
     data_root = BuildProfile(name="", data=data).resolved_data_root(root)
@@ -2055,7 +2087,7 @@ def profile_inputs(
                 )
             )
 
-    overlay = active_variant_overlay(Path(profile_path).parent)
+    overlay = active_variant_overlay(root)
     if overlay is not None:
         entries.append(
             ProfileInput(
@@ -2087,9 +2119,7 @@ def _is_service_template_label(label: str) -> bool:
 _MOVE_INSIDE = "Move it into the repository."
 
 
-def inputs_outside_repository(
-    profile_path: Path, document: ResolvedProfileDocument
-) -> tuple[ProfileInput, ...]:
+def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[ProfileInput, ...]:
     """The inputs of *document* whose resolved path is not under its root.
 
     The repository is the profile root, ``document.root_dir``. Both sides are
@@ -2098,8 +2128,7 @@ def inputs_outside_repository(
     and has none.
 
     Args:
-        profile_path: The profile file that was resolved.
-        document: Its resolution, from :func:`resolve_profile_document`.
+        document: The profile's resolution, from :func:`resolve_profile_document`.
 
     Returns:
         The outside entries of :func:`profile_inputs`, in enumeration order.
@@ -2108,27 +2137,24 @@ def inputs_outside_repository(
         return ()
     root = document.root_dir.resolve()
     return tuple(
-        entry
-        for entry in profile_inputs(profile_path, document)
-        if not entry.path.resolve().is_relative_to(root)
+        entry for entry in profile_inputs(document) if not entry.path.resolve().is_relative_to(root)
     )
 
 
-def refuse_inputs_outside_repository(profile_path: Path, document: ResolvedProfileDocument) -> None:
+def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
     """Refuse a repository profile that reads any input outside the repository.
 
     Called by the profile loaders before validation, so a repository builds
     from a clone or is refused before anything is installed.
 
     Args:
-        profile_path: The profile file that was resolved.
-        document: Its resolution, with any command-line edits applied.
+        document: The profile's resolution, with any command-line edits applied.
 
     Raises:
         BuildProfileError: One line per outside input, in enumeration order,
             naming the profile key, the resolved path and the remedy.
     """
-    outside = inputs_outside_repository(profile_path, document)
+    outside = inputs_outside_repository(document)
     if not outside:
         return
     root_document = (document.root_dir / PROFILE_FILENAME).resolve()
@@ -2220,7 +2246,7 @@ def _hash_resolved_profile(
     document = resolve_profile_document(raw, profile_path, warn=False)
     canonical = json.dumps(document.raw, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode("utf-8"))
-    _fold_profile_material(digest, profile_inputs(profile_path, document, conventions=conventions))
+    _fold_profile_material(digest, profile_inputs(document, conventions=conventions))
     # Sorted so the record's iteration order cannot move a hash; a profile with
     # no exclusions folds nothing and keeps the digest it had before.
     for artifact in sorted(document.excluded_artifacts):
@@ -2266,14 +2292,15 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     drift-fingerprint input, hashed against the profile path the manifest
     recorded. Returns ``None`` when the file is missing or unreadable.
 
-    The host variant is folded in from the profile's own directory
-    (:func:`profile_inputs`) rather than passed by the caller. That is deliberate: this one function is what the
-    build stamps and what ``osprey up``/``status`` recompute, and a fingerprint
+    The host variant is folded in from the deployment root
+    (:func:`profile_inputs`) rather than passed by the caller. That is
+    deliberate: this one function is what the build stamps and what ``osprey up``/``status`` recompute, and a fingerprint
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
     off the directory, both sides of the comparison see the same selection, and
-    a directory with no ``.env.variant`` (a layer's, a preset's) folds
-    nothing.
+    a directory with no ``.env.variant`` (a preset's) folds nothing. A tier or
+    app reads it off its deployment root, because the variant reaches its
+    render through that root.
     """
     try:
         path = Path(profile_path)

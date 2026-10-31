@@ -62,6 +62,29 @@ CLAUDE_STATE_FILENAME = ".claude.json"
 #: existing state.
 CLAUDE_CONFIG_VOLUME_SUFFIX = "-claude-config"
 
+#: Each web-terminal user's named volume holding Claude Code's transcripts is
+#: ``<user>`` plus this suffix. It mounts at ``<claude-config>/projects``, so the
+#: transcripts can be mounted read-only elsewhere without the credentials and
+#: session state the claude-config volume holds beside them.
+CLAUDE_PROJECTS_VOLUME_SUFFIX = "-claude-projects"
+
+#: A dispatch worker's transcripts volume in shared workspace mode, mounted at
+#: ``<agent-data dir>/claude-config/projects``. See
+#: :func:`dispatch_claude_projects_volume` for isolated mode.
+DISPATCH_CLAUDE_PROJECTS_VOLUME = "dispatch_claude_projects"
+
+
+def dispatch_claude_projects_volume(index: int | None = None) -> str:
+    """The bare compose name of a dispatch worker's transcripts volume.
+
+    ``None`` names the one volume every worker shares in shared workspace mode;
+    an index names worker ``index``'s own, beside its ``dispatch_workspace_<index>``.
+    """
+    if index is None:
+        return DISPATCH_CLAUDE_PROJECTS_VOLUME
+    return f"{DISPATCH_CLAUDE_PROJECTS_VOLUME}_{index}"
+
+
 #: The one auth shape whose interactive session prompts for key approval.
 #: Token-auth providers (``ANTHROPIC_AUTH_TOKEN``) never see the prompt.
 _PROMPTED_AUTH_ENV_VAR = "ANTHROPIC_API_KEY"

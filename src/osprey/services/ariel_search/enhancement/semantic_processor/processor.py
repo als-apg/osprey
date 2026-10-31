@@ -232,10 +232,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
                 model_config=self._completion_model_config(),
             )
 
-            if isinstance(response, str):
-                response_text = response
-            else:
-                response_text = str(response)
+            response_text = response if isinstance(response, str) else str(response)
             return self._parse_response(response_text)
 
         except ImportError:
@@ -258,12 +255,9 @@ class SemanticProcessorModule(BaseEnhancementModule):
             # Handle cases where LLM wraps JSON in markdown code blocks
             text = response_text.strip()
 
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.startswith("```"):
-                text = text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
+            text = text.removeprefix("```json")
+            text = text.removeprefix("```")
+            text = text.removesuffix("```")
 
             text = text.strip()
 

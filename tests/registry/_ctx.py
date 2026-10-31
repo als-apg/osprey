@@ -19,13 +19,13 @@ def base_ctx(**overrides: Any) -> dict[str, Any]:
 
 
 def render_ctx(**overrides: Any) -> dict[str, Any]:
-    """:func:`base_ctx` plus ``agent_data_root``, the render funnel's minimum.
+    """:func:`base_ctx` plus the keys the render funnel derives for every render.
 
     ``settings.json.j2`` concatenates ``agent_data_root`` into the ``Read()``
     globs, so a context without it renders filesystem-root grants that no real
-    render produces.
+    render produces; it renders ``cleanup_period_days`` unconditionally.
     """
-    ctx = base_ctx(agent_data_root=DEFAULT_AGENT_DATA_BASE_DIR)
+    ctx = base_ctx(agent_data_root=DEFAULT_AGENT_DATA_BASE_DIR, cleanup_period_days=30)
     ctx.update(overrides)
     return ctx
 

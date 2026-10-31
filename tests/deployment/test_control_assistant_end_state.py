@@ -34,10 +34,7 @@ from click.testing import CliRunner
 from osprey.deployment.compose_generator import _dispatch_worker_corpus_mounts
 from osprey.deployment.web_terminals import env_production, render_images, roster
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
-from osprey.deployment.web_terminals.env_production import (
-    ensure_env_production,
-    telemetry_delivered_vars,
-)
+from osprey.deployment.web_terminals.env_production import ensure_env_production
 from osprey.deployment.web_terminals.lint import lint_app_render, lint_web_terminals
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
@@ -294,7 +291,6 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "phoebus_handle_renders": config_needs_phoebus_handles,
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
-        "telemetry_vars_renders": lambda cfg: bool(telemetry_delivered_vars(cfg)),
     }
     assert set(predicates) | {"launch_token_renders"} == set(grants)
     for grant, predicate in predicates.items():

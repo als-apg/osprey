@@ -4,7 +4,8 @@
  *
  * The card for an AskUserQuestion: one question per page, options as radio rows
  * (checkboxes for multi-select), and an "Other…" row for free text. Once
- * answered it folds to one line; a skip denies the request.
+ * settled it folds to a trace: one line that opens to each question and its
+ * answer. A replay draws the same trace from the call and its result.
  *
  * @module chat-question
  */
@@ -66,6 +67,136 @@ function normaliseQuestions(raw) {
   return specs.length > 0
     ? specs
     : [{ question: 'The agent has a question.', header: '', multiSelect: false, options: [] }];
+}
+
+/**
+ * How a question settled, as its trace names it.
+ * @typedef {'answered' | 'answered-elsewhere' | 'skipped' | 'expired' | 'cancelled'} QuestionOutcome
+ */
+
+/** @type {Readonly<Record<QuestionOutcome, { state: string, icon: ChatIconName, text: string }>>} */
+const OUTCOMES = Object.freeze({
+  answered: { state: 'answered', icon: 'check', text: 'Answered' },
+  'answered-elsewhere': { state: 'answered', icon: 'check', text: 'Answered in another tab' },
+  skipped: { state: 'skipped', icon: 'x', text: 'Skipped' },
+  expired: { state: 'skipped', icon: 'x', text: 'No answer · skipped' },
+  cancelled: { state: 'cancelled', icon: 'circle', text: 'Cancelled' },
+});
+
+/**
+ * Fill `el` with a settled question's trace: a line naming the outcome and
+ * what was asked, which opens to every question with its answer.
+ * @param {HTMLElement} el - the card, whose `data-state` styles the line
+ * @param {QuestionSpec[]} questions
+ * @param {QuestionOutcome} outcome
+ * @param {Record<string, string> | null} answers - by exact question text;
+ *   null when nothing was answered
+ */
+function fillTrace(el, questions, outcome, answers) {
+  const { state, icon, text } = OUTCOMES[outcome];
+  el.dataset.state = state;
+  const subject =
+    questions.length === 1
+      ? questions[0].header || questions[0].question
+      : `${questions.length} questions`;
+  const head = button('op-qtrace-head');
+  head.setAttribute('aria-expanded', 'false');
+  const status = chatIcon(icon);
+  status.classList.add('op-qtrace-status');
+  const chevron = chatIcon('chevron');
+  chevron.classList.add('op-qtrace-chevron');
+  head.append(status, elem('span', 'op-qtrace-label', `${text} · ${subject}`), chevron);
+
+  const body = elem('div', 'op-qtrace-body');
+  body.hidden = true;
+  for (const q of questions) {
+    const item = elem('div', 'op-qtrace-item');
+    if (q.header) item.append(elem('span', 'op-card-chip', q.header));
+    item.append(elem('p', 'op-qtrace-q', q.question));
+    const value = answers?.[q.question] ?? '';
+    const reply = elem('p', 'op-qtrace-a', value || 'No answer');
+    if (!value) reply.dataset.empty = 'true';
+    item.append(reply);
+    body.append(item);
+  }
+  head.addEventListener('click', () => {
+    const open = body.hidden;
+    body.hidden = !open;
+    head.setAttribute('aria-expanded', String(open));
+  });
+  el.replaceChildren(head, body);
+}
+
+/**
+ * A settled question as history draws it: the trace its card folded to live.
+ * @param {unknown} rawQuestions - an AskUserQuestion's `input.questions`
+ * @param {{ outcome: QuestionOutcome, answers: Record<string, string> | null }} settled
+ * @returns {HTMLElement}
+ */
+function createQuestionTrace(rawQuestions, { outcome, answers }) {
+  const el = elem('section', 'op-card op-question');
+  el.setAttribute('role', 'group');
+  el.setAttribute('aria-label', 'The agent asked');
+  fillTrace(el, normaliseQuestions(rawQuestions), outcome, answers);
+  return el;
+}
+
+/**
+ * The answers in an AskUserQuestion's result text, keyed by question. The CLI
+ * writes them as `"<question>"="<answer>"`, comma-joined, before a closing
+ * sentence. Each answer runs to the next question's opening or to that
+ * sentence, so a quote inside an answer does not cut it short.
+ * @param {string} text - the call's result text
+ * @param {unknown} rawQuestions - the call's `input.questions`
+ * @returns {Record<string, string>}
+ */
+export function answersFromResult(text, rawQuestions) {
+  const asked = normaliseQuestions(rawQuestions).map((q) => q.question);
+  /** @type {Record<string, string>} */
+  const answers = {};
+  for (const question of asked) {
+    const marker = `"${question}"="`;
+    const at = text.indexOf(marker);
+    if (at < 0) continue;
+    const from = at + marker.length;
+    const ends = [
+      text.indexOf('". You can now continue', from),
+      ...asked
+        .filter((other) => other !== question)
+        .map((other) => text.indexOf(`", "${other}"="`, from)),
+    ].filter((i) => i >= 0);
+    const end = ends.length > 0 ? Math.min(...ends) : text.lastIndexOf('"');
+    if (end > from) answers[question] = text.slice(from, end);
+  }
+  return answers;
+}
+
+/**
+ * The bookkeeping that redraws replayed AskUserQuestion calls. History holds no
+ * question card, only the call and its result, so the call's questions are kept
+ * until its result arrives, which then becomes the trace the card settled to:
+ * answered with the result's answers, or skipped when the call ended in an error.
+ * @returns {{ ask: (event: WireEvent) => void, answer: (event: WireEvent) => HTMLElement | null }}
+ */
+export function createQuestionReplay() {
+  /** @type {Map<string, unknown>} */
+  const asked = new Map();
+  return {
+    ask(event) {
+      if (event.tool_use_id) asked.set(String(event.tool_use_id), event.input?.questions);
+    },
+    answer(event) {
+      const id = String(event.tool_use_id ?? '');
+      if (!asked.has(id)) return null;
+      const questions = asked.get(id);
+      asked.delete(id);
+      const skipped = Boolean(event.is_error);
+      return createQuestionTrace(questions, {
+        outcome: skipped ? 'skipped' : 'answered',
+        answers: skipped ? null : answersFromResult(String(event.preview ?? ''), questions),
+      });
+    },
+  };
 }
 
 /**
@@ -277,24 +408,12 @@ export function createQuestionCard(request, hooks) {
   }
 
   /**
-   * Fold the card to its resolved state, listing what was answered.
+   * Fold the card to its trace, holding what was asked and, when answered, the answers.
    * @param {boolean} allowed
    */
   function foldResolved(allowed) {
-    if (!allowed) {
-      fold('skipped', 'x', 'Skipped');
-      return;
-    }
-    fold('answered', 'check', 'Answered');
-    const list2 = elem('ul', 'op-card-answers');
-    questions.forEach((q, i) => {
-      const item = document.createElement('li');
-      const label = document.createElement('strong');
-      label.textContent = q.header || q.question;
-      item.append(label, document.createTextNode(`: ${valueOf(i)}`));
-      list2.append(item);
-    });
-    el.append(list2);
+    state = allowed ? 'answered' : 'skipped';
+    fillTrace(el, questions, allowed ? 'answered' : 'skipped', allowed ? answersFor() : null);
   }
 
   /** @param {boolean} allowed */
@@ -323,20 +442,8 @@ export function createQuestionCard(request, hooks) {
 
   function cancel() {
     if (!isPending()) return;
-    fold('cancelled', 'circle', 'Cancelled');
-  }
-
-  /**
-   * @param {string} tone
-   * @param {ChatIconName} iconName
-   * @param {string} text
-   */
-  function fold(tone, iconName, text) {
-    state = tone;
-    el.dataset.state = tone;
-    const line = elem('div', 'op-card-line');
-    line.append(chatIcon(iconName), elem('span', 'op-card-line-text', text));
-    el.replaceChildren(line);
+    state = 'cancelled';
+    fillTrace(el, questions, 'cancelled', null);
   }
 
   prev.addEventListener('click', () => goTo(page - 1));
@@ -395,9 +502,10 @@ export function createQuestionCard(request, hooks) {
       // Answered in another tab, or declined by the server's deadline; this
       // tab's own answer in flight folds itself.
       if (state !== 'pending') return;
-      if (answer.expired) fold('skipped', 'x', 'No answer · skipped');
-      else if (answer.allow) fold('answered', 'check', 'Answered in another tab');
-      else fold('skipped', 'x', 'Skipped');
+      /** @type {QuestionOutcome} */
+      const outcome = answer.expired ? 'expired' : answer.allow ? 'answered-elsewhere' : 'skipped';
+      state = OUTCOMES[outcome].state;
+      fillTrace(el, questions, outcome, answer.allow ? (answer.answers ?? null) : null);
       hooks.onSettled();
     },
   };

@@ -1,13 +1,16 @@
-"""The hook half of the unified audit ledger.
+"""The hook half of the agent record's audit entries.
 
 A hook is a fresh ``python3`` process with no ``osprey`` on its path, so it
-cannot call :mod:`osprey.audit.writer`. It reimplements the minimal subset of
-the writer instead — which is exactly the drift risk this file exists to pin:
-the schema tests below assert the emitter's field set, bounds, closed sets and
-timestamp format against :class:`osprey.audit.envelope.AuditEnvelope` itself,
-importing osprey *in the test only*. If the envelope grows a required field,
-these fail rather than letting the hook ledger quietly become a different
-format that happens to share a directory.
+cannot call :mod:`osprey.audit.writer` or :mod:`osprey.agent_record.writer`. It
+reimplements the minimal subset of both instead — which is exactly the drift
+risk this file exists to pin: the schema tests below assert the emitter's field
+set, bounds, closed sets and timestamp format against
+:class:`osprey.audit.envelope.AuditEnvelope`, and its spool constants, off
+switch, segment protocol and line bytes against
+:mod:`osprey.agent_record.contract` and :mod:`osprey.agent_record.writer`,
+importing osprey *in the test only*. A hook-written segment is consumed through
+the real spool consumer, so a line the record would refuse fails here rather
+than in a deployment's health report.
 
 The behavioural half runs the hooks the way Claude Code does — as subprocesses
 over stdin/stdout — with a runner local to this file rather than the shared
@@ -79,14 +82,78 @@ def decision_of(result):
     return None
 
 
+def spool_dir(root, actor):
+    """*actor*'s own spool directory under *root*, when no launcher names one."""
+    return Path(root) / "var" / "spool" / actor
+
+
+def segments(directory, suffix=".sealed"):
+    """The segments in *directory* with *suffix*, oldest first."""
+    from osprey.agent_record.contract import parse_segment_name
+
+    found = []
+    for path in Path(directory).glob(f"*{suffix}"):
+        name = parse_segment_name(path.name)
+        assert name is not None, f"{path.name} is not a segment name"
+        found.append((name.start_ns, path))
+    return [path for _, path in sorted(found)]
+
+
+def spool_lines(directory):
+    """Every line of every sealed segment in *directory*, parsed, oldest first."""
+    return [
+        json.loads(line)
+        for path in segments(directory)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+class Ledger:
+    """One hook surface's entries in one spool directory."""
+
+    def __init__(self, directory, surface):
+        self.directory = Path(directory)
+        self.surface = surface
+
+    def lines(self):
+        if not self.directory.is_dir():
+            return []
+        return [
+            line for line in spool_lines(self.directory) if line["body"]["surface"] == self.surface
+        ]
+
+    def exists(self):
+        return bool(self.lines())
+
+    def read_text(self):
+        return "".join(json.dumps(line, ensure_ascii=False) + "\n" for line in self.lines())
+
+
 def ledger(root, actor, surface):
-    """Path of one hook ledger under *root*'s audit zone."""
-    return Path(root) / "var" / "audit" / actor / f"{surface}.jsonl"
+    """*surface*'s entries in *actor*'s spool directory under *root*."""
+    return Ledger(spool_dir(root, actor), surface)
 
 
-def records(path):
-    """Every record in a ledger, parsed."""
-    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+def records(ledger_):
+    """The audit bodies a :class:`Ledger` holds, oldest first."""
+    return [line["body"] for line in ledger_.lines()]
+
+
+def located(root, entry_id):
+    """``(segment, line)`` for the entry *entry_id* under *root*'s spool zone."""
+    assert entry_id, "emit_audit stored nothing"
+    for path in Path(root, "var", "spool").glob("*/*.sealed"):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = json.loads(raw)
+            if line["entry_id"] == entry_id:
+                return path, line
+    raise AssertionError(f"entry {entry_id} is not in a sealed segment under {root}")
+
+
+def body_of(root, entry_id):
+    """The audit body of the entry *entry_id* under *root*."""
+    return located(root, entry_id)[1]["body"]
 
 
 @pytest.fixture
@@ -119,6 +186,19 @@ def project_env(repo):
 def emitter():
     """The hook logging module, imported in-process for its helpers."""
     return import_hook("osprey_hook_log")
+
+
+@pytest.fixture(autouse=True)
+def _spool_named_by_the_repo(monkeypatch):
+    """Exercise the emitter's own directory derivation unless a test names one.
+
+    The suite-wide spool zone points ``OSPREY_SPOOL_DIR`` at a directory of its
+    own; the routing below is about what the hook derives when no launcher says,
+    so the variable is cleared here and set again only by the tests about it.
+    The off switch is cleared for the same reason: a record must be written.
+    """
+    monkeypatch.delenv("OSPREY_SPOOL_DIR", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
 
 
 # --------------------------------------------------------------------------
@@ -154,8 +234,7 @@ class TestSchemaParity:
 
         Six 256-character identifiers plus a 1024-character ``detail`` encode
         to roughly 2.4 KB, so a hook that applied only the field bounds would
-        emit lines past the size the writer treats as load-bearing — and hooks
-        share ``var/audit/<identity>/`` with the middleware that respects it.
+        emit bodies past the size the audit writer holds every other entry to.
         """
         from osprey.audit import writer as osprey_writer
 
@@ -182,17 +261,17 @@ class TestSchemaParity:
         assert emitter.POSTURE_SESSION_ENV == osprey_posture.POSTURE_SESSION_ENV_VAR
         assert emitter.EXECUTION_MODE_ENV == osprey_posture.POSTURE_ENV_VAR
 
-    def test_audit_relpath_matches_the_frameworks(self, emitter):
-        from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+    def test_spool_relpath_matches_the_frameworks(self, emitter):
+        from osprey.utils.workspace import SPOOL_DIR_RELPATH
 
-        assert emitter.AUDIT_DIR_RELPATH == AUDIT_DIR_RELPATH
+        assert emitter.SPOOL_DIR_RELPATH == SPOOL_DIR_RELPATH
 
     def test_a_record_carries_exactly_the_envelopes_keys_in_order(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SOURCE", "spawn")
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "sess-1")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "writes-check",
             {"tool_name": "mcp__controls__channel_write"},
             decision="refused",
@@ -200,7 +279,7 @@ class TestSchemaParity:
             reason="posture",
             detail="server=bluesky",
         )
-        emitted = records(path)[0]
+        emitted = body_of(repo, entry_id)
 
         reference = osprey_envelope.AuditEnvelope(
             surface="hook_writes_check",
@@ -223,23 +302,23 @@ class TestSchemaParity:
     ):
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits",
             {"tool_name": "mcp__controls__channel_write"},
             decision="refused",
             subject="mcp__controls__channel_write",
             reason="limits_violation",
         )
-        emitted = records(path)[0]
+        emitted = body_of(repo, entry_id)
         assert "detail" not in emitted
         assert list(emitted) == ["ts", *osprey_envelope.AuditEnvelope.REQUIRED_FIELDS]
 
     def test_the_timestamp_is_the_envelopes_format(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        stamp = records(path)[0]["ts"]
+        stamp = body_of(repo, entry_id)["ts"]
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", stamp)
         reference = osprey_envelope.utc_timestamp()
         assert len(stamp) == len(reference)
@@ -247,7 +326,7 @@ class TestSchemaParity:
     def test_the_tool_use_id_comes_from_the_hook_input(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits",
             {"tool_name": "t", "tool_use_id": "toolu_hook1"},
             decision="refused",
@@ -255,7 +334,7 @@ class TestSchemaParity:
             reason="limits_violation",
             detail="x=1",
         )
-        emitted = records(path)[0]
+        emitted = body_of(repo, entry_id)
         assert emitted["tool_use_id"] == "toolu_hook1"
         reference = osprey_envelope.AuditEnvelope(
             surface="hook_limits",
@@ -274,7 +353,7 @@ class TestSchemaParity:
 
     def test_an_explicit_tool_use_id_wins(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits",
             {"tool_use_id": "toolu_input"},
             decision="refused",
@@ -282,15 +361,15 @@ class TestSchemaParity:
             reason="r",
             tool_use_id="toolu_explicit",
         )
-        assert records(path)[0]["tool_use_id"] == "toolu_explicit"
+        assert body_of(repo, entry_id)["tool_use_id"] == "toolu_explicit"
 
     @pytest.mark.parametrize("bad", ["", "a/b", "x" * 129, 42, "../x"])
     def test_a_malformed_tool_use_id_is_dropped(self, emitter, repo, monkeypatch, bad):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {"tool_use_id": bad}, decision="refused", subject="t", reason="r"
         )
-        assert "tool_use_id" not in records(path)[0]
+        assert "tool_use_id" not in body_of(repo, entry_id)
 
     def test_the_tool_use_id_shape_is_the_frameworks(self, emitter):
         from osprey.audit import call as osprey_call
@@ -310,71 +389,73 @@ class TestRouting:
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "dispatch")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert Path(path) == ledger(repo, "alice", "hook_limits")
-        assert records(path)[0]["actor"] == "alice"
+        assert located(repo, entry_id)[0].parent == spool_dir(repo, "alice")
+        assert body_of(repo, entry_id)["actor"] == "alice"
 
     def test_the_audit_identity_is_the_second_rung(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
         monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "dispatch")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert Path(path) == ledger(repo, "dispatch", "hook_limits")
+        assert located(repo, entry_id)[0].parent == spool_dir(repo, "dispatch")
 
     def test_a_blank_rung_falls_through(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "   ")
         monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "dispatch")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert Path(path) == ledger(repo, "dispatch", "hook_limits")
+        assert located(repo, entry_id)[0].parent == spool_dir(repo, "dispatch")
 
     def test_a_rung_that_is_not_one_path_component_falls_through(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "../elsewhere")
         monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "dispatch")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert Path(path) == ledger(repo, "dispatch", "hook_limits")
+        assert located(repo, entry_id)[0].parent == spool_dir(repo, "dispatch")
 
     def test_the_actor_field_and_the_directory_are_the_same_answer(
         self, emitter, repo, monkeypatch
     ):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "bob")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert Path(path).parent.name == records(path)[0]["actor"]
+        assert located(repo, entry_id)[0].parent.name == body_of(repo, entry_id)["actor"]
 
     def test_the_surface_is_the_hook_name_with_one_spelling(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "writes-check", {}, decision="refused", subject="tool", reason="posture"
         )
-        assert Path(path).name == "hook_writes_check.jsonl"
-        assert records(path)[0]["surface"] == "hook_writes_check"
+        assert body_of(repo, entry_id)["surface"] == "hook_writes_check"
 
     def test_records_append_rather_than_replace(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         for subject in ("one", "two"):
-            path = emitter.emit_audit(
+            emitter.emit_audit(
                 "limits", {}, decision="refused", subject=subject, reason="limits_violation"
             )
-        assert [record["subject"] for record in records(path)] == ["one", "two"]
+        assert [r["subject"] for r in records(ledger(repo, "alice", "hook_limits"))] == [
+            "one",
+            "two",
+        ]
 
     def test_one_record_is_one_line(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits",
             {},
             decision="refused",
@@ -382,7 +463,7 @@ class TestRouting:
             reason="limits_violation",
             detail="a\nb",
         )
-        assert len(Path(path).read_text().splitlines()) == 1
+        assert len(located(repo, entry_id)[0].read_text(encoding="utf-8").splitlines()) == 1
 
 
 # --------------------------------------------------------------------------
@@ -396,69 +477,69 @@ class TestPostureProvenance:
     def test_absent_marker_is_process(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.delenv("OSPREY_POSTURE_SOURCE", raising=False)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["posture_source"] == "process"
+        assert body_of(repo, entry_id)["posture_source"] == "process"
 
     def test_a_blank_marker_is_process(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SOURCE", "  ")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["posture_source"] == "process"
+        assert body_of(repo, entry_id)["posture_source"] == "process"
 
     def test_a_marker_outside_the_closed_set_is_process(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SOURCE", "guessed")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["posture_source"] == "process"
+        assert body_of(repo, entry_id)["posture_source"] == "process"
 
     @pytest.mark.parametrize("source", ["spawn", "live", "app", "process"])
     def test_a_recognised_marker_is_carried_verbatim(self, emitter, repo, monkeypatch, source):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SOURCE", source)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["posture_source"] == source
+        assert body_of(repo, entry_id)["posture_source"] == source
 
     def test_the_sandbox_posture_is_read_from_the_execution_mode(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["posture"] == "sandbox"
+        assert body_of(repo, entry_id)["posture"] == "sandbox"
 
     @pytest.mark.parametrize("mode", ["readwrite", "", "READONLY"])
     def test_only_the_exact_readonly_string_sandboxes(self, emitter, repo, monkeypatch, mode):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", mode)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["posture"] == "writes"
+        assert body_of(repo, entry_id)["posture"] == "writes"
 
     def test_the_session_is_the_exported_posture_key(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "chat-42")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["session"] == "chat-42"
+        assert body_of(repo, entry_id)["session"] == "chat-42"
 
     def test_no_posture_key_records_a_null_session(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
         monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        record = records(path)[0]
+        record = body_of(repo, entry_id)
         assert record["session"] is None
         assert "session" in record
 
@@ -482,20 +563,20 @@ class TestPostureProvenance:
         )
         for name, value in launch.items():
             monkeypatch.setenv(name, value)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["session"] == terminal_session
+        assert body_of(repo, entry_id)["session"] == terminal_session
         assert launch["OTEL_RESOURCE_ATTRIBUTES"] == f"terminal.session={terminal_session}"
 
     def test_the_posture_key_wins_over_the_terminal_session(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "chat-42")
         monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "chat-42")
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["session"] == "chat-42"
+        assert body_of(repo, entry_id)["session"] == "chat-42"
 
     def test_the_terminal_session_spelling_is_the_envelopes(self, emitter):
         assert emitter.TERMINAL_SESSION_ENV == osprey_envelope.TERMINAL_SESSION_ENV
@@ -511,7 +592,7 @@ class TestBounds:
 
     def test_detail_is_bounded(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits",
             {},
             decision="refused",
@@ -519,24 +600,24 @@ class TestBounds:
             reason="limits_violation",
             detail="x" * 5000,
         )
-        assert len(records(path)[0]["detail"]) == emitter.AUDIT_MAX_DETAIL_CHARS
+        assert len(body_of(repo, entry_id)["detail"]) == emitter.AUDIT_MAX_DETAIL_CHARS
 
     def test_identifier_fields_are_bounded(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="s" * 5000, reason="r" * 5000
         )
-        record = records(path)[0]
+        record = body_of(repo, entry_id)
         assert len(record["subject"]) == emitter.AUDIT_MAX_FIELD_CHARS
         assert len(record["reason"]) == emitter.AUDIT_MAX_FIELD_CHARS
 
     def test_a_long_session_marker_is_bounded(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "s" * 5000)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert len(records(path)[0]["session"]) == emitter.AUDIT_MAX_FIELD_CHARS
+        assert len(body_of(repo, entry_id)["session"]) == emitter.AUDIT_MAX_FIELD_CHARS
 
     def test_a_record_at_every_field_bound_still_exceeds_the_append_bound(self, emitter):
         """Why the append bound is a SEPARATE check, not a consequence.
@@ -571,7 +652,7 @@ class TestBounds:
         # A long-but-legal identity: the actor is a bounded envelope field too,
         # and it is what pushes an otherwise ordinary deny record over budget.
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "a" * 200)
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits",
             {},
             decision="refused",
@@ -579,17 +660,17 @@ class TestBounds:
             reason="r" * emitter.AUDIT_MAX_FIELD_CHARS,
             detail="d" * emitter.AUDIT_MAX_DETAIL_CHARS,
         )
-        raw = Path(path).read_bytes()
-        assert len(raw) <= emitter.AUDIT_MAX_RECORD_BYTES
-        assert records(path)[0]["detail"] == emitter.AUDIT_DETAIL_DROPPED
+        body = body_of(repo, entry_id)
+        assert len(emitter._audit_encode(body)) <= emitter.AUDIT_MAX_RECORD_BYTES
+        assert body["detail"] == emitter.AUDIT_DETAIL_DROPPED
 
     def test_an_in_budget_record_keeps_its_detail(self, emitter, repo, monkeypatch):
         """The negative control: the degrade fires on size, not on presence."""
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="posture", detail="key=x"
         )
-        assert records(path)[0]["detail"] == "key=x"
+        assert body_of(repo, entry_id)["detail"] == "key=x"
 
 
 # --------------------------------------------------------------------------
@@ -621,15 +702,13 @@ class _ShortWriteOs:
 
 
 class TestAppendMechanics:
-    """One torn write costs one record, exactly as it does in the writer."""
+    """One torn write costs one record and leaves nothing for the consumer."""
 
-    def test_a_short_write_terminates_its_own_fragment(self, emitter, repo, monkeypatch):
-        """Otherwise the NEXT record is appended onto the fragment and both die.
-
-        A filesystem that accepts a partial write without raising leaves half a
-        JSON object with no newline. The writer answers this by writing the
-        terminator while the descriptor is still open; the hook shares the
-        directory and must not be the emitter that swallows its successor.
+    def test_a_short_write_leaves_no_segment_and_is_noted(self, emitter, repo, monkeypatch):
+        """A filesystem that accepts a partial write without raising leaves half
+        a JSON object. The segment holding it is the hook's own and never
+        sealed, so it is removed rather than handed to the consumer, and the
+        failure lands in ``.errors`` where the consumer reports writer health.
         """
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
@@ -642,18 +721,61 @@ class TestAppendMechanics:
             )
 
         assert torn is None, "a torn record must not report itself as stored"
-        assert len(shim.writes) == 2, "the fragment was left unterminated"
-        assert shim.writes[1] == b"\n"
+        directory = spool_dir(repo, "alice")
+        assert segments(directory, ".open") == []
+        assert segments(directory) == []
+        errors = [json.loads(line) for line in (directory / ".errors").read_text().splitlines()]
+        assert len(errors) == 1
+        assert errors[0]["kind"] == "audit"
+        assert "short append" in errors[0]["error"]
 
-        assert (
-            emitter.emit_audit("limits", {}, decision="refused", subject="next", reason="posture")
-            is not None
+        stored = emitter.emit_audit("limits", {}, decision="refused", subject="next", reason="r")
+        assert [r["subject"] for r in records(ledger(repo, "alice", "hook_limits"))] == ["next"]
+        assert body_of(repo, stored)["subject"] == "next"
+
+    def test_every_call_leaves_only_sealed_segments(self, emitter, repo, monkeypatch):
+        """A hook process lives for one decision: nothing may stay ``.open``."""
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        for subject in ("a", "b", "c"):
+            assert emitter.emit_audit("limits", {}, decision="refused", subject=subject, reason="r")
+            directory = spool_dir(repo, "alice")
+            assert segments(directory, ".open") == []
+        assert len(segments(directory)) == 3
+
+    def test_a_segment_is_named_and_moded_as_the_writer_names_it(self, emitter, repo, monkeypatch):
+        from osprey.agent_record import writer
+        from osprey.agent_record.contract import parse_segment_name
+
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        segment, _ = located(
+            repo, emitter.emit_audit("limits", {}, decision="refused", subject="s", reason="r")
         )
+        name = parse_segment_name(segment.name)
+        assert name.sealed
+        assert name.pid == os.getpid()
+        assert name.host == writer._host()
+        assert stat.S_IMODE(segment.stat().st_mode) & ~writer.SEGMENT_FILE_MODE == 0
 
-        lines = ledger(repo, "alice", "hook_limits").read_bytes().split(b"\n")
-        with pytest.raises(ValueError):
-            json.loads(lines[0])
-        assert json.loads(lines[1])["subject"] == "next"
+    def test_a_name_collision_starts_a_fresh_segment(self, emitter, repo, monkeypatch):
+        """``O_EXCL`` refuses a taken name; the record is not lost to it."""
+        import time
+
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        directory = spool_dir(repo, "alice")
+        directory.mkdir(parents=True)
+        stamps = [111, 111, 222]
+        real_time_ns = time.time_ns
+        monkeypatch.setattr(time, "time_ns", lambda: stamps.pop(0) if stamps else real_time_ns())
+        first = emitter.emit_audit("limits", {}, decision="refused", subject="one", reason="r")
+        taken = directory / f"{emitter._spool_host()}-{os.getpid()}-111.open"
+        taken.write_text("")
+        second = emitter.emit_audit("limits", {}, decision="refused", subject="two", reason="r")
+        taken.unlink()
+        assert body_of(repo, first)["subject"] == "one"
+        assert body_of(repo, second)["subject"] == "two"
 
 
 # --------------------------------------------------------------------------
@@ -721,10 +843,10 @@ class TestNeverRaises:
 
     def test_a_non_mapping_hook_input_does_not_raise(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        path = emitter.emit_audit(
+        entry_id = emitter.emit_audit(
             "limits", None, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert records(path)[0]["subject"] == "tool"
+        assert body_of(repo, entry_id)["subject"] == "tool"
 
 
 # --------------------------------------------------------------------------
@@ -795,7 +917,7 @@ class TestWritesCheckDenies:
             env=env,
         )
         assert result.returncode == 0
-        assert not (repo / "var" / "audit").exists()
+        assert not (repo / "var" / "spool").exists()
 
     def test_the_posture_deny_survives_an_unwritable_audit_zone(self, repo, project_env):
         blocked = repo / "var"
@@ -884,7 +1006,7 @@ class TestOtherHookDenies:
         )
         assert result.returncode == 0
         assert decision_of(result) == "allow"
-        assert not (repo / "var" / "audit").exists()
+        assert not (repo / "var" / "spool").exists()
 
     def test_the_limits_deny_records(self, repo, project_env):
         database = repo / "channel_limits.json"
@@ -1056,3 +1178,222 @@ class TestOtherHookDenies:
             ).decision
             == "ask"
         )
+
+
+# --------------------------------------------------------------------------
+# The spool: constants, line bytes, off switch, consumer
+# --------------------------------------------------------------------------
+
+
+class TestSpoolParity:
+    """Every spool literal the hook restates, pinned to the one it restates."""
+
+    def test_the_spool_env_and_off_switch_are_the_contracts(self, emitter):
+        from osprey.agent_record import contract
+
+        assert emitter.SPOOL_DIR_ENV == contract.SPOOL_DIR_ENV
+        assert emitter.RECORD_OFF_ENV == contract.RECORD_OFF_ENV
+        assert emitter.RECORD_OFF_VALUE == contract.RECORD_OFF_VALUE
+
+    def test_segment_suffixes_and_the_errors_file_are_the_contracts(self, emitter):
+        from osprey.agent_record import contract
+
+        assert emitter.SPOOL_OPEN_SUFFIX == contract.OPEN_SUFFIX
+        assert emitter.SPOOL_SEALED_SUFFIX == contract.SEALED_SUFFIX
+        assert emitter.SPOOL_ERRORS_FILE == contract.WRITER_ERRORS_FILE
+
+    def test_the_kind_is_the_contracts_audit_kind(self, emitter):
+        from osprey.agent_record import contract
+
+        assert emitter.KIND_AUDIT == contract.KIND_AUDIT
+
+    def test_the_debug_kind_and_source_marker_are_the_readers(self, emitter):
+        from osprey.agent_record import contract, reader
+        from osprey.interfaces.web_terminal.routes import config as config_routes
+
+        assert emitter.KIND_DEBUG == contract.KIND_DEBUG
+        assert emitter.SOURCE_FIELD == reader.SOURCE_FIELD
+        assert emitter.DEBUG_SOURCE_HOOK == config_routes.HOOK_DEBUG_SOURCE
+
+    def test_modes_and_create_flags_are_the_writers(self, emitter):
+        from osprey.agent_record import writer
+
+        assert emitter.SPOOL_SEGMENT_MODE == writer.SEGMENT_FILE_MODE
+        assert emitter.SPOOL_DIR_MODE == writer.SPOOL_DIR_MODE
+        assert emitter._SPOOL_CREATE_FLAGS == writer._CREATE_FLAGS
+
+    def test_the_line_id_fields_are_the_contracts_in_its_order(self, emitter):
+        from osprey.agent_record import contract
+
+        assert emitter.SPOOL_LINE_ID_FIELDS == (*contract._SPOOL_TOKEN_FIELDS, "on_behalf_of")
+
+    def test_the_conversation_env_names_are_the_frameworks(self, emitter):
+        from osprey.audit import call as osprey_call
+
+        assert emitter.CONVERSATION_ENV == osprey_call._OSPREY_CONVERSATION_ENV
+        assert emitter.HARNESS_CONVERSATION_ENV == osprey_call._HARNESS_CONVERSATION_ENV
+
+    def test_the_segment_host_is_the_writers(self, emitter):
+        from osprey.agent_record import writer
+
+        assert emitter._spool_host() == writer._host()
+
+    def test_a_line_is_byte_for_byte_what_the_writer_writes(self, emitter, repo, monkeypatch):
+        """The writer's encoding of the parsed line reproduces the hook's bytes."""
+        from osprey.agent_record import contract, writer
+
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        monkeypatch.setenv("OSPREY_TERMINAL_SESSION", " term-7 ")
+        entry_id = emitter.emit_audit(
+            "limits",
+            {"session_id": "conv-1", "tool_use_id": "toolu_1"},
+            decision="refused",
+            subject="tool",
+            reason="limits_violation",
+            detail="caf\u00e9",
+        )
+        segment, line = located(repo, entry_id)
+        raw = segment.read_bytes()
+        assert raw == writer._encode(contract.parse_spool_line(raw))
+        assert list(line) == [
+            "entry_id",
+            "kind",
+            "ts",
+            "session_id",
+            "terminal_session",
+            "tool_use_id",
+            "body",
+        ]
+        assert line["kind"] == "audit"
+        assert line["ts"] == line["body"]["ts"]
+        assert line["session_id"] == "conv-1"
+        assert line["terminal_session"] == "term-7"
+        assert line["tool_use_id"] == "toolu_1"
+        assert "caf\u00e9".encode() in raw, "the line is UTF-8, not ASCII-escaped"
+
+    def test_without_a_hook_session_the_conversation_comes_from_the_env(
+        self, emitter, repo, monkeypatch
+    ):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.delenv("OSPREY_TELEMETRY_SESSION_ID", raising=False)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "harness-conv")
+        entry_id = emitter.emit_audit("limits", {}, decision="refused", subject="t", reason="r")
+        assert located(repo, entry_id)[1]["session_id"] == "harness-conv"
+        monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "osprey-conv")
+        entry_id = emitter.emit_audit("limits", {}, decision="refused", subject="t", reason="r")
+        assert located(repo, entry_id)[1]["session_id"] == "osprey-conv"
+
+    def test_no_session_anywhere_omits_the_field(self, emitter, repo, monkeypatch):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        for name in ("OSPREY_TELEMETRY_SESSION_ID", "CLAUDE_CODE_SESSION_ID"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
+        entry_id = emitter.emit_audit("limits", {}, decision="refused", subject="t", reason="r")
+        line = located(repo, entry_id)[1]
+        assert "session_id" not in line
+        assert "terminal_session" not in line
+
+
+class TestSpoolRouting:
+    """The launcher's directory wins; the off switch writes nothing at all."""
+
+    def test_the_launchers_spool_dir_wins(self, emitter, repo, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        named = tmp_path / "bound" / "alice"
+        monkeypatch.setenv("OSPREY_SPOOL_DIR", str(named))
+        entry_id = emitter.emit_audit("limits", {}, decision="refused", subject="t", reason="r")
+        assert entry_id
+        assert [line["entry_id"] for line in spool_lines(named)] == [entry_id]
+        assert not (repo / "var" / "spool").exists()
+
+    def test_the_off_switch_writes_nothing(self, emitter, repo, monkeypatch):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_AGENT_RECORD_OFF", "1")
+        resolved = []
+        monkeypatch.setattr(emitter, "get_repo_root", lambda *a: resolved.append(a) or str(repo))
+        assert emitter.emit_audit("limits", {}, decision="refused", subject="t", reason="r") is None
+        assert resolved == [], "the off switch answers before a directory is resolved"
+        assert not (repo / "var").exists()
+
+    @pytest.mark.parametrize("value", ["0", "", "true", " 1"])
+    def test_only_the_exact_value_turns_the_record_off(self, emitter, repo, monkeypatch, value):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_AGENT_RECORD_OFF", value)
+        assert emitter.emit_audit("limits", {}, decision="refused", subject="t", reason="r")
+
+    def test_the_deny_holds_with_the_record_off(self, repo, project_env):
+        result = run_hook(
+            "osprey_writes_check.py",
+            {"tool_name": "mcp__controls__channel_write", "tool_input": {}},
+            env={
+                **project_env,
+                "OSPREY_EXECUTION_MODE": "readonly",
+                "OSPREY_AGENT_RECORD_OFF": "1",
+            },
+        )
+        assert result.returncode == 0
+        assert decision_of(result) == "deny"
+        assert not (repo / "var" / "spool").exists()
+
+    def test_a_hook_process_leaves_only_sealed_segments(self, repo, project_env):
+        result = run_hook(
+            "osprey_writes_check.py",
+            {"tool_name": "mcp__controls__channel_write", "tool_input": {}},
+            env={**project_env, "OSPREY_EXECUTION_MODE": "readonly"},
+        )
+        assert decision_of(result) == "deny"
+        directory = spool_dir(repo, "alice")
+        assert segments(directory, ".open") == []
+        assert len(segments(directory)) == 1
+
+
+class TestTheConsumerTakesHookLines:
+    """What a hook writes is what agent-record ingests: no refused line."""
+
+    def test_an_in_process_entry_is_consumed(self, emitter, repo, monkeypatch, spool_zone):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        spool_zone.spool_for("alice")
+        entry_id = emitter.emit_audit(
+            "writes-check",
+            {"session_id": "conv-9", "tool_use_id": "toolu_9"},
+            decision="refused",
+            subject="mcp__controls__channel_write",
+            reason="posture",
+        )
+        (entry,) = spool_zone.recorded_entries("audit")
+        assert entry.key == f"sp:alice:{entry_id}"
+        assert entry.identity == "alice"
+        assert entry.session_id == "conv-9"
+        assert entry.tool_use_id == "toolu_9"
+        assert entry.body["surface"] == "hook_writes_check"
+        assert entry.body["decision"] == "refused"
+        assert entry.body["actor"] == "alice"
+
+    def test_a_hook_process_segment_is_consumed(self, project_env, spool_zone):
+        directory = spool_zone.spool_for("alice")
+        result = run_hook(
+            "osprey_writes_check.py",
+            {
+                "tool_name": "mcp__controls__channel_write",
+                "tool_input": {},
+                "session_id": "conv-3",
+                "tool_use_id": "toolu_3",
+            },
+            env={
+                **project_env,
+                "OSPREY_EXECUTION_MODE": "readonly",
+                "OSPREY_SPOOL_DIR": str(directory),
+            },
+        )
+        assert decision_of(result) == "deny"
+        assert segments(directory, ".open") == []
+        (entry,) = spool_zone.recorded_entries("audit")
+        assert entry.identity == "alice"
+        assert entry.session_id == "conv-3"
+        assert entry.tool_use_id == "toolu_3"
+        assert entry.body["reason"] == "posture"
+        assert entry.body["posture"] == "sandbox"
+        assert segments(directory) == [], "the consumer removes a committed sealed segment"

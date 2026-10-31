@@ -70,7 +70,7 @@ class NextcloudBridgeConfig:
 
     offsets_path: str = "/data/offsets.json"
     """Path to the persisted per-room ``lastKnownMessageId`` store. Adapter-owned,
-    and on the same bridge volume as ``core.dedup_path``/``core.history_path`` —
+    and on the same bridge volume as ``core.dedup_path`` —
     losing it alone would replay or skip history."""
 
     mentions: bool = True

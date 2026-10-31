@@ -7,13 +7,16 @@ The guards here keep that blast radius contained.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
@@ -51,6 +54,30 @@ def _guard_os_exit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_host_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the host launchers from starting a real agent record.
+
+    Leak guarded: ``osprey web``, ``chat`` and ``query`` hold a lease on the
+    host-local agent record for their lifetime, starting an ``osprey
+    agent-record serve`` process when none answers. Under an in-process
+    ``CliRunner`` that process would outlive the test. The launchers reach the
+    record only through ``provider_env.host_record_launch`` (and the detached
+    web parent through ``host.host_record_refusal``), so both are replaced with
+    "no record needed". A test about the record itself imports the real ones at
+    module scope (collection runs before this patch) and puts them back.
+    """
+    from osprey.agent_record import host
+    from osprey.agent_runner import provider_env
+
+    @contextlib.contextmanager
+    def _no_record(*_args: object, **_kwargs: object) -> Iterator[None]:
+        yield None
+
+    monkeypatch.setattr(provider_env, "host_record_launch", _no_record)
+    monkeypatch.setattr(host, "host_record_refusal", lambda *_args, **_kwargs: None)
+
+
+@pytest.fixture(autouse=True)
 def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip color-forcing variables from the environment CLI tests run under.
 
@@ -62,6 +89,121 @@ def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    """A Click runner for driving a command in-process."""
+    return CliRunner()
+
+
+@pytest.fixture
+def restore_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Put back the working directory and ``os.environ`` a verb changes in-process.
+
+    Leak guarded: ``chat``, ``web``, ``query`` and ``sim`` chdir into the render
+    and write ``os.environ`` directly (the deployment ``.env`` overlay, the port
+    publication, the operator secret, ``OSPREY_CONFIG``). Both outlive a
+    ``CliRunner`` invocation and would otherwise reach every later test in the
+    worker. Modules whose verbs do this take it with
+    ``pytestmark = pytest.mark.usefixtures("restore_process_state")``.
+    """
+    monkeypatch.chdir(Path.cwd())
+    with patch.dict(os.environ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def restore_installed_reporter() -> Iterator[None]:
+    """Leave the phase-reporter singleton exactly as the test found it.
+
+    The restore goes through ``install_reporter``, which quiesces the reporter
+    the test left installed, so its region and monitor thread stop with it.
+
+    Autouse because the snapshot has to come first. pytest sets autouse
+    fixtures up before every requested one, so ``original`` is the reporter
+    from before the test's own fixtures ran. Requested instead, through a
+    module's ``pytestmark``, it would set up after a fixture the test names in
+    its own ``usefixtures`` mark, snapshot the reporter that fixture
+    installed, and put it back afterwards. A ``LiveReporter`` left that way
+    keeps the log handler's console borrowed, and every later test on the
+    worker that reads the terminal sees nothing.
+    """
+    from osprey.cli.phase_reporter import current_reporter, install_reporter
+
+    original = current_reporter()
+    yield
+    install_reporter(original)
+
+
+@pytest.fixture
+def parked_monitor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Park the phase reporter's monitor tick, so only the tests about it feel it.
+
+    A reporter that is rendering, or watching a build, runs a real monitor
+    thread on the real clock, while these tests drive the region by hand or feed
+    the model scripted timestamps. One tick landing mid-test repaints the region
+    (writing cursor control into the buffer the assertions read), or marks every
+    service as beaten at "seconds since boot", and silences the assertions after
+    it. The tests that exercise the thread install an interval of their own.
+    """
+    from osprey.cli import phase_reporter
+
+    monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
+
+
+@pytest.fixture
+def empty_ledger() -> Iterator[None]:
+    """Start and leave the test with no collected ledger rows."""
+    from osprey.cli import output
+
+    output.clear_ledger()
+    yield
+    output.clear_ledger()
+
+
+@pytest.fixture
+def facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of every repo profile and must resolve to a real
+    directory, so without this each profile a test writes into ``tmp_path``
+    would report one extra failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
+@pytest.fixture
+def container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer the container-runtime preflight without consulting the host.
+
+    ``init --reset``/``--up`` and the lifecycle verbs are refused up front when
+    no container runtime answers, which is the right behaviour and the wrong
+    dependency for a unit test: left unstubbed these tests pass on a
+    developer's machine with Docker Desktop open and fail on a CI runner that
+    has no daemon, which is a property of the runner rather than of the verb.
+
+    Patched on ``runtime_helper`` itself because that is where the preflight
+    reads it from, at call time. The other callers of this function bind it at
+    import into their own modules, so this reaches exactly the one check these
+    tests need to get past and none of theirs. A test about the preflight
+    patches it back down in its body, where it wins over this.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None: (True, ""),
+    )
+
+
+@pytest.fixture
+def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A preset directory the test owns, replacing the bundled one."""
+    from osprey.cli import build_profile_presets
+
+    presets = tmp_path / "presets"
+    presets.mkdir()
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
+    return presets
 
 
 @pytest.fixture

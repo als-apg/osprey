@@ -33,12 +33,11 @@ Overview
 copies source and configuration into a per-service build directory; ``osprey
 up`` hands the result to Docker or Podman Compose. A deployment created from the
 ``control-assistant`` preset deploys a full stack out of the box:
-``postgresql``, ``telemetry_store`` and ``telemetry_gateway``,
-``event_dispatcher`` and ``dispatch_worker``,
+``postgresql``, ``event_dispatcher`` and ``dispatch_worker``,
 ``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
-``bluesky_web``, and the multi-user web-terminal stack. Even the minimal
-``hello-world`` preset deploys the telemetry pair (``telemetry_store`` and
-``telemetry_gateway``).
+``bluesky_web``, and the multi-user web-terminal stack. Every deployment, the
+minimal ``hello-world`` one included, also runs ``agent-record``, which keeps
+the agent record (:doc:`/how-to/health-and-monitoring/agent-record`).
 You only need this page when you add or customize a containerized service.
 
 Service Configuration
@@ -83,7 +82,7 @@ build profiles that ship multiple applications.
 The graph store (``graphdb``)
 -----------------------------
 
-Alongside ``postgresql`` and the telemetry store, the ``control-assistant`` preset
+Alongside ``postgresql``, the ``control-assistant`` preset
 deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
 graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
 and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
@@ -121,47 +120,6 @@ finishes the job once the cause is fixed.
 To query a graph store this deployment does *not* run, point the block at it
 instead of deploying one — see
 :ref:`Pointing at a store the facility runs <graph-external-store>`.
-
-.. _deploy-telemetry-store:
-
-The telemetry store (``telemetry_store``)
------------------------------------------
-
-Every preset deploys ``telemetry_store`` and ``telemetry_gateway`` together: a
-ClickHouse database holding the agent's telemetry and the audit ledger, and the
-OpenTelemetry Collector that feeds it. What they hold and how the agent reaches
-them is in :doc:`/how-to/health-and-monitoring/monitor-agent`; who may read
-them, in :doc:`/how-to/health-and-monitoring/read-the-record`. Three things
-about running them belong here.
-
-**The schema is OSPREY's.** ``osprey up`` creates every table of the database
-``telemetry`` and, on each later run, compares the live tables with this
-release's. A change the store can make in place — a new column or index, a new
-retention — is applied. Any other change — a different sorting, partition or
-primary key, a column whose type or default changed, a column or index removed
-or redefined — is refused, naming the table and the difference, and nothing is
-touched. Such a change is migrated by hand, renaming and copying, as the
-store's administrator (``osprey_admin``, password in ``.env.telemetry-admin``):
-
-1. Rename the table: ``RENAME TABLE telemetry.<table> TO telemetry.<table>_pre_<version>``.
-2. Run ``osprey up``. It creates the table anew, empty, and the stack runs on it.
-3. Copy the rows back one daily partition at a time:
-   ``INSERT INTO telemetry.<table> (<columns>) SELECT <columns> FROM telemetry.<table>_pre_<version> WHERE toDate(Timestamp) = '<day>'``,
-   naming the columns both tables share (``TimeUnix`` in place of ``Timestamp``
-   for the metrics tables).
-4. Drop the renamed table once the counts agree.
-
-**The gateway keeps its place in each ledger file** in its own volume. A gateway
-that loses that volume reads every ledger file from the start again, once, and
-the ledger rows still inside the retention window are stored a second time. Readers and the history
-page drop duplicates on each table's natural key (:ref:`agent-record-dedup`),
-so nothing else needs doing.
-
-**The ledger directories are fixed at build time.** ``osprey build`` gives the
-gateway one reader per ``var/audit/<identity>/`` directory it finds. A directory
-that appears afterwards is *not fed until the next build*; ``osprey health``
-lists it under ``telemetry_gateway`` until ``osprey build`` and ``osprey up``
-have run.
 
 CLI Commands
 ============
@@ -371,7 +329,7 @@ rendered. Steps 1–9 happen at build time, step 10 at start:
 5. If ``copy_src: true``, copy ``src/`` into the build as ``repo_src/``, plus ``requirements.txt`` and ``pyproject.toml`` (renamed ``pyproject_user.toml``).
 6. With ``--dev``, build a wheel from the local Osprey checkout and drop it into the build dir.
 7. Copy any ``additional_dirs`` into the build.
-8. Auto-create the ``_agent_data/`` subdirectories the deploy step sweeps (currently ``registry_exports_dir``). Others declared under ``file_paths`` — ``api_calls_dir`` — are created on demand by the code that writes to them.
+8. Auto-create the ``_agent_data/`` subdirectories the deploy step sweeps (``registry_exports_dir``, the one subdirectory declared under ``file_paths``).
 9. Write a flattened ``config.yml`` per service. ``${VAR}`` placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).
 10. Shell out to ``docker compose`` / ``podman compose``.
 

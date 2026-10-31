@@ -53,7 +53,6 @@ from .build_profile_load import (
     _parse_profile,
 )
 from .build_profile_merge import (
-    _deep_merge,
     _resolve_extends,
     refuse_inputs_outside_repository,
     resolve_profile_document,
@@ -526,9 +525,11 @@ def resolve_build_document(
     they are mutually exclusive and exactly one is required.
 
     ``overlays`` are the host-variant profiles ``osprey build`` selects
-    (:mod:`osprey.cli.variant_selection`): inheritance layers, merged over the
-    file through :func:`_deep_merge` before ``extends:`` is resolved, so string
-    lists union and ``exclude:`` subtracts, as in any other layer. ``set_pairs``
+    (:mod:`osprey.cli.variant_selection`): inheritance layers over the
+    deployment's ``profile.yml``, merged through :func:`~osprey.cli.build_profile_merge._deep_merge` before its
+    ``extends:`` is resolved, so string lists union and ``exclude:`` subtracts,
+    as in any other layer. For a tier or app file they lay over the root it
+    merges over, not over the file itself. ``set_pairs``
     are edits, applied by :func:`apply_cli_edits` AFTER resolution: each
     replaces the value at the key it names.
 
@@ -593,17 +594,23 @@ def resolve_build_document(
         raw = _read_profile_document(profile_path)
         if not isinstance(raw, dict):
             raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
-        for overlay_path in overlays:
-            overlay = _read_overlay(overlay_path)
-            if overlay is not None:
-                raw = _deep_merge(raw, overlay)
+        read_overlays = [
+            overlay
+            for overlay in (_read_overlay(overlay_path) for overlay_path in overlays)
+            if overlay is not None
+        ]
         # Resolution goes through the one call that decides what a profile file
         # *means* — the same one the loader and the content hash make. A file
         # under `tiers/` is a delta merged over the `profile.yml` beside it
         # and anchors at that root; resolving `extends` here instead, against
         # the file's own parent, would build a hollow project from the delta
-        # alone and read its data tree from `tiers/`.
-        document = resolve_profile_document(raw, profile_path.resolve())
+        # alone and read its data tree from `tiers/`. The host variant is
+        # handed over rather than merged here: it overlays that root, so a
+        # tier or app sees it through the deployment it merges over and is
+        # never refused for a key only the variant spells.
+        document = resolve_profile_document(
+            raw, profile_path.resolve(), root_overlays=read_overlays
+        )
         raw, profile_dir = document.raw, document.root_dir
         is_layer = document.is_layer
         excluded_artifacts = document.excluded_artifacts
@@ -619,9 +626,7 @@ def resolve_build_document(
             raw = seal_app_render(raw, document.app_rel)
         # Checked on the edited document, so a `--set` edit cannot name an
         # input the repository does not hold.
-        refuse_inputs_outside_repository(
-            profile_path.resolve(), dataclasses.replace(document, raw=raw)
-        )
+        refuse_inputs_outside_repository(dataclasses.replace(document, raw=raw))
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset

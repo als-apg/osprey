@@ -190,12 +190,11 @@ class HealthCheckEngine:
             return False
         if self._clock() >= self._suppressed_until:
             return False  # backoff elapsed → allow one attempt
-        if (
+        # A config/.env change since the failure allows one attempt.
+        return not (
             self._disk_signature_fn is not None
             and self._disk_signature_fn() != self._suppressed_sig
-        ):
-            return False  # config/.env changed → allow one attempt
-        return True
+        )
 
     async def _refresh(self) -> None:
         """Run one full refresh cycle: sync load → reconcile → suite → cache.

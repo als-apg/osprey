@@ -27,6 +27,8 @@ from osprey_connectors.simulation.composite import (
     WriteRefusedError,
 )
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from tests._simulator_view import view_channel
+from tests.connectors._view_records import activate
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -140,23 +142,6 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 # -- a synthetic view ----------------------------------------------------------
 
 
-def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": fields.pop("pair", address if role == "setpoint" else None),
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": fields.pop("value_range", None),
-        "owner": owner,
-        "on": None,
-        **fields,
-    }
-
-
 def _described(role: str, plane: str | None = None) -> dict[str, Any]:
     """The description a build stamps on a wiring record."""
     return {"role": role, "plane": plane, "refresh": "pass"}
@@ -194,21 +179,23 @@ def _view(
     scenarios: list[dict[str, Any]] | None = None,
     waveform: bool = False,
 ) -> Path:
-    trace = [_channel("M:TRACE", "M", value_type="waveform", shape=[3])]
+    trace = [view_channel("M:TRACE", "M", value_type="waveform", shape=[3])]
     channels = [
-        _channel("M:SP", "M", role="setpoint", writable=True),
-        _channel("M:STUCK:SP", "M", role="setpoint", writable=True),
-        _channel("M:BPM:X", "M"),
-        _channel("M:BPM:Y", "M"),
-        _channel("M:RB", "M"),
-        _channel("M:STATE", "M", value_type="enum", options=["OFF", "ON"]),
-        _channel("T:SP", role="setpoint", pair="T:RB", writable=True),
-        _channel("T:RB"),
-        _channel("T:STEP:SP", role="setpoint", pair="T:STEP:RB", writable=True),
-        _channel("T:STEP:RB", value_type="int"),
-        _channel("T:NOISY"),
-        _channel("T:TRACE", role="setpoint", value_type="waveform", shape=[2, 2], writable=True),
-        _channel("T:LOCKED", role="setpoint"),
+        view_channel("M:SP", "M", role="setpoint", writable=True),
+        view_channel("M:STUCK:SP", "M", role="setpoint", writable=True),
+        view_channel("M:BPM:X", "M"),
+        view_channel("M:BPM:Y", "M"),
+        view_channel("M:RB", "M"),
+        view_channel("M:STATE", "M", value_type="enum", options=["OFF", "ON"]),
+        view_channel("T:SP", role="setpoint", pair="T:RB", writable=True),
+        view_channel("T:RB"),
+        view_channel("T:STEP:SP", role="setpoint", pair="T:STEP:RB", writable=True),
+        view_channel("T:STEP:RB", value_type="int"),
+        view_channel("T:NOISY"),
+        view_channel(
+            "T:TRACE", role="setpoint", value_type="waveform", shape=[2, 2], writable=True
+        ),
+        view_channel("T:LOCKED", role="setpoint"),
         *(trace if waveform else []),
     ]
     documents = {
@@ -258,14 +245,6 @@ def _view(
             json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
         )
     return view
-
-
-def _activate(state: Path, *names: str) -> None:
-    state.mkdir(parents=True, exist_ok=True)
-    target = state / "active_scenarios"
-    before = target.stat().st_mtime_ns if target.exists() else 0
-    target.write_text("\n".join(names or ("nominal",)) + "\n", encoding="utf-8")
-    os.utime(target, ns=(before + 1_000_000_000, before + 1_000_000_000))
 
 
 def _composite(tmp_path: Path, t_s: float = T0, **view: Any) -> Composite:
@@ -321,7 +300,7 @@ def test_a_childs_own_variables_are_reached_through_model_get_and_set(tmp_path: 
 def test_model_variables_lists_each_models_own_variables_at_their_start(tmp_path: Path) -> None:
     scenarios = [{"name": "flip", "faults": {"M": {"writes": {"M:BPM:Y": {"polarity": -1}}}}}]
     composite = _composite(tmp_path, scenarios=scenarios)
-    _activate(tmp_path / "state", "flip")
+    activate(tmp_path / "state", "flip")
     composite.model_set({"M/knob": 3.0})
 
     listed = composite.model_variables()
@@ -685,7 +664,7 @@ def test_a_scenario_change_rebuilds_the_children_at_its_writes(tmp_path: Path) -
     plain = composite.get("M:BPM:Y")
     composite.set({"M:SP": 1.0})
 
-    _activate(tmp_path / "state", "flip")
+    activate(tmp_path / "state", "flip")
 
     assert composite.get("M:BPM:Y") == pytest.approx(-plain)
     assert composite.held(["M:SP", "T:SP", "T:RB"]) == {"M:SP": 6.0, "T:SP": 9.0, "T:RB": 9.0}
@@ -695,7 +674,7 @@ def test_a_scenario_change_rebuilds_the_children_at_its_writes(tmp_path: Path) -
     composite.set({"M:SP": 3.0})
     composite.reset()
     assert composite.held(["M:SP"]) == {"M:SP": 6.0}
-    _activate(tmp_path / "state")
+    activate(tmp_path / "state")
     assert composite.get("M:BPM:Y") == pytest.approx(plain)
     assert composite.held(["M:SP"]) == {"M:SP": 2.0}
 
@@ -703,7 +682,7 @@ def test_a_scenario_change_rebuilds_the_children_at_its_writes(tmp_path: Path) -
 def test_a_refused_batch_puts_the_stuck_demand_back(tmp_path: Path) -> None:
     scenarios = [{"name": "stuck", "channel_faults": {"M:STUCK:SP": "stuck"}}]
     composite = _composite(tmp_path, scenarios=scenarios)
-    _activate(tmp_path / "state", "stuck")
+    activate(tmp_path / "state", "stuck")
 
     with pytest.raises(ValueError, match="int"):
         composite.set({"M:STUCK:SP": 50.0, "T:STEP:SP": 3.5})
@@ -719,7 +698,7 @@ def test_a_failed_child_is_rebuilt_on_a_scenario_change(tmp_path: Path) -> None:
     composite.get("M:RB")
     assert composite.status("M") != "ok"
 
-    _activate(tmp_path / "state", "cooler")
+    activate(tmp_path / "state", "cooler")
 
     assert composite.status("M") == "ok"
 
@@ -731,7 +710,7 @@ def test_scenarios_touching_one_target_twice_serve_without_them(tmp_path: Path) 
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
 
-    _activate(tmp_path / "state", "a", "b")
+    activate(tmp_path / "state", "a", "b")
 
     assert composite.held(["T:SP"]) == {"T:SP": 5.0}
 
@@ -755,12 +734,12 @@ def test_a_scenarios_drivers_move_the_readbacks_it_couples(tmp_path: Path) -> No
     composite = _composite(tmp_path, scenarios=scenarios)
     before = composite.get(["T:RB", "M:RB"])
 
-    _activate(tmp_path / "state", "thermal")
+    activate(tmp_path / "state", "thermal")
 
     assert composite.get(["T:RB", "M:RB"]) == pytest.approx(
         {"T:RB": 5.0 + 0.5 * _driver(T0), "M:RB": 4.0 + 2.0 * _driver(T0)}
     )
-    _activate(tmp_path / "state")
+    activate(tmp_path / "state")
     assert composite.get(["T:RB", "M:RB"]) == before
 
 
@@ -777,10 +756,10 @@ def test_moving_follows_active_scenarios(tmp_path: Path) -> None:
     seeded = frozenset({"T:NOISY", "M:RB", "M:BPM:X", "M:BPM:Y"})
     assert composite.moving() == seeded
 
-    _activate(tmp_path / "state", "thermal")
+    activate(tmp_path / "state", "thermal")
     assert composite.moving() == (seeded - {"T:NOISY"}) | {"T:RB"}
 
-    _activate(tmp_path / "state")
+    activate(tmp_path / "state")
     assert composite.moving() == seeded
 
 
@@ -823,7 +802,7 @@ def test_a_stilled_physics_readback_serves_truth_through_readout_and_clamp(
     _patch(view, "seeds.json", lambda doc: doc["seeds"]["M:RB"].update(clamp=[None, 3.5]))
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: clock[0])
 
-    _activate(tmp_path / "state", "quiet")
+    activate(tmp_path / "state", "quiet")
 
     reads = _over_time(composite, clock, ["M:BPM:X", "M:BPM:Y", "M:RB"])
     assert reads == [{"M:BPM:X": 0.25, "M:BPM:Y": 0.5, "M:RB": 3.5}] * len(reads)
@@ -832,7 +811,7 @@ def test_a_stilled_physics_readback_serves_truth_through_readout_and_clamp(
 def test_a_stilled_texture_reading_serves_its_held_value(tmp_path: Path) -> None:
     composite, clock, _ = _clocked(tmp_path, scenarios=[{"name": "quiet", "still": ["T:NOISY"]}])
 
-    _activate(tmp_path / "state", "quiet")
+    activate(tmp_path / "state", "quiet")
 
     assert _over_time(composite, clock, ["T:NOISY"]) == [{"T:NOISY": 10.0}] * 8
 
@@ -841,7 +820,7 @@ def test_a_partial_still_leaves_the_other_readings_moving(tmp_path: Path) -> Non
     composite, clock, _ = _clocked(tmp_path, scenarios=[{"name": "quiet", "still": ["T:NOISY"]}])
     before = _over_time(composite, clock, ["M:RB", "M:BPM:X"])
 
-    _activate(tmp_path / "state", "quiet")
+    activate(tmp_path / "state", "quiet")
 
     assert _over_time(composite, clock, ["M:RB", "M:BPM:X"]) == before
     assert len({read["M:RB"] for read in before}) == len(before)
@@ -855,7 +834,7 @@ def test_still_all_with_a_noise_scenario_serves_nominal_alone(tmp_path: Path) ->
     composite = _composite(tmp_path, scenarios=scenarios)
     plain = composite.get("T:NOISY")
 
-    _activate(tmp_path / "state", "quiet", "loud")
+    activate(tmp_path / "state", "quiet", "loud")
 
     assert composite.active == ["nominal"]
     assert composite.get("T:NOISY") == plain != 10.0
@@ -868,10 +847,10 @@ def test_moving_excludes_stilled_readings(tmp_path: Path) -> None:
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
 
-    _activate(tmp_path / "state", "quiet")
+    activate(tmp_path / "state", "quiet")
     assert composite.moving() == frozenset({"M:BPM:X", "M:BPM:Y"})
 
-    _activate(tmp_path / "state", "hush")
+    activate(tmp_path / "state", "hush")
     assert composite.moving() == frozenset()
 
 
@@ -898,7 +877,7 @@ def _faulted(tmp_path: Path, channel_faults: dict[str, str]) -> tuple[Composite,
     clock = [T0]
     view = _view(tmp_path, scenarios=[{"name": "cut", "channel_faults": channel_faults}])
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: clock[0])
-    _activate(tmp_path / "state", "cut")
+    activate(tmp_path / "state", "cut")
     return composite, clock
 
 
@@ -999,7 +978,7 @@ def test_clearing_the_scenario_clears_every_channel_fault(tmp_path: Path) -> Non
     )
     composite.set({"T:SP": 7.0})
 
-    _activate(tmp_path / "state")
+    activate(tmp_path / "state")
     composite.set({"T:SP": 8.0})
 
     assert composite.get(["T:SP", "T:RB"]) == {"T:SP": 8.0, "T:RB": 8.0}
@@ -1040,7 +1019,7 @@ def test_bpm_polarity_negates_the_demo_monitor_on_both_planes(
     y = "SR:DIAG:BPM:17:POSITION:Y"
     x = "SR:DIAG:BPM:17:POSITION:X"
     plain = Composite(demo_view, clock=lambda: T0)
-    _activate(tmp_path / "state", "bpm-polarity")
+    activate(tmp_path / "state", "bpm-polarity")
     faulted = Composite(demo_view, state_dir=tmp_path / "state", clock=lambda: T0)
 
     alone = faulted.get(y)

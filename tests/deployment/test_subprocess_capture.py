@@ -23,6 +23,7 @@ from osprey.deployment.subprocess_capture import (
     run_captured,
 )
 from tests._container_support import wait_until_ready
+from tests._processes import pid_alive
 
 
 @pytest.fixture(autouse=True)
@@ -524,17 +525,9 @@ class TestKeptVolumeWarning:
 # ---------------------------------------------------------------------------
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
 def _assert_gone(pid: int) -> None:
     """Probe for :func:`wait_until_ready`: raise while ``pid`` is still in the process table."""
-    assert not _alive(pid), "the grandchild outlived the stopped run"
+    assert not pid_alive(pid), "the grandchild outlived the stopped run"
 
 
 def _assert_written(path: Path) -> None:

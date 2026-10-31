@@ -39,7 +39,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.deployment import compose_generator, container_lifecycle, status_display
+from osprey.agent_record import credentials as agent_record_credentials
+from osprey.deployment import (
+    compose_generator,
+    container_lifecycle,
+    status_display,
+)
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     compose_base_cmd,
@@ -788,6 +793,9 @@ def test_the_web_stack_start_emits_the_podman_shape_in_argv_and_environment(
 
     container_lifecycle.up_as_built(repo, detached=True)
 
+    # The start also asks the runtime itself about volumes (the one-time
+    # transcript copy); only the compose invocations carry the compose shape.
+    runs = [run for run in runs if run["cmd"][1:2] == ["compose"]]
     assert runs, "the web path never reached a compose invocation"
     for run in runs:
         _assert_podman_shaped(run, repo)
@@ -1118,10 +1126,14 @@ def test_no_compose_or_nginx_artifact_lands_in_the_repo_root(
     monkeypatch.chdir(tmp_path)
     before = set(tmp_path.iterdir())
 
-    write_web_terminal_artifacts(_web_config(["alice"]))
+    config = _web_config(["alice"])
+    write_web_terminal_artifacts(config)
 
     new_at_root = set(tmp_path.iterdir()) - before
-    assert new_at_root == {tmp_path / BUILD_DIR_NAME}
+    # Credential files are secrets kept beside ``.env``, not renders: the agent
+    # record's, which every deployment mints.
+    credentials = {p for p in new_at_root if agent_record_credentials.is_credential_file(p.name)}
+    assert new_at_root - credentials == {tmp_path / BUILD_DIR_NAME}
     assert (web_artifacts_dir(tmp_path) / WEB_COMPOSE_FILENAME).is_file()
     assert (web_artifacts_dir(tmp_path) / "nginx" / "nginx.conf").is_file()
 

@@ -60,9 +60,7 @@ def sanitize_xml_text(text: str) -> str:
     text = re.sub(r"\bdeg\s*C\b", "degC", text)
 
     # Apply HTML escaping for XML special characters
-    text = html.escape(text)
-
-    return text
+    return html.escape(text)
 
 
 def _plt_time(value: str | datetime, zone: tzinfo, fraction: str) -> str:

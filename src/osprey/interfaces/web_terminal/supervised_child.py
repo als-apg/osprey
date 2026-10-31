@@ -2,11 +2,11 @@
 
 Two pieces, usable separately:
 
-:class:`HeldSocket` binds a loopback port and starts listening in the parent.
-Because the kernel completes connections on a listening socket whether or not
-anything is accepting, a request that arrives while no child is alive waits in
-the backlog and is answered by the next child; the port never changes and never
-goes away between children.
+:class:`HeldSocket` binds a loopback port through the one serving bind and
+holds it listening in the parent. Because the kernel completes connections on a
+listening socket whether or not anything is accepting, a request that arrives
+while no child is alive waits in the backlog and is answered by the next child;
+the port never changes and never goes away between children.
 
 :class:`SupervisedChild` starts a process, watches it, and decides what an exit
 means:
@@ -73,7 +73,6 @@ FAILURE_GAVE_UP = "gave_up"
 PREVIOUS_EXIT_ENV = "OSPREY_SIDECAR_PREVIOUS_EXIT"
 
 _LOOPBACK = "127.0.0.1"
-_BACKLOG = 128
 _TAIL_LINES = 20
 
 
@@ -90,11 +89,11 @@ class HeldSocket:
     such child is alive.
     """
 
-    def __init__(self, *, backlog: int = _BACKLOG) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def __init__(self) -> None:
+        from osprey.interfaces._serving import listening_socket
+
+        sock = listening_socket(_LOOPBACK, 0)
         try:
-            sock.bind((_LOOPBACK, 0))
-            sock.listen(backlog)
             sock.set_inheritable(False)
         except BaseException:
             sock.close()

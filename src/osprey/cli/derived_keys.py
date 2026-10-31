@@ -95,13 +95,15 @@ def is_derived_key(dotted_key: str) -> bool:
     return _claiming_key(dotted_key) is not None
 
 
-def derived_key_errors(config: Any) -> list[str]:
+def derived_key_errors(config: Any, source: str = "profile.yml") -> list[str]:
     """Refuse a ``config:`` block that spells a key the build renders.
 
     Args:
         config: The profile's ``config:`` block, whatever shape it parsed as —
             dotted keys, nested mappings, or a mix. A non-mapping is somebody
             else's refusal and yields nothing here.
+        source: The file the block was read from, named in the fix — a tier or
+            app file is judged on its own block, before the merge.
 
     Returns:
         One error per offending spelling, naming the key, what supplies it, and
@@ -115,7 +117,7 @@ def derived_key_errors(config: Any) -> list[str]:
         named = dotted_key if spelling == dotted_key else f"{spelling} — {dotted_key}"
         errors.append(
             f"config: {named} is rendered by the build; "
-            f"{_DERIVED_KEY_SOURCES[claimed]}. Remove it from profile.yml."
+            f"{_DERIVED_KEY_SOURCES[claimed]}. Remove it from {source}."
         )
     return errors
 

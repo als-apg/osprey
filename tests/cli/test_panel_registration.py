@@ -24,16 +24,7 @@ from osprey.cli.build_injectors import _inject_bluesky_web
 from osprey.cli.build_profile import BlueskyWebConfig, BuildProfile
 from osprey.port_layout import default_port
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _write_config(project_path: Path, *, panels: dict | None = None) -> None:

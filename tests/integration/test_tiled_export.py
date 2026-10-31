@@ -565,7 +565,9 @@ def test_a_run_that_recorded_nothing_is_refused_as_such(bridge: TestClient) -> N
 
 
 @pytest.mark.usefixtures("stored_runs", "impatient_tiled_client")
-def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: Any) -> None:
+def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(
+    reserve_port, monkeypatch: Any
+) -> None:
     """The ordinary outage: Tiled is configured, and nothing is listening.
 
     A deployment with no catalog configured never reaches the network; that
@@ -582,16 +584,9 @@ def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: 
     ``500 Internal Server Error`` with no body to branch on before the catalog
     resolution was guarded.
 
-    The port is bound and then closed, so it is a port nothing can be listening
-    on rather than one that merely looked free.
+    The port is reserved for the test, so nothing listens on it.
     """
-    import socket
-
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        closed_port = probe.getsockname()[1]
-
-    monkeypatch.setenv(_TILED_URI_ENV, f"http://127.0.0.1:{closed_port}")
+    monkeypatch.setenv(_TILED_URI_ENV, f"http://127.0.0.1:{reserve_port()}")
     monkeypatch.setenv(_TILED_API_KEY_ENV, API_KEY)
 
     from osprey.services.bluesky_bridge.app import app

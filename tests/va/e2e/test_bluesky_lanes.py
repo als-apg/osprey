@@ -67,9 +67,7 @@ import itertools
 import json
 import os
 import shutil
-import socket
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -98,12 +96,15 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
-from tests.e2e._orm_stack import VA_PVA_PORT
+from tests.e2e._deploy_support import find_osprey_console_script
+from tests.e2e._orm_stack import VA_PVA_PORT, seed_repo_env
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import switch_on_in_record
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
@@ -136,8 +137,6 @@ TILED_PORT = 18492
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
-TELEMETRY_GATEWAY_PORT = 25218
-TELEMETRY_STORE_PORT = 29023
 QMD_PORT = 28180
 MONGODB_PORT = 47917
 
@@ -208,16 +207,6 @@ MIN_COLLECTED_TESTS = 15
 # ---------------------------------------------------------------------------
 # Process + HTTP helpers
 # ---------------------------------------------------------------------------
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
     """Run one ``osprey`` command in *cwd*, with this checkout on the path.
 
@@ -240,16 +229,6 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     return subprocess.run(
         cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=env
     )
-
-
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
 
 
 def _request(
@@ -320,98 +299,30 @@ def _env_values(repo: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # The live lane's Channel Access endpoint
 # ---------------------------------------------------------------------------
-def _served(port: int) -> bool:
-    """Whether a virtual accelerator answers on *port*, asked OUT OF PROCESS.
-
-    Never in-process: libca latches ``EPICS_CA_*`` when it initialises and this
-    directory's session fixture publishes on a different port, so one process
-    cannot be a client of both (the reason the directory conftest's own
-    readiness probe is a subprocess).
-
-    It leaves through ``os._exit`` for that file's other reason: aioca's exit
-    hook destroys the CA context, and that blocks for as long as a name-server
-    circuit is still retrying a port nothing serves yet -- the very case a
-    readiness probe polls through. The word is written and flushed before the
-    exit.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    env = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    env.pop("EPICS_CA_ADDR_LIST", None)
-    env.pop("EPICS_CA_SERVER_PORT", None)
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=15, env=env
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return proc.stdout.strip() == "SERVED"
-
-
 @pytest.fixture(scope="module")
 def live_endpoint():
     """A second Channel Access endpoint: the machine the LIVE lane addresses.
 
-    The published port and the server's own port are the same number by
-    construction -- a Channel Access search reply carries the server's own port,
-    so a remap would hand every client an address nothing answers on. That
-    number also names the container.
+    Served on a reserved port that is both the published and the server's own
+    port (see ``serving_container``), and that also names the container.
     """
     if not e2e_conftest.E2E_ENABLED:  # pragma: no cover - collection-time skip path
         pytest.skip("VA e2e disabled")
-    inspected = _docker("image", "inspect", e2e_conftest.IMAGE, timeout=60)
+    inspected = e2e_conftest.docker("image", "inspect", e2e_conftest.IMAGE, timeout=60)
     if inspected.returncode != 0:
         pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host. {e2e_conftest.IMAGE_REMEDY}")
 
-    port = _free_port()
-    name = f"{LIVE_ENDPOINT_PREFIX}-{port}"
-    # Stale-cleanup only: the port is this run's alone, so this can name nothing
-    # a concurrent run is using.
-    _docker("rm", "-f", name, timeout=60)
-    started = _docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        e2e_conftest.IMAGE,
-        timeout=120,
-    )
-    if started.returncode != 0:
-        pytest.fail(f"docker run failed for the live endpoint: {started.stdout}\n{started.stderr}")
-
-    try:
-        deadline = time.monotonic() + LIVE_ENDPOINT_BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _served(port):
-                break
-            time.sleep(2.0)
-        else:
-            logs = _docker("logs", "--tail", "40", name, timeout=60)
-            pytest.fail(
-                f"the live lane's endpoint never served "
-                f"{e2e_conftest.READINESS_ADDRESS} within "
-                f"{LIVE_ENDPOINT_BOOT_TIMEOUT_S}s.\n{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        _docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{LIVE_ENDPOINT_PREFIX}-{port}",
+            port,
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=LIVE_ENDPOINT_BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 # ---------------------------------------------------------------------------
@@ -447,8 +358,6 @@ def _profile_edits() -> dict[str, Any]:
             "claude_code.servers.bluesky.enabled": True,
             "modules.web_terminals.enabled": False,
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "services.qmd.port": QMD_PORT,
         },
         "dispatch": None,
@@ -473,7 +382,7 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
     repo = base / name
 
     argv = [
-        str(_osprey_bin()),
+        str(find_osprey_console_script()),
         "init",
         str(repo),
         "--preset",
@@ -506,7 +415,7 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
 
     build = _run(
         [
-            str(_osprey_bin()),
+            str(find_osprey_console_script()),
             "build",
             "--repo",
             str(repo),
@@ -564,7 +473,7 @@ def _remove_stale_deployment() -> None:
     The deployment's project name is FIXED (``PROJECT_NAME``) rather than
     per-run, because every container and locally-built image the compose
     templates render is named from it -- so unlike ``live_endpoint``, whose
-    ephemeral port makes its container name unique to this run, this name is
+    reserved port makes its container name unique to this run, this name is
     shared by every run of this module.
 
     That is safe here for a reason worth stating rather than assuming: two
@@ -580,9 +489,11 @@ def _remove_stale_deployment() -> None:
     that answers nothing here should surface as the real failure later, not as a
     cleanup error now.
     """
-    listed = _docker("ps", "-aq", "--filter", f"name=^{PROJECT_NAME}-", timeout=60).stdout.split()
+    listed = e2e_conftest.docker(
+        "ps", "-aq", "--filter", f"name=^{PROJECT_NAME}-", timeout=60
+    ).stdout.split()
     if listed:
-        _docker("rm", "-f", *listed, timeout=180)
+        e2e_conftest.docker("rm", "-f", *listed, timeout=180)
 
 
 @pytest.fixture(scope="module")
@@ -608,14 +519,17 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
     _remove_stale_deployment()
     repo = _init_and_build(base, PROJECT_NAME, second_lane=True)
 
+    seed_repo_env(repo)
     env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
     with env_path.open("a", encoding="utf-8") as handle:
         handle.write(f"EPICS_CA_NAME_SERVERS=host.docker.internal:{live_endpoint}\n")
 
     try:
-        up = _run([str(_osprey_bin()), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_S)
+        up = _run(
+            [str(find_osprey_console_script()), "up", "-d", "--dev"],
+            cwd=repo,
+            timeout=DEPLOY_UP_TIMEOUT_S,
+        )
         if up.returncode != 0:
             pytest.fail(f"osprey up --dev failed (rc={up.returncode}):\n{up.stdout}\n{up.stderr}")
 
@@ -623,7 +537,9 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
             try:
                 _wait_for_bridge(base_url, BRIDGE_HEALTH_TIMEOUT_S)
             except RuntimeError as exc:
-                logs = _docker("logs", "--tail", "60", LANE_CONTAINERS[lane][0], timeout=60)
+                logs = e2e_conftest.docker(
+                    "logs", "--tail", "60", LANE_CONTAINERS[lane][0], timeout=60
+                )
                 pytest.fail(f"{exc}\n--- {lane} bridge logs ---\n{logs.stdout}\n{logs.stderr}")
         for lane, base_url in BRIDGE_URLS.items():
             try:
@@ -632,7 +548,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
                 tails = [
                     f"--- {name} logs ---\n{tail.stdout}\n{tail.stderr}"
                     for name in LANE_CONTAINERS[lane][:2]
-                    for tail in (_docker("logs", "--tail", "60", name, timeout=60),)
+                    for tail in (e2e_conftest.docker("logs", "--tail", "60", name, timeout=60),)
                 ]
                 pytest.fail(f"lane {lane!r}: {exc}\n" + "\n".join(tails))
 
@@ -650,7 +566,9 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
             limits=limits,
         )
     finally:
-        down = _run([str(_osprey_bin()), "down"], cwd=repo, timeout=DEPLOY_DOWN_TIMEOUT_S)
+        down = _run(
+            [str(find_osprey_console_script()), "down"], cwd=repo, timeout=DEPLOY_DOWN_TIMEOUT_S
+        )
         if down.returncode != 0:
             print(  # surface teardown issues in the run log
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -879,7 +797,7 @@ def test_both_lanes_deploy_as_separate_stacks() -> None:
     a port or a Redis keyspace, and the symptom is a container that is simply
     not there.
     """
-    running = _docker("ps", "--format", "{{.Names}}", timeout=60).stdout.split()
+    running = e2e_conftest.docker("ps", "--format", "{{.Names}}", timeout=60).stdout.split()
     for lane, containers in LANE_CONTAINERS.items():
         for container in containers:
             assert container in running, (
@@ -921,13 +839,17 @@ def test_the_live_lane_addresses_the_endpoint_it_was_given(stack: LaneStack) -> 
     """
     expected = f"host.docker.internal:{stack.live_port}"
     for container in LANE_CONTAINERS[LANE_LIVE][:2]:
-        env = _docker("inspect", "-f", "{{json .Config.Env}}", container, timeout=60).stdout
+        env = e2e_conftest.docker(
+            "inspect", "-f", "{{json .Config.Env}}", container, timeout=60
+        ).stdout
         assert f"EPICS_CA_NAME_SERVERS={expected}" in env, (
             f"{container} does not address the live endpoint {expected}: {env}"
         )
 
     for container in LANE_CONTAINERS[LANE_VA][:2]:
-        env = _docker("inspect", "-f", "{{json .Config.Env}}", container, timeout=60).stdout
+        env = e2e_conftest.docker(
+            "inspect", "-f", "{{json .Config.Env}}", container, timeout=60
+        ).stdout
         assert f"EPICS_CA_NAME_SERVERS={expected}" not in env, (
             f"{container} is on the VA lane but addresses the LIVE endpoint: {env}"
         )
@@ -1287,11 +1209,15 @@ def test_each_lane_holds_only_its_own_curve_material(stack: LaneStack) -> None:
         other = LANE_LIVE if lane == LANE_VA else LANE_VA
         foreign_private, foreign_public = control_plane[other]
         for container in containers[:2]:
-            env = _docker("inspect", "-f", "{{json .Config.Env}}", container, timeout=60).stdout
+            env = e2e_conftest.docker(
+                "inspect", "-f", "{{json .Config.Env}}", container, timeout=60
+            ).stdout
             assert foreign_private not in env and foreign_public not in env, (
                 f"{container} (lane {lane!r}) carries lane {other!r}'s control-plane key"
             )
-            mounts = _docker("inspect", "-f", "{{json .Mounts}}", container, timeout=60).stdout
+            mounts = e2e_conftest.docker(
+                "inspect", "-f", "{{json .Mounts}}", container, timeout=60
+            ).stdout
             assert str(certificate_dirs[other]) not in mounts, (
                 f"{container} (lane {lane!r}) mounts lane {other!r}'s certificate directory"
             )
@@ -1312,14 +1238,14 @@ def _manager(lane: str) -> str:
 
 def _uid0_name(container: str) -> str:
     """The name ``getent passwd 0`` resolves first inside *container*."""
-    proc = _docker("exec", container, "getent", "passwd", "0", timeout=60)
+    proc = e2e_conftest.docker("exec", container, "getent", "passwd", "0", timeout=60)
     assert proc.returncode == 0, f"getent passwd 0 in {container} failed: {proc.stderr}"
     return proc.stdout.split(":", 1)[0]
 
 
 def _passwd_lines_named(container: str, name: str) -> list[str]:
     """Every ``/etc/passwd`` record in *container* whose account name is *name*."""
-    proc = _docker("exec", container, "cat", "/etc/passwd", timeout=60)
+    proc = e2e_conftest.docker("exec", container, "cat", "/etc/passwd", timeout=60)
     assert proc.returncode == 0, f"reading /etc/passwd in {container} failed: {proc.stderr}"
     return [line for line in proc.stdout.splitlines() if line.split(":", 1)[0] == name]
 
@@ -1328,13 +1254,13 @@ def _wait_healthy(container: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last = "(no status yet)"
     while time.monotonic() < deadline:
-        last = _docker(
+        last = e2e_conftest.docker(
             "inspect", "-f", "{{.State.Status}}/{{.State.Health.Status}}", container, timeout=60
         ).stdout.strip()
         if last == "running/healthy":
             return
         time.sleep(2.0)
-    logs = _docker("logs", "--tail", "60", container, timeout=60)
+    logs = e2e_conftest.docker("logs", "--tail", "60", container, timeout=60)
     raise AssertionError(
         f"{container} did not return to running/healthy within {timeout:.0f}s "
         f"(last: {last!r})\n{logs.stdout}\n{logs.stderr}"
@@ -1376,7 +1302,7 @@ def test_a_manager_restart_leaves_one_identity_line() -> None:
         f"{container} holds more than one {identity!r} record before any restart"
     )
 
-    restarted = _docker("restart", container, timeout=180)
+    restarted = e2e_conftest.docker("restart", container, timeout=180)
     assert restarted.returncode == 0, f"docker restart {container} failed: {restarted.stderr}"
     _wait_healthy(container, MANAGER_RESTART_TIMEOUT_S)
 
@@ -1468,10 +1394,4 @@ def test_lanes_off_renders_no_second_lane_containers(single_lane_repo: Path) -> 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_bluesky_lanes.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

@@ -1,1 +1,4 @@
-`osprey archive` copies web-terminal and dispatch transcripts, dispatch run records, the terminals' and the dispatch worker's artifact stores (files and index), plan-queue history, the audit ledger and each day of the telemetry store's tables (as Parquet) into an append-only tree with a sha256 manifest. It never deletes or rewrites a copy.
+`osprey archive` copies the web terminals' and the dispatch worker's artifact
+stores (files and index) and the plan-queue history into an append-only tree
+with a sha256 manifest, beside the agent record's own daily export. It never
+deletes or rewrites a copy.

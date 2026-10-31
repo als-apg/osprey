@@ -41,12 +41,10 @@ host-mode service beside a network-joined consumer of it
 (``_dispatch_parity_errors`` in ``cli/build_cmd.py``, symmetric in both
 directions). A fixture mixing the two would be pinning a render no deploy can
 reach, so every scenario here declares one mode for the whole dispatch stack.
-The worker's dial targets (``mongodb``, ``telemetry_gateway``) stay
-network-joined in every scenario because their templates carry no axis at
-all: they publish on the host, which is exactly why the host-mode worker is
-told to reach them where they publish on the host. Telemetry is left off and
-``services.telemetry_gateway.port`` at its slot in the default block, so no
-scenario trips the build's OTEL-endpoint check either.
+The worker's dial target (``mongodb``) stays network-joined in every scenario
+because its template carries no axis at all: it publishes on the host, which
+is exactly why the host-mode worker is told to reach it where it publishes on
+the host.
 
 **Update discipline** — the defaults module's applies here verbatim, with this
 suite's own regeneration command, which takes the scenarios to regenerate::
@@ -248,13 +246,13 @@ class Scenario:
 
 
 SCENARIOS: tuple[Scenario, ...] = (
-    # The pair itself on the host namespace, with both stores deployed so the
-    # worker's two address rewrites are in the render rather than merely
-    # possible. This is the shape `dispatch.network: host` produces.
+    # The pair itself on the host namespace, with the archiver store deployed so
+    # the worker's address rewrite is in the render rather than merely possible.
+    # This is the shape `dispatch.network: host` produces.
     Scenario(
         name="pair-on-host",
         services=_pair_blocks(on_host=True),
-        deployed=("event_dispatcher", "dispatch_worker", "mongodb", "telemetry_gateway"),
+        deployed=("event_dispatcher", "dispatch_worker", "mongodb"),
         templates=("event_dispatcher", "dispatch_worker"),
     ),
     # A single service template flipped to host beside a same-mode pair. Every
@@ -451,13 +449,13 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     # The record archive with every kind of source it mounts: a roster user's two
-    # volumes, two isolated dispatch workers, the plan-queue lane's Redis and
-    # the telemetry store. The volumes are the ones their owner templates
+    # volumes, two isolated dispatch workers and the plan-queue lane's Redis.
+    # The volumes are the ones their owner templates
     # declare, so this golden is where a renamed owner volume shows up.
     Scenario(
         name="archive-with-sources",
         services={"dispatch_worker": {"worker_count": 2}},
-        deployed=("archive", "dispatch_worker", "bluesky", "telemetry_store"),
+        deployed=("archive", "dispatch_worker", "bluesky"),
         templates=("archive",),
         overrides={"modules": {"web_terminals": {"enabled": True, "users": ["alice"]}}},
     ),
@@ -648,20 +646,16 @@ def test_pair_on_host_narrows_both_bind_addresses() -> None:
     assert worker["DISPATCH_WORKER_BIND"] == "127.0.0.1"
 
 
-def test_pair_on_host_reaches_both_stores_where_they_publish() -> None:
-    """The worker's dial addresses follow the topology, not the config block.
+def test_pair_on_host_reaches_the_archiver_store_where_it_publishes() -> None:
+    """The worker's dial address follows the topology, not the config block.
 
-    ``telemetry_gateway`` and ``archiver-mongodb`` are compose DNS names that
-    resolve to nothing from the host namespace. Both publish on the host, so
-    from there they are reached where they publish — the gateway on the
-    loopback interface its default bind address names, mongodb at
-    ``localhost`` — on their published ports, never the 4318 or 27017 inside
-    their containers.
+    ``archiver-mongodb`` is a compose DNS name that resolves to nothing from
+    the host namespace. It publishes on the host, so from there it is reached
+    where it publishes — at ``localhost``, on its published port, never the
+    27017 inside its container.
     """
     worker = _service_env("pair-on-host", "dispatch_worker", "dispatch-worker-1")
 
-    assert worker["OSPREY_OTEL_GATEWAY_HOST"] == "127.0.0.1"
-    assert worker["OSPREY_OTEL_GATEWAY_PORT"] == "10051"
     assert worker["OSPREY_ARCHIVER_MONGODB_HOST"] == "localhost"
     assert worker["OSPREY_ARCHIVER_MONGODB_PORT"] == "10801"
 
@@ -742,7 +736,10 @@ def test_shared_chain_is_listed_in_ascending_precedence() -> None:
     scenario = _scenario("env-shared-chain")
     document = yaml.safe_load(_golden_text(scenario, "dispatch_worker"))
 
-    assert document["services"]["dispatch-worker-1"]["env_file"] == list(scenario.expected_chain)
+    assert document["services"]["dispatch-worker-1"]["env_file"] == [
+        *scenario.expected_chain,
+        ".env.agent-record.login.dispatch-worker-1",
+    ]
 
 
 @pytest.mark.parametrize("case", CASES, ids=_case_id)
@@ -751,10 +748,9 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
 
     ``env_file:`` naming a path that is not there fails ``compose up`` outright,
     so membership is fixed at render time from the files the repo actually had.
-    The bridges do not render a chain; only the worker does. Where the gateway
-    is deployed each worker also lists its own telemetry login file, which
-    ``osprey build`` writes for every sender — the login reaches the container
-    by its own ``env_file``, never by interpolation.
+    The bridges do not render a chain; only the worker does. Every worker lists
+    its agent-record login last, whatever the shape: the record is always
+    deployed.
     """
     scenario, key = case
     if key != "dispatch_worker":
@@ -762,8 +758,7 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
     document = yaml.safe_load(_golden_text(scenario, key))
     for name, service in document["services"].items():
         expected = list(scenario.expected_chain)
-        if "telemetry_gateway" in scenario.deployed:
-            expected.append(f".env.telemetry-sender.{name}")
+        expected.append(f".env.agent-record.login.{name}")
         assert service["env_file"] == expected, (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )

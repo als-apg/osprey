@@ -38,19 +38,11 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from tests.deployment._fake_run import completed
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.
 running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
-
-
-class _FakeCompletedProcess:
-    """Minimal stand-in for subprocess.CompletedProcess."""
-
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +65,7 @@ def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tm
     def _fake_run(cmd, **kwargs):
         recorded["cmd"] = cmd
         recorded["env"] = kwargs.get("env")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
@@ -178,7 +170,7 @@ def test_reconcile_force_recreates_only_drifted_services(monkeypatch, tmp_path):
 
     def _fake_run(cmd, **kwargs):
         recorded.append((cmd, kwargs.get("env")))
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
@@ -892,7 +884,7 @@ def _capture_build(monkeypatch):
 
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
-        return _FakeCompletedProcess()
+        return completed()
 
     # Stubbed at `run_captured`, not at `subprocess.run`: the sidecar build is
     # watched (`on_line=`), and a watched capture reads its child through a pipe
@@ -982,7 +974,7 @@ def _stub_web_stack(monkeypatch, tmp_path):
 
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
@@ -1052,7 +1044,7 @@ def test_local_mode_builds_the_auth_image_before_any_compose_invocation(monkeypa
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
         order.append("compose")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
@@ -1071,7 +1063,7 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
 
     def _fake_run(cmd, **kwargs):
         recorded.append({"cmd": list(cmd), "env": kwargs.get("env")})
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
@@ -1122,7 +1114,7 @@ def test_force_recreate_auth_sidecar_rerenders_before_the_recreate(monkeypatch, 
 
     def _fake_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         order.append("recreate")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
@@ -1149,7 +1141,7 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
 
     def _fake_run(cmd, **kwargs):
         recreated.append(list(cmd))
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
@@ -1178,7 +1170,7 @@ def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation
 
     def _fake_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         order.append("compose")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
@@ -1762,18 +1754,18 @@ def test_web_stack_up_narrows_a_pre_existing_control_target_user_dir_to_2770(mon
 def test_web_stack_up_creates_no_control_target_dir_for_the_audit_only_sidecar(
     monkeypatch, tmp_path
 ):
-    """The sidecar records audit but owns no control context.
+    """The sidecar has spool and state directories but owns no control context.
 
-    It is an audit identity, not a roster user: it runs no terminal, writes no
+    It is a fixed service identity, not a roster user: it runs no terminal, writes no
     control-context record, and the overlay binds it no record directory. A dir
     provisioned for it would be one nothing ever writes -- and the giveaway that
-    this loop was driven by the audit identities instead of the roster.
+    this loop was driven by the spool identities instead of the roster.
     """
     _up_with_roster(monkeypatch, tmp_path, roster=("alice",))
 
     tree = tmp_path / _CONTROL_TREE_RELPATH
     sidecar = provision.AUTH_SIDECAR_AUDIT_IDENTITY
-    assert (tmp_path / "var" / "audit" / sidecar).is_dir()
+    assert (tmp_path / "var" / "spool" / sidecar).is_dir()
     assert not (tree / sidecar).exists()
 
 
@@ -1945,3 +1937,135 @@ def test_provisioned_control_target_dir_is_the_source_the_render_binds(
         tmp_path, render._control_context_mount_source(config, "alice")
     )
     assert _dir_mode(bound) == 0o2770
+
+
+# ---------------------------------------------------------------------------
+# Web-only deploys: derived services start with the terminals
+# ---------------------------------------------------------------------------
+
+
+def _stub_services_path(monkeypatch, tmp_path):
+    """`_stub_web_stack` plus the services invocation's own collaborators.
+
+    Returns the ordered argv of every compose invocation, services and web alike.
+    """
+    from contextlib import contextmanager
+
+    from osprey.deployment import container_lifecycle
+
+    _stub_web_stack(monkeypatch, tmp_path)
+    recorded: list[list[str]] = []
+
+    def _fake_run_captured(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return completed()
+
+    @contextmanager
+    def _fake_watch(*_a, **_kw):
+        yield {}
+
+    monkeypatch.setattr(provision, "run_captured", _fake_run_captured)
+    monkeypatch.setattr(provision, "watched_compose_up", _fake_watch)
+    monkeypatch.setattr(
+        provision,
+        "compose_base_cmd",
+        lambda runtime, files, *a, **kw: ["compose", *[x for f in files for x in ("-f", f)]],
+    )
+    monkeypatch.setattr(
+        provision,
+        "web_stack_compose_cmd",
+        lambda *a, **kw: ["compose", "-f", "build/docker-compose.web.yml"],
+    )
+    monkeypatch.setattr(container_lifecycle, "_resolve_prebuilt_images", lambda config: False)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_compose_build_selection",
+        lambda *a, **kw: container_lifecycle.ComposeBuildSelection(build=(), held={}),
+    )
+    return recorded
+
+
+_TOP_LEVEL = "build/services/docker-compose.yml"
+_AGENT_RECORD = "build/services/agent_record/docker-compose.yml"
+_HISTORY = "build/services/history/docker-compose.yml"
+
+
+def _ups(recorded):
+    return [cmd for cmd in recorded if "up" in cmd]
+
+
+def test_web_only_provision_brings_up_agent_record_before_the_terminals(monkeypatch, tmp_path):
+    """agent-record is rendered for every deployment and is not listed in
+    `deployed_services`, so a web-only deploy must still run the services
+    `up` for it — and before the terminals, which write into the record."""
+    recorded = _stub_services_path(monkeypatch, tmp_path)
+    config = _sidecar_config("local")
+    config.pop("deployed_services", None)
+
+    provision.deploy_up_web_terminals(config, [_TOP_LEVEL, _AGENT_RECORD], False, {}, [])
+
+    ups = _ups(recorded)
+    services_up = [cmd for cmd in ups if _AGENT_RECORD in cmd]
+    web_up = [cmd for cmd in ups if "build/docker-compose.web.yml" in cmd]
+    assert services_up and web_up, recorded
+    assert ups.index(services_up[0]) < ups.index(web_up[0])
+    assert services_up[0][-2:] == ["up", "-d"]
+
+
+def test_web_only_provision_without_a_rendered_service_skips_the_services_stack(
+    monkeypatch, tmp_path
+):
+    """The network-only top-level file names no service; `compose up` on it
+    alone fails with `no service selected`, so no services invocation runs."""
+    recorded = _stub_services_path(monkeypatch, tmp_path)
+    config = _sidecar_config("local")
+    config.pop("deployed_services", None)
+
+    provision.deploy_up_web_terminals(config, [_TOP_LEVEL], False, {}, [])
+
+    assert not [cmd for cmd in recorded if _TOP_LEVEL in cmd], recorded
+    assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
+
+
+def test_a_compose_file_outside_the_derived_set_does_not_start_the_services_stack(
+    monkeypatch, tmp_path
+):
+    """Only a derived service's own file counts: a leftover service directory the
+    config neither lists nor derives brings nothing up."""
+    recorded = _stub_services_path(monkeypatch, tmp_path)
+    config = _sidecar_config("local")
+    config.pop("deployed_services", None)
+    stray = "build/services/not_a_derived_service/docker-compose.yml"
+
+    provision.deploy_up_web_terminals(config, [_TOP_LEVEL, stray], False, {}, [])
+
+    assert not [cmd for cmd in recorded if stray in cmd], recorded
+
+
+def test_a_listed_service_still_starts_with_the_derived_services(monkeypatch, tmp_path):
+    """A deployment that lists a service keeps its single services `up`, which
+    carries every rendered file — listed and derived — in one invocation."""
+    recorded = _stub_services_path(monkeypatch, tmp_path)
+    config = _sidecar_config("local")
+    config["deployed_services"] = ["archive"]
+    archive = "build/services/archive/docker-compose.yml"
+    files = [_TOP_LEVEL, archive, _HISTORY, _AGENT_RECORD]
+
+    provision.deploy_up_web_terminals(config, files, False, {}, [])
+
+    services_ups = [cmd for cmd in _ups(recorded) if archive in cmd]
+    assert len(services_ups) == 1, recorded
+    assert all(f in services_ups[0] for f in files)
+
+
+def test_the_history_service_counts_only_when_the_config_derives_it():
+    """history is derived exactly when the config deploys the history page;
+    a history file the config does not derive is not a reason to start the stack."""
+    from osprey.deployment.compose_generator import HISTORY_TEMPLATE_DIR, derived_compose_dirs
+
+    config = _sidecar_config("local")
+    config.pop("deployed_services", None)
+    assert HISTORY_TEMPLATE_DIR not in derived_compose_dirs(config)
+
+    assert provision._services_stack_has_services(config, [_TOP_LEVEL, _AGENT_RECORD])
+    assert not provision._services_stack_has_services(config, [_TOP_LEVEL, _HISTORY])

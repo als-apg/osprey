@@ -10,6 +10,14 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.dotenv import (
+    DEPLOY_MINTED_BANNER,
+    ENV_AUTH_BANNER,
+    append_profile_env,
+    dotenv_line_var,
+    env_file_lock,
+    env_lock_path,
+)
 from osprey.deployment.web_terminals.auth_credentials import (
     _HASH_HEADER,
     AUTH_ENV_FILENAME,
@@ -38,16 +46,7 @@ from osprey.services.auth_sidecar.passwords import (
     verify_password,
 )
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
-from osprey_connectors.dotenv import (
-    DEPLOY_MINTED_BANNER,
-    ENV_AUTH_BANNER,
-    ENV_LOCAL_FILENAME,
-    append_profile_env,
-    dotenv_line_var,
-    env_file_lock,
-    env_lock_path,
-    parse_dotenv_file,
-)
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 # The unwritable-file cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.

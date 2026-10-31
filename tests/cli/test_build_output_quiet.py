@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextlib
 import io
 import logging
-import os
 import re
 import threading
 from datetime import UTC, datetime
@@ -25,43 +24,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
-from osprey.cli.templates.manager import TemplateManager
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
+from osprey.cli.phase_reporter import PhaseReporter
+from tests._preset_data import create_project_as_built
+from tests.cli._lifecycle_build import invoke_build_in
+from tests.cli._reporters import installed
 
 
 class _Capture(logging.Handler):
@@ -135,16 +102,12 @@ def build_records(tmp_path_factory: pytest.TempPathFactory) -> _Capture:
     previous_level = root.level
     root.addHandler(capture)
     root.setLevel(logging.DEBUG)
-    previous_cwd = Path.cwd()
-    os.chdir(repo)
-    # Pre-installed, so the verb reports into it — the same path a chained verb
-    # puts `build` on — and its lines are captured beside the log records.
-    previous_reporter = install_reporter(_RecordingReporter(capture.lines))
     try:
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+        # Pre-installed, so the verb reports into it — the same path a chained verb
+        # puts `build` on — and its lines are captured beside the log records.
+        with installed(_RecordingReporter(capture.lines)):
+            result = invoke_build_in(repo)
     finally:
-        install_reporter(previous_reporter)
-        os.chdir(previous_cwd)
         root.removeHandler(capture)
         root.setLevel(previous_level)
 
@@ -428,7 +391,7 @@ def rendered_project(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, _Ca
     stdout = io.StringIO()
     try:
         with contextlib.redirect_stdout(stdout):
-            _create_project(
+            create_project_as_built(
                 TemplateManager(),
                 project_name="quiet-render",
                 output_dir=tmp_path_factory.mktemp("render"),

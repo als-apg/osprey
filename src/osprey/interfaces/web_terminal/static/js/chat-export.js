@@ -27,7 +27,7 @@ import { emitChat, onChat } from './chat-events.js';
 import { button, elem } from './chat-dom.js';
 import { chatIcon } from './chat-icons.js';
 import { systemFrame } from './chat-system.js';
-import { HIDDEN_TOOL_KEYS, PLAN_TOOL_KEY, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
+import { HIDDEN_TOOL_KEYS, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
 
 /** @typedef {import('./chat-client.js').ChatTurn} ChatTurn */
 /** @typedef {import('./chat-features.js').ChatFeatureContext} ChatFeatureContext */
@@ -47,14 +47,12 @@ const REVOKE_MS = 1000;
 
 /**
  * Whether a main-agent `tool_use` ends the reply's open text block. Mirrors the
- * renderer: the plan card ends it, a hidden or question tool does not, and
- * every other tool does.
+ * renderer: a hidden or question tool does not, and every other tool does.
  * @param {Record<string, any>} event
  * @returns {boolean}
  */
 function toolEndsText(event) {
   const key = toolKey(event.tool_name_raw ?? event.tool_name);
-  if (key === PLAN_TOOL_KEY) return true;
   return key !== QUESTION_TOOL_KEY && !HIDDEN_TOOL_KEYS.has(key);
 }
 

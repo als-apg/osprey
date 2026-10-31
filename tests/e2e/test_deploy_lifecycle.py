@@ -65,7 +65,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import time
 import urllib.error
@@ -90,20 +89,18 @@ from osprey.deployment.web_terminals.roster import normalize_users
 from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
 from tests._renders import tier_render
+from tests.e2e._deploy_support import (
+    RUNTIME,
+    container_id,
+    find_osprey_console_script,
+    format_failure,
+    image_exists,
+    image_label,
+    runtime_cli,
+    volume_exists,
+)
 
 pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
-
-# ---------------------------------------------------------------------------
-# Container runtime selection — ``docker`` by default, ``podman`` opt-in via
-# OSPREY_E2E_RUNTIME (the CI podman lane sets this). Any other value fails
-# clearly at collection time rather than silently falling back to docker.
-# ---------------------------------------------------------------------------
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # ---------------------------------------------------------------------------
 # Fixture identity — kept in sync with tests/e2e/fixtures/multi_user_config.yml
@@ -156,27 +153,13 @@ def _volume_names(user: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
 def _run_osprey(
     osprey_bin: Path, args: list[str], cwd: Path, timeout: int = DEPLOY_VERB_TIMEOUT_SEC
 ) -> subprocess.CompletedProcess:
     # CONTAINER_RUNTIME takes priority over the fixture's committed
     # container_runtime: docker (see runtime_helper.get_runtime_command) —
     # forcing it to RUNTIME here structurally couples the deploy-side runtime
-    # to the assert-side _runtime_cli runtime, regardless of what the ambient
+    # to the assert-side runtime_cli runtime, regardless of what the ambient
     # environment (or CI job) does or doesn't set.
     #
     # OSPREY_PIP_SPEC is the documented operator escape from the unreleased-
@@ -200,30 +183,14 @@ def _run_osprey(
     )
 
 
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
-
-
-def _container_id(name: str) -> str | None:
-    result = _runtime_cli("inspect", "--type", "container", "-f", "{{.Id}}", name, timeout=15)
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
-def _volume_exists(name: str) -> bool:
-    return _runtime_cli("volume", "inspect", name, timeout=15).returncode == 0
-
-
 def _container_env_var(name: str, var: str) -> str | None:
-    result = _runtime_cli("exec", name, "sh", "-c", f"printenv {var}", timeout=15)
+    result = runtime_cli("exec", name, "sh", "-c", f"printenv {var}", timeout=15)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _compose_project_containers(project: str) -> list[str]:
     """Read-only: containers still labeled as belonging to *project* (any state)."""
-    result = _runtime_cli(
+    result = runtime_cli(
         "ps",
         "-a",
         "--filter",
@@ -261,12 +228,12 @@ def _teardown_all_project_resources() -> None:
     assertion.
     """
     for user in USERS:
-        _runtime_cli("rm", "-f", _web_container(user))
-    _runtime_cli("rm", "-f", _nginx_container())
-    _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=60)
+        runtime_cli("rm", "-f", _web_container(user))
+    runtime_cli("rm", "-f", _nginx_container())
+    runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=60)
     for user in USERS:
         for volume in _volume_names(user):
-            _runtime_cli("volume", "rm", volume)
+            runtime_cli("volume", "rm", volume)
 
 
 def _wait_for_registry(port: int, timeout: float) -> None:
@@ -308,19 +275,19 @@ def stub_image() -> Iterator[str]:
     """
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
+    if runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
-    build = _runtime_cli(
+    build = runtime_cli(
         "build", "-f", str(STUB_DOCKERFILE), "-t", LOCAL_BUILD_TAG, str(FIXTURES_DIR), timeout=120
     )
     if build.returncode != 0:
-        pytest.fail(_fmt("stub image build", build))
+        pytest.fail(format_failure("stub image build", build))
 
     # Exact-named: remove any stale registry container a previous crashed run
     # left behind before starting a fresh one under the same name.
-    _runtime_cli("rm", "-f", REGISTRY_CONTAINER)
-    run_registry = _runtime_cli(
+    runtime_cli("rm", "-f", REGISTRY_CONTAINER)
+    run_registry = runtime_cli(
         "run",
         "-d",
         "--name",
@@ -331,30 +298,30 @@ def stub_image() -> Iterator[str]:
         timeout=60,
     )
     if run_registry.returncode != 0:
-        pytest.fail(_fmt("local registry container start", run_registry))
+        pytest.fail(format_failure("local registry container start", run_registry))
 
     try:
         _wait_for_registry(REGISTRY_PORT, REGISTRY_READY_TIMEOUT_SEC)
 
-        tag = _runtime_cli("tag", LOCAL_BUILD_TAG, STUB_IMAGE, timeout=15)
+        tag = runtime_cli("tag", LOCAL_BUILD_TAG, STUB_IMAGE, timeout=15)
         if tag.returncode != 0:
-            pytest.fail(_fmt("stub image tag", tag))
-        push = _runtime_cli("push", STUB_IMAGE, timeout=60)
+            pytest.fail(format_failure("stub image tag", tag))
+        push = runtime_cli("push", STUB_IMAGE, timeout=60)
         if push.returncode != 0:
-            pytest.fail(_fmt("stub image push", push))
+            pytest.fail(format_failure("stub image push", push))
 
         # Untag the local convenience copy so `docker compose pull` (which
         # `osprey up`'s web-terminal reconcile always runs) genuinely pulls
         # from the registry rather than short-circuiting on an already-present
         # local tag — this is the exact behavior that makes the fixture prove
         # "locally-resolvable image", not "image docker already happens to have".
-        _runtime_cli("rmi", STUB_IMAGE)
+        runtime_cli("rmi", STUB_IMAGE)
 
         yield STUB_IMAGE
     finally:
-        _runtime_cli("rm", "-f", REGISTRY_CONTAINER)
-        _runtime_cli("rmi", "-f", STUB_IMAGE)
-        _runtime_cli("rmi", "-f", LOCAL_BUILD_TAG)
+        runtime_cli("rm", "-f", REGISTRY_CONTAINER)
+        runtime_cli("rmi", "-f", STUB_IMAGE)
+        runtime_cli("rmi", "-f", LOCAL_BUILD_TAG)
 
 
 def _stamp_build_manifest(repo: Path) -> None:
@@ -443,8 +410,7 @@ def _seed_repo(
     if write_users_env:
         (dest / ".env.users").write_text("", encoding="utf-8")
 
-    for state_dir in ("var/agent_data", "var/audit"):
-        (dest / state_dir).mkdir(parents=True, exist_ok=True)
+    (dest / "var/agent_data").mkdir(parents=True, exist_ok=True)
 
     _stamp_build_manifest(dest)
     return dest
@@ -470,7 +436,7 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
     -> users prune -> reset against a real Docker daemon, asserting each
     lifecycle guarantee the verbs document.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     config_path = repo / BUILD_DIRNAME / "config.yml"
 
     # Extend the committed [alice, bob] roster to the five users this scenario
@@ -484,10 +450,10 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         # up: brings up every per-user container + nginx
         # --------------------------------------------------------------
         up1 = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up1.returncode == 0, _fmt("osprey up (1st)", up1)
+        assert up1.returncode == 0, format_failure("osprey up (1st)", up1)
 
         all_containers = [_web_container(u) for u in USERS] + [_nginx_container()]
-        ids_after_first_up = {name: _container_id(name) for name in all_containers}
+        ids_after_first_up = {name: container_id(name) for name in all_containers}
         missing = [name for name, cid in ids_after_first_up.items() if cid is None]
         assert not missing, f"container(s) not created by 'osprey up': {missing}"
 
@@ -499,8 +465,8 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         # deploy_up_web_terminals).
         # --------------------------------------------------------------
         up2 = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up2.returncode == 0, _fmt("osprey up (2nd)", up2)
-        ids_after_second_up = {name: _container_id(name) for name in all_containers}
+        assert up2.returncode == 0, format_failure("osprey up (2nd)", up2)
+        ids_after_second_up = {name: container_id(name) for name in all_containers}
         user_containers = [_web_container(u) for u in USERS]
         recreated = [n for n in user_containers if ids_after_second_up[n] != ids_after_first_up[n]]
         assert not recreated, f"idempotent 'osprey up' recreated user container(s): {recreated}"
@@ -514,14 +480,14 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         # C3 — seed: CLAUDE.md present; a user-installed (non-managed)
         # skill dir survives a reseed.
         # --------------------------------------------------------------
-        claude_md = _runtime_cli(
+        claude_md = runtime_cli(
             "exec", _web_container("alice"), "cat", "/data/claude-config/CLAUDE.md"
         )
-        assert claude_md.returncode == 0, _fmt("cat alice's CLAUDE.md", claude_md)
+        assert claude_md.returncode == 0, format_failure("cat alice's CLAUDE.md", claude_md)
         assert _BASE_MD_MARKER in claude_md.stdout
 
         skill_dir = f"/app/{PROJECT}-assistant/.claude/skills/user-installed"
-        make_skill = _runtime_cli(
+        make_skill = runtime_cli(
             "exec",
             "-u",
             "0",
@@ -530,12 +496,14 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
             "-c",
             f"mkdir -p {skill_dir} && touch {skill_dir}/marker.txt",
         )
-        assert make_skill.returncode == 0, _fmt("create user-installed skill dir", make_skill)
+        assert make_skill.returncode == 0, format_failure(
+            "create user-installed skill dir", make_skill
+        )
 
         reseed = _run_osprey(osprey_bin, ["users", "seed", "alice"], repo)
-        assert reseed.returncode == 0, _fmt("users seed alice", reseed)
+        assert reseed.returncode == 0, format_failure("users seed alice", reseed)
 
-        survived = _runtime_cli(
+        survived = runtime_cli(
             "exec", _web_container("alice"), "test", "-f", f"{skill_dir}/marker.txt"
         )
         assert survived.returncode == 0, "user-installed skill dir did not survive reseed"
@@ -554,11 +522,11 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         # --------------------------------------------------------------
         bob_claude_vol, bob_agent_vol = _volume_names("bob")
         decomm_bob = _run_osprey(osprey_bin, ["users", "remove", "bob", "--yes"], repo)
-        assert decomm_bob.returncode == 0, _fmt("users remove bob", decomm_bob)
-        assert _container_id(_web_container("bob")) is None
+        assert decomm_bob.returncode == 0, format_failure("users remove bob", decomm_bob)
+        assert container_id(_web_container("bob")) is None
         assert "bob" not in _roster_names(config_path)
-        assert _volume_exists(bob_claude_vol), "retain must not remove the claude-config volume"
-        assert _volume_exists(bob_agent_vol), "retain must not remove the agent-data volume"
+        assert volume_exists(bob_claude_vol), "retain must not remove the claude-config volume"
+        assert volume_exists(bob_agent_vol), "retain must not remove the agent-data volume"
 
         # --------------------------------------------------------------
         # C6 — survivor ports: removing bob (mid-list) must not shift
@@ -579,9 +547,11 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         decomm_carol = _run_osprey(
             osprey_bin, ["users", "remove", "carol", "--purge", "--yes"], repo
         )
-        assert decomm_carol.returncode == 0, _fmt("users remove carol --purge", decomm_carol)
-        assert not _volume_exists(carol_claude_vol), "purge must remove the claude-config volume"
-        assert not _volume_exists(carol_agent_vol), "purge must remove the agent-data volume"
+        assert decomm_carol.returncode == 0, format_failure(
+            "users remove carol --purge", decomm_carol
+        )
+        assert not volume_exists(carol_claude_vol), "purge must remove the claude-config volume"
+        assert not volume_exists(carol_agent_vol), "purge must remove the agent-data volume"
 
         # --------------------------------------------------------------
         # C5c — users remove --archive: a readable tarball is written
@@ -591,7 +561,9 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         decomm_dave = _run_osprey(
             osprey_bin, ["users", "remove", "dave", "--archive", "--yes"], repo
         )
-        assert decomm_dave.returncode == 0, _fmt("users remove dave --archive", decomm_dave)
+        assert decomm_dave.returncode == 0, format_failure(
+            "users remove dave --archive", decomm_dave
+        )
 
         # Archived workspaces are durable state, so they land in the var/ zone.
         archive_dir = repo / "var" / "web_terminal_archives"
@@ -604,8 +576,8 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
             names = {Path(n).name for n in tf.getnames()}
         assert "CLAUDE.md" in names, f"archived claude-config tarball missing CLAUDE.md: {names}"
 
-        assert not _volume_exists(dave_claude_vol), "archive must remove the volume after archiving"
-        assert not _volume_exists(dave_agent_vol), "archive must remove the volume after archiving"
+        assert not volume_exists(dave_claude_vol), "archive must remove the volume after archiving"
+        assert not volume_exists(dave_agent_vol), "archive must remove the volume after archiving"
 
         # --------------------------------------------------------------
         # C7 — prune: simulate config drift (erin hand-removed from the
@@ -626,8 +598,8 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         assert "erin" not in _roster_names(config_path)
         # erin's container/volumes still exist in the runtime — she is now an
         # orphan the roster no longer accounts for.
-        assert _container_id(_web_container("erin")) is not None
-        assert _volume_exists(bob_claude_vol) and _volume_exists(bob_agent_vol), (
+        assert container_id(_web_container("erin")) is not None
+        assert volume_exists(bob_claude_vol) and volume_exists(bob_agent_vol), (
             "bob's retained volumes should still be around going into prune"
         )
 
@@ -635,25 +607,25 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         alice_claude_vol, alice_agent_vol = _volume_names("alice")
 
         prune = _run_osprey(osprey_bin, ["users", "prune", "--purge", "--yes"], repo)
-        assert prune.returncode == 0, _fmt("users prune --purge", prune)
+        assert prune.returncode == 0, format_failure("users prune --purge", prune)
 
-        assert _container_id(_web_container("erin")) is None, (
+        assert container_id(_web_container("erin")) is None, (
             "prune must remove the orphan's container"
         )
-        assert not _volume_exists(erin_claude_vol), "prune --purge must remove the orphan's volumes"
-        assert not _volume_exists(erin_agent_vol), "prune --purge must remove the orphan's volumes"
-        assert not _volume_exists(bob_claude_vol), (
+        assert not volume_exists(erin_claude_vol), "prune --purge must remove the orphan's volumes"
+        assert not volume_exists(erin_agent_vol), "prune --purge must remove the orphan's volumes"
+        assert not volume_exists(bob_claude_vol), (
             "prune --purge must also sweep bob's previously-retained orphan volumes"
         )
-        assert not _volume_exists(bob_agent_vol), (
+        assert not volume_exists(bob_agent_vol), (
             "prune --purge must also sweep bob's previously-retained orphan volumes"
         )
 
-        assert _container_id(_web_container("alice")) is not None, (
+        assert container_id(_web_container("alice")) is not None, (
             "prune must not touch on-roster users"
         )
-        assert _volume_exists(alice_claude_vol), "prune must not touch on-roster volumes"
-        assert _volume_exists(alice_agent_vol), "prune must not touch on-roster volumes"
+        assert volume_exists(alice_claude_vol), "prune must not touch on-roster volumes"
+        assert volume_exists(alice_agent_vol), "prune must not touch on-roster volumes"
 
         # --------------------------------------------------------------
         # reset: full teardown of this checkout's deployment. Every container
@@ -661,12 +633,12 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         # the project name, and build/ goes with them.
         # --------------------------------------------------------------
         reset = _run_osprey(osprey_bin, ["reset", "--yes"], repo)
-        assert reset.returncode == 0, _fmt("osprey reset", reset)
+        assert reset.returncode == 0, format_failure("osprey reset", reset)
 
-        assert _container_id(_web_container("alice")) is None
-        assert _container_id(_nginx_container()) is None
-        assert not _volume_exists(alice_claude_vol), "reset must remove every remaining volume"
-        assert not _volume_exists(alice_agent_vol), "reset must remove every remaining volume"
+        assert container_id(_web_container("alice")) is None
+        assert container_id(_nginx_container()) is None
+        assert not volume_exists(alice_claude_vol), "reset must remove every remaining volume"
+        assert not volume_exists(alice_agent_vol), "reset must remove every remaining volume"
 
         leftover = _compose_project_containers(PROJECT_NAME)
         assert leftover == [], f"reset left project-labeled containers behind: {leftover}"
@@ -809,7 +781,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         image, leave a same-shaped-but-differently-labeled ("collision") tag
         alone, and leave every one of B's containers/volumes running.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
 
     repo_a = _make_isolation_repo(
         tmp_path / "project-a",
@@ -833,16 +805,16 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         # up: both projects, running concurrently.
         # --------------------------------------------------------------
         up_a = _run_osprey(osprey_bin, ["up"], repo_a, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up_a.returncode == 0, _fmt("osprey up (project A)", up_a)
+        assert up_a.returncode == 0, format_failure("osprey up (project A)", up_a)
         up_b = _run_osprey(osprey_bin, ["up"], repo_b, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up_b.returncode == 0, _fmt("osprey up (project B)", up_b)
+        assert up_b.returncode == 0, format_failure("osprey up (project B)", up_b)
 
         for user in USERS_A:
-            assert _container_id(f"{PROJECT_A}-web-{user}") is not None, (
+            assert container_id(f"{PROJECT_A}-web-{user}") is not None, (
                 f"project A user {user!r} container not created by 'osprey up'"
             )
         for user in USERS_B:
-            assert _container_id(f"{PROJECT_B}-web-{user}") is not None, (
+            assert container_id(f"{PROJECT_B}-web-{user}") is not None, (
                 f"project B user {user!r} container not created by 'osprey up'"
             )
 
@@ -863,7 +835,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         # never anything belonging to B.
         # --------------------------------------------------------------
         prune_dry = _run_osprey(osprey_bin, ["users", "prune", "--dry-run"], repo_a)
-        assert prune_dry.returncode == 0, _fmt("users prune --dry-run (A)", prune_dry)
+        assert prune_dry.returncode == 0, format_failure("users prune --dry-run (A)", prune_dry)
         plan = prune_dry.stdout
         assert "orphan" in plan, f"A's own orphan not mentioned in the dry-run plan:\n{plan}"
         assert PROJECT_NAME_B not in plan, f"A's users prune --dry-run named B's project:\n{plan}"
@@ -875,21 +847,21 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             f"A's users prune --dry-run named one of B's volumes:\n{plan}"
         )
         # Dry-run is a true no-op: both sides' orphans are untouched.
-        assert _container_id(f"{PROJECT_A}-web-orphan") is not None
-        assert _container_id(f"{PROJECT_B}-web-orphan") is not None
+        assert container_id(f"{PROJECT_A}-web-orphan") is not None
+        assert container_id(f"{PROJECT_B}-web-orphan") is not None
 
         # --------------------------------------------------------------
         # Isolation 2 — A's users remove must never name B's resources.
         # --------------------------------------------------------------
         decomm = _run_osprey(osprey_bin, ["users", "remove", "second", "--yes"], repo_a)
-        assert decomm.returncode == 0, _fmt("users remove second (A)", decomm)
+        assert decomm.returncode == 0, format_failure("users remove second (A)", decomm)
         assert PROJECT_NAME_B not in decomm.stdout, (
             f"A's users remove named B's project:\n{decomm.stdout}"
         )
         assert f"{PROJECT_B}-web-" not in decomm.stdout, (
             f"A's users remove named a B container:\n{decomm.stdout}"
         )
-        assert _container_id(f"{PROJECT_A}-web-second") is None
+        assert container_id(f"{PROJECT_A}-web-second") is None
 
         # --------------------------------------------------------------
         # Isolation 3 — A's reset removes exactly A's own label-verified
@@ -923,7 +895,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         build_ctx.mkdir()
         (build_ctx / "Dockerfile").write_text('FROM alpine:3.20\nCMD ["true"]\n', encoding="utf-8")
 
-        build_own = _runtime_cli(
+        build_own = runtime_cli(
             "build",
             "-t",
             TAG_A_OWN,
@@ -932,14 +904,14 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             str(build_ctx),
             timeout=60,
         )
-        assert build_own.returncode == 0, _fmt("build A's own render image", build_own)
+        assert build_own.returncode == 0, format_failure("build A's own render image", build_own)
         image_tags_built.append(TAG_A_OWN)
 
         # Same tag SHAPE (<project>-<render>:local) that A's own roster
         # resolves to via the "borrowed" render, but labeled as belonging to
         # B — simulating an independent deployment that happens to have
         # built/owned this exact tag string.
-        build_collision = _runtime_cli(
+        build_collision = runtime_cli(
             "build",
             "-t",
             TAG_COLLISION,
@@ -948,33 +920,33 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             str(build_ctx),
             timeout=60,
         )
-        assert build_collision.returncode == 0, _fmt(
+        assert build_collision.returncode == 0, format_failure(
             "build B-labeled collision image", build_collision
         )
         image_tags_built.append(TAG_COLLISION)
 
         reset_a = _run_osprey(osprey_bin, ["reset", "--yes"], repo_a)
-        assert reset_a.returncode == 0, _fmt("osprey reset (A)", reset_a)
+        assert reset_a.returncode == 0, format_failure("osprey reset (A)", reset_a)
 
-        assert _runtime_cli("image", "inspect", TAG_A_OWN, timeout=15).returncode != 0, (
+        assert runtime_cli("image", "inspect", TAG_A_OWN, timeout=15).returncode != 0, (
             "reset did not remove A's own label-verified render image"
         )
-        assert _runtime_cli("image", "inspect", TAG_COLLISION, timeout=15).returncode == 0, (
+        assert runtime_cli("image", "inspect", TAG_COLLISION, timeout=15).returncode == 0, (
             "reset removed a same-shaped tag labeled as belonging to a different "
             "project — the com.osprey.project label verification did not hold"
         )
 
-        assert _container_id(f"{PROJECT_A}-web-keeper") is None
-        assert _container_id(f"{PROJECT_A}-nginx") is None
+        assert container_id(f"{PROJECT_A}-web-keeper") is None
+        assert container_id(f"{PROJECT_A}-nginx") is None
 
-        assert _container_id(f"{PROJECT_B}-web-main") is not None, (
+        assert container_id(f"{PROJECT_B}-web-main") is not None, (
             "A's reset tore down a container belonging to project B"
         )
-        assert _container_id(f"{PROJECT_B}-nginx") is not None, (
+        assert container_id(f"{PROJECT_B}-nginx") is not None, (
             "A's reset tore down project B's nginx container"
         )
         b_main_volumes = resolve_user_volume_names({"project_name": PROJECT_NAME_B}, "main")
-        assert all(_volume_exists(volume) for volume in b_main_volumes), (
+        assert all(volume_exists(volume) for volume in b_main_volumes), (
             "A's reset removed a volume belonging to project B"
         )
 
@@ -984,16 +956,16 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         # over two rosters/projects/image tags instead of one.
         for project, users in ((PROJECT_A, USERS_A), (PROJECT_B, USERS_B)):
             for user in users:
-                _runtime_cli("rm", "-f", f"{project}-web-{user}")
-            _runtime_cli("rm", "-f", f"{project}-nginx")
+                runtime_cli("rm", "-f", f"{project}-web-{user}")
+            runtime_cli("rm", "-f", f"{project}-nginx")
         for project in (PROJECT_NAME_A, PROJECT_NAME_B):
-            _runtime_cli("compose", "-p", project, "down", timeout=60)
+            runtime_cli("compose", "-p", project, "down", timeout=60)
         for project, users in ((PROJECT_NAME_A, USERS_A), (PROJECT_NAME_B, USERS_B)):
             for user in users:
                 for volume in resolve_user_volume_names({"project_name": project}, user):
-                    _runtime_cli("volume", "rm", volume)
+                    runtime_cli("volume", "rm", volume)
         for tag in image_tags_built:
-            _runtime_cli("rmi", "-f", tag)
+            runtime_cli("rmi", "-f", tag)
 
 
 # =============================================================================
@@ -1215,25 +1187,8 @@ def _make_hetero_repo(tmp_path: Path) -> Path:
     )
 
 
-def _image_exists(tag: str) -> bool:
-    return _runtime_cli("inspect", "--type", "image", tag, timeout=15).returncode == 0
-
-
-def _image_label(tag: str, key: str) -> str | None:
-    result = _runtime_cli(
-        "inspect",
-        "--type",
-        "image",
-        "-f",
-        f'{{{{ index .Config.Labels "{key}" }}}}',
-        tag,
-        timeout=15,
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
 def _container_image(name: str) -> str | None:
-    result = _runtime_cli(
+    result = runtime_cli(
         "inspect", "--type", "container", "-f", "{{.Config.Image}}", name, timeout=15
     )
     if result.returncode != 0:
@@ -1247,7 +1202,7 @@ def _container_image(name: str) -> str | None:
 
 
 def _container_mounts(name: str) -> list[dict]:
-    result = _runtime_cli(
+    result = runtime_cli(
         "inspect", "--type", "container", "-f", "{{json .Mounts}}", name, timeout=15
     )
     if result.returncode != 0:
@@ -1298,7 +1253,7 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
     render's agent-data volume (mounted at HER OWN project dir, not the
     default tier's) survives.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     repo = _make_hetero_repo(tmp_path)
     users_env_path = repo / ".env.users"
 
@@ -1319,10 +1274,10 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         # here is itself proof the local-mode pull-guard held (no `pull` ran).
         # --------------------------------------------------------------
         up1 = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up1.returncode == 0, _fmt("osprey up (heterogeneous local mode)", up1)
+        assert up1.returncode == 0, format_failure("osprey up (heterogeneous local mode)", up1)
 
         for name in (alice_c, bob_c, carol_c, nginx_c):
-            assert _container_id(name) is not None, f"{name} not created by 'osprey up'"
+            assert container_id(name) is not None, f"{name} not created by 'osprey up'"
 
         # --------------------------------------------------------------
         # .env.users: generated, 0600, module-conditional subset --
@@ -1344,10 +1299,10 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         # project (not either render's own project) -- what a later `reset`
         # verifies before removing a render image tag.
         # --------------------------------------------------------------
-        assert _image_exists(HETERO_DEFAULT_TAG), f"{HETERO_DEFAULT_TAG} was not built"
-        assert _image_exists(HETERO_ALT_TAG), f"{HETERO_ALT_TAG} was not built"
-        assert _image_label(HETERO_DEFAULT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
-        assert _image_label(HETERO_ALT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
+        assert image_exists(HETERO_DEFAULT_TAG), f"{HETERO_DEFAULT_TAG} was not built"
+        assert image_exists(HETERO_ALT_TAG), f"{HETERO_ALT_TAG} was not built"
+        assert image_label(HETERO_DEFAULT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
+        assert image_label(HETERO_ALT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
 
         # alice & bob share the DEFAULT render's image; carol runs the alt one.
         assert _container_image(alice_c) == HETERO_DEFAULT_TAG
@@ -1383,13 +1338,15 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         # without confounding it with a second full `osprey up` reconcile.
         # --------------------------------------------------------------
         marker_path = f"/app/{HETERO_ALT_PROJECT}/var/agent_data/marker.txt"
-        touch = _runtime_cli("exec", carol_c, "sh", "-c", f"touch {marker_path}", timeout=15)
-        assert touch.returncode == 0, _fmt("touch marker in carol's agent-data volume", touch)
+        touch = runtime_cli("exec", carol_c, "sh", "-c", f"touch {marker_path}", timeout=15)
+        assert touch.returncode == 0, format_failure(
+            "touch marker in carol's agent-data volume", touch
+        )
 
-        alice_id_before = _container_id(alice_c)
-        bob_id_before = _container_id(bob_c)
-        nginx_id_before = _container_id(nginx_c)
-        carol_id_before = _container_id(carol_c)
+        alice_id_before = container_id(alice_c)
+        bob_id_before = container_id(bob_c)
+        nginx_id_before = container_id(nginx_c)
+        carol_id_before = container_id(carol_c)
 
         # The web stack's compose file is build output, and every OSPREY
         # compose invocation pins the repo root as the project directory --
@@ -1397,7 +1354,7 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         # root. This targeted recreate has to pin it the same way.
         compose_web_file = repo / BUILD_DIRNAME / "docker-compose.web.yml"
         assert compose_web_file.is_file()
-        recreate = _runtime_cli(
+        recreate = runtime_cli(
             "compose",
             "-p",
             HETERO_PROJECT_NAME,
@@ -1411,26 +1368,26 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
             "web-carol",
             timeout=60,
         )
-        assert recreate.returncode == 0, _fmt("targeted recreate of web-carol", recreate)
+        assert recreate.returncode == 0, format_failure("targeted recreate of web-carol", recreate)
 
-        assert _container_id(alice_c) == alice_id_before, "alice's container was touched"
-        assert _container_id(bob_c) == bob_id_before, "bob's container was touched"
-        assert _container_id(nginx_c) == nginx_id_before, "nginx's container was touched"
-        assert _container_id(carol_c) != carol_id_before, "carol's container was not recreated"
+        assert container_id(alice_c) == alice_id_before, "alice's container was touched"
+        assert container_id(bob_c) == bob_id_before, "bob's container was touched"
+        assert container_id(nginx_c) == nginx_id_before, "nginx's container was touched"
+        assert container_id(carol_c) != carol_id_before, "carol's container was not recreated"
 
-        survived = _runtime_cli("exec", carol_c, "test", "-f", marker_path, timeout=15)
+        survived = runtime_cli("exec", carol_c, "test", "-f", marker_path, timeout=15)
         assert survived.returncode == 0, "marker did not survive carol's container recreate"
 
     finally:
         for name in (alice_c, bob_c, carol_c):
-            _runtime_cli("rm", "-f", name)
-        _runtime_cli("rm", "-f", nginx_c)
-        _runtime_cli("compose", "-p", HETERO_PROJECT_NAME, "down", timeout=60)
+            runtime_cli("rm", "-f", name)
+        runtime_cli("rm", "-f", nginx_c)
+        runtime_cli("compose", "-p", HETERO_PROJECT_NAME, "down", timeout=60)
         for user in HETERO_USERS:
             for volume in resolve_user_volume_names({"project_name": HETERO_PROJECT_NAME}, user):
-                _runtime_cli("volume", "rm", volume)
+                runtime_cli("volume", "rm", volume)
         for tag in (HETERO_DEFAULT_TAG, HETERO_ALT_TAG):
-            _runtime_cli("rmi", "-f", tag)
+            runtime_cli("rmi", "-f", tag)
 
 
 def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image: str) -> None:
@@ -1443,7 +1400,7 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
     pushed into) rather than duplicating it -- only a render catalog with a
     default tier is added on top.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     config_path = repo / BUILD_DIRNAME / "config.yml"
 
     config_writer.config_update_fields(
@@ -1464,24 +1421,24 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
 
     try:
         up = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt("osprey up (registry-mode renders)", up)
+        assert up.returncode == 0, format_failure("osprey up (registry-mode renders)", up)
 
         for user in ("alice", "bob"):
             container = _web_container(user)
-            assert _container_id(container) is not None, f"{container} not created"
+            assert container_id(container) is not None, f"{container} not created"
             image = _container_image(container)
             assert image == stub_image, (
                 f"{user}'s default-render container did not pull the unsuffixed "
                 f"registry tag: got {image!r}, expected {stub_image!r}"
             )
 
-        assert not _image_exists(never_built_tag), (
+        assert not image_exists(never_built_tag), (
             f"{never_built_tag} exists locally -- registry-mode 'osprey up' must never build"
         )
 
     finally:
         _teardown_all_project_resources()
-        _runtime_cli("rmi", "-f", never_built_tag)
+        runtime_cli("rmi", "-f", never_built_tag)
 
 
 # =============================================================================
@@ -1697,7 +1654,7 @@ def _image_user_gid(image: str, user: str) -> int | None:
     ref, which the ``stub_image`` fixture deliberately untags so that
     ``compose pull`` is a genuine pull.
     """
-    result = _runtime_cli("run", "--rm", "-u", user, image, "id", "-g", timeout=60)
+    result = runtime_cli("run", "--rm", "-u", user, image, "id", "-g", timeout=60)
     if result.returncode != 0:
         return None
     value = result.stdout.strip()
@@ -1757,7 +1714,7 @@ def _wait_for_qmd_health(timeout: float) -> None:
         except (urllib.error.URLError, ConnectionError, OSError) as exc:
             last_err = str(exc)
         time.sleep(2.0)
-    logs = _runtime_cli("logs", "--tail", "40", QMD_CONTAINER, timeout=30)
+    logs = runtime_cli("logs", "--tail", "40", QMD_CONTAINER, timeout=30)
     raise AssertionError(
         f"qmd sidecar did not answer /health on :{QMD_PORT} within {timeout:.0f}s "
         f"(last: {last_err})\n--- {QMD_CONTAINER} logs (tail) ---\n"
@@ -1818,7 +1775,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     6. touching the corpus marker makes that file findable through the
        sidecar's endpoint -- the whole path, host to index to query.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     config_path = repo / BUILD_DIRNAME / "config.yml"
 
     # Seed the corpus BEFORE `up`: the sidecar's entrypoint refuses to open its
@@ -1863,7 +1820,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     # A missing image is a loud failure, never a skip: nothing here builds one,
     # and a lane that skipped on an absent image would report success having
     # proved nothing.
-    assert _image_exists(QMD_IMAGE), (
+    assert image_exists(QMD_IMAGE), (
         f"qmd sidecar image {QMD_IMAGE!r} is not present locally. This test never "
         "builds it (it is a ~5 GB image). Build or load it, or point "
         "OSPREY_QMD_IMAGE at a tag that exists."
@@ -1871,7 +1828,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
 
     try:
         up = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt("osprey up (shared bundle + qmd sidecar)", up)
+        assert up.returncode == 0, format_failure("osprey up (shared bundle + qmd sidecar)", up)
 
         # --------------------------------------------------------------
         # 1 — the deploy provisioned the shared directory itself
@@ -1921,7 +1878,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # config says compose passed the group down at all; `id -G` says a
         # process inside actually carries it.
         # --------------------------------------------------------------
-        host_group_add = _runtime_cli(
+        host_group_add = runtime_cli(
             "inspect",
             "--type",
             "container",
@@ -1930,7 +1887,9 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
             _web_container("alice"),
             timeout=20,
         )
-        assert host_group_add.returncode == 0, _fmt("inspect alice's GroupAdd", host_group_add)
+        assert host_group_add.returncode == 0, format_failure(
+            "inspect alice's GroupAdd", host_group_add
+        )
         assert str(bundle_gid) in (json.loads(host_group_add.stdout) or []), (
             f"alice's container was created without the shared corpus group {bundle_gid}: "
             f"HostConfig.GroupAdd is {host_group_add.stdout.strip()}. The rendered "
@@ -1954,10 +1913,10 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # turns that into a loud failure naming the collision, instead of a leg
         # that quietly stops testing anything. The remedy is to give the bundle
         # directory a different group, not to delete the check.
-        dispatch_gid = _runtime_cli(
+        dispatch_gid = runtime_cli(
             "exec", "-u", "dispatch", _web_container("alice"), "id", "-g", timeout=20
         )
-        assert dispatch_gid.returncode == 0, _fmt("id -g as dispatch", dispatch_gid)
+        assert dispatch_gid.returncode == 0, format_failure("id -g as dispatch", dispatch_gid)
         assert str(bundle_gid) != dispatch_gid.stdout.strip(), (
             f"this probe would be vacuous: the shared corpus gid ({bundle_gid}) is "
             f"dispatch's own primary group inside the image, so 'id -G' would report it "
@@ -1965,8 +1924,10 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
             "does not already grant, then re-run."
         )
 
-        groups = _runtime_cli("exec", "-u", "dispatch", _web_container("alice"), "id", "-G")
-        assert groups.returncode == 0, _fmt("id -G as dispatch in alice's container", groups)
+        groups = runtime_cli("exec", "-u", "dispatch", _web_container("alice"), "id", "-G")
+        assert groups.returncode == 0, format_failure(
+            "id -G as dispatch in alice's container", groups
+        )
         assert str(bundle_gid) in groups.stdout.split(), (
             f"alice's container is not a member of the shared corpus group {bundle_gid}: "
             f"'id -G' as dispatch reported {groups.stdout.strip()!r}. The rendered "
@@ -1977,7 +1938,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # --------------------------------------------------------------
         # 4 — the sidecar holds the SAME directory, read-only
         # --------------------------------------------------------------
-        assert _container_id(QMD_CONTAINER) is not None, (
+        assert container_id(QMD_CONTAINER) is not None, (
             f"{QMD_CONTAINER} not created by 'osprey up' -- the co-deployed services "
             "stack did not start"
         )
@@ -1998,7 +1959,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
             f"{QMD_CONTAINER} holds the corpus read-WRITE; the sidecar indexes this "
             "tree and must never be able to modify it"
         )
-        sidecar_write = _runtime_cli(
+        sidecar_write = runtime_cli(
             "exec", QMD_CONTAINER, "sh", "-c", f"touch {SIDECAR_CORPUS_TARGET}/nope", timeout=20
         )
         assert sidecar_write.returncode != 0, (
@@ -2020,7 +1981,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
             f"sextupole family change. Operators reference {token} when a tune "
             f"footprint moves without a corresponding lattice edit.\n"
         )
-        write = _runtime_cli(
+        write = runtime_cli(
             "exec",
             _web_container("alice"),
             "sh",
@@ -2028,12 +1989,14 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
             f"cat > {CONTAINER_BUNDLE_DIR}/{draft_name} <<'DRAFTEOF'\n{draft_body}DRAFTEOF",
             timeout=30,
         )
-        assert write.returncode == 0, _fmt("write a draft from alice's container", write)
+        assert write.returncode == 0, format_failure("write a draft from alice's container", write)
 
-        read_back = _runtime_cli(
+        read_back = runtime_cli(
             "exec", _web_container("bob"), "cat", f"{CONTAINER_BUNDLE_DIR}/{draft_name}", timeout=20
         )
-        assert read_back.returncode == 0, _fmt("read alice's draft from bob's container", read_back)
+        assert read_back.returncode == 0, format_failure(
+            "read alice's draft from bob's container", read_back
+        )
         assert token in read_back.stdout, (
             f"bob's container read the draft but not its content: {read_back.stdout!r}"
         )
@@ -2059,17 +2022,17 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
 
         # Touch the corpus marker, exactly as a bundle writer does, so the
         # sidecar re-indexes within a poll instead of waiting out its sweep.
-        marker = _runtime_cli(
+        marker = runtime_cli(
             "exec",
             _web_container("alice"),
             "touch",
             f"{CONTAINER_BUNDLE_DIR}/{QMD_TOUCH_MARKER}",
             timeout=20,
         )
-        assert marker.returncode == 0, _fmt("touch the corpus marker from alice", marker)
+        assert marker.returncode == 0, format_failure("touch the corpus marker from alice", marker)
 
         hits = _wait_for_indexed(client, token, draft_name, QMD_REINDEX_TIMEOUT_SEC)
-        logs = _runtime_cli("logs", "--tail", "30", QMD_CONTAINER, timeout=30)
+        logs = runtime_cli("logs", "--tail", "30", QMD_CONTAINER, timeout=30)
         assert any(hit.file == draft_name for hit in hits), (
             f"the sidecar never indexed {draft_name}, written from alice's container "
             f"into the shared bundle. A query for {token!r} in collection "
@@ -2086,42 +2049,5 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # Exact-named, same guardrail as every other teardown in this file: one
         # named container for the sidecar, then the module's own sweep (which
         # is exact names plus the project-scoped `compose down`).
-        _runtime_cli("rm", "-f", QMD_CONTAINER)
+        runtime_cli("rm", "-f", QMD_CONTAINER)
         _teardown_all_project_resources()
-
-
-# ---------------------------------------------------------------------------
-# The telemetry gateway under this file's runtime
-# ---------------------------------------------------------------------------
-
-#: The port block the telemetry case publishes on, apart from every other
-#: scenario's ports in this file.
-TELEMETRY_PORT_BASE = 18000
-
-
-def test_deploy_lifecycle_telemetry_gateway_under_the_runtime(tmp_path: Path) -> None:
-    """The gateway reads its files, survives a forced recreate, and inserts by password alone.
-
-    Runs under ``OSPREY_E2E_RUNTIME`` like every case here, so the podman lane
-    decides the same three facts the docker lanes do (``tests/e2e/_telemetry_runtime.py``).
-    The deployment takes this file's project name, so the lane's exact-named
-    cleanup of ``<project>-telemetry-store``/``-gateway`` covers it.
-    """
-    from tests.e2e._telemetry_runtime import run_gateway_runtime_case
-
-    if shutil.which(RUNTIME) is None:
-        pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
-        pytest.skip(f"{RUNTIME} daemon not responding")
-
-    run_gateway_runtime_case(
-        runtime=RUNTIME,
-        project_name=PROJECT_NAME,
-        port_base=TELEMETRY_PORT_BASE,
-        workdir=tmp_path,
-        osprey_env={
-            "CLAUDECODE": "",
-            "CONTAINER_RUNTIME": RUNTIME,
-            "OSPREY_PIP_SPEC": "osprey-framework==0.0.0+e2e-stub",
-        },
-    )

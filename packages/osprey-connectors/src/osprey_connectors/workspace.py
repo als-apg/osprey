@@ -1,47 +1,28 @@
-"""Cross-layer workspace and config resolution utilities.
+"""Where a process finds its config and its agent data.
 
-These functions are used across the ``interfaces/``, ``cli/``, ``services/``,
-and ``mcp_server/`` layers, so they live in ``utils/`` — below all of them —
-rather than inside any one layer.
+The rendered ``config.yml``, the repo root it belongs to, and the agent-data
+root under it — resolved once here, for the connectors and for every framework
+layer that loads the same config. The rest of the deployment repo's layout
+(layer directories, the image staging area, the audit and archive zones) is the
+framework's, in ``osprey.utils.workspace``.
 """
 
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any, Final
-
-from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
+from typing import Any
 
 __all__ = [
-    "APPS_DIRNAME",
-    "ARCHIVE_DIR_RELPATH",
-    "AUDIT_DIR_RELPATH",
     "BUILD_DIR_NAME",
-    "CHAT_UPLOADS_SUBDIR",
     "DEFAULT_AGENT_DATA_BASE_DIR",
-    "IMAGE_DIR_NAME",
-    "LAYER_DIRNAMES",
-    "LAYER_DIR_KINDS",
-    "PROFILE_FILENAME",
     "RENDERED_CONFIG_RELPATH",
-    "RETIRED_LAYER_DIRS",
-    "RUNTIME_DATA_DIR_NAME",
     "SIMULATION_STATE_DIR_CONFIG_KEY",
     "SIMULATOR_LOG_DIR_RELPATH",
-    "SIMULATOR_STANDIN_LOG_SUBDIR",
-    "STATE_DIR_NAME",
-    "STATE_ZONE_DIRS",
-    "TIERS_DIRNAME",
     "agent_data_base_dir",
     "anchored_path",
-    "container_image_context",
-    "deployment_env_chain",
     "dotted_config_str",
-    "layer_dir_kind",
     "load_osprey_config",
     "rendered_config_path",
-    "repo_root_for_agent_data",
     "repo_root_for_config",
     "reset_config_cache",
     "resolve_agent_data_root",
@@ -54,72 +35,22 @@ __all__ = [
 
 logger = logging.getLogger("osprey_connectors.workspace")
 
-#: Zone directory names inside a deployment repo. ``build/`` is the render zone,
-#: re-created wholesale by every ``osprey build``; ``var/`` is the durable state
-#: zone that survives it. Spelled here, in ``utils/``, because the runtime layers
-#: resolve paths against them and must not import ``cli``.
+#: The render zone inside a deployment repo, re-created wholesale by every
+#: ``osprey build``. The rendered config lives in it
+#: (:data:`RENDERED_CONFIG_RELPATH`), which is how :func:`repo_root_for_config`
+#: tells a host's render from a container's project directory.
 BUILD_DIR_NAME = "build"
-STATE_DIR_NAME = "var"
 
-#: The file that makes a directory a deployment repo root — the marker the
-#: CLI's repo walk and the hook library's anchor both look for. Spelled here
-#: because this layer must not import ``cli``.
-PROFILE_FILENAME = "profile.yml"
+#: The durable state zone, which survives ``build/`` being re-created. Private:
+#: the framework owns the zone layout (``osprey.utils.workspace.STATE_DIR_NAME``,
+#: held equal to this by test); it is spelled here only to place
+#: :data:`DEFAULT_AGENT_DATA_BASE_DIR`.
+_STATE_DIR_NAME = "var"
 
-#: Directory beside ``profile.yml`` (or in the bundled presets) holding tiers:
-#: access levels of the deployment's own agent.
-TIERS_DIRNAME: Final = "tiers"
-
-#: Directory beside ``profile.yml`` (or in the bundled presets) holding apps:
-#: separate agents built from the same deployment.
-APPS_DIRNAME: Final = "apps"
-
-#: Each live layer directory -> the kind word its files are read as. The
-#: listing order is the order every layer listing follows. Spelled here, below
-#: ``cli``, because the hook library and the runtime read the layout too.
-LAYER_DIR_KINDS: Mapping[str, str] = MappingProxyType({TIERS_DIRNAME: "tier", APPS_DIRNAME: "app"})
-
-#: Each retired layer directory -> the live directory its files are read as,
-#: with one warning naming the move. Closing the deprecation window is deleting
-#: the entry.
-RETIRED_LAYER_DIRS: Mapping[str, str] = MappingProxyType(
-    {"personas": TIERS_DIRNAME}  # retired-spelling
-)
-
-#: Every directory beside ``profile.yml`` whose files are layers: the live ones
-#: in listing order, then the retired ones.
-LAYER_DIRNAMES: tuple[str, ...] = (*LAYER_DIR_KINDS, *RETIRED_LAYER_DIRS)
-
-
-def layer_dir_kind(dirname: str) -> str | None:
-    """The kind word (``"tier"`` or ``"app"``) a layer directory's files are read as.
-
-    A retired directory answers with its successor's kind; any other name is
-    not a layer directory and answers ``None``.
-    """
-    return LAYER_DIR_KINDS.get(RETIRED_LAYER_DIRS.get(dirname, dirname))
-
-
-#: Where the build stages the container-destined copy of a project, under the
-#: render zone. Each is a deployment REPO — ``profile.yml`` and the source zone
-#: at its root, its own render below in ``build/`` — rendered against the
-#: ``/app/<project>`` path a container sees rather than the building host's, and
-#: it is what an image is built from. Spelled here beside the zone names because
-#: the build writes it and the deploy layer builds from it, and the two must not
-#: disagree about where it is.
-IMAGE_DIR_NAME = ".image"
-
-#: Reserved runtime-output directory directly under a repo's ``data/`` tree:
-#: ``data/.runtime/``. The one place ``osprey up`` may write inside the
-#: otherwise build-owned data tree — today the per-lane Bluesky CURVE
-#: certificate sets, ``data/.runtime/<lane>_curve/``. The build treats it as
-#: not existing: the profile-material fold never hashes it (a successful start
-#: must not mark its own build OUT OF DATE and strand the scaffolded boot
-#: unit at the drift gate, #716) and the data copy never stages it (secrets
-#: must not land in ``build/`` or in images). Spelled here beside the zone
-#: names because the writer lives in ``deployment/`` and the fold in ``cli/``,
-#: and the two must agree on these exact bytes.
-RUNTIME_DATA_DIR_NAME = ".runtime"
+#: The file that makes a directory a deployment repo root, the marker
+#: :func:`resolve_project_root` walks up to. Private: the framework owns it
+#: (``osprey.utils.workspace.PROFILE_FILENAME``, held equal to this by test).
+_PROFILE_FILENAME = "profile.yml"
 
 #: The rendered config, relative to the repo root. It is an *output*: the source
 #: of truth is ``profile.yml`` at the repo root, and this file is what a build
@@ -131,41 +62,12 @@ RENDERED_CONFIG_RELPATH = f"{BUILD_DIR_NAME}/config.yml"
 #: Under ``var/`` rather than beside the render: memory, sessions, and artifacts
 #: have to survive ``rm -rf build/``, which is the one guarantee the build zone
 #: does not offer.
-DEFAULT_AGENT_DATA_BASE_DIR = f"{STATE_DIR_NAME}/agent_data"
-
-#: The safety audit log, relative to the repo root: what the agent was asked to
-#: do and what it did. Durable like the agent-data root beside it, and kept by
-#: ``osprey reset`` unless ``--purge-audit`` is passed. Named here rather than
-#: spelled at each end because the directory the reset command promises to keep
-#: has to be the directory the refusal recorder writes into.
-AUDIT_DIR_RELPATH = f"{STATE_DIR_NAME}/audit"
-
-#: The append-only agent-record archive, relative to the repo root; nothing in
-#: OSPREY deletes under it.
-ARCHIVE_DIR_RELPATH = f"{STATE_DIR_NAME}/archive"
+DEFAULT_AGENT_DATA_BASE_DIR = f"{_STATE_DIR_NAME}/agent_data"
 
 #: The simulator's model-log directory, relative to the repo root: the composite
 #: appends one ``<model>.log`` per served physics model here, from whichever
-#: process serves it. Durable like the audit root beside it.
-SIMULATOR_LOG_DIR_RELPATH = f"{STATE_DIR_NAME}/simulator"
-
-#: The subdirectory of :data:`SIMULATOR_LOG_DIR_RELPATH` the live stand-in
-#: instance writes, so a record's directory names the machine that wrote it.
-SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
-
-#: The two directories that make up the state zone, created empty and otherwise
-#: the agent's to write. Both ``osprey init`` and ``osprey build`` guarantee they
-#: exist — a fresh clone carries no git-ignored directory, so whichever command
-#: runs first has to make them, and a repo that was reset must end up looking
-#: like one that was freshly cloned. Spelled once for exactly that reason: two
-#: commands agreeing by coincidence is how a reset and a clone start to differ.
-STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR, AUDIT_DIR_RELPATH)
-
-#: Subdirectory of the agent-data root holding the files operators attach in the
-#: Simple view's chat. The web terminal stores them there and hands the agent
-#: their absolute paths; the rendered permissions allow the agent to read exactly
-#: that directory. Spelled once so the store and the rule cannot name two places.
-CHAT_UPLOADS_SUBDIR = "uploads"
+#: process serves it. Durable, like the agent-data root beside it.
+SIMULATOR_LOG_DIR_RELPATH = f"{_STATE_DIR_NAME}/simulator"
 
 #: Subdirectory of the agent-data root holding the simulation's mutable
 #: ``active_scenarios`` state file.
@@ -173,8 +75,8 @@ _SIMULATION_STATE_DIR_NAME = "simulation"
 
 #: Config key naming that directory explicitly (relative paths resolve against
 #: the project root). Unset — the normal case — puts it under the agent-data
-#: root. :data:`osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` and
-#: :func:`resolve_simulation_state_dir` read this one spelling.
+#: root. :class:`osprey_connectors.config.ConfigBuilder`'s runtime-write
+#: advisory and :func:`resolve_simulation_state_dir` read this one spelling.
 SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
 
@@ -225,18 +127,6 @@ def rendered_config_path(repo_root: Path | str) -> Path:
     return Path(repo_root) / RENDERED_CONFIG_RELPATH
 
 
-def container_image_context(repo_root: Path | str, project_name: str) -> Path:
-    """The directory an image for *project_name* is built from.
-
-    The build writes it (``build_cmd._render_container_project``) and the deploy
-    layer builds from it, so the path is assembled here rather than spelled at
-    both ends. It is a deployment repo in its own right: the ``Dockerfile`` a
-    build uses lives at :data:`RENDERED_CONFIG_RELPATH`'s sibling inside it, not
-    at its root, because the root is the repo and the render is one level down.
-    """
-    return Path(repo_root) / BUILD_DIR_NAME / IMAGE_DIR_NAME / project_name
-
-
 def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     """Read the agent-data root out of an already-loaded config mapping.
 
@@ -273,8 +163,8 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
 
     A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
     string) falls through to the default rather than raising, matching how
-    :func:`osprey_connectors.config.find_runtime_write_paths_under_data` reads the
-    same key.
+    :class:`osprey_connectors.config.ConfigBuilder`'s runtime-write advisory
+    reads the same key.
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None``.
@@ -384,102 +274,6 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     return parent.parent if parent.name == BUILD_DIR_NAME else parent
 
 
-def _deployment_env_path(config_path: Path | str) -> Path:
-    """The ``.env`` that belongs to the deployment whose config is *config_path*.
-
-    There is one ``.env`` per deployment and it sits at the repo ROOT, beside
-    ``profile.yml`` — never in the render, which every ``osprey build``
-    re-creates from scratch. So the config's own directory is the wrong answer
-    on a host, where the config is ``<repo>/build/config.yml``, and the right
-    one in a container, whose project directory *is* the render.
-
-    Both are covered by one rule: prefer the repo root, fall back to the
-    config's directory when nothing is there. The fallback is what keeps the
-    container case working without a second rule.
-
-    This answers for the SINGLE local file only. A consumer that reads or
-    watches the deployment's whole environment wants
-    :func:`deployment_env_chain`, which applies the same anchoring to every
-    chain member — ``.env.shared`` included.
-    """
-    root_env = repo_root_for_config(config_path) / ".env"
-    if root_env.is_file():
-        return root_env
-    return Path(config_path).parent / ".env"
-
-
-def deployment_env_chain(config_path: Path | str) -> list[Path]:
-    """Every env-chain file of the deployment whose config is *config_path*.
-
-    The chain counterpart of :func:`_deployment_env_path`, with the same
-    root-then-container anchoring: the repo root's chain when any member exists
-    there, else the config's own directory (the container case, whose project
-    directory *is* the render). Paths come back in ascending precedence —
-    ``.env.shared`` before ``.env`` — so an ``override=True`` loader can walk
-    the list as-is and land on local-wins.
-
-    Every member path is returned whether or not the file exists. A watcher
-    has to stat the places a member could *appear*, or a ``.env`` created
-    after start-up never invalidates anything — the same reason
-    :func:`_deployment_env_path` is spelled once for its readers and watchers.
-
-    Spelled here rather than at each caller because the callers that ask this
-    have to agree exactly — a reader that loads one set of files and a
-    signature that stats another produces a cache which never invalidates, and
-    reports nothing at all while doing it.
-    """
-    root = repo_root_for_config(config_path)
-    if any((root / name).is_file() for name in ENV_CHAIN_FILENAMES):
-        base = root
-    else:
-        base = Path(config_path).parent
-    return [base / name for name in ENV_CHAIN_FILENAMES]
-
-
-def repo_root_for_agent_data(
-    agent_data_root: Path | str, base_dir: str = DEFAULT_AGENT_DATA_BASE_DIR
-) -> Path:
-    """The repo root an agent-data root sits under.
-
-    Stores hand agent code *relative* file pointers, and agent code runs with
-    its working directory at the repo root (see the python executor's
-    ``_resolve_project_root``), so the two have to be anchored at the same
-    place. Taking the agent-data root's parent was that anchor only while the
-    directory sat exactly one level down; ``var/agent_data`` is two, and a
-    pointer anchored one level short resolves to nothing from the agent's cwd.
-
-    So: strip the configured base directory off the tail when it is there, and
-    fall back to the parent when it is not — which is what a project that
-    relocated its data root to a single-segment directory still wants.
-
-    An ABSOLUTE ``base_dir`` is the case the tail rule cannot serve, and the
-    guard below is what keeps it from being an exception instead of an answer.
-    Such a root is not under any repo (``anchored_path`` returns it verbatim),
-    so no repo-relative pointer to it exists; its parts also begin with the
-    filesystem root, which makes ``tail`` match the whole of ``root.parts`` and
-    ``parents[len(tail) - 1]`` index past the end. Requiring a strictly longer
-    root sends that case to the parent fallback — the answer this helper gave
-    before it learned about ``base_dir`` at all.
-
-    Be precise about what that fallback does, because the obvious guess is
-    wrong: the parent is still an ANCESTOR of everything under the root, so a
-    caller's ``relative_to`` SUCCEEDS against it and yields a wrong-but-plausible
-    pointer (``agent/artifacts/x.json`` for a root of ``/data/agent``). It does
-    not raise, and no defensive bare-filename branch fires. That is the
-    committed baseline's behavior, preserved deliberately — the alternative
-    would be inventing an answer for a layout that has none.
-
-    Args:
-        agent_data_root: Resolved agent-data root, e.g. ``<repo>/var/agent_data``.
-        base_dir: The ``agent_data.base_dir`` that produced it.
-    """
-    root = Path(agent_data_root)
-    tail = Path(base_dir).parts
-    if tail and len(root.parts) > len(tail) and root.parts[-len(tail) :] == tail:
-        return root.parents[len(tail) - 1]
-    return root.parent
-
-
 def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
     """Resolve the repo root that relative configured paths anchor against.
 
@@ -532,7 +326,7 @@ def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
         return repo_root_for_config(config_path)
     cwd = Path.cwd()
     for ancestor in (cwd, *cwd.parents):
-        if (ancestor / PROFILE_FILENAME).is_file():
+        if (ancestor / _PROFILE_FILENAME).is_file():
             return ancestor
     return candidate if candidate is not None else cwd
 

@@ -39,6 +39,7 @@ from tests.e2e.sdk_helpers import (
     ariel_db_skip_reason,
     e2e_budget_scale,
     init_project,
+    print_run_summary,
     run_sdk_query,
 )
 
@@ -98,22 +99,6 @@ def sub_agent_traces(result):
     return [t for t in result.tool_traces if t.parent_tool_use_id is not None]
 
 
-def print_trace_debug(test_name, result):
-    """Print standard debug output for a delegation test."""
-    print(f"\n--- {test_name} ---")
-    print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-    print(f"  num_turns: {result.num_turns}")
-    print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-    for trace in result.tool_traces:
-        error_flag = " [ERROR]" if trace.is_error else ""
-        parent_flag = (
-            f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
-        )
-        print(f"  tool: {trace.name}{error_flag}{parent_flag}")
-        if trace.is_error and trace.result:
-            print(f"    error: {trace.result[:300]}")
-
-
 def assert_no_tool_errors(result, exclude_patterns=None):
     """Assert no tool traces have is_error=True, optionally excluding patterns."""
     exclude_patterns = exclude_patterns or []
@@ -169,7 +154,7 @@ class TestAgentDelegation:
             max_budget_usd=1.0,
         )
 
-        print_trace_debug("logbook-search delegation", result)
+        print_run_summary("logbook-search delegation", result)
 
         # --- Delegation contract (always asserted) ---
 
@@ -255,7 +240,7 @@ class TestAgentDelegation:
             max_budget_usd=1.0,
         )
 
-        print_trace_debug("channel-finder delegation", result)
+        print_run_summary("channel-finder delegation", result)
 
         # --- Delegation contract ---
 
@@ -346,7 +331,7 @@ class TestAgentDelegation:
             max_budget_usd=1.0,
         )
 
-        print_trace_debug("data-visualizer delegation", result)
+        print_run_summary("data-visualizer delegation", result)
 
         # Session completed
         assert result.result is not None, "No ResultMessage received"

@@ -667,7 +667,7 @@ class ARIELSearchService:
         )
         extra_diagnostics = _merge_diagnostics(extra_diagnostics, image_diagnostics)
 
-        start_date, end_date = request.time_range if request.time_range else (None, None)
+        start_date, end_date = request.time_range or (None, None)
 
         args: list[Any] = [request.query, self.repository, self.config]
         if descriptor.needs_embedder:
@@ -1097,18 +1097,17 @@ class ARIELSearchService:
         masked_uri = self._mask_database_uri(self.config.database.uri)
 
         try:
-            async with self.pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    await cur.execute("SELECT 1")
-                    database_connected = True
+            async with self.pool.connection() as conn, conn.cursor() as cur:
+                await cur.execute("SELECT 1")
+                database_connected = True
 
-                    await cur.execute("SELECT COUNT(*) FROM enhanced_entries")
-                    row = await cur.fetchone()
-                    entry_count = row[0] if row else 0
+                await cur.execute("SELECT COUNT(*) FROM enhanced_entries")
+                row = await cur.fetchone()
+                entry_count = row[0] if row else 0
 
-                    embedding_tables = await self.repository.get_embedding_tables()
+                embedding_tables = await self.repository.get_embedding_tables()
 
-                    last_ingestion = await self.repository.get_last_ingestion()
+                last_ingestion = await self.repository.get_last_ingestion()
 
         except Exception as e:
             errors.append(f"Database error: {e}")

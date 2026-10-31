@@ -596,6 +596,21 @@ An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment's services, data and provider. Every app
 render is read-only on the machine.
 
+An app runs the deployment's model unless its file names its own with a
+top-level ``model:``, such as a cheaper model for a research card:
+
+.. code-block:: yaml
+
+   # apps/logbook.yml
+   model: claude-sonnet-5
+
+The id must be one the deployment's provider serves; the provider itself is
+always ``profile.yml``'s. As for ``profile.yml``, an id the provider's
+``models`` list does not carry is used as written, and the build warns that the
+provider does not list it. A tier may set ``model:`` the same way. Neither
+spells ``config: claude_code.default_model``; the build renders that key from
+``model:`` and refuses it in the file that spells it.
+
 Both kinds may set ``extra_mounts``, ``seed_base`` and ``image`` at the top of
 the file. Edit a file to change what its terminals can do, and see the merged
 result with:
@@ -745,7 +760,10 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
 anything, and says which variant it used in its output. Tiers and apps are rendered
-for the same host, so a stack cannot come up half-configured for another one.
+for the same host, so a stack cannot come up half-configured for another one: each
+sees the overlay through the ``profile.yml`` it merges over. An overlay that adds a
+``services:`` entry therefore adds it to the deployment, and the tier and app renders
+stay attached to it like any other service the deployment runs.
 
 The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — ``.env.variant`` is covered by

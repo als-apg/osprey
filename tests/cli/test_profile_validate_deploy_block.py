@@ -40,11 +40,6 @@ VALID_DEPLOY: dict[str, Any] = {
 }
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _deploy(**overrides: Any) -> dict[str, Any]:
     """A valid deploy block with *overrides* applied at the top level."""
     block = {

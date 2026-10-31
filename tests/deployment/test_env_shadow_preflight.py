@@ -465,7 +465,7 @@ def test_the_start_sequence_runs_the_preflight_before_the_image_build(tmp_path, 
     monkeypatch.setattr(
         container_lifecycle,
         "_build_project_image",
-        lambda config, dev, env, ctx=None: order.append("image"),
+        lambda config, dev, env, ctx=None, compose_files=None: order.append("image"),
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -506,7 +506,9 @@ def test_a_divergent_export_warns_but_still_starts_the_stack(tmp_path, monkeypat
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -1073,7 +1075,7 @@ def _stub_runtime(monkeypatch, order: list[str]) -> list[list[str]]:
     monkeypatch.setattr(
         container_lifecycle,
         "_build_project_image",
-        lambda config, dev, env, ctx=None: order.append("image"),
+        lambda config, dev, env, ctx=None, compose_files=None: order.append("image"),
     )
 
     # `container_lifecycle.subprocess` IS the stdlib module, so this patch is

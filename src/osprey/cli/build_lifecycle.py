@@ -373,8 +373,7 @@ def _run_lifecycle_phase(
                         fail(msg)
                         _report_results_written(junit_results, results_before)
                         raise BuildProfileError(msg)
-                    else:
-                        warn(msg)
+                    warn(msg)
                 else:
                     report(f"  ✓ {step.name} ({elapsed:.1f}s)", style=Styles.SUCCESS)
                 # Show the JUnit summary if this step wrote test results
@@ -403,8 +402,7 @@ def _run_lifecycle_phase(
                         fail(headline, output)
                         _report_results_written(junit_results, results_before)
                         raise BuildProfileError(msg)
-                    else:
-                        warn(headline, output)
+                    warn(headline, output)
                 else:
                     success_msg = f"  ✓ {step.name} ({elapsed:.1f}s)"
                     output = (result.stdout + result.stderr).strip()
@@ -442,13 +440,11 @@ def _run_lifecycle_phase(
                 fail(headline, cause)
                 _report_results_written(junit_results, results_before)
                 raise BuildProfileError(msg) from None
-            else:
-                warn(headline, cause)
+            warn(headline, cause)
             _report_results_written(junit_results, results_before)
         except OSError as exc:
             msg = f"Lifecycle {phase_name} step '{step.name}' failed to start"
             if abort_on_failure:
                 fail(msg, str(exc))
                 raise BuildProfileError(f"{msg}: {exc}") from exc
-            else:
-                warn(msg, str(exc))
+            warn(msg, str(exc))

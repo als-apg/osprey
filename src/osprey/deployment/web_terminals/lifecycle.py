@@ -81,13 +81,17 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NoReturn
 
-from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
+from osprey.agent_runner.claude_state import (
+    CLAUDE_CONFIG_VOLUME_SUFFIX,
+    CLAUDE_PROJECTS_VOLUME_SUFFIX,
+)
 from osprey.cli.output import fail, note, report
 from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     resolve_project_name,
     resolve_repo_root,
+    resolve_user_projects_volume_name,
     resolve_user_volume_names,
 )
 from osprey.deployment.container_ownership import (
@@ -130,10 +134,10 @@ from osprey.deployment.web_terminals.roster import (
 )
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.config_writer import config_replace_list
+from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.config import ConfigBuilder
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
 
@@ -166,6 +170,21 @@ _KEPT_VOLUMES_REMEDY = (
     "Stop whatever is using them, then run `osprey users prune` with the same "
     "--archive or --purge flag."
 )
+
+
+def _user_volume_names(config: dict, user: str) -> list[str]:
+    """A web terminal user's three runtime volume names, in removal order.
+
+    The claude-config volume, the transcripts volume nested inside it, and the
+    agent-data volume. The transcripts volume is kept and removed together with
+    its claude-config parent, so every policy that names one names both.
+    """
+    claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
+    return [
+        claude_config_volume,
+        resolve_user_projects_volume_name(config, user),
+        agent_data_volume,
+    ]
 
 
 def decommission_user(
@@ -203,7 +222,7 @@ def decommission_user(
     4. Re-render the web-terminal artifacts from the updated config, so the
        deployed nginx route/compose service/landing card for the user disappear.
     5. Force-remove the user's exact-named container.
-    6. Per ``archive``/``purge``, handle the user's two named volumes: retain
+    6. Per ``archive``/``purge``, handle the user's three named volumes: retain
        (default, no confirmation needed), archive-then-remove, or purge (remove
        without archiving). Every volume is attempted, and each one the runtime
        kept is named with its reason.
@@ -254,8 +273,7 @@ def decommission_user(
     # leave the roster, config.yml, container, and volumes untouched.
     volumes: list[str] = []
     if archive or purge:
-        claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
-        volumes = [claude_config_volume, agent_data_volume]
+        volumes = _user_volume_names(config, user)
         prompt = (
             f"This will permanently destroy web-terminal volumes for user {user!r}: "
             f"{', '.join(volumes)}. Type '{user}' to confirm: "
@@ -321,6 +339,7 @@ def decommission_user(
             env=env,
             repo_root=repo_root,
             archive_container=_archive_container_name(config),
+            record_container=_record_container_name(config),
         )
         if kept:
             _report_kept(
@@ -446,6 +465,7 @@ def prune_users(
                 env=env,
                 repo_root=repo_root,
                 archive_container=_archive_container_name(config),
+                record_container=_record_container_name(config),
             )
         )
     # Named before the reconcile, so they are printed even if it raises.
@@ -551,7 +571,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     deployed. This is also why the volume set must include off-roster users:
     ``compose down`` removes an orphaned user's container right along with
     everyone else's (it doesn't consult the roster), so a volume set built from
-    the roster alone would leave that user's two volumes behind — contradicting
+    the roster alone would leave that user's volumes behind — contradicting
     "tear down everything this project owns." The ``down`` never carries
     ``--volumes``/``-v``: volumes are removed
     afterwards, one exact name at a time, so the destroy argv for data is
@@ -571,8 +591,8 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     Order of operations:
 
     1. Load the config; resolve the project name and the roster's user names.
-    2. Compute the volume teardown set: each roster user's two exact volume
-       names (:func:`osprey.deployment.compose_generator.resolve_user_volume_names`),
+    2. Compute the volume teardown set: each roster user's three exact volume
+       names (:func:`_user_volume_names`),
        unioned with any off-roster/orphaned project volumes the runtime
        actually has (:func:`_discover_orphan_volumes`, the same read-only
        discovery :func:`prune_users` uses) — so a user who was decommissioned
@@ -629,7 +649,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
     volumes: list[str] = []
     for user in roster_names:
-        volumes.extend(resolve_user_volume_names(config, user))
+        volumes.extend(_user_volume_names(config, user))
 
     # Off-roster volumes still belong to this project and must be swept too —
     # `compose down` doesn't distinguish roster from orphaned containers, so
@@ -1292,10 +1312,10 @@ def _discover_orphan_volumes(
     ``COMPOSE_PROJECT_NAME``), so a sibling OSPREY deployment's volumes — even
     under a project name that shares a prefix or contains an underscore — can
     never be mistaken for this project's. Within that project-scoped listing,
-    only volumes matching ``<project>_<user>-claude-config`` or
-    ``<project>_<user>-agent-data`` (the same names
-    :func:`osprey.deployment.compose_generator.resolve_user_volume_names`
-    derives) are considered; anything else the project owns is ignored here.
+    only volumes matching ``<project>_<user>-claude-config``,
+    ``<project>_<user>-claude-projects`` or ``<project>_<user>-agent-data`` (the
+    same names :func:`_user_volume_names` derives) are considered; anything else
+    the project owns is ignored here.
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
@@ -1305,7 +1325,7 @@ def _discover_orphan_volumes(
         env: Environment for the subprocess call.
 
     Returns:
-        Mapping of orphaned user name to their exact volume names (0, 1, or 2
+        Mapping of orphaned user name to their exact volume names (0 to 3
         entries depending on which volumes actually exist).
     """
     result = subprocess.run(
@@ -1323,7 +1343,7 @@ def _discover_orphan_volumes(
         env=env,
     )
     prefix = f"{project}_"
-    suffixes = (CLAUDE_CONFIG_VOLUME_SUFFIX, "-agent-data")
+    suffixes = (CLAUDE_CONFIG_VOLUME_SUFFIX, CLAUDE_PROJECTS_VOLUME_SUFFIX, "-agent-data")
     orphans: dict[str, list[str]] = {}
     for line in result.stdout.splitlines():
         name = line.strip()
@@ -1336,7 +1356,10 @@ def _discover_orphan_volumes(
                 if user and user not in roster_names:
                     orphans.setdefault(user, []).append(name)
                 break
-    return orphans
+    # Each user's volumes in the order the removal policy walks them: a
+    # transcripts volume after the claude-config parent it is kept with.
+    rank = {f"{project}_{user}{suffix}": i for user in orphans for i, suffix in enumerate(suffixes)}
+    return {user: sorted(names, key=rank.__getitem__) for user, names in orphans.items()}
 
 
 def _inspect_image_project_label(
@@ -1550,6 +1573,7 @@ def _apply_volume_policy(
     repo_root: Path,
     env: dict[str, str] | None = None,
     archive_container: str | None = None,
+    record_container: str | None = None,
 ) -> list[tuple[str, str]]:
     """Apply the retain(default)/archive/purge policy to exact-named volumes.
 
@@ -1577,11 +1601,16 @@ def _apply_volume_policy(
             when it deploys one. That container mounts every user's volumes, so
             a volume any container references cannot be removed: before any
             removal it gets one last pass (best effort) and is removed.
+        record_container: The deployment's agent-record container. It mounts
+            every user's transcripts volume, so before any removal it is
+            removed too.
 
     Returns:
         The volumes still on the host that the policy should have removed, in
         order, as ``(subject, reason)`` pairs. Empty for retain. A volume whose
-        archive failed is kept on purpose and is listed with that reason.
+        archive failed is kept on purpose and is listed with that reason, and
+        so is a transcripts volume listed after a claude-config parent that was
+        kept.
     """
     if not (archive or purge):
         return []  # retain (default): volumes are left in place
@@ -1589,33 +1618,73 @@ def _apply_volume_policy(
     removed_archive = bool(volumes) and _remove_archive_container(
         runtime, archive_container, env=env
     )
+    removed_record = bool(volumes) and _remove_record_container(runtime, record_container, env=env)
 
     kept: list[tuple[str, str]] = []
+    kept_names: set[str] = set()
+
+    def _kept_parent(volume: str) -> str | None:
+        # A transcripts volume is nested over its claude-config parent and goes
+        # with it: a parent the policy kept keeps its transcripts volume too.
+        if not volume.endswith(CLAUDE_PROJECTS_VOLUME_SUFFIX):
+            return None
+        parent = volume.removesuffix(CLAUDE_PROJECTS_VOLUME_SUFFIX) + CLAUDE_CONFIG_VOLUME_SUFFIX
+        return parent if parent in kept_names else None
+
+    def _keep(volume: str, reason: str) -> None:
+        kept.append((f"volume {volume!r}", reason))
+        kept_names.add(volume)
+
     if archive:
         archive_dir = repo_root / _ARCHIVE_DIR_NAME
         for volume in volumes:
-            subject = f"volume {volume!r}"
+            if parent := _kept_parent(volume):
+                _keep(volume, f"kept with {parent!r}, which was not removed")
+                continue
             try:
                 tarball = archive_volume(runtime, volume, archive_dir, env=env)
             except subprocess.CalledProcessError as exc:
                 why = (exc.stderr or "").strip() or f"exit {exc.returncode}"
-                kept.append((subject, f"not archived, so not removed: {why}"))
+                _keep(volume, f"not archived, so not removed: {why}")
                 continue
             reason = removal_refusal(remove_volume(runtime, volume, env=env))
             if reason:
-                kept.append((subject, f"archived to {tarball}, but not removed: {reason}"))
+                _keep(volume, f"archived to {tarball}, but not removed: {reason}")
     else:  # purge
         for volume in volumes:
+            if parent := _kept_parent(volume):
+                _keep(volume, f"kept with {parent!r}, which was not removed")
+                continue
             reason = removal_refusal(remove_volume(runtime, volume, env=env))
             if reason:
-                kept.append((f"volume {volume!r}", reason))
+                _keep(volume, reason)
 
     if removed_archive:
         report(
             "The archive container was removed because it held the removed volumes. "
             "Run `osprey build`, then `osprey up`, to start it without them."
         )
+    if removed_record:
+        report(
+            "The agent-record container was removed because it held the removed volumes. "
+            "Run `osprey build`, then `osprey up`, to start it without them."
+        )
     return kept
+
+
+def _remove_record_container(
+    runtime: str, container: str | None, *, env: dict[str, str] | None = None
+) -> bool:
+    """Remove the agent-record *container*; return whether it was removed.
+
+    It mounts every user's transcripts volume, and the runtime refuses to
+    remove a volume any container references, running or not. Nothing is
+    copied first: agent-record reads the transcripts as they are written. The
+    next ``osprey up`` recreates it.
+    """
+    if container is None:
+        return False
+    return remove_container(runtime, container, env=env).returncode == 0
 
 
 def _remove_archive_container(
@@ -1662,6 +1731,13 @@ def _archive_container_name(config: dict[str, Any]) -> str | None:
     if "archive" not in deployed:
         return None
     return f"{resolve_project_name(config)}-archive"
+
+
+def _record_container_name(config: dict[str, Any]) -> str:
+    """The deployment's agent-record container; every deployment runs one."""
+    from osprey.agent_record.credentials import RECORD_SERVICE
+
+    return f"{resolve_project_name(config)}-{RECORD_SERVICE}"
 
 
 def confirm_destroy(prompt: str, assume_yes: bool, *, expected: str) -> bool:

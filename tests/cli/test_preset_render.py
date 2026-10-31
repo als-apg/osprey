@@ -62,7 +62,8 @@ from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
 from osprey.deployment.web_terminals.auth_credentials import seeded_logins
 from osprey.deployment.web_terminals.lint import lint_web_terminals
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._lifecycle_build import rendered_config
 
 CONTROL_SYSTEM_TYPE_KEY = "control_system.type"
 DENY_KEY = "claude_code.permissions.deny"
@@ -305,7 +306,7 @@ class TestControlAssistantSeededLogins:
 
     def test_the_shipped_demo_starts_on_loopback(self, rendered_preset_repo: Path) -> None:
         """On this machine the demo logins are the demo, and nothing refuses them."""
-        config = yaml.safe_load((rendered_preset_repo / "build" / "config.yml").read_text())
+        config = rendered_config(rendered_preset_repo)
 
         findings = lint_web_terminals(config, project_root=rendered_preset_repo)
 
@@ -314,7 +315,7 @@ class TestControlAssistantSeededLogins:
     def test_the_shipped_demo_is_refused_off_loopback(self, rendered_preset_repo: Path) -> None:
         """Pointed at a real host, every demo login with a published password is
         named, and the shared cards, which publish none, are not."""
-        config = yaml.safe_load((rendered_preset_repo / "build" / "config.yml").read_text())
+        config = rendered_config(rendered_preset_repo)
         config = copy.deepcopy(config)
         config["deploy"]["fqdn"] = "ops.example.org"
 

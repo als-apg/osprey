@@ -113,7 +113,7 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
     :func:`osprey_connectors.workspace.resolve_config_path` reads, and the same one
     the ``channel-finder`` group resolves through), the repo root is derived from
     wherever that landed, and the env chain comes from
-    :func:`osprey_connectors.workspace.deployment_env_chain` — the same
+    :func:`osprey.utils.workspace.deployment_env_chain` — the same
     repo-root-with-container-fallback rule the loader uses, spelled once so the
     two cannot disagree. The CHAIN, not just ``.env``: resolved through the
     config path rather than the working directory, so ``--project`` from
@@ -124,7 +124,8 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
         ``(config_path, repo_root, env_paths)``. Nothing is required to exist;
         a missing config is reported by the ``configuration`` category.
     """
-    from osprey_connectors.workspace import deployment_env_chain, repo_root_for_config
+    from osprey.utils.workspace import deployment_env_chain
+    from osprey_connectors.workspace import repo_root_for_config
 
     from .project_utils import project_config_path
 
@@ -244,7 +245,7 @@ def health(
     """Run health checks on this deployment.
 
     Runs a suite of diagnostics — configuration validity, file-system layout,
-    Python environment, container infrastructure, telemetry store, API
+    Python environment, container infrastructure, agent record, API
     providers, and the agent CLI — grouped into categories. Cheap poll-class
     categories run by default; costly on_demand categories (live model chat
     completions, pinned-CLI verification) run only with --full.

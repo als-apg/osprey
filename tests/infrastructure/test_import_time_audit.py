@@ -32,17 +32,17 @@ AUDITED_ROOTS = (REPO_ROOT / "tests", REPO_ROOT / "packages" / "osprey-connector
 #: ``path relative to the repository root`` -> the kinds of import-time mutation
 #: allowed there.
 WHITELIST: dict[str, set[str]] = {
-    # libca latches EPICS_CA_* at C-library init, on the first import of
-    # epics/softioc anywhere in the process; the ports are picked from free
-    # ones at the same moment for the same reason.
+    # libca latches EPICS_CA_* at C-library init, on the first Channel Access
+    # call anywhere in the process; the ports it names are fixed at the same
+    # moment for the same reason, as the harness's _ports reservations held for
+    # the process.
     "tests/va/test_apply_fault.py": {"os.environ", "socket"},
     "tests/va/test_lume_pva_seam.py": {"os.environ", "socket"},
-    # Deploying suites reserve their CA / gallery ports at import: the value
+    # Deploying suites reserve their CA ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.
     "tests/e2e/_orm_stack.py": {"socket"},
     "tests/e2e/test_va_substrate_equivalence.py": {"socket"},
-    "tests/interfaces/_panel_launch.py": {"socket"},
     # docs/source/_ext is not an installed package, and the extension under
     # test is imported at module top level.
     "tests/documentation/test_workflow_autodoc.py": {"sys.path"},
@@ -89,7 +89,7 @@ _LIST_MUTATORS = frozenset(
     {"insert", "append", "extend", "remove", "pop", "clear", "sort", "reverse"}
 )
 _SOCKET_OPENERS = frozenset({"socket", "create_connection", "create_server", "socketpair"})
-_PORT_HELPERS = frozenset({"free_port", "_free_port"})
+_PORT_HELPERS = frozenset({"bound_socket", "hold_ports", "reserved_port", "reserved_ports"})
 
 #: Identifiers at least one of which every write the checks below detect has to
 #: spell in the source: an ``os.environ`` write names ``environ`` (or
@@ -97,7 +97,9 @@ _PORT_HELPERS = frozenset({"free_port", "_free_port"})
 #: and ``sys.path``/``sys.modules`` need ``sys`` plus the attribute. A module
 #: that spells none of them is skipped unparsed -- most of the tree, and
 #: parsing it is what the audit spends its time on.
-_ANY_KIND_TOKEN = re.compile(r"\b(?:environ|putenv|unsetenv|socket|_?free_port)\b")
+_ANY_KIND_TOKEN = re.compile(
+    r"\b(?:environ|putenv|unsetenv|socket|hold_ports|bound_socket|reserved_ports?)\b"
+)
 _SYS_TOKEN = re.compile(r"\bsys\b")
 _SYS_ATTR_TOKEN = re.compile(r"\b(?:path|modules)\b")
 
@@ -227,23 +229,27 @@ def import_time_mutations(source: str) -> set[str]:
     return found
 
 
-def _test_modules() -> list[Path]:
-    return sorted(
-        p for root in AUDITED_ROOTS for p in root.rglob("*.py") if "__pycache__" not in p.parts
-    )
+def import_time_sites(roots: tuple[Path, ...], anchor: Path) -> dict[str, set[str]]:
+    """The kinds each module under *roots* writes at import, keyed relative to *anchor*."""
+    actual: dict[str, set[str]] = {}
+    modules = (p for root in roots for p in root.rglob("*.py") if "__pycache__" not in p.parts)
+    for path in sorted(modules):
+        mutations = import_time_mutations(path.read_text())
+        if mutations:
+            actual[path.relative_to(anchor).as_posix()] = mutations
+    return actual
+
+
+def _unlisted(actual: dict[str, set[str]]) -> dict[str, list[str]]:
+    """The sites in *actual* the whitelist does not list with the same kinds."""
+    return {path: sorted(kinds) for path, kinds in actual.items() if WHITELIST.get(path) != kinds}
 
 
 def test_import_time_mutations_match_whitelist():
     """No test module mutates guarded state at import time off-whitelist."""
-    actual: dict[str, set[str]] = {}
-    for path in _test_modules():
-        mutations = import_time_mutations(path.read_text())
-        if mutations:
-            actual[path.relative_to(REPO_ROOT).as_posix()] = mutations
+    actual = import_time_sites(AUDITED_ROOTS, REPO_ROOT)
 
-    unlisted = {
-        path: sorted(kinds) for path, kinds in actual.items() if WHITELIST.get(path) != kinds
-    }
+    unlisted = _unlisted(actual)
     stale = {path: sorted(kinds) for path, kinds in WHITELIST.items() if actual.get(path) != kinds}
     assert actual == WHITELIST, (
         "Import-time mutation audit does not match the whitelist.\n"
@@ -280,8 +286,10 @@ _ONE_OF_EACH = {
     "sys.modules assignment": ('import sys\nsys.modules["m"] = None\n', "sys.modules"),
     "sys.modules mutator": ('import sys\nsys.modules.pop("m")\n', "sys.modules"),
     "socket opener": ("import socket\nsocket.socket()\n", "socket"),
-    "port helper": ("free_port()\n", "socket"),
-    "private port helper": ("_free_port()\n", "socket"),
+    "port hold": ("hold_ports(1)\n", "socket"),
+    "bound socket": ("bound_socket()\n", "socket"),
+    "port reservation": ("reserved_port()\n", "socket"),
+    "port reservations": ("reserved_ports(2)\n", "socket"),
 }
 
 
@@ -295,3 +303,16 @@ def test_the_unparsed_skip_never_hides_a_detectable_write(case: str) -> None:
     """
     source, kind = _ONE_OF_EACH[case]
     assert kind in import_time_mutations(source)
+
+
+def test_an_unlisted_import_time_port_hold_is_flagged(tmp_path: Path) -> None:
+    """A module that holds a port while it is imported fails the audit."""
+    planted = tmp_path / "planted" / "test_planted.py"
+    planted.parent.mkdir()
+    planted.write_text(
+        "from osprey_connectors_tests._harness._ports import hold_ports\n\nPORTS = hold_ports(1)\n"
+    )
+
+    assert _unlisted(import_time_sites((tmp_path,), tmp_path)) == {
+        "planted/test_planted.py": ["socket"]
+    }

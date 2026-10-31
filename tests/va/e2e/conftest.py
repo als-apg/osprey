@@ -62,6 +62,8 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+
 # Re-exported: the modules of this directory read the image under test and its
 # remedy as ``e2e_conftest.IMAGE`` and ``e2e_conftest.IMAGE_REMEDY``.
 from tests.va.e2e._image import IMAGE as IMAGE
@@ -87,7 +89,7 @@ E2E_ENABLED = os.environ.get(ENV_FLAG) == "1"
 # removes the container uses this one name.
 CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
 # The CONTAINER serves Channel Access on the protocol default, which the image
-# fixes; the HOST side of the publish is an ephemeral free port, because 5064
+# fixes; the HOST side of the publish is a reserved port, because 5064
 # on this host belongs to whatever real deployment the operator is running
 # (`port_layout.CA_DEFAULT_PORT` keeps VA instance 1 there on purpose, so a
 # dev machine routinely holds it). Name-server mode (`use_name_server: true`,
@@ -99,23 +101,13 @@ CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
 CONTAINER_CA_PORT = 5064
 
 
-def _reserve_free_port() -> int:
-    """A host port that was free at reservation time.
-
-    The bind is released before docker publishes the port, so a racing process
-    could take it in between; per-process module state keeps every user of
-    ``CA_PORT`` in this run on the one reserved number.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 # import-time required because CA_PORT is per-process module state: every
 # fixture and helper in this package must agree on the one reserved number,
 # and a fixture-scoped reservation would hand xdist workers different ports
-# for constants already bound at collection.
-CA_PORT = _reserve_free_port()
+# for constants already bound at collection. The reservation is held until the
+# process exits, so no other test process on the host is handed the number
+# before docker publishes it.
+(CA_PORT,) = hold_ports(1)
 # Generous on purpose. Boot-to-first-served-answer measured 9-15 s across six
 # container boots on this host -- the VA images are pinned ``linux/amd64`` and
 # the host is Apple Silicon, so every local boot is emulated. A 30 s ceiling is
@@ -684,11 +676,12 @@ PUBLISH_ATTEMPTS = 5
 def run_on_free_port(
     container_for: Callable[[int], tuple[str, list[str]]],
 ) -> tuple[int, str]:
-    """``docker run`` a container published on a free port, retrying a lost race.
+    """``docker run`` a container published on a reserved port, retrying a lost race.
 
-    A reserved port is free only until the probe socket closes, and anything on
-    the host can take it before ``docker run`` binds it. Docker then refuses
-    the publish with "address already in use", and the answer is another port
+    The reservation is held until ``docker run`` returns, so no other test
+    process is handed the port in between; a process that binds explicit ports
+    without reserving them can still take it first. Docker then refuses the
+    publish with "address already in use", and the answer is another port
     rather than a failed boot.
 
     Args:
@@ -699,13 +692,13 @@ def run_on_free_port(
         The port the container is published on, and its name.
     """
     for _ in range(PUBLISH_ATTEMPTS):
-        port = _reserve_free_port()
-        name, arguments = container_for(port)
-        # Stale-cleanup only, of a container an earlier run left under this name.
-        _docker_rm(name)
-        started = subprocess.run(
-            ["docker", *arguments], capture_output=True, text=True, timeout=120
-        )
+        with reserved_port() as port:
+            name, arguments = container_for(port)
+            # Stale-cleanup only, of a container an earlier run left under this name.
+            _docker_rm(name)
+            started = subprocess.run(
+                ["docker", *arguments], capture_output=True, text=True, timeout=120
+            )
         if started.returncode == 0:
             return port, name
         # A refused publish still leaves the created container behind.
@@ -775,6 +768,63 @@ def _readiness_pv_served() -> bool:
     case a readiness probe polls through, and one seen to outlast this probe's
     timeout. The word is written and flushed before the exit.
     """
+    return ca_served(CA_PORT, timeout=10)
+
+
+def docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess[str]:
+    """``docker *args``, its output captured as text."""
+    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+
+
+def require_image() -> None:
+    """Fail loudly unless the image is present."""
+    inspected = docker("image", "inspect", IMAGE, "--format", "{{.Id}}", timeout=60)
+    if inspected.returncode != 0:
+        pytest.fail(f"image {IMAGE!r} is not present. {IMAGE_REMEDY}")
+
+
+def require_image_serving_any_port() -> None:
+    """Fail loudly unless the image can serve on a port other than 5064.
+
+    A precondition, not a nicety: the Channel Access *server* library reads
+    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
+    variable, so an image whose entry point does not derive one from the other
+    keeps binding its build-time default while telling this suite's clients some
+    other port. The symptom would be an unexplained boot timeout; this turns it
+    into a sentence naming the fix.
+    """
+    inspected = docker(
+        "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
+    )
+    if inspected.returncode != 0:
+        pytest.fail(f"image {IMAGE!r} is not present. {IMAGE_REMEDY}")
+    architecture, _, command = inspected.stdout.strip().partition("|")
+    if "EPICS_CAS_SERVER_PORT" not in command:
+        pytest.fail(
+            f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
+            f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
+            f"{IMAGE_REMEDY} Its entry point is: {command}"
+        )
+
+
+def ca_client_environment(port: int) -> dict[str, str]:
+    """This process's environment, with a Channel Access client pointed at *port* alone."""
+    environment = {
+        **os.environ,
+        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
+        "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    }
+    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
+        environment.pop(stale, None)
+    return environment
+
+
+def ca_served(port: int, *, timeout: float = 15.0) -> bool:
+    """Whether a virtual accelerator serves :data:`READINESS_ADDRESS` on *port*.
+
+    Asked in a subprocess that leaves through ``os._exit``, for the reasons
+    :func:`_readiness_pv_served` gives.
+    """
     code = (
         "import asyncio, os, sys, aioca\n"
         f"v = asyncio.run(aioca.caget({READINESS_ADDRESS!r}, timeout=2.0, throw=False))\n"
@@ -782,24 +832,65 @@ def _readiness_pv_served() -> bool:
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
     )
-    env = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{CA_PORT}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    env.pop("EPICS_CA_ADDR_LIST", None)
-    env.pop("EPICS_CA_SERVER_PORT", None)
     try:
-        proc = subprocess.run(
+        probe = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
-            timeout=10,
-            env=env,
+            timeout=timeout,
+            env=ca_client_environment(port),
         )
     except subprocess.TimeoutExpired:
         return False
-    return proc.stdout.strip() == "SERVED"
+    return probe.stdout.strip() == "SERVED"
+
+
+@contextmanager
+def serving_container(
+    name: str,
+    port: int,
+    *run_args: str,
+    boot_timeout: float,
+    served: Callable[[int], bool] = ca_served,
+) -> Iterator[None]:
+    """Run the image as *name* on *port* and wait until *served* says it answers.
+
+    The published port and the server's own port are the same number, since a
+    Channel Access search reply carries the server's own port and a remap would
+    hand every client an address nothing answers on. *run_args* are the
+    ``docker run`` arguments beyond those. The container is force-removed by
+    name on the way in, as stale-cleanup, and on the way out.
+    """
+    docker("rm", "-f", name, timeout=60)
+    started = docker(
+        "run",
+        "-d",
+        "--name",
+        name,
+        "-e",
+        f"EPICS_CA_SERVER_PORT={port}",
+        "-p",
+        f"127.0.0.1:{port}:{port}/tcp",
+        *run_args,
+        IMAGE,
+    )
+    if started.returncode != 0:
+        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+    try:
+        deadline = time.monotonic() + boot_timeout
+        while time.monotonic() < deadline:
+            if served(port):
+                break
+            time.sleep(1.0)
+        else:
+            logs = docker("logs", "--tail", "40", name, timeout=60)
+            raise RuntimeError(
+                f"{name} never served {READINESS_ADDRESS} within {boot_timeout}s.\n"
+                f"{logs.stdout}\n{logs.stderr}"
+            )
+        yield
+    finally:
+        docker("rm", "-f", name, timeout=60)
 
 
 @contextmanager

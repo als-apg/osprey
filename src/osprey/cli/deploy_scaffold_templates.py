@@ -790,9 +790,9 @@ def _service_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     """Probe every service the deployment actually runs.
 
     Ordered by port rather than by declaration: the deployed set is assembled
-    from three unrelated places (the ``config:`` list, the virtual-accelerator
-    injector, the ``services:`` block), so port order is the only ordering that
-    is stable under an edit to any one of them — and it reads, top to bottom,
+    from two unrelated places (the virtual-accelerator injector and the
+    ``services:`` block), so port order is the only ordering that is stable
+    under an edit to either of them — and it reads, top to bottom,
     the way ``docker ps`` does.
     """
     probes: list[Probe] = []
@@ -804,41 +804,6 @@ def _service_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
             Probe(
                 kind="tcp",
                 label=f"virtual-accelerator: Channel Access on {port}",
-                port=port,
-            )
-        )
-
-    config = _config_block(profile)
-    deployed = _dotted(config, "deployed_services")
-    deployed = deployed if isinstance(deployed, list) else []
-    # With no port key a service sits at its layout slot in THIS profile's
-    # block, so the base is read from the profile rather than defaulted: a
-    # deployment that moved its base has to be probed inside its own block, not
-    # at whatever holds the framework default.
-    if "telemetry_store" in deployed:
-        port = _as_port(
-            _dotted(config, "services.telemetry_store.port"),
-            default_port("telemetry_store", base=_profile_port_base(config)),
-        )
-        probes.append(
-            Probe(
-                kind="http",
-                label=f"telemetry-store: query interface on {port}",
-                port=port,
-                path="/ping",
-            )
-        )
-    if "telemetry_gateway" in deployed:
-        # The collector answers a bare GET on its receiver with an error page,
-        # so the honest probe is that the port accepts a connection.
-        port = _as_port(
-            _dotted(config, "services.telemetry_gateway.port"),
-            default_port("telemetry_gateway", base=_profile_port_base(config)),
-        )
-        probes.append(
-            Probe(
-                kind="tcp",
-                label=f"telemetry-gateway: OTLP receiver on {port}",
                 port=port,
             )
         )
@@ -943,7 +908,7 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # deployment resolves it: the profile's `nginx_port` when it sets one, else
     # the gateway slot of the block the profile's own `deployment.port_base`
     # names. Re-wrapped into the single rendered-config shape the resolver
-    # takes, the same way the telemetry probes above reach the base.
+    # takes, the same way the dispatcher probe below reaches the base.
     profile_config = _config_block(profile)
     port_base = _profile_port_base(profile_config)
     probes = [
@@ -968,15 +933,15 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # the render would refuse is lint's to report, not this reader's to raise on.
     from osprey.deployment.web_terminals.roster import roster_entries
 
-    for entry in roster_entries(web, strict=False):
-        probes.append(
-            Probe(
-                kind="http",
-                label=f"terminal ({entry['name']})",
-                port=base + entry["index"],
-                path=TERMINAL_LIVENESS_PATH,
-            )
+    probes.extend(
+        Probe(
+            kind="http",
+            label=f"terminal ({entry['name']})",
+            port=base + entry["index"],
+            path=TERMINAL_LIVENESS_PATH,
         )
+        for entry in roster_entries(web, strict=False)
+    )
 
     return tuple(sorted(probes, key=lambda probe: probe.port))
 

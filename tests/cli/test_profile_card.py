@@ -36,7 +36,6 @@ from osprey.cli.build_profile import (
 )
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_card import card_rows, format_profile_card, print_profile_card
 from osprey.cli.profile_cmd import (
     _layer_profile_texts,
@@ -45,6 +44,7 @@ from osprey.cli.profile_cmd import (
 )
 from osprey.cli.styles import osprey_theme
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+from tests.cli._reporters import ConsoleReporter, installed
 
 #: Every port the exemplar lands on, at the base a profile with no
 #: ``deployment.port_base`` resolves. Spelled through the layout rather than as
@@ -514,17 +514,6 @@ def test_a_profile_with_nothing_to_say_prints_nothing() -> None:
 # ---------------------------------------------------------------------------
 
 
-class RecordingReporter(PhaseReporter):
-    """A real reporter whose console is a buffer, not the terminal."""
-
-    def __init__(self, console: Console, *, color: bool) -> None:
-        super().__init__(color=color)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
-
-
 def recording_console(*, terminal: bool) -> tuple[Console, io.StringIO]:
     buffer = io.StringIO()
     return (
@@ -545,11 +534,8 @@ def test_the_printed_card_is_the_plain_renderer_byte_for_byte(
 ) -> None:
     profile, deltas = exemplar
     console, buffer = recording_console(terminal=False)
-    previous = install_reporter(RecordingReporter(console, color=False))
-    try:
+    with installed(ConsoleReporter(console, color=False)):
         print_profile_card(profile, deltas)
-    finally:
-        install_reporter(previous)
     assert buffer.getvalue().splitlines() == format_profile_card(profile, deltas)
 
 
@@ -558,11 +544,8 @@ def test_the_styled_card_strips_to_the_plain_renderer(
 ) -> None:
     profile, deltas = exemplar
     console, buffer = recording_console(terminal=True)
-    previous = install_reporter(RecordingReporter(console, color=True))
-    try:
+    with installed(ConsoleReporter(console, color=True)):
         print_profile_card(profile, deltas)
-    finally:
-        install_reporter(previous)
     styled = buffer.getvalue()
     assert "\x1b[" in styled  # it really was styled
     stripped = [line.rstrip() for line in re.sub(r"\x1b\[[0-9;]*m", "", styled).splitlines()]

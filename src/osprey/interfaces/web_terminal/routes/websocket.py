@@ -51,8 +51,8 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
@@ -2587,20 +2587,19 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
     binding. A row with children is a connector serving or mid-launch, and is
     owed to the wait.
     """
-    rows: list[dict[str, Any]] = []
-    for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at)):
-        rows.append(
-            {
-                "pid": report.server_pid,
-                "session": report.session,
-                "applied_target": report.applied_target,
-                "applied_generation": report.applied_generation,
-                "children": list(report.children),
-                "last_switch": _aged(report.last_switch),
-                "last_posture_realign": report.last_posture_realign,
-                "updated_at": report.updated_at,
-            }
-        )
+    rows: list[dict[str, Any]] = [
+        {
+            "pid": report.server_pid,
+            "session": report.session,
+            "applied_target": report.applied_target,
+            "applied_generation": report.applied_generation,
+            "children": list(report.children),
+            "last_switch": _aged(report.last_switch),
+            "last_posture_realign": report.last_posture_realign,
+            "updated_at": report.updated_at,
+        }
+        for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at))
+    ]
     return rows
 
 

@@ -188,7 +188,7 @@ dependencies = [
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
     # core part of OSPREY, joining PyAT above. ophyd-async's [ca] brings
     # the aioca Channel Access backend the EPICS substrate devices need.
-    "bluesky>=1.15.1",
+    "bluesky>=1.16.0",
     "ophyd-async[ca]>=0.16,<1.0",
     "tiled[client]>=0.2.14",
     # Bluesky's own client view of a Tiled catalog: `BlueskyRun` /
@@ -206,6 +206,10 @@ dependencies = [
     # through dependabot so the adapter's contract tests gate them.
     "bluesky-queueserver-api==0.0.13",
     "duckdb>=1.5.4",
+    # agent-record decodes OTLP logs itself (http/protobuf and http/json). The
+    # range is the 1.x line of the locked opentelemetry-api/sdk, so the proto
+    # messages and the SDK stay one release.
+    "opentelemetry-proto>=1.44.0,<2",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
@@ -664,7 +668,7 @@ markers = [
     "e2e_smoke: Quick smoke tests for critical workflows",
     "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on. Tests carrying it live under tests/e2e/, which keeps them out of the unit lane",
     "e2e_tutorial: Tutorial workflow validation tests",
-    "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
+    "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model and agent-record-e2e CI lanes' selection",
     "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
     "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs but the assertion is model-independent OSPREY behavior (safety hooks, approval flow, plumbing)",
     "slow: Tests that take significant time",
@@ -748,17 +752,55 @@ ignore_imports = [
 
 [[tool.importlinter.contracts]]
 id = "connectors-layers"
-name = "Connector host, then factory, then the archivers, then the control-system connectors"
-# The connector-host child builds connectors through the factory, which builds
-# both families. The simulator's archiver reads the simulator view the
-# in-process control-system connector names, so the archivers sit above the
-# control-system connectors and never the other way round.
+name = "The connector package's top-level modules, in layers"
+# Every top-level module of osprey_connectors, highest first: a module may
+# import only from the layers below it. The connector-host child builds
+# connectors through the factory, which builds both families; the simulator's
+# archiver reads the simulator view the in-process control-system connector
+# names, so the archivers sit above the control-system connectors. The posture
+# store, the config loader and their kin sit below every connector, and the
+# leaves at the bottom import nothing from the package at module scope (the
+# `types` exceptions are named in `ignore_imports` below).
+#
+# The read-only predicate lives in `posture_env`, a leaf, so the posture store
+# no longer imports the control-system connectors that consult it.
+#
+# A layer written with ":" holds two modules that still import each other,
+# each in one direction from inside a function: `posture_store` reads the
+# record `control_context` parses, and `control_context` takes its root and
+# posture grammar from `posture_store`; `workspace` loads config through
+# `config`'s singleton, and `config` resolves paths through `workspace`.
 type = "layers"
 layers = [
     "osprey_connectors.ipc",
     "osprey_connectors.factory",
     "osprey_connectors.archiver",
     "osprey_connectors.control_system",
+    "osprey_connectors.simulation",
+    "osprey_connectors.settle",
+    "osprey_connectors.errors | osprey_connectors.write_target",
+    "osprey_connectors.control_context : osprey_connectors.posture_store",
+    "osprey_connectors.logger",
+    "osprey_connectors.config : osprey_connectors.workspace",
+    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty",
+    "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
+]
+ignore_imports = [
+    # Edges that point up, each named so that no other can join them. The
+    # simulator's archive takes the stored field name from the archivers' own
+    # module rather than restating it. That module defines only string
+    # functions, but importing it runs the `archiver` package's `__init__`, so
+    # this is a real upward edge and the cycle archiver -> control_system ->
+    # simulation -> archiver is still there.
+    "osprey_connectors.simulation.archive -> osprey_connectors.archiver._field_names",
+    # A type-checking import, for an annotation: the exception taxonomy names the
+    # write outcome the control-system contract defines.
+    "osprey_connectors.errors -> osprey_connectors.control_system._base",
+    # Two function-local imports from the type vocabulary up into the posture
+    # readers that import it at module scope: the published machine kind is
+    # read from the controls server's report beside the control-context record.
+    "osprey_connectors.types -> osprey_connectors.control_context",
+    "osprey_connectors.types -> osprey_connectors.posture_store",
 ]
 
 # Ruff configuration for modern Python linting
@@ -805,11 +847,15 @@ select = [
     "B",  # flake8-bugbear
     "C4", # flake8-comprehensions
     "UP", # pyupgrade
+    "SIM",  # flake8-simplify
+    "PERF",  # perflint
+    "RET",  # flake8-return
+    "PIE",  # flake8-pie
+    "FURB",  # refurb: a hand-written idiom the standard library already provides
     "ARG001",  # unused function argument
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
-    "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
     "T20",  # print and pprint: shipped code reports through its own output channel
     "T100",  # debugger calls
     "ERA001",  # commented-out code
@@ -844,6 +890,17 @@ ignore-variadic-names = true
 # fixtures carry fake credentials by design; gitleaks scans every path for real ones.
 "tests/*" = ["B011", "B017", "B018", "S105", "S106", "S107"]
 "packages/*/tests/**" = ["S105", "S106", "S107", "T20"]  # T20: tests print, as below
+# The simplification families are adopted in the shipped trees first; the test
+# trees are brought under them separately. Each code that fires there is named,
+# so the rest of each family, SIM105 among it, holds in tests as it did before.
+"{tests,packages/*/tests}/**" = [
+    "FURB110", "FURB116", "FURB167", "FURB171", "FURB188", "FURB192",
+    "PERF102", "PERF401", "PERF402", "PERF403",
+    "PIE790", "PIE800", "PIE804", "PIE807", "PIE808", "PIE810",
+    "RET501", "RET503", "RET504", "RET505", "RET506",
+    "SIM102", "SIM103", "SIM108", "SIM112", "SIM114", "SIM115", "SIM116", "SIM117",
+    "SIM300", "SIM905",
+]
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation

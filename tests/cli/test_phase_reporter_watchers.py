@@ -117,17 +117,7 @@ def monitor_threads() -> list[threading.Thread]:
     ]
 
 
-@pytest.fixture(autouse=True)
-def parked_monitor(monkeypatch):
-    """Park the monitor's tick, so only the tests about it feel it.
-
-    Registering a build starts the monitor, and the monitor reads the real
-    clock -- while every other test here feeds the model timestamps out of a
-    fixture. One tick landing inside such a test would mark every service as
-    beaten at "seconds since boot" and silence the assertions that follow it.
-    The tests that exercise the thread install an interval of their own.
-    """
-    monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
+pytestmark = pytest.mark.usefixtures("parked_monitor")
 
 
 @pytest.fixture

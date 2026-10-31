@@ -23,7 +23,6 @@ class BaseDatabase(ABC):
     @abstractmethod
     def load_database(self):
         """Load database from file."""
-        pass
 
     def _build_channel_map(self) -> dict[str, dict]:
         """Build the flat channel-name -> metadata lookup map.
@@ -44,7 +43,6 @@ class BaseDatabase(ABC):
         Returns:
             Channel dict or None if not found
         """
-        pass
 
     @abstractmethod
     def get_all_channels(self) -> list[dict]:
@@ -54,7 +52,6 @@ class BaseDatabase(ABC):
         Returns:
             List of channel dictionaries
         """
-        pass
 
     @abstractmethod
     def validate_channel(self, channel_name: str) -> bool:
@@ -67,7 +64,6 @@ class BaseDatabase(ABC):
         Returns:
             True if channel exists, False otherwise
         """
-        pass
 
     @abstractmethod
     def get_statistics(self) -> dict:
@@ -77,4 +73,3 @@ class BaseDatabase(ABC):
         Returns:
             Dict with statistics (total_channels, etc.)
         """
-        pass

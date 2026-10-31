@@ -86,18 +86,14 @@ that is ``tests/deployment/``'s subject.
 
 Ports, names and 5064
 ---------------------
-Each container binds an ephemeral Channel Access port and an ephemeral
+Each container binds a reserved Channel Access port and a reserved
 pvAccess port and publishes both unchanged: a search reply carries the server's
 own port, so a remap would hand every client an address nothing answers on. That port also *names* the container, for
 the reason ``test_target_switch.py`` gives — a fixed name is mutually
 destructive between concurrent runs. Nothing here goes near 5064.
 
-The container helpers (``_free_port``, ``_docker``, ``_require_image``,
-``_served``, ``_serving``) are copied from ``test_target_switch.py`` rather than
-imported from it: that module defines fixtures and imports the Bluesky
-queueserver stack at import time, and a test module is not an importable helper
-library. The copies are small, and each
-suite's ``_serving`` differs in what it seeds.
+The container helpers come from the directory conftest; this module's
+``_serving`` adds what it seeds.
 
 Every Channel Access operation in this file happens in **another process**: in
 the readiness probe's or the sandbox write's subprocess, or in a connector-host
@@ -119,11 +115,9 @@ import contextlib
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -149,15 +143,14 @@ from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_ports
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The image under test, and the simulation data both containers serve.
-IMAGE = e2e_conftest.IMAGE
-
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 #: Named for the *target* each instance backs, since that is what the deployment
 #: below calls them and what every assertion is phrased in.
 CONTAINER_SANDBOX = "osprey-va-e2e-standin-va"
@@ -174,9 +167,9 @@ MIN_COLLECTED_TESTS = 21
 # -- the namespace both containers serve ------------------------------------
 
 #: What each target's switch reads to prove itself reachable, and what the
-#: readiness probe below waits for. A pyat-coupled corrector readback, served
+#: readiness probe waits for. A pyat-coupled corrector readback, served
 #: identically by both instances and never written by anything in this file.
-PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
+PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
 #: The setpoint written on the sandbox, and the value written: a corrector the
 #: probe never reads, at a current well inside the corrector band and away from
@@ -236,85 +229,10 @@ DRAIN_TIMEOUT_S = 5.0
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _require_image() -> None:
-    """Fail loudly unless the image can serve on a port other than 5064.
-
-    A precondition, not a nicety: the Channel Access *server* library reads
-    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
-    variable, so an image whose entry point does not derive one from the other
-    keeps binding its build-time default while telling this suite's clients some
-    other port. The symptom would be an unexplained boot timeout; this turns it
-    into a sentence naming the fix.
-    """
-    inspected = _docker(
-        "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
-    )
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-    architecture, _, command = inspected.stdout.strip().partition("|")
-    if "EPICS_CAS_SERVER_PORT" not in command:
-        pytest.fail(
-            f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
-            f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
-            f"{e2e_conftest.IMAGE_REMEDY} Its entry point is: {command}"
-        )
-
-
-def _served(port: int) -> bool:
-    """Whether a virtual accelerator is answering on *port*, asked out of process.
-
-    In a subprocess for the reason ``conftest.py`` gives: Channel Access reads
-    ``EPICS_CA_*`` once, when a process's context is created, and this probe
-    points it at *port*, so it cannot share a process with a client pointed
-    anywhere else.
-
-    It leaves through ``os._exit`` for that file's other reason: aioca's exit
-    hook destroys the CA context, and that blocks for as long as a name-server
-    circuit is still retrying a port nothing serves yet -- the very case a
-    readiness probe polls through. The word is written and flushed before the
-    exit.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
-
-
 def _caput(port: int, address: str, value: float) -> None:
     """Write *value* to *address* on the container serving *port*, out of process.
 
-    In a subprocess for the reasons :func:`_served` gives, and over plain
+    In a subprocess for the reasons :func:`e2e_conftest.ca_served` gives, and over plain
     Channel Access rather than through a connector: the write is the
     experiment's setup, not a write under any deployment's posture.
     """
@@ -326,19 +244,12 @@ def _caput(port: int, address: str, value: float) -> None:
         "sys.stdout.flush()\n"
         "import os; os._exit(0)\n"
     )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
     put = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
         timeout=30,
-        env=environment,
+        env=e2e_conftest.ca_client_environment(port),
     )
     if put.stdout.strip() != "WRITTEN":
         raise RuntimeError(
@@ -363,51 +274,24 @@ def _serving(prefix: str, *, instance: str, log_dir: Path | None = None):
     *log_dir* given it is mounted at ``/var/simulator``, where the container
     appends its model logs.
     """
-    port = _free_port()
-    pva_port = _free_port()
-    name = f"{prefix}-{port}"
-    # Stale-cleanup only. The port is this run's alone, so this can name nothing
-    # a concurrent run is using -- which is the point of the suffix.
-    _docker("rm", "-f", name, timeout=60)
-
-    arguments = [
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-e",
-        f"EPICS_PVAS_SERVER_PORT={pva_port}",
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        "-p",
-        f"127.0.0.1:{pva_port}:{pva_port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-    ]
-    if log_dir is not None:
-        arguments += ["-v", f"{log_dir}:/var/simulator"]
-    started = _docker(*arguments, IMAGE)
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
-
-    try:
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = _docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield Served(ca=port, pva=pva_port)
-    finally:
-        _docker("rm", "-f", name, timeout=60)
+    with reserved_ports(2) as (port, pva_port):
+        logs = () if log_dir is None else ("-v", f"{log_dir}:/var/simulator")
+        # The port is this run's alone, so the name can be nothing a concurrent run
+        # is using -- which is the point of the suffix.
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            "-e",
+            f"EPICS_PVAS_SERVER_PORT={pva_port}",
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-p",
+            f"127.0.0.1:{pva_port}:{pva_port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            *logs,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield Served(ca=port, pva=pva_port)
 
 
 @dataclass(frozen=True)
@@ -428,7 +312,7 @@ def endpoints():
     The two boots differ in the instance they serve as; the stand-in's model
     logs land in a host directory this module reads.
     """
-    _require_image()
+    e2e_conftest.require_image_serving_any_port()
     standin_logs = Path(tempfile.mkdtemp(prefix="osprey-va-standin-logs-"))
     # The container's user is not this process's, and it creates the log files.
     standin_logs.chmod(0o777)
@@ -1086,10 +970,4 @@ class TestTheShippedDefaultsAreWhatThisModuleMeasured:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_live_standin.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

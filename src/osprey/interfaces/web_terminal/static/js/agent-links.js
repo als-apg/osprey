@@ -12,6 +12,12 @@
  *   a tool spells a panel route without knowing the mount the hub serves
  *   under, so the hub supplies its prefix. Another mount's panel
  *   (`/u/bob/panel/<id>` seen from `/u/alice`) stays a new tab.
+ * - A loopback link (`127.0.0.1`, `::1`, `localhost`) to the port of a hosted
+ *   panel's backend is that panel: the agent's tools name the backend's
+ *   loopback address, which is dead for an operator who reaches the hub from
+ *   another machine. The panel opens at the same path and query under
+ *   `<prefix>/panel/<id>`; a bare `#focus` on the backend root just opens the
+ *   panel. A loopback link to any other port stays a new tab.
  */
 
 /**
@@ -27,11 +33,28 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Host names that address the server host itself. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]', 'localhost']);
+
+/**
+ * The panel whose backend a loopback URL addresses, or null.
+ * @param {URL} u
+ * @param {ReadonlyMap<string, string>} loopbackPorts - backend port -> panel id
+ * @returns {string | null}
+ */
+function loopbackPanel(u, loopbackPorts) {
+  if (!LOOPBACK_HOSTS.has(u.hostname)) return null;
+  const port = u.port || (u.protocol === 'https:' ? '443' : '80');
+  return loopbackPorts.get(port) ?? null;
+}
+
 /**
  * Decide where a link in an agent answer goes.
  * @param {string} href - the anchor's href attribute
  * @param {{base: string, origin: string, prefix: string,
- *   isHostedPanel: (id: string) => boolean}} ctx
+ *   isHostedPanel: (id: string) => boolean,
+ *   loopbackPorts: ReadonlyMap<string, string>}} ctx - `loopbackPorts` maps
+ *   the port of each panel backend on a loopback address to its panel id
  * @returns {AgentLink}
  */
 export function classifyAgentLink(href, ctx) {
@@ -43,7 +66,18 @@ export function classifyAgentLink(href, ctx) {
     return { kind: 'inert' };
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return { kind: 'inert' };
-  if (u.origin !== ctx.origin) return { kind: 'window', url: u.href };
+  if (u.origin !== ctx.origin) {
+    const panel = loopbackPanel(u, ctx.loopbackPorts);
+    if (!panel || !ctx.isHostedPanel(panel)) return { kind: 'window', url: u.href };
+    if (u.pathname === '/' && !u.search && (!u.hash || u.hash === '#focus')) {
+      return { kind: 'panel', panel, url: '' };
+    }
+    return {
+      kind: 'panel',
+      panel,
+      url: `${ctx.prefix}/panel/${panel}${u.pathname}${u.search}${u.hash}`,
+    };
+  }
   const m = new RegExp(`^${escapeRegExp(ctx.prefix)}/panel/([^/]+)(?:/.*)?$`).exec(u.pathname);
   if (m && ctx.isHostedPanel(m[1])) {
     return { kind: 'panel', panel: m[1], url: u.pathname + u.search + u.hash };
@@ -62,6 +96,7 @@ export function classifyAgentLink(href, ctx) {
  * modifier key or a non-primary button is left to the browser.
  * @param {HTMLElement} root
  * @param {{prefix: string, isHostedPanel: (id: string) => boolean,
+ *   loopbackPorts: () => ReadonlyMap<string, string>,
  *   openPanel: (id: string, url: string) => void,
  *   openWindow: (url: string, target: string, features: string) => void}} deps
  * @returns {void}
@@ -80,6 +115,7 @@ export function wireAgentLinks(root, deps) {
       origin: location.origin,
       prefix: deps.prefix,
       isHostedPanel: deps.isHostedPanel,
+      loopbackPorts: deps.loopbackPorts(),
     });
     e.preventDefault();
     if (link.kind === 'panel') deps.openPanel(link.panel, link.url);

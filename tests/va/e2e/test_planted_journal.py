@@ -33,7 +33,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -45,12 +44,11 @@ import pytest
 
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 from osprey_connectors.simulation.view import TEXTURE, VIEW_RELPATH, Channel, SimulatorView
+from osprey_connectors_tests._harness._ports import reserved_port
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
-#: The image under test.
-IMAGE = e2e_conftest.IMAGE
-
-#: Container-name prefix; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefix; ``_serving`` appends the run's own reserved port.
 CONTAINER_PREFIX = "osprey-va-e2e-journal"
 
 #: The instance each container serves as.
@@ -62,7 +60,7 @@ INSTANCES = (SANDBOX_INSTANCE, STANDIN_INSTANCE)
 BOOT_TIMEOUT_S = 180.0
 
 #: What the readiness probe waits for.
-PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
+PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
 #: The containers' tick, stated rather than left to the default, and how many
 #: of them pass before the setpoints are read.
@@ -184,34 +182,6 @@ def defaults(project: e2e_conftest.VaProject) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _require_image() -> None:
-    """Fail loudly unless the image is present."""
-    inspected = _docker("image", "inspect", IMAGE, "--format", "{{.Config.Cmd}}", timeout=60)
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-
-
-def _ca_environment(port: int) -> dict[str, str]:
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
-    return environment
-
-
 def _caget_many(port: int, addresses: list[str], *, timeout: float) -> dict[str, Any]:
     """Each address's value on the container serving *port*, read out of process.
 
@@ -232,7 +202,7 @@ def _caget_many(port: int, addresses: list[str], *, timeout: float) -> dict[str,
         capture_output=True,
         text=True,
         timeout=CA_CHILD_TIMEOUT_S,
-        env=_ca_environment(port),
+        env=e2e_conftest.ca_client_environment(port),
     )
     lines = [line for line in run.stdout.splitlines() if line.startswith(REPORT_MARK)]
     assert lines, f"the Channel Access child reported nothing:\n{run.stdout}\n{run.stderr}"
@@ -251,52 +221,29 @@ def _served(port: int) -> bool:
 @contextlib.contextmanager
 def _serving(project: e2e_conftest.VaProject, *, instance: str) -> Iterator[int]:
     """Boot one container as *instance* over the project's view and state; yield its port."""
-    port = _free_port()
-    name = f"{CONTAINER_PREFIX}-{port}"
-    _docker("rm", "-f", name, timeout=60)
-    started = _docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-e",
-        f"VA_INSTANCE={instance}",
-        "-e",
-        f"VA_POLL_INTERVAL_S={TICK_S}",
-        "-e",
-        "VA_STATE_DIR=/state/simulation",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.data_root_run_args(project.data_dir),
-        "-v",
-        f"{project.state_dir}:/state/simulation:ro",
-        IMAGE,
-    )
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
-    try:
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = _docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        _docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{CONTAINER_PREFIX}-{port}",
+            port,
+            "-e",
+            f"VA_INSTANCE={instance}",
+            "-e",
+            f"VA_POLL_INTERVAL_S={TICK_S}",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
+            *e2e_conftest.data_root_run_args(project.data_dir),
+            "-v",
+            f"{project.state_dir}:/state/simulation:ro",
+            boot_timeout=BOOT_TIMEOUT_S,
+            served=_served,
+        ):
+            yield port
 
 
 @pytest.fixture(scope="module")
 def ports(project: e2e_conftest.VaProject) -> Iterator[dict[str, int]]:
     """Both instances, booted after the journal was planted, by instance name."""
-    _require_image()
+    e2e_conftest.require_image()
     with _serving(project, instance=SANDBOX_INSTANCE) as sandbox:
         with _serving(project, instance=STANDIN_INSTANCE) as standin:
             yield {SANDBOX_INSTANCE: sandbox, STANDIN_INSTANCE: standin}
@@ -356,10 +303,4 @@ async def test_the_in_process_connector_replays_the_planted_journal(
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_planted_journal.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

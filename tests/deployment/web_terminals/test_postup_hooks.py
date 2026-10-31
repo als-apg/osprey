@@ -15,19 +15,11 @@ import pytest
 from osprey.deployment.web_terminals import postup_hooks
 from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import default_port
+from tests.deployment._fake_run import completed
 
 # ---------------------------------------------------------------------------
 # enable_linger -- rootless-podman persistence via loginctl
 # ---------------------------------------------------------------------------
-
-
-class _FakeCompletedProcess:
-    """Minimal stand-in for subprocess.CompletedProcess."""
-
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
 
 
 def test_enable_linger_skips_on_docker_runtime(monkeypatch):
@@ -66,7 +58,7 @@ def test_enable_linger_noop_when_already_enabled(monkeypatch):
     def _fake_run(cmd, **kwargs):
         calls.append(cmd)
         assert cmd == ["loginctl", "show-user", "deployuser", "--property=Linger"]
-        return _FakeCompletedProcess(returncode=0, stdout="Linger=yes\n")
+        return completed(returncode=0, stdout="Linger=yes\n")
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -86,8 +78,8 @@ def test_enable_linger_enables_when_not_yet_enabled(monkeypatch):
     def _fake_run(cmd, **kwargs):
         calls.append(cmd)
         if "show-user" in cmd:
-            return _FakeCompletedProcess(returncode=0, stdout="Linger=no\n")
-        return _FakeCompletedProcess(returncode=0)
+            return completed(returncode=0, stdout="Linger=no\n")
+        return completed(returncode=0)
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -106,8 +98,8 @@ def test_enable_linger_enable_failure_does_not_raise(monkeypatch):
 
     def _fake_run(cmd, **kwargs):
         if "show-user" in cmd:
-            return _FakeCompletedProcess(returncode=0, stdout="Linger=no\n")
-        return _FakeCompletedProcess(returncode=1, stdout="", stderr="Permission denied")
+            return completed(returncode=0, stdout="Linger=no\n")
+        return completed(returncode=1, stdout="", stderr="Permission denied")
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -127,7 +119,7 @@ def test_enable_linger_status_check_error_still_attempts_enable(monkeypatch):
         calls.append(cmd)
         if "show-user" in cmd:
             raise OSError("boom")
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -143,7 +135,7 @@ def test_enable_linger_enable_call_error_does_not_raise(monkeypatch):
 
     def _fake_run(cmd, **kwargs):
         if "show-user" in cmd:
-            return _FakeCompletedProcess(returncode=0, stdout="Linger=no\n")
+            return completed(returncode=0, stdout="Linger=no\n")
         raise OSError("no systemd")
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
@@ -183,7 +175,7 @@ def test_enable_linger_status_check_timeout_still_attempts_enable(monkeypatch):
         calls.append(cmd)
         if "show-user" in cmd:
             raise postup_hooks.subprocess.TimeoutExpired(cmd=cmd, timeout=10)
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -316,7 +308,7 @@ def test_docker_desktop_unreachable_self_heals_via_restart(monkeypatch, caplog):
     monkeypatch.setattr(
         postup_hooks,
         "run_captured",
-        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+        lambda cmd, **kw: ran.append(cmd) or completed(0),
     )
 
     with caplog.at_level("WARNING"):
@@ -350,7 +342,7 @@ def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, capl
     monkeypatch.setattr(
         postup_hooks,
         "run_captured",
-        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+        lambda cmd, **kw: ran.append(cmd) or completed(0),
     )
 
     with caplog.at_level("WARNING"):
@@ -375,7 +367,7 @@ def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
     monkeypatch.setattr(
         postup_hooks,
         "run_captured",
-        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+        lambda cmd, **kw: ran.append(cmd) or completed(0),
     )
 
     with caplog.at_level("WARNING"):
@@ -403,7 +395,7 @@ def test_self_heal_skipped_when_caller_supplies_no_compose_cmd(monkeypatch, capl
     monkeypatch.setattr(
         postup_hooks,
         "run_captured",
-        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+        lambda cmd, **kw: ran.append(cmd) or completed(0),
     )
 
     with caplog.at_level("WARNING"):
@@ -449,7 +441,7 @@ def test_run_verify_script_runs_via_bash_with_cwd_and_env(monkeypatch, tmp_path)
 
     def _fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -471,7 +463,7 @@ def test_run_verify_script_nonzero_exit_does_not_raise(monkeypatch, tmp_path):
     monkeypatch.setattr(
         postup_hooks.subprocess,
         "run",
-        lambda *a, **k: _FakeCompletedProcess(returncode=1, stderr="boom"),
+        lambda *a, **k: completed(returncode=1, stderr="boom"),
     )
 
     postup_hooks.run_verify_script(str(tmp_path), {})  # must not raise
@@ -502,7 +494,7 @@ def test_reload_nginx_config_emits_a_scoped_exec(monkeypatch):
 
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
-        return _FakeCompletedProcess(returncode=0)
+        return completed(returncode=0)
 
     monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
 
@@ -520,7 +512,7 @@ def test_reload_nginx_config_failure_is_advisory(monkeypatch):
     monkeypatch.setattr(
         postup_hooks.subprocess,
         "run",
-        lambda *a, **k: _FakeCompletedProcess(returncode=1, stderr="boom"),
+        lambda *a, **k: completed(returncode=1, stderr="boom"),
     )
 
     postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise

@@ -18,46 +18,12 @@ absent renders as nothing at all, which is exactly how a safety file can come
 out looking complete while covering no tool.
 """
 
-from pathlib import Path
-
 import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import framework_mixed_read_write_tools, writes_check_matchers
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 _PROJECT_COUNTER = 0
 
@@ -71,7 +37,7 @@ def _build_ctx(tmp_path, *, writes_enabled: bool = True, claude_code_overrides: 
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name=f"cc-templates-{_PROJECT_COUNTER}",
         output_dir=tmp_path,

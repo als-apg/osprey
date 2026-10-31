@@ -340,13 +340,12 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
         if podman_installed:
             error_parts.append("\n" + _get_podman_not_running_message())
         raise RuntimeError("".join(error_parts))
-    else:
-        # No runtime installed at all
-        raise RuntimeError(
-            "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
-            "Docker: https://docs.docker.com/get-docker/\n"
-            "Podman: https://podman.io/getting-started/installation"
-        )
+    # No runtime installed at all
+    raise RuntimeError(
+        "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
+        "Docker: https://docs.docker.com/get-docker/\n"
+        "Podman: https://podman.io/getting-started/installation"
+    )
 
 
 def no_container_runtime_installed() -> bool:
@@ -740,9 +739,9 @@ def runtime_env(
     Returns:
         A new environment dict with ``COMPOSE_PROJECT_NAME``,
         :data:`ENV_DIGEST_VAR`, :data:`CONFIG_DIGEST_VAR` and every
-        ``OSPREY_TELEMETRY_DIGEST_*`` variable of
-        :func:`~osprey.deployment.telemetry_credentials.digest_env` set (and ``COMPOSE_IGNORE_ORPHANS`` when
-        requested).
+        ``OSPREY_AGENT_RECORD_DIGEST_*`` variable of
+        :func:`~osprey.agent_record.credentials.digest_env` set (and
+        ``COMPOSE_IGNORE_ORPHANS`` when requested).
     """
     from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
 
@@ -757,11 +756,11 @@ def runtime_env(
     # same one, and a call site that skipped it would interpolate the label to
     # empty, read as a document change, and recreate the whole stack for nothing.
     env[CONFIG_DIGEST_VAR] = as_built_config_digest(repo_root)
-    # And the same again for the telemetry credential files: one variable per
-    # service that is handed any, each interpolated into that service's
-    # `osprey.telemetry.cred.digest` label, so a credential minted anew
-    # recreates its owners and nothing else.
-    from osprey.deployment.telemetry_credentials import digest_env
+    # And the same again for the credential files: one variable per service
+    # that is handed any, each interpolated into that service's
+    # `osprey.agent-record.cred.digest` label, so a credential minted anew
+    # recreates its owners and nothing else. Never raises either.
+    from osprey.agent_record.credentials import digest_env
 
     env.update(digest_env(repo_root, config))
     if ignore_orphans:
@@ -878,7 +877,7 @@ def _get_docker_not_running_message() -> str:
             "If Docker Desktop is not installed:\n"
             "https://docs.docker.com/desktop/install/mac-install/"
         )
-    elif system == "Windows":
+    if system == "Windows":
         return (
             "Docker Desktop is not running.\n\n"
             "To fix this:\n"
@@ -888,17 +887,17 @@ def _get_docker_not_running_message() -> str:
             "If Docker Desktop is not installed:\n"
             "https://docs.docker.com/desktop/install/windows-install/"
         )
-    else:  # Linux
-        return (
-            "Docker daemon is not running.\n\n"
-            "To fix this:\n"
-            "1. Start Docker: sudo systemctl start docker\n"
-            "2. Enable on boot: sudo systemctl enable docker\n"
-            "3. Check status: sudo systemctl status docker\n\n"
-            "If permission issues, add user to docker group:\n"
-            "sudo usermod -aG docker $USER\n"
-            "(then log out and back in)"
-        )
+    # Linux
+    return (
+        "Docker daemon is not running.\n\n"
+        "To fix this:\n"
+        "1. Start Docker: sudo systemctl start docker\n"
+        "2. Enable on boot: sudo systemctl enable docker\n"
+        "3. Check status: sudo systemctl status docker\n\n"
+        "If permission issues, add user to docker group:\n"
+        "sudo usermod -aG docker $USER\n"
+        "(then log out and back in)"
+    )
 
 
 def _get_podman_not_running_message() -> str:
@@ -917,15 +916,15 @@ def _get_podman_not_running_message() -> str:
             "1. Initialize: podman machine init\n"
             "2. Start: podman machine start"
         )
-    else:  # Linux
-        return (
-            "Podman service is not responding.\n\n"
-            "To fix this:\n"
-            "1. Check status: systemctl --user status podman.socket\n"
-            "2. Start if needed: systemctl --user start podman.socket\n\n"
-            "For rootful Podman:\n"
-            "sudo systemctl start podman.socket"
-        )
+    # Linux
+    return (
+        "Podman service is not responding.\n\n"
+        "To fix this:\n"
+        "1. Check status: systemctl --user status podman.socket\n"
+        "2. Start if needed: systemctl --user start podman.socket\n\n"
+        "For rootful Podman:\n"
+        "sudo systemctl start podman.socket"
+    )
 
 
 def get_ps_command(
@@ -1303,3 +1302,177 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
         "If this host's Compose builds with BuildKit without the plugin, set "
         "DOCKER_BUILDKIT=1 to skip this check. podman needs nothing extra."
     )
+
+
+# ---------------------------------------------------------------------------
+# One-time transcripts copy
+# ---------------------------------------------------------------------------
+
+#: The image the transcripts copy runs, fully qualified and pinned so the copy
+#: means the same thing on every host. Not the project image: the copy runs
+#: before that image is built. ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` replaces it
+#: with a complete reference, for a host that pulls from a mirror. The
+#: ``images.registry`` axis does not apply: it names where OSPREY's own images
+#: live, not a mirror of library images.
+TRANSCRIPTS_COPY_IMAGE = "docker.io/library/alpine:3.20"
+
+#: Environment variable holding a complete image reference that replaces
+#: :data:`TRANSCRIPTS_COPY_IMAGE`.
+TRANSCRIPTS_COPY_IMAGE_ENV = "OSPREY_TRANSCRIPTS_COPY_IMAGE"
+
+#: Copies the parent's transcripts directory, named by ``$1``, into ``/to``
+#: with owners, modes and mtimes kept. A parent without that directory is
+#: nothing to copy, not a failure.
+_TRANSCRIPTS_COPY_SH = 'if [ -d "/from/$1" ]; then cp -a "/from/$1/." /to/; fi'
+
+#: The labels compose stamps on a volume it creates, beside
+#: :data:`~osprey.deployment.container_ownership.COMPOSE_PROJECT_LABEL`. Reset,
+#: the orphan sweep and the feedback reader find a project's volumes by them.
+_COMPOSE_VOLUME_LABEL = "com.docker.compose.volume"
+_PODMAN_COMPOSE_PROJECT_LABEL = "io.podman.compose.project"
+
+
+class TranscriptsCopyError(RuntimeError):
+    """The transcripts copy could not be completed; ``up`` stops here."""
+
+
+def transcripts_copy_image(env: Mapping[str, str] | None = None) -> str:
+    """The transcripts copy's image reference.
+
+    ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` in *env* (this process's environment when
+    not given), when set and not blank, else :data:`TRANSCRIPTS_COPY_IMAGE`.
+    """
+    source = os.environ if env is None else env
+    override = (source.get(TRANSCRIPTS_COPY_IMAGE_ENV) or "").strip()
+    return override or TRANSCRIPTS_COPY_IMAGE
+
+
+def copy_transcripts_once(
+    config: Mapping[str, Any] | None,
+    *,
+    runtime: str | None = None,
+    run: Any = None,
+    env: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Give every transcripts volume its parent's existing transcripts, once.
+
+    For each pair :func:`~osprey.deployment.compose_generator.claude_projects_volumes`
+    names whose parent volume exists and whose transcripts volume does not: stop
+    the containers mounting the pair, if they run, so nothing is written to the
+    old directory after the copy (``up`` recreates them, because their mounts
+    changed); create the transcripts volume with the labels compose would stamp
+    on it; and copy the parent's transcripts directory into it in a one-shot
+    root container. The old directory is left in place, shadowed by the mount.
+    A pair whose transcripts volume exists is never copied again, and a parent
+    without the directory gets an empty, labeled volume.
+
+    Args:
+        config: The deployment config.
+        runtime: The runtime binary; resolved from *config* when not given.
+        run: Stand-in for :func:`subprocess.run`, called as ``run(argv, env=...,
+            capture_output=True, text=True)``.
+        env: Environment for the runtime calls; defaults to this process's.
+
+    Returns:
+        The runtime names of the volumes this call created, in pair order.
+
+    Raises:
+        TranscriptsCopyError: When the image cannot be pulled, naming it, or a
+            copy fails, naming the volume. A failed copy's volume is removed
+            first, so the next ``up`` copies again.
+    """
+    from osprey.deployment.compose_generator import claude_projects_volumes, resolve_project_name
+    from osprey.deployment.container_ownership import COMPOSE_PROJECT_LABEL
+
+    config = dict(config or {})
+    pairs = claude_projects_volumes(config)
+    if not pairs:
+        return []
+    run = run or subprocess.run
+    call_env = dict(env) if env is not None else None
+    runtime = runtime or get_runtime_command(config)[0]
+    project = resolve_project_name(config)
+    podman = Path(runtime).name == "podman"
+
+    def _call(argv: list[str]) -> subprocess.CompletedProcess:
+        result: subprocess.CompletedProcess = run(
+            argv, env=call_env, capture_output=True, text=True
+        )
+        return result
+
+    def _volume_exists(name: str) -> bool:
+        return _call([runtime, "volume", "inspect", name]).returncode == 0
+
+    image: str | None = None
+    created: list[str] = []
+    for pair in pairs:
+        parent = f"{project}_{pair['parent']}"
+        target = f"{project}_{pair['volume']}"
+        if not _volume_exists(parent) or _volume_exists(target):
+            continue
+
+        for container in pair["containers"]:
+            state = _call([runtime, "container", "inspect", "-f", "{{.State.Running}}", container])
+            if state.returncode == 0 and (state.stdout or "").strip() == "true":
+                stopped = _call([runtime, "stop", container])
+                if stopped.returncode != 0:
+                    raise TranscriptsCopyError(
+                        f"Could not stop {container} before copying its transcripts into "
+                        f"{target}: {(stopped.stderr or '').strip()}"
+                    )
+
+        if image is None:
+            image = transcripts_copy_image(env)
+            if _call([runtime, "image", "inspect", image]).returncode != 0:
+                pulled = _call([runtime, "pull", image])
+                if pulled.returncode != 0:
+                    raise TranscriptsCopyError(
+                        f"Could not pull {image}, which copies the existing transcripts into "
+                        f"their own volumes: {(pulled.stderr or '').strip()}"
+                    )
+
+        labels = [
+            f"{COMPOSE_PROJECT_LABEL}={project}",
+            f"{_COMPOSE_VOLUME_LABEL}={pair['volume']}",
+        ]
+        if podman:
+            labels.append(f"{_PODMAN_COMPOSE_PROJECT_LABEL}={project}")
+        create = [runtime, "volume", "create"]
+        for label in labels:
+            create += ["--label", label]
+        made = _call([*create, target])
+        if made.returncode != 0:
+            raise TranscriptsCopyError(
+                f"Could not create the transcripts volume {target}: {(made.stderr or '').strip()}"
+            )
+
+        copied = _call(
+            [
+                runtime,
+                "run",
+                "--rm",
+                "--user",
+                "0:0",
+                "--network",
+                "none",
+                "--mount",
+                f"type=volume,source={parent},destination=/from,readonly",
+                "--mount",
+                f"type=volume,source={target},destination=/to",
+                image,
+                "sh",
+                "-c",
+                _TRANSCRIPTS_COPY_SH,
+                "sh",
+                pair["parent_dir"],
+            ]
+        )
+        if copied.returncode != 0:
+            _call([runtime, "volume", "rm", "-f", target])
+            raise TranscriptsCopyError(
+                f"Could not copy the transcripts of {parent} into {target}; the volume was "
+                f"removed, so the next `osprey up` copies again: {(copied.stderr or '').strip()}"
+            )
+        logger.info("Copied the transcripts of %s into %s", parent, target)
+        created.append(target)
+    return created

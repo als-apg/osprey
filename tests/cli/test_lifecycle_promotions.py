@@ -4,7 +4,7 @@ One question per test, asked of the two instruments together:
 
 * **printed** -- did the fact reach the default view, as the verb's own output?
   Echo-class lines go through :mod:`osprey.cli.output`, which resolves
-  ``current_reporter().out()`` per call, so the capture reporter below is what
+  ``current_reporter().out()`` per call, so a ``ConsoleReporter`` is what
   reads them.
 * **painted / recorded** -- did the *old* log form stay out of the terminal
   while its record stayed in the sink? That pair is the honesty half: a
@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import ast
 import logging
-import os
 import re
 import subprocess
 from collections.abc import Iterator
@@ -44,9 +43,7 @@ from rich.console import Console
 from osprey.cli import build_cmd, build_persistence, deploy_cmd, output
 from osprey.cli.build_persistence import _apply_conventions
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_conventions import PROJECT_MIRROR_DIR
-from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import compose_generator, container_lifecycle, wheel_build
 from osprey.deployment.web_terminals import (
     auth_credentials,
@@ -57,41 +54,11 @@ from osprey.deployment.web_terminals import (
     seeding,
 )
 from osprey.simulation import apply
-from tests._preset_data import bundle_data_root
+from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import invoke_build_in
+from tests.cli._reporters import ConsoleReporter, installed
 from tests.cli.conftest import TerminalProbe
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
 
 # The witness logger and its marker. An ERROR is above the altitude gate on
 # every path -- WARNING no longer is while a reporter is installed, which these
@@ -107,27 +74,10 @@ _WITNESS = "PROMOTIONWITNESSMARKER"
 # ---------------------------------------------------------------------------
 
 
-class _CaptureReporter(PhaseReporter):
-    """A reporter whose console is a buffer, so printed lines are readable.
-
-    ``out()`` is the seam every echo-class primitive resolves per call, and
-    :meth:`osprey.cli.phase_reporter.Phase.step` prints through ``emit`` on the
-    same console -- so one buffer holds both a verb's report lines and the
-    ``  · name`` sub-steps hung off its phase.
-    """
-
-    def __init__(self, console: Console) -> None:
-        super().__init__(color=False)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
-
-
 class Printed:
     """What the operator saw, plus the phase machinery to hang steps off."""
 
-    def __init__(self, reporter: _CaptureReporter, buffer: StringIO) -> None:
+    def __init__(self, reporter: ConsoleReporter, buffer: StringIO) -> None:
         self.reporter = reporter
         self._buffer = buffer
 
@@ -166,12 +116,9 @@ def printed() -> Iterator[Printed]:
         legacy_windows=False,
         theme=osprey_theme,
     )
-    reporter = _CaptureReporter(console)
-    previous = install_reporter(reporter)
-    try:
+    reporter = ConsoleReporter(console)
+    with installed(reporter):
         yield Printed(reporter, buffer)
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture
@@ -370,13 +317,20 @@ class TestDegradationsAreReported:
         assert "ghcr.io/example/worker:1" in printed.flowed
         assert "Skipping the demo:local build." in printed.flowed
 
-    def test_an_empty_service_roster_says_nothing_was_started(
-        self, default_altitude, printed, tmp_path
+    def test_an_empty_service_roster_still_starts_the_agent_record(
+        self, printed, tmp_path, monkeypatch
     ):
-        container_lifecycle._start_stack({}, [], tmp_path)
+        """There is no empty stack: agent-record runs in every deployment, so
+        an empty roster goes on to the start instead of reporting a skip.
+        Under --dev, so the start reaches the build without asking this
+        checkout's version for a release pin."""
+        _stub_start_stack_preflights(monkeypatch)
 
-        assert_promoted(default_altitude, printed, "No services are configured for this project")
-        assert "Skipping osprey up." in printed.flowed
+        with pytest.raises(_StopBeforeTheBuild):
+            container_lifecycle._start_stack({}, [], tmp_path, dev_mode=True)
+
+        assert "No services are configured for this project" not in printed.flowed
+        assert "Skipping osprey up." not in printed.flowed
 
 
 class TestAutonomousHostChangesAreReported:
@@ -1248,14 +1202,10 @@ def built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> _BuildRun:
     previous_level = root.level
     root.addHandler(sink)
     root.setLevel(logging.DEBUG)
-    previous_cwd = Path.cwd()
-    os.chdir(repo)
-    previous_reporter = install_reporter(_CaptureReporter(console))
     try:
-        result = CliRunner().invoke(build_cmd.build, ["--skip-deps", "--skip-lifecycle"])
+        with installed(ConsoleReporter(console)):
+            result = invoke_build_in(repo)
     finally:
-        install_reporter(previous_reporter)
-        os.chdir(previous_cwd)
         root.removeHandler(sink)
         root.setLevel(previous_level)
 
@@ -1321,7 +1271,7 @@ def _rendered_project(tmp_path: Path, name: str) -> Path:
     """A project tree the convention application can be run against."""
     from osprey.cli.templates.manager import TemplateManager
 
-    return _create_project(
+    return create_project_as_built(
         TemplateManager(),
         project_name=name,
         output_dir=tmp_path,
@@ -2069,7 +2019,7 @@ def printed_err(monkeypatch: pytest.MonkeyPatch) -> Iterator[Printed]:
         theme=osprey_theme,
     )
     monkeypatch.setattr(styles, "err_console", console)
-    yield Printed(_CaptureReporter(console), buffer)
+    yield Printed(ConsoleReporter(console), buffer)
 
 
 def _stub_one_port_conflict(monkeypatch: pytest.MonkeyPatch, *, host_network: bool = False) -> None:

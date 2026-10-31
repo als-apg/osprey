@@ -34,12 +34,8 @@ from osprey.deployment.compose_generator import _inject_project_metadata
 from osprey.interfaces.bluesky_web.app import _lane_roster
 from osprey.mcp_server.sandbox_env import configured_child_env_passthrough
 from osprey.services.bluesky_bridge import plan_loader
-from osprey_connectors.workspace import (
-    AUDIT_DIR_RELPATH,
-    load_osprey_config,
-    reset_config_cache,
-    resolve_project_root,
-)
+from osprey.utils.workspace import SPOOL_DIR_RELPATH
+from osprey_connectors.workspace import load_osprey_config, reset_config_cache, resolve_project_root
 
 _TEMPLATES_ROOT = resources.files(osprey).joinpath("templates")
 
@@ -197,26 +193,26 @@ def test_config_file_alone_loads_nothing_through_the_framework_loader(
 
 
 @pytest.mark.parametrize("key", ["queueserver", "bluesky-va-queueserver", "bluesky-web"])
-def test_the_audit_writer_resolves_into_the_containers_audit_bind(
+def test_the_spool_fallback_resolves_into_the_containers_spool_bind(
     key: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Records land in the bind, not in the container's writable layer.
 
-    ``writer.audit_dir``'s own derivation: the function itself is redirected
-    suite-wide so no test writes into a real zone, so its body is what is asked.
+    The writer's own ``<project>/var/spool/<identity>`` fallback, from the
+    project root the mounted config names, is the directory the bind covers.
     """
     service = _osprey_containers()[key]
     root = _stand_up(tmp_path, monkeypatch, service, {"project_name": "demo"})
     identity = service["environment"]["OSPREY_AUDIT_IDENTITY"]
-    (audit_target,) = [
+    (spool_target,) = [
         mount.split(":")[1]
         for mount in service["volumes"]
-        if isinstance(mount, str) and f"/{AUDIT_DIR_RELPATH}/" in mount.split(":")[1]
+        if isinstance(mount, str) and f"/{SPOOL_DIR_RELPATH}/" in mount.split(":")[1]
     ]
 
-    resolved = resolve_project_root(load_osprey_config()) / AUDIT_DIR_RELPATH / identity
+    resolved = resolve_project_root(load_osprey_config()) / SPOOL_DIR_RELPATH / identity
 
-    assert resolved == _inside(root, audit_target)
+    assert resolved == _inside(root, spool_target)
 
 
 def test_the_sidecar_reports_every_lane_the_deployment_renders(

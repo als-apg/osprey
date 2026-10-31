@@ -29,6 +29,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -48,7 +49,6 @@ from docs.screenshots import recipes
 
 from osprey.interfaces._serving import (
     authorize_browser_context,
-    free_port,
     run_app_server,
     wait_for_port,
 )
@@ -832,7 +832,6 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
             f"{len(problems)} vendored front-end file(s) missing or corrupt "
             f"(first: {problems[0]}); run `osprey vendor fetch` once"
         )
-    web_port = free_port()
     operator_secret = mint_secret()
     config_dir = _isolated_claude_config(project_dir)
     child_env = {
@@ -851,15 +850,26 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
                 str(project_dir),
                 "--detach",
                 "--port",
-                str(web_port),
+                "0",
             ],
             env=child_env,
+            stdout=subprocess.PIPE,
+            text=True,
         )
     except FileNotFoundError as exc:
         shutil.rmtree(config_dir, ignore_errors=True)
         raise ScreenshotSkip(f"osprey CLI unavailable to launch web terminal: {exc}") from exc
 
     try:
+        # The detached launch prints the URL of the port its server bound.
+        try:
+            launched, _ = proc.communicate(timeout=120.0)
+        except subprocess.TimeoutExpired as exc:
+            raise ScreenshotSkip(f"web terminal launch did not return: {exc}") from exc
+        found = re.search(r"http://127\.0\.0\.1:(\d+)", launched or "")
+        if found is None:
+            raise ScreenshotSkip(f"web terminal named no port:\n{launched}")
+        web_port = int(found.group(1))
         try:
             wait_for_port(web_port, timeout=90.0)
         except RuntimeError as exc:

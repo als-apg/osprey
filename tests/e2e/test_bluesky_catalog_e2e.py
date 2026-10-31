@@ -46,17 +46,14 @@ Advisory CI lane (see ci.yml's ``bluesky-catalog-e2e`` job); run locally with
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from osprey.services.bluesky_bridge.app import (
@@ -74,9 +71,9 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_BROWSE_ONLY_CONNECTOR,
     REFUSAL_REASONS,
 )
-from tests.e2e import _orm_stack
+from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_support import format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
 
 # Every word the pre-flight is allowed to answer with: its own words and the
 # backend's reasons it relays. Imported rather than spelled, because the
@@ -109,15 +106,11 @@ pytestmark = [
 BRIDGE_PORT = 18103
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-# The preset deploys the telemetry store and its gateway on their slots in the
-# port block -- which a locally running tutorial stack holds. `osprey up`'s
+# A locally running deployment holds the default port block. `osprey up`'s
 # host port preflight aborts the WHOLE deploy on one such clash, so leaving
-# them on the defaults takes every test in this module down at fixture setup.
-# Both are moved to their container port + 20000, offset past the sibling
-# modules' pins so the modules can deploy side by side, and PORT_BASE moves the
-# block itself, which carries the gateway's own metrics port that no key moves.
-TELEMETRY_GATEWAY_PORT = 24324
-TELEMETRY_STORE_PORT = 28129
+# this deployment on the defaults takes every test in this module down at
+# fixture setup. PORT_BASE moves the whole block, offset past the sibling
+# modules' blocks so the modules can deploy side by side.
 PORT_BASE = 22300
 
 # The repo directory name IS the deployment name, and the bridge compose
@@ -192,48 +185,17 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 '''
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=10.0)
 
 
 def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any]:
     """One request against the bridge, returning ``(status, parsed_body)``.
 
-    Refusal bodies are what this module asserts on, so an ``HTTPError`` is a
+    Refusal bodies are what this module asserts on, so an error status is a
     normal result here rather than an exception to propagate.
     """
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method=method,
-        headers={"Content-Type": "application/json"} if data is not None else {},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, method, body)
 
 
 def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
@@ -243,14 +205,15 @@ def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
     ones no well-behaved client would send, so a test of that promise has to be
     able to send them.
     """
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}", data=data, method="POST", headers={"Content-Type": content_type}
+    resp = httpx.post(  # localhost only
+        f"{BRIDGE_URL}{path}",
+        content=data,
+        headers={"Content-Type": content_type},
+        timeout=20.0,
+        trust_env=False,
+        follow_redirects=True,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return resp.status_code, resp.json()
 
 
 def _assert_preview_shape(payload: Any, *, plan: str) -> None:
@@ -281,17 +244,6 @@ def _assert_preview_shape(payload: Any, *, plan: str) -> None:
         assert payload["truncated"] is False and payload["move_cap"] is None
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 @pytest.fixture(scope="module")
 def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Init + build + ``osprey up --dev`` a bluesky-bridge repo with one
@@ -313,14 +265,9 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     # image tag derived below (``<project>-bluesky-bridge:local``) still holds.
     repo = base / PROJECT_NAME
 
-    # Host hygiene only, stated as a flat dotted key under `config:` (the
-    # preset's own convention): everything after `config.` is one key naming
-    # one leaf of the rendered config, so the rest of the `services:` block
-    # stays as the preset wrote it.
-
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -328,14 +275,6 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "--preset",
             "hello-world",
             "--no-git",
-            *set_pairs(
-                {
-                    "config": {
-                        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-                        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
-                    }
-                }
-            ),
             "--set",
             f"port_base={PORT_BASE}",
             "--set",
@@ -347,31 +286,17 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
-    # The repo root's .env is the deployment's whole secret store and the file
-    # every compose invocation is pointed at, so `up` refuses to start without
-    # one. `osprey init` writes it only when the shell exports a key for this
-    # profile's provider, which this browse-only lane has no need of — this is
-    # the `cp .env.example .env` the CLI itself recommends, done for the
-    # operator.
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
+    _orm_stack.seed_repo_env(repo)
 
     # Force a fresh --dev build so the deployed bridge runs CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
@@ -386,16 +311,15 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
         )
 
     try:
-        up = _run([str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_command(
+            [str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC
+        )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up -d --dev", up))
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         yield repo
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"

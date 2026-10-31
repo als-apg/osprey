@@ -28,7 +28,7 @@ const BATCH = 'batch-0001-aaaa';
 /** @typedef {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-attach.js')} AttachModule */
 /** @typedef {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js')} EventsModule */
 /** @typedef {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js')} ClientModule */
-/** @typedef {ReturnType<typeof buildConsole> & { container: HTMLElement, transforms: Array<(prompt: string) => string>, log: { submits: number } }} Composer */
+/** @typedef {ReturnType<typeof buildConsole> & { container: HTMLElement, transforms: Array<(prompt: string) => string>, log: { submits: number }, setKey: (key: string) => void }} Composer */
 
 /** @type {AttachModule} */
 let attach;
@@ -113,7 +113,8 @@ const all = (root, selector) => /** @type {HTMLElement[]} */ ([...root.querySele
  * @param {{ key?: string }} [options]
  * @returns {Promise<Composer>}
  */
-async function mount({ key = KEY } = {}) {
+async function mount({ key: initialKey = KEY } = {}) {
+  let key = initialKey;
   vi.resetModules();
   attach = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat-attach.js');
   events = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js');
@@ -141,7 +142,11 @@ async function mount({ key = KEY } = {}) {
   handles.textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) log.submits += 1;
   });
-  return { ...handles, container, transforms, log };
+  /** Move the console to another conversation, as chat.js does before it resets the log. */
+  const setKey = (/** @type {string} */ next) => {
+    key = next;
+  };
+  return { ...handles, container, transforms, log, setKey };
 }
 
 /**
@@ -512,7 +517,7 @@ describe('sending', () => {
     }
   });
 
-  test('a reset clears the tray and removes the files it held', async () => {
+  test('a re-read of the same conversation keeps the tray and the files it holds', async () => {
     answerUploads();
     const m = await mount();
     choose(m, [file('a.png')]);
@@ -521,8 +526,38 @@ describe('sending', () => {
     events.emitChat('reset', {});
     await flush();
 
+    expect(chipsIn(m).map(chipName)).toEqual(['a.png']);
+    expect(chipsIn(m)[0].dataset.state).toBe('ready');
+    expect(callsWith('DELETE')).toHaveLength(0);
+  });
+
+  test('a re-read while a sent message waits keeps its files for a refused turn', async () => {
+    answerUploads();
+    const m = await mount();
+    choose(m, [file('a.png')]);
+    await flush();
+    m.transforms[0]('q');
+
+    events.emitChat('reset', {});
+    events.emitChat('turn-end', {});
+
+    expect(chipsIn(m).map(chipName)).toEqual(['a.png']);
+    expect(callsWith('DELETE')).toHaveLength(0);
+  });
+
+  test('a move to another conversation clears the tray and removes the files it held', async () => {
+    answerUploads();
+    const m = await mount();
+    choose(m, [file('a.png')]);
+    await flush();
+
+    m.setKey('other-chat');
+    events.emitChat('reset', {});
+    await flush();
+
     expect(chipsIn(m)).toHaveLength(0);
     expect(callsWith('DELETE')).toHaveLength(1);
+    expect(String(callsWith('DELETE')[0][0])).toContain(KEY);
   });
 });
 

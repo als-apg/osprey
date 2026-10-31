@@ -27,7 +27,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.mcp_server import artifact_activity
-from osprey.stores.artifact_store import ArtifactStore
+from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
 DRAIN_TIMEOUT = 5.0
 
@@ -92,7 +92,7 @@ def save_figure(store: ArtifactStore, title: str = "Beam profile") -> None:
 
 
 def save_run_bookkeeping(store: ArtifactStore) -> None:
-    """The two records every ``execute`` run writes on its own."""
+    """The two records every ``execute`` run writes on its own, marked as the executor marks them."""
     store.save_file(
         file_content=b"{}",
         filename="run.ipynb",
@@ -100,6 +100,7 @@ def save_run_bookkeeping(store: ArtifactStore) -> None:
         title="Notebook: plot the orbit",
         mime_type="application/x-ipynb+json",
         tool_source="execute",
+        metadata={RUN_RECORD_KEY: True},
     )
     store.save_data(
         tool="execute",
@@ -140,8 +141,9 @@ def test_execute_run_with_figure_emits_one_frame(project, notified):
     assert "execute" in kwargs["detail"]
 
 
-def test_deliberately_saved_notebook_still_emits(project, notified):
-    """The filter keys on the auto-save sources, not on the notebook type alone."""
+@pytest.mark.parametrize("tool_source", ["artifact_register", "execute"])
+def test_deliberately_saved_notebook_still_emits(project, notified, tool_source):
+    """A notebook without the run-record mark emits, even one the executed code saved."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
     initialize_workspace_singletons()
@@ -153,7 +155,7 @@ def test_deliberately_saved_notebook_still_emits(project, notified):
         artifact_type="notebook",
         title="Orbit analysis",
         mime_type="application/x-ipynb+json",
-        tool_source="artifact_register",
+        tool_source=tool_source,
     )
     wait_drained()
 
@@ -421,30 +423,3 @@ def test_unregistered_process_emits_nothing(project, notified):
     wait_drained()
 
     assert notified == []
-
-
-def test_an_audit_spill_never_emits(project, notified):
-    """An image the tool-call audit spilled is a record of a result, never an
-    agent action: no activity frame."""
-    from osprey.mcp_server.startup import initialize_workspace_singletons
-
-    initialize_workspace_singletons()
-    store = ArtifactStore(workspace_root=project / "_agent_data")
-
-    store.save_or_touch_by_sha256(
-        "c" * 64,
-        origin="tool_call",
-        save_kwargs={
-            "file_content": b"\x89PNG audit",
-            "filename": "toolu_3-image-0.png",
-            "artifact_type": "image",
-            "title": "mcp__x__shot image",
-            "mime_type": "image/png",
-            "tool_source": "audit.tool_call",
-            "metadata": {"sha256": "c" * 64},
-        },
-    )
-    wait_drained()
-
-    assert notified == []
-    assert artifact_activity._is_bookkeeping(store.get_entry(store._entries[-1].id))

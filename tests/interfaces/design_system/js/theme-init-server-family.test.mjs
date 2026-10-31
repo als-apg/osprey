@@ -12,6 +12,7 @@
  */
 
 import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { stubOSPreference } from './os-preference.mjs';
 
 describe('initTheme() first visit (hub)', () => {
   /** @type {typeof import('/design-system/js/theme-manager.js')} */
@@ -55,23 +56,6 @@ describe('initTheme() first visit (hub)', () => {
 describe('initTheme() first visit (hub): a server-pinned mode', () => {
   /** @type {typeof import('/design-system/js/theme-manager.js')} */
   let ThemeManager;
-
-  /**
-   * Force the OS preference so a pin can be shown to beat it. Without this the
-   * assertions would pass for the wrong reason whenever the host's own OS
-   * preference happened to agree with the pin.
-   * @param {boolean} prefersDark
-   */
-  function stubOSPreference(prefersDark) {
-    vi.stubGlobal('matchMedia', (/** @type {string} */ query) => ({
-      matches: query.includes('dark') ? prefersDark : !prefersDark,
-      media: query,
-      addEventListener() {},
-      removeEventListener() {},
-      addListener() {},
-      removeListener() {},
-    }));
-  }
 
   beforeEach(async () => {
     vi.resetModules();

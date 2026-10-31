@@ -605,8 +605,7 @@ async def get_statistics(request: Request):
             stats["total_chunks_at_50"] = len(chunks)
             stats["facility_name"] = _get_facility_name(request)
             return stats
-        else:
-            return _get_database(request).get_statistics()
+        return _get_database(request).get_statistics()
 
     except HTTPException:
         raise
@@ -645,20 +644,20 @@ async def validate_channels(request: Request, body: ValidateRequest):
                 "invalid_channels": invalid,
                 "results": validation_results,
             }
-        else:  # hierarchical or middle_layer
-            db = _get_database(request)
-            results = []
-            valid_count = 0
-            for ch in body.channels:
-                is_valid = db.validate_channel(ch)
-                results.append({"channel": ch, "valid": is_valid})
-                valid_count += is_valid
-            return {
-                "results": results,
-                "valid_count": valid_count,
-                "invalid_count": len(body.channels) - valid_count,
-                "total": len(body.channels),
-            }
+        # hierarchical or middle_layer
+        db = _get_database(request)
+        results = []
+        valid_count = 0
+        for ch in body.channels:
+            is_valid = db.validate_channel(ch)
+            results.append({"channel": ch, "valid": is_valid})
+            valid_count += is_valid
+        return {
+            "results": results,
+            "valid_count": valid_count,
+            "invalid_count": len(body.channels) - valid_count,
+            "total": len(body.channels),
+        }
 
     except HTTPException:
         raise
@@ -1242,9 +1241,8 @@ async def get_channels(
                 "channels": chunk,
                 "formatted": formatted,
             }
-        else:
-            channels = db.get_all_channels()
-            return {"channels": channels, "total": len(channels)}
+        channels = db.get_all_channels()
+        return {"channels": channels, "total": len(channels)}
 
     except HTTPException:
         raise

@@ -24,7 +24,8 @@ from osprey.bridges.teams.roster import (
     ConversationRoster,
     share_audience,
 )
-from tests.bridges.teams.test_posting import RecordingConnector
+from tests.bridges.conftest import FakeClock, StubDispatcher
+from tests.bridges.teams._posting import RecordingConnector
 
 APP_ID = "11111111-2222-3333-4444-555555555555"
 BOT = f"28:{APP_ID}"
@@ -32,14 +33,6 @@ SERVICE_URL = "https://smba.trafficmanager.net/amer/"
 CHANNEL = "19:room@thread.tacv2"
 REPLY_CONVERSATION = f"{CHANNEL};messageid=1700000000000"
 CFG = TeamsBridgeConfig(app_id=APP_ID)
-
-
-class Clock:
-    def __init__(self) -> None:
-        self.t = 1000.0
-
-    def __call__(self) -> float:
-        return self.t
 
 
 class Lister:
@@ -85,14 +78,14 @@ def test_members_keeps_only_people_and_never_the_bot():
 
 
 def test_members_is_cached_within_the_ttl_and_refetched_after():
-    clock = Clock()
+    clock = FakeClock()
     lister = Lister([{"id": "29:1", "name": "Alice"}])
     roster = ConversationRoster(lister, APP_ID, now=clock)
     roster.members(SERVICE_URL, CHANNEL)
-    clock.t += ROSTER_TTL_SECONDS - 1
+    clock.advance(ROSTER_TTL_SECONDS - 1)
     roster.members("https://other.example.org/", CHANNEL)
     assert len(lister.calls) == 1
-    clock.t += 2
+    clock.advance(2)
     roster.members(SERVICE_URL, CHANNEL)
     assert len(lister.calls) == 2
 
@@ -242,16 +235,6 @@ def test_room_people_is_none_for_an_entry_with_no_address():
     assert ops.room_people({MS_SERVICE_URL: SERVICE_URL}) is None
     assert ops.room_people({MS_CONVERSATION_ID: CHANNEL, MS_SERVICE_URL: 7}) is None
     assert connector.member_calls == []
-
-
-class StubDispatcher:
-    def __init__(self) -> None:
-        self.extras: list[Any] = []
-
-    def run(self, question: str, extra: Any = None, *, on_run_id: Any = None) -> dict[str, Any]:
-        del question, on_run_id
-        self.extras.append(extra)
-        return {"status": "completed", "text_output": "done", "run_id": "run-1"}
 
 
 def test_the_room_reaches_the_dispatch_payload(tmp_path):

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import app as app_module
 from osprey.interfaces.web_terminal.app import create_app
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
@@ -28,13 +29,8 @@ def workspace_dir(tmp_path):
 @pytest.fixture
 def client(workspace_dir):
     """Create a test client with mocked config active through lifespan."""
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command=["echo"])
-        with TestClient(app) as c:
-            yield c
+    with terminal_client(workspace_dir) as c:
+        yield c
 
 
 class TestSessionFooter:

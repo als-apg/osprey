@@ -19,46 +19,12 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { stubEventSource } from '../_support/event-source.mjs';
+
 const ENTRY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/session.js';
 const STRIP_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/activity-strip.js';
 
 /** @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js').AgentActivityEvent} AgentActivityFrame */
-
-/**
- * A stubbed global EventSource: records every source api.js opens, and exposes
- * `emit` to deliver a server frame through the source's own onmessage — JSON
- * text, as the wire carries it, so api.js's parse (and its raw-string fallback
- * for text that is not JSON) runs for real.
- */
-function stubEventSource() {
-  /** @type {{url: string, closed: boolean, onmessage: ((e: {data: string}) => void) | null}[]} */
-  const sources = [];
-  class FakeEventSource {
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      this.closed = false;
-      /** @type {((e: {data: string}) => void) | null} */
-      this.onmessage = null;
-      /** @type {(() => void) | null} */
-      this.onopen = null;
-      /** @type {(() => void) | null} */
-      this.onerror = null;
-      this.readyState = 0;
-      sources.push(this);
-    }
-    close() {
-      this.closed = true;
-    }
-  }
-  vi.stubGlobal('EventSource', FakeEventSource);
-  /** @param {unknown} payload - a frame, or raw text sent as-is */
-  const emit = (payload) => {
-    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    for (const src of sources) src.onmessage?.({ data });
-  };
-  return { sources, emit };
-}
 
 /** A strip that only records the frames handed to it. */
 function fakeStrip() {
@@ -120,9 +86,9 @@ describe('wireActivityStrip: subscription', () => {
 
     const handle = Session.wireActivityStrip(strip);
 
-    expect(es.sources.map((src) => src.url)).toEqual(['/api/files/events']);
+    expect(es.opened.map((src) => src.url)).toEqual(['/api/files/events']);
     handle.stop();
-    expect(es.sources[0].closed).toBe(true);
+    expect(es.opened[0].closed).toBe(true);
   });
 });
 

@@ -4,13 +4,15 @@ Exercises the HTTP surface of ``osprey.mcp_server.dispatch_worker.dispatch_api``
 with a sync ``TestClient`` (lifespan runs inside the ``with`` block). The real
 ``sdk_runner.run_dispatch`` calls the Claude Agent SDK, so it is monkeypatched
 with a fast canned coroutine — the background task then completes without the
-SDK and tests never assert a timing-dependent terminal status.
+SDK and tests never assert a timing-dependent terminal status. The worker reads
+its runs back from an in-process agent record fed by its own spool
+(:mod:`tests.dispatch_worker.record_double`); the canned coroutine records the
+run's answer in it, as the agent's transcript would.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from typing import Any
@@ -19,8 +21,11 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.agent_record import contract as record_contract
+from osprey.agent_record.client import ClientAnswer
 from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import dispatch_api
+from tests.agent_record.fakes import FakeRecordClient
 
 _TOKEN = "test-secret-token"
 
@@ -49,11 +54,12 @@ def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, worker_record):
     """A TestClient with auth configured and run_dispatch stubbed out.
 
     Resets the module-level in-memory stores so tests do not leak state into
-    each other, and patches ``sdk_runner.run_dispatch`` with a fast async stub.
+    each other, and patches ``sdk_runner.run_dispatch`` with a fast async stub
+    that records the canned answer as its session's transcript would.
     """
     monkeypatch.setenv("DISPATCH_WORKER_TOKEN", _TOKEN)
 
@@ -74,14 +80,17 @@ def client(monkeypatch):
         surface_tools=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         owner=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         prior_answer_runs=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        session_id=None,
     ):
+        if session_id is not None:
+            worker_record.answer(session_id, _CANNED_RESULT["text_output"])
         if event_queue is not None:
             await event_queue.put({"type": "done"})
         return dict(_CANNED_RESULT)
 
     monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _fake_run_dispatch)
-    # Avoid touching disk during the background task.
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
+    monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
+    monkeypatch.setattr(dispatch_api, "describe_run_input_artifacts", lambda run_id: [])
 
     with TestClient(dispatch_api.app) as c:
         yield c
@@ -89,6 +98,13 @@ def client(monkeypatch):
 
 def _auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {_TOKEN}"}
+
+
+def _dispatch(client: TestClient, **fields: Any) -> str:
+    body = {"prompt": "do it", "allowed_tools": ["Read"], **fields}
+    resp = client.post("/dispatch", json=body, headers=_auth())
+    assert resp.status_code == 202
+    return resp.json()["run_id"]
 
 
 def _wait_for_terminal(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
@@ -118,6 +134,39 @@ def test_health_no_auth(client):
     for key in ("pending_runs", "completed_runs", "error_runs", "total_runs"):
         assert key in body
         assert isinstance(body[key], int)
+
+
+@pytest.mark.usefixtures("worker_record")
+def test_health_counts_finished_runs_from_the_record(client):
+    """A run this process no longer holds is still counted: the counts are the record's."""
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    dispatch_api._runs.clear()
+
+    body = client.get("/health").json()
+
+    assert body["completed_runs"] == 1
+    assert body["total_runs"] == 1
+    assert body["pending_runs"] == 0
+    assert "record" not in body
+
+
+def test_health_answers_while_the_record_is_unavailable(client, monkeypatch):
+    """The liveness check answers ok; the counts it cannot know are None, and it says why."""
+    monkeypatch.setattr(
+        dispatch_api, "record_client", lambda **_: FakeRecordClient(unavailable="down")
+    )
+
+    resp = client.get("/health")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["record"] == "unavailable"
+    assert body["completed_runs"] is None
+    assert body["error_runs"] is None
+    assert body["total_runs"] is None
+    assert body["pending_runs"] == 0
 
 
 def test_health_reports_ca_user_in_process(client, monkeypatch):
@@ -297,6 +346,146 @@ def test_get_dispatch_returns_status(client):
     assert result["text_output"] == "ok"
 
 
+def test_the_answer_is_there_the_moment_the_status_turns_terminal(client):
+    """The first terminal status a poller sees already carries the run's answer."""
+    run_id = _dispatch(client)
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        body = client.get(f"/dispatch/{run_id}", headers=_auth()).json()
+        if body["status"] != "pending":
+            break
+        time.sleep(0.005)
+
+    assert body["status"] == "completed"
+    assert body["text_output"] == "ok"
+
+
+def test_a_finished_run_reads_back_from_the_record_in_the_status_shape(client):
+    """A run this process no longer holds answers from the record, in the shape bridges read."""
+    run_id = _dispatch(client, owner="alice")
+    live = _wait_for_terminal(client, run_id)
+    dispatch_api._runs.clear()
+    dispatch_api._settled.clear()
+
+    resp = client.get(f"/dispatch/{run_id}", headers=_auth())
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == live
+    for key in (
+        "status",
+        "text_output",
+        "run_id",
+        "error",
+        "artifacts",
+        "input_artifacts",
+        "failure_class",
+        "num_tool_calls",
+        "error_code",
+    ):
+        assert key in body
+    assert body["status"] == "completed"
+    assert body["text_output"] == "ok"
+    assert body["owner"] == "alice"
+    assert body["artifacts"] == [] and body["input_artifacts"] == []
+    assert body["cost_usd"] == _CANNED_RESULT["cost_usd"]
+    assert body["num_turns"] == _CANNED_RESULT["num_turns"]
+    assert isinstance(body["created_at"], float)
+    assert body["session_id"]
+
+
+def test_a_run_in_flight_answers_from_memory_without_reading_the_record(client, monkeypatch):
+    release = asyncio.Event()
+
+    async def _blocking(**kwargs):
+        await release.wait()
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _blocking)
+    fake = FakeRecordClient()
+    monkeypatch.setattr(dispatch_api, "record_client", lambda **_: fake)
+    run_id = _dispatch(client, owner="alice")
+    try:
+        body = client.get(f"/dispatch/{run_id}", headers=_auth()).json()
+    finally:
+        client.portal.call(release.set)
+
+    assert body["status"] == "pending"
+    assert body["owner"] == "alice"
+    assert "record" not in body
+    assert fake.calls_to("run") == []
+
+
+@pytest.mark.parametrize(
+    ("fake", "state"),
+    [
+        (FakeRecordClient(unavailable="connection refused"), "unavailable"),
+        (
+            FakeRecordClient(
+                {"run": ClientAnswer(data=None, complete=False, reason="wait mark not passed")}
+            ),
+            "incomplete",
+        ),
+    ],
+)
+def test_a_finished_run_the_record_cannot_settle_reads_pending(client, monkeypatch, fake, state):
+    """Never terminal without a complete read, and never a 404 for a run that may exist."""
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    dispatch_api._settled.clear()
+    monkeypatch.setattr(dispatch_api, "record_client", lambda **_: fake)
+
+    resp = client.get(f"/dispatch/{run_id}", headers=_auth())
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "pending"
+    assert body["record"] == state
+    assert "text_output" not in body
+    assert body["run_id"] == run_id
+
+
+def test_a_terminal_entry_without_its_whole_answer_reads_pending(client, monkeypatch):
+    """An answer the record holds only part of is incomplete, so the status stays pending."""
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    dispatch_api._settled.clear()
+    facts = {
+        "terminal": {"body": {"phase": "terminal", "status": "completed"}},
+        "answer": "o",
+    }
+    fake = FakeRecordClient(
+        {"run": ClientAnswer(data=facts, complete=False, reason="answer is incomplete")}
+    )
+    monkeypatch.setattr(dispatch_api, "record_client", lambda **_: fake)
+
+    body = client.get(f"/dispatch/{run_id}", headers=_auth()).json()
+
+    assert body["status"] == "pending"
+    assert body["record"] == "incomplete"
+
+
+def test_a_settled_run_is_read_from_the_record_once(client, worker_record):
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    reads = len(worker_record.calls_to("run"))
+
+    for _ in range(3):
+        assert client.get(f"/dispatch/{run_id}", headers=_auth()).json()["status"] == "completed"
+
+    assert len(worker_record.calls_to("run")) == reads
+
+
+def test_a_run_id_that_is_no_record_key_is_404_without_a_read(client, monkeypatch):
+    fake = FakeRecordClient(unavailable="down")
+    monkeypatch.setattr(dispatch_api, "record_client", lambda **_: fake)
+
+    resp = client.get("/dispatch/not a run id", headers=_auth())
+
+    assert resp.status_code == 404
+    assert fake.calls == []
+
+
 # ---------------------------------------------------------------------------
 # Tests of DELETE /dispatch/{run_id}
 # ---------------------------------------------------------------------------
@@ -325,116 +514,56 @@ def test_cancel_finished_run(client):
     assert body["cancelled"] is False
 
 
-# ---------------------------------------------------------------------------
-# DELETE /dispatch/runs — clear finished history
-# ---------------------------------------------------------------------------
+def test_cancel_of_a_finished_run_this_process_no_longer_holds(client):
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    dispatch_api._runs.clear()
+
+    body = client.delete(f"/dispatch/{run_id}", headers=_auth()).json()
+
+    assert body == {"run_id": run_id, "cancelled": False, "reason": "already finished"}
 
 
-@pytest.fixture
-def log_dir(tmp_path, monkeypatch):
-    """Point the worker's persisted-record directory at a tmp dir."""
-    d = tmp_path / "dispatch"
-    d.mkdir()
-    monkeypatch.setattr(dispatch_api, "_log_dir", lambda: str(d))
-    return d
+@pytest.mark.usefixtures("worker_record")
+def test_cancel_of_a_run_accepted_by_another_process(client):
+    """An accept with no terminal and no task here cannot be cancelled here."""
+    dispatch_api._write_run_accept("elsewhere", {"created_at": time.time(), "session_id": "s-1"})
+
+    body = client.delete("/dispatch/elsewhere", headers=_auth()).json()
+
+    assert body["cancelled"] is False
+    assert body["reason"] == "record incomplete"
 
 
-def _write_record(log_dir, run_id: str, **fields: Any) -> None:
-    """Write a persisted record the way ``_persist_run`` would."""
-    record = {"run_id": run_id, "status": "completed", "completed_at": time.time()}
-    record.update(fields)
-    (log_dir / f"{run_id}.json").write_text(json.dumps(record))
+def test_cancel_while_the_record_is_unavailable_says_so(client, monkeypatch):
+    monkeypatch.setattr(
+        dispatch_api, "record_client", lambda **_: FakeRecordClient(unavailable="down")
+    )
 
-
-@pytest.mark.usefixtures("log_dir")
-def test_clear_runs_requires_auth(client):
-    resp = client.delete("/dispatch/runs")
-    assert resp.status_code in (401, 403)
-
-
-def test_clear_runs_deletes_records_and_memory(client, log_dir):
-    """Both layers go: the persisted file AND the in-memory entry."""
-    _write_record(log_dir, "on-disk-only")
-    dispatch_api._runs["in-ram-only"] = {"status": "error", "completed_at": time.time()}
-    _write_record(log_dir, "both")
-    dispatch_api._runs["both"] = {"status": "completed", "completed_at": time.time()}
-
-    resp = client.delete("/dispatch/runs", headers=_auth())
+    resp = client.delete("/dispatch/some-run", headers=_auth())
 
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["cleared"] == 3
-    assert body["records_deleted"] == 2
-    assert list(log_dir.glob("*.json")) == []
-    assert dispatch_api._runs == {}
+    assert resp.json() == {
+        "run_id": "some-run",
+        "cancelled": False,
+        "reason": "record unavailable",
+    }
 
 
-@pytest.mark.usefixtures("log_dir")
-def test_clear_runs_route_is_not_swallowed_by_the_cancel_route(client):
-    """``/dispatch/runs`` must not be read as a cancel of run id "runs".
-
-    Starlette matches in registration order, so this only holds while the
-    literal route is declared above ``DELETE /dispatch/{run_id}``.
-    """
-    resp = client.delete("/dispatch/runs", headers=_auth())
-    assert resp.status_code == 200
-    assert "cancelled" not in resp.json()
+# ---------------------------------------------------------------------------
+# The run history is the record's: nothing here deletes it
+# ---------------------------------------------------------------------------
 
 
-def test_clear_runs_keeps_in_flight_runs(client, log_dir):
-    """A pending run survives — in memory and on disk — however the record reads."""
-    dispatch_api._runs["running"] = {"status": "pending", "created_at": time.time()}
-    # A stale record claiming the run finished must still be protected by the
-    # worker's live pending set.
-    _write_record(log_dir, "running")
-    _write_record(log_dir, "done")
+def test_the_worker_has_no_clear_history_route(client):
+    """``DELETE /dispatch/runs`` is a cancel of a run named "runs", which the record lacks."""
+    assert not hasattr(dispatch_api, "ClearRunsRequest")
+    assert not hasattr(dispatch_api, "_persist_run")
+    assert not hasattr(dispatch_api, "_load_persisted_runs")
 
     resp = client.delete("/dispatch/runs", headers=_auth())
 
-    assert resp.json()["cleared"] == 1
-    assert (log_dir / "running.json").exists()
-    assert not (log_dir / "done.json").exists()
-    assert "running" in dispatch_api._runs
-
-
-def test_clear_runs_honours_older_than_days(client, log_dir):
-    """With an age floor, only runs past the horizon go — the sweep on demand."""
-    day = 86400.0
-    now = time.time()
-    _write_record(log_dir, "recent", completed_at=now - day)
-    _write_record(log_dir, "ancient", completed_at=now - 30 * day)
-    dispatch_api._runs["recent"] = {"status": "completed", "completed_at": now - day}
-    dispatch_api._runs["ancient"] = {"status": "completed", "completed_at": now - 30 * day}
-
-    # ``TestClient.delete`` takes no body (httpx's API); the age floor rides in
-    # one, as it does from the dispatcher's proxy.
-    resp = client.request("DELETE", "/dispatch/runs", headers=_auth(), json={"older_than_days": 7})
-
-    assert resp.json() == {"cleared": 1, "records_deleted": 1, "older_than_days": 7}
-    assert (log_dir / "recent.json").exists()
-    assert not (log_dir / "ancient.json").exists()
-    assert set(dispatch_api._runs) == {"recent"}
-
-
-def test_clear_runs_rejects_a_negative_horizon(client, log_dir):
-    """A negative floor is a typo, not a request to delete everything."""
-    _write_record(log_dir, "done")
-
-    resp = client.request("DELETE", "/dispatch/runs", headers=_auth(), json={"older_than_days": -1})
-
-    assert resp.status_code == 422
-    assert (log_dir / "done.json").exists()
-
-
-@pytest.mark.usefixtures("log_dir")
-def test_clear_runs_drops_the_stream_queue(client):
-    """A cleared run's SSE queue goes with it rather than leaking."""
-    dispatch_api._runs["done"] = {"status": "completed", "completed_at": time.time()}
-    dispatch_api._queues["done"] = MagicMock()
-
-    client.delete("/dispatch/runs", headers=_auth())
-
-    assert "done" not in dispatch_api._queues
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -466,86 +595,85 @@ def test_dashboard_runs_with_auth(client):
     assert "status" in runs[0]
 
 
-def test_dashboard_runs_carries_the_telemetry_session_id(client, monkeypatch):
-    """The feed projects session_id, so a consumer can locate the run's telemetry.
+def test_dashboard_runs_carries_the_session_and_the_owner(client):
+    """Every row names its run's session (its history link) and who fired it.
 
-    This endpoint is a hand-written projection, not a dump of the stored run --
-    a field absent from the projection is silently unavailable downstream even
-    though the worker recorded it. The dispatcher's dashboard uses this id to
-    link a run to its own OTEL records, so its presence is a contract.
+    This endpoint is a hand-written projection, so a field absent from it is
+    unavailable downstream; both keys are always present.
     """
-    from osprey.mcp_server.dispatch_worker import dispatch_api
+    owned = _dispatch(client, owner="alice")
+    unowned = _dispatch(client)
+    for run_id in (owned, unowned):
+        _wait_for_terminal(client, run_id)
 
-    monkeypatch.setitem(
-        dispatch_api._runs,
-        "seeded-run",
-        {
-            "status": "completed",
-            "created_at": 1785744790.0,
-            "session_id": "3f8a1c02-0000-4000-8000-abcdefabcdef",
-            "text_output": "done",
-            "tool_calls": [],
-        },
+    rows = {r["run_id"]: r for r in client.get("/dashboard/runs", headers=_auth()).json()}
+
+    assert rows[owned]["owner"] == "alice"
+    assert "owner" in rows[unowned] and rows[unowned]["owner"] is None
+    for run_id in (owned, unowned):
+        assert rows[run_id]["session_id"]
+        assert rows[run_id]["text_output"] == "ok"
+
+
+def test_dashboard_lists_the_runs_of_an_earlier_process(client):
+    """The list is the record's: a restart loses no run."""
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    dispatch_api._runs.clear()
+    dispatch_api._settled.clear()
+
+    rows = client.get("/dashboard/runs", headers=_auth()).json()
+
+    assert [(r["run_id"], r["status"], r["text_output"]) for r in rows] == [
+        (run_id, "completed", "ok")
+    ]
+
+
+def test_dashboard_lists_runs_within_the_records_retention(client, worker_record, monkeypatch):
+    monkeypatch.setattr(dispatch_api, "deployed_record_retention_days", lambda: 3)
+
+    client.get("/dashboard/runs", headers=_auth())
+
+    since = worker_record.calls_to("entries")[0]["since"]
+    expected = time.time() - 3 * 86400
+    assert abs(since.timestamp() - expected) < 60
+    assert worker_record.calls_to("entries")[0]["kind"] == record_contract.KIND_RUN
+
+
+def test_dashboard_answers_503_while_the_record_is_unavailable(client, monkeypatch):
+    monkeypatch.setattr(
+        dispatch_api, "record_client", lambda **_: FakeRecordClient(unavailable="down")
     )
 
     resp = client.get("/dashboard/runs", headers=_auth())
-    assert resp.status_code == 200
-    seeded = next(r for r in resp.json() if r["run_id"] == "seeded-run")
-    assert seeded["session_id"] == "3f8a1c02-0000-4000-8000-abcdefabcdef"
+
+    assert resp.status_code == 503
+    assert "record unavailable" in resp.json()["detail"]
 
 
-def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
-    """A run without a recorded session id projects None rather than omitting the key.
+def test_dashboard_row_of_an_unsettled_run_is_pending(client, monkeypatch):
+    """A row is terminal only from a complete read of its run."""
+    run_id = _dispatch(client)
+    _wait_for_terminal(client, run_id)
+    dispatch_api._settled.clear()
+    real = dispatch_api.record_client()
 
-    A missing key and a null value read differently downstream; the dashboard
-    hides its telemetry link on a falsy value, so the key must always be present.
-    """
-    from osprey.mcp_server.dispatch_worker import dispatch_api
+    class _RunsIncomplete:
+        def entries(self, *args, **kwargs):
+            return real.entries(*args, **kwargs)
 
-    monkeypatch.setitem(
-        dispatch_api._runs,
-        "legacy-run",
-        {"status": "completed", "created_at": 1785744790.0, "tool_calls": []},
+        def run(self, run_id, **kwargs):  # noqa: ARG002 - the client's signature
+            return ClientAnswer(data=None, complete=False, reason="still draining")
+
+    monkeypatch.setattr(dispatch_api, "record_client", lambda **_: _RunsIncomplete())
+
+    row = next(
+        r for r in client.get("/dashboard/runs", headers=_auth()).json() if r["run_id"] == run_id
     )
 
-    resp = client.get("/dashboard/runs", headers=_auth())
-    legacy = next(r for r in resp.json() if r["run_id"] == "legacy-run")
-    assert "session_id" in legacy
-    assert legacy["session_id"] is None
-
-
-def test_dashboard_runs_carries_the_owner(client, monkeypatch):
-    """The feed projects the owner, so the dashboard can say who fired the run."""
-    monkeypatch.setitem(
-        dispatch_api._runs,
-        "seeded-run",
-        {
-            "status": "completed",
-            "created_at": 1785744790.0,
-            "owner": "alice",
-            "text_output": "done",
-            "tool_calls": [],
-        },
-    )
-
-    resp = client.get("/dashboard/runs", headers=_auth())
-    assert resp.status_code == 200
-    seeded = next(r for r in resp.json() if r["run_id"] == "seeded-run")
-    assert seeded["owner"] == "alice"
-
-
-def test_dashboard_runs_owner_is_none_when_unattributed(client, monkeypatch):
-    """An owner-less run projects None rather than omitting the key."""
-    monkeypatch.setitem(
-        dispatch_api._runs,
-        "legacy-run",
-        {"status": "completed", "created_at": 1785744790.0, "tool_calls": []},
-    )
-
-    resp = client.get("/dashboard/runs", headers=_auth())
-    legacy = next(r for r in resp.json() if r["run_id"] == "legacy-run")
-    assert "owner" in legacy
-    assert legacy["owner"] is None
+    assert row["status"] == "pending"
+    assert row["record"] == "incomplete"
+    assert row["text_output"] == ""
 
 
 def test_dashboard_runs_dates_and_orders_finished_runs_by_when_they_were_fired(client, monkeypatch):
@@ -559,7 +687,6 @@ def test_dashboard_runs_dates_and_orders_finished_runs_by_when_they_were_fired(c
         return dict(_CANNED_RESULT)
 
     monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _run)
-    persisted = _capture_persisted(monkeypatch)
 
     completed_id = client.post(
         "/dispatch", json={"prompt": "ok", "allowed_tools": ["Read"]}, headers=_auth()
@@ -577,12 +704,11 @@ def test_dashboard_runs_dates_and_orders_finished_runs_by_when_they_were_fired(c
     assert [r["status"] for r in rows[:2]] == ["error", "completed"]
     for row in rows[:2]:
         created_at = row["created_at"]
-        assert created_at == persisted[row["run_id"]]["created_at"]
+        assert created_at == dispatch_api._runs[row["run_id"]]["created_at"]
         assert isinstance(created_at, float)
         assert created_at > 0
         assert isinstance(row["age_sec"], (int, float))
         assert row["age_sec"] >= 0
-    assert persisted[failed_id]["prompt"] == "fail"
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +732,6 @@ async def test_lifespan_injects_provider_env_once(monkeypatch):
         calls["n"] += 1
 
     monkeypatch.setattr(dispatch_api, "_inject_provider_env_once", _spy)
-    monkeypatch.setattr(dispatch_api, "_load_persisted_runs", lambda: None)
 
     async with dispatch_api._lifespan(dispatch_api.app):
         pass
@@ -628,44 +753,115 @@ def test_no_artifact_regeneration_path():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_sweep_marks_stale_run_error_and_cancels_task(monkeypatch):
-    """A run pending past the cutoff is marked error AND its task is cancelled."""
-    import asyncio
+def _stale_created_at() -> float:
+    return time.time() - (dispatch_api.DISPATCH_TIMEOUT_SEC + 30 + 60)
 
+
+def _terminals(spool_zone, run_id: str) -> list:
+    key = record_contract.run_key(run_id, record_contract.RUN_TERMINAL)
+    return [e for e in spool_zone.recorded_entries(record_contract.KIND_RUN) if e.key == key]
+
+
+@pytest.fixture
+def empty_worker(monkeypatch, worker_record):
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
+    return worker_record
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_worker")
+async def test_sweep_marks_stale_run_error_and_cancels_task(spool_zone):
+    """A run pending past the cutoff is marked error AND its task is cancelled."""
 
     async def _long_runner():
         await asyncio.sleep(30)
 
     task = asyncio.create_task(_long_runner())
     run_id = "stale-1"
-    stale_cutoff = dispatch_api.DISPATCH_TIMEOUT_SEC + 30
-    dispatch_api._runs[run_id] = {
-        "status": "pending",
-        "created_at": time.time() - (stale_cutoff + 60),
-    }
+    accepted = {"status": "pending", "created_at": _stale_created_at(), "session_id": "s-1"}
+    dispatch_api._runs[run_id] = accepted
+    dispatch_api._write_run_accept(run_id, accepted)
     dispatch_api._tasks[run_id] = task
 
     dispatch_api._sweep_stale_runs()
 
     assert dispatch_api._runs[run_id]["status"] == "error"
     assert "Timed out" in dispatch_api._runs[run_id]["error"]
+    [terminal] = _terminals(spool_zone, run_id)
+    assert terminal.body["status"] == "error"
+    assert terminal.body["failure_class"] == "infrastructure"
     # Let the cancellation propagate.
     await asyncio.sleep(0)
     assert task.cancelled()
 
 
-@pytest.mark.asyncio
-async def test_sweep_leaves_fresh_pending_run_alone(monkeypatch):
-    monkeypatch.setattr(dispatch_api, "_runs", {})
-    monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_queues", {})
+@pytest.mark.usefixtures("empty_worker")
+def test_sweep_ends_a_run_accepted_by_an_earlier_process(spool_zone):
+    """An accept left with no terminal by a process that is gone gets its one terminal."""
+    dispatch_api._write_run_accept(
+        "orphan", {"created_at": _stale_created_at(), "session_id": "s-2", "owner": "alice"}
+    )
 
-    dispatch_api._runs["fresh"] = {"status": "pending", "created_at": time.time()}
     dispatch_api._sweep_stale_runs()
+    dispatch_api._sweep_stale_runs()
+
+    [terminal] = _terminals(spool_zone, "orphan")
+    assert terminal.body["status"] == "error"
+    assert terminal.body["failure_class"] == "infrastructure"
+    assert "orphan" not in dispatch_api._runs
+
+
+def test_sweep_drains_before_it_reads(empty_worker):
+    dispatch_api._sweep_stale_runs()
+
+    [call] = empty_worker.calls_to("entries")
+    assert call["wait"] == record_contract.Drain()
+    assert call["kind"] == record_contract.KIND_RUN
+
+
+@pytest.mark.usefixtures("empty_worker")
+def test_sweep_leaves_a_run_with_a_terminal_alone(spool_zone):
+    created = _stale_created_at()
+    dispatch_api._write_run_accept("done", {"created_at": created, "session_id": "s-3"})
+    dispatch_api._write_run_terminal("done", {"status": "completed", "completed_at": created + 5})
+
+    dispatch_api._sweep_stale_runs()
+
+    [terminal] = _terminals(spool_zone, "done")
+    assert terminal.body["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "fake",
+    [
+        FakeRecordClient(unavailable="down"),
+        FakeRecordClient({"entries": ClientAnswer(data=[], complete=False, reason="no drain")}),
+    ],
+)
+@pytest.mark.usefixtures("empty_worker")
+def test_sweep_ends_nothing_while_the_record_cannot_answer(monkeypatch, fake):
+    """Without a drained read the sweep cannot tell a stale run from a slow ingest."""
+    monkeypatch.setattr(dispatch_api, "record_client", lambda **_: fake)
+    dispatch_api._runs["stale"] = {"status": "pending", "created_at": _stale_created_at()}
+    written: list = []
+    monkeypatch.setattr(dispatch_api, "_write_run_terminal", lambda *a: written.append(a))
+
+    dispatch_api._sweep_stale_runs()
+
+    assert dispatch_api._runs["stale"]["status"] == "pending"
+    assert written == []
+
+
+@pytest.mark.usefixtures("empty_worker")
+def test_sweep_leaves_fresh_pending_run_alone():
+    accepted = {"status": "pending", "created_at": time.time(), "session_id": "s-4"}
+    dispatch_api._runs["fresh"] = accepted
+    dispatch_api._write_run_accept("fresh", accepted)
+
+    dispatch_api._sweep_stale_runs()
+
     assert dispatch_api._runs["fresh"]["status"] == "pending"
 
 
@@ -734,15 +930,9 @@ claude_code:
   provider: cborg
 """
 
-#: A gateway telemetry block; the worker under test carries no login for it, so
-#: resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
-#: lose provider auth.
-_TELEMETRY_BROKEN_CONFIG = """\
+_ANTHROPIC_CONFIG = """\
 claude_code:
   provider: anthropic
-  telemetry:
-    enabled: true
-    backend: gateway
 """
 
 
@@ -809,30 +999,32 @@ def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
     proxy.assert_not_called()
 
 
-def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypatch, caplog):
-    """A worker without its gateway login must NOT lose its provider auth.
+def test_inject_provider_env_exports_otlp_to_the_record_with_the_workers_login(
+    tmp_path, monkeypatch
+):
+    """The worker's agent sends its OTLP logs to agent-record under the worker's own login.
 
-    Telemetry is an observability add-on; a missing login degrades it (logged
-    at ERROR) while provider auth/model injection still happens.
+    The record address and login are the ones the worker's compose service
+    hands it.
     """
-    import logging
+    import base64
 
-    _render_config(tmp_path, _TELEMETRY_BROKEN_CONFIG)
-    fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_API_KEY="sk-ant")
-    fake.pop("OSPREY_TELEMETRY_LOGIN", None)
-
-    with caplog.at_level(logging.ERROR):
-        dispatch_api._inject_provider_env_once()
-
-    # Provider env WAS injected despite the telemetry fault.
-    assert fake.get("ANTHROPIC_MODEL"), "provider env must survive a telemetry misconfig"
-    # Telemetry was dropped rather than shipped from a broken config.
-    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in fake
-    assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in fake
-    # ...and the fault was surfaced loudly, not swallowed silently.
-    assert any(
-        "telemetry" in r.getMessage().lower() for r in caplog.records if r.levelno >= logging.ERROR
+    _render_config(tmp_path, _ANTHROPIC_CONFIG)
+    fake = _isolated_environ(
+        monkeypatch,
+        tmp_path,
+        ANTHROPIC_API_KEY="sk-ant",
+        OSPREY_AGENT_RECORD_URL="http://agent-record:8790",
+        OSPREY_AGENT_RECORD_LOGIN="dispatch-worker-2:tok",
     )
+
+    dispatch_api._inject_provider_env_once()
+
+    assert fake.get("ANTHROPIC_MODEL"), "provider env is injected beside the OTLP block"
+    assert fake["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] == "http://agent-record:8790/v1/logs"
+    assert fake["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://agent-record:8790"
+    token = base64.b64encode(b"dispatch-worker-2:tok").decode()
+    assert fake["OTEL_EXPORTER_OTLP_HEADERS"] == f"Authorization=Basic {token}"
 
 
 def _pin_policy(monkeypatch, **env: str) -> None:
@@ -905,42 +1097,6 @@ def test_inject_provider_env_refuses_on_presence_after_a_failed_injection(tmp_pa
 
     with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
         dispatch_api._inject_provider_env_once()
-
-
-# ---------------------------------------------------------------------------
-# Run records land inside the mounted volume
-# ---------------------------------------------------------------------------
-
-
-def test_persisted_runs_land_under_the_agent_data_root(tmp_path, monkeypatch):
-    """A completed run is written where the workspace volume is mounted.
-
-    The compose generator renders the worker's mount target from the config's
-    ``agent_data.base_dir`` under the project root; a writer that anchored
-    anywhere else would put every run record on the container's writable layer,
-    where a restart drops it.
-    """
-    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
-    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
-    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-
-    dispatch_api._persist_run("run-7", {"status": "completed"})
-
-    written = tmp_path / "var" / "agent_data" / "dispatch" / "run-7.json"
-    assert written.is_file()
-
-
-def test_persisted_runs_follow_a_relocated_agent_data_root(tmp_path, monkeypatch):
-    """...and follow the config key the mount target is rendered from."""
-    (tmp_path / "build").mkdir()
-    (tmp_path / "build" / "config.yml").write_text("agent_data:\n  base_dir: state/data\n")
-    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
-    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
-    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-
-    dispatch_api._persist_run("run-8", {"status": "completed"})
-
-    assert (tmp_path / "state" / "data" / "dispatch" / "run-8.json").is_file()
 
 
 def test_dispatch_request_max_turns_defaults_to_the_deployments_ceiling() -> None:
@@ -1029,53 +1185,22 @@ def test_dispatch_request_owner_is_additive() -> None:
     assert request.owner is None
 
 
-def _capture_persisted(monkeypatch) -> dict[str, dict[str, Any]]:
-    """Replace ``_persist_run`` with a stub that keeps the last dict written per run."""
-    persisted: dict[str, dict[str, Any]] = {}
-
-    def _capturing_persist_run(run_id: str, run: dict[str, Any]) -> None:
-        persisted[run_id] = dict(run)
-
-    monkeypatch.setattr(dispatch_api, "_persist_run", _capturing_persist_run)
-    return persisted
-
-
-def test_run_record_names_the_owner_from_the_body(client, monkeypatch):
-    """The finished run record, in memory and on disk, names who fired it.
-
-    The persisted dict is what ``load_run_record`` serves once the run has aged
-    out of memory, so it must carry the owner as well.
-    """
-    persisted = _capture_persisted(monkeypatch)
-
-    resp = client.post(
-        "/dispatch",
-        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
-        headers=_auth(),
-    )
-    assert resp.status_code == 202
-    run_id = resp.json()["run_id"]
+def test_run_record_names_the_owner_from_the_body(client):
+    """The finished run, in memory and in the record, names who fired it."""
+    run_id = _dispatch(client, owner="alice")
     record = _wait_for_terminal(client, run_id)
 
     assert record["owner"] == "alice"
-    assert persisted[run_id]["owner"] == "alice"
+    assert dispatch_api._runs[run_id]["owner"] == "alice"
 
 
-def test_owner_less_run_record_has_no_owner_key(client, monkeypatch):
-    """A run nobody is attributed to is stored without an owner key."""
-    persisted = _capture_persisted(monkeypatch)
-
-    resp = client.post(
-        "/dispatch",
-        json={"prompt": "do it", "allowed_tools": ["Read"]},
-        headers=_auth(),
-    )
-    assert resp.status_code == 202
-    run_id = resp.json()["run_id"]
+def test_owner_less_run_record_has_no_owner_key(client):
+    """A run nobody is attributed to is answered without an owner key."""
+    run_id = _dispatch(client)
     record = _wait_for_terminal(client, run_id)
 
     assert "owner" not in record
-    assert "owner" not in persisted[run_id]
+    assert "owner" not in dispatch_api._runs[run_id]
 
 
 def test_pending_record_names_the_owner(client, monkeypatch):
@@ -1178,7 +1303,6 @@ def pinned_render(monkeypatch, tmp_path, real_agent_cli):  # noqa: ARG001 - opts
     monkeypatch.setattr("shutil.which", lambda *_a, **_k: "/usr/local/bin/claude")
     monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: "2.1.146")
     monkeypatch.setattr(dispatch_api, "_inject_provider_env_once", lambda: None)
-    monkeypatch.setattr(dispatch_api, "_load_persisted_runs", lambda: None)
     return render
 
 

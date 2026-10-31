@@ -41,9 +41,9 @@ from osprey.dispatch.trigger_config import (
 )
 from osprey.dispatch.worker_client import (
     WorkerAuthRejectedError,
+    WorkerRecordUnavailableError,
     WorkerRequestError,
     cancel_worker_run,
-    clear_worker_history,
     dispatch_to_worker,
     fetch_worker_runs,
     proxy_worker_stream,
@@ -644,8 +644,8 @@ def create_server() -> FastMCP:
     #     standalone path (EventSource cannot set headers, and we deliberately do
     #     NOT accept a ``?token=`` query that would leak the bearer into access
     #     logs); polled state still renders.
-    # WRITE endpoints (/retry, /dashboard/cancel, /dashboard/clear-history and
-    # /trigger/.../status) are gated the same way. The write routes log the owner
+    # WRITE endpoints (/retry, /dashboard/cancel and /trigger/.../status) are
+    # gated the same way. The write routes log the owner
     # header they were given; that header is attribution, not authorization.
     # The /dashboard HTML SHELL itself stays ungated on purpose: it carries no
     # agent data, and the standalone token handoff requires the page to load so
@@ -693,6 +693,13 @@ def create_server() -> FastMCP:
             return unauth
         try:
             runs = await fetch_worker_runs(dispatch_target, dispatch_token)
+        except WorkerRecordUnavailableError as exc:
+            # The worker answered but its run history, the agent record, did
+            # not: say so rather than calling the worker unreachable.
+            logger.error("Worker cannot read the agent record: %s", exc)
+            return JSONResponse(
+                {"detail": "record unavailable", "worker_error": str(exc)}, status_code=503
+            )
         except WorkerRequestError as exc:
             # Surface the degraded state instead of masking it as an empty success.
             logger.error("Failed to fetch runs from worker: %s", exc)
@@ -929,55 +936,6 @@ def create_server() -> FastMCP:
             run_id,
             owner or "no owner",
             "cancelled" if result.get("cancelled") else result.get("reason", "not cancelled"),
-        )
-        return JSONResponse(result)
-
-    @mcp.custom_route("/dashboard/clear-history", methods=["POST"])
-    async def dashboard_clear_history(request: Request) -> JSONResponse:
-        """Proxy a clear-history request to the worker.
-
-        Bearer-auth against the dispatcher's own token, like the cancel proxy;
-        the dispatcher holds the worker token itself so the browser never sees
-        it. POST rather than DELETE because this is the browser-facing hop and
-        the dashboard already speaks POST for every write.
-
-        Body is optional: ``{"older_than_days": N}`` keeps runs younger than N
-        days, and anything else (absent, empty, ``0``) clears every finished run.
-
-        The request's ``X-Osprey-Owner`` names who asked, and that name is
-        logged, never checked.
-        """
-        unauth = _check_auth(request)
-        if unauth is not None:
-            return unauth
-        owner = _request_owner(request)
-
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        if not isinstance(body, dict):
-            return JSONResponse({"detail": "body must be an object"}, status_code=400)
-
-        raw = body.get("older_than_days") or 0
-        try:
-            older_than_days = int(raw)
-        except (TypeError, ValueError):
-            return JSONResponse({"detail": "older_than_days must be an integer"}, status_code=400)
-        if older_than_days < 0:
-            return JSONResponse({"detail": "older_than_days must not be negative"}, status_code=400)
-
-        try:
-            result = await clear_worker_history(dispatch_target, dispatch_token, older_than_days)
-        except WorkerAuthRejectedError:
-            return JSONResponse({"detail": "worker auth failed"}, status_code=502)
-        except WorkerRequestError as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=502)
-        logger.info(
-            "Run history cleared by %s: %s run(s), older_than_days=%d",
-            owner or "no owner",
-            result.get("cleared"),
-            older_than_days,
         )
         return JSONResponse(result)
 

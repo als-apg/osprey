@@ -42,60 +42,16 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
-from osprey.registry.mcp import FRAMEWORK_SERVERS
-from tests._preset_data import bundle_data_root
+from tests._preset_data import create_project_as_built
 from tests._vocabulary import hardcoded_vocabulary_hits
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests.cli._lifecycle_build import invoke_build
+from tests.cli._template_projects import graph_permission_entries
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _graph_permission_entries() -> list[str]:
-    """The four rendered permission strings, derived from the registry.
-
-    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
-    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
-    qualification happens here rather than being restated where it could drift
-    from what the render emits.
-    """
-    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
 
 
 def _graph_tool_hits(root: Path) -> list[str]:
@@ -118,7 +74,7 @@ def _assert_graph_session_surface(project: Path) -> None:
     """
     permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
     allow = sorted(e for e in permissions["allow"] if str(e).startswith("mcp__graph__"))
-    assert allow == _graph_permission_entries()
+    assert allow == graph_permission_entries()
     for gate in ("ask", "deny"):
         assert not [e for e in permissions.get(gate) or [] if str(e).startswith("mcp__graph__")], (
             f"graph tools are read-only; nothing belongs in permissions.{gate}"
@@ -141,7 +97,7 @@ def _assert_graph_session_surface(project: Path) -> None:
 
 @pytest.fixture(scope="module")
 def built_store_project(tmp_path_factory) -> Path:
-    return _create_project(
+    return create_project_as_built(
         TemplateManager(),
         project_name="store-graph-surface",
         output_dir=tmp_path_factory.mktemp("store_build"),
@@ -181,7 +137,7 @@ def test_the_graph_tools_land_on_the_subagent_only(built_store_project):
         .split("---")[1]
     )
     tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
-    assert sorted(t for t in tools if t.startswith("mcp__graph__")) == _graph_permission_entries()
+    assert sorted(t for t in tools if t.startswith("mcp__graph__")) == graph_permission_entries()
     assert (project / ".claude" / "agents" / "channel-finder.md").exists(), (
         "fixture precondition: the channel-finder agent is rendered and carries no graph tool"
     )
@@ -275,7 +231,7 @@ def test_a_project_without_a_store_renders_no_graph_surface_at_all(tmp_path):
     from osprey.utils.config_writer import config_delete_field
 
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_as_built(
         manager,
         project_name="nostore-graph-surface",
         output_dir=tmp_path,
@@ -355,10 +311,6 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
     return repo
 
 
-def _run_build(repo: Path):
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path):
     """The build verb completes, the facility-knowledge-graph subagent gets the
     tools, and the channel-finder subagent rendered beside it gets none of them
@@ -370,7 +322,7 @@ def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path)
     """
     repo = _write_profile(tmp_path / "graph-on")
 
-    result = _run_build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
     project = repo / "build"
@@ -399,7 +351,7 @@ def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
     """
     repo = _write_profile(tmp_path / "graph-off", {"claude_code.servers.graph.enabled": False})
 
-    result = _run_build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
     project = repo / "build"

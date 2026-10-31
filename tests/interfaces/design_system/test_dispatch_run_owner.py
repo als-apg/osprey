@@ -17,33 +17,17 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from playwright.sync_api import Browser, Page
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 VIEWPORT = {"width": 1100, "height": 900}
 
-DESIGN_SYSTEM_STATIC_DIR = (
-    pathlib.Path(__file__).resolve().parents[3]
-    / "src"
-    / "osprey"
-    / "interfaces"
-    / "design_system"
-    / "static"
-)
 
 TRIGGER_NAME = "hello-dispatch"
 ATTRIBUTED_RUN_ID = "run-fired-by-alice"
@@ -83,33 +67,6 @@ STATE = {
         },
     ],
 }
-
-
-def _create_dispatch_dashboard_app() -> FastAPI:
-    """Serve the real ``render_dashboard_html()`` output beside the real design system."""
-    from osprey.dispatch.dashboard import render_dashboard_html
-
-    app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root() -> str:
-        return str(
-            render_dashboard_html(
-                facility_name="Test Facility",
-                channel_strip_prefix="SR:",
-            )
-        )
-
-    return app
-
-
-@pytest.fixture
-def dashboard_url() -> Iterator[str]:
-    with _run_app_server(_create_dispatch_dashboard_app()) as base_url:
-        yield base_url
 
 
 def _open_run(page: Page, base_url: str, run_id: str, mode: str) -> None:

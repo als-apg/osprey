@@ -134,21 +134,35 @@ def test_normalize_users_drops_malformed_entries() -> None:
     assert result == [{"name": "alice", "index": 0}]
 
 
-def test_normalize_users_carries_string_display_name_through() -> None:
-    """An object entry's string `display_name` is carried onto the normalized entry."""
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("display_name", "Operations"),
+        ("theme", "desy-light"),
+        # The onboarding-tour invite policy, carried on the same terms as `theme`.
+        ("tour", "always"),
+        # The non-secret IdP claim value that identifies this roster user.
+        ("oidc_subject", "alice@example.org"),
+        ("control_identity", "alice"),
+    ],
+)
+def test_normalize_users_carries_an_optional_string_key_through(key: str, value: str) -> None:
+    """An object entry's optional string key is carried onto the normalized entry."""
     # Arrange
-    users_raw = [{"name": "alice", "index": 0, "display_name": "Operations"}]
+    users_raw = [{"name": "alice", "index": 0, key: value}]
 
     # Act
     result = normalize_users(users_raw)
 
     # Assert
-    assert result == [{"name": "alice", "index": 0, "display_name": "Operations"}]
+    assert result == [{"name": "alice", "index": 0, key: value}]
 
 
-def test_normalize_users_omits_display_name_key_when_absent() -> None:
-    """An entry with no `display_name` keeps the plain two-key shape (no None key)."""
-    # Act / Assert — bare string and object-without-display_name both stay two-key
+def test_normalize_users_omits_optional_keys_when_absent() -> None:
+    """An entry with no `display_name`, `theme`, `oidc_subject` or
+    `control_identity` keeps the plain two-key shape (no None key), so a
+    password-mode (or pre-auth) config normalizes exactly as it did before."""
+    # Act / Assert — bare string and object-without-the-keys both stay two-key
     assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
     assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
 
@@ -166,49 +180,20 @@ def test_normalize_users_drops_non_string_display_name() -> None:
     assert result == [{"name": "alice", "index": 0}]
 
 
-def test_normalize_users_carries_string_theme_through() -> None:
-    """An object entry's string `theme` is carried onto the normalized entry."""
+@pytest.mark.parametrize(
+    ("key", "value"), [("theme", ["desy"]), ("oidc_subject", ["alice@example.org"])]
+)
+def test_normalize_users_drops_a_non_string_optional_key(key: str, value: object) -> None:
+    """A non-string optional key (a config typo) is dropped defensively; the rest
+    of a well-formed entry still normalizes."""
     # Arrange
-    users_raw = [{"name": "alice", "index": 0, "theme": "desy-light"}]
+    users_raw = [{"name": "alice", "index": 0, key: value}]
 
     # Act
     result = normalize_users(users_raw)
 
-    # Assert
-    assert result == [{"name": "alice", "index": 0, "theme": "desy-light"}]
-
-
-def test_normalize_users_omits_theme_key_when_absent() -> None:
-    """An entry with no `theme` keeps the plain two-key shape (no None key)."""
-    # Act / Assert
-    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
-    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
-
-
-def test_normalize_users_drops_non_string_theme() -> None:
-    """A non-string `theme` (a config typo) is dropped defensively; the rest of a
-    well-formed entry still normalizes."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "theme": ["desy"]}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert — entry survives (name/index valid), theme omitted
+    # Assert — entry survives (name/index valid), the key omitted
     assert result == [{"name": "alice", "index": 0}]
-
-
-def test_normalize_users_carries_string_tour_through() -> None:
-    """An object entry's string `tour` (onboarding-tour invite policy) is
-    carried onto the normalized entry on the same terms as `theme`."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "tour": "always"}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert
-    assert result == [{"name": "alice", "index": 0, "tour": "always"}]
 
 
 def test_normalize_users_drops_non_string_tour() -> None:
@@ -787,14 +772,14 @@ def test_resolve_cards_preserves_normalize_users_index_freezing() -> None:
     assert result[0]["index"] == 5
 
 
-def test_resolve_cards_exposes_display_name_when_set() -> None:
-    """A roster entry's `display_name` is threaded onto the resolved svc dict as a
-    `display_name` key (here on the default tier)."""
+@pytest.mark.parametrize(
+    ("key", "value"), [("display_name", "Operations"), ("theme", "desy-light")]
+)
+def test_resolve_cards_exposes_an_optional_card_key_when_set(key: str, value: str) -> None:
+    """A roster entry's `display_name` or `theme` is threaded onto the resolved
+    svc dict under the same key (here on the default tier)."""
     # Arrange
-    web_terminals = {
-        "users": [{"name": "alice", "index": 0, "display_name": "Operations"}],
-        **_CATALOG,
-    }
+    web_terminals = {"users": [{"name": "alice", "index": 0, key: value}], **_CATALOG}
 
     # Act
     result = resolve_cards(web_terminals, _REGISTRY)
@@ -810,7 +795,7 @@ def test_resolve_cards_exposes_display_name_when_set() -> None:
             "container_project_dir": "/app/demo-project-assistant",
             "extra_mounts": [],
             "seed_base": True,
-            "display_name": "Operations",
+            key: value,
         }
     ]
 
@@ -837,15 +822,17 @@ def test_resolve_cards_display_name_threads_through_render_branch() -> None:
     assert result[0]["display_name"] == "Control GUI"
 
 
-def test_resolve_cards_omits_display_name_key_when_unset_or_empty() -> None:
-    """No `display_name` (or an empty-string one) omits the key entirely, so the
-    resolved entry stays byte-identical to a pre-`display_name` resolution."""
+@pytest.mark.parametrize("key", ["display_name", "theme"])
+def test_resolve_cards_omits_an_optional_card_key_when_unset_or_empty(key: str) -> None:
+    """No `display_name`/`theme` (or an empty-string one) omits the key entirely,
+    so the resolved entry stays byte-identical to a resolution from before the
+    key existed."""
     # Arrange
     web_terminals = {
         "users": [
             "alice",  # bare string — never carries one
-            {"name": "bob", "index": 1},  # object form, no display_name
-            {"name": "carol", "index": 2, "display_name": ""},  # empty is inert
+            {"name": "bob", "index": 1},  # object form, without the key
+            {"name": "carol", "index": 2, key: ""},  # empty is inert
         ],
         **_CATALOG,
     }
@@ -853,33 +840,8 @@ def test_resolve_cards_omits_display_name_key_when_unset_or_empty() -> None:
     # Act
     result = resolve_cards(web_terminals, _REGISTRY)
 
-    # Assert — no entry carries a display_name key
-    assert all("display_name" not in entry for entry in result)
-
-
-def test_resolve_cards_exposes_theme_when_set() -> None:
-    """A roster entry's `theme` is threaded onto the resolved svc dict as a
-    `theme` key (here on the default tier)."""
-    # Arrange
-    web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}], **_CATALOG}
-
-    # Act
-    result = resolve_cards(web_terminals, _REGISTRY)
-
-    # Assert
-    assert result == [
-        {
-            "name": "alice",
-            "index": 0,
-            "render": "assistant",
-            "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "demo-project-assistant",
-            "container_project_dir": "/app/demo-project-assistant",
-            "extra_mounts": [],
-            "seed_base": True,
-            "theme": "desy-light",
-        }
-    ]
+    # Assert — no entry carries the key
+    assert all(key not in entry for entry in result)
 
 
 def test_resolve_cards_exposes_tour_when_set() -> None:
@@ -921,26 +883,6 @@ def test_resolve_cards_theme_threads_through_render_branch() -> None:
     # Assert
     assert result[0]["render"] == "gui"
     assert result[0]["theme"] == "desy"
-
-
-def test_resolve_cards_omits_theme_key_when_unset_or_empty() -> None:
-    """No `theme` (or an empty-string one) omits the key entirely, so the resolved
-    entry stays byte-identical to a pre-`theme` resolution."""
-    # Arrange
-    web_terminals = {
-        "users": [
-            "alice",  # bare string — never carries one
-            {"name": "bob", "index": 1},  # object form, no theme
-            {"name": "carol", "index": 2, "theme": ""},  # empty is inert
-        ],
-        **_CATALOG,
-    }
-
-    # Act
-    result = resolve_cards(web_terminals, _REGISTRY)
-
-    # Assert — no entry carries a theme key
-    assert all("theme" not in entry for entry in result)
 
 
 def test_resolve_cards_empty_users_returns_empty_list() -> None:
@@ -1201,40 +1143,6 @@ def test_resolve_cards_seed_base_non_bool_coerces_to_true() -> None:
 # ---------------------------------------------------------------------------
 # Roster OIDC identity mapping (normalize_users / resolve_cards passthrough)
 # ---------------------------------------------------------------------------
-
-
-def test_normalize_users_carries_string_oidc_subject_through() -> None:
-    """An object entry's `oidc_subject` — the non-secret IdP claim value that
-    identifies this roster user — is carried onto the normalized entry."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert
-    assert result == [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]
-
-
-def test_normalize_users_omits_oidc_subject_key_when_absent() -> None:
-    """A roster declaring no OIDC mapping keeps the plain two-key shape, so a
-    password-mode (or pre-auth) config normalizes exactly as it did before."""
-    # Act / Assert
-    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
-    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
-
-
-def test_normalize_users_drops_non_string_oidc_subject() -> None:
-    """A non-string `oidc_subject` is dropped defensively; the rest of a
-    well-formed entry still normalizes."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "oidc_subject": ["alice@example.org"]}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert — entry survives (name/index valid), oidc_subject omitted
-    assert result == [{"name": "alice", "index": 0}]
 
 
 def test_normalize_users_drops_empty_oidc_subject() -> None:
@@ -1874,20 +1782,25 @@ def test_freeze_user_indices_access_any_survives_a_freeze_round_trip() -> None:
     assert refrozen == frozen
 
 
-def test_resolve_cards_exposes_oidc_subject_when_set() -> None:
-    """The mapping rides through to the resolved entry, so the sidecar's roster
-    context reads it off the same object as every other per-user field."""
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # The sidecar's roster context reads the mapping off the same object as
+        # every other per-user field.
+        ("oidc_subject", "alice@example.org"),
+        ("control_identity", "alice"),
+    ],
+)
+def test_resolve_cards_exposes_an_identity_key_when_set(key: str, value: str) -> None:
+    """The key rides through to the resolved entry the render reads."""
     # Arrange
-    web_terminals = {
-        "users": [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}],
-        **_CATALOG,
-    }
+    web_terminals = {"users": [{"name": "alice", "index": 0, key: value}], **_CATALOG}
 
     # Act
     result = resolve_cards(web_terminals, _REGISTRY)
 
     # Assert
-    assert result[0]["oidc_subject"] == "alice@example.org"
+    assert result[0][key] == value
 
 
 def test_resolve_cards_oidc_subject_threads_through_render_branch() -> None:
@@ -3561,25 +3474,6 @@ def test_role_bound_render_counts_as_referenced_for_entitlements(tmp_path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_normalize_users_carries_string_control_identity_through() -> None:
-    """An object entry's `control_identity` is carried onto the normalized entry."""
-    # Arrange
-    users_raw = [{"name": "alice", "index": 0, "control_identity": "alice"}]
-
-    # Act
-    result = normalize_users(users_raw)
-
-    # Assert
-    assert result == [{"name": "alice", "index": 0, "control_identity": "alice"}]
-
-
-def test_normalize_users_omits_control_identity_key_when_absent() -> None:
-    """A roster declaring no identity keeps the plain two-key shape."""
-    # Act / Assert
-    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
-    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
-
-
 @pytest.mark.parametrize("value", ["", None, 1000, ["alice"], {"name": "alice"}, True])
 def test_normalize_users_drops_empty_or_non_string_control_identity(value: Any) -> None:
     """An empty or non-string `control_identity` is dropped: a carried `""` would
@@ -3634,21 +3528,6 @@ def test_freeze_user_indices_preserves_control_identity() -> None:
 
     # Assert
     assert result == users_raw
-
-
-def test_resolve_cards_exposes_control_identity_when_set() -> None:
-    """The identity rides through to the resolved entry the render reads."""
-    # Arrange
-    web_terminals = {
-        "users": [{"name": "alice", "index": 0, "control_identity": "alice"}],
-        **_CATALOG,
-    }
-
-    # Act
-    result = resolve_cards(web_terminals, _REGISTRY)
-
-    # Assert
-    assert result[0]["control_identity"] == "alice"
 
 
 def test_resolve_cards_control_identity_threads_through_render_branch() -> None:

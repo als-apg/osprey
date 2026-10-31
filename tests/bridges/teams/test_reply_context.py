@@ -31,7 +31,7 @@ import pytest
 
 from osprey.bridges.core import RESERVED_ENTRY_KEYS, InboundEvent, ReplyContext
 from osprey.bridges.teams.events import resolve_reply_context as resolve_in_events
-from tests.bridges.teams.test_posting import (
+from tests.bridges.teams._posting import (
     QUESTION,
     SENDER_ID,
     TENANT,

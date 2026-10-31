@@ -61,25 +61,7 @@ _HEARTBEAT_MARK = "(running "
 _SPINNER_FRAMES = re.compile(f"[{re.escape(Spinner('dots').frames)}]")
 
 
-@pytest.fixture(autouse=True)
-def parked_monitor(monkeypatch):
-    """Park the monitor's tick, so only the tests about it feel it.
-
-    Mounting the region starts a real thread on the real clock, while these
-    tests drive phases and models from scripted timestamps. One tick landing
-    mid-test repaints a region full of "seconds since boot" and silences every
-    assertion after it -- an ordering-dependent flake with no visible cause.
-    The tests that exercise the thread install an interval of their own.
-    """
-    monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
-
-
-@pytest.fixture(autouse=True)
-def restore_installed_reporter():
-    """Leave the module singleton exactly as the test found it."""
-    original = current_reporter()
-    yield
-    install_reporter(original)
+pytestmark = pytest.mark.usefixtures("parked_monitor")
 
 
 def recording_console() -> tuple[Console, io.StringIO]:

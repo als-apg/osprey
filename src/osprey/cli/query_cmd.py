@@ -222,13 +222,18 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
         # Before any provider resolution: the secret lives at the repo root, the
         # provider that needs it is declared in the render.
         _overlay_repo_env(repo_root)
-        # Who this session is, to the ledger and to the telemetry gateway
-        # alike: the one name the build recorded, with that name's login.
+        # Who this session is, to the ledger: the one name the build recorded.
+        from osprey.agent_record.credentials import export_built_host_identity
         from osprey.build.claude_code_telemetry import export_host_terminal_session
-        from osprey.deployment.telemetry_credentials import export_built_host_identity
 
         export_built_host_identity(os.environ, repo_root)
         export_host_terminal_session(os.environ)
+
+        # The agent record, held until the query returns and handed to the
+        # agent and its MCP servers through this environment.
+        if not _hold_host_record(stack, repo_root, build_dir):
+            ctx.exit(EXIT_USAGE)
+            return
 
         disallowed_tools = read_only_disallowed_tools(build_dir)
         expected = expected_mcp_servers(build_dir)
@@ -262,3 +267,21 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
             click.echo("\n".join(result.text_blocks))
 
     sys.exit(code)
+
+
+def _hold_host_record(stack: ExitStack, repo_root: Path, build_dir: Path) -> bool:
+    """Hold the agent record on *stack* for the query; ``False`` after reporting a refusal."""
+    from osprey.agent_record.host import HostRecordRefused
+    from osprey.agent_runner.provider_env import host_record_launch
+
+    config_path = build_dir / "config.yml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        stack.enter_context(host_record_launch(repo_root, config, config_path=config_path))
+    except HostRecordRefused as exc:
+        output.fail("No agent record for this query", str(exc))
+        return False
+    except (OSError, yaml.YAMLError) as exc:
+        output.fail("Could not load the project configuration", str(exc))
+        return False
+    return True

@@ -448,6 +448,10 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     unauthenticated loopback POST this call has always been, and which matches
     how ``mcp_server.http._panel_auth_headers`` reads the same carrier.
 
+    The focus is sent as ``automatic``: no one asked for it, so a layout that
+    already shows the call another way (the Simple chat's approval card) may
+    leave its own selection alone.
+
     Non-fatal: silently swallows errors so focus failures never block approval.
     A gallery that refuses the call — 401 included — is a focus failure like any
     other and is swallowed the same way.
@@ -455,7 +459,7 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     try:
         import urllib.request
 
-        data = json.dumps({"artifact_id": artifact_id}).encode()
+        data = json.dumps({"artifact_id": artifact_id, "automatic": True}).encode()
         headers = {"Content-Type": "application/json"}
         token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
         if token:
@@ -1003,9 +1007,11 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
             "permission_mode": hook_input.get("permission_mode"),
             "asked_at": time.time(),
         }
-        for key, value in (approved or {}).items():
-            if key.startswith(APPROVED_FIELD_PREFIX):
-                payload[key] = value
+        payload.update(
+            (key, value)
+            for key, value in (approved or {}).items()
+            if key.startswith(APPROVED_FIELD_PREFIX)
+        )
         if review_id:
             payload[REVIEW_ARTIFACT_KEY] = review_id
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
@@ -2741,7 +2747,7 @@ def _create_pre_execution_notebook(
     """
     artifact_id = None
     try:
-        from osprey.stores.artifact_store import ArtifactStore
+        from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
         # The hook is a one-shot process, so it must not start a gallery of its
         # own: a gallery already running picks the notebook up from the shared store.
@@ -2754,7 +2760,7 @@ def _create_pre_execution_notebook(
             description=_review_description(exec_mode, _REVIEW_PENDING),
             mime_type="application/x-ipynb+json",
             tool_source="osprey_approval",
-            metadata={"exec_mode": exec_mode or ""},
+            metadata={"exec_mode": exec_mode or "", RUN_RECORD_KEY: True},
         )
         artifact_id = entry.id
 

@@ -61,11 +61,6 @@ def _connected_servers(*names: str) -> list[dict]:
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture
 def deployment(lifecycle_repo: Path) -> Path:
     """A deployment repo whose render declares a 'controls' MCP server.
 

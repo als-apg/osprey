@@ -24,11 +24,6 @@ from osprey.cli.profile_cmd import _materialize_profile_directory, profile
 MINIMAL_PROFILE = "name: Minimal\nextends: hello-world\ndata: data\n"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _write_profile(directory: Path, text: str) -> Path:
     """Write a profile and the ``data:`` tree every profile must name.
 

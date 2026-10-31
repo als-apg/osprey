@@ -22,7 +22,7 @@ from osprey.cli.repo_resolver import (
     is_repo_free,
     repo_option,
 )
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 
 def make_repo(root: Path) -> Path:

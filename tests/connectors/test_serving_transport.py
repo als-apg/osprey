@@ -211,7 +211,8 @@ def test_no_reader_names_the_wire_by_type():
     ).stdout.split()
     offenders = []
     for relative in listed:
-        if not relative.endswith(".py"):
+        # A tracked file deleted from the working tree has no text to check.
+        if not relative.endswith(".py") or not (root / relative).exists():
             continue
         text = (root / relative).read_text(encoding="utf-8")
         if "CHANNEL_ACCESS_TYPES" in text:

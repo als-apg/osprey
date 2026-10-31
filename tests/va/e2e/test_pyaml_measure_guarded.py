@@ -48,6 +48,7 @@ from typing import Any
 import pytest
 
 from tests._guarded_run import held_lock
+from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm
 
@@ -365,10 +366,4 @@ def test_the_render_configures_no_target_but_the_simulator(deployment: gm.Deploy
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_pyaml_measure_guarded.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

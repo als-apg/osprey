@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import print_run_summary, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -50,11 +50,7 @@ async def test_channel_write_triggers_approval_callback(safety_project_selective
     )
 
     # -- Debug output --
-    print("\n--- 2a: channel_write approval callback ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  hook_events: {len(result.hook_events)}")
-    for evt in result.hook_events:
-        print(f"    {evt.tool_name}: {evt.decision}")
+    print_run_summary("2a: channel_write approval callback", result)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
@@ -110,14 +106,7 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
     )
 
     # -- Debug output --
-    print("\n--- 2c: approval denial propagation ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  hook_events: {len(result.hook_events)}")
-    for evt in result.hook_events:
-        print(f"    {evt.tool_name}: {evt.decision}")
-    print(f"  text blocks: {len(result.text_blocks)}")
-    for tb in result.text_blocks[:3]:
-        print(f"    {tb[:200]}")
+    print_run_summary("2c: approval denial propagation", result)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
@@ -187,11 +176,7 @@ async def test_default_policy_always_asks_for_reads(safety_project_default_polic
     )
 
     # -- Debug output --
-    print("\n--- 2d: default_policy=always reads ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  hook_events: {len(result.hook_events)}")
-    for evt in result.hook_events:
-        print(f"    {evt.tool_name}: {evt.decision}")
+    print_run_summary("2d: default_policy=always reads", result)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"

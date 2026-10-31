@@ -12,23 +12,17 @@ for panel documents. Without a mount user no scope is stamped.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import STORAGE_SCOPE_ATTRIBUTE
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.interfaces.web_terminal.routes.proxy import _stamp_storage_scope
-
-#: A panel document of the shape the companion servers serve.
-_DOCUMENT = (
-    '<!DOCTYPE html>\n<html lang="en" data-browse-orient="row">'
-    "<head><title>panel</title></head><body></body></html>"
+from tests.interfaces.web_terminal._proxy_fakes import (
+    PANEL_DOCUMENT,
+    relay_panel_response,
+    root_tag,
 )
 
 #: The design-system scripts that read the attribute in the browser.
@@ -47,12 +41,12 @@ _DESIGN_SYSTEM_JS = (
 
 class TestStampStorageScope:
     def test_the_scope_is_the_first_attribute_of_the_root_tag(self):
-        out = _stamp_storage_scope(_DOCUMENT, "text/html", "alice")
+        out = _stamp_storage_scope(PANEL_DOCUMENT, "text/html", "alice")
         assert '<html data-osprey-storage-scope="alice" lang="en" data-browse-orient="row">' in out
         assert out.count(STORAGE_SCOPE_ATTRIBUTE) == 1
 
     def test_an_empty_scope_relays_the_document_byte_for_byte(self):
-        assert _stamp_storage_scope(_DOCUMENT, "text/html", "") == _DOCUMENT
+        assert _stamp_storage_scope(PANEL_DOCUMENT, "text/html", "") == PANEL_DOCUMENT
 
     @pytest.mark.parametrize("base_type", ["text/javascript", "text/css", "application/javascript"])
     def test_a_body_that_is_not_html_is_untouched(self, base_type):
@@ -72,7 +66,7 @@ class TestStampStorageScope:
         assert out == '<HTML data-osprey-storage-scope="a">'
 
     def test_the_value_is_escaped_for_the_attribute(self):
-        out = _stamp_storage_scope(_DOCUMENT, "text/html", 'a"><script>x</script>')
+        out = _stamp_storage_scope(PANEL_DOCUMENT, "text/html", 'a"><script>x</script>')
         assert "<script>x" not in out
         assert len(re.findall(r"<html\b", out)) == 1
 
@@ -85,82 +79,38 @@ class TestStampStorageScope:
         )
 
 
-def _root_tag(body: str) -> str:
-    match = re.search(r"<html\b[^>]*>", body)
-    assert match, "relayed document has no <html> element"
-    return match.group(0)
-
-
-def _relay(tmp_path, terminal_user, path, body, content_type):
-    """Relay one panel response through the real app as *terminal_user*'s mount.
-
-    ``None`` removes ``OSPREY_TERMINAL_USER`` entirely. The env patch wraps
-    ``create_app`` and the lifespan both: the URL prefix is computed at
-    construction and the terminal user is captured during the lifespan.
-
-    Returns:
-        ``(relayed_text, headers_the_upstream_received)``.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-    custom = [{"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"}]
-    env = {} if terminal_user is None else {"OSPREY_TERMINAL_USER": terminal_user}
-    captured: dict[str, str] = {}
-
-    # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends.
-    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
-        captured.update(headers)
-        return httpx.Response(status_code=200, text=body, headers={"content-type": content_type})
-
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(set(UNIVERSAL_PANELS), custom, None),
-        ),
-        patch.dict("os.environ", env),
-    ):
-        if terminal_user is None:
-            os.environ.pop("OSPREY_TERMINAL_USER", None)
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-            response = client.get(path)
-            assert response.status_code == 200
-            return response.text, captured
-
-
 class TestRelayedPanelDocument:
     def test_a_panel_page_on_a_mount_carries_the_scope_once(self, tmp_path):
-        text, _ = _relay(
-            tmp_path, "alice", "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8"
+        text, _ = relay_panel_response(
+            tmp_path, "alice", "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
         )
         assert text.count(STORAGE_SCOPE_ATTRIBUTE) == 1
-        assert f'{STORAGE_SCOPE_ATTRIBUTE}="alice"' in _root_tag(text)
+        assert f'{STORAGE_SCOPE_ATTRIBUTE}="alice"' in root_tag(text)
 
     def test_the_scope_names_the_user_the_forwarded_prefix_names(self, tmp_path):
-        text, headers = _relay(
-            tmp_path, "first.last", "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8"
+        text, headers = relay_panel_response(
+            tmp_path, "first.last", "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
         )
         forwarded_user = headers["x-forwarded-prefix"].strip("/").split("/")[1]
-        match = re.search(rf'{STORAGE_SCOPE_ATTRIBUTE}="([^"]*)"', _root_tag(text))
+        match = re.search(rf'{STORAGE_SCOPE_ATTRIBUTE}="([^"]*)"', root_tag(text))
         assert match
         assert match.group(1) == forwarded_user == "first.last"
 
     def test_without_a_mount_the_page_carries_no_scope(self, tmp_path):
-        text, _ = _relay(tmp_path, None, "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8")
+        text, _ = relay_panel_response(
+            tmp_path, None, "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
+        )
         assert STORAGE_SCOPE_ATTRIBUTE not in text
-        assert re.sub(r' data-facility-timezone="[^"]*"', "", text) == _DOCUMENT
+        assert re.sub(r' data-facility-timezone="[^"]*"', "", text) == PANEL_DOCUMENT
 
     def test_a_blank_user_is_no_mount(self, tmp_path):
-        text, _ = _relay(tmp_path, "   ", "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8")
+        text, _ = relay_panel_response(
+            tmp_path, "   ", "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
+        )
         assert STORAGE_SCOPE_ATTRIBUTE not in text
 
     def test_a_script_on_a_mount_is_not_stamped(self, tmp_path):
-        text, _ = _relay(
+        text, _ = relay_panel_response(
             tmp_path,
             "alice",
             "/panel/my-dash/app.js",

@@ -26,13 +26,20 @@ const ORIGIN = 'http://hub.test';
 /** @param {string} id */
 const hostsOkf = (id) => id === 'okf';
 
+/** @param {string} id */
+const hostsOkfAndArtifacts = (id) => id === 'okf' || id === 'artifacts';
+
+/** The artifact gallery's backend listens on loopback port 10200. */
+const GALLERY_PORTS = new Map([['10200', 'artifacts']]);
+
 /**
  * @param {string} base
  * @param {string} prefix
  * @param {(id: string) => boolean} [isHostedPanel]
+ * @param {ReadonlyMap<string, string>} [loopbackPorts]
  */
-function ctx(base, prefix, isHostedPanel = hostsOkf) {
-  return { base, origin: ORIGIN, prefix, isHostedPanel };
+function ctx(base, prefix, isHostedPanel = hostsOkf, loopbackPorts = new Map()) {
+  return { base, origin: ORIGIN, prefix, isHostedPanel, loopbackPorts };
 }
 
 describe('classifyAgentLink', () => {
@@ -132,6 +139,73 @@ describe('classifyAgentLink', () => {
       url: 'http://hub.test/uXalice/panel/okf',
     });
   });
+
+  test("the gallery's loopback url with #focus opens the artifacts panel", () => {
+    expect(
+      classifyAgentLink(
+        'http://127.0.0.1:10200#focus',
+        ctx('http://hub.test/', '', hostsOkfAndArtifacts, GALLERY_PORTS)
+      )
+    ).toEqual({ kind: 'panel', panel: 'artifacts', url: '' });
+  });
+
+  test('a loopback backend path opens under the panel route, prefix, query and fragment kept', () => {
+    expect(
+      classifyAgentLink(
+        'http://localhost:10200/static/plot.html?v=2#top',
+        ctx('http://hub.test/u/alice/', '/u/alice', hostsOkfAndArtifacts, GALLERY_PORTS)
+      )
+    ).toEqual({
+      kind: 'panel',
+      panel: 'artifacts',
+      url: '/u/alice/panel/artifacts/static/plot.html?v=2#top',
+    });
+  });
+
+  test('an IPv6 loopback link to a backend port is that panel', () => {
+    expect(
+      classifyAgentLink(
+        'http://[::1]:10200/',
+        ctx('http://hub.test/', '', hostsOkfAndArtifacts, GALLERY_PORTS)
+      )
+    ).toEqual({ kind: 'panel', panel: 'artifacts', url: '' });
+  });
+
+  test('a loopback link to an unknown port opens in a new tab', () => {
+    expect(
+      classifyAgentLink(
+        'http://127.0.0.1:8888/tree',
+        ctx('http://hub.test/', '', hostsOkfAndArtifacts, GALLERY_PORTS)
+      )
+    ).toEqual({ kind: 'window', url: 'http://127.0.0.1:8888/tree' });
+  });
+
+  test('a loopback link to a panel that is not hosted opens in a new tab', () => {
+    expect(
+      classifyAgentLink(
+        'http://127.0.0.1:10200#focus',
+        ctx('http://hub.test/', '', hostsOkf, GALLERY_PORTS)
+      )
+    ).toEqual({ kind: 'window', url: 'http://127.0.0.1:10200/#focus' });
+  });
+
+  test('a non-loopback host on a backend port opens in a new tab', () => {
+    expect(
+      classifyAgentLink(
+        'http://example.org:10200/',
+        ctx('http://hub.test/', '', hostsOkfAndArtifacts, GALLERY_PORTS)
+      )
+    ).toEqual({ kind: 'window', url: 'http://example.org:10200/' });
+  });
+
+  test('a same-origin panel link is unchanged when the hub itself is on loopback', () => {
+    expect(
+      classifyAgentLink('http://127.0.0.1:10100/panel/okf#x', {
+        ...ctx('http://127.0.0.1:10100/', '', hostsOkf, new Map([['10100', 'artifacts']])),
+        origin: 'http://127.0.0.1:10100',
+      })
+    ).toEqual({ kind: 'panel', panel: 'okf', url: '/panel/okf#x' });
+  });
 });
 
 describe('wireAgentLinks', () => {
@@ -149,7 +223,13 @@ describe('wireAgentLinks', () => {
     document.body.appendChild(root);
     openPanel = vi.fn();
     openWindow = vi.fn();
-    wireAgentLinks(root, { prefix: '', isHostedPanel: hostsOkf, openPanel, openWindow });
+    wireAgentLinks(root, {
+      prefix: '',
+      isHostedPanel: hostsOkfAndArtifacts,
+      loopbackPorts: () => GALLERY_PORTS,
+      openPanel,
+      openWindow,
+    });
   });
 
   afterEach(() => {
@@ -191,6 +271,13 @@ describe('wireAgentLinks', () => {
     const ev = click(agentAnchor('https://example.org/doc'));
     expect(openWindow).toHaveBeenCalledWith('https://example.org/doc', '_blank', 'noopener');
     expect(openPanel).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test("the gallery's loopback link opens the artifacts panel, not a tab", () => {
+    const ev = click(agentAnchor('http://127.0.0.1:10200#focus'));
+    expect(openPanel).toHaveBeenCalledWith('artifacts', '');
+    expect(openWindow).not.toHaveBeenCalled();
     expect(ev.defaultPrevented).toBe(true);
   });
 

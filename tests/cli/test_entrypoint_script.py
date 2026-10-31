@@ -27,39 +27,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.templates.manager import TemplateManager
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 #: The shipped template, before it is copied into a render.
 TEMPLATE = (
@@ -80,7 +48,7 @@ _EXEC_FORM = re.compile(r'^[ \t]*exec gosu osprey "\$@"$', re.MULTILINE)
 @pytest.fixture(scope="module")
 def render(tmp_path_factory) -> Path:
     """A rendered deployment, so the assertions run on what a build emits."""
-    return _create_project(
+    return create_project_as_built(
         TemplateManager(),
         project_name="entrypoint-demo",
         output_dir=tmp_path_factory.mktemp("entrypoint-render"),
@@ -421,16 +389,9 @@ class TestBehaviour:
 class TestStateZoneHandBack:
     """Root writes into ``var/`` on the way through, and must not keep it.
 
-    Both maintenance steps write there: the scaffold restore appends its
-    reserved-path refusals to the audit ledger — ``var/audit/<identity>/
-    maintenance.jsonl``, where the per-command ``OSPREY_AUDIT_WRITER`` marker
-    routes everything this phase records — and on a fresh deployment root is the
-    FIRST writer, so the file is created root-owned 0644. The server then runs
-    as ``osprey`` and records under the surface that decided; the marker is what
-    keeps the two out of one file, since the app user could not append to a
-    root-owned one and the refusal recorder never raises, so every refusal after
-    that would be dropped in silence. An audit log only root can write is worse
-    than no audit log, because it looks like one.
+    Both maintenance steps write there, and on a fresh deployment root is the
+    FIRST writer, so anything it creates is root-owned. The server then runs as
+    ``osprey`` and must be able to write the same tree, so root hands it back.
     """
 
     def _cmd(self, tmp_path: Path) -> list[str]:

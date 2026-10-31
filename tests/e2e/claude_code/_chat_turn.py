@@ -3,17 +3,19 @@
 The approval-gates, plan-mode and attachment-read proofs each put a scripted model
 behind the real chat child (:class:`~osprey.interfaces.web_terminal.operator_session.OperatorSession`)
 and read what the chat itself received: the frames, the approval cards the operator
-was shown, and each hook's own decision from the render's hook log. This module is
+was shown, and each hook's own decision from the agent record's hook debug lines. This module is
 that harness, written once.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
 from osprey.interfaces.web_terminal.operator_session import OperatorSession
@@ -22,6 +24,9 @@ from tests.e2e.scripted_model import ScriptedModel
 from tests.e2e.sdk_helpers import render_dir
 
 TASK = "Carry out the scripted steps."
+
+#: The ``source`` every hook debug line carries on the record.
+HOOK_SOURCE = "hook"
 
 
 @dataclass(frozen=True)
@@ -34,22 +39,44 @@ class Answer:
     for_session: bool = False
 
 
-def gates_since(render: Path, start: int) -> dict[str, list[tuple[str, str]]]:
-    """Every hook decision the render's ``hook_debug.jsonl`` logged after byte *start*.
+def hook_debug_since(repo: Path, start: datetime) -> list[dict[str, Any]]:
+    """Every hook debug line the agent record holds from *start* on, oldest first.
+
+    Read from the record through :class:`~osprey.agent_record.client.RecordClient`
+    with the host login, held by :func:`~osprey.agent_record.host.ensure_host_record`
+    (which starts the host-local record when none runs), and drained, so a line a
+    hook wrote just before the read is counted. A read the record could not answer
+    whole fails the proof rather than report missing decisions as none.
+    """
+    from osprey.agent_record.client import RecordClient
+    from osprey.agent_record.contract import KIND_DEBUG, Drain
+    from osprey.agent_record.host import ensure_host_record
+
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    with ensure_host_record(repo, config) as record:
+        client = RecordClient(record.url, record.login, record.token)
+        answer = client.entries(KIND_DEBUG, since=start, source=HOOK_SOURCE, wait=Drain())
+    assert answer.available, f"the agent record is unavailable: {answer.unavailable}"
+    assert answer.complete, f"the hook debug read is incomplete: {answer.reason}"
+    assert not answer.more, "the hook debug lines of one turn overflowed a page"
+    bodies = [
+        item["body"]
+        for item in answer.data or []
+        if isinstance(item, dict) and isinstance(item.get("body"), dict)
+    ]
+    bodies.reverse()  # the record answers newest first
+    return bodies
+
+
+def gates_since(repo: Path, start: datetime) -> dict[str, list[tuple[str, str]]]:
+    """Every hook decision the agent record holds from *start* on.
 
     The hooks log each decision they make, denials included, when hook debugging is on
-    (the child runs with it on). The decisions are keyed by tool-use id, as
-    ``(hook, status)`` in the order the hooks ran.
+    (the child runs with it on), as a hook ``debug`` entry on the record. The decisions
+    are keyed by tool-use id, as ``(hook, status)`` in the order the hooks ran.
     """
-    path = render / ".claude" / "hooks" / "hook_debug.jsonl"
-    if not path.exists():
-        return {}
-    with path.open("rb") as handle:
-        handle.seek(start)
-        text = handle.read().decode("utf-8")
     gates: dict[str, list[tuple[str, str]]] = {}
-    for line in text.splitlines():
-        record = json.loads(line)
+    for record in hook_debug_since(repo, start):
         gates.setdefault(str(record.get("tool_use_id")), []).append(
             (str(record.get("hook")), str(record.get("status")))
         )
@@ -125,8 +152,7 @@ async def drive_turn(
     render = render_dir(repo)
     sdk_helpers.trust_render(repo)
     child_env = {**sdk_helpers.sdk_env(render), "OSPREY_HOOK_DEBUG": "1", **(env or {})}
-    debug_log = render / ".claude" / "hooks" / "hook_debug.jsonl"
-    start = debug_log.stat().st_size if debug_log.exists() else 0
+    start = datetime.now(UTC)
     session = OperatorSession(cwd=str(render), env=child_env)
     frames: list[dict[str, Any]] = []
     cards: list[dict[str, Any]] = []
@@ -154,4 +180,4 @@ async def drive_turn(
                 assert resolved, "the card was not waiting when the operator answered"
     finally:
         await session.stop()
-    return frames, cards, gates_since(render, start)
+    return frames, cards, gates_since(repo, start)

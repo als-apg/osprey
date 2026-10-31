@@ -85,6 +85,10 @@ ERROR_CLASS_MAP = {
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    # The agent record did not answer, or could not yet serve the read in
+    # full; the read comes back once it does.
+    "record_unavailable": "Connection",
+    "incomplete": "Connection",
     # Bluesky bridge refusals relayed verbatim: the queue manager or worker
     # environment did not come up, or did not answer a pause in time.
     "manager_unreachable": "Connection",

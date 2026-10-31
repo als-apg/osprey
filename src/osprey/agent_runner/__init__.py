@@ -33,6 +33,7 @@ Public surface::
         TextEvent,
         ThinkingEvent,
         ToolUseEvent,
+        ToolStartEvent,
         ToolResultEvent,
         ApiErrorEvent,
         SystemEvent,
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
         TextEvent,
         ThinkingEvent,
         ToolResultEvent,
+        ToolStartEvent,
         ToolUseEvent,
     )
     from osprey.agent_runner.primitives import (
@@ -103,6 +105,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "TextEvent": ".events",
     "ThinkingEvent": ".events",
     "ToolResultEvent": ".events",
+    "ToolStartEvent": ".events",
     "ToolUseEvent": ".events",
     "HAS_SDK": ".primitives",
     "MCP_READY_TIMEOUT_S": ".primitives",

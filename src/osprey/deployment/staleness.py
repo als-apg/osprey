@@ -427,7 +427,7 @@ def profile_fingerprint(profile_path: Path) -> ProfileFingerprint | None:
 
         raw = _read_profile_document(profile_path)
         document = resolve_profile_document(raw, profile_path, warn=False)
-        inputs = profile_inputs(profile_path, document)
+        inputs = profile_inputs(document)
         for key, value in document.raw.items():
             canonical = json.dumps(value, sort_keys=True, default=str)
             digests[str(key)] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()

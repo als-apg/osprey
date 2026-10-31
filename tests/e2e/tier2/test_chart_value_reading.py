@@ -54,7 +54,6 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -70,6 +69,7 @@ from pydantic import BaseModel, Field
 
 from tests.e2e import _orm_stack
 from tests.e2e._deploy_diagnostics import dead_container_logs
+from tests.e2e._deploy_support import run_command
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.ariel_picture import assert_no_ariel_errors, assert_viewed_in_logbook_turn
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
@@ -215,7 +215,6 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals.enabled": False,
             "deployed_services": ["postgresql", "qmd"],
             "services.postgresql.port_host": POSTGRES_PORT_HOST,
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
         },
         "channel_finder_mode": "hierarchical",
@@ -229,17 +228,6 @@ def _profile_edits() -> dict[str, Any]:
         "dispatch": None,
         "services": {},
     }
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
 
 
 def _init_args(repo: Path) -> list[str]:
@@ -277,7 +265,9 @@ def _build_project(output_dir: Path) -> Path:
     """
     osprey_bin = _orm_stack.find_osprey_console_script()
     repo = output_dir / PROJECT_NAME
-    result = _run([str(osprey_bin), "init", *_init_args(repo)], output_dir, BUILD_TIMEOUT_SEC)
+    result = run_command(
+        [str(osprey_bin), "init", *_init_args(repo)], output_dir, BUILD_TIMEOUT_SEC
+    )
     assert result.returncode == 0, f"osprey init failed:\n{result.stdout}\n{result.stderr}"
 
     # Between the two verbs: the build reads <repo>/data/facility into the render
@@ -294,7 +284,7 @@ def _build_project(output_dir: Path) -> Path:
         "--skip-lifecycle",
         "--dev",
     ]
-    result = _run(build, output_dir, BUILD_TIMEOUT_SEC)
+    result = run_command(build, output_dir, BUILD_TIMEOUT_SEC)
     assert result.returncode == 0, f"osprey build failed:\n{result.stdout}\n{result.stderr}"
 
     _orm_stack.assert_off_default_block(repo, PROJECT_NAME)
@@ -446,7 +436,9 @@ def deployed_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         osprey_bin = _orm_stack.find_osprey_console_script()
         try:
             try:
-                up = _run([str(osprey_bin), "up", "-d", "--dev"], repo, DEPLOY_UP_TIMEOUT_SEC)
+                up = run_command(
+                    [str(osprey_bin), "up", "-d", "--dev"], repo, DEPLOY_UP_TIMEOUT_SEC
+                )
             except subprocess.TimeoutExpired as exc:
                 pytest.fail(
                     f"osprey up -d --dev timed out after {DEPLOY_UP_TIMEOUT_SEC}s:\n"
@@ -463,7 +455,7 @@ def deployed_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             yield DeployedWorld(repo=repo, attachment_id=attachment_id)
         finally:
             try:
-                down = _run([str(osprey_bin), "down"], repo, DOWN_TIMEOUT_SEC)
+                down = run_command([str(osprey_bin), "down"], repo, DOWN_TIMEOUT_SEC)
                 if down.returncode != 0:
                     print(f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}")
             except (OSError, subprocess.SubprocessError) as exc:

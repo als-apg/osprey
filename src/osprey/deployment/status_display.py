@@ -35,10 +35,11 @@ from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
     PROJECT_LABEL,
     REPO_ID_LABEL,
-    audit_identity_dir,
     repo_identity,
     resolve_project_name,
+    resolve_user_projects_volume_name,
     resolve_user_volume_names,
+    state_identity_dir,
 )
 from osprey.deployment.container_ownership import (
     ClaimBasis,
@@ -200,7 +201,7 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     """Why *identity*'s web terminal refused to start, when it just did.
 
     The read half of the contract ``osprey web`` writes: on a pre-flight refusal
-    it writes ``<audit dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
+    it writes ``<state dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
     line 1 and the findings, ``- `` prefixed, below it. Under
     ``restart: unless-stopped`` the container is then restarted forever, and a
     status table that says only "Restarting" makes an operator go read logs to
@@ -213,12 +214,12 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     that did not refuse. A marker whose timestamp cannot be parsed is treated as
     no marker at all.
 
-    Every failure — an unreadable audit zone, an identity that is not a legal
+    Every failure — an unreadable state zone, an identity that is not a legal
     path segment, a runtime that will not answer — degrades to ``None``. This is
     an annotation on a read-only report and must never be able to take it down.
 
-    :param repo_root: The deployment repo root, which the audit zone hangs off
-    :param identity: The roster username, which is also its audit identity
+    :param repo_root: The deployment repo root, which the state zone hangs off
+    :param identity: The roster username, which is also its state identity
     :param container: The user's decoded ``ps`` record
     :param config: Rendered config, for runtime selection; may be ``None``
     :return: The reason, truncated to :data:`PREFLIGHT_REASON_MAX_CHARS`, or ``None``
@@ -230,7 +231,7 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 
     try:
-        marker = audit_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
+        marker = state_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
         if not marker.is_file():
             return None
         lines = marker.read_text(encoding="utf-8").splitlines()
@@ -460,7 +461,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     Silently does nothing when web terminals are off or the roster is empty:
     there is no table to draw, and an empty one would suggest otherwise.
 
-    :param repo_root: The deployment repo, whose ``var/audit/<user>`` holds the
+    :param repo_root: The deployment repo, whose ``var/state/<user>`` holds the
         pre-flight refusal markers. ``None`` means "not known here", and the
         state cells are then exactly what they have always been.
     """
@@ -495,6 +496,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     table.add_column("User", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Container", style=Styles.PRIMARY)
     table.add_column("Claude Config Volume", style=Styles.INFO)
+    table.add_column("Transcripts Volume", style=Styles.INFO)
     table.add_column("Agent Data Volume", style=Styles.INFO)
 
     output.report("")
@@ -516,6 +518,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
             if container is None
             else _format_state(container.get("State", "unknown"), preflight_reason),
             _format_volume_status(claude_config_volume),
+            _format_volume_status(resolve_user_projects_volume_name(config, user)),
             _format_volume_status(agent_data_volume),
         )
     output.table(table)
@@ -589,7 +592,7 @@ def show_status(
         output.table(_container_table(other_containers))
 
     # Same derivation of the repo root as the staleness check above: this legacy
-    # verb is handed the project's own config.yml, and the audit zone hangs off
+    # verb is handed the project's own config.yml, and the state zone hangs off
     # the directory holding it.
     _show_web_terminal_users(config, all_containers, Path(config_path).resolve().parent)
 
@@ -961,7 +964,7 @@ def _artifact_drift(repo_root, build_dir, config):
 # the content-capture gates are exactly the facts an operator opens ``osprey
 # status`` to read, and a blanket mask over the block would leave the section
 # with nothing to say. One entry is different — the OTLP headers block carries
-# the observability store's authorization header, a directly decodable
+# the launch's agent-record login as a Basic authorization header, a directly decodable
 # credential — and a status report is read on a shared terminal and pasted into
 # tickets.
 #
@@ -1029,7 +1032,6 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
         dropped_alias_key_facts,
         load_provider_spec,
     )
-    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
     from osprey.cli.validate_claude_artifacts import agent_file_models
     from osprey.models.display import display_model_name
     from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
@@ -1056,30 +1058,6 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # ``_auth_availability`` below, which looks for the credential in
             # the same env chain this expansion reads.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
-        except ObservabilityCredentialError:
-            # Ahead of the broad handler on purpose, and load-bearing: resolving
-            # the provider also resolves the telemetry block, so a missing
-            # observability credential arrives here as a failure to read the
-            # provider. Reported as one, an operator goes and checks a provider
-            # that was never wrong. Behind the ``except Exception`` below this
-            # branch would never run while still reading as if it did.
-            #
-            # Names only — the exception text can carry the credential field's
-            # value, and a status report is printed to a shared terminal and
-            # pasted into tickets. The remedy is the name of the setting and
-            # the file it belongs in.
-            spec = None
-            troubles.append(
-                (
-                    "telemetry: the observability backend's credentials are missing or "
-                    "unresolved, so the provider could not be resolved",
-                    "Run `osprey build` to write each sender's gateway login "
-                    "(.env.telemetry-sender.<identity>), or set the variable "
-                    "claude_code.telemetry.auth.token_env names in "
-                    f"{repo_root / '.env'}, then rerun. The provider configuration "
-                    "itself is not the problem.",
-                )
-            )
         except Exception as exc:
             spec = None
             troubles.append(
@@ -1126,8 +1104,9 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # the spec this section already holds, because the resolver's own
             # records for them are INFO and the drift check below resolves the
             # provider a second time: one report, one sentence per fact.
-            for sentence in dropped_alias_key_facts(spec):
-                troubles.append((sentence, DROPPED_ALIAS_KEY_REMEDY))
+            troubles.extend(
+                (sentence, DROPPED_ALIAS_KEY_REMEDY) for sentence in dropped_alias_key_facts(spec)
+            )
             substitution = alias_substitution(spec)
             if substitution:
                 troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))

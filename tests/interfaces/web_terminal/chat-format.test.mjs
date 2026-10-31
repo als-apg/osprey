@@ -19,9 +19,16 @@ import {
   inputDetail,
   inputView,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-format.js';
-import { summarizeInput } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-vocab.js';
+import {
+  runPhrase,
+  summarizeInput,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-vocab.js';
+import { activityLabel } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-activity.js';
 import { createApprovalCard } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-approval.js';
-import { createToolGroup } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-cards.js';
+import {
+  createAgentChip,
+  createToolChip,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-cards.js';
 
 /** Text well past the server's 300-character string cut, as the artifact-save result carries. */
 const LONG =
@@ -315,14 +322,29 @@ describe('a tool row', () => {
     ['a shortened result carries a quiet note, not an ellipsis line', true],
     ['a result that was not shortened carries no note', false],
   ])('%s', (_case, truncated) => {
-    const chip = createToolGroup().addTool(call({ code: 'print(1)' }));
+    const chip = createToolChip(call({ code: 'print(1)' }));
     chip.finish({ is_error: false, preview: 'x'.repeat(40), truncated });
-    expect(qs(chip.el, '.op-tool-note').hidden).toBe(!truncated);
+    expect(qs(chip.el, '.op-tool-result > .op-tool-section-head .op-tool-note').hidden).toBe(
+      !truncated
+    );
     expect(qs(chip.el, '.op-tool-result .op-tool-pre').textContent).toBe('x'.repeat(40));
   });
 
+  test('opens to an Input and a Result box, and a failed call marks its Result box', () => {
+    const chip = createToolChip(call({ code: 'print(1)' }));
+    const titles = [...chip.el.querySelectorAll('.op-tool-section-head .op-tool-label')];
+    expect(titles.map((t) => t.textContent)).toEqual(['Input', 'Result']);
+    const result = qs(chip.el, '.op-tool-result');
+    expect(result.dataset.state).toBeUndefined();
+
+    chip.finish({ is_error: true, preview: 'Error: boom', truncated: false });
+
+    expect(result.dataset.state).toBe('error');
+    expect(qs(result, '.op-tool-section-body .op-tool-pre').textContent).toBe('Error: boom');
+  });
+
   test('shows the call input and the artifact-save result as key and value lines', () => {
-    const chip = createToolGroup().addTool(call({ code: 'print("a")\nprint("b")' }));
+    const chip = createToolChip(call({ code: 'print("a")\nprint("b")' }));
     chip.finish({
       is_error: false,
       preview: JSON.stringify(shortenedArtifactSave()),
@@ -336,8 +358,7 @@ describe('a tool row', () => {
   });
 
   test('recognises a background agent by its launch mark in the preview', () => {
-    const group = createToolGroup();
-    const agent = group.addAgent(
+    const agent = createAgentChip(
       {
         type: 'tool_use',
         tool_name: 'Agent',
@@ -346,11 +367,78 @@ describe('a tool row', () => {
         input: { subagent_type: 'scout', description: 'Survey' },
         parent_tool_use_id: null,
       },
-      (el, text) => {
+      (/** @type {HTMLElement} */ el, /** @type {string} */ text) => {
         el.textContent = text;
-      }
+      },
+      () => {}
     );
     agent.finish({ is_error: false, preview: 'Async agent launched successfully.\nagentId: 7' });
-    expect(qs(group.el, '.op-agent').dataset.state).toBe('background');
+    expect(agent.el.dataset.state).toBe('background');
   });
+});
+
+describe('a skill', () => {
+  /** @param {Record<string, unknown>} input */
+  const skill = (input) => ({
+    type: 'tool_use',
+    tool_name: 'Skill',
+    tool_name_raw: 'Skill',
+    tool_use_id: 's1',
+    input,
+  });
+  /** @param {ReturnType<typeof createToolChip>} chip */
+  const shown = (chip) => ({
+    label: qs(chip.el, '.op-row-label').textContent,
+    detail: qs(chip.el, '.op-row-detail').textContent,
+    kind: chip.el.dataset.kind,
+    glyph: chip.el.querySelector('.op-row-glyph path')?.getAttribute('d'),
+  });
+
+  test.each([
+    ['the agent chose it', { skill: 'diagnose', args: 'SR03 orbit' }, 'Used skill'],
+    ['the operator ran it', { skill: 'diagnose', args: 'SR03 orbit', by: 'operator' }, 'Ran skill'],
+  ])('reads as its own row, named by the skill, when %s', (_case, input, label) => {
+    expect(shown(createToolChip(skill(input)))).toEqual({
+      label,
+      detail: 'diagnose',
+      kind: 'skill',
+      glyph: 'M12 7v14',
+    });
+  });
+
+  test('the status line names the skill once the call says which one', () => {
+    expect(activityLabel({ type: 'tool_start', tool_name: 'Skill', tool_name_raw: 'Skill' })).toBe(
+      'Loading a skill…'
+    );
+    expect(activityLabel(skill({ skill: 'diagnose' }))).toBe('Using skill diagnose…');
+  });
+
+  test('a run of skills is counted as skills', () => {
+    expect(runPhrase('skill', ['skill', 'skill'])).toBe('Used 2 skills');
+  });
+
+  test('a run of skills the operator ran says so; one the agent chose does not', () => {
+    expect(runPhrase('skill', ['skill', 'skill'], true)).toBe('Ran 2 skills');
+    expect(runPhrase('skill', ['skill'], true)).toBe('Ran 1 skill');
+    expect(runPhrase('skill', ['skill', 'skill'], false)).toBe('Used 2 skills');
+  });
+
+  test('a long skill name is cut in the status line', () => {
+    const label = activityLabel(skill({ skill: 'a'.repeat(200) }));
+    expect(label).toBe(`Using skill ${'a'.repeat(60)}…`);
+    expect(activityLabel(skill({ skill: 'b'.repeat(60) }))).toBe(`Using skill ${'b'.repeat(60)}…`);
+  });
+});
+
+describe('a tool named like an Object.prototype member', () => {
+  test.each(['constructor', '__proto__'])(
+    '%s labels as an unmapped tool, and folds as a run, without throwing',
+    (name) => {
+      const event = { type: 'tool_use', tool_name: name, tool_name_raw: name };
+      expect(activityLabel(event)).toBe(`Using ${name}…`);
+      expect(runPhrase('other', [name.toLowerCase(), name.toLowerCase()])).toBe(
+        'Made 2 tool calls'
+      );
+    }
+  );
 });

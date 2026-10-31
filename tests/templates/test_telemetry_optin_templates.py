@@ -1,20 +1,16 @@
-"""Local telemetry is ON BY DEFAULT in every preset that deploys a stack.
+"""The agent record is ON BY DEFAULT in every preset that deploys a stack.
 
 The framework's stance: the underlying harness already records every prompt,
-response, and API body to disk, so shipping a co-deployed telemetry store,
-published on loopback, adds no new exposure — it just makes that data
-queryable. So every bundled preset whose deployment runs services declares the
-``telemetry_store`` and the ``telemetry_gateway`` that feeds it in its
-``config:`` block, lists both in ``deployed_services``, and ships a live
-``claude_code.telemetry`` block (``enabled: true``, ``backend: gateway``) with
-full content capture.
+response, and API body to disk, so keeping one queryable record of it beside
+the agent adds no new exposure. So every bundled preset that deploys a stack
+resolves to a top-level ``agent_record`` block naming its backend and its
+retention, and nothing a user has to switch on first.
 
-The presets are the source of that posture: the framework template renders only
-derived keys, and a deployment's ``services.*`` / ``claude_code.telemetry.*``
-come from its profile's ``config:`` block, which the preset writes down. So this
-is a regression guard against any preset drifting back to the old opt-in posture
-(service declared but telemetry commented/off — a store deployed empty, or a
-telemetry block emitting to a service that was never deployed).
+The record is the one place that data lives, so a preset states no
+``claude_code.telemetry`` block and none of the services the record replaced
+(:data:`~osprey.agent_record.config.RETIRED_DEPLOYED_SERVICES`), neither
+declared nor in ``deployed_services``: no preset opts out of the record or
+keeps a second store beside it.
 """
 
 from __future__ import annotations
@@ -23,24 +19,25 @@ from pathlib import Path
 from typing import Any
 
 import osprey.profiles
+from osprey.agent_record.config import BACKENDS, RETIRED_DEPLOYED_SERVICES
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 
-#: The bundled presets that deploy a stack, and so must deploy the store too.
+#: The bundled presets that deploy a stack, and so must keep a record.
 _DEPLOYING_PRESETS = ("hello-world", "control-assistant")
 
-_CONTENT_GATES = (
-    "log_user_prompts",
-    "log_assistant_responses",
-    "log_tool_details",
-    "log_raw_api_bodies",
-)
+#: Service names a second store beside the record would take.
+_RETIRED_SERVICES = tuple(sorted(RETIRED_DEPLOYED_SERVICES))
+
+
+def _resolved(preset: str):
+    profile, _profile_dir = resolve_build_profile(None, preset)
+    return profile
 
 
 def _cfg(preset: str) -> dict[str, Any]:
     """The preset's resolved ``config:`` block, nested."""
-    profile, _profile_dir = resolve_build_profile(None, preset)
-    return _expand_dotted(profile.config)
+    return _expand_dotted(_resolved(preset).config)
 
 
 def _source(preset: str) -> str:
@@ -49,56 +46,45 @@ def _source(preset: str) -> str:
     )
 
 
-def test_store_and_gateway_declared_and_deployed_everywhere():
-    """Every deploying preset declares both services AND lists both in deployed_services.
-
-    One without the other is a store nothing feeds or a gateway with nowhere to
-    write, so the pair is checked together.
-    """
+def test_record_declared_everywhere():
+    """Every deploying preset states its record's backend in its own document."""
     for preset in _DEPLOYING_PRESETS:
-        cfg = _cfg(preset)
-        services = cfg.get("services") or {}
-        deployed = cfg.get("deployed_services") or []
-        for service in ("telemetry_store", "telemetry_gateway"):
-            assert services.get(service, {}).get("path") == f"./services/{service}", (
-                f"{preset}: {service} service missing"
-            )
-            assert service in deployed, f"{preset}: {service} not in deployed_services={deployed!r}"
-
-
-def test_telemetry_live_gateway_everywhere():
-    """Every deploying preset ships a live telemetry block pointed at the gateway."""
-    for preset in _DEPLOYING_PRESETS:
-        telemetry = (_cfg(preset).get("claude_code") or {}).get("telemetry")
-        assert telemetry is not None, f"{preset}: telemetry block missing"
-        assert telemetry.get("enabled") is True, (
-            f"{preset}: telemetry not enabled, got {telemetry.get('enabled')!r}"
+        record = _resolved(preset).agent_record
+        assert record is not None, f"{preset}: agent_record missing"
+        assert record.backend in BACKENDS, f"{preset}: unknown backend {record.backend!r}"
+        assert "\nagent_record:\n  backend: " in _source(preset), (
+            f"{preset}: the backend is not stated in the preset, so a default chose it"
         )
-        assert telemetry.get("backend") == "gateway", f"{preset}: backend != gateway"
-
-
-def test_full_content_capture_is_the_default_posture():
-    """The local store is published on loopback, so all content gates default ON."""
-    for preset in _DEPLOYING_PRESETS:
-        telemetry = (_cfg(preset).get("claude_code") or {}).get("telemetry") or {}
-        for gate in _CONTENT_GATES:
-            assert telemetry.get(gate) is True, (
-                f"{preset}: content gate {gate} not on (got {telemetry.get(gate)!r})"
-            )
-
-
-def test_control_assistant_records_built_in_tool_output():
-    """control-assistant turns the tool-content gate on and sets the content limit."""
-    telemetry = (_cfg("control-assistant").get("claude_code") or {}).get("telemetry") or {}
-    assert telemetry.get("log_tool_content") is True
-    assert telemetry.get("content_max_length") == 262144
 
 
 def test_retention_bound_declared_everywhere():
     """Growth is bounded by age since a named volume has no size cap."""
     for preset in _DEPLOYING_PRESETS:
-        store = (_cfg(preset).get("services") or {}).get("telemetry_store") or {}
-        assert store.get("retention_days"), f"{preset}: telemetry_store.retention_days missing"
+        retention = _resolved(preset).agent_record.retention_days
+        assert isinstance(retention, int) and retention > 0, (
+            f"{preset}: agent_record.retention_days is {retention!r}"
+        )
+
+
+def test_no_retired_store_is_declared_or_deployed():
+    """No preset declares or deploys a store beside the record."""
+    for preset in _DEPLOYING_PRESETS:
+        cfg = _cfg(preset)
+        services = cfg.get("services") or {}
+        deployed = cfg.get("deployed_services") or []
+        for service in _RETIRED_SERVICES:
+            assert service not in services, f"{preset}: declares services.{service}"
+            assert service not in deployed, f"{preset}: deploys {service}"
+
+
+def test_no_telemetry_block_feeds_a_second_store():
+    """No preset ships a ``claude_code.telemetry`` block or the tool-call audit."""
+    for preset in _DEPLOYING_PRESETS:
+        cfg = _cfg(preset)
+        assert "telemetry" not in (cfg.get("claude_code") or {}), (
+            f"{preset}: claude_code.telemetry is set"
+        )
+        assert "tool_call" not in (cfg.get("audit") or {}), f"{preset}: audit.tool_call is set"
 
 
 def test_no_preset_regresses_to_opt_in_wording():
@@ -107,5 +93,5 @@ def test_no_preset_regresses_to_opt_in_wording():
         src = _source(preset)
         assert "stays OFF until you opt in" not in src, f"{preset}: opt-in wording resurfaced"
         # The endpoint auto-derives; hardcoding localhost silently drops the
-        # in-container worker's telemetry, so no preset pins it.
+        # in-container worker's entries, so no preset pins it.
         assert "endpoint: http://localhost" not in src, f"{preset}: hardcoded localhost endpoint"

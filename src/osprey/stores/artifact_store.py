@@ -340,11 +340,12 @@ EXAMPLE_ORIGIN = "demo"
 run: the example the gallery seeds into an empty workspace. Listed by the
 gallery, hidden from every agent-facing listing (``exclude_examples``)."""
 
-AUDIT_ORIGIN = "tool_call"
-"""``origin`` of a payload the tool-call audit surface spilled to the store
-(:mod:`osprey.audit.tool_call`). An audit record, not something a tool
-produced: hidden from every listing unless ``include_audit`` is passed, and
-never announced to a live surface."""
+RUN_RECORD_KEY = "run_record"
+"""``metadata`` key, set to True, on an artifact that records a script run rather
+than holding its result: the approval hook's Pre-Execution Review notebook, and the
+executor's notebook and result record. Plots and files the script saves carry no
+such key. The gallery's Simple layout keeps these out of its result card and lists
+them under "Script runs"."""
 
 EXAMPLE_REMOVED_SENTINEL = ".example-removed"
 """File in the artifact directory written when an example is deleted, so no
@@ -549,8 +550,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         long as it is still being seen); otherwise ``save_kwargs`` (the
         :meth:`save_file` arguments) are saved as a new entry with *origin*.
         Lookup and save share the lock, so two concurrent callers with the same
-        bytes produce one entry. Listeners fire for a new entry only; the
-        gallery is not launched for an audit spill.
+        bytes produce one entry. Listeners fire for a new entry only.
         """
         kwargs = {k: v for k, v in save_kwargs.items() if k != "origin"}
         with self._with_index_lock():
@@ -562,8 +562,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             created = self._save_file_locked(**kwargs, origin=origin)
 
         self._notify_listeners(created)
-        if origin != AUDIT_ORIGIN:
-            self._launch_gallery()
+        self._launch_gallery()
         return created
 
     def save_object(
@@ -836,7 +835,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         run_filter: str | None = None,
         last_n: int | None = None,
         exclude_examples: bool = False,
-        include_audit: bool = False,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered.
 
@@ -849,18 +847,11 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         example is for the person at the gallery, never something the agent
         produced or may cite.
 
-        Audit spills (``origin == AUDIT_ORIGIN``) are dropped unless
-        ``include_audit`` is passed: they are records of what a tool returned,
-        not artifacts. Only the retention sweep and an explicit audit viewer ask
-        for them; :meth:`get_entry` finds them regardless.
-
         ``search`` is a case-insensitive substring match on the title, file
         name, description and artifact type.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
-        if not include_audit:
-            entries = [e for e in entries if e.origin != AUDIT_ORIGIN]
         if exclude_examples:
             entries = [e for e in entries if e.origin != EXAMPLE_ORIGIN]
         if type_filter:

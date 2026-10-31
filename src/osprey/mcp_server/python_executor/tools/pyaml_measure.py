@@ -97,7 +97,7 @@ def _timeout(config: dict[str, Any]) -> object:
     An explicit null stays null, so the resolver refuses it by name; the
     executor refuses the same value too.
     """
-    from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
 
     section, key = TIMEOUT_KEY.split(".")
     block = config.get(section) or {}

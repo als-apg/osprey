@@ -250,7 +250,7 @@ class EpicsCaSource:
 
     def register_routes(self, mcp_app: FastMCP) -> None:  # noqa: ARG002 - trigger-source lifecycle signature; a source with no routes registers nothing
         """EPICS CA source has no HTTP routes."""
-        return None
+        return
 
     async def start(self, triggers: list[TriggerConfig], fire_callback: FireCallback) -> None:
         """Arm one CA monitor per trigger (lifespan startup, running loop).

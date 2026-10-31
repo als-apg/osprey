@@ -44,7 +44,6 @@ from unittest.mock import patch
 import httpx
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import bar_items_store
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
@@ -52,12 +51,12 @@ from osprey.interfaces.web_terminal.app import (
     BAR_LAYOUT_VERSION,
     MAX_BAR_ITEMS_PER_HOST,
     bar_item_vocabulary,
-    create_app,
 )
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 from osprey.interfaces.web_terminal.routes import bar_items as bar_items_routes
 from osprey.interfaces.web_terminal.routes.bar_items import MAX_REQUEST_BYTES
 from tests.interfaces.fsevents_wait import collect_paths
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 # ── fixtures ───────────────────────────────────────────────────────────────
 
@@ -83,7 +82,7 @@ def no_companion_servers():
 
 
 @pytest.fixture
-def agent_data_root(tmp_path):
+def stores_root(tmp_path):
     """A throwaway agent-data root for the lifespan to site both stores under.
 
     The ``client`` fixture patches the resolver to answer this directory; this
@@ -101,13 +100,6 @@ def agent_data_root(tmp_path):
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_watch"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def config_path(tmp_path):
     """A minimal render — this suite is about the routes, not ``web.bar_items``."""
     path = tmp_path / "config.yml"
@@ -119,22 +111,17 @@ def config_path(tmp_path):
 
 
 @pytest.fixture
-def client(agent_data_root, workspace_dir, config_path):
+def client(stores_root, workspace_dir, config_path):
     """The whole app, lifespan run, watching a throwaway workspace."""
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.resolve_shared_data_root",
-            return_value=agent_data_root,
+            return_value=stores_root,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as test_client:
-            test_client.app.state.config_path = config_path
-            yield test_client
+    ) as test_client:
+        test_client.app.state.config_path = config_path
+        yield test_client
 
 
 @pytest.fixture
@@ -622,7 +609,7 @@ class TestTwoTabsSavingAtOnce:
 
 
 @contextmanager
-def _app_over(stored: bytes | None, *, agent_data_root: Path, workspace_dir: Path, config_path):
+def _app_over(stored: bytes | None, *, stores_root: Path, workspace_dir: Path, config_path):
     """The whole app, booted with *stored* already sitting in the store.
 
     The same wiring as the ``client`` fixture, with the document written before
@@ -630,23 +617,18 @@ def _app_over(stored: bytes | None, *, agent_data_root: Path, workspace_dir: Pat
     something on disk.
     """
     if stored is not None:
-        store = agent_data_root / "bar_items"
+        store = stores_root / "bar_items"
         store.mkdir(parents=True, exist_ok=True)
         (store / LAYOUT_FILENAME).write_bytes(stored)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.resolve_shared_data_root",
-            return_value=agent_data_root,
+            return_value=stores_root,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as test_client:
-            test_client.app.state.config_path = config_path
-            yield test_client
+    ) as test_client:
+        test_client.app.state.config_path = config_path
+        yield test_client
 
 
 #: Two ways a stored document can be unreadable, each carrying a marker item
@@ -677,10 +659,10 @@ class TestAStoredDocumentThisBuildCannotRead:
     """
 
     @pytest.fixture(params=sorted(_UNREADABLE_DOCUMENTS), ids=sorted(_UNREADABLE_DOCUMENTS))
-    def unreadable_client(self, request, agent_data_root, workspace_dir, config_path):
+    def unreadable_client(self, request, stores_root, workspace_dir, config_path):
         with _app_over(
             _UNREADABLE_DOCUMENTS[request.param],
-            agent_data_root=agent_data_root,
+            stores_root=stores_root,
             workspace_dir=workspace_dir,
             config_path=config_path,
         ) as test_client:
@@ -728,7 +710,7 @@ class TestAStoredDocumentIsLoadedAtBoot:
     """
 
     def test_a_saved_layout_is_served_and_painted_after_a_restart(
-        self, agent_data_root, workspace_dir, config_path
+        self, stores_root, workspace_dir, config_path
     ):
         stored = {
             "version": BAR_LAYOUT_VERSION,
@@ -739,7 +721,7 @@ class TestAStoredDocumentIsLoadedAtBoot:
         }
         with _app_over(
             json.dumps(stored).encode("utf-8"),
-            agent_data_root=agent_data_root,
+            stores_root=stores_root,
             workspace_dir=workspace_dir,
             config_path=config_path,
         ) as client:
@@ -858,7 +840,7 @@ class TestALayoutSaveIsNotAFileChange:
         """The app watching a tree that *contains* its own store."""
         with _app_over(
             None,
-            agent_data_root=watched_workspace / "agent_data",
+            stores_root=watched_workspace / "agent_data",
             workspace_dir=watched_workspace,
             config_path=config_path,
         ) as test_client:
@@ -925,7 +907,7 @@ class TestALayoutSaveIsNotAFileChange:
         ):
             with _app_over(
                 None,
-                agent_data_root=watched_workspace / "agent_data",
+                stores_root=watched_workspace / "agent_data",
                 workspace_dir=watched_workspace,
                 config_path=config_path,
             ) as unconcealed:

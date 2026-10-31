@@ -235,14 +235,13 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
             perms = {}
         if "writes" in spec:
             out.extend(_declared_write_tools(name, spec, perms))
-        for tool in perms.get("ask") or []:
-            out.append(f"mcp__{name}__{tool}")
+        out.extend(f"mcp__{name}__{tool}" for tool in perms.get("ask") or [])
         # Destructive-named tools a custom server auto-allows (mirrors the
         # framework destructive-allow handling) — block them even though the
         # facility put them in ``allow``.
-        for tool in perms.get("allow") or []:
-            if is_destructive_tool(tool):
-                out.append(f"mcp__{name}__{tool}")
+        out.extend(
+            f"mcp__{name}__{tool}" for tool in perms.get("allow") or [] if is_destructive_tool(tool)
+        )
         pre = (spec.get("hooks") or {}).get("pre_tool_use") or []
         if "writes_check" in pre:
             # Whole server is write-gated; block it server-level (the only form

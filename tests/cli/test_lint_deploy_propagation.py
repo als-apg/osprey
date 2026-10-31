@@ -22,7 +22,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import (
     IMAGE_SOURCE_CONFIG_KEY,
     deploy_aware_config_errors,
@@ -31,6 +30,7 @@ from osprey.cli.build_profile_deploy import (
 )
 from osprey.cli.profile_cmd import profile as profile_group
 from osprey.deployment.web_terminals.lint import profile_config_errors
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The frozen reference deployment. Its ``deploy:`` block says ``image_source:
 #: local`` and its ``config:`` block deliberately does NOT — one fact, one home.
@@ -51,7 +51,6 @@ POSTURE_FLOOR: dict[str, Any] = {
     "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock_archiver",
     "approval.enabled": False,
-    "claude_code.telemetry.enabled": False,
     "hooks.debug": False,
 }
 
@@ -60,14 +59,9 @@ POSTURE_FLOOR: dict[str, Any] = {
 #: ``tiers/<name>.yml`` file :func:`_write_profile` lays down beside it.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "users": [{"name": "operator", "index": 0, "tier": "readwrite"}],
+    "users": [{"name": "console", "index": 0, "tier": "readwrite"}],
     "default_tier": "readwrite",
 }
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 def _config(**extra: Any) -> dict[str, Any]:
@@ -192,7 +186,7 @@ def test_a_malformed_config_block_is_refused_by_name_not_by_traceback(
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
     with caplog.at_level("ERROR"):
-        built = _build(runner, path)
+        built = invoke_build(path.parent)
 
     assert validated.exit_code == 2, validated.output
     assert "config must be a mapping" in validated.output
@@ -286,19 +280,6 @@ def _write_profile(
     return path
 
 
-def _build(runner: CliRunner, profile_path: Path):
-    """Build the deployment repo *profile_path* sits at the root of.
-
-    ``profile.yml`` must already be at the repo root — every caller here
-    writes it there directly, with no ``osprey init`` in between, so this
-    just points ``osprey build --repo`` at that directory.
-    """
-    return runner.invoke(
-        build,
-        ["--repo", str(profile_path.parent), "--skip-deps", "--skip-lifecycle"],
-    )
-
-
 def test_a_profile_the_deploy_block_rescues_both_validates_and_builds(
     runner: CliRunner, tmp_path: Path
 ) -> None:
@@ -307,7 +288,7 @@ def test_a_profile_the_deploy_block_rescues_both_validates_and_builds(
     path = _write_profile(tmp_path / "profile", deploy=dict(DEPLOY_BLOCK), config=_config())
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
-    built = _build(runner, path)
+    built = invoke_build(path.parent)
 
     assert validated.exit_code == 0, validated.output
     assert built.exit_code == 0, built.output
@@ -330,17 +311,15 @@ def test_a_registry_mode_profile_names_its_registry_once_on_both_surfaces(
     )
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
-    built = _build(runner, path)
+    built = invoke_build(path.parent)
 
     assert validated.exit_code == 0, validated.output
     assert built.exit_code == 0, built.output
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    rendered = rendered_config(repo)
     assert rendered["registry"] == {"url": "registry.example.org/demo"}
 
 
-def test_an_explicit_config_registry_url_reaches_the_render(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_an_explicit_config_registry_url_reaches_the_render(tmp_path: Path) -> None:
     """A ``config:`` registry wins over the deploy block's."""
     repo = tmp_path / "profile"
     path = _write_profile(
@@ -353,10 +332,10 @@ def test_an_explicit_config_registry_url_reaches_the_render(
         config=_config(**{"registry": {"url": "mirror.example.org/demo"}}),
     )
 
-    built = _build(runner, path)
+    built = invoke_build(path.parent)
 
     assert built.exit_code == 0, built.output
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    rendered = rendered_config(repo)
     assert rendered["registry"] == {"url": "mirror.example.org/demo"}
 
 
@@ -370,7 +349,7 @@ def test_a_profile_neither_can_rescue_is_refused_by_both_with_one_message(
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
     with caplog.at_level("ERROR"):
-        built = _build(runner, path)
+        built = invoke_build(path.parent)
 
     assert validated.exit_code == 2, validated.output
     assert built.exit_code != 0, built.output

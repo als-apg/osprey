@@ -24,14 +24,12 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     DEFAULT_TOUR_POLICY,
-    create_app,
     resolve_tour_policy,
 )
-from tests.interfaces.web_terminal._started_app import started_client
+from tests.interfaces.web_terminal._started_app import started_client, terminal_client
 
 
 class TestResolveTourPolicy:
@@ -64,13 +62,6 @@ class TestResolveTourPolicy:
 # ---- API path: startup resolves web.tour / OSPREY_WEB_TOUR from config ----
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
 def _tour_payload(workspace_dir, web: dict) -> dict:
     with started_client(workspace_dir, web=web) as client:
         return client.get("/api/panels").json()["tour"]
@@ -83,15 +74,11 @@ def _started_over(workspace_dir, config: dict):
     :func:`started_client` answers the ``web`` section only; the capability
     check below needs a top-level section beside it.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
-    ):
-        with TestClient(create_app(shell_command=["echo"])) as client:
-            yield client
+    ) as client:
+        yield client
 
 
 class TestPanelsPayloadTour:

@@ -13,6 +13,9 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from osprey.agent_record.client import RecordClient
+from osprey.agent_record.contract import KIND_DEBUG
+from osprey.agent_record.reader import SOURCE_FIELD
 from osprey.cli.profile_conventions import (
     RESERVED_PATH_CHANNELS,
     is_protected_key,
@@ -35,7 +38,7 @@ router = APIRouter()
 _CONFIG_FILE = "config.yml"
 
 #: Machine-ish reason recorded for a refused protected key. The same string
-#: ``setup_patch`` records, so one query across the protected-set ledgers finds
+#: ``setup_patch`` records, so one query across the protected-set surfaces finds
 #: every protected-key refusal regardless of which surface produced it.
 _PROTECTED_KEY_REASON = "protected_key"
 
@@ -282,7 +285,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
     keys its body aimed at, PUT names the protected keys its replacement
     document would have changed. One refusal path, so the two cannot drift into
     telling an operator different stories about the same rule, and one query
-    across ``var/audit/*/http_config.jsonl`` still finds every refusal either
+    of the record's ``http_config`` surface still finds every refusal either
     produced, per identity.
 
     The machine-readable parts stay ``setup_patch``'s to the letter -- the same
@@ -493,38 +496,27 @@ async def put_config(body: ConfigUpdate, request: Request):
 
     Note:
         One residual is known and deliberate. For a protected pattern that is
-        *not* a trailing-wildcard family -- ``config.yml`` has three:
-        ``artifacts.hooks``, ``simulation.state_dir`` and the channel-finder
-        ``...feedback.store_path`` -- the flatten descends past the pattern's
-        depth when the node there is a mapping, and the children come back
-        unprotected. ``artifacts.hooks`` is covered anyway by the ``artifacts.*``
-        family beside it. The other two both name a *path*, and neither can be
-        made to point somewhere by planting a block there -- but for different
-        reasons, and the difference is worth stating because only one of them is
-        the tidy one:
+        *not* a trailing-wildcard family -- ``config.yml`` has two:
+        ``artifacts.hooks`` and ``simulation.state_dir`` -- the flatten descends
+        past the pattern's depth when the node there is a mapping, and the
+        children come back unprotected. ``artifacts.hooks`` is covered anyway by
+        the ``artifacts.*`` family beside it. ``simulation.state_dir`` names a
+        *path*, and it cannot be made to point somewhere by planting a block
+        there: it is read through ``dotted_config_str``, which answers ``None``
+        for anything that is not a non-empty string. A block there reads as
+        unset, so the runtime takes its default.
 
-        * ``simulation.state_dir`` is read through ``dotted_config_str``, which
-          answers ``None`` for anything that is not a non-empty string. A block
-          there reads as unset, so the runtime takes its default.
-        * ``...feedback.store_path`` is read *raw* --
-          ``server_context.py`` does ``feedback_config["store_path"]`` behind a
-          truthiness guard that a non-empty mapping passes. It reaches
-          ``resolve_cf_state_path``, ``Path(dict)`` raises ``TypeError``, and the
-          ``except Exception`` around the initialization swallows it. The
-          feedback store is therefore left *disabled*, not defaulted.
-
-        Both outcomes are inert for this gate's purpose -- neither repoints a
+        That outcome is inert for this gate's purpose -- it does not repoint a
         write at an attacker-named location, which is what the key is protected
-        for -- and the second is a degradation of an optional store, logged at
-        warning level. Neither ratchets, either: every transition that would put
-        a real value back (mapping to scalar, absent to scalar) makes the
-        protected leaf appear, which this diff refuses. Sealing such a node as a
-        whole value cannot be done here without over-refusing: through the
-        public matcher a node like ``services`` is indistinguishable from a
-        genuine exact-depth key, being protected only as an *ancestor* of one,
-        and sealing it would refuse every unprotected edit under ``services.*``.
+        for. Nor does it ratchet: every transition that would put a real value
+        back (mapping to scalar, absent to scalar) makes the protected leaf
+        appear, which this diff refuses. Sealing such a node as a whole value
+        cannot be done here without over-refusing: through the public matcher a
+        node like ``simulation`` is indistinguishable from a genuine exact-depth
+        key, being protected only as an *ancestor* of one, and sealing it would
+        refuse every unprotected edit under ``simulation.*``.
         ``test_put_protected_families_are_descent_safe_or_known_inert`` is the
-        tripwire: it fails if a fourth exact-depth pattern is ever added, so the
+        tripwire: it fails if a third exact-depth pattern is ever added, so the
         judgement is re-made rather than inherited.
     """
     _require_config_panel(request)
@@ -669,36 +661,71 @@ async def get_hook_debug_status(request: Request):
         return {"enabled": False}
 
 
+#: Bounds of the hook-activity feed's ``limit``: out-of-range values clamp.
+_HOOK_DEBUG_MIN_LIMIT = 1
+_HOOK_DEBUG_MAX_LIMIT = 500
+
+#: The record's ``source`` for hook debug lines. The transcript also produces
+#: ``debug`` entries; only the ones the hooks wrote belong in this feed.
+HOOK_DEBUG_SOURCE = "hook"
+
+#: The ``record`` field of the feed: the record answered whole, answered only
+#: part, or did not answer at all.
+_RECORD_COMPLETE = "complete"
+_RECORD_INCOMPLETE = "incomplete"
+_RECORD_UNAVAILABLE = "unavailable"
+
+
+def record_client() -> RecordClient:
+    """The record client this process reads with, configured from its environment.
+
+    Resolved per request and reached through the module, so a test replaces it
+    with ``monkeypatch.setattr(config, "record_client", ...)``. Never raises: an
+    unconfigured client answers every read unavailable.
+    """
+    return RecordClient.from_env(os.environ)
+
+
 @router.get("/api/hooks/debug-log")
-async def get_hook_debug_log(request: Request, limit: int = 50):
-    """Return recent hook debug log entries from hook_debug.jsonl."""
-    import json
+def get_hook_debug_log(limit: int = 50) -> dict[str, Any]:
+    """Serve the newest hook debug lines from the agent record, newest first.
 
-    project_cwd = getattr(request.app.state, "project_cwd", None)
-    if not project_cwd:
-        return {"entries": []}
+    Reads ``debug`` entries whose body names ``source: "hook"`` — the lines
+    ``osprey_hook_log.log_hook`` writes — so the transcript's own ``debug``
+    entries never reach the feed. Each served entry is the body as the hook
+    wrote it, with the entry's ``ts`` when the body lacks one.
 
-    log_path = Path(project_cwd) / ".claude" / "hooks" / "hook_debug.jsonl"
-    if not log_path.exists():
-        return {"entries": []}
+    Returns:
+        ``{"entries", "record"}`` and, when the record's answer was not whole,
+        a ``reason``. ``record`` is ``complete``, ``incomplete`` or
+        ``unavailable``; an unavailable record serves no entries.
+    """
+    effective = max(_HOOK_DEBUG_MIN_LIMIT, min(_HOOK_DEBUG_MAX_LIMIT, limit))
+    answer = record_client().entries(KIND_DEBUG, limit=effective, source=HOOK_DEBUG_SOURCE)
+    if not answer.available or not isinstance(answer.data, list):
+        reason = answer.unavailable or "the record answered no list"
+        logger.warning("Could not read hook debug lines from the record: %s", reason)
+        return {"entries": [], "record": _RECORD_UNAVAILABLE, "reason": reason}
 
-    try:
-        lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-        # Take the last N entries (most recent)
-        recent = lines[-limit:] if len(lines) > limit else lines
-        entries = []
-        for line in reversed(recent):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return {"entries": entries}
-    except Exception:
-        logger.warning("Failed to read hook debug log", exc_info=True)
-        return {"entries": []}
+    entries: list[dict[str, Any]] = []
+    for item in answer.data:
+        if not isinstance(item, dict):
+            continue
+        body = item.get("body")
+        if not isinstance(body, dict) or body.get(SOURCE_FIELD) != HOOK_DEBUG_SOURCE:
+            continue
+        entry = dict(body)
+        if "ts" not in entry and item.get("ts"):
+            entry["ts"] = item["ts"]
+        entries.append(entry)
+    entries = entries[:effective]
+    if not answer.complete:
+        return {
+            "entries": entries,
+            "record": _RECORD_INCOMPLETE,
+            "reason": answer.reason or "the record answered an incomplete page",
+        }
+    return {"entries": entries, "record": _RECORD_COMPLETE}
 
 
 # ---- Claude Setup Endpoints ---- #

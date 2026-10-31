@@ -76,6 +76,7 @@ from typing import Any
 
 import pytest
 
+from tests.e2e._deploy_support import format_failure
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -220,9 +221,9 @@ def _profile_edits() -> dict[str, Any]:
     the bundle also ships — nothing here looks a channel up either way.
 
     That trim is not only about speed. The preset's full stack publishes
-    postgres, the telemetry store, the bluesky bridge, Tiled and the panels on fixed
-    host ports, and a developer box running any OSPREY demo stack already holds
-    them: the deploy then aborts on a port preflight that has nothing to do with
+    postgres, the bluesky bridge, Tiled and the panels on fixed host ports,
+    and a developer box running any OSPREY demo stack already holds them: the
+    deploy then aborts on a port preflight that has nothing to do with
     archiving. Deploying only what is under test makes this lane runnable
     beside a live demo, and cuts several image builds out of a 45-minute cap.
     """
@@ -233,7 +234,6 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals.enabled": False,
             "deployed_services": [],
             "ariel": None,
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
         },
         "channel_finder_mode": "hierarchical",
@@ -305,10 +305,7 @@ def _build_project(output_dir: Path) -> Path:
             env={**os.environ, "CLAUDECODE": ""},
         )
         if result.returncode != 0:
-            raise AssertionError(
-                f"{label} failed (rc={result.returncode}):\n"
-                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-            )
+            raise AssertionError(format_failure(label, result))
     return repo
 
 

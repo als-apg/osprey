@@ -5,7 +5,7 @@ renders the CI and verify templates against. It is no longer where the byte
 specification lives.
 
 `exemplar-profile/` is a build profile for a facility running the virtual
-accelerator, the telemetry store with its gateway, and one facility-owned container
+accelerator with its archiver, and one facility-owned container
 (`services/facility-mcp/`, which carries a Dockerfile and therefore earns its own
 image-build job in the pipeline). It is the reference deployment the feature's
 own exemplar is not — it names a registry and builds an image, so it reaches the
@@ -44,7 +44,7 @@ To regenerate it, run the migration verb over it rather than re-emitting from
 the preset: `osprey init <this dir> --revalidate --preset control-assistant`.
 For the profile it only adds the keys a profile leaves to its preset, so the trims that
 make this fixture what it is — the shorter artifact lists, the two-user roster,
-`deployed_services: [telemetry_store, telemetry_gateway]` — survive it, where a fresh emission would
+`deployed_services: []` — survive it, where a fresh emission would
 replace them. Then delete two things from its output by hand. The
 `provenance:` block, because a profile that carries one is compared against its
 preset and this one deviates from it by design, so validate would refuse every

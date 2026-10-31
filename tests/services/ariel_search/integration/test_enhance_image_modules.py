@@ -21,7 +21,6 @@ from typing import Any
 import psycopg
 import pytest
 
-from osprey.interfaces._serving import free_port
 from osprey.models.providers.health import HealthResult
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.attachments import attachment_id_for
@@ -148,8 +147,9 @@ def _captions(uri: str, entry_id: str) -> dict[str, Any]:
     return row[0] or {}
 
 
-def _closed_url() -> str:
-    return f"http://127.0.0.1:{free_port()}"
+def _closed_url(port: int) -> str:
+    """A local URL nothing listens on, at *port*, a reserved port."""
+    return f"http://127.0.0.1:{port}"
 
 
 @pytest.fixture(autouse=True)
@@ -284,9 +284,9 @@ class TestEnhanceImageEmbedding:
 
     @pytest.mark.parametrize("module", [EMBED, None])
     async def test_a_closed_port_prints_the_skip_reason_and_writes_no_key(
-        self, repo, scratch_database, module
+        self, reserve_port, repo, scratch_database, module
     ):
-        cfg = _config_dict(scratch_database, embed_url=_closed_url())
+        cfg = _config_dict(scratch_database, embed_url=_closed_url(reserve_port()))
         await _seed(repo, cfg, "closed-1", ["a.png"])
         lines: list[str] = []
 

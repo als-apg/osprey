@@ -36,12 +36,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.audit import posture as audit_posture
-from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal import control_context_owner
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.mcp_server.python_executor import executor as host_executor
@@ -50,7 +47,6 @@ from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import REASONS, refusal_phrase
 from osprey_connectors_tests._harness import (
-    VERDICT_ENV_VARS,
     owner,
     pin_identity,
     state_dir_under,
@@ -59,6 +55,8 @@ from osprey_connectors_tests._harness import (
     write_server_report,
 )
 from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
+from tests.interfaces.web_terminal._control_context import only_alive, read_record
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -142,34 +140,6 @@ def write_config(tmp_path, section=None, *, name="config.yml"):
 
 
 @pytest.fixture
-def agent_data_root(tmp_path, monkeypatch):
-    """Point every resolver at one throwaway agent-data root, verdict env clean.
-
-    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
-    ``posture_store`` both prefer. Every variable that changes a write verdict
-    behind a test's back — a stamped owner, a bound tree, a launch pin, a
-    read-only run — is cleared, so each case states the one it means.
-    """
-    root = tmp_path / "agent_data"
-    state_dir_under(root).mkdir(parents=True)
-    for name in VERDICT_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    yield root
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_watch"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def make_client(agent_data_root, workspace_dir, tmp_path):
     """Build an app + TestClient, repeatably, over the same stamped root.
 
@@ -184,16 +154,11 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
         with patch.object(
             control_context_owner.ControlContextOwnerTask, "start", lambda self: None
         ):
-            with patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ):
-                app = create_app(shell_command="echo")
-                with TestClient(app) as test_client:
-                    test_client.app.state.config_path = (
-                        write_config(tmp_path) if config_path is None else config_path
-                    )
-                    yield test_client
+            with terminal_client(workspace_dir) as test_client:
+                test_client.app.state.config_path = (
+                    write_config(tmp_path) if config_path is None else config_path
+                )
+                yield test_client
 
     return _make
 
@@ -202,24 +167,6 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
 def client(make_client):
     with make_client() as c:
         yield c
-
-
-@pytest.fixture
-def ledger():
-    """Capture every audit record one request writes, from either recorder.
-
-    Patches ``osprey.audit.writer.record``, which the route's
-    ``record_and_mark`` and ``HttpAuditMiddleware`` both resolve at call time,
-    so the count is the true number of ledger lines one POST produces.
-    """
-    records: list[dict] = []
-
-    def _record(**fields):
-        records.append(fields)
-        return Path("/dev/null/ledger.jsonl")
-
-    with patch.object(audit_writer, "record", side_effect=_record):
-        yield records
 
 
 class _RecordingChatPool:
@@ -242,12 +189,6 @@ class _RecordingChatPool:
 
 
 # -- harness ----------------------------------------------------------------
-
-
-def read_record():
-    control_context.invalidate_cache()
-    posture_store.invalidate_cache()
-    return control_context.read_record()
 
 
 def switch_now():
@@ -323,21 +264,6 @@ def write_inflight_marker(root: Path, *, pid, target="standin"):
         encoding="utf-8",
     )
     return path
-
-
-@contextmanager
-def only_alive(*pids):
-    """Report exactly *pids* as running processes."""
-    wanted = {int(p) for p in pids}
-
-    def alive(pid):
-        try:
-            return int(pid) in wanted
-        except (TypeError, ValueError):
-            return False
-
-    with patch.object(control_context, "is_process_alive", side_effect=alive):
-        yield
 
 
 # -- the request body -------------------------------------------------------

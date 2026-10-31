@@ -44,7 +44,6 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
-from osprey.port_layout import default_port
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -498,85 +497,41 @@ def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, monke
     assert "claude_code.provider" not in text
 
 
-def _config_with_telemetry(block: str) -> str:
-    """The rendered config, plus a ``claude_code.telemetry`` block under it.
+#: The record's address the launch is handed.
+_RECORD_URL = "http://127.0.0.1:10061"
 
-    Resolving the provider also resolves telemetry, so what a broken telemetry
-    block does to the *provider* line is a property of the status report and
-    testable from the config alone — no stub in front of the resolver, which is
-    the piece whose behaviour is under test.
-    """
-    return _RENDERED_CONFIG + block
-
-
-@pytest.mark.usefixtures("runtime")
-def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
-    lifecycle_repo,
-    monkeypatch,
-):
-    """The provider is fine; the telemetry gateway has no login for this launch.
-
-    Telemetry resolves as part of the provider spec, so a missing observability
-    credential surfaces as a failure to read the provider. Reported that way, an
-    operator goes and audits a provider configuration that was never wrong.
-    """
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: gateway\n"),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "telemetry" in text
-    assert "credentials are missing or unresolved" in text
-    assert ".env" in text
-    # A provider framing would send the operator to the wrong subsystem.
-    assert "could not be read from the build" not in text
-
-
-@pytest.mark.usefixtures("runtime")
-def test_a_telemetry_endpoint_failure_still_reads_as_a_provider_problem(
-    lifecycle_repo,
-    monkeypatch,
-):
-    """Only the credential case is re-framed.
-
-    An enabled telemetry block with no reachable endpoint is not a secret-store
-    problem, and the credential remedy would be the wrong advice. It stays on
-    the general handler, which names the provider and quotes the resolver.
-    """
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: nowhere\n"),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "could not be read from the build" in text
-    assert "credentials are missing or unresolved" not in text
-
-
-#: A gateway telemetry block. With :data:`_WORKING_LOGIN` in the repo ``.env``
-#: the provider spec comes back with a populated env block — including the OTLP
-#: headers, which is where the gateway's authorization header ends up.
-_WORKING_TELEMETRY = "  telemetry:\n    enabled: true\n    backend: gateway\n"
-
-#: The sender login the gateway authenticates, as ``<identity>:<password>``.
+#: The record login the exporter authenticates with, as ``<login>:<token>``.
 _WORKING_LOGIN = "observability-user:not-a-real-password"
 
 
+@pytest.mark.usefixtures("runtime")
+def test_a_missing_record_login_is_not_a_provider_failure(lifecycle_repo, monkeypatch):
+    """Without a record login the launch exports nothing; the provider still reads."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    render_build(lifecycle_repo, config=_RENDERED_CONFIG)
+
+    text = report(lifecycle_repo)
+
+    assert "could not be read from the build" not in text
+    assert "credentials are missing or unresolved" not in text
+
+
 def _telemetry_report(repo: Path, monkeypatch) -> str:
-    """``osprey status`` for a repo whose agent has working telemetry configured."""
+    """``osprey status`` for a repo whose launch exports to the agent record."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_URL", raising=False)
+    monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
     env_file = repo / ".env"
     existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
-    env_file.write_text(existing + f"OSPREY_TELEMETRY_LOGIN={_WORKING_LOGIN}\n")
-    render_build(repo, config=_config_with_telemetry(_WORKING_TELEMETRY))
+    env_file.write_text(
+        existing
+        + f"OSPREY_AGENT_RECORD_URL={_RECORD_URL}\n"
+        + f"OSPREY_AGENT_RECORD_LOGIN={_WORKING_LOGIN}\n"
+    )
+    render_build(repo, config=_RENDERED_CONFIG)
     return report(repo)
 
 
@@ -584,8 +539,8 @@ def _telemetry_report(repo: Path, monkeypatch) -> str:
 def test_the_observability_authorization_header_is_never_printed(lifecycle_repo, monkeypatch):
     """The env block is printed key AND value, and one of those values is a credential.
 
-    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the telemetry
-    gateway — base64 of ``user:password``, decodable by anyone who reads the
+    ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the agent
+    record — base64 of ``login:token``, decodable by anyone who reads the
     terminal. Neither the credentials nor the encoding of them may appear.
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
@@ -594,34 +549,6 @@ def test_the_observability_authorization_header_is_never_printed(lifecycle_repo,
     assert token not in text
     assert "not-a-real-password" not in text
     assert "Basic " not in text
-
-
-@pytest.mark.usefixtures("runtime")
-def test_the_collector_bearer_token_is_never_printed(lifecycle_repo, monkeypatch):
-    """A collector's bearer token is read from the repo ``.env`` and never shown."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
-    env_file = lifecycle_repo / ".env"
-    existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
-    env_file.write_text(existing + "OTLP_COLLECTOR_TOKEN=not-a-real-bearer-token\n")
-    render_build(
-        lifecycle_repo,
-        config=_config_with_telemetry(
-            "  telemetry:\n"
-            "    enabled: true\n"
-            "    backend: generic\n"
-            "    endpoint: https://collector.example.org:4318\n"
-            "    auth:\n"
-            "      token_env: OTLP_COLLECTOR_TOKEN\n"
-        ),
-    )
-
-    text = report(lifecycle_repo)
-
-    assert "OTEL_EXPORTER_OTLP_HEADERS" in text
-    assert "not-a-real-bearer-token" not in text
-    assert "Bearer " not in text
 
 
 @pytest.mark.usefixtures("runtime")
@@ -641,16 +568,15 @@ def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, mo
 def test_the_rest_of_the_telemetry_block_still_shows_its_values(lifecycle_repo, monkeypatch):
     """Only the credential-bearing variable is masked, not the block around it.
 
-    Ten of the eleven telemetry variables are ordinary configuration, and a mask
-    broad enough to cover them would leave the section unable to answer where
-    the agent ships its metrics — which is what the section is for.
+    The other telemetry variables are ordinary configuration, and a mask broad
+    enough to cover them would leave the section unable to answer where the
+    agent ships its events — which is what the section is for.
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
 
-    # The config names no ``services.telemetry_gateway.port``, so the endpoint
-    # carries the layout's gateway slot at the default base.
-    assert f":{default_port('telemetry_gateway')}" in text
-    assert "value not shown" not in text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+    endpoint_row = text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
+    assert _RECORD_URL in endpoint_row
+    assert "value not shown" not in endpoint_row
 
 
 @pytest.mark.parametrize(

@@ -35,7 +35,6 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import json
-import sys
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -44,11 +43,12 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import control_context, posture_store
+from osprey.interfaces._serving import run_app_server
+from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.web_terminal._posture_chip import reset_process_memos
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -72,8 +72,6 @@ GALLERY = "/panel/artifacts/"
 #: acknowledgement stands between the operator and turning it on, so the
 #: first-party control below can flip it and a refusal is the origin's alone.
 TARGET = "va"
-
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
 
 # ---------------------------------------------------------------------------
 # Fixtures: the artifacts
@@ -284,12 +282,6 @@ def _write_config(path: Path) -> Path:
     return path
 
 
-def _reset_process_memos() -> None:
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
-
-
 @contextmanager
 def hub_with_gallery(
     tmp_path: Path,
@@ -341,41 +333,30 @@ def hub_with_gallery(
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    _reset_process_memos()
+    reset_process_memos()
     write_control_context(root, target=TARGET, generation=1)
 
     from osprey.interfaces.artifacts.app import create_app as create_artifacts_app
 
     artifacts_app = create_artifacts_app(workspace_root=artifacts_root)
     try:
-        with _run_app_server(artifacts_app) as artifacts_url:
-            patches = [
-                patch(
-                    "osprey.interfaces.web_terminal.app._load_web_config",
-                    return_value={"watch_dir": str(watch)},
-                ),
-                patch(
-                    "osprey.interfaces.web_terminal.app._load_panel_config",
-                    return_value=({"artifacts"}, [], None),
-                ),
-                patch(
-                    "osprey.interfaces.web_terminal.app._launch_panel_server",
-                    side_effect=publish_artifact_url(artifacts_url),
-                ),
+        with (
+            run_app_server(artifacts_app) as artifacts_url,
+            hub_server(
+                watch,
                 patch(
                     "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
                     ".snapshot_session_ids",
                     side_effect=lambda *_a, **_k: set(),
                 ),
-            ]
-            with _apply_all(patches):
-                from osprey.interfaces.web_terminal.app import create_app
-
-                hub = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
-                with _run_app_server(hub) as base_url:
-                    yield base_url, seeded
+                launch=publish_artifact_url(artifacts_url),
+                shell_command=LONG_LIVED_SHELL,
+                config_path=config,
+            ) as (base_url, _hub),
+        ):
+            yield base_url, seeded
     finally:
-        _reset_process_memos()
+        reset_process_memos()
 
 
 @pytest.fixture

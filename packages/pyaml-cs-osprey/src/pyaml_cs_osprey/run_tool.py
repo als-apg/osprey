@@ -249,18 +249,21 @@ def run_tool(
         outermost = not state.levels
         state.levels.append(level)
         try:
-            with lock(None, join=True) as directory, _run.opened(directory.name):
-                with _sigint_installed(state, outermost):
-                    try:
-                        return _run_level(tool_method, args, kwargs, callback, level)
-                    except BaseException as exc:
-                        aborted = _run.abort_requested()
-                        moved = _run.moved()
-                        if isinstance(exc, KeyboardInterrupt) and level.stopped and not aborted:
-                            return ToolRun(completed=False, moved=moved)
-                        with contextlib.suppress(AttributeError, TypeError):
-                            exc.moved_setpoints = moved  # type: ignore[attr-defined]
-                        raise
+            with (
+                lock(None, join=True) as directory,
+                _run.opened(directory.name),
+                _sigint_installed(state, outermost),
+            ):
+                try:
+                    return _run_level(tool_method, args, kwargs, callback, level)
+                except BaseException as exc:
+                    aborted = _run.abort_requested()
+                    moved = _run.moved()
+                    if isinstance(exc, KeyboardInterrupt) and level.stopped and not aborted:
+                        return ToolRun(completed=False, moved=moved)
+                    with contextlib.suppress(AttributeError, TypeError):
+                        exc.moved_setpoints = moved  # type: ignore[attr-defined]
+                    raise
         finally:
             state.levels.remove(level)
 

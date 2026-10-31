@@ -230,11 +230,10 @@ def validate_sandbox_code(
                 top = alias.name.split(".")[0]
                 if top not in allowed_top_level:
                     violations.append(f"Import not allowed: '{alias.name}'")
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                top = node.module.split(".")[0]
-                if top not in allowed_top_level:
-                    violations.append(f"Import not allowed: 'from {node.module}'")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            top = node.module.split(".")[0]
+            if top not in allowed_top_level:
+                violations.append(f"Import not allowed: 'from {node.module}'")
 
     # 3. Dangerous pattern scan (text-level)
     for pattern, description in dangerous_patterns:

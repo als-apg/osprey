@@ -309,10 +309,7 @@ def touched(base: str, worktree: bool = False, *, scope: bool = False) -> list[s
     takes a file out of a scope touches that scope. A runner can be handed
     only a file that is there, so its selection reads the default form.
     """
-    if scope:
-        listing = ("--name-only", "--no-renames")
-    else:
-        listing = ("--name-only", "--diff-filter=d")
+    listing = ("--name-only", "--no-renames") if scope else ("--name-only", "--diff-filter=d")
     paths = set(kit.git_paths("diff", *listing, _range(base, worktree)))
     if worktree:
         paths.update(kit.git_paths("ls-files", "--others", "--exclude-standard"))
@@ -402,8 +399,9 @@ def _is_exec_flag(flag: str) -> bool:
     return (
         flag in ("-v", "-q")
         or re.fullmatch(r"-n(\d+|auto|logical)", flag) is not None
-        or flag.startswith(("--tb=", "--durations=", "--timeout=", "--timeout-method="))
-        or flag.startswith(("--maxfail=", "--cov"))
+        or flag.startswith(
+            ("--tb=", "--durations=", "--timeout=", "--timeout-method=", "--maxfail=", "--cov")
+        )
     )
 
 

@@ -56,10 +56,10 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.config import load_project_config
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 
 if TYPE_CHECKING:
     from osprey.cli.scaffold_layers import LayerKind
@@ -300,7 +300,7 @@ def _target_below(convention: ConventionDir, tail: tuple[str, ...]) -> ClaimTarg
     if convention.shape is EntryShape.MARKDOWN:
         # The name carries no suffix; the path always does. Accept either
         # spelling rather than resolving to a `.md.md` path.
-        stem = rel[: -len(".md")] if rel.endswith(".md") else rel
+        stem = rel.removesuffix(".md")
         return ClaimTarget(
             name=f"{convention.source}/{stem}",
             project_rel=f"{convention.destination}/{stem}.md",
@@ -1813,11 +1813,7 @@ def web_terminals_lint(repo, config_path):
     # `write_web_terminal_artifacts` resolves it against — so a lint run from
     # anywhere else used to read no render `config.yml` at all and report
     # every render as unprivileged.
-    # The telemetry store's rules ride the same command: its readers are named
-    # beside the roster, and a deployment is linted in one pass.
-    from osprey.deployment.telemetry_lint import lint_telemetry
-
-    findings = [*lint_web_terminals(config, project_root=repo_root), *lint_telemetry(config)]
+    findings = lint_web_terminals(config, project_root=repo_root)
     notes = [f for f in findings if f.severity == "info"]
     for finding in notes:
         console.print(f"[dim]\u2139 [{finding.code}] {finding.message}[/dim]")

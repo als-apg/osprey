@@ -30,39 +30,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey_connectors.errors import BuildProfileError
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 #: A hook the framework really renders. Named once so the assertions below are
 #: about the channel, not about a string repeated eight times.
@@ -77,7 +45,7 @@ def _write(path: Path, content: str = "# artifact\n") -> Path:
 
 def _render_project(tmp_path: Path, name: str, *, force: bool = False) -> Path:
     """A freshly rendered project — what step 11 of a build lands conventions on."""
-    return _create_project(
+    return create_project_as_built(
         TemplateManager(),
         project_name=name,
         output_dir=tmp_path,
@@ -593,20 +561,49 @@ def test_a_render_can_unwire_every_event_at_once(tmp_path: Path):
 # ── Declared wiring: what it refuses ─────────────────────────────────
 
 
-def test_wiring_a_hook_the_profile_does_not_ship_is_refused(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("shipped", "reference", "needles"),
+    [
+        pytest.param(
+            "facility_guard.py",
+            "nowhere.py",
+            ("nowhere.py", "does not ship"),
+            id="a_hook_the_profile_does_not_ship",
+        ),
+        # ``hook_config.json`` is reserved to the framework render, wiring included.
+        pytest.param(
+            "facility_guard.py",
+            "hook_config.json",
+            (".claude/hooks/hook_config.json", "osprey_writes_check.py"),
+            id="the_generated_write_safety_config",
+        ),
+        # The framework owns its own hooks' wiring — declaring one would double
+        # it. A claimed built-in hook is the realistic way to hit this: the
+        # profile really does ship the file, but ``settings.json`` already wires
+        # that filename from the ``hooks:`` selection.
+        pytest.param(
+            "osprey_limits.py",
+            "osprey_limits.py",
+            ("osprey_limits.py", "built-in"),
+            id="a_built_in_hook",
+        ),
+    ],
+)
+def test_wiring_is_refused(tmp_path: Path, shipped: str, reference: str, needles: tuple[str, ...]):
+    """A declaration naming a hook the profile may not wire is refused, saying why."""
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "hooks" / shipped, "print('guard')\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
             tmp_path,
-            "hook-missing",
+            "hook-refused",
             profile,
-            declarations={"claude_code.hooks.PreToolUse": ["nowhere.py"]},
+            declarations={"claude_code.hooks.PreToolUse": [reference]},
         )
 
-    assert "nowhere.py" in str(excinfo.value)
-    assert "does not ship" in str(excinfo.value)
+    for needle in needles:
+        assert needle in str(excinfo.value)
 
 
 def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
@@ -631,23 +628,6 @@ def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
 
     assert "facility_guard.py" in str(excinfo.value)
     assert "excludes" in str(excinfo.value)
-
-
-def test_wiring_the_generated_write_safety_config_is_refused(tmp_path: Path):
-    """``hook_config.json`` is reserved to the framework render, wiring included."""
-    profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
-
-    with pytest.raises(BuildProfileError) as excinfo:
-        _build(
-            tmp_path,
-            "hook-reserved",
-            profile,
-            declarations={"claude_code.hooks.PreToolUse": ["hook_config.json"]},
-        )
-
-    assert ".claude/hooks/hook_config.json" in str(excinfo.value)
-    assert "osprey_writes_check.py" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -675,28 +655,6 @@ def test_wiring_a_path_outside_the_hooks_channel_is_refused(tmp_path: Path, refe
         )
 
     assert "hooks/ channel" in str(excinfo.value)
-
-
-def test_wiring_a_built_in_hook_is_refused(tmp_path: Path):
-    """The framework owns its own hooks' wiring — declaring one would double it.
-
-    A claimed built-in hook is the realistic way to hit this: the profile really
-    does ship the file, but ``settings.json`` already wires that filename from
-    the ``hooks:`` selection.
-    """
-    profile = tmp_path / "profile"
-    _write(profile / "hooks" / "osprey_limits.py", "# facility edit\n")
-
-    with pytest.raises(BuildProfileError) as excinfo:
-        _build(
-            tmp_path,
-            "hook-builtin",
-            profile,
-            declarations={"claude_code.hooks.PreToolUse": ["osprey_limits.py"]},
-        )
-
-    assert "osprey_limits.py" in str(excinfo.value)
-    assert "built-in" in str(excinfo.value)
 
 
 def test_an_unknown_hook_event_is_refused_with_the_real_vocabulary(tmp_path: Path):

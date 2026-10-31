@@ -56,6 +56,9 @@ class UnitSelection:
     #: Shard name to (paths, extra ignores); the shards cover the roots exactly once.
     shards: dict[str, tuple[tuple[str, ...], tuple[str, ...]]]
     dist: tuple[str, ...]
+    #: Trim name to the test files it leaves out of the roots. Selected with
+    #: ``--shard``, but outside the partition: one job over everything else.
+    trims: dict[str, tuple[str, ...]]
 
 
 #: The tests that pin this declaration and the repository-wide rules, and
@@ -120,6 +123,135 @@ TEST_MIRRORS: tuple[tuple[str, str], ...] = (
 #: The test directories of the ``rest-a`` shard.
 _REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
 
+#: The files the macOS cells leave to ubuntu: each was read, and none reaches
+#: anything whose outcome depends on the OS — no platform branch, no real
+#: child process it signals, no path or permission semantics macOS spells
+#: differently, no native binary. A file is listed whole or not at all, and a
+#: new test file runs on macOS until someone reads it.
+_MACOS_REPEATS_UBUNTU = (
+    # In-process `osprey build --skip-deps` renders, which install nothing;
+    # the build's OS-touching steps stay covered by files kept on macOS.
+    "tests/cli/test_answer_provenance_render.py",
+    "tests/cli/test_build_cmd.py",
+    "tests/cli/test_build_config_edit_session.py",
+    "tests/cli/test_build_graph_index.py",
+    "tests/cli/test_build_graphdb_removal.py",
+    "tests/cli/test_build_hierarchy_embedding.py",
+    "tests/cli/test_build_preset.py",
+    "tests/cli/test_build_profile_ariel_sync.py",
+    "tests/cli/test_claude_code_integration.py",
+    "tests/cli/test_claude_regen.py",
+    "tests/cli/test_config_records_environment.py",
+    "tests/cli/test_convention_artifacts_by_name.py",
+    "tests/cli/test_deployed_services_injection.py",
+    "tests/cli/test_deployment_project_name.py",
+    "tests/cli/test_e2e_preset_login_tiers.py",
+    "tests/cli/test_explicit_config_equivalence.py",
+    "tests/cli/test_facility_rule_source_zone.py",
+    "tests/cli/test_facility_show.py",
+    "tests/cli/test_facility_validate.py",
+    "tests/cli/test_graph_agent_surface.py",
+    "tests/cli/test_hooks_channel.py",
+    "tests/cli/test_init_revalidate.py",
+    "tests/cli/test_init_revalidate_fill.py",
+    "tests/cli/test_init_revalidate_write_keys.py",
+    "tests/cli/test_json_contracts.py",
+    "tests/cli/test_killswitch_on_tier.py",
+    "tests/cli/test_layer_emission.py",
+    "tests/cli/test_live_standin_overrides.py",
+    "tests/cli/test_live_standin_render.py",
+    "tests/cli/test_login_tiers_render.py",
+    "tests/cli/test_mml_build_recipes.py",
+    "tests/cli/test_posture_floor.py",
+    "tests/cli/test_posture_render_matrix.py",
+    "tests/cli/test_preset_drift.py",
+    "tests/cli/test_preset_render.py",
+    "tests/cli/test_profile_annotations.py",
+    "tests/cli/test_profile_data_root.py",
+    "tests/cli/test_profile_to_claude_contract.py",
+    "tests/cli/test_profile_va_archiver_block.py",
+    "tests/cli/test_renders_projection.py",
+    "tests/cli/test_set_config_dotted.py",
+    "tests/cli/test_set_verb.py",
+    "tests/cli/test_source_zone_materialization.py",
+    "tests/cli/test_store_file_deny.py",
+    "tests/cli/test_tier_app_presets.py",
+    "tests/cli/test_va_build_step.py",
+    "tests/cli/test_va_default_config.py",
+    "tests/cli/test_variant_selection.py",
+    "tests/deployment/test_container_project_layout.py",
+    "tests/deployment/test_control_assistant_end_state.py",
+    "tests/deployment/test_live_standin_render.py",
+    "tests/deployment/test_login_tiers_staged_render.py",
+    "tests/deployment/test_render_e2e.py",
+    "tests/deployment/test_render_reach_drift.py",
+    "tests/deployment/test_render_reach_endpoints.py",
+    "tests/deployment/test_render_reach_paths.py",
+    "tests/facility/test_build_stops.py",
+    "tests/facility/test_chain.py",
+    "tests/facility/test_demo_census.py",
+    "tests/facility/test_knowledge_links.py",
+    "tests/facility/test_simulator_view.py",
+    "tests/integration/test_data_checksum_stability.py",
+    "tests/test_e2e_ariel_db_pin.py",
+    # Facility logic in process; pyAT is only compared against itself here,
+    # while the fixed-reference replays stay on macOS.
+    "tests/facility/test_demo_seed_rules.py",
+    "tests/facility/test_injector_sources.py",
+    "tests/facility/test_layer_mml.py",
+    "tests/facility/test_layer_mml_identity.py",
+    "tests/facility/test_layer_mml_import.py",
+    "tests/facility/test_layer_mml_tune.py",
+    "tests/facility/test_layer_mml_wiring.py",
+    "tests/facility/test_line_sources.py",
+    "tests/facility/test_mml_layer_seed_once.py",
+    "tests/simulation/test_single_pass_plugin.py",
+    # Scans of the source tree: AST, text, git ls-files, import graphs.
+    "tests/cli/test_lifecycle_invariants.py",
+    "tests/config/test_bluesky_keys_retired.py",
+    "tests/config/test_facility_keys_retired.py",
+    "tests/config/test_simulation_keys_retired.py",
+    "tests/connectors/test_framework_connectors_compat.py",
+    "tests/connectors/test_public_api.py",
+    "tests/connectors/test_safety_file_single_home.py",
+    "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/deployment/test_retired_spellings_at_parse_point.py",
+    "tests/deployment/test_runtime_env_digest.py",
+    "tests/docs/test_shipped_identity_literals.py",
+    "tests/scripts/test_check.py",
+    "tests/scripts/test_config_key_guard.py",
+    "tests/services/facility_knowledge/test_import_isolation.py",
+    "tests/test_no_legacy_symbols.py",
+    "tests/test_retired_store_words.py",
+    # Logic over a faked runtime, subprocess or clock, or a POSIX-wide protocol.
+    "tests/connectors/test_mock_connector.py",
+    "tests/deployment/test_container_lifecycle.py",
+    "tests/deployment/test_down_restart_gates.py",
+    "tests/deployment/test_status_sections.py",
+    "tests/deployment/test_up_as_built.py",
+    "tests/hooks/test_approval_queue_enrichment.py",
+    "tests/hooks/test_hook_agreement.py",
+    "tests/interfaces/web_terminal/test_config_routes.py",
+    "tests/interfaces/web_terminal/test_facility_timezone_stamp.py",
+    "tests/mcp_server/python_executor/test_sandbox_single_posture.py",
+    "tests/mcp_server/test_error_envelope_ipc.py",
+    "tests/mcp_server/test_executor_token_regression.py",
+    "tests/services/ariel_search/test_image_lane.py",
+    "tests/services/ariel_search/test_ingestion.py",
+    "tests/services/bluesky_bridge/test_plan_validation.py",
+    "tests/services/bluesky_bridge/test_planspec_render.py",
+    "tests/templates/test_control_system_safety_rule.py",
+    "tests/test_e2e_provider_gate.py",
+    "tests/utils/test_import_env_hygiene.py",
+    "tests/va/test_suite_still_scenario.py",
+    # Chromium only: the engine is the same on both hosts.
+    "tests/interfaces/artifacts/test_opaque_origin_browser.py",
+    "tests/interfaces/design_system/test_osprey_drawer.py",
+    # Shell run as PID 1 in a Linux image: ubuntu is the faithful host.
+    "tests/cli/test_dockerfile_template.py",
+    "tests/deployment/test_entrypoint_script.py",
+)
+
 UNIT_SELECTION = UnitSelection(
     # An explicit path replaces testpaths, so the connectors package's own
     # suite runs only where it is named.
@@ -139,6 +271,7 @@ UNIT_SELECTION = UnitSelection(
         "rest-a": (_REST_A, ()),
         "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
     },
+    trims={"macos": _MACOS_REPEATS_UBUNTU},
     dist=("--dist", "loadgroup"),
 )
 
@@ -301,9 +434,12 @@ def _select_vitest(
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
                 return Selection(WHOLE)
             chosen.append(fallback)
-        elif name in VITEST_WIDE_NAMES or path == VITEST_SETUP:
-            return Selection(WHOLE)
-        elif path.endswith(JS_SUFFIXES) and path.startswith(("tests/", "src/")):
+        elif (
+            name in VITEST_WIDE_NAMES
+            or path == VITEST_SETUP
+            or path.endswith(JS_SUFFIXES)
+            and path.startswith(("tests/", "src/"))
+        ):
             return Selection(WHOLE)
     return _paths(chosen)
 
@@ -319,7 +455,10 @@ def unit_argv(
     unit: UnitSelection = UNIT_SELECTION,
 ) -> list[str]:
     """The parallel sweep's selection: paths, ignores and marker expression."""
-    roots, shard_ignores = unit.shards[shard] if shard else (unit.roots, ())
+    if shard in unit.trims:
+        roots, shard_ignores = unit.roots, unit.trims[shard]
+    else:
+        roots, shard_ignores = unit.shards[shard] if shard else (unit.roots, ())
     ignores = [*shard_ignores, *(path for path, _host in unit.ignores)]
     marker = unit.quick_marker if tier == "quick" else unit.marker
     return [
@@ -756,7 +895,7 @@ CHECKS: tuple[Check, ...] = (
         selector=_select_pytest,
         command=_pytest_command,
         prepare=_prune_bytecode,
-        shards=tuple(UNIT_SELECTION.shards),
+        shards=(*UNIT_SELECTION.shards, *UNIT_SELECTION.trims),
         exec_flags=True,
     ),
     Check(
@@ -990,6 +1129,8 @@ LANES: tuple[Lane, ...] = (
     _scan("bluesky-queue-e2e", "test_bluesky_queue_e2e.py"),
     _e2e("scan-agentic-e2e", "test_plan_stack_agentic.py", why="models"),
     _e2e("archiver-world-e2e", "test_archiver_world_e2e.py"),
+    _e2e("agent-record-e2e", "test_agent_record_e2e.py"),
+    _e2e("host-record-e2e", "test_host_record_e2e.py", why="models"),
     _e2e("graph-reseed-e2e", "test_graph_reseed_stamp.py"),
     _scan("tiled-roundtrip-e2e", "test_tiled_roundtrip.py"),
     _scan("bluesky-catalog-e2e", "test_bluesky_catalog_e2e.py"),

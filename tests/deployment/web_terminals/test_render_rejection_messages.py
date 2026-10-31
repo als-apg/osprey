@@ -21,7 +21,7 @@ from osprey.deployment.web_terminals import render_images
 from osprey.deployment.web_terminals.lint import lint_web_terminals
 from osprey.deployment.web_terminals.render_images import PREDATES_DELTA_REMEDY
 from osprey.docs_links import SETUP_DOCS_URL
-from osprey_connectors.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
 from tests._renders import tier_render
 
 #: A pre-delta value: the bundled preset name a facility used to write here.

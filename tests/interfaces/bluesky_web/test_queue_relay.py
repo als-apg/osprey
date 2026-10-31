@@ -29,9 +29,9 @@ third on the headers the bridge actually receives:
 
 from __future__ import annotations
 
-import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import httpx
@@ -44,30 +44,19 @@ from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthM
 from osprey.interfaces.web_auth import WebCredentials
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.utils.owner_header import OWNER_HEADER
+from tests.interfaces.bluesky_web._relay import (
+    BRIDGE_URL,
+    TWO_LANE_BRIDGE_URLS,
+    VA_BRIDGE_URL,
+    DelayedFrames,
+    build_router_app,
+    refusing_handler,
+)
 
-_BRIDGE_URL = "http://bridge.test"
 TOKEN = "s3cr3t-launch-token"
 
 
-@pytest.fixture(autouse=True)
-def _isolate_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Never let ambient repo/user config leak a real launch token in.
-
-    Mirrors ``test_launch.py``'s fixture: config resolution is pointed at a
-    file that does not exist, so a test asserting the unarmed path cannot pass
-    (or fail) because of the developer's own ``config.yml``. Tests that need a
-    token set ``BLUESKY_LAUNCH_TOKEN`` themselves.
-    """
-    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
-    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
-
-
-def _build_app(handler: Callable[[httpx.Request], httpx.Response]) -> FastAPI:
-    app = FastAPI()
-    app.include_router(queue_relay.router)
-    app.state.bridge_url = _BRIDGE_URL
-    app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return app
+_build_app = partial(build_router_app, queue_relay.router)
 
 
 def _recording_app(
@@ -87,25 +76,6 @@ def _recording_app(
         return httpx.Response(status_code, json=body)
 
     return _build_app(handler), seen, contents
-
-
-def _refusing_handler(request: httpx.Request) -> httpx.Response:
-    raise httpx.ConnectError("connection refused", request=request)
-
-
-class _DelayedFrames(httpx.AsyncByteStream):
-    """Yields ``frames`` with ``delay`` between them, to prove the SSE relay
-    genuinely streams rather than buffering upstream to completion first."""
-
-    def __init__(self, frames: list[bytes], delay: float = 0.05) -> None:
-        self._frames = frames
-        self._delay = delay
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        for i, frame in enumerate(self._frames):
-            if i > 0:
-                await asyncio.sleep(self._delay)
-            yield frame
 
 
 # The bridge's own success shapes, used verbatim so a change to the bridge
@@ -243,7 +213,7 @@ def test_get_queue_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_get_queue_bridge_unreachable_returns_502() -> None:
-    app = _build_app(_refusing_handler)
+    app = _build_app(refusing_handler)
     with TestClient(app) as client:
         response = client.get("/queue")
 
@@ -387,7 +357,7 @@ def test_a_uid_bearing_an_encoded_slash_never_reaches_the_bridge() -> None:
 def test_every_write_returns_502_when_the_bridge_is_unreachable(
     method: str, path: str, payload: dict | None
 ) -> None:
-    app = _build_app(_refusing_handler)
+    app = _build_app(refusing_handler)
     with TestClient(app) as client:
         response = client.request(method.upper(), path, json=payload)
 
@@ -648,40 +618,41 @@ def test_no_owner_header_when_nothing_stamped_the_connection() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_start_unarmed_503_passes_through_with_its_code() -> None:
-    refusal = {
-        "detail": {
-            "code": "launch_token_required",
-            "detail": "starting the queue requires a launch token",
-            "manager_state": "idle",
-        }
-    }
-    app = _build_app(lambda request: httpx.Response(503, json=refusal))
+@pytest.mark.parametrize(
+    ("status", "refusal"),
+    [
+        pytest.param(
+            503,
+            {
+                "detail": {
+                    "code": "launch_token_required",
+                    "detail": "starting the queue requires a launch token",
+                    "manager_state": "idle",
+                }
+            },
+            id="unarmed",
+        ),
+        pytest.param(
+            403,
+            {
+                "detail": {
+                    "code": "launch_token_invalid",
+                    "detail": "the supplied launch token does not match this bridge",
+                    "manager_state": "executing_queue",
+                }
+            },
+            id="token-mismatch",
+        ),
+    ],
+)
+def test_start_refusal_passes_through_with_its_code(status: int, refusal: dict) -> None:
+    app = _build_app(lambda request: httpx.Response(status, json=refusal))
 
     with TestClient(app) as client:
         response = client.post("/queue/start")
 
-    assert response.status_code == 503
+    assert response.status_code == status
     assert response.json() == refusal
-    assert response.json()["detail"]["code"] == "launch_token_required"
-
-
-def test_start_token_mismatch_403_passes_through_with_its_code() -> None:
-    refusal = {
-        "detail": {
-            "code": "launch_token_invalid",
-            "detail": "the supplied launch token does not match this bridge",
-            "manager_state": "executing_queue",
-        }
-    }
-    app = _build_app(lambda request: httpx.Response(403, json=refusal))
-
-    with TestClient(app) as client:
-        response = client.post("/queue/start")
-
-    assert response.status_code == 403
-    assert response.json() == refusal
-    assert response.json()["detail"]["code"] == "launch_token_invalid"
 
 
 def test_abort_relays_the_bridge_success_body_verbatim() -> None:
@@ -760,7 +731,7 @@ def _timeout_capturing_app(
 
     app = FastAPI()
     app.include_router(queue_relay.router)
-    app.state.bridge_url = _BRIDGE_URL
+    app.state.bridge_url = BRIDGE_URL
     app.state.client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), timeout=shared_timeout
     )
@@ -993,7 +964,7 @@ def test_queue_events_streams_multiple_frames_incl_delayed_second_frame() -> Non
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            stream=_DelayedFrames(frames),
+            stream=DelayedFrames(frames),
         )
 
     app = _build_app(handler)
@@ -1016,7 +987,7 @@ def test_queue_events_disables_read_timeout() -> None:
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            stream=_DelayedFrames([b"data: 1\n\n"]),
+            stream=DelayedFrames([b"data: 1\n\n"]),
         )
 
     app = _build_app(handler)
@@ -1039,7 +1010,7 @@ def test_queue_events_strips_hop_by_hop_headers() -> None:
                 "transfer-encoding": "chunked",
                 "x-accel-buffering": "no",
             },
-            stream=_DelayedFrames([b"data: 1\n\n"]),
+            stream=DelayedFrames([b"data: 1\n\n"]),
         )
 
     app = _build_app(handler)
@@ -1056,7 +1027,7 @@ def test_queue_events_strips_hop_by_hop_headers() -> None:
 def test_queue_events_relays_non_200_status() -> None:
     app = _build_app(
         lambda request: httpx.Response(
-            503, headers={"content-type": "text/event-stream"}, stream=_DelayedFrames([])
+            503, headers={"content-type": "text/event-stream"}, stream=DelayedFrames([])
         )
     )
 
@@ -1077,7 +1048,7 @@ def test_queue_events_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPat
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            stream=_DelayedFrames([b"data: 1\n\n"]),
+            stream=DelayedFrames([b"data: 1\n\n"]),
         )
 
     app = _build_app(handler)
@@ -1089,7 +1060,7 @@ def test_queue_events_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPat
 
 
 def test_queue_events_bridge_unreachable_returns_502() -> None:
-    app = _build_app(_refusing_handler)
+    app = _build_app(refusing_handler)
     with TestClient(app) as client:
         response = client.get("/queue/events")
 
@@ -1175,7 +1146,6 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
 # decision), and an unknown lane is refused without ever falling back to lane
 # 1 -- the wrong-machine relay the axis exists to remove.
 
-_VA_BRIDGE_URL = "http://bridge-va.test"
 VA_TOKEN = "va-launch-token"
 
 
@@ -1184,7 +1154,7 @@ def _two_lane_app(
 ) -> FastAPI:
     """A sidecar app shaped like a two-lane deployment's after its lifespan."""
     app = _build_app(handler)
-    app.state.bridge_urls = {"bluesky": _BRIDGE_URL, "bluesky_va": _VA_BRIDGE_URL}
+    app.state.bridge_urls = TWO_LANE_BRIDGE_URLS
     return app
 
 
@@ -1216,7 +1186,7 @@ def test_a_write_addressed_to_a_lane_reaches_that_lanes_bridge_with_its_own_toke
 
     assert response.status_code == 200
     assert len(seen) == 1
-    assert str(seen[0].url).startswith(_VA_BRIDGE_URL)
+    assert str(seen[0].url).startswith(VA_BRIDGE_URL)
     assert seen[0].headers["X-Launch-Token"] == VA_TOKEN
 
 
@@ -1233,7 +1203,7 @@ def test_a_lane_one_write_still_carries_lane_ones_token_on_a_two_lane_app(
 
     assert bare.status_code == named.status_code == 200
     for request in seen:
-        assert str(request.url).startswith(_BRIDGE_URL)
+        assert str(request.url).startswith(BRIDGE_URL)
         assert request.headers["X-Launch-Token"] == TOKEN
 
 
@@ -1299,7 +1269,7 @@ def test_an_empty_lane_parameter_names_no_lane_on_the_write_surface() -> None:
         response = client.post("/queue/start?lane=")
 
     assert response.status_code == 200
-    assert str(seen[0].url).startswith(_BRIDGE_URL)
+    assert str(seen[0].url).startswith(BRIDGE_URL)
 
 
 def test_queue_events_streams_from_the_named_lanes_bridge() -> None:
@@ -1320,7 +1290,7 @@ def test_queue_events_streams_from_the_named_lanes_bridge() -> None:
         response = client.get("/queue/events?lane=bluesky_va")
 
     assert response.status_code == 200
-    assert str(seen[0].url) == f"{_VA_BRIDGE_URL}/queue/events"
+    assert str(seen[0].url) == f"{VA_BRIDGE_URL}/queue/events"
 
 
 def test_queue_events_refuses_an_unknown_lane() -> None:
@@ -1335,34 +1305,27 @@ def test_queue_events_refuses_an_unknown_lane() -> None:
     assert seen == []
 
 
-def test_clear_items_relays_success_with_no_body() -> None:
-    """``DELETE /queue/items`` is the Clear button: every pending item, one
-    hop, no body — the bridge route takes none, and a stray content-type on an
-    empty body would be a 422 there."""
+@pytest.mark.parametrize(
+    "path",
+    [
+        # The Clear button: every pending item, one hop, no body -- the bridge
+        # route takes none, and a stray content-type on an empty body would be
+        # a 422 there.
+        pytest.param("/queue/items", id="queue-items"),
+        # The History card's Clear: one hop, no body.
+        pytest.param("/history", id="history"),
+    ],
+)
+def test_clear_relays_success_with_no_body(path: str) -> None:
     app, seen, contents = _recording_app(200, {"cleared": True, "msg": ""})
 
     with TestClient(app) as client:
-        response = client.delete("/queue/items")
+        response = client.delete(path)
 
     assert response.status_code == 200
     assert response.json() == {"cleared": True, "msg": ""}
     assert seen[0].method == "DELETE"
-    assert seen[0].url.path == "/queue/items"
-    assert contents[0] == b""
-    assert "content-type" not in seen[0].headers
-
-
-def test_clear_history_relays_success_with_no_body() -> None:
-    """``DELETE /history`` is the History card's Clear: one hop, no body."""
-    app, seen, contents = _recording_app(200, {"cleared": True, "msg": ""})
-
-    with TestClient(app) as client:
-        response = client.delete("/history")
-
-    assert response.status_code == 200
-    assert response.json() == {"cleared": True, "msg": ""}
-    assert seen[0].method == "DELETE"
-    assert seen[0].url.path == "/history"
+    assert seen[0].url.path == path
     assert contents[0] == b""
     assert "content-type" not in seen[0].headers
 

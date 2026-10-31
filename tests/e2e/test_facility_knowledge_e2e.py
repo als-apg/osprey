@@ -44,6 +44,7 @@ from tests.e2e.sdk_helpers import (
     init_project,
     is_claude_code_available,
     judge_result_preview,
+    print_run_summary,
     run_sdk_query,
 )
 
@@ -196,14 +197,7 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
         max_budget_usd=1.0,
     )
 
-    print("\n--- facility-knowledge delegation ---")
-    print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-    print(f"  num_turns: {result.num_turns}")
-    if result.cost_usd is not None:
-        print(f"  cost: ${result.cost_usd:.4f}")
-    for t in result.tool_traces:
-        parent_flag = f" (sub-agent: {t.parent_tool_use_id})" if t.parent_tool_use_id else ""
-        print(f"  tool: {t.name}{parent_flag}")
+    print_run_summary("facility-knowledge delegation", result)
 
     # Session completed without SDK error.
     assert result.result is not None, "No ResultMessage received"

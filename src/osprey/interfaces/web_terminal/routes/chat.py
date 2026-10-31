@@ -2,6 +2,8 @@
 
 POST /api/chat?stream={true|false}
 Body: {"prompt": "...", "chat_id": "..."}
+A prompt that opens with a slash command the chat does not list is refused
+with 400 ``command_not_available``, before any turn opens.
 
 POST /api/chat/{chat_id}/permission
 Body: {"request_id": "...", "allow": bool, "answers"?: {...}, "message"?: "..."}
@@ -60,7 +62,10 @@ from osprey.interfaces.web_terminal.session_handoff import (
     acquire_surface,
 )
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.interfaces.web_terminal.slash_commands import list_chat_slash_commands
+from osprey.interfaces.web_terminal.slash_commands import (
+    list_chat_slash_commands,
+    unavailable_command,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -363,6 +368,23 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
     if not prompt:
         raise HTTPException(status_code=422, detail="Prompt must not be empty")
 
+    # A command the chat does not list (``/login``, ``/model``, ``/config``) the
+    # CLI would run itself. Refused here, before the key is taken or a turn
+    # opens, so no client reaches it. The name goes back for the notice to say.
+    # The project's command files are read off the loop.
+    command = await asyncio.to_thread(
+        unavailable_command, prompt, Path(request.app.state.project_cwd)
+    )
+    if command is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "command_not_available",
+                "command": command,
+                "message": f"/{command} is not available in this chat.",
+            },
+        )
+
     try:
         session, token, fresh_conversation = await _acquire_chat_turn(request, body.chat_id)
     except ChannelClosed:
@@ -594,6 +616,11 @@ async def chat_events(chat_id: str, request: Request) -> Response:
                     yield ": heartbeat\n\n"
                     continue
                 yield _sse(_strip_for_chat(frame))
+            # The agent is gone. Its last frames, the one that says so among
+            # them, can still be queued: send them before the feed ends.
+            if not session.is_active:
+                while not feed.empty():
+                    yield _sse(_strip_for_chat(feed.get_nowait()))
         finally:
             session.unsubscribe(feed)
 

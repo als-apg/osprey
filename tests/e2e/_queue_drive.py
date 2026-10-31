@@ -47,9 +47,9 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.error
-import urllib.request
 from typing import Any
+
+import httpx
 
 from osprey.utils.owner_header import OWNER_HEADER
 
@@ -81,36 +81,39 @@ def request(
     """One HTTP call, returning ``(status, parsed_body)`` for 2xx AND 4xx/5xx.
 
     Refusals carry the ``{"detail": {"code", "detail", ...}}`` body callers
-    assert on, so an ``HTTPError`` is a normal result here, never an exception
-    to propagate. *owner* is sent as ``X-Osprey-Owner``, the header the bridge
-    reads who queued an item from; *headers* are any others the caller needs.
+    assert on, so an error status is a normal result here, never an exception
+    to propagate. A body that is not JSON comes back as text. *owner* is sent
+    as ``X-Osprey-Owner``, the header the bridge reads who queued an item from;
+    *headers* are any others the caller needs.
+
+    ``body=None`` on a non-GET sends a genuinely EMPTY body (``b""``, so the
+    request still carries ``Content-Length: 0``) with NO content-type -- which
+    is what the bodyless routes take, and what proves ``POST /queue/abort``
+    needs no parameters at all.
     """
-    data = json.dumps(body).encode("utf-8") if body is not None else None
+    content = json.dumps(body).encode("utf-8") if body is not None else None
     headers = dict(headers or {})
-    if data is not None:
+    if content is not None:
         headers["Content-Type"] = "application/json"
     elif method != "GET":
-        data = b""
+        content = b""
     if token:
         headers[LAUNCH_TOKEN_HEADER] = token
     if owner:
         headers[OWNER_HEADER] = owner
-    req = urllib.request.Request(  # localhost only
-        f"{base_url}{path}", data=data, method=method, headers=headers
+    resp = httpx.request(  # localhost only
+        method,
+        f"{base_url}{path}",
+        content=content,
+        headers=headers,
+        timeout=timeout,
+        trust_env=False,
+        follow_redirects=True,
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw.decode("utf-8"))
-            except ValueError:
-                return resp.status, raw.decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        try:
-            return exc.code, json.loads(raw.decode("utf-8"))
-        except ValueError:
-            return exc.code, raw.decode("utf-8", errors="replace")
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, resp.text
 
 
 def wait_for_worker_environment(
@@ -326,7 +329,7 @@ def start_draining(base_url: str, token: str, run_id: str) -> None:
     if queue_is_armed(base_url):
         return
     status, body = request(base_url, "/queue/start", "POST", token=token, timeout=120.0)
-    if status == 409 and _refusal_code(body) == "manager_not_idle":
+    if status == 409 and refusal_code(body) == "manager_not_idle":
         record_status, record = run_record(base_url, run_id)
         assert record_status == 200 and record.get("status") in ("running", *TERMINAL_STATUSES), (
             f"POST /queue/start was refused manager_not_idle, but run {run_id} is not the "
@@ -337,7 +340,12 @@ def start_draining(base_url: str, token: str, run_id: str) -> None:
     assert body.get("started") is True, f"start did not report started: {body}"
 
 
-def _refusal_code(body: Any) -> str | None:
+def refusal_code(body: Any) -> str | None:
+    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
+
+    ``None`` for any other shape, so an assertion reports the drifted body
+    rather than a ``KeyError`` from inside this helper.
+    """
     detail = body.get("detail") if isinstance(body, dict) else None
     return detail.get("code") if isinstance(detail, dict) else None
 

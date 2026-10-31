@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from osprey.deployment.compose_generator import _reset_wheel_build_cache
@@ -115,6 +117,26 @@ def docker_host_has_buildkit(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_transcripts_to_copy(monkeypatch):
+    """Answer "which transcripts need their own volume?" without asking the host.
+
+    A start copies transcripts that predate their volume through
+    ``container_lifecycle._copy_existing_transcripts``, which resolves the
+    runtime and inspects the project's volumes with its CLI. The reasons the fixtures above give
+    apply unchanged: a faked ``subprocess.run`` would hand the inspection an
+    answer meant for a compose invocation, and the real one makes the suite
+    depend on whether the machine running it has a runtime at all.
+
+    Stubbed at the lifecycle seam, so the copy itself stays real for
+    ``test_claude_projects_volume.py``, which calls it through
+    ``runtime_helper`` and puts the seam back where it tests the wiring.
+    """
+    from osprey.deployment import container_lifecycle
+
+    monkeypatch.setattr(container_lifecycle, "_copy_existing_transcripts", lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def no_prebuilt_switch_in_the_environment(monkeypatch):
     """Isolate every test from a prebuilt-images switch exported in the shell.
 
@@ -158,3 +180,55 @@ def _empty_host_for_the_ownership_check(monkeypatch):
     monkeypatch.setattr(
         "osprey.deployment.container_lifecycle._ownership_probe", lambda config: _EmptyHost()
     )
+
+
+@pytest.fixture
+def stub_deploy_up(monkeypatch, tmp_path):
+    """Factory: run ``deploy_up`` in ``tmp_path`` with no host underneath it.
+
+    Call it with the config ``prepare_compose_files`` should answer (``None``
+    leaves that collaborator to the test) and it stubs the runtime checks and
+    the compose child, returning a dict whose ``"cmd"`` is the last argv the
+    child was given.
+
+    ``seam`` picks where the child is stubbed. ``"run_captured"`` is the one
+    seam every deploy child goes through: a watched capture (the image builds
+    pass ``on_line=``) reads its child through a pipe instead of
+    ``subprocess.run``, so a ``subprocess.run`` stub would be walked straight
+    past and the test would run a real build. ``"subprocess.run"`` keeps
+    ``run_captured`` itself real, which re-wraps the result to carry its spool
+    path — so either way the stand-in is a real completed process, and it
+    ignores the redirection keywords it is passed.
+    """
+    from osprey.deployment import container_lifecycle
+
+    def _stub(config: dict | None = None, *, seam: str = "run_captured") -> dict:
+        captured: dict = {}
+
+        monkeypatch.chdir(tmp_path)
+        if config is not None:
+            monkeypatch.setattr(
+                container_lifecycle,
+                "prepare_compose_files",
+                lambda *a, **k: (config, ["docker-compose.yml"]),
+            )
+        monkeypatch.setattr(
+            container_lifecycle, "verify_runtime_is_running", lambda config: (True, "")
+        )
+        monkeypatch.setattr(
+            container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+        )
+
+        def _fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(list(cmd), 0)
+
+        if seam == "run_captured":
+            monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
+        elif seam == "subprocess.run":
+            monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+        else:
+            raise ValueError(f"unknown seam {seam!r}")
+        return captured
+
+    return _stub

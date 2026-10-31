@@ -27,7 +27,7 @@ from tests.interfaces._browser import assert_page_loads_clean
 
 # The faked-SDK live server from the chat suite: a real web terminal whose only
 # replaced part is the agent subprocess, so a turn can be sent without a model.
-from tests.interfaces.web_terminal.test_chat_browser import _PLANS, _live_chat_server
+from tests.interfaces.web_terminal._chat_server import PLANS, live_chat_server
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, Page
@@ -98,9 +98,9 @@ def test_empty_state_renders_and_a_chip_only_inserts(tmp_path, chromium_browser)
     removes the block, and the same request recorder sees that POST, which is
     what makes its earlier silence evidence rather than a broken listener.
     """
-    with _live_chat_server(tmp_path, ui_mode="simple") as (base_url, app):
+    with live_chat_server(tmp_path, ui_mode="simple") as (base_url, app):
         app.state.tour_capabilities = [_CAPABILITY]
-        _PLANS[_ALLOWED_PROMPT] = [("text", "hi back"), ("result",)]
+        PLANS[_ALLOWED_PROMPT] = [("text", "hi back"), ("result",)]
         page, errors, chat_posts = _open_simple_hub(chromium_browser, base_url)
 
         block = page.locator(_EMPTY)

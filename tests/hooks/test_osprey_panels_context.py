@@ -489,7 +489,7 @@ def test_main_keeps_surface_line_when_web_terminal_down(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
-def test_malformed_stdin_fails_open(hook_runner_raw, monkeypatch, stdin):
+def test_malformed_stdin_fails_open(reserve_port, hook_runner_raw, monkeypatch, stdin):
     """Stdin the hook cannot use still leaves the session start unblocked.
 
     SessionStart hands the hook a JSON payload it never reads. Run as a real
@@ -498,9 +498,7 @@ def test_malformed_stdin_fails_open(hook_runner_raw, monkeypatch, stdin):
     points at a port nobody is listening on so the result does not depend on
     whether a web terminal happens to be running on the developer's machine.
     """
-    from osprey.interfaces._serving import free_port
-
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(reserve_port()))
 
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_panels_context.py",

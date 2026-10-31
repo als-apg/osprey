@@ -31,53 +31,68 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
+
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 # ── mcp_servers: ─────────────────────────────────────────────────────────────
 
 
-def test_mcp_server_entry_must_be_a_mapping() -> None:
-    """A non-mapping mcp_servers entry raises, naming the server."""
-    with pytest.raises(BuildProfileError, match="MCP server 'broken' must be a mapping"):
-        _parse_profile({"name": "x", "data": "data", "mcp_servers": {"broken": "not-a-mapping"}})
-
-
-def test_mcp_server_entry_list_value_must_be_a_mapping() -> None:
-    """A list-valued mcp_servers entry is rejected the same way a string one is."""
-    with pytest.raises(BuildProfileError, match="MCP server 'listy' must be a mapping"):
-        _parse_profile({"name": "x", "data": "data", "mcp_servers": {"listy": ["osprey", "serve"]}})
-
-
-def test_mcp_server_without_command_or_url_raises() -> None:
-    """An mcp_servers entry declaring no transport at all raises."""
-    with pytest.raises(
-        BuildProfileError, match="MCP server 'bare' must have either 'command' or 'url'"
-    ):
-        _parse_profile({"name": "x", "data": "data", "mcp_servers": {"bare": {}}})
-
-
-def test_mcp_server_with_only_permissions_raises() -> None:
-    """Permissions alone are not a transport — the no-command-no-url raise still fires."""
-    raw = {
-        "name": "x",
-        "data": "data",
-        "mcp_servers": {"perms-only": {"permissions": {"allow": ["Read"]}}},
-    }
-    with pytest.raises(
-        BuildProfileError, match="MCP server 'perms-only' must have either 'command' or 'url'"
-    ):
-        _parse_profile(raw)
-
-
-def test_mcp_server_with_empty_command_and_url_raises() -> None:
-    """Explicit empty ``command``/``url`` strings are falsy and raise like omitting them."""
-    with pytest.raises(
-        BuildProfileError, match="MCP server 'empty' must have either 'command' or 'url'"
-    ):
-        _parse_profile(
-            {"name": "x", "data": "data", "mcp_servers": {"empty": {"command": "", "url": ""}}}
-        )
+@pytest.mark.parametrize(
+    ("servers", "match"),
+    [
+        pytest.param(
+            {"broken": "not-a-mapping"},
+            "MCP server 'broken' must be a mapping",
+            id="entry_must_be_a_mapping",
+        ),
+        # A list-valued entry is rejected the same way a string one is.
+        pytest.param(
+            {"listy": ["osprey", "serve"]},
+            "MCP server 'listy' must be a mapping",
+            id="entry_list_value_must_be_a_mapping",
+        ),
+        pytest.param(
+            {"bare": {}},
+            "MCP server 'bare' must have either 'command' or 'url'",
+            id="without_command_or_url",
+        ),
+        # Permissions alone are not a transport.
+        pytest.param(
+            {"perms-only": {"permissions": {"allow": ["Read"]}}},
+            "MCP server 'perms-only' must have either 'command' or 'url'",
+            id="with_only_permissions",
+        ),
+        # Explicit empty strings are falsy and raise like omitting them.
+        pytest.param(
+            {"empty": {"command": "", "url": ""}},
+            "MCP server 'empty' must have either 'command' or 'url'",
+            id="with_empty_command_and_url",
+        ),
+        pytest.param(
+            {"typo": {"transport": "ssse", "url": "http://host:9000/mcp"}},
+            "MCP server 'typo' transport must be 'http' or 'sse'",
+            id="invalid_transport",
+        ),
+        # Stdio servers have no transport choice.
+        pytest.param(
+            {"local": {"transport": "http", "command": "uvx"}},
+            "MCP server 'local' declares 'transport' with 'command'",
+            id="transport_with_command",
+        ),
+        # With only a port, the derived URL is an /mcp endpoint, never an SSE one.
+        pytest.param(
+            {"legacy": {"transport": "sse", "port": 9000}},
+            "MCP server 'legacy' transport 'sse' requires an explicit 'url'",
+            id="sse_requires_explicit_url",
+        ),
+    ],
+)
+def test_a_malformed_mcp_server_is_refused(servers: dict, match: str) -> None:
+    """A malformed ``mcp_servers`` entry raises at parse time, naming the server."""
+    with pytest.raises(BuildProfileError, match=match):
+        _parse_profile({"name": "x", "data": "data", "mcp_servers": servers})
 
 
 def test_mcp_server_transport_defaults_to_http() -> None:
@@ -97,46 +112,6 @@ def test_mcp_server_transport_sse_parses() -> None:
         }
     )
     assert profile.mcp_servers["legacy"].transport == "sse"
-
-
-def test_mcp_server_invalid_transport_raises() -> None:
-    """A transport outside http/sse raises, naming the bad value."""
-    with pytest.raises(
-        BuildProfileError, match="MCP server 'typo' transport must be 'http' or 'sse'"
-    ):
-        _parse_profile(
-            {
-                "name": "x",
-                "mcp_servers": {"typo": {"transport": "ssse", "url": "http://host:9000/mcp"}},
-            }
-        )
-
-
-def test_mcp_server_transport_with_command_raises() -> None:
-    """Stdio servers have no transport choice — declaring one is rejected."""
-    with pytest.raises(
-        BuildProfileError, match="MCP server 'local' declares 'transport' with 'command'"
-    ):
-        _parse_profile(
-            {
-                "name": "x",
-                "mcp_servers": {"local": {"transport": "http", "command": "uvx"}},
-            }
-        )
-
-
-def test_mcp_server_sse_requires_explicit_url() -> None:
-    """transport: sse with only a port raises — the derived URL is an /mcp endpoint."""
-    with pytest.raises(
-        BuildProfileError, match="MCP server 'legacy' transport 'sse' requires an explicit 'url'"
-    ):
-        _parse_profile(
-            {
-                "name": "x",
-                "data": "data",
-                "mcp_servers": {"legacy": {"transport": "sse", "port": 9000}},
-            }
-        )
 
 
 # ── services: ────────────────────────────────────────────────────────────────
@@ -179,12 +154,12 @@ def test_multiple_service_entries_are_all_parsed() -> None:
         "name": "x",
         "services": {
             "postgresql": {"template": "services/postgresql"},
-            "telemetry_store": {"template": "services/telemetry_store", "config": {"port": 18904}},
+            "qmd": {"template": "services/qmd", "config": {"port": 18960}},
         },
     }
     profile = _parse_profile(raw)
-    assert sorted(profile.services) == ["postgresql", "telemetry_store"]
-    assert profile.services["telemetry_store"].config == {"port": 18904}
+    assert sorted(profile.services) == ["postgresql", "qmd"]
+    assert profile.services["qmd"].config == {"port": 18960}
 
 
 def test_no_services_block_parses_to_empty_dict() -> None:
@@ -195,28 +170,50 @@ def test_no_services_block_parses_to_empty_dict() -> None:
 # ── bluesky: / virtual_accelerator: ──────────────────────────────────────────
 
 
-def test_bluesky_not_a_mapping_raises() -> None:
-    """A non-mapping 'bluesky' block raises during parsing."""
-    with pytest.raises(BuildProfileError, match="Profile 'bluesky' must be a mapping"):
-        _parse_profile({"name": "x", "data": "data", "bluesky": "not-a-mapping"})
-
-
-def test_virtual_accelerator_not_a_mapping_raises() -> None:
-    """A non-mapping 'virtual_accelerator' block raises during parsing."""
-    with pytest.raises(BuildProfileError, match="Profile 'virtual_accelerator' must be a mapping"):
-        _parse_profile({"name": "x", "data": "data", "virtual_accelerator": "not-a-mapping"})
-
-
-def test_virtual_accelerator_unknown_key_raises_with_suggestion() -> None:
-    """A misspelled VA subkey is named, corrected and rejected rather than dropped."""
-    with pytest.raises(
-        BuildProfileError,
-        match=r"Unknown virtual_accelerator key\(s\): 'live_standing' "
-        r"\(did you mean 'live_standin'\?\)",
-    ):
-        _parse_profile(
-            {"name": "x", "data": "data", "virtual_accelerator": {"live_standing": 5074}}
-        )
+@pytest.mark.parametrize(
+    ("key", "value", "match"),
+    [
+        pytest.param(
+            "bluesky",
+            "not-a-mapping",
+            "Profile 'bluesky' must be a mapping",
+            id="bluesky_not_a_mapping",
+        ),
+        pytest.param(
+            "virtual_accelerator",
+            "not-a-mapping",
+            "Profile 'virtual_accelerator' must be a mapping",
+            id="virtual_accelerator_not_a_mapping",
+        ),
+        # A misspelled VA subkey is named, corrected and rejected rather than dropped.
+        pytest.param(
+            "virtual_accelerator",
+            {"live_standing": 5074},
+            r"Unknown virtual_accelerator key\(s\): 'live_standing' "
+            r"\(did you mean 'live_standin'\?\)",
+            id="virtual_accelerator_unknown_key_with_suggestion",
+        ),
+        # A value that is neither `true` nor an integer.
+        pytest.param(
+            "virtual_accelerator",
+            {"live_standin": "5074"},
+            "virtual_accelerator.live_standin must be `true`.*"
+            r"or a Channel Access port number \(got '5074'\)",
+            id="live_standin_must_be_true_or_an_int",
+        ),
+        # `false` is not a second spelling for absence — omitting the key is.
+        pytest.param(
+            "virtual_accelerator",
+            {"live_standin": False},
+            "virtual_accelerator.live_standin: false is not a way to switch",
+            id="live_standin_false",
+        ),
+    ],
+)
+def test_a_malformed_block_is_refused(key: str, value: object, match: str) -> None:
+    """A malformed ``bluesky:`` or ``virtual_accelerator:`` block raises during parsing."""
+    with pytest.raises(BuildProfileError, match=match):
+        _parse_profile({"name": "x", "data": "data", key: value})
 
 
 def test_virtual_accelerator_live_standin_parses() -> None:
@@ -233,18 +230,6 @@ def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
     profile = _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}})
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin is None
-
-
-def test_virtual_accelerator_live_standin_must_be_true_or_an_int() -> None:
-    """A value that is neither `true` nor an integer raises at parse time."""
-    with pytest.raises(
-        BuildProfileError,
-        match="virtual_accelerator.live_standin must be `true`.*"
-        r"or a Channel Access port number \(got '5074'\)",
-    ):
-        _parse_profile(
-            {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": "5074"}}
-        )
 
 
 def test_virtual_accelerator_live_standin_true_takes_the_layout_slot() -> None:
@@ -284,17 +269,6 @@ def test_virtual_accelerator_live_standin_true_reads_a_nested_port_base() -> Non
     )
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin == 20090
-
-
-def test_virtual_accelerator_live_standin_false_is_refused() -> None:
-    """`false` is not a second spelling for absence — omitting the key is."""
-    with pytest.raises(
-        BuildProfileError,
-        match="virtual_accelerator.live_standin: false is not a way to switch",
-    ):
-        _parse_profile(
-            {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": False}}
-        )
 
 
 def test_virtual_accelerator_live_standin_true_refuses_an_impossible_port_base() -> None:
@@ -384,17 +358,6 @@ def test_empty_default_panel_is_the_same_as_an_unset_one() -> None:
     assert (
         _parse_profile({"name": "x", "data": "data", "default_panel": None}).default_panel is None
     )
-
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
 
 
 def _write_render_repo(root: Path, delta_body: str) -> Path:

@@ -64,9 +64,12 @@ def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
 
     for pair in pairs:
         key, separator, value = pair.partition("=")
-        if separator and key.strip() in _TYPE_KEYS:
-            if value.strip() in RETIRED_CONTROL_SYSTEM_TYPES:
-                raise click.UsageError(retired_type_message(value.strip()))
+        if (
+            separator
+            and key.strip() in _TYPE_KEYS
+            and value.strip() in RETIRED_CONTROL_SYSTEM_TYPES
+        ):
+            raise click.UsageError(retired_type_message(value.strip()))
         if separator and key.strip() == RETIRED_GATEWAY_KEY:
             raise click.UsageError(
                 f"`{RETIRED_GATEWAY_KEY}=` named a facility out of a gateway table "

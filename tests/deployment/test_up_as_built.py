@@ -44,7 +44,7 @@ from osprey.deployment.compose_generator import (
     repo_identity,
 )
 from osprey.deployment.web_terminals import provision
-from osprey_connectors.workspace import container_image_context
+from osprey.utils.workspace import container_image_context
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
@@ -179,7 +179,7 @@ def started(monkeypatch):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
-    def _fake_image_build(_config, _dev_mode, _env, build_context=None):
+    def _fake_image_build(_config, _dev_mode, _env, build_context=None, **_kwargs):
         record["build_context"] = build_context
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_image_build)
@@ -318,7 +318,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
 
     seen: dict = {}
 
-    def _probe(_config, _dev_mode, _env, _build_context=None):
+    def _probe(_config, _dev_mode, _env, _build_context=None, **_kwargs):
         seen["tz"] = str(get_facility_timezone())
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _probe)
@@ -1238,6 +1238,8 @@ def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
@@ -1443,7 +1445,6 @@ def test_a_real_build_leaves_no_runtime_state_in_the_output_zone(built_repo):
     assert not (build / "var").exists()
     # The durable location is untouched and still there.
     assert (built_repo / "var" / "agent_data").is_dir()
-    assert (built_repo / "var" / "audit").is_dir()
 
 
 def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):

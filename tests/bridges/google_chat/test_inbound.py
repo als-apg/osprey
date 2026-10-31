@@ -35,6 +35,7 @@ from osprey.bridges.google_chat.inbound import (
     UNPROCESSABLE_REASON,
     download_attachments,
 )
+from tests.bridges.conftest import recording_client
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"pixels"
 
@@ -73,13 +74,7 @@ def counting_session(content: bytes = PNG) -> tuple[httpx.Client, list[httpx.Req
     Serves ``content`` for anything, so a test that expects NO round trip fails loudly
     (an extra file in the result) rather than quietly on a 404 that looks like a skip.
     """
-    requests: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, content=content)
-
-    return httpx.Client(transport=httpx.MockTransport(handler)), requests
+    return recording_client(lambda _request: httpx.Response(200, content=content))
 
 
 def decoded(payload_file: Mapping[str, Any]) -> bytes:

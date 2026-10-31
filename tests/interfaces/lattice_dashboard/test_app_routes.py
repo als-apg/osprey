@@ -13,7 +13,7 @@ import contextlib
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.interfaces.lattice_dashboard.test_app import _write_render, settle
+from tests.interfaces.lattice_dashboard._render import settle, write_render
 
 from osprey.interfaces.lattice_dashboard.app import _SSEBroadcaster, create_app
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
@@ -27,7 +27,7 @@ def ws(tmp_path, monkeypatch):
     monkeypatch.setattr(ComputeManager, "refresh_fast", lambda self: ["optics"])
     monkeypatch.setattr(ComputeManager, "refresh_verification", lambda self: ["da", "lma"])
     monkeypatch.setattr(ComputeManager, "refresh_one", lambda self, name: True)
-    render = _write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
+    render = write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
     with TestClient(create_app(workspace_root=tmp_path, render_root=render)) as client:
         settle(client)
         yield tmp_path, client

@@ -26,13 +26,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.cli import build_cmd
-from osprey.cli.build_cmd import build
 from osprey.deployment import runtime_helper
-
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 PROFILE = """\
 extends: hello-world
@@ -50,12 +47,12 @@ def _build_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str =
     body = PROFILE + (f"config:\n{override}" if override else "")
     (repo / "profile.yml").write_text(body)
     monkeypatch.chdir(repo)
-    result = CliRunner().invoke(build, CI_FLAGS)
+    result = invoke_build()
     return repo, result
 
 
 def _rendered_runtime(repo: Path) -> str:
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     return config["container_runtime"]
 
 

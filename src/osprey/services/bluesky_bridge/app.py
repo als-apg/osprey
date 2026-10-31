@@ -1562,7 +1562,7 @@ def _row_part_columns(stream: Any) -> list[str]:
     the order the live path served the same run in.
     """
     columns: list[str] = []
-    for _name, part in stream.base.items():
+    for _name, part in stream.base.items():  # noqa: PERF102 -- a Tiled container is read through items()
         if part.structure_family == "table":
             columns.extend(part.columns)
     return columns

@@ -34,7 +34,6 @@ import importlib.util
 import json
 import multiprocessing
 import os
-import socket
 import time
 from collections.abc import Coroutine, Iterator, Mapping
 from pathlib import Path
@@ -43,19 +42,20 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
+from tests.va._collection import assert_module_collected
 
-def _free_port() -> str:
-    """An unused loopback TCP port, as a string ready for the environment."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return str(probe.getsockname()[1])
+#: Whether this is the pytest process rather than the server it spawns. The
+#: spawned server re-imports this module and is handed its ports in its
+#: environment, so it reserves nothing.
+_IN_PYTEST = multiprocessing.parent_process() is None
 
-
-# Loopback only, on an ephemeral port of this module's own -- an inherited
-# EPICS_CA_SERVER_PORT may be one another module's server already listens on --
-# with the server and CAS ports equal: a search reply carries the server's own
-# port, so a server listening anywhere else hands clients a dead address.
-CA_PORT = _free_port()
+# Loopback only, on a port of this module's own held for the process -- an
+# inherited EPICS_CA_SERVER_PORT may be one another module's server already
+# listens on -- with the server and CAS ports equal: a search reply carries the
+# server's own port, so a server listening anywhere else hands clients a dead
+# address.
+CA_PORT = str(hold_ports(1)[0]) if _IN_PYTEST else ""
 # What this module's client searches with. libca reads its settings once, when
 # the process's CA context is created, and other modules collected into the same
 # process write their own at import (test_lume_pva_seam.py names an address list
@@ -71,8 +71,10 @@ CA_CLIENT_ENV: dict[str, str | None] = {
 }
 # import-time required because libca reads the repeater port when the first CA
 # context in the process is created, which may be another module's, before any
-# of this module's fixtures run; point_at does not carry it.
-os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
+# of this module's fixtures run; point_at does not carry it. The port is held
+# for the process unless the environment pins one.
+if _IN_PYTEST and "EPICS_CA_REPEATER_PORT" not in os.environ:
+    os.environ["EPICS_CA_REPEATER_PORT"] = str(hold_ports(1)[0])
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -436,34 +438,35 @@ def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
     state = root / "state"
     state.mkdir()
     _activate(state, STUCK_SCENARIO)
-    env = {
-        "VA_DATA_DIR": str(root / "data"),
-        "VA_STATE_DIR": str(state),
-        "VA_INSTANCE": INSTANCE,
-        "VA_POLL_INTERVAL_S": str(TICK_S),
-        "EPICS_PVAS_SERVER_PORT": _free_port(),
-        "EPICS_PVAS_BROADCAST_PORT": _free_port(),
-        "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
-        "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
-        "EPICS_CA_SERVER_PORT": CA_PORT,
-        "EPICS_CAS_SERVER_PORT": CA_PORT,
-        "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
-        "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
-    }
     from osprey_connectors.control_system._ca_loop import get_ca_loop
 
-    _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
-    served = _Served(env)
-    try:
-        deadline = time.monotonic() + STARTUP_TIMEOUT_S
-        while _caget(LIVE_RB) is None:
-            if not served.alive():
-                pytest.fail("the entrypoint exited before it served")
-            if time.monotonic() > deadline:
-                pytest.fail("the entrypoint never served")
-        yield served
-    finally:
-        served.stop()
+    with reserved_ports(2) as (pvas_port, pvas_broadcast_port):
+        env = {
+            "VA_DATA_DIR": str(root / "data"),
+            "VA_STATE_DIR": str(state),
+            "VA_INSTANCE": INSTANCE,
+            "VA_POLL_INTERVAL_S": str(TICK_S),
+            "EPICS_PVAS_SERVER_PORT": str(pvas_port),
+            "EPICS_PVAS_BROADCAST_PORT": str(pvas_broadcast_port),
+            "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
+            "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
+            "EPICS_CA_SERVER_PORT": CA_PORT,
+            "EPICS_CAS_SERVER_PORT": CA_PORT,
+            "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
+            "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
+        }
+        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
+        served = _Served(env)
+        try:
+            deadline = time.monotonic() + STARTUP_TIMEOUT_S
+            while _caget(LIVE_RB) is None:
+                if not served.alive():
+                    pytest.fail("the entrypoint exited before it served")
+                if time.monotonic() > deadline:
+                    pytest.fail("the entrypoint never served")
+            yield served
+        finally:
+            served.stop()
 
 
 def _wait_until(predicate: Any, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
@@ -626,10 +629,4 @@ class TestLiveInstance:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_apply_fault.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

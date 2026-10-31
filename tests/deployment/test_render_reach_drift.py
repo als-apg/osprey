@@ -19,12 +19,12 @@ Closest existing tests, and why they were blind:
   one client that does it right — ``va_archiver_config_overrides`` derives
   ``archiver.mongodb_archiver.*`` for attached renders from the hosting
   profile, and refuses an attached profile without ``va_archiver.host``. It
-  never looks at the bluesky, VA-gateway, or telemetry clients.
+  never looks at the bluesky or VA-gateway clients.
 * ``tests/services/ariel_search/test_dsn_derivation.py`` proves
   ``resolve_ariel_dsn`` follows ``services.postgresql`` when the block is
   present — but it hands the resolver hand-built dicts and never renders an
   attached render, so it cannot say what block a render actually has.
-* ``tests/deployment/test_render_reach_endpoints.py`` catches the telemetry
+* ``tests/deployment/test_render_reach_endpoints.py`` catches the OTLP
   endpoint deriving a wrong HOST under ``network_mode: host`` — at the shipped
   default ports. It never moves a port, so port drift stays invisible there
   for every client.
@@ -60,12 +60,10 @@ from click.testing import CliRunner
 pytestmark = pytest.mark.slow
 
 # Moved host ports — each distinct from the shipped default it replaces
-# (bluesky and the telemetry gateway on their layout slots, virtual_accelerator on the
-# Channel Access port), so a client that keeps its compiled-in default is
+# (bluesky on its layout slot, virtual_accelerator on the Channel Access port), so a client that keeps its compiled-in default is
 # distinguishable from one that follows.
 MOVED_BLUESKY_PORT = 18090
 MOVED_VA_PORT = 15064
-MOVED_GATEWAY_PORT = 15051
 
 
 @pytest.fixture(scope="module")
@@ -75,8 +73,7 @@ def moved_port_stack(tmp_path_factory) -> Path:
     Same build pattern as ``tests/cli/test_tier_app_presets.py::
     _build_render_stack``, with one twist: between ``init`` and ``build`` the
     hosting ``profile.yml`` is edited to move every port under test — the
-    top-level ``bluesky.port`` and ``virtual_accelerator.port`` blocks, and the
-    ``config:`` dotted key ``services.telemetry_gateway.port``. The build renders the
+    top-level ``bluesky.port`` and ``virtual_accelerator.port`` blocks. The build renders the
     host project at ``build/`` and one attached project per catalog render
     beside it at ``build/<repo>-<render>``.
     """
@@ -92,7 +89,6 @@ def moved_port_stack(tmp_path_factory) -> Path:
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     profile.setdefault("bluesky", {})["port"] = MOVED_BLUESKY_PORT
     profile.setdefault("virtual_accelerator", {})["port"] = MOVED_VA_PORT
-    profile.setdefault("config", {})["services.telemetry_gateway.port"] = MOVED_GATEWAY_PORT
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     built = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
@@ -153,24 +149,6 @@ def _dial_port_va(layer_dir: Path, render_cfg: dict, monkeypatch) -> int:
         reset_config_cache()
 
 
-def _dial_port_telemetry(_layer_dir: Path, render_cfg: dict, _monkeypatch) -> int:
-    """The OTLP port the render's agent launch exports to — via the real resolver.
-
-    Resolved the way the launch path resolves it
-    (``telemetry_config.runtime_gateway_url``) from an environment that names
-    no gateway address, so the port is the one the render's own config says
-    the gateway publishes on.
-    """
-    from osprey.build.claude_code_telemetry import _resolve_telemetry_endpoint
-    from osprey.deployment.telemetry_config import runtime_gateway_url
-
-    endpoint = _resolve_telemetry_endpoint(
-        render_cfg["claude_code"]["telemetry"],
-        gateway_url=runtime_gateway_url(render_cfg, {}),
-    )
-    return urlsplit(endpoint).port or 80
-
-
 class _Client(NamedTuple):
     """One in-container render client and the host port it must follow."""
 
@@ -195,13 +173,6 @@ CLIENTS = [
         host_key="virtual_accelerator.port",
         moved_port=MOVED_VA_PORT,
         dial_port=_dial_port_va,
-    ),
-    _Client(
-        client="telemetry OTLP endpoint",
-        render="readonly",
-        host_key="telemetry_gateway.port",
-        moved_port=MOVED_GATEWAY_PORT,
-        dial_port=_dial_port_telemetry,
     ),
 ]
 

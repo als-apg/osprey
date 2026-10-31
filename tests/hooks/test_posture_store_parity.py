@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, posture_env, posture_store
 from osprey_connectors.types import switch_capable
 from osprey_connectors_tests._harness import (
     pin_identity,
@@ -94,6 +94,49 @@ def write_record(root, posture, switch=None):
     write_payload(path, payload)
     posture_store.invalidate_cache()
     return path
+
+
+#: Every stdlib-only hook that restates the read-only run, and the names it
+#: spells the variable and its sandboxing value with. The hooks cannot import
+#: ``osprey_connectors``, so each holds its own copy; these are the copies.
+READ_ONLY_RESTATEMENTS = [
+    ("osprey_target_state", "EXECUTION_MODE_ENV_VAR", "SANDBOX_MODE"),
+    ("osprey_writes_check", "EXECUTION_MODE_ENV_VAR", "SANDBOX_MODE"),
+    ("osprey_hook_log", "EXECUTION_MODE_ENV", "READONLY_MODE"),
+]
+
+
+@pytest.mark.parametrize(
+    ("hook", "variable", "value"),
+    READ_ONLY_RESTATEMENTS,
+    ids=[r[0] for r in READ_ONLY_RESTATEMENTS],
+)
+def test_every_hook_spells_the_read_only_run_as_posture_env_does(
+    hook_module, hook, variable, value
+):
+    """The variable and the value are the wire contract; a renamed one sandboxes nobody.
+
+    :mod:`osprey_connectors.posture_env` owns them. A hook whose copy drifted
+    would read an ordinary run as read-only, or a read-only run as writable,
+    with nothing else noticing.
+    """
+    # The target-state reader is a library sibling rather than a hook entry
+    # point, so it is imported as a module here rather than through the seam.
+    module = reader if hook == "osprey_target_state" else hook_module(hook)
+
+    assert getattr(module, variable) == posture_env.POSTURE_ENV_VAR
+    assert getattr(module, value) == posture_env.SANDBOX_MODE
+
+
+@pytest.mark.parametrize("raw", [None, "", "readonly", "readwrite", "READONLY", " readonly"])
+def test_the_hook_answers_is_readonly_run_as_posture_env_does(monkeypatch, raw):
+    """A value comparison on both sides, never presence: garbage sandboxes nothing."""
+    if raw is None:
+        monkeypatch.delenv(posture_env.POSTURE_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(posture_env.POSTURE_ENV_VAR, raw)
+
+    assert reader.is_readonly_run() is posture_env.is_readonly_run()
 
 
 def test_a_blank_session_key_is_no_session_key(stamped_root, monkeypatch):

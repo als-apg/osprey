@@ -41,10 +41,9 @@ def format_use_when(applies_when: list[str]) -> str:
 
     if len(readable) == 1:
         return readable[0].capitalize()
-    elif len(readable) == 2:
+    if len(readable) == 2:
         return f"{readable[0].capitalize()} or {readable[1]}"
-    else:
-        return f"{', '.join(readable[:-1]).capitalize()}, or {readable[-1]}"
+    return f"{', '.join(readable[:-1]).capitalize()}, or {readable[-1]}"
 
 
 def parse_workflow_file(filepath: Path) -> dict[str, Any]:
@@ -280,9 +279,11 @@ class WorkflowListDirective(SphinxDirective):
         for wf_path in workflow_files:
             data = parse_workflow_file(wf_path)
             # Filter by category if specified
-            if "category" in self.options:
-                if data["metadata"].get("category") != self.options["category"]:
-                    continue
+            if (
+                "category" in self.options
+                and data["metadata"].get("category") != self.options["category"]
+            ):
+                continue
             workflows.append(data)
 
         # Build output

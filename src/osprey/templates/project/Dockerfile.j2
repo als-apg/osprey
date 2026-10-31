@@ -7,14 +7,7 @@
 #   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
 # Run from the deployment repo root (secrets at runtime — no .env ever enters
 # the image):
-#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env \
-#     --env-file .env.telemetry-sender.<deployment.host_identity> {{ project_name }}
-# The second --env-file is the sender login `osprey build` minted for
-# deployment.host_identity; with gateway telemetry on, `osprey web` refuses to
-# start without it. With gateway telemetry off, drop the second --env-file.
-# Records reach the gateway only while the deployment's gateway runs
-# (`osprey up`) and the container uses `--network host` in place of `-p`: a
-# container started this way sends to the gateway's loopback publish.
+#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
 # re-renders any drifted Claude Code artifact, restores the operator's owned
@@ -317,7 +310,7 @@ COPY . /app/{{ project_name }}/
 # first, by the first write for the others — which that user then cannot write
 # to. Creating them before the chown below is what makes them writable.
 #
-#   var/agent_data/api_calls        must name the same directory as config.yml's
+#   var/agent_data                  must name the same directory as config.yml's
 #                                   `agent_data.base_dir`; the agent-data volume
 #                                   mounts here.
 #   var/agent_data/config-backups   every config write copies the file here
@@ -325,19 +318,23 @@ COPY . /app/{{ project_name }}/
 #                                   CONFIG_BACKUP_DIRNAME). Not writable, and
 #                                   the admin Config panel's save fails without
 #                                   a byte being written.
-#   var/audit                       the protected-write refusal log
-#                                   (workspace.AUDIT_DIR_RELPATH). A refusal
-#                                   nobody can record is a refusal only the
-#                                   agent's own transcript ever saw.
-RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
+#   var/spool                       the agent-record spool every source
+#                                   appends to (workspace.SPOOL_DIR_RELPATH);
+#                                   a container binds its own identity's
+#                                   directory under it.
+#   var/state                       per-container state the host reads
+#                                   (workspace.STATE_DIR_RELPATH), one
+#                                   identity directory per container.
+RUN mkdir -p /app/{{ project_name }}/var/agent_data \
              /app/{{ project_name }}/var/agent_data/config-backups \
-             /app/{{ project_name }}/var/audit
+             /app/{{ project_name }}/var/spool \
+             /app/{{ project_name }}/var/state
 
 # The privilege split.
 #
 # The agent runs as `osprey` (Claude Code refuses bypassPermissions mode as
 # root), and that user owns exactly the mutable state: `var/` — agent data,
-# audit log, config backups — plus the facility-knowledge bundle it drafts
+# spool, state, config backups — plus the facility-knowledge bundle it drafts
 # concepts into. Everything else stays root-owned, and the render in `build/`
 # is the part that matters: `config.yml`, `.mcp.json` and the `.claude/`
 # artifacts are the files that decide what the agent may do, so an agent that

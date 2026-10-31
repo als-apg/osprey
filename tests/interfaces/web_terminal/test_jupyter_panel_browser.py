@@ -76,20 +76,19 @@ import pytest
 import requests
 import yaml
 
+from osprey.interfaces._serving import run_app_server
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
-from tests.interfaces.web_terminal.test_logout_resume_browser import _nginx_stand_in
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app, hub_server
+from tests.interfaces.web_terminal._control_context import read_record
 
-# The control-target render, the chip's selectors and the waits are the sibling
-# browser suite's, imported rather than restated: two suites disagreeing about
+# The control-target render, the chip's selectors and the waits are the chip
+# suites' own, imported rather than restated: two suites disagreeing about
 # what a switchable deployment looks like is exactly the drift this feature
 # exists to remove.
-from tests.interfaces.web_terminal.test_posture_toggle_browser import (
-    _LONG_LIVED_SHELL,
+from tests.interfaces.web_terminal._posture_chip import (
     ACTIVE_TARGET,
     CHIP,
     MODAL_CONFIRM,
@@ -101,10 +100,11 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     RECORD_GENERATION,
     SWITCH_TARGET,
     TIMEOUT,
-    _reachability_sweep,
-    _reset_process_memos,
-    _write_config,
+    reachability_sweep,
+    reset_process_memos,
+    write_config,
 )
+from tests.interfaces.web_terminal._user_terminal import nginx_stand_in
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -206,25 +206,8 @@ def _live_server(workspace_dir: Path):
     Yields:
         ``(base_url, app)`` — the live server address and the FastAPI app.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts", "jupyter"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url, app
+    with hub_server(workspace_dir, enabled_panels={"artifacts", "jupyter"}) as served:
+        yield served
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +492,7 @@ def _control_target_lab(
     one process, which is what the two lanes below need and what neither file
     has on its own:
 
-    * the three-target render comes from ``_write_config`` — imported, so the
+    * the three-target render comes from ``write_config`` — imported, so the
       roster the Lab bar shows is the same roster the hub's own chip shows;
     * ``agent_data.base_dir`` is pointed INTO *tmp_path* in that same config,
       rather than by patching a resolver. Everything downstream of this process
@@ -553,7 +536,7 @@ def _control_target_lab(
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
 
-    config = _write_config(tmp_path / "config.yml")
+    config = write_config(tmp_path / "config.yml")
     document = yaml.safe_load(config.read_text(encoding="utf-8"))
     document["agent_data"] = {"base_dir": str(root)}
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
@@ -572,42 +555,30 @@ def _control_target_lab(
     for name, text in (notebook_files or {}).items():
         (notebooks / name).write_text(text, encoding="utf-8")
 
-    _reset_process_memos()
+    reset_process_memos()
     write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
 
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts", "jupyter"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
-            ".snapshot_session_ids",
-            side_effect=lambda *_args, **_kwargs: set(),
-        ),
-    ]
     try:
-        with _apply_all(patches):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
+        with hub_app(
+            workspace,
+            patch(
+                "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
+                ".snapshot_session_ids",
+                side_effect=lambda *_args, **_kwargs: set(),
+            ),
+            enabled_panels={"artifacts", "jupyter"},
+            shell_command=LONG_LIVED_SHELL,
+            config_path=config,
+        ) as app:
             if terminal_user:
                 prefix = f"/u/{terminal_user}"
-                with _run_app_server(_nginx_stand_in(app, prefix)) as server_url:
+                with run_app_server(nginx_stand_in(app, prefix)) as server_url:
                     yield f"{server_url}{prefix}", app, root
             else:
-                with _run_app_server(app) as base_url:
+                with run_app_server(app) as base_url:
                     yield base_url, app, root
     finally:
-        _reset_process_memos()
+        reset_process_memos()
 
 
 def _restart_the_kernel_from_the_notebook(page: Page) -> None:
@@ -670,14 +641,8 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
         applied_target=applied_target,
         applied_generation=applied_generation,
         children=[4242],
-        reachability=_reachability_sweep(),
+        reachability=reachability_sweep(),
     )
-
-
-def _record() -> Any:
-    """The deployment's control-context record, re-read from disk."""
-    control_context.invalidate_cache()
-    return control_context.read_record()
 
 
 def _standalone_notebook(browser, base_url: str) -> Page:
@@ -822,7 +787,7 @@ def test_a_popped_out_notebook_follows_a_switch_made_from_its_own_bar(
 
             _switch_from_the_lab_bar(notebook, SWITCH_TARGET)
 
-            moved = _record()
+            moved = read_record()
             assert moved is not None, "the switch left no record"
             assert moved.target == SWITCH_TARGET, moved
             assert moved.generation == RECORD_GENERATION + 1, moved
@@ -1018,7 +983,7 @@ def _violations(page: Page) -> list[dict]:
 
 def _switch_of(target: str) -> str | None:
     """The record's writes switch for *target*: ``"on"``, or ``None`` for off."""
-    record = _record()
+    record = read_record()
     assert record is not None, "the deployment has no control-context record"
     return dict(record.switch or {}).get(target)
 

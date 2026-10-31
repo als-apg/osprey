@@ -4,13 +4,24 @@ This provider uses LiteLLM as the backend for unified API access.
 AMSC i2 is an OpenAI-compatible proxy service for scientific computing.
 """
 
-from .litellm_adapter import check_litellm_health, execute_litellm_completion
-from .litellm_delegating import LiteLLMDelegatingProvider
+from .litellm_adapter import (
+    check_litellm_embedding_health,
+    check_litellm_health,
+    execute_litellm_completion,
+    execute_litellm_embedding,
+)
+from .litellm_delegating import LiteLLMEmbeddingDelegatingProvider
 
-__all__ = ["AMSCI2ProviderAdapter", "check_litellm_health", "execute_litellm_completion"]
+__all__ = [
+    "AMSCI2ProviderAdapter",
+    "check_litellm_embedding_health",
+    "check_litellm_health",
+    "execute_litellm_completion",
+    "execute_litellm_embedding",
+]
 
 
-class AMSCI2ProviderAdapter(LiteLLMDelegatingProvider):
+class AMSCI2ProviderAdapter(LiteLLMEmbeddingDelegatingProvider):
     """American Science Cloud Intelligent Interfaces (AMSC i2) provider implementation using LiteLLM."""
 
     # Metadata (single source of truth)
@@ -47,4 +58,5 @@ class AMSCI2ProviderAdapter(LiteLLMDelegatingProvider):
     is_openai_compatible = True
     supports_native_structured_output = True  # proxies to models with native json_schema support
 
-    # execute_completion / check_health inherited from LiteLLMDelegatingProvider.
+    # execute_completion / check_health and the text-embedding pair are inherited
+    # from LiteLLMEmbeddingDelegatingProvider.

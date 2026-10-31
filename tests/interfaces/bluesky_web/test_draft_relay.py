@@ -12,8 +12,7 @@ needed here.
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator, Callable
+from functools import partial
 
 import httpx
 import pytest
@@ -21,41 +20,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_web import draft_relay
+from tests.interfaces.bluesky_web._relay import (
+    TWO_LANE_BRIDGE_URLS,
+    VA_BRIDGE_URL,
+    DelayedFrames,
+    build_router_app,
+    refusing_handler,
+)
 
-_BRIDGE_URL = "http://bridge.test"
-
-
-def _build_app(handler: Callable[[httpx.Request], httpx.Response]) -> FastAPI:
-    """Build a local FastAPI app with the draft-relay router mounted, backed
-    by a mock-transport client standing in for the real bridge.
-    """
-    app = FastAPI()
-    app.include_router(draft_relay.router)
-    app.state.bridge_url = _BRIDGE_URL
-    app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return app
-
-
-def _json_response(status_code: int, body: object) -> httpx.Response:
-    return httpx.Response(status_code, json=body)
-
-
-class _DelayedFrames(httpx.AsyncByteStream):
-    """An async byte stream that yields ``frames`` with ``delay`` between them.
-
-    Used to prove the SSE relay is a genuine streaming pass-through (not a
-    buffer-then-forward), without a real multi-second sleep.
-    """
-
-    def __init__(self, frames: list[bytes], delay: float = 0.05) -> None:
-        self._frames = frames
-        self._delay = delay
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        for i, frame in enumerate(self._frames):
-            if i > 0:
-                await asyncio.sleep(self._delay)
-            yield frame
+_build_app = partial(build_router_app, draft_relay.router)
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +40,8 @@ def test_get_draft_round_trips_body_and_status() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/draft"
-        return _json_response(
-            200, {"draft": {"plan_name": "grid_scan", "plan_args": {}}, "revision": 3}
+        return httpx.Response(
+            200, json={"draft": {"plan_name": "grid_scan", "plan_args": {}}, "revision": 3}
         )
 
     app = _build_app(handler)
@@ -81,7 +54,7 @@ def test_get_draft_round_trips_body_and_status() -> None:
 
 def test_get_draft_null_draft_round_trips() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(200, {"draft": None, "revision": 0})
+        return httpx.Response(200, json={"draft": None, "revision": 0})
 
     app = _build_app(handler)
     with TestClient(app) as client:
@@ -98,7 +71,9 @@ def test_patch_draft_forwards_body_verbatim() -> None:
         seen.append(request)
         assert request.method == "PATCH"
         assert request.url.path == "/draft"
-        return _json_response(200, {"revision": 4, "changed": ["readbacks"], "plan_name": "orm"})
+        return httpx.Response(
+            200, json={"revision": 4, "changed": ["readbacks"], "plan_name": "orm"}
+        )
 
     payload = {
         "plan_args_patch": {"readbacks": ["bpm1"]},
@@ -118,7 +93,7 @@ def test_patch_draft_forwards_body_verbatim() -> None:
 
 def test_patch_draft_no_op_response_round_trips() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(200, {"revision": 4, "changed": [], "plan_name": "orm"})
+        return httpx.Response(200, json={"revision": 4, "changed": [], "plan_name": "orm"})
 
     app = _build_app(handler)
     with TestClient(app) as client:
@@ -132,7 +107,7 @@ def test_delete_draft_round_trips() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "DELETE"
         assert request.url.path == "/draft"
-        return _json_response(200, {"revision": 5, "changed": [], "plan_name": None})
+        return httpx.Response(200, json={"revision": 5, "changed": [], "plan_name": None})
 
     app = _build_app(handler)
     with TestClient(app) as client:
@@ -152,7 +127,7 @@ def test_patch_draft_forwards_query_params() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return _json_response(200, {"revision": 1, "changed": [], "plan_name": "orm"})
+        return httpx.Response(200, json={"revision": 1, "changed": [], "plan_name": "orm"})
 
     app = _build_app(handler)
     with TestClient(app) as client:
@@ -167,60 +142,39 @@ def test_patch_draft_forwards_query_params() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_patch_draft_no_draft_409_passes_through_verbatim() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(409, {"code": "no_draft"})
-
-    app = _build_app(handler)
+@pytest.mark.parametrize(
+    ("patch", "status", "body"),
+    [
+        pytest.param(
+            {"plan_args_patch": {}, "client_id": "tab-1"}, 409, {"code": "no_draft"}, id="no-draft"
+        ),
+        pytest.param(
+            {"expected_plan_name": "orm", "client_id": "tab-1"},
+            409,
+            {"detail": "expected_plan_name mismatch"},
+            id="expected-plan-name-mismatch",
+        ),
+        pytest.param(
+            {"plan_args_patch": {"readbacks": []}, "client_id": "tab-1"},
+            422,
+            {"detail": [{"loc": ["readbacks"], "msg": "min_length", "type": "value_error"}]},
+            id="field-validation",
+        ),
+        pytest.param(
+            {"plan_name": "nope", "client_id": "tab-1"},
+            422,
+            {"detail": "unknown plan"},
+            id="unknown-plan-name",
+        ),
+    ],
+)
+def test_patch_draft_refusal_passes_through_verbatim(patch: dict, status: int, body: dict) -> None:
+    app = _build_app(lambda _request: httpx.Response(status, json=body))
     with TestClient(app) as client:
-        response = client.patch("/draft", json={"plan_args_patch": {}, "client_id": "tab-1"})
+        response = client.patch("/draft", json=patch)
 
-    assert response.status_code == 409
-    assert response.json() == {"code": "no_draft"}
-
-
-def test_patch_draft_expected_plan_name_mismatch_409_passes_through() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(409, {"detail": "expected_plan_name mismatch"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.patch(
-            "/draft",
-            json={"expected_plan_name": "orm", "client_id": "tab-1"},
-        )
-
-    assert response.status_code == 409
-    assert response.json() == {"detail": "expected_plan_name mismatch"}
-
-
-def test_patch_draft_field_validation_422_passes_through() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(
-            422, {"detail": [{"loc": ["readbacks"], "msg": "min_length", "type": "value_error"}]}
-        )
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.patch(
-            "/draft",
-            json={"plan_args_patch": {"readbacks": []}, "client_id": "tab-1"},
-        )
-
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["msg"] == "min_length"
-
-
-def test_patch_draft_unknown_plan_name_422_passes_through() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return _json_response(422, {"detail": "unknown plan"})
-
-    app = _build_app(handler)
-    with TestClient(app) as client:
-        response = client.patch("/draft", json={"plan_name": "nope", "client_id": "tab-1"})
-
-    assert response.status_code == 422
-    assert response.json() == {"detail": "unknown plan"}
+    assert response.status_code == status
+    assert response.json() == body
 
 
 # ---------------------------------------------------------------------------
@@ -228,41 +182,19 @@ def test_patch_draft_unknown_plan_name_422_passes_through() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _refusing_handler(request: httpx.Request) -> httpx.Response:
-    raise httpx.ConnectError("connection refused", request=request)
-
-
-def test_get_draft_bridge_unreachable_returns_502() -> None:
-    app = _build_app(_refusing_handler)
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        pytest.param("GET", "/draft", None, id="get"),
+        pytest.param("PATCH", "/draft", {"client_id": "tab-1"}, id="patch"),
+        pytest.param("DELETE", "/draft", None, id="delete"),
+        pytest.param("GET", "/draft/events", None, id="events"),
+    ],
+)
+def test_draft_bridge_unreachable_returns_502(method: str, path: str, payload: dict | None) -> None:
+    app = _build_app(refusing_handler)
     with TestClient(app) as client:
-        response = client.get("/draft")
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
-
-
-def test_patch_draft_bridge_unreachable_returns_502() -> None:
-    app = _build_app(_refusing_handler)
-    with TestClient(app) as client:
-        response = client.patch("/draft", json={"client_id": "tab-1"})
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
-
-
-def test_delete_draft_bridge_unreachable_returns_502() -> None:
-    app = _build_app(_refusing_handler)
-    with TestClient(app) as client:
-        response = client.delete("/draft")
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
-
-
-def test_draft_events_bridge_unreachable_returns_502() -> None:
-    app = _build_app(_refusing_handler)
-    with TestClient(app) as client:
-        response = client.get("/draft/events")
+        response = client.request(method, path, json=payload)
 
     assert response.status_code == 502
     assert response.json() == {"detail": "bluesky bridge unreachable"}
@@ -281,7 +213,7 @@ def test_draft_events_streams_multiple_frames_incl_delayed_second_frame() -> Non
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            stream=_DelayedFrames(frames),
+            stream=DelayedFrames(frames),
         )
 
     app = _build_app(handler)
@@ -301,7 +233,7 @@ def test_draft_events_disables_read_timeout() -> None:
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            stream=_DelayedFrames([b"data: 1\n\n"]),
+            stream=DelayedFrames([b"data: 1\n\n"]),
         )
 
     app = _build_app(handler)
@@ -325,7 +257,7 @@ def test_draft_events_strips_hop_by_hop_headers() -> None:
                 "transfer-encoding": "chunked",
                 "x-custom-marker": "present",
             },
-            stream=_DelayedFrames([b"data: 1\n\n"]),
+            stream=DelayedFrames([b"data: 1\n\n"]),
         )
 
     app = _build_app(handler)
@@ -343,7 +275,7 @@ def test_draft_events_strips_hop_by_hop_headers() -> None:
 def test_draft_events_relays_non_200_status() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            503, headers={"content-type": "text/event-stream"}, stream=_DelayedFrames([])
+            503, headers={"content-type": "text/event-stream"}, stream=DelayedFrames([])
         )
 
     app = _build_app(handler)
@@ -374,8 +306,6 @@ def test_all_verbs_present_on_draft_path(path: str) -> None:
 # an operator (and hand the enqueue path) a plan composed for a different
 # machine.
 
-_VA_BRIDGE_URL = "http://bridge-va.test"
-
 
 def _two_lane_recording_app() -> tuple[FastAPI, list[httpx.Request]]:
     seen: list[httpx.Request] = []
@@ -385,7 +315,7 @@ def _two_lane_recording_app() -> tuple[FastAPI, list[httpx.Request]]:
         return httpx.Response(200, json={"draft": None, "revision": 0})
 
     app = _build_app(handler)
-    app.state.bridge_urls = {"bluesky": _BRIDGE_URL, "bluesky_va": _VA_BRIDGE_URL}
+    app.state.bridge_urls = TWO_LANE_BRIDGE_URLS
     return app, seen
 
 
@@ -395,7 +325,7 @@ def test_a_draft_read_addressed_to_a_lane_reaches_that_lanes_bridge() -> None:
         response = client.get("/draft?lane=bluesky_va")
 
     assert response.status_code == 200
-    assert str(seen[0].url).startswith(_VA_BRIDGE_URL)
+    assert str(seen[0].url).startswith(VA_BRIDGE_URL)
 
 
 def test_a_draft_patch_keeps_its_own_params_and_sheds_the_lane() -> None:
@@ -409,7 +339,7 @@ def test_a_draft_patch_keeps_its_own_params_and_sheds_the_lane() -> None:
         )
 
     assert response.status_code == 200
-    assert str(seen[0].url).startswith(_VA_BRIDGE_URL)
+    assert str(seen[0].url).startswith(VA_BRIDGE_URL)
     assert seen[0].url.params.get("client_id") == "abc"
     assert "lane" not in seen[0].url.params
 
@@ -447,12 +377,12 @@ def test_draft_events_streams_from_the_named_lanes_bridge() -> None:
         )
 
     app = _build_app(handler)
-    app.state.bridge_urls = {"bluesky": _BRIDGE_URL, "bluesky_va": _VA_BRIDGE_URL}
+    app.state.bridge_urls = TWO_LANE_BRIDGE_URLS
     with TestClient(app) as client:
         response = client.get("/draft/events?lane=bluesky_va")
 
     assert response.status_code == 200
-    assert str(seen[0].url) == f"{_VA_BRIDGE_URL}/draft/events"
+    assert str(seen[0].url) == f"{VA_BRIDGE_URL}/draft/events"
 
 
 def test_draft_events_refuses_an_unknown_lane() -> None:
