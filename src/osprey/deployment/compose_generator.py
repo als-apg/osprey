@@ -2114,11 +2114,71 @@ def _stages_runtime_config(config, source_dir):
     return dispatch_tier_name(config) is None
 
 
-#: Basenames of the service contexts whose staged ``config.yml`` carries the
-#: login→tier map: the tree-bound shared containers, which run one render for
-#: every login whose job they carry. Every other context — and every
-#: terminal-served, image and root render — carries none.
-LOGIN_TIERS_SERVICES = frozenset({"bluesky", "dispatch_worker"})
+# ---------------------------------------------------------------------------
+# Service roles: the one place a service's declared role is read.
+#
+# What the build stages into a container is decided by what the container
+# declares, never by its name being on a list. An application declares its
+# roles on its manifest's ``Container``, and the projection carries them onto
+# ``services.<key>`` under the same field names; a bundled template declares
+# them in :data:`BUNDLED_SERVICE_ROLES`.
+# ---------------------------------------------------------------------------
+
+#: The container runs one render for every login whose job it carries and
+#: judges an owned write, so its staged ``config.yml`` carries the login→tier map.
+SERVICE_ROLE_DRIVES_TARGET = "drives_target"
+
+#: The container's compose fragment binds the staged control-identity module.
+SERVICE_ROLE_CONTROL_IDENTITY = "control_identity"
+
+#: The bundled templates' declaration of the same roles, by service key: every
+#: bluesky lane and the dispatch worker. All lanes render the one ``bluesky``
+#: directory (``osprey.cli.build_injectors._inject_bluesky``), so
+#: its basename is the first lane's key.
+BUNDLED_SERVICE_ROLES: dict[str, frozenset[str]] = {
+    key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
+    for key in (*LANE_KEYS, "dispatch_worker")
+}
+
+
+def service_role(config, service_key, role):
+    """Whether the service *service_key* declares *role*.
+
+    True iff ``services.<service_key>.<role>`` is the literal ``True`` in
+    *config*, or the bundled template declares it
+    (:data:`BUNDLED_SERVICE_ROLES`). A block that is not a mapping, or any
+    other value, is false. *config* is the deploy config the build is handed,
+    not a render context.
+
+    :param config: Deploy config.
+    :type config: dict
+    :param service_key: A ``services:`` key (for a build context, its basename).
+    :type service_key: str
+    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET` or
+        :data:`SERVICE_ROLE_CONTROL_IDENTITY`.
+    :type role: str
+    :rtype: bool
+    """
+    if role in BUNDLED_SERVICE_ROLES.get(service_key, frozenset()):
+        return True
+    services = (config or {}).get("services") if isinstance(config, Mapping) else None
+    block = services.get(service_key) if isinstance(services, Mapping) else None
+    return isinstance(block, Mapping) and block.get(role) is True
+
+
+def drives_target_services(config):
+    """Every ``services:`` key that drives the target, in ``services:`` order.
+
+    :param config: Deploy config.
+    :type config: dict
+    :rtype: list[str]
+    """
+    services = (config or {}).get("services") if isinstance(config, Mapping) else None
+    if not isinstance(services, Mapping):
+        return []
+    return [
+        str(key) for key in services if service_role(config, str(key), SERVICE_ROLE_DRIVES_TARGET)
+    ]
 
 
 def staged_login_tiers(config, layer_root=None):
@@ -2165,8 +2225,8 @@ def with_login_tiers(document, login_tiers):
 def _stage_login_tiers(config, source_dir, out_dir, login_tiers):
     """Add the login→tier map to the ``config.yml`` staged into *out_dir*.
 
-    Applies to the Bluesky context and the untiered dispatch worker's, after
-    whichever branch staged the file — the root flatten or its verbatim-copy
+    Applies to every context whose service drives the target
+    (:func:`service_role`), after whichever branch staged the file — the root flatten or its verbatim-copy
     fallback. The tiered worker's copy is not touched here: it is the tier's
     render, written by ``osprey build``. A context with no staged file is left
     alone.
@@ -2182,7 +2242,8 @@ def _stage_login_tiers(config, source_dir, out_dir, login_tiers):
     """
     if login_tiers is None:
         return
-    if os.path.basename(os.path.normpath(source_dir)) not in LOGIN_TIERS_SERVICES:
+    service_key = os.path.basename(os.path.normpath(source_dir))
+    if not service_role(config, service_key, SERVICE_ROLE_DRIVES_TARGET):
         return
     if not _stages_runtime_config(config, source_dir):
         return
@@ -2337,9 +2398,9 @@ def _inject_project_metadata(config):
     # own project.
     #
     # Either way a staged ``config.yml`` overlays the image's
-    # (``osprey_worker_stages_config``): the worker is a shared container, and
-    # the login→tier map it reads (``control_system.login_tiers``) is staged
-    # beside the render, never baked into it. Untiered, the staged file is the
+    # (``osprey_worker_stages_config``): like every container that drives the
+    # target, the worker reads the login→tier map (``control_system.login_tiers``)
+    # staged beside the render, never baked into it. Untiered, the staged file is the
     # root flatten plus the map (:func:`_stage_login_tiers`); at a tier, it is
     # the tier's container-rooted render plus the map, written by ``osprey
     # build`` once that render exists (the root flatten would carry the root's
@@ -3319,7 +3380,9 @@ def dispatch_worker_audit_identities(config):
 #:
 #: The auth sidecar is deliberately NOT here: it is rendered by the web-terminal
 #: overlay rather than from ``services/``, and provisioned on that path
-#: (``web_terminals.provision``) alongside the roster's own identities.
+#: (``web_terminals.provision``) alongside the roster's own identities. A
+#: projected service's identity comes from its block's ``audit_identity``
+#: (:func:`service_audit_identities`), not from this mapping.
 FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web"}
 
 
@@ -3359,8 +3422,12 @@ def service_audit_identities(config):
     :func:`dispatch_worker_audit_identities` (which derives one identity per
     worker) and the web overlay's per-user identities, plus the history page's
     when :func:`~osprey.agent_record.config.history_page_deployed`
-    holds. Empty when the deployment deploys none of them, so a stack without
-    them provisions nothing.
+    holds, then ``services.<key>.audit_identity`` of every deployed service
+    whose block carries one, once each: an application's containers share its
+    one identity. Each is a path segment, validated where it is provisioned
+    (:func:`spool_identity_dir`, :func:`state_identity_dir`,
+    :func:`control_target_identity_dir`). Empty when the deployment deploys
+    none of them, so a stack without them provisions nothing.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -3377,7 +3444,15 @@ def service_audit_identities(config):
     # name, so its identity follows the same predicate that renders it.
     if history_page_deployed(config):
         identities.append(HISTORY_SERVICE)
-    return identities
+    services = (config or {}).get("services") or {}
+    if isinstance(services, Mapping):
+        for key, block in services.items():
+            if str(key) not in deployed or not isinstance(block, Mapping):
+                continue
+            identity = block.get("audit_identity")
+            if isinstance(identity, str) and identity:
+                identities.append(identity)
+    return list(dict.fromkeys(identities))
 
 
 #: Filename of the marker the build writes at the root of the control-context
@@ -4491,16 +4566,11 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     return True
 
 
-#: The build contexts whose compose fragments mount the control-identity module
-#: unconditionally: the dispatch worker and every bluesky lane (all lanes render
-#: the one ``bluesky`` directory, so one staged copy serves them all).
-_CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky"})
-
 #: The directory inside a build context that holds the script and its closure.
 CONTROL_IDENTITY_DIRNAME = "control_identity"
 
 
-def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
+def _stage_control_identity_module(config, source_dir, out_dir):
     """Stage the control-identity script and its catalog closure into the contexts that bind it.
 
     The staged directory, ``<out_dir>/control_identity/``, holds exactly
@@ -4509,8 +4579,9 @@ def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
     :mod:`osprey.deployment.control_identity` source and the helper rows it
     imports beside itself, byte for byte.
 
-    For the contexts in :data:`_CONTROL_IDENTITY_SERVICES` staging is
-    mandatory: their compose fragments bind the directory unconditionally,
+    For a context whose service declares ``control_identity``
+    (:func:`service_role`) staging is mandatory: its compose fragment binds
+    the directory unconditionally,
     which is only legitimate because this function either lands it or refuses
     the render. A bind whose source is missing would make the container runtime
     create an empty directory in its place, and the service would start
@@ -4521,8 +4592,7 @@ def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
     The directory is rebuilt on every call, so an incremental rebuild never
     keeps a previous release's files.
 
-    :param config: Full project configuration dictionary (unused; the files
-        are the same for every configuration)
+    :param config: Deploy config, read for the service's roles
     :type config: dict
     :param source_dir: Service source directory being rendered
     :type source_dir: str
@@ -4540,7 +4610,7 @@ def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
         "control-identity", TemplateManager().template_root
     )
     staged_dir = os.path.join(out_dir, CONTROL_IDENTITY_DIRNAME)
-    if os.path.basename(source_dir) not in _CONTROL_IDENTITY_SERVICES:
+    if not service_role(config, os.path.basename(source_dir), SERVICE_ROLE_CONTROL_IDENTITY):
         for filename in sorted(files):
             stale_path = os.path.join(out_dir, filename)
             if not os.path.lexists(stale_path):
