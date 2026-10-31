@@ -1,11 +1,12 @@
-"""An app file may name the model its render runs; the provider stays the host's.
+"""A login file may name the model its render runs; the provider stays the host's.
 
-One build of the control-assistant exemplar, with the logbook app naming a
-model the host's provider lists and the knowledge app naming one it does not.
-The logbook render runs its own model; the knowledge render runs its id as
-written and the build warns that the provider does not list it, as it does for
-an id ``profile.yml`` names; the channel-finder app, which names none, runs the
-host's model like the deployment render does.
+One build of the control-assistant exemplar, with the logbook login (a
+``lists: own`` login ``shared:`` names) naming a model the host's provider lists
+and the knowledge login naming one it does not. The logbook render runs its own
+model; the knowledge render runs its id as written and the build warns that the
+provider does not list it, as it does for an id ``profile.yml`` names; the
+channel-finder login, which names none, runs the host's model like the
+deployment render does.
 """
 
 from __future__ import annotations
@@ -42,11 +43,11 @@ def _name_model(app: Path, model: str) -> None:
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory: pytest.TempPathFactory) -> dict:
-    """The exemplar with two apps naming a model, built once."""
+    """The exemplar with two shared logins naming a model, built once."""
     outside = tmp_path_factory.mktemp("app-model")
     repo = build_exemplar_repo(outside / EXEMPLAR_DIRNAME)
-    _name_model(repo / "apps" / "logbook.yml", LISTED)
-    _name_model(repo / "apps" / "knowledge.yml", UNLISTED)
+    _name_model(repo / "tiers" / "logbook.yml", LISTED)
+    _name_model(repo / "tiers" / "knowledge.yml", UNLISTED)
     records = _Records()
     root = logging.getLogger()
     previous_level = root.level

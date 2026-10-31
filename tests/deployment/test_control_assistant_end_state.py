@@ -36,7 +36,8 @@ from osprey.deployment.compose_generator import _dispatch_worker_corpus_mounts
 from osprey.deployment.web_terminals import env_production, render_images, roster
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.env_production import ensure_env_production
-from osprey.deployment.web_terminals.lint import lint_app_render, lint_web_terminals
+from osprey.deployment.web_terminals.lint import lint_shared_render, lint_web_terminals
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
     config_archiver_ca_bundles,
@@ -351,7 +352,7 @@ def test_open_doors_refuse_a_headless_tier(
 
 
 def test_privilege(stack: Path, served: dict[str, roster.ServedRender], open_stack: Path) -> None:
-    """An app render holds no deployment-editing door, even on a host that
+    """A shared login's render holds no deployment-editing door, even on a host that
     opens them all; the admin tier keeps what it held."""
     open_served = served_renders(_host(open_stack), strict=True)
     assert set(open_served) == SERVED
@@ -359,11 +360,11 @@ def test_privilege(stack: Path, served: dict[str, roster.ServedRender], open_sta
 
     for app in APPS:
         render = open_served[app]
-        assert render.kind == roster.RENDER_KIND_APP, app
+        assert render.kind == RENDER_KIND_SHARED, app
         app_config = _render_config(open_stack, render)
         assert tier_privileges(app_config) == (), app
         document = {"hooks": _render_hooks(open_stack, render), "config": app_config}
-        assert lint_app_render(document) == [], app
+        assert lint_shared_render(document) == [], app
 
     # The doors really are open on the host's tiers, so the app result above is
     # the composer closing them, not a host that never opened them.

@@ -1918,8 +1918,7 @@ def _report(
 #: What a layer directory's row in :func:`_entry_list` says its files are, by
 #: the kind word the directory's files are read as.
 _LAYER_ENTRY_NOTES: dict[str, str] = {
-    "tier": "access levels of your assistant",
-    "app": "separate assistants on offer",
+    "tier": "the logins of your assistant",
 }
 
 

@@ -44,8 +44,8 @@
           url: <that user's terminal origin>}`, plus an OPTIONAL `sublabel` holding
           that person's tier name, omitted when it is the same word as the user's
           name.
-        - An `apps` group is auto-populated from `modules.web_terminals.shared`:
-          one item per shared app, `{label: <the app's name:>, url: <its
+        - A `shared` group is auto-populated from `modules.web_terminals.shared`:
+          one item per shared login, `{label: <the login's name:>, url: <its
           terminal origin>}`, with no `sublabel`, and `variant: "tray"`.
         - A `links` group is an operator-supplied `{label, url}` list straight out
           of `modules.web_terminals.landing`.
@@ -75,7 +75,7 @@
 
       `variant` is optional on every group and drives presentation only. The one
       recognized value, "tray", renders that section inside an accent-edged panel
-      instead of flat on the page: it is how the caller marks the `apps` group as
+      instead of flat on the page: it is how the caller marks the `shared` group as
       a different KIND of destination — a shared app the deployment runs (a
       logbook, a knowledge base) rather than a person's login. The page then
       reads as people on top, apps below. Any other value, and the

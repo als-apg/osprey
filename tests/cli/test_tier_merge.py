@@ -118,9 +118,11 @@ def test_resolving_a_tier_does_not_mutate_the_root_or_layer(tmp_path: Path) -> N
 # ── attachment is a fact of the kind ─────────────────────────────────────────
 
 
-@pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
-def test_attachment_facts_are_set_for_tiers_and_apps(tmp_path: Path, layer: str) -> None:
-    path = _repo(tmp_path, layer, {"name": "Layer", "skills": ["write-check"]})
+@pytest.mark.parametrize("lists", ["add", "own"])
+def test_attachment_facts_are_set_for_every_login(tmp_path: Path, lists: str) -> None:
+    path = _repo(
+        tmp_path, "tiers/readonly.yml", {"name": "Layer", "lists": lists, "skills": ["write-check"]}
+    )
     raw = _resolve(path).raw
 
     assert raw["deploy_services"] is False
@@ -141,12 +143,14 @@ def test_attachment_overrides_a_nested_web_terminals_spelling_in_the_root(
     assert config["modules.web_terminals"] == {"port": 8080}
 
 
-def test_attachment_without_a_root_config_block(tmp_path: Path) -> None:
+def test_attachment_of_a_shared_login_over_a_bare_root(tmp_path: Path) -> None:
     root = {k: v for k, v in _ROOT.items() if k != "config"}
-    path = _repo(tmp_path, "apps/logbook.yml", {"name": "Logbook"}, root=root)
+    root["config"] = {"modules.web_terminals.shared": ["logbook"]}
+    path = _repo(tmp_path, "tiers/logbook.yml", {"name": "Logbook", "lists": "own"}, root=root)
     config = _resolve(path).raw["config"]
     assert config.pop("modules.web_terminals.enabled") is False
-    # What remains is only the app composer's pins: writes off, setup tool
+    assert config.pop("modules.web_terminals.shared") == ["logbook"]
+    # What remains is only the shared login's seal: writes off, setup tool
     # denied, Config panel and gallery writes off.
     assert config == {
         "control_system.writes": "never",
@@ -156,7 +160,7 @@ def test_attachment_without_a_root_config_block(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+@pytest.mark.parametrize("layer", ["tiers/readonly.yml"])
 @pytest.mark.parametrize(
     ("document", "offender"),
     [
@@ -194,14 +198,15 @@ def test_other_web_terminals_keys_in_a_tier_are_not_attachment(tmp_path: Path) -
     assert config["modules.web_terminals.enabled"] is False
 
 
-# ── exclude: refused in tiers and apps ───────────────────────────────────────
+# ── exclude: refused in every login ──────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    ("layer", "article"), [("tiers/readonly.yml", "a tier"), ("apps/logbook.yml", "an app")]
-)
-def test_exclude_in_a_tier_or_app_is_refused(tmp_path: Path, layer: str, article: str) -> None:
-    path = _repo(tmp_path, layer, {"name": "Layer", "exclude": {"skills": ["diagnose"]}})
+@pytest.mark.parametrize("lists", ["add", "own"])
+def test_exclude_in_a_login_is_refused(tmp_path: Path, lists: str) -> None:
+    layer, article = "tiers/readonly.yml", "a tier"
+    path = _repo(
+        tmp_path, layer, {"name": "Layer", "lists": lists, "exclude": {"skills": ["diagnose"]}}
+    )
     with pytest.raises(BuildProfileError) as excinfo:
         _resolve(path)
     message = str(excinfo.value)
@@ -224,7 +229,7 @@ def test_empty_exclude_in_a_tier_is_still_refused(tmp_path: Path) -> None:
         _resolve(path)
 
 
-@pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+@pytest.mark.parametrize("layer", ["tiers/readonly.yml"])
 def test_extends_in_a_layer_names_its_kind(tmp_path: Path, layer: str) -> None:
     path = _repo(tmp_path, layer, {"extends": "control-assistant"})
     with pytest.raises(BuildProfileError, match="'extends'") as excinfo:

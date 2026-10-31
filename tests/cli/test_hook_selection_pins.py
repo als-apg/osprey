@@ -19,19 +19,18 @@ import pytest
 
 from osprey.cli.build_profile import _load_preset_raw, _resolve_extends, list_presets
 from osprey.cli.build_profile_merge import render_document
-from osprey.cli.build_profile_presets import list_apps, list_tiers
-from osprey.cli.profile_root import ProfileKind
+from osprey.cli.build_profile_presets import list_tiers
 
 #: The hooks that read write posture, spelled as a profile selects them.
 WRITE_GATES = ("approval", "writes-check")
 
-#: The root preset whose ``osprey init`` scaffolds the bundled tiers and apps.
+#: The root preset whose ``osprey init`` scaffolds the bundled logins.
 LAYER_HOST = "control-assistant"
 
-#: Layer directory -> the kind its files render as.
-LAYER_KINDS = {"tiers": ProfileKind.TIER, "apps": ProfileKind.APP}
+#: The directory a bundled login lives in.
+LAYER_KINDS = ("tiers",)
 
-#: preset, tier or app name -> the write gates its RESOLVED hook list carries,
+#: preset or login name -> the write gates its RESOLVED hook list carries,
 #: sorted.
 #:
 #: Resolved rather than raw, deliberately: what matters is what a facility ends
@@ -44,33 +43,29 @@ PINNED_PRESET_WRITE_GATES: dict[str, tuple[str, ...]] = {
     "tiers/admin": ("approval", "writes-check"),
     "tiers/readonly": ("approval", "writes-check"),
     "tiers/readwrite": ("approval", "writes-check"),
-    "apps/channel-finder": ("approval", "writes-check"),
-    "apps/knowledge": ("approval", "writes-check"),
-    "apps/logbook": ("approval", "writes-check"),
+    "tiers/channel-finder": ("approval", "writes-check"),
+    "tiers/knowledge": ("approval", "writes-check"),
+    "tiers/logbook": ("approval", "writes-check"),
 }
 
 
 def _bundled_names() -> list[str]:
-    """Every bundled root preset, then every tier and app as ``<kind>/<stem>``."""
-    return (
-        list_presets()
-        + [f"tiers/{name}" for name in list_tiers()]
-        + [f"apps/{name}" for name in list_apps()]
-    )
+    """Every bundled root preset, then every login as ``tiers/<stem>``."""
+    return list_presets() + [f"tiers/{name}" for name in list_tiers()]
 
 
 def _resolved_document(preset: str) -> dict:
     """The profile document a facility gets from ``preset``.
 
-    A root preset with ``extends`` applied; a tier or app as the render it
-    makes inside :data:`LAYER_HOST`.
+    A root preset with ``extends`` applied; a login as the render it makes
+    inside :data:`LAYER_HOST`.
     """
     raw, path = _load_preset_raw(preset)
     directory, _, _stem = preset.partition("/")
     if directory in LAYER_KINDS:
         host_raw, host_path = _load_preset_raw(LAYER_HOST)
         host = _resolve_extends(host_raw, host_path)
-        return render_document(LAYER_KINDS[directory], host, raw, f"{preset}.yml")
+        return render_document(host, raw, f"{preset}.yml")
     return _resolve_extends(raw, path)
 
 
@@ -139,11 +134,11 @@ PINNED_PRESET_HOOK_FILES: dict[str, frozenset[str]] = {
     "tiers/admin": _CONTROL_ASSISTANT_HOOK_FILES,
     "tiers/readonly": _CONTROL_ASSISTANT_HOOK_FILES,
     "tiers/readwrite": _CONTROL_ASSISTANT_HOOK_FILES,
-    # An app carries every guard its host selects (``limits`` among them),
-    # whatever its own list says.
-    "apps/channel-finder": _CONTROL_ASSISTANT_HOOK_FILES,
-    "apps/knowledge": _CONTROL_ASSISTANT_HOOK_FILES,
-    "apps/logbook": _CONTROL_ASSISTANT_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
+    # A `lists: own` login carries every guard its host selects (``limits``
+    # among them), whatever its own list says.
+    "tiers/channel-finder": _CONTROL_ASSISTANT_HOOK_FILES,
+    "tiers/knowledge": _CONTROL_ASSISTANT_HOOK_FILES,
+    "tiers/logbook": _CONTROL_ASSISTANT_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
 }
 
 

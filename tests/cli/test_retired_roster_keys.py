@@ -54,7 +54,7 @@ from osprey.port_layout import default_port
 from osprey.utils.config_writer import config_update_fields
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 _LOGGER_NAME = doc.__name__
 _REMEDY = "run `osprey init --revalidate`"
@@ -517,7 +517,7 @@ def test_no_scaffold_verb_is_named_for_the_retired_catalog() -> None:
         importlib.import_module(f"osprey.cli.scaffold_{RETIRED_CATALOG_KEY}")
 
 
-@pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+@pytest.mark.parametrize("layer", ["tiers/readonly.yml", "tiers/logbook.yml"])
 def test_extends_in_a_layer_is_refused_without_the_retired_tier_word(
     tmp_path: Path, layer: str
 ) -> None:
@@ -593,14 +593,14 @@ def _render_repo(tmp_path: Path) -> Path:
     (repo / "profile.yml").write_text(
         f"name: Demo\nproject_name: {_PROJECT}\ndata: data\n", encoding="utf-8"
     )
-    for layer in ("tiers/readonly.yml", "apps/logbook.yml"):
+    for layer in ("tiers/readonly.yml", "tiers/logbook.yml"):
         (repo / layer).parent.mkdir(exist_ok=True)
         (repo / layer).write_text(f"name: {Path(layer).stem}\n", encoding="utf-8")
     return repo
 
 
 def _verify_refusal(repo: Path, name: str, kind: str, project_path: Path) -> str:
-    # The roster serves the render: a card on the tier, or the shared app.
+    # The roster serves the render: a card on the tier, or the shared login.
     roster = (
         {"shared": [name]}
         if kind == "app"
@@ -613,7 +613,7 @@ def _verify_refusal(repo: Path, name: str, kind: str, project_path: Path) -> str
                 **roster,
                 "renders": {
                     name: {
-                        "kind": kind,
+                        "kind": "tier",
                         "project": f"{_PROJECT}-{name}",
                         "project_path": str(project_path),
                     }
@@ -635,7 +635,7 @@ def test_an_absent_render_is_explained_without_the_retired_tier_word(
     message = _verify_refusal(repo, name, kind, tmp_path / "gone" / f"{_PROJECT}-{name}")
 
     assert "osprey build" in message
-    assert f"{kind}s/{name}.yml" in message
+    assert f"tiers/{name}.yml" in message
     assert RETIRED_TIER_KEY not in message.lower()
 
 
@@ -672,8 +672,8 @@ def _lint_config(**web_terminals: object) -> dict:
         **web_terminals,
     }
     subtree["renders"] = {
-        "logbook": app_render("logbook", "demo-logbook"),
-        "knowledge": app_render("knowledge", "demo-knowledge"),
+        "logbook": tier_render("logbook", "demo-logbook"),
+        "knowledge": tier_render("knowledge", "demo-knowledge"),
         **subtree.get("renders", {}),
     }
     return {

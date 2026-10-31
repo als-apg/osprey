@@ -40,9 +40,9 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
 )
 from osprey.deployment.web_terminals.roster import (
-    app_titles_in,
     as_dict,
     launch_token_writes_key,
+    login_titles_in,
     referenced_render_project_dirs,
     rendered_configs,
     renders_needing_archiver_ca_bundles,
@@ -837,9 +837,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     were provisioned with; the roster's operator secrets; and which proxy
     settings hold a value where compose will read them (this process's
     environment, then the chain); and the facility's display name, from the
-    build's facility identity; and each shared app's title, the top-level
-    ``name:`` of its ``apps/<name>.yml``, which titles the app's landing card,
-    browser tab and sign-in chooser entry.
+    build's facility identity; and each shared login's title, the top-level
+    ``name:`` of its ``tiers/<name>.yml``, which titles the card's landing
+    entry, browser tab and sign-in chooser entry.
 
     The one seam between "what is on disk" and "what the render is told", so a
     test that wants the render the deploy actually produces asks this rather
@@ -873,7 +873,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         shared_corpus_gid,
     )
     from osprey.utils.facility import facility_name
-    from osprey.utils.workspace import APPS_DIRNAME
+    from osprey.utils.workspace import TIERS_DIRNAME
 
     root = Path(repo_root)
     launch_token_renders_by_lane = check_bash_launch_token_conflict(config, root)
@@ -918,7 +918,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "facility_name": facility_name(
             web_artifacts_dir(root), as_dict(config).get("project_name")
         ),
-        "app_titles": app_titles_in(root / APPS_DIRNAME),
+        "shared_titles": login_titles_in(root / TIERS_DIRNAME),
     }
 
 

@@ -98,15 +98,12 @@ def _bundled_layers() -> list[str]:
     Derived rather than listed, so a tier or app added later is covered the
     day it ships.
     """
-    return [f"tiers/{name}.yml" for name in build_profile_presets.list_tiers()] + [
-        f"apps/{name}.yml" for name in build_profile_presets.list_apps()
-    ]
+    return [f"tiers/{name}.yml" for name in build_profile_presets.list_tiers()]
 
 
 def test_the_bundled_layers_are_discoverable() -> None:
     """Guards the parametrization below from passing vacuously."""
     assert build_profile_presets.list_tiers()
-    assert build_profile_presets.list_apps()
 
 
 @pytest.fixture(scope="module")

@@ -396,17 +396,15 @@ class TestBuildIntegration:
     def test_a_variant_that_adds_a_service_overlays_the_deployment_not_the_layers(
         self, variant_repo: Path
     ) -> None:
-        """A variant's ``services:`` is the deployment's, never a tier's or an app's.
+        """A variant's ``services:`` is the deployment's, never a login's.
 
-        The overlay lays over ``profile.yml``; each tier and app render sees it
+        The overlay lays over ``profile.yml``; each login render sees it
         through that root and is then attached, so it runs no service of its
         own. Before, the overlay was merged into each layer FILE, and every
-        tier and app was refused for a ``services:`` key it never spelled.
+        login was refused for a ``services:`` key it never spelled.
         """
-        layers = sorted((variant_repo / TIERS_DIRNAME).glob("*.yml")) + sorted(
-            (variant_repo / "apps").glob("*.yml")
-        )
-        assert layers, "the exemplar repo carries tiers and apps"
+        layers = sorted((variant_repo / TIERS_DIRNAME).glob("*.yml"))
+        assert layers, "the exemplar repo carries logins"
         _write_variant(variant_repo, "armed", SERVICE_OVERLAY)
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=armed\n")
 
@@ -616,7 +614,7 @@ class TestVariantOverlaysTheDeployment:
         write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=armed\n")
         return lifecycle_repo
 
-    @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+    @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "tiers/logbook.yml"])
     def test_a_layer_resolves_attached_over_the_varied_root(
         self, armed_repo: Path, layer: str
     ) -> None:
@@ -639,10 +637,10 @@ class TestVariantOverlaysTheDeployment:
         with pytest.raises(BuildProfileError, match="tiers/readonly.yml spells 'services'"):
             resolve_build_document(tier, None, (_overlay(armed_repo, "armed"),))
 
-    def test_an_apps_own_model_outranks_a_variants(self, lifecycle_repo: Path) -> None:
-        """The variant reaches an app as host facts; the app's ``model:`` still wins."""
+    def test_a_shared_logins_own_model_outranks_a_variants(self, lifecycle_repo: Path) -> None:
+        """The variant reaches a login as host facts; the login's ``model:`` still wins."""
         _write_variant(lifecycle_repo, "armed", SERVICE_OVERLAY + "model: claude-sonnet-5\n")
-        app = lifecycle_repo / "apps" / "logbook.yml"
+        app = lifecycle_repo / "tiers" / "logbook.yml"
         app.write_text(app.read_text(encoding="utf-8") + "\nmodel: claude-haiku-4-5\n")
         overlay = _overlay(lifecycle_repo, "armed")
 
@@ -774,11 +772,11 @@ class TestValidateHonorsTheVariant:
         assert "sets access 'any'" in merged.output
         assert "'alice'" in merged.output
 
-    @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+    @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "tiers/logbook.yml"])
     def test_a_layer_is_judged_over_the_varied_deployment(
         self, runner: CliRunner, lifecycle_repo: Path, layer: str
     ) -> None:
-        """A tier or app named directly is judged the way the build renders it:
+        """A login named directly is judged the way the build renders it:
         over its root with the host variant laid on that root. A variant that
         adds a service is the deployment's, so the layer is not refused for it.
         """

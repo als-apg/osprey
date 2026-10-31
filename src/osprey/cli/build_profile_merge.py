@@ -35,7 +35,7 @@ from .build_profile_presets import (
     resolve_triggers_path,
 )
 from .derived_keys import derived_key_errors
-from .profile_root import ProfileKind, resolve_profile_root
+from .profile_root import resolve_profile_root
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -669,7 +669,7 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
         )
 
 
-#: The kill-switch hook every app render selects, whatever its file lists.
+#: The kill-switch hook every shared login's render selects, whatever its file lists.
 _WRITES_CHECK_HOOK = "writes-check"
 
 
@@ -720,10 +720,10 @@ def _drop_config_path(config: dict[str, Any], parts: list[str]) -> dict[str, Any
 def _refuse_layer_spellings(
     layer: dict[str, Any], layer_rel: str, kind: Any, *, legacy: bool
 ) -> None:
-    """Refuse what a tier or app file may not say: subtraction, attachment, derived keys.
+    """Refuse what a login file may not say: subtraction, attachment, derived keys.
 
-    A tier adds by name, so ``exclude:`` has no meaning in it; the same holds
-    for an app, whose lists are its own. Attachment is a fact of the kind, set
+    A login adds by name, or owns its lists outright under ``lists: own``, so
+    ``exclude:`` has no meaning in it. Attachment is a fact of the kind, set
     by the resolver, so a file spelling it is either redundant or wrong. A
     file in the retired layer directory (``legacy``) keeps ``exclude:`` and may restate the
     attachment it gets anyway, but never contradict it. A ``config:`` key the
@@ -774,7 +774,7 @@ def _strip_attachment(layer: dict[str, Any]) -> dict[str, Any]:
 
 
 def _attach(merged: dict[str, Any]) -> dict[str, Any]:
-    """Set the attachment facts every tier and app render carries."""
+    """Set the attachment facts every login render carries."""
     attached = dict(merged)
     for key, forced in _ATTACHMENT_FACTS:
         attached[key] = forced.copy() if isinstance(forced, dict) else forced
@@ -789,10 +789,10 @@ def _attach(merged: dict[str, Any]) -> dict[str, Any]:
     return attached
 
 
-#: The top-level keys an app file owns outright: what the agent IS. The host's
-#: values never reach an app render, so a key the app file leaves out is
-#: absent from the render rather than inherited.
-_APP_OWNED_KEYS: tuple[str, ...] = (
+#: The top-level keys a ``lists: own`` login takes from its own file alone:
+#: what the agent IS. The host's values never reach that render, so a key the
+#: login leaves out is absent from the render rather than inherited.
+_LOGIN_OWNED_KEYS: tuple[str, ...] = (
     "name",
     "hooks",
     "rules",
@@ -805,14 +805,25 @@ _APP_OWNED_KEYS: tuple[str, ...] = (
     "channel_finder_mode",
 )
 
-#: The one top-level key an app file may set over the host's value rather than
-#: own outright: an app that names no model runs the host's.
-_APP_MODEL_KEY = "model"
+#: The top-level key a login sets over the host's value when it names one: a
+#: login that names no model, or ``model: null``, runs the host's.
+_MODEL_KEY = "model"
+
+#: The top-level keys :func:`compose_own_render` decides itself rather than
+#: laying the login's value over the host's.
+_COMPOSED_KEYS: frozenset[str] = frozenset(
+    {*_LOGIN_OWNED_KEYS, _MODEL_KEY, "mcp_servers", "config", "provenance"}
+)
+
+#: The login key that says whether its lists add to the host's or are its own.
+LISTS_KEY = "lists"
+#: The ``lists`` value of a narrow login, whose lists are its whole selection.
+LISTS_OWN = "own"
 
 _CLAUDE_CODE_SECTION = "claude_code"
 _CONTROL_SYSTEM_SECTION = "control_system"
-#: The one posture an app render holds, whatever its host or its file says.
-_APP_WRITES = "never"
+#: The one posture a shared login's render holds, whatever its host or its file says.
+_SHARED_WRITES = "never"
 
 
 def _flatten_section(config: dict[str, Any], section: str) -> dict[str, Any]:
@@ -888,7 +899,7 @@ def _is_write_switch(path: tuple[str, ...]) -> bool:
 
     The tier key ``control_system.writes`` in any spelling, and every retired
     ``control_system.*writes_enabled`` leaf (the flat one and each connector
-    type's) — an app render holds none of them but its own pin.
+    type's) — a shared login's render holds none of them but its own pin.
     """
     if not path or path[0] != _CONTROL_SYSTEM_SECTION:
         return False
@@ -903,7 +914,7 @@ def _is_deny_lift(path: tuple[str, ...]) -> bool:
 
     A lift grants the host's own render a tool its floor denies. It is a
     privilege of that render, not a fact of the deployment, so it never
-    reaches an app.
+    reaches a ``lists: own`` login.
     """
     return path[:3] == (_CLAUDE_CODE_SECTION, "permissions", "remove_deny")
 
@@ -945,7 +956,7 @@ def _pin_write_switches(config: dict[str, Any]) -> dict[str, Any]:
     Every spelling of the tier key and every retired ``writes_enabled`` leaf is
     dropped, and the tier key is set again, dotted, to ``never``. No retired
     leaf is pinned: the tier key alone states the posture, and a per-type pin
-    would keep a retired key alive in every app render. Dropping a leaf prunes
+    would keep a retired key alive in every shared render. Dropping a leaf prunes
     a connector block it was the only key of; a host's resolved profile holds
     no such block, because the normalizer has already removed its retired
     leaves (and judged the emptied block).
@@ -953,7 +964,7 @@ def _pin_write_switches(config: dict[str, Any]) -> dict[str, Any]:
     from osprey_connectors.types import WRITES_KEY
 
     pinned = _drop_write_switches(config)
-    pinned[WRITES_KEY] = _APP_WRITES
+    pinned[WRITES_KEY] = _SHARED_WRITES
     return pinned
 
 
@@ -965,9 +976,9 @@ def _pin_edit_doors(config: dict[str, Any]) -> dict[str, Any]:
     spelling dropped and is set to its closed value; the list door has its
     tool appended to the dotted list, which keeps the floor denies already
     there. The setup tool rewrites the render's own ``config.yml``, the panel
-    edits the same file and gallery writes add to what the agent reads, so an
-    app render holding any of them could change the deployment it is a guest
-    of, whatever the host or the app file set.
+    edits the same file and gallery writes add to what the agent reads, so a
+    shared login holding any of them would let everyone on the roster change
+    the deployment, whatever the host or the login file set.
     """
     from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
 
@@ -984,44 +995,79 @@ def _pin_edit_doors(config: dict[str, Any]) -> dict[str, Any]:
     return pinned
 
 
-def _judge_app_posture(app_config: dict[str, Any], app_rel: str) -> None:
-    """Refuse an app that spells ``control_system.writes: allowed``; warn about one that arms.
+def shared_login_names(host: dict[str, Any]) -> frozenset[str]:
+    """The logins the host's ``modules.web_terminals.shared`` names.
 
-    An app is always ``never``. The tier key spelled ``allowed`` in an app is
-    refused (the parse refuses it too; this is the composer's own door, for a
-    caller that hands it an unparsed document). An app on the retired
-    ``writes_enabled`` leaves that arm is pinned ``never`` as it always was,
-    and warned about once: the normalizer has already rewritten a parsed one,
-    so this fires only for an app it did not see.
+    Every roster login opens these, so each one is sealed read-only
+    (:func:`seal_shared_render`). Read from the host's resolved ``config:`` in
+    any spelling; an item that is not a non-empty string names nothing.
+
+    Args:
+        host: The host's resolved root profile.
+    """
+    from .build_profile_emit import effective_web_terminals
+
+    config = host.get("config")
+    shared = effective_web_terminals(config if isinstance(config, dict) else {}).get("shared")
+    return frozenset(
+        name
+        for name in (shared if isinstance(shared, list) else [])
+        if isinstance(name, str) and name
+    )
+
+
+def is_shared_login(host: dict[str, Any], layer_rel: str) -> bool:
+    """Whether the login at *layer_rel* is one the host's ``shared:`` names."""
+    return PurePosixPath(layer_rel).stem in shared_login_names(host)
+
+
+def _judge_shared_posture(
+    login_config: dict[str, Any], login_rel: str, login_path: Path | None
+) -> None:
+    """Refuse a shared login that spells ``control_system.writes: allowed``; warn about one that armed.
+
+    A login named by ``shared:`` is always ``never``. The tier key spelled
+    ``allowed`` in the file is refused, naming the login and ``shared:``. One
+    the parse point rewrote out of retired ``writes_enabled`` leaves (the
+    origin :func:`~osprey.cli.build_profile_document.retired_write_origin`
+    recorded for the file) is warned about once and pinned ``never``: the
+    retired keys arm nothing on a shared login. A document handed in unparsed
+    is judged on its retired leaves the same way.
     """
     from osprey_connectors.types import WRITES_KEY
 
     from .build_profile_document import retired_write_answer
 
-    if any(value == "allowed" for value in _document._tier_key_values(app_config)):
+    stem = PurePosixPath(login_rel).stem
+    rewritten = login_path is not None and retired_write_origin(login_path) is not None
+    spells_allowed = any(value == "allowed" for value in _document._tier_key_values(login_config))
+    if spells_allowed and not rewritten:
         raise BuildProfileError(
-            f"{app_rel}: an app cannot spell `{WRITES_KEY}: allowed` — an app is always "
-            f"`{WRITES_KEY}: {_APP_WRITES}`; give write access through a tier."
+            f"{login_rel}: a login named by modules.web_terminals.shared cannot spell "
+            f"`{WRITES_KEY}: allowed` — everyone on the roster opens {stem!r}, so it is "
+            f"always `{WRITES_KEY}: {_SHARED_WRITES}`. Give write access through a "
+            f"person's login, or remove {stem!r} from shared:."
         )
-    if retired_write_answer(app_config) == "allowed":
+    if spells_allowed or retired_write_answer(login_config) == "allowed":
         _warn_once(
-            app_rel,
-            "app-arms",
-            f"{app_rel}: the retired `writes_enabled` keys arm writes, but an app is always "
-            f"`{WRITES_KEY}: {_APP_WRITES}`, so this app renders `{_APP_WRITES}`. Delete the "
-            "retired keys",
+            login_rel,
+            "shared-arms",
+            f"{login_rel}: the retired `writes_enabled` keys arm nothing on a login named "
+            f"by modules.web_terminals.shared, which is always `{WRITES_KEY}: "
+            f"{_SHARED_WRITES}`, so {stem!r} renders `{_SHARED_WRITES}`. Delete the retired "
+            "keys",
         )
 
 
 def _host_guard_wiring(config: dict[str, Any]) -> dict[str, Any]:
-    """The host's hook wiring every app keeps: its guards, and nothing else.
+    """The host's hook wiring every ``lists: own`` login keeps: its guards, and nothing else.
 
     Guards are a floor, the way the host's floor denies are: a
     ``claude_code.hooks.PreToolUse`` declaration in force on the host reaches
-    every app render, inert where no tool it matches is present, so an app can
-    add a guard but never drop one by omission. A declaration on any other
-    event is the host's own; an app runs it only when its own ``config:``
-    declares it.
+    every narrow render, inert where no tool it matches is present, so a
+    login can add a guard but never drop one by omission. A declaration on any
+    other event is the host's own; a narrow login runs it only when its own
+    ``config:`` declares it.
 
     Args:
         config: The host's config facts, ``claude_code`` keys fully dotted.
@@ -1047,19 +1093,19 @@ def _host_guard_wiring(config: dict[str, Any]) -> dict[str, Any]:
     return kept
 
 
-def _guard_floor(host_hooks: Any, app_hooks: Any) -> list[Any]:
-    """The app's ``hooks:`` list with every host library guard it omits appended.
+def _guard_floor(host_hooks: Any, login_hooks: Any, *, writes_check: bool) -> list[Any]:
+    """The login's ``hooks:`` list with every host library guard it omits appended.
 
     A guard is a library hook on :data:`~osprey.cli.profile_conventions.GUARD_EVENT`
     (approval, the kill switch, limits, the memory guard). Each one the host
-    selects reaches the app as the host spells it — the deployment's
-    replacement file where the host names one — unless the app selects it
-    already, in either spelling. The kill switch is pinned whatever the host
-    says: an app render can never write.
+    selects reaches the login as the host spells it — the deployment's
+    replacement file where the host names one — unless the login selects it
+    already, in either spelling. With *writes_check*, the kill switch is
+    pinned whatever the host says: a shared login can never write.
     """
     from .profile_conventions import library_guard_hooks, library_selection
 
-    hooks = list(app_hooks) if isinstance(app_hooks, list) else []
+    hooks = list(login_hooks) if isinstance(login_hooks, list) else []
     selected = set(library_selection("hooks", hooks))
     guards = library_guard_hooks()
     for entry in host_hooks if isinstance(host_hooks, list) else []:
@@ -1067,115 +1113,119 @@ def _guard_floor(host_hooks: Any, app_hooks: Any) -> list[Any]:
         if names and names[0] in guards and names[0] not in selected:
             hooks.append(entry)
             selected.add(names[0])
-    if _WRITES_CHECK_HOOK not in selected:
+    if writes_check and _WRITES_CHECK_HOOK not in selected:
         hooks.append(_WRITES_CHECK_HOOK)
     return hooks
 
 
-def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) -> dict[str, Any]:
-    """Compose an app render from its host deployment and its complete app file.
+def _without_null_model(layer: dict[str, Any]) -> dict[str, Any]:
+    """*layer* without a ``model: null``, so the host's model runs rather than none."""
+    if _MODEL_KEY in layer and layer[_MODEL_KEY] is None:
+        return {key: value for key, value in layer.items() if key != _MODEL_KEY}
+    return layer
 
-    The app file owns what the agent is: the keys in :data:`_APP_OWNED_KEYS`
-    and :data:`~osprey.cli.build_profile_document.RENDER_KEYS` come from it alone. Its ``config:`` sits over
-    the host's facts — the host's config minus every ``claude_code.servers``
-    switch (the app states its own server set), minus every
-    ``claude_code.hooks`` declaration on an event other than ``PreToolUse``,
-    and minus every write-posture switch (:func:`_is_write_switch`);
-    ``claude_code.permissions`` is
-    kept, so the host's floor denies union with the app's own — all but the
-    host's ``remove_deny`` lifts, which grant the host's own render. The app's
-    ``mcp_servers`` declarations are added to the host's. A ``model:`` the
-    app names replaces the host's, served by the host's provider; an app that
-    names none runs the host's model. Every other top-level key, ``provider``,
-    ``provenance`` and ``data`` among them, is the host's verbatim, which is
-    what keeps the data bundle the deployment's. Nothing is
-    read from the package: the app file is a materialized, explicit copy.
+
+def compose_own_render(
+    host: dict[str, Any], login: dict[str, Any], *, shared: bool
+) -> dict[str, Any]:
+    """Compose a ``lists: own`` login's render from its host and its file.
+
+    The login owns what the agent is: every key in :data:`_LOGIN_OWNED_KEYS`
+    comes from its file alone, a key it omits being absent rather than
+    inherited. Its ``config:`` sits over the host's facts — the host's config
+    minus every ``claude_code.servers`` switch (the login states its own
+    server set), minus the host's ``remove_deny`` lifts (which grant the host's
+    own render), and minus every ``claude_code.hooks`` declaration on an event
+    other than ``PreToolUse``; ``claude_code.permissions`` is otherwise kept, so
+    the host's floor denies union with the login's own. Under *shared* the
+    host's write-posture and deployment-edit-door switches are stripped too,
+    for :func:`seal_shared_render` to pin; a non-shared narrow login keeps the
+    host's. The login's ``mcp_servers`` are added to the host's. A ``model:``
+    the login names replaces the host's, served by the host's provider. The
+    login's other keys — ``lists``, its ``apps:`` selection, ``panel_presets``
+    — lay over the host's as any login's do. Every other top-level key,
+    ``provider``, ``provenance`` and ``data`` among them, is the host's
+    verbatim, which is what keeps the services and the data
+    bundle the deployment's. The per-render keys
+    (:data:`~osprey.cli.build_profile_document.RENDER_KEYS`) are the file's,
+    read by the render projection, whatever ``lists`` says.
 
     Guards are a floor: every ``PreToolUse`` hook in force on the host — a
     library guard its ``hooks:`` selects, or a facility guard its
-    ``claude_code.hooks.PreToolUse`` declares — reaches the app whatever its
-    own list says, so an app adds guards but never drops one by omission.
-
-    Whatever either side says, the render cannot write or edit the deployment:
-    ``control_system.writes`` is pinned ``never`` and no retired
-    ``writes_enabled`` leaf is kept, every door in
-    :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS` is set
-    closed (the setup tool denied, the Config panel and gallery writes off),
-    ``writes-check`` is selected (the one guard pinned even where the host
-    selects none), and
-    :func:`~osprey.deployment.web_terminals.lint.lint_app_render` checks the
-    result before it is returned.
+    ``claude_code.hooks.PreToolUse`` declares — reaches the login whatever its
+    own list says, so a narrow login adds guards but never drops one by
+    omission.
 
     Args:
         host: The host's resolved root profile.
-        app: The app file's document, unresolved.
-        app_rel: The app file's repo-relative label, for messages.
+        login: The login file's document, unresolved.
+        shared: Whether the host's ``shared:`` names the login.
 
     Returns:
-        The composed render, before the attachment facts are set.
-
-    Raises:
-        BuildProfileError: If the app file spells ``control_system.writes:
-            allowed``, or if the composed render could still write.
+        The composed render, before it is sealed or the attachment facts are set.
     """
     render = {
         key: value
         for key, value in host.items()
-        if key not in _APP_OWNED_KEYS and key not in RENDER_KEYS and key != "config"
+        if key not in _LOGIN_OWNED_KEYS and key not in RENDER_KEYS and key != "config"
     }
-    for key in (*_APP_OWNED_KEYS, *sorted(RENDER_KEYS)):
-        if key in app:
-            render[key] = app[key]
-    # The model is the app's when it names one, else the host's; the provider
-    # that serves it is always the host's.
-    if app.get(_APP_MODEL_KEY) is not None:
-        render[_APP_MODEL_KEY] = app[_APP_MODEL_KEY]
+    for key in (*_LOGIN_OWNED_KEYS, *sorted(RENDER_KEYS)):
+        if key in login:
+            render[key] = login[key]
+    if login.get(_MODEL_KEY) is not None:
+        render[_MODEL_KEY] = login[_MODEL_KEY]
+    # The login's own selection keys (`lists`, its `apps:` choices, panel
+    # presets) lay over the host's as any login's do.
+    for key, value in login.items():
+        if key in _COMPOSED_KEYS or key in RENDER_KEYS:
+            continue
+        base = host.get(key)
+        render[key] = (
+            _deep_merge(base, value)
+            if isinstance(base, dict) and isinstance(value, dict)
+            else value
+        )
 
-    app_servers = app.get("mcp_servers")
-    if isinstance(app_servers, dict) and app_servers:
+    login_servers = login.get("mcp_servers")
+    if isinstance(login_servers, dict) and login_servers:
         host_servers = host.get("mcp_servers")
         render["mcp_servers"] = _deep_merge(
-            host_servers if isinstance(host_servers, dict) else {}, app_servers
+            host_servers if isinstance(host_servers, dict) else {}, login_servers
         )
 
     host_config = host.get("config")
     host_config = dict(host_config) if isinstance(host_config, dict) else {}
-    app_config = app.get("config")
-    app_config = dict(app_config) if isinstance(app_config, dict) else {}
+    login_config = login.get("config")
+    login_config = dict(login_config) if isinstance(login_config, dict) else {}
     host_facts = _drop_config_leaves(
         host_config,
         lambda path: (
             _is_server_switch(path)
-            or _is_write_switch(path)
             or _is_deny_lift(path)
-            or _is_edit_door_switch(path)
+            or (shared and (_is_write_switch(path) or _is_edit_door_switch(path)))
         ),
     )
-    config = _deep_merge(
+    render["config"] = _deep_merge(
         _host_guard_wiring(_flatten_section(host_facts, _CLAUDE_CODE_SECTION)),
-        _flatten_section(app_config, _CLAUDE_CODE_SECTION),
+        _flatten_section(login_config, _CLAUDE_CODE_SECTION),
     )
-    _judge_app_posture(app_config, app_rel)
-    render["config"] = config
-    # Guards are a floor: every host guard the app omits is appended, as the
-    # host spells it; the seal then pins the kill switch.
-    render["hooks"] = _guard_floor(host.get("hooks"), render.get("hooks"))
-    return seal_app_render(render, app_rel)
+    render["hooks"] = _guard_floor(host.get("hooks"), render.get("hooks"), writes_check=shared)
+    return render
 
 
-def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
-    """Pin an app render shut and check it: the composer's last step, and the edit's.
+def seal_shared_render(render: dict[str, Any], login_rel: str) -> dict[str, Any]:
+    """Pin a shared login's render shut and check it: the composition's last step, and the edit's.
 
     ``control_system.writes`` is pinned ``never`` with every retired leaf
     dropped, every deployment-edit door is closed, ``writes-check`` is
-    selected, and :func:`~osprey.deployment.web_terminals.lint.lint_app_render`
-    checks the result. A ``--set`` edit lands after the composer, so the build
-    seals an edited app render again: an app is ``never`` whatever the
-    command line says.
+    selected, and :func:`~osprey.deployment.web_terminals.lint.lint_shared_render`
+    checks the result. A ``--set`` edit lands after the composition, so the
+    build seals an edited shared render again: a login named by ``shared:`` is
+    ``never`` whatever the command line says.
 
     Args:
-        render: The app render, composed or edited.
-        app_rel: The app file's repo-relative label, for messages.
+        render: The shared login's render, composed or edited.
+        login_rel: The login file's repo-relative label, for messages.
 
     Returns:
         ``render`` with its ``config`` and ``hooks`` pinned.
@@ -1188,15 +1238,15 @@ def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
     config = dict(config) if isinstance(config, dict) else {}
     render["config"] = _pin_edit_doors(_pin_write_switches(config))
 
-    # The kill switch is pinned whatever the list says, in either spelling: an
-    # app render can never write. The host floor was applied by the composer.
-    render["hooks"] = _guard_floor((), render.get("hooks"))
+    # The kill switch is pinned whatever the list says, in either spelling: a
+    # shared render can never write. The host floor was applied by the composer.
+    render["hooks"] = _guard_floor((), render.get("hooks"), writes_check=True)
 
-    from osprey.deployment.web_terminals.lint import lint_app_render
+    from osprey.deployment.web_terminals.lint import lint_shared_render
 
-    findings = lint_app_render(render)
+    findings = lint_shared_render(render)
     if findings:
-        raise BuildProfileError(f"{app_rel}: {findings[0].message}")
+        raise BuildProfileError(f"{login_rel}: {findings[0].message}")
     return render
 
 
@@ -1465,7 +1515,6 @@ def _refuse_unlisted_selection(
 
 
 def render_document(
-    kind: ProfileKind,
     host_resolved: dict[str, Any],
     layer: dict[str, Any],
     layer_rel: str,
@@ -1477,25 +1526,31 @@ def render_document(
     layer_path: Path | None = None,
     warn: bool = True,
 ) -> dict[str, Any]:
-    """The profile document one layer renders from, decided by its kind.
+    """The profile document one login renders from.
 
-    The one answer to "what does this tier or app render": init, lint and the
-    build each read a render's privileges off this document, so none of them
-    can judge an app as the tier merge it never is.
+    The one answer to "what does this login render": init, lint and the build
+    each read a render's privileges off this document, so none of them can
+    judge a narrow or shared login as a plain merge it never is.
 
     * ``legacy`` — a file in the retired layer directory keeps its old
       meaning, ``exclude:`` included, for the one release it is still read
       (``osprey init --revalidate`` rewrites it into ``tiers/``);
-    * an app is composed from the host and its complete file
-      (:func:`compose_app_render`);
-    * a tier is merged over the host.
+    * a ``lists: own`` login is composed from the host and its file
+      (:func:`compose_own_render`);
+    * every other login is merged over the host, a ``model: null`` dropped
+      first so the host's model runs.
+
+    A login the host's ``modules.web_terminals.shared`` names is then judged
+    (:func:`_judge_shared_posture`) and sealed (:func:`seal_shared_render`):
+    everyone on the roster opens it, so it never writes or edits the
+    deployment. Every other login is judged on its retired posture leaves
+    (:func:`judge_retired_posture`).
 
     Args:
-        kind: The layer's kind.
-        host_resolved: The host's resolved root profile (only its ``config``,
-            ``hooks`` and ``mcp_servers`` decide what an app holds).
-        layer: The layer's document, unresolved.
-        layer_rel: The layer's repo-relative label, for messages.
+        host_resolved: The host's resolved root profile.
+        layer: The login's document, unresolved.
+        layer_rel: The login's repo-relative label, for messages; its stem is
+            the name ``shared:`` lists.
         legacy: Whether the layer sits in the retired layer directory.
         artifacts: Passed to :func:`merge_layer_delta` for a legacy layer.
         shadow_candidates: Passed to :func:`merge_layer_delta` for a legacy layer.
@@ -1510,10 +1565,13 @@ def render_document(
         The rendered document, before the attachment facts are set.
 
     Raises:
-        BuildProfileError: If an app's composed render could still write or
-            edit the deployment, or if an armed machine's connector block held
-            only a retired posture leaf.
+        BuildProfileError: If a shared login spells ``control_system.writes:
+            allowed`` or its sealed render could still write or edit the
+            deployment, if a login selects an application the deployment does
+            not list, or if an armed machine's connector block held only a
+            retired posture leaf.
     """
+    shared = is_shared_login(host_resolved, layer_rel)
     if legacy:
         rendered = merge_layer_delta(
             host_resolved,
@@ -1521,12 +1579,19 @@ def render_document(
             artifacts=artifacts,
             shadow_candidates=shadow_candidates,
         )
-    elif kind is ProfileKind.APP:
-        rendered = compose_app_render(host_resolved, layer, layer_rel)
     else:
         _refuse_unlisted_selection(host_resolved, layer, layer_rel)
-        rendered = _deep_merge(host_resolved, layer)
-    if kind is not ProfileKind.APP or legacy:
+        if layer.get(LISTS_KEY) == LISTS_OWN:
+            rendered = compose_own_render(host_resolved, layer, shared=shared)
+        else:
+            rendered = _deep_merge(host_resolved, _without_null_model(layer))
+    if shared:
+        login_config = layer.get("config")
+        _judge_shared_posture(
+            login_config if isinstance(login_config, dict) else {}, layer_rel, layer_path
+        )
+        rendered = seal_shared_render(rendered, layer_rel)
+    else:
         origin_paths = [*host_chain, *([layer_path] if layer_path is not None else [])]
         judge_retired_posture(
             rendered.get("config"),
@@ -1564,9 +1629,9 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
-        app_rel: The app file's repo-relative label when the document was
-            composed as an app render (:func:`compose_app_render`), else
-            ``None``.
+        shared_rel: The login file's repo-relative label when the host's
+            ``modules.web_terminals.shared`` names it, so its render was sealed
+            (:func:`seal_shared_render`), else ``None``.
     """
 
     raw: dict[str, Any]
@@ -1574,7 +1639,7 @@ class ResolvedProfileDocument:
     is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
-    app_rel: str | None = None
+    shared_rel: str | None = None
 
 
 def resolve_profile_document(
@@ -1610,7 +1675,7 @@ def resolve_profile_document(
         root_overlays: Host-variant overlays, already read. They lay over the
             DEPLOYMENT — the root ``profile.yml`` — before its ``extends`` is
             resolved: over ``raw`` when it is the root, over the root beside
-            it when ``raw`` is a tier or app. A layer therefore sees the
+            it when ``raw`` is a login. A layer therefore sees the
             variant only through the root it merges over, and the layer-file
             refusals judge what the layer file itself spells, never what the
             host's variant said.
@@ -1634,7 +1699,7 @@ def resolve_profile_document(
     lineage: list[str] = []
 
     def finish(
-        resolved: dict[str, Any], as_delta: bool, app_rel: str | None = None
+        resolved: dict[str, Any], as_delta: bool, shared_rel: str | None = None
     ) -> ResolvedProfileDocument:
         """Report the exclusion diagnostics, then package the result.
 
@@ -1651,7 +1716,7 @@ def resolve_profile_document(
             as_delta,
             frozenset(artifacts),
             lineage[0] if lineage else None,
-            app_rel,
+            shared_rel,
         )
 
     if not is_layer:
@@ -1728,7 +1793,6 @@ def resolve_profile_document(
     # root, silently dropping the exclusion.
     merged = _attach(
         render_document(
-            kind,
             root_resolved,
             normalized,
             layer_rel,
@@ -1745,8 +1809,8 @@ def resolve_profile_document(
     served_error = render_served_models_error(normalized, merged, layer_rel)
     if served_error is not None:
         raise served_error
-    is_app = kind is ProfileKind.APP and not retired_tier
-    return finish(merged, True, layer_rel if is_app else None)
+    shared = is_shared_login(root_resolved, layer_rel)
+    return finish(merged, True, layer_rel if shared else None)
 
 
 # ---------------------------------------------------------------------------
@@ -1899,7 +1963,7 @@ def _fold_profile_material(
     * every application directory ``apps/<name>/``, under ``app:<name>``,
       minus the vendor files the build fetches into it
       (:func:`~osprey.cli.application_material.app_build_output`);
-    * every layer file in ``tiers/``, ``apps/`` and the retired layer directory
+    * every layer file in ``tiers/`` and the retired layer directory
       (:func:`~osprey.cli.profile_root.layer_files`, the same listing the build
       loop renders from) — the files a deployment's own per-layer projects are
       rendered from. Without them, editing a delta
@@ -1983,7 +2047,7 @@ def layer_fold_label(layer: Path) -> str:
     By directory rather than by kind, so a file in a retired layer directory
     keeps the label it always folded under (:data:`~osprey.cli.build_profile_document.RETIRED_TIER_KEY`)
     — a repo that has not moved its files into ``tiers/`` keeps its hash —
-    while ``tiers/`` and ``apps/`` files fold as ``tier`` and ``app``.
+    while ``tiers/`` files fold as ``tier``.
 
     Strict: *layer* must be a layer file, one :func:`~osprey.cli.profile_root.layer_files`
     lists. A path in any other directory raises :class:`KeyError` rather than

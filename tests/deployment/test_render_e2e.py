@@ -37,7 +37,7 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.render_images import verify_renders
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED, resolve_cards
-from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
@@ -379,7 +379,7 @@ def test_a_catalog_entry_whose_delta_was_deleted_is_not_told_to_rewrite_itself(
 def _remove_render_layer(repo: Path) -> None:
     """Turn the exemplar into a deployment with no render catalog.
 
-    The build derives the catalog from the tier and app files, so that is the
+    The build derives the catalog from the login files, so that is the
     files AND every key that names one: ``default_tier``, the roster's
     ``tier:`` keys and ``shared:``, because they are one feature. Deleting only
     the files leaves references to renders that are not there — and a render
@@ -389,7 +389,6 @@ def _remove_render_layer(repo: Path) -> None:
     not the catalog-less shape this test refuses.
     """
     shutil.rmtree(repo / TIERS_DIRNAME)
-    shutil.rmtree(repo / APPS_DIRNAME)
     profile_path = repo / PROFILE_FILENAME
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     web_terminals = profile["config"]["modules.web_terminals"]

@@ -1,14 +1,14 @@
 """Tests for :func:`resolve_profile_root` — the profile-relative path anchor.
 
-Location is the type. A profile file is a tier when its parent directory is
-``tiers`` and a ``profile.yml`` sits beside that directory, an app when the
-parent is ``apps`` under the same condition, and a root otherwise. The bundled
-``presets/tiers/`` and ``presets/apps/`` directories mark tier and app presets
-in the package. A the retired layer directory file is read as a tier for the deprecation
-window, with one warning naming the rewrite. The predicate looks exactly one
-level and never walks upward. A layer file with no root beside it cannot stand
-alone, so it raises rather than building something silently incomplete, and a
-stem present in both ``tiers/`` and ``apps/`` is refused as ambiguous.
+Location is the type. A profile file is a login (kind ``tier``) when its parent
+directory is ``tiers`` and a ``profile.yml`` sits beside that directory, and a
+root otherwise. The bundled ``presets/tiers/`` directory marks login presets in
+the package. A file in the retired layer directory is read as a tier for the
+deprecation window, with one warning naming the rewrite. The predicate looks
+exactly one level and never walks upward. A layer file with no root beside it
+cannot stand alone, so it raises rather than building something silently
+incomplete, and a plain ``<name>.yml`` in ``apps/`` — which holds applications
+only — is refused by name.
 """
 
 from __future__ import annotations
@@ -50,14 +50,17 @@ def test_tier_file_anchors_at_the_profile_root(tmp_path: Path) -> None:
     assert kind is ProfileKind.TIER
 
 
-def test_app_file_anchors_at_the_profile_root(tmp_path: Path) -> None:
-    """An apps/ file beside a profile.yml is an app anchored one level up."""
+def test_a_plain_file_in_apps_beside_a_profile_is_refused(tmp_path: Path) -> None:
+    """apps/ holds applications only: a login file left there is named, never built."""
     root = _repo(tmp_path, "apps/logbook.yml")
 
-    root_dir, kind = resolve_profile_root(root / "apps" / "logbook.yml")
+    with pytest.raises(BuildProfileError) as excinfo:
+        resolve_profile_root(root / "apps" / "logbook.yml")
 
-    assert root_dir == root.resolve()
-    assert kind is ProfileKind.APP
+    message = str(excinfo.value)
+    assert "apps/logbook.yml is a login file" in message
+    assert "osprey init --revalidate" in message
+    assert "tiers/" in message
 
 
 def test_root_profile_is_kind_root(tmp_path: Path) -> None:
@@ -78,17 +81,16 @@ def test_dirname_constants() -> None:
 
 def test_kind_values_and_truthiness() -> None:
     """Kinds carry their public spelling; only a layer kind is truthy."""
-    assert [k.value for k in ProfileKind] == ["root", "tier", "app"]
+    assert [k.value for k in ProfileKind] == ["root", "tier"]
     assert not ProfileKind.ROOT
     assert ProfileKind.TIER
-    assert ProfileKind.APP
     assert not ProfileKind.ROOT.is_layer
-    assert ProfileKind.TIER.is_layer and ProfileKind.APP.is_layer
+    assert ProfileKind.TIER.is_layer
 
 
-@pytest.mark.parametrize("dirname", ["tiers", "apps"])
+@pytest.mark.parametrize("dirname", ["tiers"])
 def test_layer_file_without_a_root_raises(tmp_path: Path, dirname: str) -> None:
-    """A tiers/ or apps/ file with no profile.yml beside it is a hard error."""
+    """A tiers/ file with no profile.yml beside it is a hard error."""
     layer_dir = tmp_path / "stray" / dirname
     layer_dir.mkdir(parents=True)
     orphan = layer_dir / "reader.yml"
@@ -114,30 +116,6 @@ def test_layer_predicate_does_not_walk_upward(tmp_path: Path, dirname: str) -> N
 
     assert root_dir == deep.resolve()
     assert kind is ProfileKind.ROOT
-
-
-# ── Stem present in both tiers/ and apps/ ───────────────────────────────────
-
-
-@pytest.mark.parametrize("which", ["tiers", "apps"])
-def test_stem_in_both_tiers_and_apps_is_refused(tmp_path: Path, which: str) -> None:
-    """One name, two kinds: neither file resolves, and the error names both."""
-    root = _repo(tmp_path, "tiers/ops.yml", "apps/ops.yml")
-
-    with pytest.raises(BuildProfileError) as excinfo:
-        resolve_profile_root(root / which / "ops.yml")
-
-    message = str(excinfo.value)
-    assert str((root / "tiers" / "ops.yml").resolve()) in message
-    assert str((root / "apps" / "ops.yml").resolve()) in message
-
-
-def test_distinct_stems_across_tiers_and_apps_resolve(tmp_path: Path) -> None:
-    """Different names in tiers/ and apps/ are no conflict."""
-    root = _repo(tmp_path, "tiers/readonly.yml", "apps/logbook.yml")
-
-    assert resolve_profile_root(root / "tiers" / "readonly.yml")[1] is ProfileKind.TIER
-    assert resolve_profile_root(root / "apps" / "logbook.yml")[1] is ProfileKind.APP
 
 
 # ── the retired layer directory during the deprecation window ─────────────────────────────────
@@ -187,14 +165,6 @@ def test_retired_layer_directory_beside_a_differently_named_profile_raises(tmp_p
         resolve_profile_root(render)
 
 
-def test_render_stem_also_in_apps_is_refused(tmp_path: Path) -> None:
-    """A the retired layer directory file is a tier, so its stem in apps/ is the same conflict."""
-    root = _repo(tmp_path, f"{RETIRED_LAYER_DIRNAME}/ops.yml", "apps/ops.yml")
-
-    with pytest.raises(BuildProfileError, match="apps"):
-        resolve_profile_root(root / RETIRED_LAYER_DIRNAME / "ops.yml")
-
-
 # ── Bundled presets ─────────────────────────────────────────────────────────
 
 
@@ -208,11 +178,11 @@ def test_bundled_tier_preset_is_a_tier() -> None:
     assert kind is ProfileKind.TIER
 
 
-@pytest.mark.parametrize(("dirname", "expected"), [("tiers", "tier"), ("apps", "app")])
+@pytest.mark.parametrize(("dirname", "expected"), [("tiers", "tier")])
 def test_package_presets_subdirs_decide_the_kind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dirname: str, expected: str
 ) -> None:
-    """The packaged presets dir needs no profile.yml for its tiers/ and apps/."""
+    """The packaged presets dir needs no profile.yml for its tiers/."""
     presets = tmp_path / "presets"
     (presets / dirname).mkdir(parents=True)
     preset = presets / dirname / "sample.yml"
@@ -293,13 +263,13 @@ def test_missing_file_still_resolves_a_root(tmp_path: Path) -> None:
 
 
 def test_missing_layer_file_still_resolves_its_kind(tmp_path: Path) -> None:
-    """A not-yet-written apps/ file beside a root resolves as an app."""
+    """A not-yet-written tiers/ file beside a root resolves as a login."""
     root = _repo(tmp_path)
 
-    root_dir, kind = resolve_profile_root(root / "apps" / "never-written.yml")
+    root_dir, kind = resolve_profile_root(root / "tiers" / "never-written.yml")
 
     assert root_dir == root.resolve()
-    assert kind is ProfileKind.APP
+    assert kind is ProfileKind.TIER
 
 
 # ── ProjectProfile ──────────────────────────────────────────────────────────

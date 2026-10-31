@@ -11,9 +11,9 @@ stamp was written for.
 The reference is not the preset's raw layer, which no repo ever holds, but
 :func:`~osprey.cli.build_profile_emit.materialized_profile` — the document
 ``osprey init`` would write from the installed preset for this repo today. The
-profile is compared with it key by key. Each tier and app file is compared the
+profile is compared with it key by key. Each login file is compared the
 same way with :func:`~osprey.cli.build_profile_emit.emit_layer_delta_yaml` —
-the file ``osprey init`` would write from the bundled tier or app its own
+the file ``osprey init`` would write from the bundled login its own
 ``provenance:`` block names. What a repo writes for itself rather than copies
 from the preset is not compared: the display name, the materialized data tree,
 the schema floor and the provenance stamp.
@@ -42,7 +42,7 @@ from osprey.profiles.providers import (
     load_provider_catalog,
     packaged_catalog_path,
 )
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
+from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_document import _parse_profile_document, _read_profile_document
@@ -224,16 +224,15 @@ class DriftReport:
 def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None) -> DriftReport:
     """Compare the profile at *profile_file* with what it was materialized from.
 
-    Reads the tracked documents — ``profile.yml`` and every tier and app file
+    Reads the tracked documents — ``profile.yml`` and every login file
     beside it — never a host-variant overlay: drift is a property of what the
     repo tracks, and an overlay is one host's layer over it. ``profile.yml``
-    pairs with the preset its provenance names; each ``tiers/<n>.yml`` and
-    ``apps/<n>.yml`` pairs with the bundled tier or app ITS provenance names
-    (see :func:`_layer_pairs`).
+    pairs with the preset its provenance names; each ``tiers/<n>.yml`` pairs
+    with the bundled login ITS provenance names (see :func:`_layer_pairs`).
 
     Args:
-        profile_file: A repo's ``profile.yml``, or one tier or app file under
-            its ``tiers/`` or ``apps/``. A layer file is compared alone; the
+        profile_file: A repo's ``profile.yml``, or one login file under its
+            ``tiers/``. A layer file is compared alone; the
             root compares itself and every layer it carries.
         provenance: The parsed ``provenance:`` block the loader resolved for
             *profile_file*. For a layer file it may be the layer's own block
@@ -370,7 +369,7 @@ def _compare_root(
 
 @dataclass(frozen=True)
 class _LayerPair:
-    """One materialized tier or app file and the bundled source it names."""
+    """One materialized login file and the bundled source it names."""
 
     path: Path
     dirname: str
@@ -381,33 +380,33 @@ class _LayerPair:
 
     @property
     def source(self) -> str:
-        """The kind-qualified bundled name: ``tiers/<stem>`` or ``apps/<stem>``."""
+        """The kind-qualified bundled name: ``tiers/<stem>``."""
         return f"{self.dirname}/{self.stem}"
 
 
 def _layer_pairs(root_dir: Path, project_name: str, only: Path | None) -> list[_LayerPair]:
-    """Each tier and app file with the bundled source its provenance block names.
+    """Each login file with the bundled source its provenance block names.
 
     Enumerated over the ``renders`` projection
     (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
     — the same set of files the build renders — so a layer is compared exactly
     when it is built. The pairing is by provenance, not by file name, the way
-    ``profile.yml`` pairs with its preset: a copy of ``apps/logbook.yml`` saved
-    as ``apps/night-shift.yml`` still pairs with the bundled ``logbook``. A file
+    ``profile.yml`` pairs with its preset: a copy of ``tiers/logbook.yml`` saved
+    as ``tiers/night-shift.yml`` still pairs with the bundled ``logbook``. A file
     with no provenance block was not materialized by ``osprey init`` and has
     nothing to drift from; a file that is not a mapping is the build's to name.
 
     Args:
-        root_dir: The profile root holding ``tiers/`` and ``apps/``.
+        root_dir: The profile root holding ``tiers/``.
         project_name: The deployment's ``project_name``, which names renders.
         only: Restrict to this one layer file, if given.
     """
-    from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, render_projection
+    from osprey.deployment.web_terminals.render_naming import render_projection
 
     paths = {path.stem: path for _kind, path in layer_files(root_dir)}
     target = only.resolve() if only is not None else None
     pairs: list[_LayerPair] = []
-    for name, entry in render_projection(root_dir, project_name or "project").items():
+    for name in render_projection(root_dir, project_name or "project"):
         path = paths.get(name)
         if path is None or (target is not None and path.resolve() != target):
             continue
@@ -421,7 +420,7 @@ def _layer_pairs(root_dir: Path, project_name: str, only: Path | None) -> list[_
         pairs.append(
             _LayerPair(
                 path=path,
-                dirname=APPS_DIRNAME if entry.get("kind") == RENDER_KIND_APP else TIERS_DIRNAME,
+                dirname=TIERS_DIRNAME,
                 stem=_normalize_preset_name(str(block["preset"])),
                 preset_hash=str(block.get("preset_hash") or ""),
                 marker=marker.strip() if isinstance(marker, str) and marker.strip() else None,

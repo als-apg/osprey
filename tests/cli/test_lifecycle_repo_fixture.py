@@ -24,11 +24,11 @@ from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.cli.repo_resolver import find_repo_root
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.fixtures.lifecycle_repo import (
-    APP_PRESETS,
     EXEMPLAR_DIRNAME,
     EXEMPLAR_PRESET,
     IGNORED_ZONE_PATTERNS,
-    SHARED_APPS,
+    SHARED_LOGIN_PRESETS,
+    SHARED_LOGINS,
     STATE_DIRS,
     TIER_PRESETS,
     build_exemplar_repo,
@@ -80,9 +80,9 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         f"{TIERS_DIRNAME}/readonly.yml",
         f"{TIERS_DIRNAME}/readwrite.yml",
         f"{TIERS_DIRNAME}/admin.yml",
-        f"{APPS_DIRNAME}/logbook.yml",
-        f"{APPS_DIRNAME}/knowledge.yml",
-        f"{APPS_DIRNAME}/channel-finder.yml",
+        f"{TIERS_DIRNAME}/logbook.yml",
+        f"{TIERS_DIRNAME}/knowledge.yml",
+        f"{TIERS_DIRNAME}/channel-finder.yml",
         "data/README.md",
         "data/facility/knowledge/index.md",
         "web-terminal-context/alice/.gitkeep",
@@ -286,9 +286,9 @@ def test_layer_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, render
 def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> None:
     """The profile carries no render catalog; the layer files are the sources.
 
-    Location is the type: every file in ``tiers/`` and ``apps/`` is one render,
-    and the build derives its project and where it lands. The roster names
-    apps by stem in ``shared:``, and each one has its file in ``apps/``.
+    Location is the type: every file in ``tiers/`` is one render, and the build
+    derives its project and where it lands. The roster names the shared logins
+    by stem in ``shared:``, and each one has its file in ``tiers/``.
     """
     profile, _ = resolve_build_profile(lifecycle_repo / "profile.yml", None)
     web_terminals = profile.config["modules.web_terminals"]
@@ -299,12 +299,13 @@ def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> 
         (kind, path.relative_to(lifecycle_repo).as_posix())
         for kind, path in layer_files(lifecycle_repo)
     ] == [
-        *((ProfileKind.TIER, f"{TIERS_DIRNAME}/{name}.yml") for name in sorted(TIER_PRESETS)),
-        *((ProfileKind.APP, f"{APPS_DIRNAME}/{name}.yml") for name in sorted(APP_PRESETS)),
+        (ProfileKind.TIER, f"{TIERS_DIRNAME}/{name}.yml")
+        for name in sorted({*TIER_PRESETS, *SHARED_LOGIN_PRESETS})
     ]
-    assert tuple(web_terminals["shared"]) == SHARED_APPS
-    for name in SHARED_APPS:
-        assert (lifecycle_repo / APPS_DIRNAME / f"{name}.yml").is_file(), name
+    assert tuple(web_terminals["shared"]) == SHARED_LOGINS
+    for name in SHARED_LOGINS:
+        assert (lifecycle_repo / TIERS_DIRNAME / f"{name}.yml").is_file(), name
+    assert not (lifecycle_repo / APPS_DIRNAME).exists()
 
 
 def test_provenance_records_the_live_preset(lifecycle_repo: Path) -> None:

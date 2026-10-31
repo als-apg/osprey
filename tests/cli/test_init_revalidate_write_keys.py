@@ -80,15 +80,16 @@ def test_the_previous_release_repo_revalidates_to_the_exemplar_and_then_rests(
     assert _repo_files(root) == exemplar_source_files()
 
 
-def test_logbook_and_knowledge_still_become_apps(tmp_path: Path) -> None:
+def test_logbook_and_knowledge_become_shared_logins(tmp_path: Path) -> None:
     root = _previous_release_repo(tmp_path / "als-exemplar")
 
     assert _revalidate(root).exit_code == 0
 
-    for app in ("logbook", "knowledge"):
-        text = (root / "apps" / f"{app}.yml").read_text(encoding="utf-8")
+    for login in ("logbook", "knowledge"):
+        text = (root / "tiers" / f"{login}.yml").read_text(encoding="utf-8")
         assert "control_system.writes: never\n" in text
-        assert not (root / "tiers" / f"{app}.yml").exists()
+        assert "\nlists: own\n" in text
+    assert not (root / "apps").exists()
     assert not (root / RETIRED_LAYER_DIRNAME).exists()
 
 
@@ -96,8 +97,8 @@ _SUCCESSORS = {
     "readonly": ("tiers", "never"),
     "readwrite": ("tiers", "allowed"),
     "admin": ("tiers", "allowed"),
-    "logbook": ("apps", "never"),
-    "knowledge": ("apps", "never"),
+    "logbook": ("tiers", "never"),
+    "knowledge": ("tiers", "never"),
 }
 
 
@@ -222,9 +223,12 @@ def test_both_spellings_in_one_file_are_refused_and_nothing_is_touched(tmp_path:
     assert _repo_files(root) == before
 
 
-def test_a_kept_app_is_rewritten_to_never_whatever_it_spelled(tmp_path: Path) -> None:
+def test_a_login_kept_in_apps_is_moved_and_rewritten_to_never_whatever_it_spelled(
+    tmp_path: Path,
+) -> None:
     root = _previous_release_repo(tmp_path / "als-exemplar")
     app = root / "apps" / "extra.yml"
+    app.parent.mkdir(exist_ok=True)
     app.write_text(
         "name: Extra\nconfig:\n  control_system.writes_enabled: true\n  web.ui_mode: expert\n",
         encoding="utf-8",
@@ -232,9 +236,11 @@ def test_a_kept_app_is_rewritten_to_never_whatever_it_spelled(tmp_path: Path) ->
 
     assert _revalidate(root).exit_code == 0
 
-    # The revalidation also gives the app the rules list it selects by path (#2002).
-    assert app.read_text(encoding="utf-8") == (
-        "name: Extra\nrules:\n  - rules/facility\nconfig:\n"
+    # Moved to tiers/ as a `lists: own` login, which also gets the rules list it
+    # selects by path (#2002); the retired key that armed reads `never`.
+    assert not app.exists()
+    assert (root / "tiers" / "extra.yml").read_text(encoding="utf-8") == (
+        "name: Extra\nlists: own\nrules:\n  - rules/facility\nconfig:\n"
         "  control_system.writes: never\n  web.ui_mode: expert\n"
     )
 

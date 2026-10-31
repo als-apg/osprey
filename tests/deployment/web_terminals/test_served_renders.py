@@ -48,7 +48,7 @@ def _projection(*tiers: str, apps: tuple[str, ...] = ()) -> dict[str, Any]:
     }
     renders.update(
         {
-            name: {"kind": "app", "project": f"demo-{name}", "project_path": f"build/demo-{name}"}
+            name: {"kind": "tier", "project": f"demo-{name}", "project_path": f"build/demo-{name}"}
             for name in apps
         }
     )
@@ -71,7 +71,7 @@ def test_every_source_serves_its_render_with_its_kind() -> None:
     assert served == {
         "operator": "tier",
         "viewer": "tier",
-        "logbook": "app",
+        "logbook": "shared",
         "physicist": "tier",
         "headless": "tier",
     }
@@ -154,7 +154,7 @@ def test_lenient_reads_an_unparseable_authorization_as_no_roles() -> None:
     served = served_render_names(web_terminals, None)
 
     # Assert
-    assert served == {"operator": "tier", "logbook": "app", "viewer": "tier"}
+    assert served == {"operator": "tier", "logbook": "shared", "viewer": "tier"}
     with pytest.raises(ValueError):
         served_render_names(web_terminals, None, strict=True)
 
@@ -183,7 +183,7 @@ def test_served_renders_joins_each_name_to_its_projection_entry() -> None:
     assert set(served) == {"operator", "viewer", "physicist", "headless", "logbook"}
     logbook = served["logbook"]
     assert isinstance(logbook, ServedRender)
-    assert logbook.kind == "app"
+    assert logbook.kind == "shared"
     assert logbook.project == "demo-logbook"
     assert logbook.project_path == "build/demo-logbook"
     assert logbook.entry is web_terminals["renders"]["logbook"]
@@ -242,12 +242,12 @@ def _codes(findings) -> list[str]:
     return [f.code for f in findings if f.severity == "error"]
 
 
-def test_lint_holds_an_app_render_to_the_project_path_rule(tmp_path: Path) -> None:
-    """An app render is judged at rendered altitude like a tier: no
+def test_lint_holds_a_shared_render_to_the_project_path_rule(tmp_path: Path) -> None:
+    """A shared login's render is judged at rendered altitude like a tier: no
     ``project_path`` in local mode is the same refusal."""
     # Arrange
     renders = _projection("viewer")
-    renders["logbook"] = {"kind": "app", "project": "demo-logbook"}
+    renders["logbook"] = {"kind": "tier", "project": "demo-logbook"}
     config = _lint_config(shared=["logbook"], renders=renders)
 
     # Act
@@ -431,26 +431,27 @@ def test_a_served_tier_the_projection_lacks_counts_as_denying_nothing(tmp_path: 
     assert "ghost" in unsafe
 
 
-def test_a_composer_refusal_travels_as_the_reason(
+def test_a_seal_refusal_travels_as_the_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An app file that reads cleanly but that the build refuses to compose is
-    reported with the composer's reason, not as an unreadable file."""
+    """A login file that reads cleanly but that the build refuses to seal is
+    reported with the seal's reason, not as an unreadable file."""
     # Arrange
     import osprey.cli.build_profile_merge as merge
     from osprey.deployment.web_terminals import lint
     from osprey_connectors.errors import BuildProfileError
 
-    (tmp_path / "apps").mkdir()
-    (tmp_path / "apps" / "logbook.yml").write_text("config: {}\n", encoding="utf-8")
+    (tmp_path / "tiers").mkdir()
+    (tmp_path / "tiers" / "logbook.yml").write_text("lists: own\nconfig: {}\n", encoding="utf-8")
 
-    def _refuse(_host: Any, _app: Any, rel: str) -> Any:
+    def _refuse(_render: Any, rel: str) -> Any:
         raise BuildProfileError(f"{rel}: this app may not hold the door")
 
-    monkeypatch.setattr(merge, "compose_app_render", _refuse)
+    monkeypatch.setattr(merge, "seal_shared_render", _refuse)
 
     # Act
-    record = lint._profile_app_layers({}, "apps/logbook.yml", profile_root=tmp_path)
+    root = {"modules": {"web_terminals": {"shared": ["logbook"]}}}
+    record = lint._profile_composed_layers(root, "tiers/logbook.yml", profile_root=tmp_path)
 
     # Assert
     assert isinstance(record, lint._UnreadableRender)
@@ -459,20 +460,25 @@ def test_a_composer_refusal_travels_as_the_reason(
     assert "this app may not hold the door" in clause
 
 
-def test_an_app_composed_on_a_host_that_opens_the_web_doors_holds_neither() -> None:
-    """Lint judges app renders as the composer builds them, so the composer must
-    close the Config panel and gallery writes whatever the host or app spells."""
-    from osprey.cli.build_profile_merge import compose_app_render
+def test_a_shared_login_on_a_host_that_opens_the_web_doors_holds_neither() -> None:
+    """Lint judges shared renders as the build seals them, so the seal must
+    close the Config panel and gallery writes whatever the host or login spells."""
+    from osprey.cli.build_profile_merge import render_document
     from osprey.deployment.web_terminals.roster import PRIVILEGE_CONFIG_PANEL, tier_privileges
 
     host = {
         "config": {
             "web": {"config_panel": {"enabled": True}},
             "web.scaffold_gallery.write_enabled": True,
+            "modules.web_terminals.shared": ["logbook"],
         }
     }
-    app = {"name": "Logbook", "config": {"web.scaffold_gallery": {"write_enabled": True}}}
-    config = compose_app_render(host, app, "apps/logbook.yml")["config"]
+    app = {
+        "name": "Logbook",
+        "lists": "own",
+        "config": {"web.scaffold_gallery": {"write_enabled": True}},
+    }
+    config = render_document(host, app, "tiers/logbook.yml")["config"]
 
     assert config["web.config_panel.enabled"] is False
     assert config["web.scaffold_gallery.write_enabled"] is False

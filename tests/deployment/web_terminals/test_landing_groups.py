@@ -1,9 +1,10 @@
-"""The landing page's groups, and the one title an app card carries everywhere.
+"""The landing page's groups, and the one title a shared card carries everywhere.
 
-`landing.groups` lists sections of three types — `users` (the people), `apps`
-(one card per `shared:` app) and `links` — rendered in the order the operator
-wrote them. Omitted, it is people then apps. An app card is titled by the app's
-`name:` in three places that must agree: its landing card, its browser tab
+`landing.groups` lists sections of three types — `users` (the people), `shared`
+(one card per `shared:` login; the retired `apps` spelling reads the same) and
+`links` — rendered in the order the operator wrote them. Omitted, it is people
+then shared logins. A shared card is titled by its login file's `name:` in
+three places that must agree: its landing card, its browser tab
 (`OSPREY_WEB_APP_NAME` on its container) and the sidecar's chooser (the
 `OSPREY_AUTH_ROSTER_LABEL_<SUFFIX>` line read back into `AuthSettings`). A
 person's card keeps its roster name in all three.
@@ -51,7 +52,7 @@ def _config(groups: list[dict] | None = None, *, shared: list[str] | None = None
     }
     for app in apps:
         renders[app] = {
-            "kind": "app",
+            "kind": "tier",
             "project": f"{PROJECT}-{app}",
             "project_path": f"build/{PROJECT}-{app}",
         }
@@ -93,7 +94,7 @@ def _cards_in_section(landing_html: str, heading: str) -> list[str]:
 
 
 def _render(config: dict) -> dict[str, str]:
-    return render_web_terminals(config, app_titles=TITLES)
+    return render_web_terminals(config, shared_titles=TITLES)
 
 
 def _landing(config: dict) -> str:
@@ -118,24 +119,34 @@ def _sidecar_settings(config: dict) -> AuthSettings:
 # ── landing groups ───────────────────────────────────────────────────────────
 
 
-def test_default_groups_are_people_then_apps_in_a_tray() -> None:
+def test_default_groups_are_people_then_shared_logins_in_a_tray() -> None:
     # Act
     html = _landing(_config())
 
     # Assert
     assert _sections(html) == [
         ("landing-group", "Terminals"),
-        ("landing-group landing-tray", "Apps"),
+        ("landing-group landing-tray", "Shared logins"),
     ]
     assert _cards_in_section(html, "Terminals") == PEOPLE
-    assert _cards_in_section(html, "Apps") == [TITLES[app] for app in APPS]
+    assert _cards_in_section(html, "Shared logins") == [TITLES[app] for app in APPS]
+
+
+def test_the_retired_apps_group_type_reads_as_shared() -> None:
+    # Act
+    retired = _landing(_config([{"type": "users"}, {"type": "apps"}]))
+    current = _landing(_config([{"type": "users"}, {"type": "shared"}]))
+
+    # Assert
+    assert _sections(retired) == _sections(current)
+    assert _cards_in_section(retired, "Shared logins") == [TITLES[app] for app in APPS]
 
 
 def test_groups_render_in_operator_order_with_their_own_labels() -> None:
     # Arrange
     groups = [
         {"type": "links", "label": "Dashboards", "links": [{"label": "Grafana", "url": "/g/"}]},
-        {"type": "apps", "label": "Shared services"},
+        {"type": "shared", "label": "Shared services"},
         {"type": "users", "label": "Operators"},
     ]
 
@@ -178,12 +189,12 @@ def test_a_users_only_layout_lists_no_app_among_the_people() -> None:
     assert _cards_in_section(html, "Terminals") == PEOPLE
 
 
-def test_hidden_names_hide_the_people_but_not_the_apps() -> None:
+def test_hidden_names_hide_the_people_but_not_the_shared_logins() -> None:
     # Act
-    html = _landing(_config([{"type": "users", "names": "hidden"}, {"type": "apps"}]))
+    html = _landing(_config([{"type": "users", "names": "hidden"}, {"type": "shared"}]))
 
     # Assert
-    assert _cards_in_section(html, "Apps") == [TITLES[app] for app in APPS]
+    assert _cards_in_section(html, "Shared logins") == [TITLES[app] for app in APPS]
     for person in PEOPLE:
         assert f'href="/u/{person}/"' not in html
 
@@ -277,14 +288,14 @@ def _token_config() -> dict:
     return config
 
 
-def test_token_login_hint_names_people_and_never_an_app_title() -> None:
+def test_token_login_hint_names_people_and_never_a_shared_title() -> None:
     # Act
     html = _landing(_token_config())
 
     # Assert
     hints = re.findall(r"osprey users login-url ([^<]*)</code>", html)
     assert hints == PEOPLE
-    apps_body = html.split(">Apps</h2>", 1)[1].split("</section>", 1)[0]
+    apps_body = html.split(">Shared logins</h2>", 1)[1].split("</section>", 1)[0]
     assert apps_body.count('<span class="landing-card-token">login link</span>') == len(APPS)
     assert "landing-card-token-hint" not in apps_body
 
@@ -300,7 +311,7 @@ def test_operator_markup_in_app_label_and_title_is_escaped(
     from osprey.services.auth_sidecar.routes import entry
 
     monkeypatch.setattr(sys.modules[__name__], "TITLES", {**TITLES, "logbook": "<b>Logbook</b>"})
-    config = _config([{"type": "users"}, {"type": "apps", "label": "<script>x</script>"}])
+    config = _config([{"type": "users"}, {"type": "shared", "label": "<script>x</script>"}])
     settings = _sidecar_settings(config)
     monkeypatch.setattr(entry, "get_settings", lambda request: settings)
     request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})

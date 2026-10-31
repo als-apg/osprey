@@ -128,9 +128,9 @@ def test_every_bundled_preset_passes_the_stricter_schema() -> None:
         resolve_build_profile(None, name)
 
 
-@pytest.mark.parametrize(("dirname", "kind"), [("tiers", "tier"), ("apps", "app")])
-def test_every_bundled_tier_and_app_passes_its_kind_schema(dirname: str, kind: str) -> None:
-    """A bundled tier or app spells only keys legal in its kind."""
+@pytest.mark.parametrize(("dirname", "kind"), [("tiers", "tier")])
+def test_every_bundled_login_passes_its_kind_schema(dirname: str, kind: str) -> None:
+    """A bundled login spells only keys legal in its kind."""
     from osprey.cli.build_profile_load import reject_unknown_kind_keys
     from osprey.cli.profile_root import ProfileKind
 
@@ -261,14 +261,13 @@ def test_schema_floor_covers_the_keys_it_gates() -> None:
 
 
 def test_schema_floor_covers_the_layer_kinds_it_gates() -> None:
-    """The bump to the floor exists for the tiers/apps vocabulary.
+    """The bump to the floor exists for the tiers vocabulary.
 
-    A tier file and an app file each have their own closed key set; a release
-    older than the floor knows neither kind and would read the roster only in
-    part.
+    A login file has its own closed key set; a release older than the floor
+    does not know it and would read the roster only in part.
     """
     from osprey.cli.build_profile_load import known_profile_keys
     from osprey.cli.profile_root import ProfileKind
 
     assert {"image", "seed_base", "extra_mounts"} <= known_profile_keys(ProfileKind.TIER)
-    assert {"name", "image"} <= known_profile_keys(ProfileKind.APP)
+    assert {"name", "image", "lists"} <= known_profile_keys(ProfileKind.TIER)

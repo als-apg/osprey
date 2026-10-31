@@ -3,7 +3,7 @@
 The build loop renders one project per layer file; the content hash folds
 every layer file; the staleness fingerprint digests every layer file by name.
 All three read :func:`~osprey.cli.profile_root.layer_files`, so an edit to any
-layer — a tier, an app, or a file in the retired layer directory — moves the hash the
+layer — a login in ``tiers/`` or a file in the retired layer directory — moves the hash the
 deploy-side check reads, and nothing the build renders goes unfingerprinted.
 """
 
@@ -14,17 +14,15 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import get_args
 
 import pytest
 
-from osprey.cli import build_profile_merge, scaffold_layers
+from osprey.cli import build_profile_merge
 from osprey.cli.build_cmd import _layer_files
 from osprey.cli.build_profile_merge import compute_profile_hash, layer_fold_label
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.deployment.staleness import MATERIAL_PREFIX, profile_fingerprint
 from osprey.deployment.web_terminals.render_naming import RENDER_KIND_TIER
-from osprey.deployment.web_terminals.roster import APP_ENTRY_KIND
 from osprey.utils import workspace
 from osprey.utils.workspace import (
     APPS_DIRNAME,
@@ -54,8 +52,9 @@ def _repo(tmp_path: Path, *layers: str) -> Path:
 
 
 def test_layer_dirnames_name_every_layer_directory() -> None:
-    assert LAYER_DIRNAMES == (TIERS_DIRNAME, APPS_DIRNAME, *RETIRED_LAYER_DIRS)
+    assert LAYER_DIRNAMES == (TIERS_DIRNAME, *RETIRED_LAYER_DIRS)
     assert LAYER_DIRNAMES == (*LAYER_DIR_KINDS, *RETIRED_LAYER_DIRS)
+    assert APPS_DIRNAME not in LAYER_DIRNAMES
 
 
 def test_every_layer_directory_is_read_as_a_known_kind() -> None:
@@ -64,12 +63,8 @@ def test_every_layer_directory_is_read_as_a_known_kind() -> None:
     assert layer_dir_kind("profiles") is None
 
 
-def test_scaffold_layer_kinds_are_the_live_layer_directories() -> None:
-    assert set(get_args(scaffold_layers.LayerKind)) == set(LAYER_DIR_KINDS)
-
-
-def test_render_kinds_are_the_layer_kind_words() -> None:
-    assert {RENDER_KIND_TIER, APP_ENTRY_KIND} == set(LAYER_DIR_KINDS.values())
+def test_the_render_kind_is_the_one_layer_kind_word() -> None:
+    assert {RENDER_KIND_TIER} == set(LAYER_DIR_KINDS.values())
 
 
 def test_fold_label_refuses_a_path_outside_a_layer_directory(tmp_path: Path) -> None:
@@ -151,23 +146,22 @@ def test_layer_files_lists_kind_and_path_for_every_layer(tmp_path: Path) -> None
         tmp_path,
         "tiers/readwrite.yml",
         "tiers/admin.yml",
-        "apps/logbook.yml",
+        "apps/logbook/app.yml",
         *(f"{retired}/operator.yml" for retired in RETIRED_LAYER_DIRS),
     )
 
     assert layer_files(root) == [
         (ProfileKind.TIER, root / "tiers" / "admin.yml"),
         (ProfileKind.TIER, root / "tiers" / "readwrite.yml"),
-        (ProfileKind.APP, root / "apps" / "logbook.yml"),
         *((ProfileKind.TIER, root / retired / "operator.yml") for retired in RETIRED_LAYER_DIRS),
     ]
 
 
 def test_layer_files_skips_dotfiles_and_nested_trees(tmp_path: Path) -> None:
-    root = _repo(tmp_path, "apps/logbook.yml", "apps/nested/deep.yml")
-    (root / "apps" / ".DS_Store").write_text("")
+    root = _repo(tmp_path, "tiers/logbook.yml", "tiers/nested/deep.yml")
+    (root / "tiers" / ".DS_Store").write_text("")
 
-    assert layer_files(root) == [(ProfileKind.APP, root / "apps" / "logbook.yml")]
+    assert layer_files(root) == [(ProfileKind.TIER, root / "tiers" / "logbook.yml")]
 
 
 def test_layer_files_has_no_suffix_filter(tmp_path: Path) -> None:
@@ -205,8 +199,8 @@ def test_build_loop_and_hash_fold_see_the_same_set(
         tmp_path,
         "tiers/readonly.yml",
         "tiers/readwrite.yml",
-        "apps/logbook.yml",
-        "apps/knowledge.yml",
+        "tiers/logbook.yml",
+        "tiers/knowledge.yml",
         *(f"{retired}/operator.yml" for retired in RETIRED_LAYER_DIRS),
     )
 
@@ -224,10 +218,10 @@ def test_build_loop_refuses_a_tier_and_a_render_of_one_name(tmp_path: Path) -> N
 
 
 def test_build_loop_refuses_a_symlinked_layer_from_another_repo(tmp_path: Path) -> None:
-    other = _repo(tmp_path / "other", "apps/logbook.yml")
+    other = _repo(tmp_path / "other", "tiers/logbook.yml")
     root = _repo(tmp_path / "mine")
-    (root / "apps").mkdir()
-    (root / "apps" / "logbook.yml").symlink_to(other / "apps" / "logbook.yml")
+    (root / "tiers").mkdir()
+    (root / "tiers" / "logbook.yml").symlink_to(other / "tiers" / "logbook.yml")
 
     with pytest.raises(BuildProfileError, match="not a layer over this repo"):
         _layer_files(root)
@@ -239,7 +233,7 @@ def test_build_loop_refuses_a_symlinked_layer_from_another_repo(tmp_path: Path) 
 @pytest.mark.parametrize(
     "layer",
     [
-        "apps/logbook.yml",
+        "tiers/logbook.yml",
         "tiers/readonly.yml",
         *(f"{retired}/operator.yml" for retired in RETIRED_LAYER_DIRS),
     ],
@@ -247,7 +241,7 @@ def test_build_loop_refuses_a_symlinked_layer_from_another_repo(tmp_path: Path) 
 def test_editing_one_layer_moves_hash_and_fingerprint(tmp_path: Path, layer: str) -> None:
     root = _repo(
         tmp_path,
-        "apps/logbook.yml",
+        "tiers/logbook.yml",
         "tiers/readonly.yml",
         *(f"{retired}/operator.yml" for retired in RETIRED_LAYER_DIRS),
     )
@@ -281,7 +275,7 @@ def test_editing_one_layer_moves_hash_and_fingerprint(tmp_path: Path, layer: str
 def test_fingerprint_digests_one_key_per_layer_file(tmp_path: Path) -> None:
     root = _repo(
         tmp_path,
-        "apps/logbook.yml",
+        "tiers/logbook.yml",
         "tiers/readonly.yml",
         *(f"{retired}/operator.yml" for retired in RETIRED_LAYER_DIRS),
     )
@@ -297,11 +291,11 @@ def test_fingerprint_digests_one_key_per_layer_file(tmp_path: Path) -> None:
     assert layer_keys == sorted(f"{path.parent.name}/{path.name}" for _, path in layer_files(root))
 
 
-def test_adding_an_app_moves_the_hash(tmp_path: Path) -> None:
+def test_adding_a_login_moves_the_hash(tmp_path: Path) -> None:
     root = _repo(tmp_path)
     before = compute_profile_hash(root / "profile.yml")
 
-    (root / "apps").mkdir()
-    (root / "apps" / "logbook.yml").write_text("name: logbook\n")
+    (root / "tiers").mkdir()
+    (root / "tiers" / "logbook.yml").write_text("name: logbook\n")
 
     assert compute_profile_hash(root / "profile.yml") != before

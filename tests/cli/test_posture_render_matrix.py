@@ -1,8 +1,9 @@
 """Every render path resolves the write posture PR-3's per-layer rule gives it.
 
 A matrix over the documents a render is built from — the root, an ``extends``
-base under it, a tier (live ``tiers/`` and the retired layer directory), an
-app, and the ``--set`` edit — each written in every spelling of the write
+base under it, a tier (live ``tiers/`` and the retired layer directory), a
+login ``modules.web_terminals.shared`` names, a non-shared ``lists: own`` login,
+and the ``--set`` edit — each written in every spelling of the write
 posture: silent, the tier key nested or dotted, the retired flat leaf nested or
 dotted, a retired per-type leaf, and a retired per-type leaf on a custom
 connector type whose name holds a dot (``mypkg.Mod``, one key, never a path).
@@ -13,8 +14,9 @@ when it spells any retired leaf, ``allowed`` if any of them (the flat leaf or a
 per-type leaf, each type looked up whole) is a literal ``True`` and ``never``
 otherwise; else the document is silent. A root or tier render takes the
 nearest speaking document — the ``--set`` edit, then the tier, then the root's
-``extends`` chain from child to base — and is ``never`` when all are silent.
-An app render is ``never`` whatever any document says.
+``extends`` chain from child to base — and is ``never`` when all are silent;
+a non-shared ``lists: own`` login answers the same way. A shared login's render
+is ``never`` whatever any document says.
 
 Beside the posture it pins that no retired leaf survives into any render, that
 a document or ``--set`` edit spelling both forms is refused, and that a tier-key
@@ -251,6 +253,7 @@ def test_the_oracle_answers_each_retired_spelling_as_the_build_rewrites_it():
 
 _APP_BASE = {
     "name": "Logbook Research",
+    "lists": "own",
     "claude_md_template": "CLAUDE.logbook.md.j2",
     "default_panel": "ariel",
     "channel_finder_mode": None,
@@ -279,19 +282,27 @@ def _deployment(
     layer: dict[str, Any] | None = None,
     layer_dir: str = "tiers",
 ) -> Path:
-    """A deployment repo; returns the file the render is built from."""
+    """A deployment repo; returns the file the render is built from.
+
+    ``layer_dir="shared"`` writes the `lists: own` login ``tiers/logbook.yml`` and
+    names it in the root's ``modules.web_terminals.shared``; ``"own"`` writes the
+    same login and names it nowhere.
+    """
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True, exist_ok=True)
-    root_doc: dict[str, Any] = {"name": "Facility", "data": "data", "config": dict(root)}
+    root_config = dict(root)
+    if layer_dir == "shared":
+        root_config["modules.web_terminals.shared"] = ["logbook"]
+    root_doc: dict[str, Any] = {"name": "Facility", "data": "data", "config": root_config}
     if base is not None:
         _write_yaml(repo / "base.yml", {"name": "Base", "config": dict(base)})
         root_doc = {"extends": "base.yml", **root_doc}
     root_path = _write_yaml(repo / "profile.yml", root_doc)
     if layer is None:
         return root_path
-    if layer_dir == "apps":
+    if layer_dir in ("shared", "own"):
         return _write_yaml(
-            repo / "apps" / "logbook.yml", {**_APP_BASE, "config": {**_APP_CONFIG, **layer}}
+            repo / "tiers" / "logbook.yml", {**_APP_BASE, "config": {**_APP_CONFIG, **layer}}
         )
     return _write_yaml(repo / layer_dir / "ops.yml", {"name": "Ops", "config": dict(layer)})
 
@@ -371,21 +382,22 @@ def test_a_tier_over_an_extended_root_takes_the_nearest_answer(base, tier, tmp_p
     _assert_render(_render_section(path, tmp_path), expected)
 
 
-# ── apps ─────────────────────────────────────────────────────────────────────
+# ── shared logins and narrow ones ────────────────────────────────────────────
 
 
-def _app_refused(spelling: str) -> bool:
-    """An app spelling the tier key ``allowed`` is refused (apps are always ``never``)."""
+def _shared_refused(spelling: str) -> bool:
+    """A shared login AUTHORING the tier key ``allowed`` is refused; a retired arming
+    spelling the parse point rewrote is pinned ``never`` with a warning instead."""
     return document_answer(SPELLINGS[spelling]) == _ALLOWED and "new" in _posture_leaves(
         SPELLINGS[spelling]
     )
 
 
-@pytest.mark.parametrize(("root", "app"), _PAIRS, ids=_ids(_PAIRS))
-def test_an_app_render_is_never_whatever_the_root_or_app_says(root, app, tmp_path):
-    path = _deployment(tmp_path, SPELLINGS[root], layer=SPELLINGS[app], layer_dir="apps")
-    if _app_refused(app):
-        with pytest.raises(BuildProfileError):
+@pytest.mark.parametrize(("root", "login"), _PAIRS, ids=_ids(_PAIRS))
+def test_a_shared_login_is_never_whatever_the_root_or_login_says(root, login, tmp_path):
+    path = _deployment(tmp_path, SPELLINGS[root], layer=SPELLINGS[login], layer_dir="shared")
+    if _shared_refused(login):
+        with pytest.raises(BuildProfileError, match="modules.web_terminals.shared"):
             resolve_build_document(path, None)
         return
     _assert_render(_render_section(path, tmp_path), _NEVER)
@@ -393,9 +405,17 @@ def test_an_app_render_is_never_whatever_the_root_or_app_says(root, app, tmp_pat
 
 @pytest.mark.parametrize("edit", list(SET_EDITS))
 @pytest.mark.parametrize("root", ["absent", "new-dotted-allowed", "flat-nested-true"])
-def test_an_app_render_stays_never_under_a_set_edit(root, edit, tmp_path):
-    path = _deployment(tmp_path, SPELLINGS[root], layer={}, layer_dir="apps")
+def test_a_shared_login_stays_never_under_a_set_edit(root, edit, tmp_path):
+    path = _deployment(tmp_path, SPELLINGS[root], layer={}, layer_dir="shared")
     _assert_render(_render_section(path, tmp_path, SET_EDITS[edit]), _NEVER)
+
+
+@pytest.mark.parametrize(("root", "login"), _PAIRS, ids=_ids(_PAIRS))
+def test_a_narrow_login_no_shared_names_answers_like_a_tier(root, login, tmp_path):
+    """A non-shared `lists: own` login is never pinned: nearest speaking document wins."""
+    path = _deployment(tmp_path, SPELLINGS[root], layer=SPELLINGS[login], layer_dir="own")
+    expected = render_answer(SPELLINGS[root], SPELLINGS[login])
+    _assert_render(_render_section(path, tmp_path), expected)
 
 
 # ── the --set edit ───────────────────────────────────────────────────────────
@@ -441,7 +461,7 @@ def test_a_set_edit_on_a_preset_build_overrides_the_preset(preset, edit, tmp_pat
 
 # ── refusals ─────────────────────────────────────────────────────────────────
 
-_LAYERS = ["root", "base", "tiers", "personas", "apps"]  # retired-spelling
+_LAYERS = ["root", "base", "tiers", "personas", "shared", "own"]  # retired-spelling
 
 
 def _deployment_with(tmp_path: Path, where: str, config: dict[str, Any]) -> Path:
@@ -487,7 +507,7 @@ def test_an_invalid_tier_value_is_refused_on_every_layer(where, value, dotted, t
 
 
 @pytest.mark.parametrize("edit", list(INVALID_SET_EDITS))
-@pytest.mark.parametrize("where", ["root", "tiers", "apps"])
+@pytest.mark.parametrize("where", ["root", "tiers", "shared"])
 def test_an_invalid_tier_value_in_a_set_edit_is_refused(where, edit, tmp_path):
     path = _deployment_with(tmp_path, where, {})
     with pytest.raises(BuildProfileError):
