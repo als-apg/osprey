@@ -37,6 +37,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     VAInProcessConnector,
 )
+from osprey_connectors.simulation.view import VIEW_RELPATH
 from tests._preset_data import copy_bundle_data
 from tests.e2e.scripted_model import ScriptedCall, ScriptedModel
 from tests.e2e.sdk_helpers import enable_writes_in_project, render_dir
@@ -143,7 +144,7 @@ async def seeded(build: Path, machine: Mapping[str, Any]) -> AsyncIterator[_Mach
 async def read_channel(build: Path, channel: str) -> float:
     """What a second connector reads, the way a judge's own server would."""
     connector = VAInProcessConnector()
-    await connector.connect({SIMULATOR_VIEW_SETTING: str(build / "data" / "simulator")})
+    await connector.connect({SIMULATOR_VIEW_SETTING: str(build / VIEW_RELPATH)})
     try:
         return float((await connector.read_channel(channel)).value)
     finally:

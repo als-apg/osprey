@@ -8,6 +8,7 @@ model: claude-haiku-4-5
 channel_finder_mode: hierarchical
 data: data
 hooks:
+  - approval
   - turn-state
   - memory-guard
   - writes-check

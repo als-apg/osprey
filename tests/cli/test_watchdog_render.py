@@ -26,7 +26,7 @@ from tests._preset_data import copy_bundle_data
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 TRIGGER = "osprey_watchdog_trigger.py"
-HOOKS = ["turn-state", "memory-guard", "writes-check"]
+HOOKS = ["approval", "turn-state", "memory-guard", "writes-check"]
 
 POSTURE = {
     "control_system.type": "virtual_accelerator",
