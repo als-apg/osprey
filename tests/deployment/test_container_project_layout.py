@@ -64,8 +64,13 @@ _WORKDIR_RE = re.compile(r"^WORKDIR\s+(\S+)\s*$", re.M)
 
 def _rendered_dockerfile(project_name: str = PROJECT_NAME) -> str:
     """Render the packaged project Dockerfile the way ``osprey build`` does."""
+    from osprey.cli.templates.scaffolding import _default_image_facts
+
+    facts: dict[str, str] = {}
+    _default_image_facts(facts)
     template = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
     return Template(template.read_text(encoding="utf-8")).render(
+        **facts,
         project_name=project_name,
         claude_code_cli_version="1.2.3",
         port_base=DEFAULT_PORT_BASE,

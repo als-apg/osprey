@@ -5,6 +5,7 @@
 # container repo the build renders for exactly this purpose, one directory above
 # the render this file sits in. From the deployment repo root:
 #   docker build -t {{ project_name }} -f build/.image/{{ project_name }}/build/Dockerfile build/.image/{{ project_name }}
+# When the profile states `images.platform`, the FROM below already names it.
 # Then run it (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
 #
@@ -52,7 +53,7 @@
 #                       networks where a proxy re-signs TLS with its own CA.
 #                       Unset (the default), the CA layer is a no-op.
 
-FROM python:3.12-slim
+FROM {% if image_platform %}--platform={{ image_platform }} {% endif %}python:{{ image_python }}-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework declares only

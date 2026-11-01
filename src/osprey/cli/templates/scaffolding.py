@@ -51,6 +51,17 @@ def _default_cli_version(ctx: dict) -> None:
     ctx["claude_code_cli_version"] = version or _DEFAULT_CLAUDE_CLI_VERSION
 
 
+def _default_image_facts(ctx: dict) -> None:
+    """Expose the image facts to Dockerfile.j2's ``FROM``: the Python every image
+    is built from (:data:`~osprey.deployment.image_facts.IMAGE_PYTHON`, the one
+    the wheel fit check judges against) and the platform ``images.platform``
+    states, empty when it states none."""
+    from osprey.deployment.image_facts import IMAGE_PYTHON
+
+    ctx["image_python"] = f"{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}"
+    ctx.setdefault("image_platform", "")
+
+
 def project_template_for(template_root: Path, template_file: str) -> str | None:
     """The template that renders project file *template_file*.
 
@@ -260,6 +271,7 @@ def create_project_structure(
     project_template_dir = template_root / "project"
 
     _default_cli_version(ctx)
+    _default_image_facts(ctx)
 
     # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
     files_to_render = [
