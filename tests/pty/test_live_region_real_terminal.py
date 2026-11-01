@@ -23,9 +23,11 @@ together by :func:`assert_screen_is_intact`:
    any complete sequence outside that vocabulary. Interleaving — a log record
    written into the middle of a repaint — shows up here first, because it
    splits one sequence across another's bytes.
-2. *No region transient survives the teardown.* The region is ``transient``, so
-   once it is down no spinner frame and no table rule may remain on the screen.
-   A leftover row is a repaint the teardown did not take back.
+2. *No spinner frame or table rule remains on the screen.* The region is
+   ``transient``, so once it is down none may remain. A leftover row is a
+   repaint the teardown did not take back, or a foreign line (anything else
+   writing to the same terminal) repainted beside one: stdout and stderr are
+   one terminal, so the two cannot be told apart.
 3. *No line is written twice.* A region that repaints over scrollback instead of
    over itself duplicates the line under it; a permanent line may appear once.
 4. *The cursor is given back.* ``Live`` hides it on mount; a run that ends
@@ -544,7 +546,12 @@ def assert_screen_is_intact(run: PtyRun) -> None:
         if any(glyph in line for glyph in SPINNER_FRAMES)
         or any(glyph in line for glyph in BOX_DRAWING)
     ]
-    assert not leftovers, f"region transients survived the teardown: {leftovers}\n{run.describe()}"
+    assert not leftovers, (
+        f"lines with a spinner or box-drawing glyph remain on the final screen — a region "
+        f"transient that survived the teardown, or a foreign line (anything else writing to "
+        f"the same terminal, a child's notice included) repainted beside one: {leftovers}\n"
+        f"{run.describe()}"
+    )
 
     # A repaint over scrollback leaves the previous frame above the final one,
     # so a ghost is a whole block repeated — and every region block carries at
@@ -688,6 +695,27 @@ def test_the_harness_kills_a_child_it_gave_up_on(tmp_path: Path, pty_env: dict[s
     assert process._master_closed, "the pty master was leaked"
     with pytest.raises(OSError):
         os.read(process._master, 1)
+
+
+def test_a_leftover_glyph_line_is_named_without_claiming_its_source() -> None:
+    """A glyph line on the final screen is a red that names both readings.
+
+    The child's stdout and stderr are the same terminal, so a line cannot be
+    told apart as the region's or another writer's.
+    """
+    run = PtyRun(
+        argv=["up"],
+        exit_code=0,
+        raw=b"",
+        screen=["  ⠴ 0m08spython(1) MallocStackLogging: ..."],
+        unsupported=[],
+        cursor_events=["hide", "show"],
+    )
+    with pytest.raises(AssertionError) as raised:
+        assert_screen_is_intact(run)
+    message = str(raised.value)
+    assert "foreign line" in message, message
+    assert "region transients survived the teardown:" not in message, message
 
 
 def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path) -> None:
