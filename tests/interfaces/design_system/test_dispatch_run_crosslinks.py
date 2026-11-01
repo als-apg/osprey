@@ -19,9 +19,9 @@ run's thinking there: the person who asked and ``history: all`` viewers. What
 those viewers really see is proven against the page itself in
 ``test_dispatch_run_thinking_browser.py``.
 
-Placement rationale: matches ``test_dispatch_dashboard_modes.py`` and
-``test_visual.py``, which already stand the dispatch dashboard up from this
-directory (it has no standalone FastAPI app of its own in production).
+Placement rationale: matches ``test_visual.py``, which already stands the
+dispatch dashboard up from this directory (it has no standalone FastAPI app of
+its own in production).
 
 Run:
     .venv/bin/pytest tests/interfaces/design_system/test_dispatch_run_crosslinks.py -v
