@@ -157,6 +157,11 @@ without a login routes to the deployment provider exactly as before and
 shows a dismissable card saying ``/login`` is on offer. With the key off,
 nothing changes.
 
+Whether the ``/login`` flow completes inside a terminal container has not
+been tried yet: the first site that turns the switch on does that trial. In
+a headless container the CLI should fall back to its paste-a-code path,
+which the terminal can carry.
+
 Two consequences follow. A login-routed session bypasses the gateway, so it
 leaves no row in the deployment's spend ledger; that is the point. And
 ``osprey health`` can no longer treat a failed probe of the agent provider
