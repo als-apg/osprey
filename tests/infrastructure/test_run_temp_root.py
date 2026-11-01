@@ -81,7 +81,8 @@ def test_two_runs_from_one_entry_point_take_different_temp_parents(tmp_path):
     _, (red,) = _run(tmp_path / "red", passes=False)
     try:
         assert green.parent.parent != red.parent.parent
-        host_shared = Path(tempfile.gettempdir()) / f"pytest-of-{getpass.getuser()}"
+        # pytest resolves the base temp, so the comparison has to as well.
+        host_shared = Path(tempfile.gettempdir()).resolve() / f"pytest-of-{getpass.getuser()}"
         assert host_shared not in (green.parent, red.parent)
     finally:
         shutil.rmtree(_root_of(red), ignore_errors=True)
@@ -110,4 +111,5 @@ def test_xdist_workers_share_the_run_root(tmp_path):
     _, seen = _run(tmp_path, extra_args=("-p", "xdist", "-n", "2", "--dist", "each"))
     assert len({base.name for base in seen}) == 2, seen
     # A worker's base temp is <root>/pytest-of-<user>/pytest-N/popen-gwX.
-    assert len({base.parents[2] for base in seen}) == 1, seen
+    (root,) = {base.parents[2] for base in seen}
+    assert not root.exists(), "a green xdist run leaves no root"
