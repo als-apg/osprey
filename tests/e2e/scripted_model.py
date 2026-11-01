@@ -10,13 +10,17 @@ turn a request gets is read off the conversation it carries — the number of
 assistant messages already in it — so a request the CLI repeats is answered
 the same way twice. Once the script is used up the endpoint answers with
 :data:`FINAL_TEXT` and the run ends.
+
+A deployment with code review on sends the reviewer's request to the same
+endpoint. Given a ``reviewer``, the endpoint answers each such request with the
+text the reviewer returns for its message, so a test scripts the verdict too.
 """
 
 from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -28,6 +32,11 @@ FINAL_TEXT = "Scripted run complete."
 #: environment falls back to whatever login the machine holds, and would send
 #: that to the endpoint and load that account's connectors into the session.
 SCRIPTED_AUTH_TOKEN = "scripted-model-token"
+
+#: How a code reviewer's message opens and the heading that closes it. The CLI's title
+#: request quotes the same text, but inside a ``<session>`` wrapper, so it opens otherwise.
+REVIEW_OPENING = "## Surface"
+REVIEW_REPLY_HEADING = "## Required reply"
 
 _MESSAGES_ROUTE = "/v1/messages"
 _COUNT_TOKENS_ROUTE = "/v1/messages/count_tokens"
@@ -66,13 +75,22 @@ class ScriptedModel:
 
     Args:
         script: The turns to deliver, in order.
+        reviewer: Answers a code reviewer's message with the reply text; ``None`` leaves
+            such a request to the final text, which the review reads as no verdict.
 
     Raises:
         ValueError: If a turn has no calls.
     """
 
-    def __init__(self, script: Sequence[Sequence[ScriptedCall]]) -> None:
+    def __init__(
+        self,
+        script: Sequence[Sequence[ScriptedCall]],
+        reviewer: Callable[[str], str] | None = None,
+    ) -> None:
         self._script = [list(turn) for turn in script]
+        self._reviewer = reviewer
+        #: The message of every code review request, in order.
+        self.reviews: list[str] = []
         for index, turn in enumerate(self._script):
             if not turn:
                 raise ValueError(f"turn {index} of the script has no calls")
@@ -129,6 +147,10 @@ class ScriptedModel:
         """Record a request and return the content blocks and stop reason for it."""
         messages = [m for m in body.get("messages") or [] if isinstance(m, dict)]
         tools = [t.get("name", "") for t in body.get("tools") or [] if isinstance(t, dict)]
+        review = _review_message(messages) if self._reviewer is not None else None
+        # A review is never an agent turn, whatever tools its launch happens to offer.
+        if review is not None:
+            tools = []
         index = sum(1 for m in messages if m.get("role") == "assistant") if tools else None
         results = [
             block
@@ -139,6 +161,10 @@ class ScriptedModel:
         ]
         with self._lock:
             self.requests.append(RecordedRequest(tools, results, credential, index))
+        if review is not None:
+            with self._lock:
+                self.reviews.append(review)
+            return [{"type": "text", "text": self._reviewer(review)}], "end_turn"
         if index is not None and index < len(self._script):
             blocks = [
                 {
@@ -156,6 +182,30 @@ class ScriptedModel:
         """Record a request the endpoint refuses to serve."""
         with self._lock:
             self.unexpected.append(f"{method} {path}")
+
+
+def _review_message(messages: list[dict[str, Any]]) -> str | None:
+    """The text of a code reviewer's request, or ``None`` for any other request.
+
+    A review is one user message; the CLI may follow it with a message of its own.
+    """
+    users = [m for m in messages if m.get("role") == "user"]
+    if len(users) != 1 or any(m.get("role") == "assistant" for m in messages):
+        return None
+    content = users[0].get("content")
+    if isinstance(content, list):
+        content = "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    if (
+        isinstance(content, str)
+        and content.startswith(REVIEW_OPENING)
+        and REVIEW_REPLY_HEADING in content
+    ):
+        return content
+    return None
 
 
 def _handler_for(model: ScriptedModel) -> type[BaseHTTPRequestHandler]:

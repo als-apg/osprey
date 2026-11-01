@@ -301,7 +301,7 @@ def _e2e_claude_config_dir(request, tmp_path_factory, monkeypatch):
 def scripted_model(monkeypatch):
     """Start a scripted model and point this test's agent runs at it.
 
-    Returns a factory: ``scripted_model(script)`` starts a
+    Returns a factory: ``scripted_model(script, reviewer=None)`` starts a
     :class:`~tests.e2e.scripted_model.ScriptedModel` for *script* and routes
     every run the test starts afterwards to it, through the same
     ``OSPREY_E2E_PROXY_BASE_URL`` seam the translation proxy uses.
@@ -341,8 +341,8 @@ def scripted_model(monkeypatch):
 
     started: list[ScriptedModel] = []
 
-    def _start(script):
-        model = ScriptedModel(script)
+    def _start(script, reviewer=None):
+        model = ScriptedModel(script, reviewer)
         model.start()
         started.append(model)
         monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", model.base_url)

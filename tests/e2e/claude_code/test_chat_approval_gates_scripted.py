@@ -33,6 +33,11 @@ The approval hook tells the model, in the request that carries an approved call'
 that the operator approved it (APPROVAL_NOTE). That note reaches the request after (c) and
 (e), and no request at all after (a), (b) or (d).
 
+With code review on, the scripted model answers the reviewer too, and two more runs prove
+the review comes first: (j) a passed execute is carded with its verdict, runs on an allow and
+is reviewed once, the executor taking the review from the ask stamp; (k) a blocked execute is
+denied with its reasons and never carded.
+
 Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
 it reads "ran" in (c), "not run" in (d), and "failed" in (e).
 
@@ -830,3 +835,93 @@ async def test_at_allowed_a_readonly_run_still_refuses_the_write(safety_project,
     assert not run.was_carded(call), facts
     refused = run.results[call["tool_use_id"]]
     assert refused["is_error"] and WRITES_OFF_REASON in refused["preview"], facts
+
+
+# ---------------------------------------------------------------------------
+# (j)/(k) code review on: the review comes before the prompt, and the executor trusts it
+# ---------------------------------------------------------------------------
+
+#: What the scripted reviewer blocks: code that names this call. Nothing else is read.
+BLOCKED_CALL = "write_channel"
+#: The reason the scripted reviewer gives for a block.
+BLOCK_REASON = "Calls write_channel under a description that says it only reads."
+BLOCKED_CODE = (
+    'from osprey.runtime import write_channel as wc\nwc("SR:MAG:HCM:01:CURRENT:SP", 1.0)\n'
+)
+
+
+def scripted_reviewer(message: str) -> str:
+    """Block code that names :data:`BLOCKED_CALL`; pass everything else."""
+    if BLOCKED_CALL in message:
+        return json.dumps({"verdict": "block", "reasons": [BLOCK_REASON]})
+    return json.dumps({"verdict": "pass", "reasons": []})
+
+
+def _review_header(repo, before: dict[str, tuple[str, str]]) -> str:
+    """The header cell of the one review notebook added since *before*."""
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    store = ArtifactStore(workspace_root=resolve_shared_data_root(config), auto_launch=False)
+    (entry,) = [e for e in store.list_entries() if e.title == REVIEW_TITLE and e.id not in before]
+    return nbformat.read(store.get_file_path(entry.id), as_version=4).cells[0].source
+
+
+async def _drive_reviewed(repo, scripted_model, turns) -> tuple[Any, ChatRun]:
+    """Run *turns* as :func:`drive_chat` does, the scripted reviewer answering each review."""
+    model = scripted_model(turns, scripted_reviewer)
+    frames, cards, gates = await drive_turn(repo, TASK, approves_everything)
+    model.assert_script_consumed()
+    calls, results = calls_and_results(frames)
+    return model, ChatRun(calls=calls, results=results, cards=cards, gates=gates)
+
+
+async def test_a_reviewed_execute_shows_its_verdict_and_is_not_reviewed_twice(
+    safety_project_code_review, scripted_model
+):
+    """(j): the reviewer passes the execute before the prompt. The card and the review
+    notebook carry the verdict, the allow runs the code, and the reviewer is asked once:
+    the executor takes the review the ask stamp carries instead of reading the code again.
+    """
+    repo = safety_project_code_review
+    before = _review_notebooks(repo)
+    model, run = await _drive_reviewed(
+        repo, scripted_model, [[execute_readwrite()], [read(SETPOINT)]]
+    )
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (j) {facts} reviews={len(model.reviews)}")
+
+    assert len(model.reviews) == 1, f"the code was reviewed {len(model.reviews)} times: {facts}"
+    assert EXECUTE_CODE in model.reviews[0]
+    assert run.was_carded(execute), f"the reviewed execute never reached the operator: {facts}"
+    (card,) = [c for c in run.cards if c["tool_use_id"] == execute["tool_use_id"]]
+    assert "Code review: pass" in (card["reason"] or ""), card["reason"]
+    assert not run.results[execute["tool_use_id"]]["is_error"], facts
+    assert "Code review" in _review_header(repo, before)
+    assert _new_review(repo, before)[0] == "Ran after operator approval"
+
+
+async def test_a_blocked_execute_is_denied_before_the_operator_is_asked(
+    safety_project_code_review, scripted_model
+):
+    """(k): the reviewer blocks the execute. The approval hook denies it with the reasons,
+    the operator is never shown it although they would approve anything, and it never runs.
+    """
+    repo = safety_project_code_review
+    before = _review_notebooks(repo)
+    blocked = ScriptedCall(
+        EXECUTE,
+        {"code": BLOCKED_CODE, "description": "Read the corrector.", "execution_mode": "readwrite"},
+    )
+    model, run = await _drive_reviewed(repo, scripted_model, [[blocked], [read(SETPOINT)]])
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (k) {facts} reviews={len(model.reviews)}")
+
+    assert len(model.reviews) == 1, f"the code was reviewed {len(model.reviews)} times: {facts}"
+    assert ("approval", "refused") in run.statuses(execute), facts
+    assert not run.was_carded(execute), f"the operator was shown a blocked execute: {facts}"
+    refused = run.results[execute["tool_use_id"]]
+    assert refused["is_error"], facts
+    assert refused["preview"].startswith(f"PreToolUse:{EXECUTE} hook error"), facts
+    assert BLOCK_REASON in refused["preview"], facts
+    assert _review_notebooks(repo) == before, "a blocked execute left a review notebook"
