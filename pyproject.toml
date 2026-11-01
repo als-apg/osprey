@@ -660,9 +660,9 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
 # A passing test's tmp_path is deleted at its teardown, and a passing session deletes its base
-# directory, so a run leaves only what failed. pytest deletes older runs' directories in the shared
-# temporary root when the next process exits, and a whole suite's tree left there would cost that
-# process minutes of silent exit.
+# directory, so a run leaves only what failed. pytest deletes older runs' directories in its
+# temporary root when it exits, and a whole suite's tree left in a root another process shares
+# would cost that process minutes of silent exit.
 tmp_path_retention_policy = "failed"
 markers = [
     "e2e_smoke: Quick smoke tests for critical workflows",
