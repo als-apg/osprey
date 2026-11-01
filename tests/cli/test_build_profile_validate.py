@@ -389,18 +389,10 @@ def test_a_profile_without_pinned_env_names_declares_none() -> None:
     assert _parse_profile({"name": "x", "env": {"required": ["OSPREY_TOKEN"]}}).env.pinned == []
 
 
-def test_missing_env_file_is_rejected(tmp_path: Path) -> None:
-    """env.file names a profile-relative file to copy; it must exist."""
-    profile = _profile(name="x", env=EnvConfig(file="env.template"))
-    (error,) = _errors(profile, tmp_path)
-    assert error.startswith("env.file not found: env.template")
-    assert str(tmp_path / "env.template") in error
-
-
-def test_present_env_file_validates(tmp_path: Path) -> None:
-    """An env.file that exists produces no failure."""
-    (tmp_path / "env.template").write_text("FOO=bar", encoding="utf-8")
-    _profile(name="x", env=EnvConfig(file="env.template")).validate(tmp_path)
+def test_env_file_is_refused_as_an_unknown_key() -> None:
+    """The ``env:`` block is closed: a key the schema does not declare is refused."""
+    with pytest.raises(BuildProfileError, match=r"Unknown env key\(s\): 'file'"):
+        _parse_profile({"name": "x", "env": {"file": "x"}})
 
 
 # --- dependencies ---------------------------------------------------------

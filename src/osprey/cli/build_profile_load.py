@@ -369,6 +369,11 @@ _WARNED_MCP_SERVER_KEYS: set[tuple[str, str]] = set()
 # what the facility asked for.
 _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 
+# Keys recognized inside the ``env:`` block, derived from its dataclass like the
+# bluesky set below. Closed so a key the schema does not declare is refused
+# rather than silently ignored.
+_KNOWN_ENV_KEYS = frozenset(f.name for f in fields(EnvConfig))
+
 
 # Keys recognized inside the ``bluesky:`` block, derived from the dataclass the
 # block is parsed into rather than listed by hand: every field below is read by
@@ -566,7 +571,7 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     """Reject unrecognized keys in a closed profile block, naming every one at once.
 
     The shared body behind the closed-schema blocks this module parses — the
-    top level, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
+    top level, ``env``, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
     virtual-accelerator blocks and the closed blocks inside ``config:``
     (:func:`reject_unknown_closed_config_keys`) — so an operator meets one
     wording whichever of them they mistyped. Two closed blocks parsed elsewhere answer in their
@@ -1596,11 +1601,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     )
 
     env_raw = _block(raw, "env")
+    _reject_unknown_block_keys(env_raw, _KNOWN_ENV_KEYS, "env")
     env = EnvConfig(
         required=env_raw.get("required", []),
         pinned=env_raw.get("pinned", []),
         defaults=env_raw.get("defaults", {}),
-        file=env_raw.get("file"),
     )
 
     environment = _parse_environment(raw)

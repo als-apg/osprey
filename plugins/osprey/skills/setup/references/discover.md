@@ -162,7 +162,7 @@ count.
 
 **Environment variables** are names, never values. The source of truth is `profile.yml`'s
 `env:` block: `required`, `pinned`, and the keys of `defaults`. A deployment's env chain is
-`.env.shared` then `.env`, and `env.file:` names a profile-relative file copied as `.env`.
+`.env.shared` then `.env`.
 Any other `.env*` file in the repo may supply NAMES only. Never read a value out of one.
 
 **Custom code** is anything under `mcp_servers/`, `services/`, `hooks/` or `project/`

@@ -138,7 +138,7 @@ Profile YAML reference
    * - ``env``
      - mapping
      - ``{}``
-     - Variables the deployment needs: ``required``, ``defaults``, ``file``,
+     - Variables the deployment needs: ``required``, ``defaults``,
        ``pinned``. ``env.pinned`` lists variables ``.env.shared`` decides and a
        host may not override; a deploy refuses rather than start on a
        contradicting value (see :ref:`deployment-pinned-env`). Same name pattern

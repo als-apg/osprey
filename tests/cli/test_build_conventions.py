@@ -217,12 +217,11 @@ def test_known_root_entries_derive_from_the_profile():
     """Every profile-relative path the profile declares exempts its root entry."""
     from osprey.cli.build_persistence import _profile_known_root_entries
     from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.build_profile_schema import DispatchConfig, EnvConfig, ServiceDef
+    from osprey.cli.build_profile_schema import DispatchConfig, ServiceDef
 
     profile = BuildProfile(
         name="p",
         data="facility-data/channels",
-        env=EnvConfig(file="secrets/.env.production"),
         dispatch=DispatchConfig(triggers="dispatch/triggers.yml"),
         services={"beam-logger": ServiceDef(template="service-templates/beam-logger")},
     )
@@ -232,7 +231,6 @@ def test_known_root_entries_derive_from_the_profile():
     assert known == [
         "my-profile.yml",
         "facility-data",
-        "secrets",
         "dispatch",
         "service-templates",
     ]

@@ -311,7 +311,7 @@ def test_preset_name_normalization(
 def test_preset_drift_guard() -> None:
     """Bundled presets must NOT depend on profile-dir-relative paths.
 
-    A service template path and env.file resolve relative to profile_dir,
+    A service template path resolves relative to profile_dir,
     which for presets is the wheel-installed package directory. Any preset
     adding these will silently fail at install time. Catch it here. A service
     that names a bundled template (``template: osprey.<name>``) carries no path
@@ -331,10 +331,6 @@ def test_preset_drift_guard() -> None:
                 f"{yml.name}: service {name!r} must name a bundled template "
                 f"(a template path would break in the wheel)"
             )
-        env = raw.get("env", {}) or {}
-        assert env.get("file") is None, (
-            f"{yml.name}: env.file must be unset (path would break in the wheel)"
-        )
 
 
 def test_unknown_profile_key_fails_the_build(

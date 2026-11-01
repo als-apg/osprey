@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import textwrap
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from osprey.cli.build_profile_emit import (
     _SYNTHESIS_RATIONALE,
     emit_standalone_profile_yaml,
 )
+from osprey.cli.build_profile_schema import EnvConfig
 from osprey.cli.init_cmd import init
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
@@ -45,7 +47,6 @@ _ANNOTATION_FRAGMENTS: dict[str, tuple[str, ...]] = {
         "#     pinned: [ARIEL_DB_PASSWORD]",
         "#     defaults:",
         '#       OSPREY_FACILITY_NAME: "Example Facility"',
-        "#     file: env/facility.env",
     ),
 }
 
@@ -117,9 +118,9 @@ def test_web_panels_names_the_dotted_url_key() -> None:
 
 
 def test_env_names_every_env_config_member() -> None:
-    """All four EnvConfig members, so none of them is discovered by accident."""
+    """Every EnvConfig member, so none of them is discovered by accident."""
     example = yaml.safe_load(_snippet(_ANNOTATIONS["env"]))["env"]
-    assert set(example) == {"required", "pinned", "defaults", "file"}
+    assert set(example) == {member.name for member in fields(EnvConfig)}
 
 
 # ---------------------------------------------------------------------------
