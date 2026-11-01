@@ -26,6 +26,12 @@
 {%- set config_file = svc.config_file | default('', true) %}
 {%- set state_mounts = svc.state_mounts | default([], true) %}
 {%- set identity = svc.audit_identity | default('', true) %}
+{#- The drives_target section: the staged config carrying the login map and, on an
+    armed render, the read-only control tree are what make an owned write judgeable
+    here, and the section is driven by the projected field, never by a name. A
+    container missing either refuses every owned write, and a `never` render refuses
+    before an owner is read, which is why the tree and limits binds are gated on
+    `svc.writes_enabled`, the render's login tier. #}
 
 services:
   {{ key }}:
@@ -39,6 +45,11 @@ services:
 {%- endif %}
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
+{%- if svc.drives_target and svc.stop_grace_period %}
+    # The connector's whole call bound, plus room to report: a stop never cuts
+    # a write off mid-call.
+    stop_grace_period: {{ svc.stop_grace_period }}
+{%- endif %}
     # No `env_file:`: the container is handed the variables named below and
     # nothing else of the deployment's env chain, so no provider key or other
     # service's secret reaches application code. Each is interpolated into
@@ -97,10 +108,31 @@ services:
       # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs.
       OSPREY_TERMINAL_ROSTER_OWNERS: "{{ grant.roster_owners | default('') }}"
 {%- endif %}
+{%- if svc.drives_target %}
+      # The staged config, bound below over the image's: it alone carries the
+      # login map an owned write is judged by. Both loaders read it.
+      CONFIG_FILE: {{ osprey_worker_project_dir }}/build/config.yml
+      OSPREY_CONFIG: {{ osprey_worker_project_dir }}/build/config.yml
+      # Guarded runs' locks, bound below; named for the entrypoint, which joins
+      # the directory's group before it drops privileges.
+      OSPREY_GUARDED_RUN_DIR: {{ osprey_guarded_run_mount.target }}
+{%- if svc.writes_enabled %}
+      # The read-only control tree, bound below: naming it arms the read of the
+      # record the identity behind an owned write last wrote.
+      OSPREY_CONTROL_CONTEXT_TREE: {{ osprey_container_control_tree_dir }}
+{%- endif %}
+{%- if svc.ca_env %}
+      # Channel Access from the bridge: the target's name server, with broadcast
+      # discovery off, since UDP discovery does not cross the container boundary.
+{%- for name, value in svc.ca_env.items() %}
+      {{ name }}: "{{ value }}"
+{%- endfor %}
+{%- endif %}
+{%- endif %}
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(svc) }}
 {{- net.ports(svc, ['127.0.0.1:' ~ svc.port ~ ':' ~ svc.port] if svc.port else []) }}
-{%- if config_file or state_mounts or identity %}
+{%- if config_file or state_mounts or identity or svc.drives_target %}
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT.
     volumes:
@@ -112,6 +144,16 @@ services:
 {%- endfor %}
 {%- if identity %}
       - {{ osprey_spool_mount_source }}/{{ identity }}:{{ osprey_container_spool_dir }}/{{ identity }}
+{%- endif %}
+{%- if svc.drives_target %}
+      - ./build/services/{{ key }}/config.yml:{{ osprey_worker_project_dir }}/build/config.yml:ro
+      - {{ osprey_guarded_run_mount.source }}:{{ osprey_guarded_run_mount.target }}
+{%- if svc.writes_enabled and limits_mount is defined %}
+      - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
+{%- endif %}
+{%- if svc.writes_enabled %}
+      - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
+{%- endif %}
 {%- endif %}
 {%- endif %}
 {{- net.network(svc) }}
