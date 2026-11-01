@@ -58,7 +58,7 @@ _ENV_KEYS = [
 
 @pytest.fixture(autouse=True)
 def render_dir(monkeypatch, tmp_path) -> Path:
-    """A render with one subagent and one declared MCP server; OSPREY helpers stubbed."""
+    """A render with one declared MCP server; OSPREY helpers stubbed."""
     stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
     monkeypatch.setattr(
         "osprey_connectors.workspace.resolve_shared_data_root",
@@ -68,11 +68,7 @@ def render_dir(monkeypatch, tmp_path) -> Path:
     run_stats._run_stats.clear()
 
     render = tmp_path / "build"
-    agents = render / ".claude" / "agents"
-    agents.mkdir(parents=True)
-    (agents / "channel-finder.md").write_text(
-        "---\nname: channel-finder\ntools: mcp__channel-finder__search\n---\n"
-    )
+    render.mkdir()
     (render / ".mcp.json").write_text('{"mcpServers": {"controls": {"command": "controls"}}}')
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("CONFIG_FILE", str(render / "config.yml"))
@@ -167,6 +163,7 @@ async def _run(queue: asyncio.Queue | None = None) -> dict:
         denied_tools=["Bash", "mcp__plugin_x__*"],
         run_id="run-p",
         owner="alice",
+        agent_surfaces={"channel-finder": frozenset({"mcp__channel-finder__search"})},
     )
 
 
