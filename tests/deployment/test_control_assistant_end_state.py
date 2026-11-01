@@ -294,7 +294,8 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
     }
-    assert set(predicates) | {"launch_token_renders"} == set(grants)
+    keyed = {"launch_token_renders", "application_token_renders"}
+    assert set(predicates) | keyed == set(grants)
     for grant, predicate in predicates.items():
         for name, render_config in configs.items():
             assert (name in grants[grant]) == bool(predicate(render_config)), (grant, name)
@@ -305,6 +306,14 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
                 lane,
                 name,
             )
+    # An application token is granted to exactly the renders whose rendered
+    # config serves that application's panel under its launch_token_env; the
+    # flagship projects none, so the map is empty and the loop proves that.
+    for token_env, entitled in grants["application_token_renders"].items():
+        for name, render_config in configs.items():
+            panels = ((render_config.get("web") or {}).get("panels") or {}).values()
+            holds = any((block or {}).get("launch_token_env") == token_env for block in panels)
+            assert (name in entitled) == holds, (token_env, name)
 
     # The kind is never asked: the projection with every ``kind`` removed
     # grants exactly the same.
