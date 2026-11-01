@@ -192,13 +192,14 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Before a read-write run starts, the executor
+before anyone is asked to approve it. A deployment can also turn on code review: a second
+AI agent then reads the code before the operator is asked, following instructions the
+deployment writes itself, and says whether it is safe to run. Depending on how the deployment
+set it up, unsafe code is either stopped or allowed through with a warning
+(:ref:`architecture-safety-chain-code-review`). Before a read-write run starts, the executor
 checks that the approval prompt recorded this call and that what the call carries matches
 what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
-out of the script's reach. A deployment can also turn on code review: a second AI agent then
-reads the code, following instructions the deployment writes itself, and says whether it is
-safe to run. Depending on how the deployment set it up, unsafe code is either stopped or
-allowed through with a warning (:ref:`architecture-safety-chain-code-review`). Then the code
+out of the script's reach. Then the code
 runs in its own process with guards in place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library's own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
