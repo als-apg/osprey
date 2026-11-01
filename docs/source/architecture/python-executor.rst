@@ -46,8 +46,10 @@ The ``execute``, ``execute_file``, ``pyaml_measure`` and
 ``model_response_matrix`` tool parameters and the JSON they return are
 documented in :doc:`/reference/contracts/python-executor`.
 
-A deployment can also have an LLM read the code before it runs, which is not one of the
-layers below: see :ref:`Code review <architecture-safety-chain-code-review>`.
+A deployment can also turn on code review: a second AI agent reads the code after the
+operator approves it and before it runs, following instructions the deployment writes, and
+can stop it. That review is not one of the layers below, which hold whatever it says: see
+:ref:`Code review <architecture-safety-chain-code-review>`.
 
 Where Code Runs
 ===============

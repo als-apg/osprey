@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 1100 390" role="img" aria-labelledby="code-review-title code-review-desc">
-  <title id="code-review-title">One review core behind two surfaces</title>
-  <desc id="code-review-desc">The agent's Python reaches the shared review core from two surfaces: a run through execute or execute_file, and a NotebookEdit through the code-review hook. An LLM reads the code and answers pass, concern or block with reasons. The verdict and its reasons go back to the agent: at flag a blocking finding proceeds as a concern, at block it is refused. The operator gets a notice in the activity strip.</desc>
+  <title id="code-review-title">A second AI agent reads the OSPREY agent's Python before it reaches the machine</title>
+  <desc id="code-review-desc">The OSPREY agent wrote some Python. It reaches the code review in one of two ways: as a Python run, after the operator approved it and before it starts, or as a code cell the agent writes into a notebook, before it is saved. A second AI agent reads the code, following instructions the deployment wrote, and answers pass, concern or block, with reasons. The answer and the reasons go back to the OSPREY agent: in blocking mode the code is stopped, in advisory mode it runs and the agent is told. The operator gets a code review line in the activity log saying what was found and whether the code ran, but not why.</desc>
   <defs>
     <marker id="code-review-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
@@ -11,26 +11,22 @@
     </marker>
   </defs>
 
-  <!-- agent to the two surfaces -->
-  <path class="e" d="M220,170 H270 V92 H376" marker-end="url(#code-review-arr)"/>
-  <text class="ta" x="324" y="84" text-anchor="middle">a Python run</text>
-  <path class="e" d="M220,194 H270 V272 H376" marker-end="url(#code-review-arr)"/>
-  <text class="ta" x="324" y="264" text-anchor="middle">a notebook edit</text>
+  <!-- agent to the two ways in -->
+  <path class="e" d="M220,170 H250 V92 H346" marker-end="url(#code-review-arr)"/>
+  <path class="e" d="M220,194 H250 V272 H346" marker-end="url(#code-review-arr)"/>
 
-  <!-- the two surfaces to the core -->
-  <path class="e" d="M620,92 H690 V170 H756" marker-end="url(#code-review-arr)"/>
-  <text class="ta" x="655" y="84" text-anchor="middle">the code</text>
-  <path class="e" d="M620,272 H690 V194 H756" marker-end="url(#code-review-arr)"/>
-  <text class="ta" x="655" y="264" text-anchor="middle">the code</text>
+  <!-- the two ways in, to the review -->
+  <path class="e" d="M650,92 H700 V170 H736" marker-end="url(#code-review-arr)"/>
+  <path class="e" d="M650,272 H700 V194 H736" marker-end="url(#code-review-arr)"/>
 
-  <!-- core to the operator -->
+  <!-- review to the operator -->
   <line class="e-acc" x1="910" y1="150" x2="910" y2="100" marker-end="url(#code-review-arr-acc)"/>
-  <text class="ta ta-acc" x="918" y="128">notice</text>
+  <text class="ta ta-acc" x="918" y="128">a line in the log</text>
 
   <!-- verdict back to the agent -->
   <path class="e e-dash" d="M910,214 V345 H130 V218" marker-end="url(#code-review-arr)"/>
   <rect class="mask" x="212" y="339" width="616" height="12" rx="2"/>
-  <text class="ta" x="520" y="348" text-anchor="middle">verdict and reasons back to the agent · at flag a blocking finding proceeds as a concern · at block it is refused</text>
+  <text class="ta" x="520" y="348" text-anchor="middle">answer and reasons back to the agent · blocking mode stops the code · advisory mode lets it run and tells the agent</text>
 
   <!-- agent -->
   <rect class="mask" x="40" y="150" width="180" height="64" rx="6"/>
@@ -38,28 +34,29 @@
   <text class="tn" x="130" y="178" text-anchor="middle">OSPREY agent</text>
   <text class="ts" x="130" y="194" text-anchor="middle">wrote the Python</text>
 
-  <!-- surfaces -->
-  <rect class="mask" x="380" y="60" width="240" height="64" rx="6"/>
-  <rect class="nb" x="380" y="60" width="240" height="64" rx="6"/>
-  <text class="tn" x="500" y="88" text-anchor="middle">execute, execute_file</text>
-  <text class="ts" x="500" y="104" text-anchor="middle">the executor, before the run starts</text>
+  <!-- the two ways in -->
+  <rect class="mask" x="350" y="60" width="300" height="64" rx="6"/>
+  <rect class="nb" x="350" y="60" width="300" height="64" rx="6"/>
+  <text class="tn" x="500" y="88" text-anchor="middle">A Python run</text>
+  <text class="ts" x="500" y="104" text-anchor="middle">after the operator approved it, before it starts</text>
 
-  <rect class="mask" x="380" y="240" width="240" height="64" rx="6"/>
-  <rect class="nb" x="380" y="240" width="240" height="64" rx="6"/>
-  <text class="tn" x="500" y="268" text-anchor="middle">NotebookEdit</text>
-  <text class="ts" x="500" y="284" text-anchor="middle">code-review hook, before the edit lands</text>
+  <rect class="mask" x="350" y="240" width="300" height="64" rx="6"/>
+  <rect class="nb" x="350" y="240" width="300" height="64" rx="6"/>
+  <text class="tn" x="500" y="268" text-anchor="middle">A notebook cell</text>
+  <text class="ts" x="500" y="284" text-anchor="middle">written by the agent, before it is saved</text>
 
-  <!-- core -->
-  <rect class="mask" x="760" y="150" width="300" height="64" rx="6"/>
-  <rect class="nb-foc" x="760" y="150" width="300" height="64" rx="6"/>
-  <text class="tn" x="910" y="170" text-anchor="middle">Shared review core</text>
-  <text class="ts" x="910" y="186" text-anchor="middle">an LLM reads the code, under the deployment's prompt</text>
-  <text class="ts" x="910" y="200" text-anchor="middle">answers pass, concern or block, with reasons</text>
+  <!-- the review -->
+  <rect class="mask" x="740" y="150" width="340" height="64" rx="6"/>
+  <rect class="nb-foc" x="740" y="150" width="340" height="64" rx="6"/>
+  <text class="tn" x="910" y="170" text-anchor="middle">Code review</text>
+  <text class="ts" x="910" y="186" text-anchor="middle">a second AI agent reads the code, following</text>
+  <text class="ts" x="910" y="200" text-anchor="middle">the deployment's instructions · pass, concern or block</text>
 
   <!-- operator -->
-  <rect class="mask" x="760" y="40" width="300" height="56" rx="6"/>
-  <rect class="nb nb-acc-stroke" x="760" y="40" width="300" height="56" rx="6"/>
-  <text class="tn" x="910" y="64" text-anchor="middle">Operator</text>
-  <text class="ts" x="910" y="80" text-anchor="middle">sees it in the activity strip</text>
+  <rect class="mask" x="740" y="32" width="340" height="64" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="740" y="32" width="340" height="64" rx="6"/>
+  <text class="tn" x="910" y="54" text-anchor="middle">Operator</text>
+  <text class="ts" x="910" y="70" text-anchor="middle">a code review line in the activity log</text>
+  <text class="ts" x="910" y="84" text-anchor="middle">what was found and whether the code ran, not why</text>
 </svg>
 </div>

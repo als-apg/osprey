@@ -454,7 +454,8 @@ Code review
 
 The feature requires the ``code-review`` and ``memory-guard`` hooks in the profile's ``hooks:``
 list. A change in the rendered ``config.yml`` applies on the next call, and only ``time_limit``
-needs ``osprey build`` and a session reload. See :ref:`architecture-safety-chain-code-review`.
+needs ``osprey build`` and a session reload. :doc:`/how-to/control-systems/code-review` sets
+it up; :ref:`architecture-safety-chain-code-review` says what it does.
 
 .. _profile-preset-drift:
 

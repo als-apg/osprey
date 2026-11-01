@@ -1,4 +1,5 @@
-A deployment can have an LLM review the Python the agent writes, on Python
-runs and on notebook edits, with `code_review` in the profile. The reasons go
-back to the agent, the operator sees a notice in the activity strip, and at
-level `block` a blocking finding refuses the code.
+A deployment can turn on code review: a second AI agent reads the Python the
+OSPREY agent writes, on Python runs and on notebook cells, following
+instructions the deployment writes in `data/code_review/reviewer.md`, and
+either stops unsafe code or only reports it (`code_review.level`). The agent
+gets the reasons; the operator gets a line in the activity log.
