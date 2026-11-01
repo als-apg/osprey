@@ -270,6 +270,9 @@ class TestBuildPhases:
             post_build = None
             validate = None
 
+        class _Environment:
+            packages: list[str] = []
+
         class _Profile:
             name = "probe"
             project_name = "probe"
@@ -277,6 +280,7 @@ class TestBuildPhases:
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
+            environment = _Environment()
             lifecycle = _Lifecycle()
             config: dict = {}
             deploy = None

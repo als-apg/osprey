@@ -206,13 +206,67 @@ def test_the_plan_carries_both_spellings_and_the_wheels(tmp_path: Path) -> None:
     ]
 
 
-def test_a_distribution_is_never_named_twice(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "dependencies",
+    [[*DEPENDENCIES, "ring-kind"], ["Ring_Kind>=0.1", *DEPENDENCIES]],
+)
+def test_a_local_path_and_a_requirement_of_one_distribution_are_refused(
+    tmp_path: Path, dependencies: list[str]
+) -> None:
+    """No merge order decides which one the deployment meant."""
+    root = _deployment(tmp_path / "repo")
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage")
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(dependencies), packages)
+
+    message = str(refused.value)
+    assert "'./kinds/ring'" in message
+    assert repr(next(d for d in dependencies if "ring-kind" in d.lower().replace("_", "-"))) in (
+        message
+    )
+
+
+def test_a_local_path_and_an_environment_package_of_one_distribution_are_refused(
+    tmp_path: Path,
+) -> None:
     _root, _dest, packages = _built(tmp_path)
+    profile = BuildProfile(
+        name="test",
+        dependencies=list(DEPENDENCIES),
+        osprey_install="osprey-framework==2026.10.1",
+        environment=EnvironmentConfig(packages=["ring-kind==9"]),
+    )
 
-    plan = _plan_project_venv(_profile([*DEPENDENCIES, "ring-kind"]), packages)
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(profile, packages)
 
-    assert plan.extra_deps == ["numpy>=1.24", "ring-kind==0.2.0", "knob-app==0.1.0"]
-    assert len(plan.install_deps) == 3
+    assert "'./kinds/ring'" in str(refused.value) and "'ring-kind==9'" in str(refused.value)
+
+
+def test_an_application_package_and_a_requirement_of_one_distribution_are_refused(
+    tmp_path: Path,
+) -> None:
+    root = _deployment(tmp_path / "repo")
+    packages = build_deployment_packages(root, ["knob_app"], tmp_path / "stage")
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(["knob_app"]), packages)
+
+    assert "'apps/knob'" in str(refused.value) and "'knob_app'" in str(refused.value)
+
+
+def test_two_packages_of_one_distribution_are_refused(tmp_path: Path) -> None:
+    root = _deployment(tmp_path / "repo")
+    (root / "kinds" / "copy").mkdir()
+    (root / "kinds" / "copy" / "pyproject.toml").write_text(KIND_PYPROJECT, encoding="utf-8")
+    dependencies = ["./kinds/ring", "./kinds/copy"]
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage")
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(dependencies), packages)
+
+    assert "'./kinds/ring'" in str(refused.value) and "'./kinds/copy'" in str(refused.value)
 
 
 def test_two_spellings_of_one_local_path_are_one_package(tmp_path: Path) -> None:
@@ -599,7 +653,9 @@ def test_a_skip_deps_build_ships_a_kind_named_in_the_dependencies(
     assert result.exit_code == 0, result.output
 
 
-def test_a_skip_deps_build_names_a_distribution_once(tmp_path: Path) -> None:
+def test_a_skip_deps_build_refuses_one_distribution_named_twice(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     from osprey.cli.build_cmd import build as build_command
     from osprey.cli.init_cmd import init
 
@@ -613,11 +669,9 @@ def test_a_skip_deps_build_names_a_distribution_once(tmp_path: Path) -> None:
     (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
 
     result = runner.invoke(build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    assert result.exit_code == 0, result.output
 
-    dockerfile = (repo / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
-    primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
-    assert '"$OSPREY_PIP_SPEC" ring-kind==0.2.0 knob-app==0.1.0 --refresh-package' in primer
+    assert result.exit_code != 0
+    assert "'./kinds/ring'" in caplog.text and "'ring-kind'" in caplog.text
 
 
 @pytest.mark.parametrize(

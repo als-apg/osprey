@@ -56,6 +56,7 @@ from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     DeploymentPackage,
     build_deployment_packages,
+    refuse_named_twice,
     refuse_unshipped_kinds,
 )
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
@@ -3598,7 +3599,14 @@ def _build_repo(
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")
         else:
-            # One merge with the plan's, so a distribution is named once here too.
+            # The plan's own judgements, over the one list this render carries.
+            refuse_named_twice(
+                deployment_packages,
+                [
+                    *(build_profile.dependencies or []),
+                    *(build_profile.environment.packages or []),
+                ],
+            )
             project_deps = _merge_project_requirements(
                 [],
                 deployment_dependencies(
