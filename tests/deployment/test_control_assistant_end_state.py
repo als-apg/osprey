@@ -411,6 +411,7 @@ def test_the_example_runs_on_the_bridge_against_the_simulator(stack: Path, confi
     assert environment["EPICS_CA_NAME_SERVERS"].startswith("virtual-accelerator:")
     assert environment["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
     assert "writes_enabled" not in environment
+    assert environment["OSPREY_APP_STATE_DIRS"].endswith("var/knob-example")
 
 
 def test_the_example_judges_a_write_by_the_staged_login_map(stack: Path, config: dict) -> None:
