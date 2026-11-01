@@ -64,7 +64,6 @@ VOLATILE_MANIFEST_KEYS = frozenset({"timestamp", "preset_hash", "watchdogs"})
 #: Allowed difference from the baseline: hook file, then a line only the baseline has
 #: and a line only the feature has.
 ALLOWED_CHANGES = {
-    "osprey_target_state.py": (None, "def execution_verdict("),
     "osprey_writes_check.py": (
         "_target_state.write_verdict(section",
         "_target_state.execution_verdict(section",
