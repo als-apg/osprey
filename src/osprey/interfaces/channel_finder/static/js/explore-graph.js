@@ -558,7 +558,13 @@ function markOpenRows() {
   }
 }
 
-/** Redraw the inspector region from `cardHtml`. @returns {void} */
+/**
+ * Redraw the inspector region from `cardHtml`. Opening it takes room from the
+ * results (all of it below them in a narrow tile), so the row it was opened
+ * from is scrolled back into the results' view; `nearest` leaves a row that is
+ * still visible where it is.
+ * @returns {void}
+ */
 function renderCard() {
   const region = part(FINDER_IDS.card);
   if (!region) return;
@@ -567,6 +573,9 @@ function renderCard() {
   const split = part(FINDER_IDS.cardSplit);
   if (split) split.hidden = cardHtml === '';
   markOpenRows();
+  if (cardHtml !== '') {
+    paneEl?.querySelector('.result-table tbody tr.open')?.scrollIntoView?.({ block: 'nearest' });
+  }
 }
 
 /**

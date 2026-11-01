@@ -2860,15 +2860,16 @@ tr:focus-within .copy-btn,
 
 /* Must stay after the base rules above (see the section note). The
    panes stack: the rail becomes a wrapping row of short facets above the
-   results, the inspector drops below them, the splitters go, and the
-   frame gives up its fixed height so the page scrolls once. The
-   splitter's inline sizes are overridden, not removed: it is parked by
-   its own isEnabled gate and resumes when the viewport widens. */
+   results, and the inspector docks under the results. The frame keeps
+   its fixed height and each region scrolls inside itself, so an opened
+   device is always on screen: the inspector takes up to half the
+   height and the results give up the room, rather than the card
+   landing below a long table the operator has to find a way to scroll
+   past. This is the common case for a narrow tile beside others, not
+   only a phone. The splitters go; their inline sizes are overridden,
+   not removed: each is parked by its own isEnabled gate and resumes
+   when the viewport widens. */
 @media (max-width: 768px) {
-  .graph-explorer {
-    height: auto;
-  }
-
   .cf-seg,
   .finder-count,
   .corpus-prov {
@@ -2877,22 +2878,19 @@ tr:focus-within .copy-btn,
 
   .finder-layout {
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--space-2);
   }
 
   .finder-layout > .osprey-splitter {
     display: none;
   }
 
-  .facet-rail,
-  .finder-inspector {
-    flex: 0 0 auto !important;
-    max-width: none !important;
-  }
-
   .facet-rail {
+    flex: 0 1 auto !important;
     flex-direction: row;
     flex-wrap: wrap;
+    max-width: none !important;
+    max-height: 30%;
   }
 
   .facet {
@@ -2903,7 +2901,13 @@ tr:focus-within .copy-btn,
     max-height: 180px;
   }
 
-  .result-wrap {
-    max-height: 70vh;
+  .finder-results {
+    min-height: 140px;
+  }
+
+  .finder-inspector {
+    flex: 0 1 auto !important;
+    max-width: none !important;
+    max-height: 50%;
   }
 }
