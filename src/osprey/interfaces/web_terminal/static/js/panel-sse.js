@@ -42,6 +42,12 @@ import {
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
 import { isPoppedOut, focusPopout } from './popout.js';
+import {
+  initWatchdogAlert,
+  isWatchdogFrame,
+  onWatchdogFrame,
+  refetchFlags,
+} from './watchdog-alert.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -89,6 +95,7 @@ function ctx() {
  */
 export function subscribePanelEvents(sseDeps) {
   deps = sseDeps;
+  initWatchdogAlert();
 
   // Listen for SSE events via createEventSource (api.js) so the URL picks up
   // window.__OSPREY_PREFIX__ under multi-user deployments (empty prefix ⇒
@@ -130,6 +137,9 @@ export function subscribePanelEvents(sseDeps) {
   //                                               signal: badge+glow the rail entry
   //                                               for target.kind 'panel', otherwise
   //                                               hand off to the strip seam.
+  //   watchdog_*       {type, session_key, ...} — a change notice: handed to
+  //                                               watchdog-alert.js, which re-reads
+  //                                               the flags from their route.
   //
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
@@ -147,6 +157,7 @@ export function subscribePanelEvents(sseDeps) {
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
+      void refetchFlags();
       // The first open follows the config reads of this page's boot. A later
       // one may be a different hub: what each panel is served at is read again.
       if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
@@ -210,6 +221,8 @@ export function subscribePanelEvents(sseDeps) {
           if (!(t.kind === 'panel' && t.panel && badgePanelActivity(t.panel, data.ts))) {
             c.reportActivity(data);
           }
+        } else if (isWatchdogFrame(data)) {
+          onWatchdogFrame(data);
         }
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and
