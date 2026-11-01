@@ -699,7 +699,7 @@ _TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 #: deliberately NOT the refusal words (``KIND_WORDS``), which complete a
 #: refusal sentence rather than name a machine.
 _KIND_WORDS = {
-    "real": "Real machine — writes move hardware",
+    "real": "Live — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
     "simulator": "Simulator — nothing moves",
 }

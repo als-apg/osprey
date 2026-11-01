@@ -13,6 +13,13 @@
  * register their contribution host element here on construction; whichever
  * of (message arrived, host registered) happens second triggers the render.
  *
+ * The hub can also fill a tile's header itself: contributeLocal takes the
+ * same items (through the same sanitizer) plus a local dispatch that every
+ * action of that panel's bar goes to instead of the iframe. From then on the
+ * hub owns that header, so the panel's own contribution messages are
+ * ignored — the Artifacts tile's iframe is a viewer of one artifact, and its
+ * breadcrumb, pager and actions belong to the hub's sidebar.
+ *
  * SECURITY: a message's panel identity is resolved by matching event.source
  * against the live panel iframes' contentWindow — never from a panel id
  * claimed in the payload, so one panel cannot inject controls into another
@@ -23,7 +30,8 @@
  * a search field collapses to its magnifier (click/Enter re-expands it while
  * focused), then remaining controls fold lowest-priority-first into a
  * bar-owned ⋯ menu that keeps every folded control reachable. Text
- * (subtitle) and search never fold — text truncates, search collapses.
+ * (subtitle), the breadcrumb and separators never fold — text truncates —
+ * and search never folds either: it collapses.
  *
  * Rendering is a keyed reconcile, not a rebuild. Items are matched on
  * `kind:id`; a survivor is patched in place and never detached, because a
@@ -34,17 +42,21 @@
 import { sendHeaderActionToIframe } from './panel-iframe-sync.js';
 import { createItem, disposeItem, patchItem, toggleOverflowMenu } from './tile-header-items.js';
 import { svgIcon } from './svg-icons.js';
+import { ICON_NAMES } from '/design-system/js/icons.js';
 
 /** Hard caps so a misbehaving panel cannot flood the bar. */
 const MAX_ITEMS = 12;
 const MAX_TEXT = 120;
 
 /**
- * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} HeaderItem
+ * @typedef {import('./tile-header-items.js').HeaderItem} HeaderItem
+ * @typedef {import('./tile-header-items.js').Dispatch} Dispatch
  */
 
 /** @type {Map<string, HeaderItem[]>} last valid contribution per panel id */
 const contributions = new Map();
+/** @type {Map<string, Dispatch>} action sink per panel whose header the hub contributes */
+const localDispatch = new Map();
 /** @type {Map<string, HTMLElement>} live contribution region per panel id */
 const hosts = new Map();
 /** @type {Map<string, ResizeObserver>} per-host overflow re-measurers */
@@ -61,7 +73,7 @@ export function initHeaderContrib() {
     const data = e.data;
     if (!data || data.type !== 'osprey-header-contribution') return;
     const panelId = panelIdForSource(e.source);
-    if (!panelId) return;
+    if (!panelId || localDispatch.has(panelId)) return;
     contributions.set(panelId, sanitizeItems(data.items));
     const host = hosts.get(panelId);
     if (host) render(panelId, host);
@@ -149,15 +161,34 @@ function sanitizeItems(raw) {
           items: entries,
         });
       }
-    } else if (it.kind === 'button' && typeof it.label === 'string') {
+    } else if (it.kind === 'button') {
+      // An unknown icon name is dropped from the item: icon() throws on one.
+      const icon =
+        typeof it.icon === 'string' && ICON_NAMES.includes(it.icon) ? it.icon : undefined;
+      const label = typeof it.label === 'string' ? clip(it.label) : undefined;
+      const title = typeof it.title === 'string' ? clip(it.title) : undefined;
+      // Every button needs an accessible name: its label, or for an icon
+      // button without one, its title.
+      if (icon ? Boolean(label || title) : label !== undefined) {
+        out.push({
+          ...base,
+          kind: 'button',
+          label,
+          title,
+          ...(icon ? { icon } : {}),
+          tone: it.tone === 'accent' ? 'accent' : 'default',
+          disabled: it.disabled === true,
+        });
+      }
+    } else if (it.kind === 'crumb' && typeof it.root === 'string') {
       out.push({
         ...base,
-        kind: 'button',
-        label: clip(it.label),
-        title: typeof it.title === 'string' ? clip(it.title) : undefined,
-        tone: it.tone === 'accent' ? 'accent' : 'default',
-        disabled: it.disabled === true,
+        kind: 'crumb',
+        root: clip(it.root),
+        leaf: typeof it.leaf === 'string' ? clip(it.leaf) : '',
       });
+    } else if (it.kind === 'sep') {
+      out.push({ ...base, kind: 'sep' });
     } else if (it.kind === 'nav' && Array.isArray(it.items)) {
       const entries = it.items
         .slice(0, MAX_ITEMS)
@@ -178,6 +209,24 @@ function sanitizeItems(raw) {
 /** @param {string} s @returns {string} */
 function clip(s) {
   return String(s).slice(0, MAX_TEXT);
+}
+
+/**
+ * Fill a panel's header from the hub itself. The items pass the same
+ * sanitizer as a panel's message and replace that panel's items; the bar
+ * renders now if the tile is up, else when it registers. Every action of
+ * that bar (buttons, nav, menu, search, the ⋯ fold rows) goes to `dispatch`
+ * instead of the iframe, and the panel's own contribution messages are
+ * ignored from now on, because the hub owns this header.
+ * @param {string} panelId
+ * @param {unknown} items
+ * @param {Dispatch} dispatch
+ */
+export function contributeLocal(panelId, items, dispatch) {
+  localDispatch.set(panelId, dispatch);
+  contributions.set(panelId, sanitizeItems(items));
+  const host = hosts.get(panelId);
+  if (host) render(panelId, host);
 }
 
 /**
@@ -254,6 +303,11 @@ export function unregisterContribHost(panelId, host) {
 function render(panelId, host) {
   const items = contributions.get(panelId) ?? [];
   host.classList.toggle('has-items', items.length > 0);
+  // A breadcrumb names the tile, so CSS hides the tile's own title beside it.
+  host.classList.toggle(
+    'has-crumb',
+    items.some((item) => item.kind === 'crumb')
+  );
 
   /** Live elements from the previous contribution, keyed as they were built. */
   /** @type {Map<string, HTMLElement>} */
@@ -263,7 +317,7 @@ function render(panelId, host) {
     if (el.dataset.contribKey) live.set(el.dataset.contribKey, el);
   }
 
-  /** @type {(id: string, value?: string) => void} */
+  /** @type {Dispatch} */
   const dispatch = (id, value) => dispatchAction(panelId, id, value);
 
   /** @type {HTMLElement[]} */
@@ -301,12 +355,18 @@ function render(panelId, host) {
 }
 
 /**
+ * Route one of a bar's actions: to the hub's own handler when the hub
+ * contributes this header, else back to the panel's iframe. Looked up per
+ * action, so elements built before a contributeLocal still route there.
  * @param {string} panelId
  * @param {string} id
  * @param {string} [value]
  */
 function dispatchAction(panelId, id, value) {
-  sendHeaderActionToIframe(iframeForPanel(panelId), id, value);
+  const local = localDispatch.get(panelId);
+  if (!local) sendHeaderActionToIframe(iframeForPanel(panelId), id, value);
+  else if (value === undefined) local(id);
+  else local(id, value);
 }
 
 /**
@@ -318,9 +378,10 @@ function dispatchAction(panelId, id, value) {
  *   2. remaining CONTROLS fold lowest-priority-first into a bar-owned
  *      ⋯ menu, so nothing becomes unreachable on a narrow tile.
  *
- * Text (subtitle) never folds — it truncates via CSS — and search never
- * folds past its magnifier. The ⋯ button is appended before the fold loop
- * measures, so the space it consumes is part of what the loop solves for.
+ * Text (subtitle), the breadcrumb and separators never fold — text
+ * truncates via CSS — and search never folds past its magnifier. The ⋯
+ * button is appended before the fold loop measures, so the space it
+ * consumes is part of what the loop solves for.
  * @param {string} panelId
  * @param {HTMLElement} host
  */
@@ -360,7 +421,9 @@ function applyOverflowLadder(panelId, host) {
     (c) =>
       c.dataset.contribKey &&
       !c.classList.contains('contrib-search') &&
-      !c.classList.contains('contrib-text')
+      !c.classList.contains('contrib-text') &&
+      !c.classList.contains('osprey-crumb') &&
+      !c.classList.contains('osprey-head-sep')
   );
   if (!foldable.length) return;
 
@@ -424,7 +487,8 @@ function overflowRows(panelId, keys) {
     if (!item) continue;
     if (item.kind === 'button') {
       rows.push({
-        label: item.label ?? item.id,
+        // An icon-only button has no label; its title is its name.
+        label: item.label || item.title || item.id,
         disabled: item.disabled === true,
         pick: () => dispatchAction(panelId, item.id),
       });

@@ -1,33 +1,33 @@
 // @ts-check
 /* OSPREY Web Terminal — Add-Panel Menu (the human "+")
  *
- * A small popover, opened from the "+" button in the header, that lets a human
+ * A popover, opened from the sidebar's "+ Add panel" row, that lets a human
  * add a panel — the browser-tab analogue the agent already has via MCP tools.
- * It offers two things:
+ * It offers up to three things:
  *
- *   1. "Show panel" — a list of known-but-hidden panels. Clicking one reveals it
+ *   1. "Layouts" — the deployment's configured presets, only where it has any.
+ *   2. "Show panel" — a list of known-but-hidden panels. Clicking one reveals it
  *      (a POST /api/panel-visibility round-trip, driven by the parent).
- *   2. "New panel from URL" — a URL field, shown ONLY when the server reports
+ *   3. "New panel from URL" — a URL field, shown ONLY when the server reports
  *      web.allow_runtime_panels is enabled (POST /api/panels/register).
  *
- * This module is purely presentational: it owns the popover DOM, open/close,
- * outside-click / Escape, and the input→request mapping. It holds no panel
- * state and issues no fetches — the parent (panel-manager) passes closures for
- * the two actions and for the current hidden-panel/allow-URL state, so the menu
- * stays a dumb view over whatever the panel manager knows.
+ * This module is purely presentational: it owns the popover's body and the
+ * input→request mapping. The popover itself — a body-level `.osprey-popover`
+ * in index.html — is placed, opened and dismissed by the design system's
+ * popover.js (outside click, Escape with focus back on the "+" row, resize),
+ * beside the sidebar. It holds no panel state and issues no fetches — the
+ * parent (panel-manager) passes closures for the actions and for the current
+ * hidden-panel/allow-URL state, so the menu stays a dumb view over whatever the
+ * panel manager knows.
  *
  * The one dock coupling: a "Show panel" pick docks the revealed panel BESIDE the
  * active dock group (dock-sync.dockPanelBesideActive) before the reveal POST, so
  * it lands where the operator is working rather than on the adapter's default
  * anchor. That call no-ops without a dockview shell, keeping the menu portable.
- *
- * One chrome coupling of the same kind: a footer row flips the rail position
- * (rail-position.js) — pure host-chrome state, so it's imported directly
- * rather than threaded through the parent's closures.
  */
 
+import { closePopover, openPopover } from '/design-system/js/popover.js';
 import { dockPanelBesideActive } from './dock-sync.js';
-import { getRailPosition, setRailPosition } from './rail-position.js';
 
 /**
  * @typedef {object} HiddenPanel
@@ -43,9 +43,8 @@ import { getRailPosition, setRailPosition } from './rail-position.js';
 
 /**
  * @typedef {object} AddMenuOptions
- * @property {HTMLElement} rootEl                    - wrapper, the position:relative anchor
- * @property {HTMLButtonElement} buttonEl            - the "+" toggle button
- * @property {HTMLElement} menuEl                    - the popover container
+ * @property {HTMLButtonElement} buttonEl            - the "+ Add panel" row
+ * @property {HTMLElement} menuEl                    - the body-level `.osprey-popover`
  * @property {() => HiddenPanel[]} getHiddenPanels   - known-but-hidden panels, in tab order
  * @property {() => boolean} allowUrlPanels          - whether runtime URL registration is on
  * @property {(id: string) => void} onShowPanel      - reveal + focus a hidden panel
@@ -86,48 +85,16 @@ function hostnameOf(url) {
 }
 
 /**
- * Wire up the add-panel menu. No-op (returns) if any required element is absent
- * so a template without the "+" control degrades gracefully.
+ * Wire up the add-panel menu. No-op (returns) if either element is absent so
+ * a template without the "+" control degrades gracefully.
  * @param {AddMenuOptions} opts
  */
 export function initPanelAddMenu(opts) {
-  const { rootEl, buttonEl, menuEl } = opts;
-  if (!rootEl || !buttonEl || !menuEl) return;
-
-  const isOpen = () => menuEl.classList.contains('open');
-
-  /** @param {MouseEvent} e */
-  function onDocClick(e) {
-    if (e.target instanceof Node && !rootEl.contains(e.target)) closeMenu();
-  }
-
-  /** @param {KeyboardEvent} e */
-  function onKeydown(e) {
-    if (e.key === 'Escape') {
-      closeMenu();
-      buttonEl.focus();
-    }
-  }
-
-  function openMenu() {
-    render();
-    menuEl.classList.add('open');
-    buttonEl.setAttribute('aria-expanded', 'true');
-    // Focus the first actionable element for keyboard users.
-    const first = /** @type {HTMLElement | null} */ (
-      menuEl.querySelector('.panel-add-item, .panel-add-input')
-    );
-    first?.focus();
-    // Capture-phase so an outside click closes before it does anything else.
-    document.addEventListener('click', onDocClick, true);
-    document.addEventListener('keydown', onKeydown, true);
-  }
+  const { buttonEl, menuEl } = opts;
+  if (!buttonEl || !menuEl) return;
 
   function closeMenu() {
-    menuEl.classList.remove('open');
-    buttonEl.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('click', onDocClick, true);
-    document.removeEventListener('keydown', onKeydown, true);
+    closePopover(menuEl);
   }
 
   /** Rebuild the menu body from the parent's current state. */
@@ -141,92 +108,73 @@ export function initPanelAddMenu(opts) {
     // matching the "Show panel" interaction grammar one altitude up.
     const presets = opts.getPresets();
     if (presets.length > 0) {
-      const layouts = document.createElement('div');
-      layouts.className = 'panel-add-section';
-      layouts.appendChild(heading('Layouts'));
+      menuEl.appendChild(heading('Layouts'));
       for (const preset of presets) {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'panel-add-item';
         // textContent — preset.name is config-supplied JSON (never innerHTML).
-        item.textContent = preset.name;
+        const item = menuItem(preset.name);
         item.addEventListener('click', () => {
           opts.onApplyPreset(preset.name);
           closeMenu();
         });
-        layouts.appendChild(item);
+        menuEl.appendChild(item);
       }
-      menuEl.appendChild(layouts);
-      const divider = document.createElement('div');
-      divider.className = 'panel-add-divider';
-      menuEl.appendChild(divider);
+      menuEl.appendChild(separator());
     }
 
     // ---- Section 1: reveal a hidden panel ----
+    menuEl.appendChild(heading('Show panel'));
     const hidden = opts.getHiddenPanels();
-    const section = document.createElement('div');
-    section.className = 'panel-add-section';
-    section.appendChild(heading('Show panel'));
-
     if (hidden.length === 0) {
       const empty = document.createElement('div');
-      empty.className = 'panel-add-empty';
+      empty.className = 'osprey-list-empty panel-add-empty';
       empty.textContent = 'All panels shown';
-      section.appendChild(empty);
-    } else {
-      for (const panel of hidden) {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'panel-add-item';
-        item.dataset.panelId = panel.id;
-        // textContent — panel.label is server/agent-supplied JSON (never innerHTML).
-        item.textContent = panel.label;
-        item.addEventListener('click', () => {
-          // Dock the placeholder beside the active group first, then reveal it —
-          // the adapter adopts the pre-placed placeholder by id (no-op without a
-          // dock shell). The reveal itself POSTs the visibility + focus.
-          dockPanelBesideActive(panel.id, panel.label);
-          opts.onShowPanel(panel.id);
-          closeMenu();
-        });
-        section.appendChild(item);
-      }
+      menuEl.appendChild(empty);
     }
-    menuEl.appendChild(section);
+    for (const panel of hidden) {
+      // textContent — panel.label is server/agent-supplied JSON (never innerHTML).
+      const item = menuItem(panel.label);
+      item.dataset.panelId = panel.id;
+      item.addEventListener('click', () => {
+        // Dock the placeholder beside the active group first, then reveal it —
+        // the adapter adopts the pre-placed placeholder by id (no-op without a
+        // dock shell). The reveal itself POSTs the visibility + focus.
+        dockPanelBesideActive(panel.id, panel.label);
+        opts.onShowPanel(panel.id);
+        closeMenu();
+      });
+      menuEl.appendChild(item);
+    }
 
     // ---- Section 2: add from URL (only when the server permits it) ----
     if (opts.allowUrlPanels()) {
-      const divider = document.createElement('div');
-      divider.className = 'panel-add-divider';
-      menuEl.appendChild(divider);
+      menuEl.appendChild(separator());
       menuEl.appendChild(buildUrlForm());
     }
-
-    // ---- Footer: flip the rail position (host chrome, not panel state) ----
-    // One row whose label reflects the flip AWAY from the current position;
-    // render() runs on every open, so the label is always current.
-    const railDivider = document.createElement('div');
-    railDivider.className = 'panel-add-divider';
-    menuEl.appendChild(railDivider);
-    const railTarget = getRailPosition() === 'top' ? 'left' : 'top';
-    const railItem = document.createElement('button');
-    railItem.type = 'button';
-    railItem.className = 'panel-add-item';
-    railItem.dataset.railTarget = railTarget;
-    railItem.textContent = railTarget === 'top' ? 'Rail: move to top' : 'Rail: move to left';
-    railItem.addEventListener('click', () => {
-      setRailPosition(railTarget);
-      closeMenu();
-    });
-    menuEl.appendChild(railItem);
   }
 
   /** @param {string} text @returns {HTMLElement} */
   function heading(text) {
     const h = document.createElement('div');
-    h.className = 'panel-add-heading';
+    h.className = 'osprey-popover-title panel-add-heading';
     h.textContent = text;
     return h;
+  }
+
+  /** @param {string} text @returns {HTMLButtonElement} */
+  function menuItem(text) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'osprey-popover-item panel-add-item';
+    item.textContent = text;
+    return item;
+  }
+
+  /** @returns {HTMLElement} */
+  function separator() {
+    const sep = document.createElement('div');
+    sep.className = 'osprey-popover-sep';
+    sep.setAttribute('role', 'separator');
+    return sep;
   }
 
   /** @returns {HTMLFormElement} */
@@ -241,6 +189,7 @@ export function initPanelAddMenu(opts) {
     urlInput.type = 'url';
     urlInput.placeholder = 'https://host:port';
     urlInput.required = true;
+    urlInput.setAttribute('aria-label', 'Panel URL');
     form.appendChild(urlInput);
 
     const labelInput = document.createElement('input');
@@ -248,6 +197,7 @@ export function initPanelAddMenu(opts) {
     labelInput.name = 'label';
     labelInput.type = 'text';
     labelInput.placeholder = 'Name (optional)';
+    labelInput.setAttribute('aria-label', 'Panel name');
     form.appendChild(labelInput);
 
     const errorEl = document.createElement('div');
@@ -257,7 +207,7 @@ export function initPanelAddMenu(opts) {
 
     const submit = document.createElement('button');
     submit.type = 'submit';
-    submit.className = 'panel-add-submit';
+    submit.className = 'osprey-btn primary panel-add-submit';
     submit.textContent = 'Add';
     form.appendChild(submit);
 
@@ -289,9 +239,15 @@ export function initPanelAddMenu(opts) {
     return form;
   }
 
-  buttonEl.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (isOpen()) closeMenu();
-    else openMenu();
+  buttonEl.addEventListener('click', () => {
+    if (!menuEl.hidden) {
+      closeMenu();
+      return;
+    }
+    render();
+    openPopover(menuEl, buttonEl, {
+      place: 'beside-right',
+      edge: buttonEl.closest('#sidebar') ?? buttonEl,
+    });
   });
 }

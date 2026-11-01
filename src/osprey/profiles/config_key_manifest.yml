@@ -1151,7 +1151,7 @@ keys:
       display-metadata mint point; state-file and roster readers render the
       name they are handed and never read this key again.
     default: {}
-  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine'"}
+  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Live'"}
   control_system.target_display_names.standin: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Rehearsal' when a stand-in is deployed, else the machine name"}
   control_system.target_display_names.va: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Simulator'"}
   control_system.read_inline_max_elements:
@@ -2853,9 +2853,9 @@ keys:
   web.panels.system-health.hidden:
     evidence: 'spec\.get\("hidden", False\)'
     note: >-
-      Serves the panel without a rail entry: it stays enabled (the status bar's
-      health item, the "+" menu, the command palette and the rail's More menu
-      all open it) but is not a rail member until someone adds it. The
+      Serves the panel without a sidebar row: it stays enabled (the "+ Add
+      panel" menu and the command palette open it) but is not a sidebar member
+      until someone adds it. The
       control-assistant preset ships it true. The same per-panel key works for
       every panel; this is the one shipped configuration that writes it.
     default: false
@@ -3111,26 +3111,6 @@ keys:
       is refused with a warning and the default applies. Documented in
       reference/configuration/config.rst.
     default: 60.0
-  web.bar_items:
-    rendered: false
-    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"bar_items"\s*\)'
-    note: >-
-      `rendered: false` because the project template carries it COMMENTED and
-      the other four templates not at all — the shipped bars are the default,
-      so there is nothing for a template to render live. The deployment's
-      default arrangement of the web terminal's two item hosts (header and
-      status bar), with four sub-keys — header, status, status_visible,
-      locked. The whole block is unpacked by one reader,
-      `_load_bar_items()` in the web terminal's app factory, so the evidence
-      anchors on that single read and the sub-keys carry no entries of their
-      own: they are documented in a code block in
-      reference/configuration/config.rst rather than as inline literals,
-      which is what keeps them out of the docs cross-check. The `\s*` between
-      the call's parts is load-bearing for the same reason `web.app_name`
-      carries it — the formatter wraps a call across lines on length alone.
-    default: derived
-    default_note: >-
-      the shipped default bar layout, filtered to what this deployment renders
   cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: {}}
   cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: default}
 

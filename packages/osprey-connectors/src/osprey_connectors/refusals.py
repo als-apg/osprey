@@ -81,7 +81,7 @@ _PHRASES: dict[str, str] = {
 
 #: The words a machine kind adds to a phrase.
 KIND_WORDS: dict[str, str] = {
-    "real": "the real machine",
+    "real": "the live machine",
     "rehearsal": "the rehearsal machine",
     "simulator": "the simulator",
 }

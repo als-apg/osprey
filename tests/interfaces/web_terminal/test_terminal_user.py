@@ -1,12 +1,14 @@
 """Tests for per-user identity surfacing in the web terminal.
 
 ``OSPREY_TERMINAL_USER`` and ``OSPREY_TERMINAL_LANDING_URL`` are read at
-startup and rendered by ``root()`` into the header's identity chip and its
-logout controls; the forwarded role headers are read per request.
+startup and rendered by ``root()`` into the title row of the sidebar's ☰ More
+menu and the sidebar footer's Sign out row; the forwarded role headers are
+read per request.
 """
 
 from __future__ import annotations
 
+import re
 from unittest.mock import patch
 
 import pytest
@@ -33,8 +35,18 @@ def client(workspace_dir):
         yield c
 
 
-class TestSessionFooter:
-    """The display menu's session footer: who you are, and the way out."""
+def _span(body: str, cls: str) -> tuple[str, str] | None:
+    """The attributes and text of the first ``<span class="cls" …>text<``.
+
+    The class is matched whole (closing quote included), so ``more-menu-role``
+    never matches ``more-menu-role-source``.
+    """
+    match = re.search(rf'<span class="{re.escape(cls)}"([^>]*)>([^<]*)<', body)
+    return (match.group(1), match.group(2)) if match else None
+
+
+class TestMoreMenuIdentity:
+    """The More menu's title row says who you are; the footer holds the way out."""
 
     def _body(self, workspace_dir, env):
         cfg = {"watch_dir": str(workspace_dir)}
@@ -45,7 +57,7 @@ class TestSessionFooter:
             with TestClient(create_app(shell_command=["echo"])) as c:
                 return c.get("/").text
 
-    def test_header_identity_menu_names_the_user_and_holds_the_logout_control(self, workspace_dir):
+    def test_more_menu_names_the_user_and_the_footer_holds_the_logout_control(self, workspace_dir):
         body = self._body(
             workspace_dir,
             {
@@ -54,38 +66,44 @@ class TestSessionFooter:
             },
         )
 
-        assert 'class="header-identity"' in body
-        assert 'class="header-identity-who-name">alice<' in body
-        # The avatar shows the initial, upper-cased.
-        assert 'class="header-identity-avatar" aria-hidden="true">A<' in body
-        # The chip is the trigger, and says so to assistive tech.
-        assert 'id="header-identity-trigger"' in body
-        assert 'aria-controls="header-identity-menu"' in body
+        assert 'class="more-menu-who"' in body
+        user = _span(body, "more-menu-user")
+        assert user is not None and user[1] == "alice"
+        # The avatar shows the initial, upper-cased, and is hidden from
+        # assistive tech (the name beside it already says who this is).
+        avatar = _span(body, "more-menu-avatar")
+        assert avatar is not None and avatar[1] == "A"
+        assert 'aria-hidden="true"' in avatar[0]
         # The logout control keeps its id + data-landing-url contract; app.js's
-        # initLogoutButton() and the command palette both find it by id.
-        assert 'id="logout-btn"' in body
+        # initSignOut() finds it by id. It renders once, as a row of the
+        # sidebar footer above ☰ More, and the More menu no longer holds it.
+        assert body.count('id="logout-btn"') == 1
+        foot = body.index('class="sidebar-foot"')
+        assert foot < body.index('id="logout-btn"') < body.index('id="more-btn"')
+        assert body.index('id="logout-btn"') < body.index('id="more-menu"')
         assert 'data-landing-url="https://facility.example/portal"' in body
-        # Identity lives in the header menu now, not in the display card —
-        # but Log out renders in BOTH places: the chip's menu and the display
-        # card's action row (its own id; initLogoutButton() binds both).
-        assert "display-menu-identity" not in body
-        assert 'id="display-menu-logout-btn"' in body
+        # With sign-out available, the OSPREY mark opens the same dialog.
+        brand = re.search(r'<a class="sidebar-brand"[^>]*>', body)
+        assert brand is not None and 'aria-haspopup="dialog"' in brand.group(0)
+        # The header identity chip is gone with the header.
+        assert "header-identity" not in body
 
-    def test_header_is_identity_free_for_a_single_user_deployment(self, client):
-        """No OSPREY_TERMINAL_USER: no identity chip, and no logout control —
-        the display card's footer is the Settings button alone."""
+    def test_more_menu_is_identity_free_for_a_single_user_deployment(self, client):
+        """No OSPREY_TERMINAL_USER: no title row and no logout control — the
+        More menu still offers Settings."""
         body = client.get("/").text
 
-        assert 'class="header-identity"' not in body
-        assert 'id="header-identity-trigger"' not in body
+        assert 'class="more-menu-who"' not in body
+        assert 'class="more-menu-user"' not in body
         assert 'id="logout-btn"' not in body
-        assert 'id="display-menu-logout-btn"' not in body
-        assert 'id="display-menu-settings"' in body
+        assert 'id="more-settings"' in body
+        # The OSPREY mark stays a plain home link.
+        brand = re.search(r'<a class="sidebar-brand"[^>]*>', body)
+        assert brand is not None and "aria-haspopup" not in brand.group(0)
 
-    def test_deployment_name_moved_out_of_the_action_cluster(self, workspace_dir):
-        """app_name renders once, on the left beside the product name, and once
-        more as the footer's context line — never as a chip in the right-hand
-        action cluster where it read as a second user badge."""
+    def test_deployment_name_is_the_title_row_sub_line(self, workspace_dir):
+        """app_name renders as the title row's sub-line under the user name —
+        never as a chip of its own where it would read as a second user badge."""
         cfg = {"watch_dir": str(workspace_dir)}
         with (
             patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
@@ -98,13 +116,13 @@ class TestSessionFooter:
             with TestClient(create_app(shell_command=["echo"])) as c:
                 body = c.get("/").text
 
-        assert "header-deployment" in body
-        assert 'class="header-identity-who-sub">Control Assistant<' in body
+        sub = _span(body, "more-menu-sub")
+        assert sub is not None and sub[1] == "Control Assistant"
         assert "header-app-name" not in body
 
 
 class TestAuthRole:
-    """``X-Osprey-Auth-Role`` and ``X-Osprey-Auth-Role-Source`` -> the who-line.
+    """``X-Osprey-Auth-Role`` and ``X-Osprey-Auth-Role-Source`` -> the title row.
 
     nginx forwards the role the auth sidecar resolved on every gated request,
     and beside it where that role came from, the page GET included — so
@@ -112,7 +130,7 @@ class TestAuthRole:
     are per-login facts, not render-time ones. Both headers are decoded by the
     same bound the audit ledger applies, and a value that fails it renders
     NOTHING — in a topology with no nginx in front, any client can send these
-    headers, and the chip is a display, not an authorization surface.
+    headers, and the title row is a display, not an authorization surface.
 
     The source is shown only through ``root()``'s closed vocabulary and only
     beside a role: a qualifier with nothing to qualify would be a separator
@@ -122,13 +140,11 @@ class TestAuthRole:
     ENV = {"OSPREY_TERMINAL_USER": "alice"}
 
     #: The source span's full opening tag, asserted whole rather than by its
-    #: class alone — ``header-identity-who-role`` is a substring of
-    #: ``header-identity-who-role-source``, so a bare class check cannot tell
-    #: the pill from its qualifier.
-    SOURCE_SPAN = (
-        'class="header-identity-who-role-source" title="Where this session\'s role came from">'
-    )
-    ROLE_PILL = 'class="header-identity-who-role" title="Role for this session">operator<'
+    #: class alone — ``more-menu-role`` is a substring of
+    #: ``more-menu-role-source``, so a bare class check cannot tell the role
+    #: from its qualifier.
+    SOURCE_SPAN = 'class="more-menu-role-source" title="Where this session\'s role came from">'
+    ROLE_PILL = 'class="more-menu-role" title="Role for this session">operator<'
 
     def _body(self, workspace_dir, headers, env=None):
         cfg = {"watch_dir": str(workspace_dir)}
@@ -139,14 +155,15 @@ class TestAuthRole:
             with TestClient(create_app(shell_command=["echo"])) as c:
                 return c.get("/", headers=headers).text
 
-    def test_the_role_is_shown_in_the_who_line(self, workspace_dir):
+    def test_the_role_is_shown_in_the_title_row(self, workspace_dir):
         body = self._body(workspace_dir, {"X-Osprey-Auth-Role": "operator"})
 
-        assert 'class="header-identity-who-name">alice<' in body
-        assert 'class="header-identity-who-role" title="Role for this session">operator<' in body
+        user = _span(body, "more-menu-user")
+        assert user is not None and user[1] == "alice"
+        assert self.ROLE_PILL in body
         # A role with no source beside it — the shape every pre-upgrade session
-        # decodes to — shows the pill alone, with no qualifier span at all.
-        assert 'class="header-identity-who-role-source"' not in body
+        # decodes to — shows the role alone, with no qualifier span at all.
+        assert 'class="more-menu-role-source"' not in body
 
     @pytest.mark.parametrize(
         "headers",
@@ -162,8 +179,9 @@ class TestAuthRole:
         with a default."""
         body = self._body(workspace_dir, headers)
 
-        assert 'class="header-identity-who-name">alice<' in body
-        assert "header-identity-who-role" not in body
+        user = _span(body, "more-menu-user")
+        assert user is not None and user[1] == "alice"
+        assert "more-menu-role" not in body
 
     @pytest.mark.parametrize(
         "value",
@@ -177,11 +195,11 @@ class TestAuthRole:
         """Same bound as the audit ledger's ``_recordable``: printable ASCII,
         no interior space, at most 128 characters. The ledger records such a value as
         its ``<unsafe>`` sentinel because a record must say something was
-        there; a chip has no such duty and shows nothing rather than a marker
-        an operator would have to interpret."""
+        there; the title row has no such duty and shows nothing rather than a
+        marker an operator would have to interpret."""
         body = self._body(workspace_dir, {"X-Osprey-Auth-Role": value})
 
-        assert "header-identity-who-role" not in body
+        assert "more-menu-role" not in body
         # Autoescape would spell the sentinel as an entity; pin the escaped form
         # so this line still fails if the suppression in root() is removed.
         assert "&lt;unsafe&gt;" not in body
@@ -189,7 +207,7 @@ class TestAuthRole:
     def test_a_markup_shaped_role_is_escaped(self, workspace_dir):
         """``<script>…</script>`` carries no space and is printable ASCII, so
         it clears the bound and reaches the template. Autoescape is what makes
-        the chip safe; nothing else here would notice if it were turned off."""
+        the title row safe; nothing else here would notice if it were turned off."""
         body = self._body(workspace_dir, {"X-Osprey-Auth-Role": "<script>alert(1)</script>"})
 
         assert "<script>alert(1)</script>" not in body
@@ -205,14 +223,14 @@ class TestAuthRole:
             ),
         ],
     )
-    def test_identity_headers_without_a_user_render_no_chip(self, workspace_dir, headers):
-        """Single-user terminals render no identity chip at all; stray identity
-        headers must not conjure one."""
+    def test_identity_headers_without_a_user_render_no_title_row(self, workspace_dir, headers):
+        """Single-user terminals render no identity title row at all; stray
+        identity headers must not conjure one."""
         body = self._body(workspace_dir, headers, env={})
 
-        assert 'class="header-identity"' not in body
-        # Covers the source span too: its class extends the role pill's.
-        assert "header-identity-who-role" not in body
+        assert 'class="more-menu-who"' not in body
+        # Covers the source span too: its class extends the role's.
+        assert "more-menu-role" not in body
 
     @pytest.mark.parametrize(
         ("source", "label"),
@@ -235,24 +253,25 @@ class TestAuthRole:
 
     def test_a_source_without_a_role_renders_nothing(self, workspace_dir):
         """The qualifier is gated on the role, not only on itself. A payload
-        shape the sidecar never mints could carry a source alone; the who-line
-        would then show a separator qualifying nothing."""
+        shape the sidecar never mints could carry a source alone; the title
+        row would then show a separator qualifying nothing."""
         body = self._body(workspace_dir, {"X-Osprey-Auth-Role-Source": "roster"})
 
-        assert 'class="header-identity-who-name">alice<' in body
-        assert 'class="header-identity-who-role-source"' not in body
+        user = _span(body, "more-menu-user")
+        assert user is not None and user[1] == "alice"
+        assert 'class="more-menu-role-source"' not in body
 
     def test_a_source_outside_the_vocabulary_renders_nothing(self, workspace_dir):
         """``ldap`` clears the header bound and is still not a source this
-        build can name. The role it qualifies is unaffected: the chip drops
-        the word it does not know, not the fact it does."""
+        build can name. The role it qualifies is unaffected: the title row
+        drops the word it does not know, not the fact it does."""
         body = self._body(
             workspace_dir,
             {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": "ldap"},
         )
 
         assert self.ROLE_PILL in body
-        assert 'class="header-identity-who-role-source"' not in body
+        assert 'class="more-menu-role-source"' not in body
         assert "ldap" not in body
 
     @pytest.mark.parametrize(
@@ -273,7 +292,7 @@ class TestAuthRole:
         )
 
         assert self.ROLE_PILL in body
-        assert 'class="header-identity-who-role-source"' not in body
+        assert 'class="more-menu-role-source"' not in body
         assert "&lt;unsafe&gt;" not in body
 
     def test_the_source_vocabulary_is_the_sidecar_s_own(self):

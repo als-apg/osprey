@@ -66,8 +66,8 @@ _THEME_LIGHT_CSS = (
 #: 1. ``--crt-*``/``--welcome-*`` -> ``--wt-crt-*``/``--wt-welcome-*``:
 #:    planned in Task 1.1 (these were always going to be namespaced
 #:    extension tokens, not semantic ones).
-#: 2. ``--header-height``, ``--status-bar-height``, ``--transition-fast``,
-#:    ``--transition-normal``, ``--accent-system-tint-04``: Task 1.1
+#: 2. ``--transition-fast``, ``--transition-normal``,
+#:    ``--accent-system-tint-04``: Task 1.1
 #:    genuinely missed these four theme-independent layout/motion values
 #:    and one color tint — surfaced only by running the real build and
 #:    diffing its output against the real, hand-authored CSS files (this
@@ -95,8 +95,6 @@ _DOCUMENTED_RENAMES: dict[str, str] = {
     "welcome-link-hover": "wt-welcome-link-hover",
     "welcome-prompt": "wt-welcome-prompt",
     "welcome-cursor": "wt-welcome-cursor",
-    "header-height": "wt-header-height",
-    "status-bar-height": "wt-status-bar-height",
     "transition-fast": "wt-transition-fast",
     "transition-normal": "wt-transition-normal",
     "accent-system-tint-04": "wt-accent-system-tint-04",

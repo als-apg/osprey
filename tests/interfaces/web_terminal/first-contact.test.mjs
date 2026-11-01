@@ -111,7 +111,7 @@ describe('capabilitySentence', () => {
   test('names where the values come from, per machine kind', () => {
     const facts = factsOf([], false);
     expect(fc.capabilitySentence('real', facts)).toBe(
-      'Here the agent can read values from the real machine.'
+      'Here the agent can read values from the live machine.'
     );
     expect(fc.capabilitySentence('rehearsal', facts)).toBe(
       'Here the agent can read values from the rehearsal copy.'
@@ -124,7 +124,7 @@ describe('capabilitySentence', () => {
   test('the read phrase leads, then the server capabilities', () => {
     const facts = factsOf(['run analysis scripts', 'plot archived data'], false);
     expect(fc.capabilitySentence('real', facts)).toBe(
-      'Here the agent can read values from the real machine, run analysis scripts, and plot archived data.'
+      'Here the agent can read values from the live machine, run analysis scripts, and plot archived data.'
     );
   });
 
@@ -178,7 +178,7 @@ describe('starterPrompts', () => {
 describe('setFacts', () => {
   test('the defaults read module state at call time, not at import time', () => {
     chip.kind = 'real';
-    expect(fc.capabilitySentence()).toBe('Here the agent can read values from the real machine.');
+    expect(fc.capabilitySentence()).toBe('Here the agent can read values from the live machine.');
     expect(fc.starterPrompts()).toEqual([
       'What can you read right now?',
       'What are you allowed to do in this session?',
@@ -186,7 +186,7 @@ describe('setFacts', () => {
 
     fc.setFacts({ capabilities: ['plot archived data'], logbook: true });
     expect(fc.capabilitySentence()).toBe(
-      'Here the agent can read values from the real machine and plot archived data.'
+      'Here the agent can read values from the live machine and plot archived data.'
     );
     expect(fc.starterPrompts()).toEqual([
       'What can you read right now?',
@@ -470,12 +470,12 @@ describe('buildEmptyState', () => {
 
     const intro = /** @type {HTMLElement} */ (block.querySelector('p.op-empty-intro'));
     expect([...intro.querySelectorAll('strong')].map((s) => s.textContent)).toEqual([
-      'read values from the real machine',
+      'read values from the live machine',
       'run analysis scripts',
     ]);
     expect(intro.textContent).toBe(fc.capabilitySentence());
     expect(intro.textContent).toBe(
-      'Here the agent can read values from the real machine and run analysis scripts.'
+      'Here the agent can read values from the live machine and run analysis scripts.'
     );
   });
 
@@ -536,7 +536,7 @@ describe('renderEmptyStateContent', () => {
     chip.kind = 'real';
     fc.setFacts(null);
     const block = fc.buildEmptyState();
-    expect(block.textContent).toContain('read values from the real machine');
+    expect(block.textContent).toContain('read values from the live machine');
 
     chip.kind = 'simulator';
     expect(fc.renderEmptyStateContent(block)).toBe(block);
@@ -581,7 +581,7 @@ describe('the Simple console', () => {
     const block = messages.querySelector('.op-empty');
     expect(block).not.toBeNull();
     expect(messages.firstChild).toBe(block);
-    expect(block?.textContent).toContain('read values from the real machine');
+    expect(block?.textContent).toContain('read values from the live machine');
   });
 
   test('does not show it over a log that already has messages in it', async () => {

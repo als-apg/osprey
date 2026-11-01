@@ -182,7 +182,7 @@ __all__ = [
 # ``SIMULATED_TYPES`` names the connector types that serve a machine nobody
 # has to be careful around. It labels the state file's per-target display
 # metadata, and a type added to the connector package but forgotten in a local
-# copy would put "Real machine" on a simulator's row.
+# copy would put "Live" on a simulator's row.
 
 #: ``control_system.target_switch.drain_timeout_s`` and its default.
 DRAIN_TIMEOUT_KEY = "drain_timeout_s"
@@ -216,13 +216,13 @@ REASON_NO_CHILD = "no_connector_host"
 #: The operator-facing name each display branch defaults to — one word per
 #: machine a target can reach, not per target name, because that is what the
 #: name describes: the facility's machine, its stand-in, and the simulator. A
-#: ``live`` target with no connector configured is still the Real machine (the
+#: ``live`` target with no connector configured is still the live machine (the
 #: "not set up" nuance is the reader's to render, never the name's to carry).
 #: A deployment renames any of them per target via
 #: ``control_system.target_display_names``; these words are what a config that
 #: says nothing gets.
 _DISPLAY_NAME_DEFAULTS = {
-    "machine": "Real machine",
+    "machine": "Live",
     "standin": "Rehearsal",
     "va": "Simulator",
 }

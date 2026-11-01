@@ -176,10 +176,23 @@ def plot_frame(page: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Gallery cards and their previews (inside the artifacts panel)
+# Artifact rows (the hub sidebar) and the viewer (inside the artifacts panel)
 # ---------------------------------------------------------------------------
 
-_CARD_SHOWN_JS = '(id) => !!document.querySelector(`[data-id="${CSS.escape(id)}"]`)'
+
+def artifact_row(artifact_id: str) -> str:
+    """The selector of ``artifact_id``'s row in the hub sidebar's artifact list.
+
+    The hub owns the list; a click on a row shows that artifact in the
+    artifacts tile, whose embedded iframe is a viewer of that one artifact.
+    """
+    return f'#sidebar-artifacts-list .osprey-list-row[data-id="{artifact_id}"]'
+
+
+_CARD_SHOWN_JS = (
+    "(id) => !!document.querySelector("
+    '`#sidebar-artifacts-list .osprey-list-row[data-id="${CSS.escape(id)}"]`)'
+)
 
 # The preview pane shows the artifact whose file path names ``id`` (every
 # stored filename starts with its id), and its viewport has content: an
@@ -213,10 +226,10 @@ _PREVIEW_SHOWS_JS = """(id) => {
 _PREVIEW_STATE_JS = """() => {
   const content = document.getElementById('preview-content');
   if (!content || content.classList.contains('hidden')) return 'preview: empty';
-  const title = content.querySelector('.preview-header-title');
+  const path = content.querySelector('.preview-path-text');
   const shown = content.querySelector('.preview-viewport > *');
   const what = shown ? (shown.tagName.toLowerCase() + '.' + shown.className) : 'nothing';
-  return `preview: ${title ? title.textContent.trim() : '?'} showing ${what}`;
+  return `preview: ${path ? path.textContent.trim() : '?'} showing ${what}`;
 }"""
 
 
@@ -228,9 +241,8 @@ def _panel(page: Any) -> Any | None:
 
 
 def card_shown(page: Any, artifact_id: str) -> bool:
-    """Whether the gallery lists a card for ``artifact_id``."""
-    panel = _panel(page)
-    return bool(panel is not None and panel.evaluate(_CARD_SHOWN_JS, artifact_id))
+    """Whether the hub sidebar's artifact list has a row for ``artifact_id``."""
+    return bool(page.evaluate(_CARD_SHOWN_JS, artifact_id))
 
 
 def preview_shows(page: Any, artifact_id: str) -> bool:

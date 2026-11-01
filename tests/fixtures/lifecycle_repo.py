@@ -419,8 +419,8 @@ config:
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
   # Operator-facing names for the control targets on the web terminal's
-  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".
-  # control_system.target_display_names.live: Real machine
+  # control-target chip. Defaults: "Live", "Rehearsal", "Simulator".
+  # control_system.target_display_names.live: Live
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
   # Limits are optional. `enabled: false` = no limits at all. `mode:
@@ -1142,9 +1142,9 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
-  # The SYSTEM tab is served but starts off the rail: the status bar's health
-  # dot opens it, and so does ⋯ More on the rail, which can also pin it there.
-  # Delete this line to give it a rail entry from the first load.
+  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
+  # the command palette open it, and `+ Add panel` can also pin it there.
+  # Delete this line to give it a sidebar row from the first load.
   web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's

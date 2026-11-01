@@ -45,48 +45,32 @@ restart — their sessions live in a store on disk; ``osprey web sessions clear`
 What you get
 ------------
 
-The window has three working areas plus a header:
+The window has a sidebar on the left and two panes:
 
-- **Terminal** (right) — a real terminal running the OSPREY agent. It survives
-  reconnects, and you can keep a few background conversations alive and hop
-  between them.
-- **Workspace** (left) — a live view of your project files. New artifacts,
-  plots, and data files appear as the agent creates them, with no refresh.
+- **Sidebar** (left) — the list of everything you can open, in both views:
+  the :ref:`control-target block <web-terminal-session-posture>` (which
+  machine this deployment writes to, and whether it may), search, the
+  **Workspace** and **Tools** sections, and a footer with **Docs**,
+  **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
+  deployments only) and **☰ More**. See
+  :ref:`web-terminal-sidebar`.
+- **Agent** (right) — a real terminal running the OSPREY agent in Expert view,
+  or the operator chat in Simple view. It survives reconnects, and you can
+  keep a few background conversations alive and hop between them. Close the
+  pane with its **×**; the **Agent** row in the sidebar opens it again.
+- **Work pane** (middle) — the artifacts and panels you open from the sidebar,
+  arranged as dockable tiles. New artifacts, plots, and data files appear in
+  the sidebar's **Artifacts** list as the agent creates them, with no refresh.
   On a fresh deployment the list is not empty: the control-assistant preset
-  ships one interactive example plot (synthetic data), listed under
-  **Examples** at the bottom. It is there for you, not the agent, which
-  never lists or cites it. Delete it from the gallery when you no longer
+  ships one interactive example plot (synthetic data). It is there for you,
+  not the agent, which never lists or cites it. Delete it when you no longer
   want it; it does not come back. It is switched on by
-  ``artifact_server.example_artifact`` in ``config.yml``.
-- **Side panels** — your control-system tools (Channel Finder, ARIEL, the
-  lattice dashboard, and so on), opened from the icon rail and arranged as
-  dockable tiles. See :doc:`panels`.
-- **Utility controls** — pinned to the far end of the same rail, a
-  **Documentation** link, a **Feedback** button that lets whoever is at the
-  terminal report a problem without leaving it (see :doc:`send-feedback`), and
-  **⋯ More** with SYSTEM, the tour and the activity log. Right-click Docs or
-  Feedback to hide it; More brings it back.
-- **Header** — the :ref:`control-target chip <web-terminal-session-posture>`
-  (which machine this deployment writes to, and whether it may), the display menu
-  (a small dot holding the light/dark, Expert/Simple, and theme controls — see
-  :doc:`theming`), a settings drawer, and an optional name badge to tell one
-  deployment from another.
-- **Status bar** — a thin strip along the bottom: a clock at the right, and
-  before it, where the deployment runs the SYSTEM panel, a **System health**
-  dot for the health checks that panel runs. Both bars are yours to rearrange
-  — see :ref:`web-terminal-bars`. The dot is the worst outcome across the
-  checks; click it for a card with one row per check category, and **Open
-  SYSTEM** for the full dashboard. Its options add the outcome in a word beside
-  the dot and switch the card to one row per check.
-  Where a deployment runs the Bluesky panel, a **Bluesky queue** item is on offer
-  for either bar: a dot and a word for what the queue is doing, the running
-  plan and how far it is, and a card with the queued plans, **Open Bluesky**
-  and — if you switch them on in its options — the panel's own Start, Stop and
-  Abort. Start there arms the queue the card is showing; if the list moved
-  before the click landed the start is refused, and the item re-reads the queue
-  so your next click is a decision about what is actually queued.
+  ``artifact_server.example_artifact`` in ``config.yml``. Your
+  control-system tools (Channel Finder, ARIEL, the lattice dashboard, and so
+  on) open here too. See :doc:`panels`.
 
-The settings drawer lets you read and edit the project's ``config.yml`` — and
+The settings drawer (**☰ More** › **Settings**) lets you read and edit the
+project's ``config.yml`` — and
 the agent's own setup and memory files — from the browser, so you rarely need
 to drop back to an editor. Changes prompt you to restart the terminal so the
 agent picks them up.
@@ -105,12 +89,12 @@ One session, both views
 -----------------------
 
 Expert and Simple are two windows onto the same conversation. Pick the other
-one from the display menu and the agent you were talking to comes with you: the
-terminal and the chat share one session, one write state and one transcript,
-and only the view you are looking at runs the agent.
+one from **☰ More** in the sidebar and the agent you were talking to comes
+with you: the terminal and the chat share one session, one write state and one
+transcript, and only the view you are looking at runs the agent.
 
 A deployment can offer the Simple view alone. With ``web.expert_view: false``
-the display menu has no View row and every terminal opens in Simple; see
+**☰ More** has no View group and every terminal opens in Simple; see
 :ref:`config-expert-view`.
 
 Handing it over waits for the work in flight. Switch while the agent is
@@ -186,22 +170,28 @@ that you attach but never send is deleted after 24 hours.
 The control-target chip
 -----------------------
 
-The header carries a chip that answers, at a glance, the question every write
+The sidebar carries a block that answers, at a glance, the question every write
 depends on: *if the agent writes now, which machine does it land on, and may
-it?* It reads like this::
+it?* It is one row: an icon with the machine's dot, the machine's name, the
+write state, a dot for the health of the deployment's services, and an arrow.
+It reads like this::
 
-   ● Rehearsal · writes asked ▾
+   ⌖ Rehearsal  writes asked  •  ⇕
+
+Put the pointer on the block to see the same facts as one sentence, for
+example *Control system: Rehearsal, writes asked*. Put the pointer on the small
+health dot to see the health of the services.
 
 The first part names the machine this deployment stands on, by what it **is**:
 
-- **Real machine** --- the facility's own. Writes move hardware.
+- **Live** --- the facility's own. Writes move hardware.
 - **Rehearsal** --- a copy of the real machine's controls, same channel names,
   no hardware behind it. Nothing moves.
 - **Simulator** --- the virtual accelerator: a physics model with beam in it,
   served from its container or in process. Nothing moves.
 
 A deployment can put its own names on its machines (*Example Research
-Facility storage ring* rather than *Real machine*); what the machine is stays
+Facility storage ring* rather than *Live*); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server's own technical label.
 
@@ -219,8 +209,11 @@ the next write would get:
 A switch is one login's. Two logins on the same machine each have their own,
 and one login's position never changes the other's writes.
 
-Click the chip and a popover opens on **every** control target the deployment
-configures, not only the one you are standing on.
+Click the chip and a popover opens next to the sidebar on **every** control
+target the deployment configures, not only the one you are standing on. A
+click outside the popover, Escape, or a change of the window or sidebar width
+closes it. When a confirm dialog is open over the popover, the first Escape
+closes only the dialog.
 
 The machine you are on, and the others
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -264,10 +257,10 @@ be recorded you are told plainly that it did not take effect; the chip never
 shows an off that was not recorded.
 
 **Widening** asks first. The confirmation names the machine and says whether
-writes will still prompt. Tick *Don't ask again for this machine* to skip it
-for a move to *asked* (Shift-click brings it back). A move to *allowed*, and
-the real machine, always ask. If a stop lands while you are confirming, the
-move does not take effect: the chip re-reads and you click again.
+writes will still prompt. Tick *Don't ask again on any machine* to skip it for
+every move to *asked* or *allowed*, the live machine included; Shift-click or
+*Ask again* in the popover brings it back. If a stop lands while you are
+confirming, the move does not take effect: the chip re-reads and you click again.
 
 **Nothing is restarted.** Every gate reads the switch at the moment of the
 write. A narrowing reaches every next write, runs already going included: the
@@ -314,8 +307,8 @@ Switch the deployment to another machine
 **Switch to** on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
 your switch's position there --- the switch is per machine, and it does not
-travel with you. This dialog too can be skipped with *Don't ask again
-for this machine*. The page that holds the control context runs the same
+travel with you. This dialog too can be skipped with its own *Don't ask
+again on any machine*. The page that holds the control context runs the same
 checks the agent's own switch runs --- that the move is allowed, and that
 nothing is mid-flight on the machine you are leaving --- and records the
 outcome; the deployment's control-system servers then move themselves onto it
@@ -421,113 +414,184 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
    same panel from its tab in the terminal is the named path, and the one the
    chip governs.
 
-.. _web-terminal-bars:
+.. _web-terminal-sidebar:
 
-The header and status bar
--------------------------
+The sidebar
+-----------
 
-Both bars are built the same way: each holds one ordered list of small items,
-drawn from one catalog. The header starts with the wordmark, the identity block
-where the deployment renders one, the
-:ref:`control-target chip <web-terminal-session-posture>`, the command palette
-button and the display menu. The status bar starts nearly bare: a space, the
-**System health** dot where the SYSTEM panel is enabled, and a clock at the
-right. The **Docs** link and the rest of the catalog are one drag away. Which items sit in which bar, and in what order, is yours
-to change.
+The sidebar is on the left in both views. From top to bottom, it shows:
 
-**Right-click any item** for its options and **Remove**, no customizing
-needed. A removal can be undone for a few seconds.
+- The OSPREY mark and the label toggle.
+- The control-target block. It is one row that shows the machine that this
+  deployment writes to, if the agent can write to it, and the health of the
+  services. Click the block to open the
+  :ref:`control-target popover <web-terminal-session-posture>`.
+- **Search**. It opens the command palette. The shortcut is ⌘K on macOS and
+  Ctrl+K on other systems.
+- The groups of panel rows. At first there are two, **Workspace** and
+  **Tools**:
 
-Rearranging the bars
-~~~~~~~~~~~~~~~~~~~~
+  - **Workspace** starts with these rows:
 
-Open **Customize bars** in any of three ways: right-click either bar, pick it
-from the display menu, or run it from the command palette. The bars tint and
-name themselves (**Header** at the top, **Status bar** at the bottom), every
-item in them picks up a dashed outline, and a sheet opens showing every item
-there is, drawn as it will look in the bar. From there:
+    - **Agent** opens the agent pane, or moves the focus to it. When the pane
+      is closed, the row shows a hollow dot. When the agent waits for your
+      answer, the row shows the number of open questions. **Agent** is always
+      the first row of the first group.
+    - **Artifacts** opens the work pane and lists the artifacts of the agent.
+      Click a row to show that artifact in the work pane.
+    - **Script runs** lists the run records. It is always below **Artifacts**.
+    - **Events** shows only when the deployment enables the events panel.
 
-- **Drag a tile onto a bar** to add that item, or click it to add it to the
-  header. Drag an item already in a bar to move it, within its own bar or
-  across to the other one.
-- **Drag an item off both bars** to take it away.
-- **Click an item** to open its options — the clock's zone (yours, the
-  facility's, UTC, or yours beside UTC), 24- or 12-hour format and seconds, a
-  space's width, what the Bluesky queue shows and which
-  of its controls it offers, what the system-health chip says and lists — along
-  with **Move left** and **Move right** within its bar, **Move to status bar**
-  (or back to the header) and **Remove**. Every item can go in either bar: the
-  control-target chip, the command palette button and the display menu work
-  from the status bar exactly as they do from the header, drawn smaller, and
-  their cards open upward from there. Move left and Move right do from the
-  keyboard what a drag does inside one bar.
-- **Drag either end of a space** to set its width. A space at width 0 takes
-  whatever room is left in the bar; that is what pushes the items after it to
-  the right.
-- **Hide header** and **Hide status bar**, on that bar's own right-click menu
-  or as the checkboxes in the sheet, withdraw a bar and bring it back. The
-  items you put there are still there when it returns. A hidden bar has
-  nothing left to right-click, so **Show header** and **Show status bar**
-  appear on the right-click menu of every panel's title bar, the terminal's
-  included, in Simple mode as well. **Customize bars** in the command palette
-  is another way back in; editing shows every bar.
-- **Default**, at the foot of the sheet, throws your arrangement away and puts
-  back the one this deployment ships (``web.bar_items``).
+  - **Tools** starts with all other panels that this deployment enables.
 
-**Done** or **Esc** ends customizing. Every change applies as you make it.
+  In each group, the rows are in your order. **+ Add panel** is always the
+  last row of the last group. See :doc:`panels`.
+- The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
+  out** shows only on a multi-user deployment. See
+  :ref:`web-terminal-sign-out`.
 
-.. grid:: 1 1 2 2
-   :gutter: 2
+When the window is short, only the group that holds **Artifacts** and
+**Script runs** scrolls. The other groups and the footer always stay on the
+screen.
 
-   .. grid-item::
+.. _web-terminal-sidebar-groups:
 
-      .. image:: /_static/screenshots/customize_sheet_light.png
-         :alt: The Customize sheet open over the web terminal in the light Osprey theme
-         :width: 100%
+Arrange the groups
+~~~~~~~~~~~~~~~~~~
 
-   .. grid-item::
+You can rename the groups, add your own groups, and move rows between them.
 
-      .. image:: /_static/screenshots/customize_sheet_dark.png
-         :alt: The Customize sheet open over the web terminal in the dark Osprey theme
-         :width: 100%
+To change a group, put the pointer on its name and click **⋯**. The menu has
+these items:
 
-Customize bars in Expert view, light and dark. Captured with OSPREY
-|captured_customize_sheet|.
+- **Rename**. Type the new name and press Enter. Press Escape to keep the old
+  name. A name can have up to 40 characters. An empty name keeps the old one.
+- **New group below**. This adds an empty group below this group and opens
+  its name for editing.
+- **Move up** and **Move down**. These move the group in the sidebar.
+- **Delete group**. This item shows only for a group that you added. The
+  rows of the group go back to **Tools**. You cannot delete **Workspace** or
+  **Tools**, but you can rename them.
 
-Some edits are refused, and the sheet says why rather than failing quietly.
-Most items go in once: a tile that is already in a bar is dimmed, and says
-where it is on hover. A tile for something this
-deployment does not render is disabled and carries the reason. If an
-arrangement cannot be saved the sheet reads **Layout not saved**, and your edit
-was not stored.
+To move a row to a different group, do one of these:
 
-Customizing works the same in Simple and Expert view. Simple simplifies the
-workspace — one service tile, the operator console in place of the terminal —
-and leaves the bars, and your hand on them, exactly as they are in Expert.
+- Right-click the row and pick **Move to** and the name of the group. Pick
+  **Move to new group…** to put the row in a new group below its current
+  group. Then type the name of the new group.
+- Drag the row into the other group. Release it where it must go.
 
-Where the arrangement lives
+You can move each row except **Agent**. **Script runs** moves with
+**Artifacts**. A group without rows shows "No panels — move one here from a
+row's menu".
+
+Your groups are kept in this browser, for your user only. They do not change
+the sidebar of other users.
+
+Hide the labels
+~~~~~~~~~~~~~~~
+
+To hide the labels, click the toggle at the top of the sidebar, or press ⌘\\
+(Ctrl+\\ on other systems). The sidebar then shows only icons. Put the pointer
+on an icon to see its name. In this state, a click on **Artifacts** opens the
+artifact list next to the sidebar. To show the labels again, click the toggle
+or press the same keys.
+
+.. note::
+
+   When the Expert terminal has the focus, Ctrl+\\ goes to the terminal, not
+   to the sidebar. In the terminal, Ctrl+\\ sends SIGQUIT to the running
+   program. To hide or show the labels in this state, click the toggle.
+
+.. _web-terminal-pop-out:
+
+Pop a pane out
+~~~~~~~~~~~~~~
+
+You can move a panel out of the workspace into its own browser window. This
+works for each service panel, Artifacts included. The agent pane stays in the
+workspace.
+
+To pop a panel out, do one of these:
+
+- Click the **Pop out** button in the header of its tile, left of the close
+  button.
+- Right-click its row in the sidebar and pick **Pop out**.
+- Open the command palette and run **Pop out <panel>**.
+
+The panel opens in a new window the size of its tile. Its tile leaves the
+workspace, and its sidebar row shows a window glyph. The window follows the
+theme, the view and the session of the terminal. The agent can still show you
+the panel: a focus from the agent brings the window to the front.
+
+While the panel is popped out:
+
+- A click on its sidebar row brings the window to the front.
+- Its row menu offers **Bring back** in place of **Pop out**.
+- A layout change in the workspace does not open a tile for it.
+
+To bring the panel back, close the window, or pick **Bring back** from its
+row menu. The tile returns next to the active tile.
+
+When you reload the terminal, the open windows stay open and connect to the
+reloaded page again. When you close the terminal tab, the windows stay open
+as normal pages, and they no longer follow the terminal.
+
+.. note::
+
+   If the browser blocks pop-ups for this site, the terminal shows
+   *Pop-ups are blocked for this site.* and the tile stays. Allow pop-ups for
+   the site in the browser, then try again.
+
+   A panel that runs at an opaque origin (a page the agent wrote) cannot be
+   popped out. Its **Pop out** button and row are disabled.
+
+The More menu
+~~~~~~~~~~~~~
+
+**☰ More** shows your user name and role at the top. It holds the **View**
+(**Simple** or **Expert**), the theme (see :doc:`theming`), **Settings** and
+the tour. The same items are in both views.
+
+.. _web-terminal-sign-out:
+
+Sign out
+~~~~~~~~
+
+On a multi-user deployment, the sidebar footer has a **Sign out** row above
+**☰ More**. To sign out:
+
+1. Click **Sign out**. You can also click the OSPREY mark at the top of the
+   sidebar, or pick **Log out** in the command palette.
+2. Read the dialog. It asks *Sign out of OSPREY?* and tells you that your
+   terminal and agent sessions end, and that the agent stops what it does.
+3. Click **Sign out** to sign out. Click **Cancel** or press Escape to stay.
+
+When you sign out, the browser goes to the landing page of the deployment. A
+deployment for one user has no **Sign out** row, and the OSPREY mark goes to
+the start page.
+
+Where your preferences live
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Your bar arrangement is kept on the server, so it follows you to any browser
-you sign in from. It is the only web terminal preference that does: the theme,
-Expert or Simple view, and the panel layout are each remembered by the browser
-you set them in, so a different browser or a different machine starts those
-from the deployment's own defaults. The panel layout is remembered once per
-view: Simple starts from a single panel beside the console and Expert from the
-full workspace, and each keeps the arrangement you make of it.
+The browser remembers the theme, the view (Expert or Simple), the sidebar
+labels, the open lists in the sidebar, the sidebar groups, and the panel
+layout. A different browser or a different machine starts from the defaults
+of the deployment.
+The browser keeps one panel layout for each view: Simple starts from one panel
+next to the console, and Expert starts from the full workspace.
 
-The view is a preference; the conversation is not tied to it. Switching between
-Expert and Simple hands the same session over rather than starting a second
-one. See :ref:`web-terminal-one-session`.
+The view is a preference. The conversation does not change with it. When you
+change between Expert and Simple, the same session moves to the other view.
+See :ref:`web-terminal-one-session`.
 
-With nothing saved yet you get the deployment's arrangement, which an operator
-sets with ``web.bar_items``. The keys, and what each one does, are in
-:ref:`config-bar-items`.
+Earlier releases had a header and a status bar that you could arrange. The
+terminal does not show them, and it does not read the bar arrangements that
+those releases saved.
 
 Documentation and feedback settings
 -----------------------------------
 
-Five ``web`` keys aim the rail's **Documentation** link and **Feedback** button
+Five ``web`` keys aim the sidebar's **Documentation** link and **Feedback** button
 — including the issue trackers the dialog offers — and bound the feedback
 store. The table, the shipped defaults, and what a blank value means are in
 :ref:`config-web`.
@@ -543,7 +607,7 @@ store. The table, the shipped defaults, and what a blank value means are in
          is the terminal **process** — which shell to launch, which directory to
          watch for live files, how many background conversations to keep alive —
          and command-line flags override those for a single run. ``web:`` is the
-         browser **UI** the process renders, including the header name badge and
+         browser **UI** the process renders, including the deployment name and
          the bounds on the Simple-mode chat pool; those keys are catalogued in
          :ref:`config-web`.
 

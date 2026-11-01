@@ -65,7 +65,7 @@ WARNED_KEYS = frozenset({"energy_gev"})
 ENERGY_TOLERANCE_GEV = 1e-9
 
 #: The class a lattice's parameter element carries, under either spelling.
-_RINGPARAM = "RingParam"  # outside-format-quote
+_RINGPARAM = "RingParam"
 
 _EV_PER_GEV = 1e9
 

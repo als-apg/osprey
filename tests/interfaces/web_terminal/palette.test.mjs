@@ -64,28 +64,13 @@ function holdConfig() {
   return release;
 }
 
-// Two requests reach this environment: the palette's GET /api/config, and the
-// operator's bar layout, which bar-sync.js (reached through palette-boot.js's
-// import graph) GETs at import time — before the dynamic import below is
-// evaluated. Any other URL is a dependency this file has not declared, and
-// fails loudly.
+// One request reaches this environment: the palette's GET /api/config. Any
+// other URL is a dependency this file has not declared, and fails loudly.
 vi.stubGlobal(
   'fetch',
   vi.fn(async (/** @type {string} */ url) => {
     if (url === '/api/config') return answerConfig();
-    if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        version: 1,
-        rev: 0,
-        header: [],
-        status: [],
-        header_visible: true,
-        status_visible: true,
-      }),
-    };
+    throw new Error(`unstubbed fetch: ${url}`);
   })
 );
 

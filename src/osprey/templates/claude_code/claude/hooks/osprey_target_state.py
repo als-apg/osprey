@@ -1193,7 +1193,7 @@ _PHRASES = {
 
 #: The words a machine kind adds to a phrase. Mirrors ``refusals.KIND_WORDS``.
 KIND_WORDS = {
-    "real": "the real machine",
+    "real": "the live machine",
     "rehearsal": "the rehearsal machine",
     "simulator": "the simulator",
 }

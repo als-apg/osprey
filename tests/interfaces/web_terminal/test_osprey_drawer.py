@@ -18,7 +18,7 @@ Covers the acceptance criteria for B.2/B.3:
     drawer that gates safety-hook config)
   - ``drawer:open``/``drawer:close``/``drawer:tab-activate`` reach all four
     consumer modules (scaffold-gallery, memory-gallery, settings, hook-debug)
-  - the header trigger's ``.active`` class tracks open/close
+  - the More-menu Settings trigger's ``.active`` class tracks open/close
   - the web_terminal skin (480px width, CRT glow, backdrop keyed off `[open]`)
     is unchanged
   - ``showSettingsWarning`` still gates the drawer once per server session,
@@ -71,12 +71,11 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # from ever matching (and toggling) this button directly, so the warning
 # gate below is the sole open path with no propagation tampering.
 #
-# It is the System Settings row at the bottom of the header display-menu
-# popover (expert mode only), so every click on it goes through
-# `_click_settings_trigger` below, which opens the popover first.
-TRIGGER_SELECTOR = '[data-drawer-trigger="settings-drawer"]'
-DISPLAY_MENU_BTN_SELECTOR = "#display-menu .display-menu-trigger"
-DISPLAY_MENU_CARD_SELECTOR = "#display-menu .display-menu-card"
+# It is the Settings row of the sidebar's ☰ More menu, so every click on it
+# goes through `_click_settings_trigger` below, which opens the menu first.
+TRIGGER_SELECTOR = '#more-settings[data-drawer-trigger="settings-drawer"]'
+MORE_BTN_SELECTOR = "#more-btn"
+MORE_MENU_SELECTOR = "#more-menu"
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
 CLOSE_BTN_SELECTOR = ".drawer-close-btn"
@@ -106,24 +105,21 @@ def _goto(page: Page, base_url: str) -> None:
 
 
 def _click_settings_trigger(page: Page) -> None:
-    """Open the header display menu and click its System Settings row.
+    """Open the sidebar's More menu and click its Settings row.
 
-    The settings trigger lives at the bottom of the display-menu popover, so
-    the menu has to be opened first -- the real operator path, and the only one
-    Playwright's actionability checks accept (the row is not visible while the
-    card is closed). app.js closes the card on that click, so callers
-    that reopen the drawer later must call this again rather than reuse a
-    still-open popover.
+    The settings trigger is a row of the More menu, so the menu has to be
+    opened first -- the real operator path, and the only one Playwright's
+    actionability checks accept (the row is not visible while the menu is
+    closed). The menu closes on that click, so callers that reopen the drawer
+    later must call this again rather than reuse a still-open menu.
     """
-    page.click(DISPLAY_MENU_BTN_SELECTOR)
-    expect(page.locator(DISPLAY_MENU_CARD_SELECTOR)).to_have_class(
-        re.compile(r"\bopen\b"), timeout=2_000
-    )
+    page.click(MORE_BTN_SELECTOR)
+    expect(page.locator(MORE_MENU_SELECTOR)).to_be_visible(timeout=2_000)
     page.click(TRIGGER_SELECTOR)
 
 
 def _open_settings_drawer(page: Page) -> None:
-    """Click the real header trigger, proceeding past the first-time warning
+    """Click the real More-menu trigger, proceeding past the first-time warning
     dialog if it appears (already-acked sessions skip straight to open) --
     the realistic end-to-end path, not a direct ``.open()`` API bypass.
 
@@ -440,7 +436,7 @@ def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chro
 
 
 # ---------------------------------------------------------------------------
-# Test 8: header trigger .active tracks open/close
+# Test 8: the More-menu Settings trigger's .active tracks open/close
 # ---------------------------------------------------------------------------
 
 
@@ -450,22 +446,22 @@ def test_active_trigger_highlight_tracks_open_close(tmp_path, monkeypatch, chrom
     app.js's initDrawerTriggerHighlight() wires this via the drawer:open/
     close events (osprey-drawer.js itself deliberately doesn't manage a
     trigger's .active state -- see its module docstring). The highlight
-    survived the trigger's move into the display-menu popover because that
-    wiring matches on `[data-drawer-trigger]`, not on where the button sits.
+    survived the trigger's move into the More menu because that wiring
+    matches on `[data-drawer-trigger]`, not on where the button sits.
     """
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
 
         trigger = page.locator(TRIGGER_SELECTOR)
-        expect(trigger).to_have_class("display-menu-settings")
+        expect(trigger).not_to_have_class(re.compile(r"\bactive\b"))
 
         _open_settings_drawer(page)
-        expect(trigger).to_have_class("display-menu-settings active")
+        expect(trigger).to_have_class(re.compile(r"\bactive\b"))
 
         page.click(CLOSE_BTN_SELECTOR)
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
-        expect(trigger).to_have_class("display-menu-settings")
+        expect(trigger).not_to_have_class(re.compile(r"\bactive\b"))
         page.close()
 
 
@@ -619,10 +615,11 @@ def test_settings_warning_double_click_yields_one_dialog(tmp_path, monkeypatch, 
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
 
-        # Open the display-menu popover first so the row starts from its real
-        # visible state; the two native clicks then fire back-to-back in one JS
-        # turn, before app.js's own close can matter to the gate.
-        page.click(DISPLAY_MENU_BTN_SELECTOR)
+        # Open the More menu first so the row starts from its real visible
+        # state; the two native clicks then fire back-to-back in one JS turn,
+        # before the menu's own close can matter to the gate.
+        page.click(MORE_BTN_SELECTOR)
+        expect(page.locator(MORE_MENU_SELECTOR)).to_be_visible(timeout=2_000)
         page.evaluate(
             f"""() => {{
                 const trigger = document.querySelector('{TRIGGER_SELECTOR}');

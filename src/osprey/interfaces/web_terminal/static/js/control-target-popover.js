@@ -1,15 +1,26 @@
 // @ts-check
 /* OSPREY Web Terminal — Control-Target Popover
  *
- * The panel behind the header chip, answering the three questions an operator
- * opens it with: which machine is the agent on and does writing there move
- * anything real; are writes on, off (their own doing, one click undoes it) or
- * locked (the deployment's, no click here moves it); and where else can the
- * session go. The chip (control-target-chip.js) owns the read, the poll and
- * the state; this module owns the card, the rows and the actions, and never
- * fetches the roster itself — it subscribes to the chip and re-renders from
- * `getState()`, so the popover and the chip can never disagree about the same
- * machine.
+ * The panel behind the control-target chip, answering the three questions an
+ * operator opens it with: which machine is the agent on and does writing
+ * there move anything real; are writes on, off (their own doing, one click
+ * undoes it) or locked (the deployment's, no click here moves it); and where
+ * else can the session go. The chip (control-target-chip.js) owns the read,
+ * the poll and the state; this module owns the panel, the gestures and the
+ * confirms, and control-target-rows.js builds the card, the rows and the foot
+ * it shows. It never fetches the roster itself — it subscribes to the chip and
+ * re-renders from `getState()`, so the popover and the chip can never disagree
+ * about the same machine.
+ *
+ * **A design-system popover.** The panel is a body-level `.osprey-popover`
+ * (`#control-target-popover`, `role=dialog`) that the design system's
+ * popover.js places and dismisses like every other popover in the shell:
+ * beside the sidebar, 8 px right of its edge and level with the chip; under a
+ * chip on a page bar (the JupyterLab bar), right-aligned below it. A press
+ * outside, Escape, a window resize or blur close it, and so does a change of
+ * the sidebar's width, which moves the edge it was placed against. Its title,
+ * row and separator lines and its switches are the design system's
+ * primitives; `.ctc-popover` scopes this panel's own rules in terminal.css.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
  * name, ⓘ, and its writes control. Every other machine is a row: name, ⓘ,
@@ -47,20 +58,19 @@
  * deployment configuration this module cannot see. Confirms state scope,
  * endpoint and consequence only.
  *
- * **A confirm can be waived, sometimes.** {@link confirmSkippable} decides. A
- * target switch and a move to `asked` on the rehearsal or the simulator carry
- * a "don't ask again" checkbox — per gesture, per machine, per render
- * (scopedStorageKey), remembered only when the operator confirms. A move to
- * `asked` on the real machine and a move to `allowed` anywhere keep asking
- * always. A waived dialog is re-shown by holding Shift on the gesture, which
- * is also where the waiver is undone.
+ * **A confirm can be waived.** Every widening carries one "don't ask again"
+ * checkbox covering every move to `asked` or `allowed` on every machine, and
+ * every target switch carries another; both are per render (scopedStorageKey)
+ * and remembered only when the operator confirms. A waived dialog is re-shown
+ * by holding Shift on the gesture; "Ask again" under the foot clears both.
  *
  * **The popover stays open beneath a confirm.** Both confirms raise a
- * `.posture-modal-overlay` at `--z-modal`, a full layer above the popover's
- * `--z-sticky`. The outside-click handler ignores clicks inside that overlay,
- * Escape dismisses an open confirm before it closes the popover, and a
- * confirmed change re-renders in place. An operator changing several rows
- * never has to reopen it.
+ * `.posture-modal-overlay` at `--z-modal`, a layer above the popover. The
+ * popover is opened with popover.js's `ignore` set to that overlay, so a press
+ * inside the confirm is not a press outside the popover; Escape dismisses an
+ * open confirm before it closes the popover; and a confirmed change
+ * re-renders in place. An operator changing several rows never has to reopen
+ * it.
  *
  * Every request goes through the chip's `targetRequest`, which unwraps this
  * route family's dict-detail refusals and runs through api.js's `withPrefix`
@@ -70,51 +80,36 @@
 
 import {
   POSITIONS,
-  SWITCH_APPLIED,
   bannerNote,
-  confirmSkipKeyBase,
-  confirmSkippable,
-  contextRefusalCode,
-  contextRefusalPhrase,
-  contextWritable,
-  descriptor,
-  descriptorTone,
-  displayName,
-  identTitle,
-  lockReason,
-  reachException,
+  SKIP_KEY_MOVE,
+  SKIP_KEY_SWITCH,
   reasonPhrase,
   switchConfirm,
   TURN_ON_SENTENCE,
   turnOnConfirm,
 } from './control-target-facts.js';
-import { confirmSkipped } from './confirm-skip.js';
-import {
-  button,
-  el,
-  focusOption,
-  focusedOption,
-  renderSwitch,
-  writePhraseLine,
-} from './control-target-popover-switch.js';
+import { confirmSkipped, rememberConfirmSkip } from './confirm-skip.js';
+import { el, focusOption, focusedOption } from './control-target-popover-switch.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
+import {
+  closePopover as closeShellPopover,
+  openPopover as openShellPopover,
+} from '/design-system/js/popover.js';
 
 import {
   CHIP_TOGGLE_EVENT,
-  getAnchorElement,
   getChipElement,
   getState,
-  isPending,
   kindAttr,
   markPending,
   postSwitch,
   refetch,
-  setExpanded,
   stateWord,
   subscribe,
   switchRefusal,
   targetRequest,
 } from './control-target-chip.js';
+import { renderCard, renderFoot, renderRow } from './control-target-rows.js';
 
 /**
  * The `target` value that turns every machine in this login's record off at
@@ -124,28 +119,26 @@ import {
 export const ALL_TARGETS = 'all';
 
 /**
- * How recent a `last_switch` has to be to still be shown on its row.
- *
- * The route publishes the outcome and its age and leaves the call to the
- * renderer, because it is a question about what the operator is looking at
- * rather than about what happened: an outcome is news for about as long as
- * someone is still watching for it, and history afterwards. Past this the row
- * simply stops carrying it, so a popover opened an hour later describes the
- * machine rather than re-announcing a switch nobody is waiting on.
+ * The overlay posture-confirm.js raises. A press inside it answers the
+ * question the popover asked; it never closes the popover.
  */
-export const OUTCOME_MAX_AGE_S = 60;
+const CONFIRM_OVERLAY = '.posture-modal-overlay';
 
 /** @type {HTMLElement|null} */
 let popover = null;
 /** @type {(() => void)|null} */
 let unsubscribe = null;
-/** Whether the popover is showing. Mirrored onto the chip's `aria-expanded`. */
-let open = false;
+/** The chip the toggle listener is on, so a re-mounted chip is re-wired. */
+/** @type {HTMLElement|null} */
+let wiredChip = null;
+/** Watches the popover's `hidden`, the one signal every close path shares. */
+/** @type {MutationObserver|null} */
+let closeWatch = null;
 
 /**
  * The target this browser's outstanding switch request named.
  *
- * The chip owns whether a request is outstanding ({@link isPending}); which
+ * The chip owns whether a request is outstanding (`isPending`); which
  * ROW it was for is a question only the client that minted it can answer, and
  * it is what decides which row reads `switching…`.
  * @type {string|null}
@@ -202,34 +195,53 @@ let confirmingMove = null;
 /* ---- mount ---- */
 
 /**
- * Mount the popover under the header chip and keep it current.
+ * Mount the popover and keep it current.
  *
- * Idempotent, and a no-op on a page with no chip: the chip mounts into its
- * bar-item shell, `.header-actions`, or a host its caller passes, so on a page
- * with none of those there is nothing to hang under.
+ * Idempotent, and a no-op on a page with no chip: the chip mounts into the
+ * host its caller passes (the sidebar's control-system block, the JupyterLab
+ * bar), and on a page that mounted none there is nothing to open it from.
  *
  * @returns {{open: () => void, close: () => void, isOpen: () => boolean}|null}
  */
 export function initControlTargetPopover() {
   const chip = getChipElement();
-  const anchor = getAnchorElement();
-  if (!chip || !anchor) return null;
+  if (!chip) return null;
 
-  if (!popover || !anchor.contains(popover)) {
+  if (!popover || !popover.isConnected) {
     popover = document.createElement('div');
-    popover.className = 'ctc-popover';
+    popover.className = 'osprey-popover ctc-popover';
     popover.id = 'control-target-popover';
+    popover.setAttribute('role', 'dialog');
     popover.setAttribute('aria-label', 'Control target');
-    anchor.appendChild(popover);
-    chip.setAttribute('aria-controls', popover.id);
+    // Focus can rest on the panel itself when a re-render removes the control
+    // that held it, rather than falling out to <body>.
+    popover.tabIndex = -1;
+    popover.hidden = true;
+    document.body.append(popover);
+    // popover.js closes the panel for reasons this module never sees (a press
+    // outside, Escape, a resize, another popover opening). Every one of them
+    // sets `hidden`, so watching it is how a close always takes its confirm
+    // and its status line with it.
+    closeWatch = new MutationObserver(() => {
+      if (popover?.hidden) onClosed();
+    });
+    closeWatch.observe(popover, { attributes: true, attributeFilter: ['hidden'] });
+    document.addEventListener('keydown', onEscapeConfirmFirst, true);
+    document.addEventListener('osprey-collapsible-change', closePopover);
+  }
+
+  if (wiredChip !== chip) {
     // The chip flips its own `aria-expanded` and announces the click; it never
     // decides what the popover does with it.
+    wiredChip?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
     chip.addEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
+    chip.setAttribute('aria-controls', popover.id);
+    wiredChip = chip;
   }
 
   if (!unsubscribe) unsubscribe = subscribe(() => render());
   render();
-  return { open: openPopover, close: closePopover, isOpen: () => open };
+  return { open: openPopover, close: closePopover, isOpen };
 }
 
 /**
@@ -238,13 +250,16 @@ export function initControlTargetPopover() {
  */
 export function teardownControlTargetPopover() {
   dismissConfirm();
-  detachDocumentListeners();
+  closeWatch?.disconnect();
+  closeWatch = null;
+  document.removeEventListener('keydown', onEscapeConfirmFirst, true);
+  document.removeEventListener('osprey-collapsible-change', closePopover);
   unsubscribe?.();
   unsubscribe = null;
-  getChipElement()?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
+  wiredChip?.removeEventListener(CHIP_TOGGLE_EVENT, onChipToggle);
+  wiredChip = null;
   popover?.remove();
   popover = null;
-  open = false;
   posting = false;
   queuedStop = null;
   pendingTarget = null;
@@ -262,108 +277,82 @@ function onChipToggle(event) {
 
 /* ---- open / close ---- */
 
-/**
- * A click anywhere that is not the chip, the popover, or a confirm raised by
- * it. Capture phase, so it dismisses before the click does anything else.
- * @param {MouseEvent} event
- */
-function onDocumentClick(event) {
-  const target = /** @type {Node|null} */ (event.target);
-  if (!target) return;
-  const anchor = getAnchorElement();
-  if (anchor?.contains(target)) return;
-  // The confirm mounts on `document.body`, outside the anchor, and is a full
-  // layer ABOVE the popover: clicking inside it is the operator answering the
-  // question the popover asked, not leaving the popover.
-  if (target instanceof Element && target.closest('.posture-modal-overlay')) return;
-  closePopover();
+/** @returns {boolean} whether the popover is showing */
+function isOpen() {
+  return Boolean(popover && !popover.hidden);
 }
 
 /**
- * Escape, in the order the things on screen were opened: a confirm first, the
- * popover only when none is up. Cancelling a confirm and losing the rows it
- * was about in the same keystroke would undo the whole point of leaving the
- * popover open beneath it.
- * @param {KeyboardEvent} event
+ * Show the popover, rendered from the chip's current answer, and put focus on
+ * its first control: the panel sits at <body> level, so Tab from the chip
+ * would never reach it.
  */
-function onDocumentKeydown(event) {
-  if (event.key !== 'Escape') return;
-  if (isConfirmUp()) {
-    event.stopPropagation();
-    dismissConfirm();
-    return;
-  }
-  closePopover();
-  getChipElement()?.focus();
-}
-
-function attachDocumentListeners() {
-  document.addEventListener('click', onDocumentClick, true);
-  document.addEventListener('keydown', onDocumentKeydown, true);
-}
-
-function detachDocumentListeners() {
-  document.removeEventListener('click', onDocumentClick, true);
-  document.removeEventListener('keydown', onDocumentKeydown, true);
-}
-
-/** Show the popover, rendered from the chip's current answer. */
 function openPopover() {
-  if (!popover || open) return;
-  open = true;
+  const chip = getChipElement();
+  if (!popover || !chip || isOpen()) return;
+  statusNote = null;
   render();
-  popover.classList.add('open');
-  setExpanded(true);
-  attachDocumentListeners();
+  const sidebar = chip.closest('#sidebar');
+  openShellPopover(
+    popover,
+    chip,
+    sidebar
+      ? { place: 'beside-right', edge: sidebar, ignore: CONFIRM_OVERLAY }
+      : { place: 'below-end', ignore: CONFIRM_OVERLAY }
+  );
+  firstControl()?.focus({ preventScroll: true });
 }
 
-/** Hide the popover, and any confirm it raised. */
+/** Hide the popover; {@link onClosed} takes any confirm it raised with it. */
 function closePopover() {
-  if (!open) return;
-  open = false;
+  if (popover && isOpen()) closeShellPopover(popover);
+}
+
+/** What every close leaves behind: no confirm, no status line. */
+function onClosed() {
   statusNote = null;
   dismissConfirm();
-  popover?.classList.remove('open');
-  setExpanded(false);
-  detachDocumentListeners();
 }
 
-/* ---- derived facts (the pure ones live in control-target-facts.js) ---- */
+/**
+ * Escape, in the order the things on screen were opened: a confirm the open
+ * popover raised first, the popover only when none is up. Capture phase, so it
+ * runs before popover.js's own Escape, which would close the popover and its
+ * rows in the same keystroke as the confirm about them.
+ * @param {KeyboardEvent} event
+ */
+function onEscapeConfirmFirst(event) {
+  if (event.key !== 'Escape' || !isOpen() || !isConfirmUp()) return;
+  event.stopImmediatePropagation();
+  dismissConfirm();
+}
 
 /**
- * What the last switch did to THIS row, when it is still news.
- *
- * Matched on the target the outcome names, never on "the session moved": the
- * chip matches the request by `request_id` and hands the outcome on, and a
- * row that did not take part in it has nothing to report.
- * @param {any} row
- * @param {any} state
- * @returns {{status: string, text: string, title?: string}|null}
+ * The control focus starts on: the first writes control's tab stop (its stored
+ * position, or the nearest one below it no lock holds), else the first enabled
+ * button (an ⓘ before it would open its tip on arrival).
+ * @returns {HTMLElement|null}
  */
-function switchOutcome(row, state) {
-  if (isPending() && pendingTarget === row.target) {
-    return { status: 'pending', text: 'switching…' };
-  }
-  const last = state.last_switch;
-  if (!last || last.target !== row.target) return null;
-  if (typeof last.age_s === 'number' && last.age_s > OUTCOME_MAX_AGE_S) return null;
-  // No age in the copy: `age_s` decides WHETHER the line renders (the
-  // freshness window above), never what it says. A ticking counter would
-  // restate the mechanism, and every re-render — the 5 s poll, every
-  // gesture's re-read — would bump it in front of the operator.
-  // The RECORD's word for an accepted switch is `applied` — never `success`,
-  // which nothing on this path has ever published. The returned `status` is a
-  // different vocabulary: it is the `data-status` value terminal.css keys the
-  // outcome line on, the same split kindAttr makes between the route's words
-  // and the stylesheet's.
-  if (last.status === SWITCH_APPLIED) return { status: 'success', text: '✓ switched' };
-  // refused / failed / expired render the operator phrase for the word the
-  // gate (or the client's own deadline, for a request nothing ever answered)
-  // put on them, with the gate's own sentence on the title where it sent one.
+function firstControl() {
+  const found =
+    popover?.querySelector('.ctc-position[tabindex="0"]:not(:disabled)') ??
+    popover?.querySelector('button:not(:disabled)');
+  return found instanceof HTMLElement ? found : null;
+}
+
+/**
+ * What the card and rows need from this module for one render: the facts about
+ * the last gestures, and the gestures their controls run (control-target-rows.js).
+ * @returns {import('./control-target-rows.js').RowContext}
+ */
+function rowContext() {
   return {
-    status: last.status === 'expired' ? 'expired' : 'refused',
-    text: `✗ ${reasonPhrase(last.reason || last.status)}`,
-    title: typeof last.detail === 'string' && last.detail ? last.detail : undefined,
+    pendingTarget,
+    confirmingMove,
+    gestureNotes,
+    onMove: (row, to, state, reshow) => moveSwitch(row, to, state, reshow),
+    onSwitchTo: (row, state, reshow) => confirmSwitchTo(row, state, reshow),
+    onAllOff: (state) => void setSwitch(ALL_TARGETS, 'off', state),
   };
 }
 
@@ -375,15 +364,21 @@ function switchOutcome(row, state) {
  * Whole-subtree, on every render: the card and rows are a projection of one
  * payload and nothing in them is worth diffing, and rebuilding is what lets a
  * confirmed change land in place without the popover closing. Rendering while
- * closed is cheap and keeps the first frame after an open correct.
+ * closed is cheap and keeps the first frame after an open correct. The control
+ * that held focus is found again in the new subtree (the 5 s poll re-renders
+ * under a keyboard user): a writes option by its machine and position, any
+ * other control by its machine and class, and the panel itself takes focus
+ * when that control is gone.
  */
 function render() {
   if (!popover) return;
-  const focused = focusedOption(popover);
+  const option = focusedOption(popover);
+  const focused = option ? null : focusKey();
   const state = getState();
   popover.replaceChildren();
   if (!state) return;
   const rows = Array.isArray(state.targets) ? state.targets : [];
+  const ctx = rowContext();
 
   const banner = bannerNote(state);
   if (banner) {
@@ -393,13 +388,17 @@ function render() {
   }
 
   const active = rows.find((row) => row.active) || null;
-  if (active) popover.append(renderCard(active, state));
+  if (active) {
+    popover.append(el('div', 'osprey-popover-title', 'The agent is on'));
+    popover.append(renderCard(active, state, ctx));
+  }
 
   const others = rows.filter((row) => row !== active);
   if (others.length > 0) {
-    popover.append(el('div', 'ctc-list-title', active ? 'Other machines' : 'Machines'));
+    if (active) popover.append(separator());
+    popover.append(el('div', 'osprey-popover-title', active ? 'Other machines' : 'Machines'));
     const list = el('div', 'ctc-rows');
-    for (const row of others) list.append(renderRow(row, state));
+    for (const row of others) list.append(renderRow(row, state, ctx));
     popover.append(list);
   }
 
@@ -417,230 +416,66 @@ function render() {
     popover.append(status);
   }
 
-  popover.append(renderFoot(state));
-  if (focused) focusOption(popover, focused.target, focused.position);
+  popover.append(separator());
+  popover.append(renderFoot(state, ctx));
+  if (confirmSkipped(SKIP_KEY_MOVE) || confirmSkipped(SKIP_KEY_SWITCH)) {
+    popover.append(renderAskAgain());
+  }
+  if (option) focusOption(popover, option.target, option.position);
+  else restoreFocus(focused);
 }
 
 /**
- * The card: the machine the agent stands on. Name, consequence line, and the
- * writes switch that both states and changes the write state.
- * @param {any} row
- * @param {any} state
+ * The one way back from "don't ask again" that needs no Shift: says the dialogs
+ * are waived and clears both slots.
+ * @returns {HTMLElement}
  */
-function renderCard(row, state) {
-  const kind = kindAttr(row);
-  const word = stateWord(row);
-  const lock = lockReason(row, state);
-  const card = el('div', 'ctc-card');
-  card.dataset.target = row.target;
-  card.dataset.targetKind = kind;
-  card.dataset.state = word;
-
-  card.append(el('div', 'ctc-card-eyebrow', 'The agent is on'));
-
-  const title = el('div', 'ctc-card-title');
-  title.dataset.targetKind = kind;
-  title.dataset.state = word;
-  title.append(el('span', 'ctc-dot'));
-  title.append(el('span', 'ctc-name', displayName(row, kind)));
-  const info = infoAffordance(row, kind);
-  if (info) title.append(info);
-  card.append(title);
-
-  card.append(writesSwitch(row, state, word));
-  const phrase = writePhraseLine(row, word, lock);
-  if (phrase) card.append(phrase);
-
-  // The reach exception sits on the title line: the switch carries the write
-  // state, so the card has no separate state line to put it on.
-  const reach = reachException(row.reachability);
-  if (reach) {
-    const bad = el('span', 'ctc-reach-word', reach.text);
-    bad.dataset.state = reach.state;
-    bad.title = reach.title;
-    title.append(bad);
-  }
-
-  for (const line of outcomeLines(row, state)) card.append(line);
-  // Turning writes off on the machine the agent is ON only reaches it once
-  // the connector is rebuilt, and that waits for the run in flight. Said out
-  // loud, rather than leaving a button that appears to have done nothing.
-  if (state.last_posture_realign?.state === 'pending') {
-    const line = el('div', 'ctc-outcome', 'takes effect when the running execution finishes');
-    line.dataset.status = 'realign';
-    card.append(line);
-  }
-  return card;
-}
-
-/**
- * One other machine's row: who it is and what writing there means, its
- * writes switch, and Switch to.
- * @param {any} row
- * @param {any} state
- */
-function renderRow(row, state) {
-  const kind = kindAttr(row);
-  const word = stateWord(row);
-  const lock = lockReason(row, state);
-  const node = el('div', 'ctc-row');
-  node.dataset.target = row.target;
-  node.dataset.targetKind = kind;
-  node.dataset.state = word;
-
-  const ident = el('div', 'ctc-ident');
-  const name = el('div', 'ctc-name-line');
-  name.append(el('span', 'ctc-name', displayName(row, kind)));
-  const info = infoAffordance(row, kind);
-  if (info) name.append(info);
-  const reach = reachException(row.reachability);
-  if (reach) {
-    const bad = el('span', 'ctc-reach-word', reach.text);
-    bad.dataset.state = reach.state;
-    bad.title = reach.title;
-    name.append(bad);
-  }
-  ident.append(name);
-  const phrase = writePhraseLine(row, word, lock);
-  if (phrase) ident.append(phrase);
-  for (const line of outcomeLines(row, state)) ident.append(line);
-  node.append(ident);
-
-  node.append(writesSwitch(row, state, word));
-  node.append(renderAction(row, state));
-  return node;
-}
-
-/**
- * The ⓘ beside a name, and the tooltip behind it.
- *
- * Two facts in one place: what writing to this machine does (the consequence
- * line — the one that names hardware moving keeps its error tone), then the
- * machine vocabulary the name's `title` used to carry (the server's own
- * label, the endpoint, the measured reachability). A real element shown on
- * hover and keyboard focus rather than the browser's `title` bubble, which
- * is delayed, unstyled and mouse-only — the design system's shared info tip
- * (`.osprey-info` / `.osprey-tip`), with this popover's own classes kept for
- * the two line tones. Returns `null` for a row with nothing to say.
- * @param {any} row
- * @param {string} kind
- * @returns {HTMLElement|null}
- */
-function infoAffordance(row, kind) {
-  const what = descriptor(row, kind);
-  const ident = identTitle(row);
-  if (!what && !ident) return null;
-  const info = button('osprey-info ctc-info', 'i');
-  info.setAttribute('aria-label', `About ${displayName(row, kind)}`);
-  const tip = el('span', 'osprey-tip ctc-tip');
-  tip.setAttribute('role', 'tooltip');
-  if (what) {
-    const line = el('span', 'ctc-tip-what', what);
-    const tone = descriptorTone(row, kind);
-    if (tone) line.dataset.tone = tone;
-    tip.append(line);
-  }
-  if (ident) tip.append(el('span', 'ctc-tip-ident', ident));
-  info.append(tip);
-  return info;
-}
-
-/**
- * The feedback lines a row or the card carries: the last switch's outcome
- * while it is news, and the reason the last click did nothing.
- * @param {any} row
- * @param {any} state
- * @returns {HTMLElement[]}
- */
-function outcomeLines(row, state) {
-  const lines = [];
-  const outcome = switchOutcome(row, state);
-  if (outcome) {
-    const line = el('div', 'ctc-outcome', outcome.text);
-    line.dataset.status = outcome.status;
-    if (outcome.title) line.title = outcome.title;
-    lines.push(line);
-  }
-  const gestureNote = gestureNotes.get(row.target);
-  if (gestureNote) {
-    const line = el('div', 'ctc-outcome', `✗ ${reasonPhrase(gestureNote)}`);
-    line.dataset.status = 'refused';
-    lines.push(line);
-  }
-  return lines;
-}
-
-/**
- * The Switch slot: the button, or the phrase for why there is no button.
- *
- * The refusal is keyed on the switch tool's own machine code, published by the
- * route — so the popover and the agent agree about the same refusal — and
- * rendered as {@link REASON_PHRASES}' operator phrase, with the route's
- * `reason_detail` sentence (falling back to the code) on the `title`.
- * @param {any} row
- * @param {any} state
- */
-function renderAction(row, state) {
-  const action = el('div', 'ctc-action');
-  // One request is outstanding at a time, so while it is out no row offers a
-  // second.
-  if (isPending()) return action;
-  if (row.available_now && contextWritable(state)) {
-    const swap = button('ctc-switch', 'Switch to');
-    swap.title = `Move all control reads and writes to ${displayName(row, kindAttr(row))}`;
-    swap.addEventListener('click', (event) => {
-      event.stopPropagation();
-      confirmSwitchTo(row, state, event.shiftKey);
-    });
-    action.append(swap);
-    return action;
-  }
-  // The row's own reason wins; the context supplies the fallback, and names
-  // its holder itself — a two-word chip reading "another terminal" over an
-  // agent's controls server would send the operator to a page that does not
-  // exist.
-  const code = row.reason || contextRefusalCode(state);
-  const phrase = row.reason ? reasonPhrase(code) : contextRefusalPhrase(state);
-  const reason = el('span', 'ctc-reason', phrase);
-  const detail =
-    typeof row.reason_detail === 'string' && row.reason_detail ? row.reason_detail : '';
-  if (detail || code) reason.title = detail || String(code);
-  action.append(reason);
-  return action;
-}
-
-/**
- * The foot: all-off, and the popover's scope said once. `Turn all writes off`
- * only ever removes reach, so it applies on click; it is enabled exactly when
- * the read says some switch of this login's is armed (`any_armed`) — including a
- * machine no longer configured, which no row shows.
- *
- * The note beside it is the popover's scope, said once at rest: the switch is
- * the login's, so a stop recorded here reaches every session, notebook kernel
- * and hook of that login, not just the page it was made on.
- * @param {any} state
- */
-function renderFoot(state) {
-  const foot = el('div', 'ctc-foot');
-  const all = button('ctc-all-off', 'Turn all writes off');
-  all.disabled = state.any_armed !== true;
-  all.addEventListener('click', (event) => {
-    event.stopPropagation();
-    void setSwitch(ALL_TARGETS, 'off', state);
+function renderAskAgain() {
+  const line = el('div', 'ctc-ask-again', 'Not asking first on any machine.');
+  const link = /** @type {HTMLButtonElement} */ (el('button', 'ctc-ask-again-link', 'Ask again'));
+  link.type = 'button';
+  link.addEventListener('click', () => {
+    rememberConfirmSkip(SKIP_KEY_MOVE, false);
+    rememberConfirmSkip(SKIP_KEY_SWITCH, false);
+    render();
   });
-  foot.append(all);
-  foot.append(el('span', 'ctc-foot-note', 'Applies to every session of this login'));
-  return foot;
+  line.append(' ', link);
+  return line;
+}
+
+/** @returns {HTMLElement} the design system's separator line */
+function separator() {
+  const sep = el('div', 'osprey-popover-sep');
+  sep.setAttribute('role', 'separator');
+  return sep;
 }
 
 /**
- * One machine's writes control, wired to this popover's gestures.
- * @param {any} row @param {any} state @param {string} word
+ * Where focus is inside the popover, as something a rebuilt subtree can match:
+ * the machine its card or row is about, and the control's own class.
+ * @returns {{target: string|null, cls: string}|null}
  */
-function writesSwitch(row, state, word) {
-  return renderSwitch(row, state, word, confirmingMove, (to, reshow) =>
-    moveSwitch(row, to, state, reshow)
-  );
+function focusKey() {
+  const focused = document.activeElement;
+  if (!popover || !(focused instanceof HTMLElement) || focused === popover) return null;
+  if (!popover.contains(focused) || !focused.classList.length) return null;
+  const owner = /** @type {HTMLElement|null} */ (focused.closest('[data-target]'));
+  return { target: owner?.dataset.target ?? null, cls: focused.classList[0] };
+}
+
+/**
+ * Put focus back on the control {@link focusKey} described, or on the panel.
+ * @param {{target: string|null, cls: string}|null} key
+ */
+function restoreFocus(key) {
+  if (!key || !popover) return;
+  const scope =
+    key.target === null
+      ? popover
+      : popover.querySelector(`[data-target="${CSS.escape(key.target)}"]`);
+  const again = scope?.querySelector(`.${CSS.escape(key.cls)}`);
+  const usable = again instanceof HTMLElement && !again.matches(':disabled');
+  (usable ? again : popover).focus({ preventScroll: true });
 }
 
 /* ---- gestures ---- */
@@ -827,13 +662,12 @@ function releaseParkedSwitch() {
   if (!move) return;
   confirmingMove = null;
   render();
-  if (open) focusOption(popover, move.target, move.position);
+  if (isOpen()) focusOption(popover, move.target, move.position);
 }
 
 /**
- * The confirm for one widening — or, when its waiver is recorded and Shift is
- * not held, the move applied directly. {@link confirmSkippable} decides which
- * moves take a waiver; the rest have no key to read or write.
+ * The confirm for one widening — or, when the waiver is recorded and Shift is
+ * not held, the move applied directly.
  * Wording lives in control-target-facts.js ({@link turnOnConfirm}); this
  * only wires the gesture.
  * @param {any} row
@@ -842,18 +676,13 @@ function releaseParkedSwitch() {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function confirmWiden(row, to, state, reshow = false) {
-  const kind = kindAttr(row);
-  const keyBase =
-    to === 'asked' && confirmSkippable('writes-asked', kind)
-      ? confirmSkipKeyBase('writes-asked', row)
-      : null;
-  if (keyBase && !reshow && confirmSkipped(keyBase)) {
+  if (!reshow && confirmSkipped(SKIP_KEY_MOVE)) {
     void setSwitch(row.target, to, state, undefined, true);
     return;
   }
   showConfirm({
-    ...turnOnConfirm(row, kind, to),
-    skipKeyBase: keyBase,
+    ...turnOnConfirm(row, kindAttr(row), to),
+    skipKeyBase: SKIP_KEY_MOVE,
     onConfirm: (ui) => void setSwitch(row.target, to, state, ui),
     onDismiss: releaseParkedSwitch,
   });
@@ -874,14 +703,13 @@ function confirmWiden(row, to, state, reshow = false) {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function confirmSwitchTo(row, state, reshow = false) {
-  const keyBase = confirmSkipKeyBase('switch', row);
-  if (!reshow && confirmSkipped(keyBase)) {
+  if (!reshow && confirmSkipped(SKIP_KEY_SWITCH)) {
     void requestSwitch(row, state);
     return;
   }
   showConfirm({
     ...switchConfirm(row, kindAttr(row), stateWord(row)),
-    skipKeyBase: keyBase,
+    skipKeyBase: SKIP_KEY_SWITCH,
     onConfirm: (ui) => void requestSwitch(row, state, ui),
   });
 }

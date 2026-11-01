@@ -9,30 +9,21 @@
     storage sites read this attribute and never parse the URL. Its absence
     means single-user: keys stay unscoped, exactly as they were. Never emit
     it empty. See resolve_storage_scope() in common_middleware.py. -#}
-{#- data-header-bar / data-status-bar are present ONLY as "hidden", when the
-    effective bar layout hides that bar. They are stamped here, with the other
-    pre-paint layout facts, because each changes .shell-body's height: a page
-    that learned it from JS would paint the bar and then reflow the whole shell
-    under it on every single load. Absence means the bar is shown. -#}
-{#- data-bar-context is what this deployment OFFERS, in the vocabulary
-    bar-catalog.js's available(ctx) predicates ask in — always present, and the
-    only place the browser learns these facts. bar-sync.js reads it and hands
-    it to bar-layout.js's normalize(); it used to infer the same three answers
-    from the page, which made a deployment that offers an item but does not
-    place it look like one that cannot render it, and that drop latches the
-    stored layout read-only for the session. JSON in an attribute, exactly as
-    the shells carry data-bar-options; SINGLE-quoted because Jinja's tojson
-    escapes ' (and < > &) but leaves " alone. -#}
+{#- data-control-target is present ONLY as "off", when this deployment serves
+    no control-target picker. app.js then mounts neither the chip nor its
+    popover in the sidebar's control-system block, and nothing reads the
+    posture route. -#}
 {#- data-panel-labels is the registry's roster of built-in panel labels, which
     panel-catalog.js reads at module load. It is stamped rather than fetched
     because /api/panels answers for the ENABLED panels only and resolves after
     that module's array is built, so it can never name the full roster the
-    rail's catalog list needs. Same single-quoted JSON, for the same reason. -#}
+    "+" menu's catalog list needs. JSON in an attribute, SINGLE-quoted because
+    Jinja's tojson escapes ' (and < > &) but leaves " alone. -#}
 {#- data-facility-timezone is the IANA id system.timezone names — always
     present, because the resolver degrades to UTC rather than failing.
     design_system/static/js/facility-time.js reads it. Double-quoted because a
     zone id never contains a quote. -#}
-<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}"{% if web_expert_view is false %} data-expert-view="off"{% endif %} data-rail-position="{{ web_rail_position }}" data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_header_visible %} data-header-bar="hidden"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}{% if not rail_docs_visible %} data-rail-docs="hidden"{% endif %}{% if not rail_feedback_visible %} data-rail-feedback="hidden"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
+<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}"{% if web_expert_view is false %} data-expert-view="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -60,12 +51,13 @@
   <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/mode-boot.js') }}"></script>
 
-  <!-- FOUC prevention: applies data-rail-position (left/top) before any CSS loads -->
-  <script src="{{ prefixed('/design-system/js/rail-boot.js') }}"></script>
+  <!-- FOUC prevention: applies data-sidebar="collapsed" before any CSS loads -->
+  <script src="{{ prefixed('/design-system/js/sidebar-boot.js') }}"></script>
 
-  <!-- Design system tokens -->
+  <!-- Design system tokens and shared primitives -->
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/primitives.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
 
   <!-- Fonts (self-hosted, no external CDN) -->
@@ -106,12 +98,9 @@
 
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/sidebar-artifacts.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/artifacts-header.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
-  <!-- Bar items: the shell layer both bars are built from. After terminal.css
-       and files.css, which own the two bars' own boxes — every rule in here is
-       either more specific than what it adjusts or !important where it has to
-       beat a user-agent rule, so the order is for readers, not the cascade. -->
-  <link rel="stylesheet" href="{{ prefixed('/static/css/bars.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
@@ -121,264 +110,186 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/undo-notice.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/rail-more-menu.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
 </head>
 <body>
 
-{#- ===== Bar items: the adopted chrome =====================================
-
-    Both bars are item HOSTS: an ordered run of `.bar-item` shells, emitted
-    below from the effective layout (app.py's bar_render_plan()). Most item
-    bodies are built by JS, keyed by type, so the same code runs at first paint
-    and when the operator drags the item in later.
-
-    These five are the exception. Every one of them is resolved BY ID by some
-    other module — #docs-link, #command-palette-btn, #display-menu-settings,
-    #logout-btn, the identity trigger and menu — so they are rendered on
-    EVERY request whichever way the
-    layout falls: into their shell when the layout places them, into
-    #bar-item-pool at the end of this document when it does not. A removed item
-    must never make an id go dark; the module looking it up cannot tell "the
-    operator took this out of the bar" from "this build is broken".
-
-    That is why they live in one macro rather than inline: the shell run and
-    the pool render the same block from the same place, so the two can never
-    drift into rendering different markup for the same item. -#}
-{% macro bar_body(type) -%}
-{%- if type == 'logo' -%}
-      <span class="header-logo"><svg class="header-logo-mark" viewBox="0 0 16 8" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path fill="currentColor" d="M0 0h2v1h-2zM14 0h2v1h-2zM1 1h3v1h-3zM12 1h3v1h-3zM2 2h4v1h-4zM10 2h4v1h-4zM3 3h4v1h-4zM9 3h4v1h-4zM4 4h8v1h-8zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z"/></svg>OSPREY</span>
-{%- elif type == 'identity' -%}
-      <!-- Deployment identity (web.app_name / OSPREY_WEB_APP_NAME): WHICH
-           deployment this is, the same kind of fact as the product name it
-           qualifies. It used to render as a second grey chip beside the user
-           name, where the two read as a pair of unrelated badges.
-           Its middot separator is a fact about ORDER, not about the item, so
-           bars.css draws it from the `data-follows="logo"` the shell carries
-           and neuters the unconditional ::before inside a shell — move the
-           item away from the logo and the middot goes with it. -->
-      {#- Where the deployment knows a user, this chip is the identity menu's
-          trigger: operators read the name in the corner as "who am I / where am
-          I" and reach for it to leave. It opens a popover holding the identity
-          and Log out. Without a user (single-user terminals) there is nothing
-          to open, so it stays the plain label it has always been.
-
-          The popover is rendered here rather than built on demand: `#logout-btn`
-          is looked up BY ID by app.js's initLogoutButton(), so it has to be in
-          the DOM while the menu is closed. Hidden by CSS, not by absence. The
-          command palette's Log out does not go through this button: it reads
-          `data-landing-url` off <html>, so it works with this item removed. -#}
-      {% if terminal_user %}
-      <div class="header-identity">
-        <button class="header-deployment header-identity-trigger" id="header-identity-trigger"
-                type="button" aria-haspopup="true" aria-expanded="false"
-                aria-controls="header-identity-menu"
-                title="{{ app_name or terminal_user }} — session menu">
-          <span class="header-identity-label">{{ app_name or terminal_user }}</span>
-          <span class="header-identity-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="header-identity-menu" id="header-identity-menu" role="menu">
-          <div class="header-identity-who">
-            <span class="header-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
-            <span class="header-identity-who-name">{{ terminal_user }}</span>
-            {#- The tier this login resolved to (a roster `role:` or the
-                provider's claim), forwarded by nginx on this request. Absent
-                when the login carried none, or when nothing sits in front of
-                the terminal to forward it: a fact stated where it is known,
-                never a default. -#}
-            {% if auth_role %}<span class="header-identity-who-role" title="Role for this session">{{ auth_role }}</span>{% endif %}
-            {#- Where that tier came from — the roster or the ID token — named
-                only when the role itself is on the line and the forwarded
-                value is one this build knows. Never an empty span, so the
-                separator it carries never appears on its own. -#}
-            {% if auth_role and auth_role_source_label %}<span class="header-identity-who-role-source" title="Where this session's role came from">{{ auth_role_source_label }}</span>{% endif %}
-            {% if app_name %}<span class="header-identity-who-sub">{{ app_name }}</span>{% endif %}
-          </div>
-          {#- Only the ACTION depends on landing_url. A user with nowhere to
-              return to is still identified: the who-line states a fact. -#}
-          {% if landing_url %}
-          <button class="header-identity-logout" id="logout-btn" type="button" role="menuitem"
-                  data-landing-url="{{ landing_url }}"
-                  title="Log out {{ terminal_user }} and return to the landing page"
-                  aria-label="Log out {{ terminal_user }} and return to the landing page">
-            <span class="header-identity-logout-icon" aria-hidden="true">&#128682;</span>Log out
-          </button>
-          {% endif %}
-        </div>
-      </div>
-      {% elif app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
-{%- elif type == 'search' -%}
-        <!-- Command palette trigger. Reads as a search bar; Cmd/Ctrl+K,
-             filtering and keyboard nav are wired by palette-boot.js, which
-             resolves this button by id. Present in BOTH ui modes — palette.css
-             says so deliberately, and simple mode trims the palette REGISTRY
-             (palette-boot.js) rather than taking the way in away. -->
-        <button id="command-palette-btn" class="command-palette-trigger" type="button"
-                aria-label="Open command palette"
-                title="Search settings, panels &amp; actions (Cmd/Ctrl+K)">
-          <span class="command-palette-trigger-icon" aria-hidden="true">&#128269;</span>
-          <span class="command-palette-trigger-label">Search</span>
-          <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
-        </button>
-{%- elif type == 'display' -%}
-        <!-- Display menu: the header sliders button. The shared
-             <osprey-display-menu> component (design_system) collapses the
-             Expert/Simple view toggle and both theme axes (light/dark +
-             family) into one popover card so the header stays quiet. The two
-             buttons declared inside the tag are the hub's own session chrome,
-             projected by the component into the card's action row after the
-             three preference rows (who you are lives in the header identity
-             chip). The component owns open/close and the three rows, wired
-             straight to theme-manager.js; the View pick reaches app.js through
-             the same-origin `osprey-mode-change` message (initUiModeFollowUps).
-
-             Settings keeps `data-drawer-trigger` (settings.js's warning gate is
-             the sole open path; app.js mirrors `.active` onto it and closes
-             the card on the click), and is present in BOTH ui modes — the
-             warning gate, not the mode, is what guards expert configuration.
-
-             Log out lives in BOTH places — the identity chip is where
-             operators reach for it (the name in the corner reads as "who am
-             I"), while this row keeps the way out discoverable from the card
-             they already have open. The chip's copy owns `#logout-btn`, so
-             this one carries its own id; app.js's initLogoutButton() binds
-             both to logout.js's flow, which the command palette runs on its
-             own from `data-landing-url` on <html>. Deliberately NOT closed by the component: every path
-             out of that handler navigates away, and closing the card first
-             would hide the button's own aria-busy state while the POST is
-             still in flight. -->
-        <osprey-display-menu id="display-menu">
-          <button class="display-menu-settings" id="display-menu-settings" type="button"
-                  data-drawer-trigger="settings-drawer" title="Open system settings">
-            <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>Settings
-          </button>
-          {% if terminal_user and landing_url %}
-          <button class="display-menu-logout" id="display-menu-logout-btn" type="button"
-                  data-landing-url="{{ landing_url }}"
-                  title="Log out {{ terminal_user }} and return to the landing page"
-                  aria-label="Log out {{ terminal_user }} and return to the landing page">
-            <span class="display-menu-logout-icon" aria-hidden="true">&#128682;</span>Log out
-          </button>
-          {% endif %}
-        </osprey-display-menu>
-{%- elif type == 'docs' -%}
-        <!-- Same destination as the rail's Documentation control, under the
-             same rule and in the same shape: href-less and hidden until boot
-             fills in this deployment's web.docs_url from GET /api/panels
-             (feedback-boot.js). A deployment that blanks the key keeps it
-             hidden, so neither affordance can flash a dead link.
-             `.status-item[hidden]` in files.css is load-bearing — that class's
-             display:flex would otherwise beat the user-agent [hidden] rule. -->
-        <a class="status-item status-link" id="docs-link"
-           target="_blank" rel="noopener" hidden>Docs</a>
-{%- endif -%}
-{%- endmacro %}
-
-  <!-- Global header — a bar-item host. `.header-actions` is the host class
-       (bars.css turns it from a right-hugging action cluster into the full
-       width run); the old .header-left / .header-right wrappers are gone,
-       because the left/right split they encoded is now an item the operator
-       can see and move: the `space` item in the default layout.
-       Each shell carries `data-bar-item` — the item's type, and the ONE
-       spelling of it: the JS hook items and mounts query by, and what bars.css
-       keys the spacing shells off. A shell the client builds for an item
-       dragged in at runtime carries the same attribute and therefore the same
-       rules. Plus `data-follows`, naming the preceding item's type — the one
-       thing a bar item is allowed to know about its neighbours, and the reason
-       no rule in bars.css uses a sibling combinator.
-       Shells whose entry carries options also carry them, as the JSON options
-       attribute bar-host.js merges over the type's defaults.
-       Hidden by html[data-header-bar="hidden"], stamped on <html> above, the
-       same way the status bar is. -->
-  <header class="header">
-    <div class="header-actions" data-bar-host="header">
-      {%- for item in bar_header %}
-      <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}{% if item.options %} data-bar-options='{{ item.options|tojson }}'{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
-      {%- endfor %}
-    </div>
-  </header>
-
-  <!-- Shell body: the left rail column beside the resizable terminal/workspace split -->
+  <!-- Shell: the labelled sidebar beside the dockview workspace, both on the
+       canvas. Every glyph is an empty svg[data-icon] that sidebar.js fills
+       from the design system's icons.js; `.osprey-ic` sizes it from the first
+       paint, so nothing moves when it fills. -->
   <div class="shell-body">
 
-    <!-- Left icon rail: one entry per enabled panel + the add-panel control,
-         stacked in a single 74px column, with the non-panel controls
-         pinned to the far end. Entries are populated by panel-manager.js
-         through panel-rail.js; the "+" menu by panel-add-menu.js. -->
-    <div class="panel-rail-region">
-      <nav class="panel-rail" id="panel-rail" role="tablist" aria-label="Panels">
-        <!-- Populated by panel-manager.js -->
-      </nav>
-      <div class="panel-add" id="panel-add">
-        <button class="panel-add-btn" id="panel-add-btn" type="button"
-                title="Add panel" aria-label="Add panel"
-                aria-haspopup="true" aria-expanded="false">&#xff0b;</button>
-        <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
-      </div>
-      <!-- Utility cluster: the rail's controls that are not panels. A SIBLING
-           of the nav above, because createRail() replaceChildren()s that node
-           on every render. Separated from the tab group by its own rule and
-           pushed to the far end (bottom in the left column, right edge under
-           a top rail) so the two groups never read as one list.
-           Each control is an icon + label cell like a panel entry: the marks
-           alone did not say what they open. The label is the accessible name
-           (aria-label repeats it verbatim, as the rail entries do); `title`
-           carries the longer phrase the label abbreviates.
-           The docs href is filled in at boot from GET /api/panels.docs_url;
-           the anchor stays hidden until it has one (rail-utility.js).
-           Docs and Feedback each hide from their own right-click menu and come
-           back from ⋯ More, which also holds the controls used too rarely to
-           earn a cell: the tour, the activity log and the SYSTEM panel when it
-           is off the rail (rail-more-menu.js). ⋯ More cannot be hidden. A
-           hidden Feedback button stays in the DOM, withdrawn by CSS: the bar's
-           Feedback item and the feedback boot forward to it by id. -->
-      <div class="panel-utility" id="panel-utility">
-        <a class="panel-utility-btn" id="panel-docs-link"
-           target="_blank" rel="noopener"
-           title="Documentation" aria-label="Docs" hidden>
-          <span class="panel-utility-icon" data-icon="docs" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 4.7C6.5 3.6 4.6 3.2 2.6 3.4L2.6 11.6C4.6 11.4 6.5 11.8 8 12.9"/>
-              <path d="M8 4.7C9.5 3.6 11.4 3.2 13.4 3.4L13.4 11.6C11.4 11.4 9.5 11.8 8 12.9"/>
-              <path d="M8 4.7L8 12.9"/>
-            </svg>
-          </span>
-          <span class="panel-utility-label">Docs</span>
+    <!-- The sidebar (panel-rail.js renders the panel rows, sidebar.js wires
+         the rest). Only the group that holds the Artifacts and Script runs
+         lists gives up height: the head, the control-system block, search,
+         the other groups and the footer never scroll off (terminal.css,
+         "Height budget"). -->
+    <nav class="sidebar" id="sidebar" aria-label="Panels">
+      <div class="sidebar-head">
+        {#- With sign-out available, the mark opens the sign-out dialog
+            (app.js) instead of following its home link. -#}
+        <a class="sidebar-brand" href="{{ prefixed('/') }}" aria-label="OSPREY" data-tip="OSPREY"
+           {% if terminal_user and landing_url %}aria-haspopup="dialog" data-tip-detail="Sign out of OSPREY"{% else %}data-tip-detail="OSPREY home"{% endif %}>
+          <svg class="sidebar-brand-mark" viewBox="0 0 16 8" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path fill="currentColor" d="M0 0h2v1h-2zM14 0h2v1h-2zM1 1h3v1h-3zM12 1h3v1h-3zM2 2h4v1h-4zM10 2h4v1h-4zM3 3h4v1h-4zM9 3h4v1h-4zM4 4h8v1h-8zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z"/></svg>
+          <span class="sidebar-brand-word">OSPREY</span>
         </a>
-        <button class="panel-utility-btn" id="panel-feedback-btn" type="button"
-                title="Send feedback" aria-label="Feedback">
-          <span class="panel-utility-icon" data-icon="feedback" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4.6 2.7H11.4A2.1 2.1 0 0 1 13.5 4.8V9.3A2.1 2.1 0 0 1 11.4 11.4H7.0L3.5 14.1L4.4 11.4A2.1 2.1 0 0 1 2.5 9.3V4.8A2.1 2.1 0 0 1 4.6 2.7Z"/>
-            </svg>
-          </span>
-          <span class="panel-utility-label">Feedback</span>
+        <button class="osprey-icon-btn" id="sidebar-toggle" type="button"
+                aria-label="Hide sidebar labels" aria-expanded="true" aria-controls="sidebar"
+                data-tip-detail="Switch between the full sidebar and icons only">
+          <svg class="osprey-ic" data-icon="panel-left" aria-hidden="true"></svg>
         </button>
-        <div class="rail-more" id="rail-more">
-          <button class="panel-utility-btn" id="rail-more-btn" type="button"
-                  title="More" aria-label="More"
-                  aria-haspopup="menu" aria-expanded="false" aria-controls="rail-more-menu">
-            <span class="panel-utility-icon" data-icon="more" aria-hidden="true">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>
-                <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/>
-                <circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>
-              </svg>
-            </span>
-            <span class="panel-utility-label">More</span>
+      </div>
+
+      <!-- Control-system block: the control-target chip mounts here
+           (control-target-chip.js) and sidebar-target.js dresses it as one
+           row and adds the health dot. -->
+      <div class="sidebar-target" id="sidebar-target"></div>
+
+      <!-- Command palette trigger: reads as a search field. Cmd/Ctrl+K,
+           filtering and keyboard nav are wired by palette-boot.js, which
+           resolves this button by id. Present in BOTH ui modes. -->
+      <button class="osprey-search" id="command-palette-btn" type="button"
+              aria-label="Open command palette" data-tip="Search"
+              data-tip-detail="Search settings, panels and actions">
+        <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
+        <span class="sidebar-search-label">Search</span>
+        <kbd class="osprey-kbd" data-chord="K" aria-hidden="true">&#8984;K</kbd>
+      </button>
+
+      <!-- The panel rows, in the operator's groups (sidebar-groups.js keeps
+           them per user; the two below are the built-in ones). createRail()
+           (panel-rail.js) renders the groups and MOVES the page-owned rows
+           below into place on every render, never rebuilding them: the Agent
+           row, the Artifacts row with its lists (sidebar-artifacts.js renders
+           the lists), the Script runs row and "+ Add panel". -->
+      <div class="sidebar-sections" id="panel-rail" role="list">
+        <div class="sidebar-group" data-group="workspace" role="listitem"
+             aria-labelledby="sidebar-workspace-label">
+          <div class="osprey-section-label sidebar-group-head">
+            <span class="sidebar-group-name" id="sidebar-workspace-label">Workspace</span>
+            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
+                    aria-expanded="false" aria-label="Workspace group options"
+                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          </div>
+
+          <button class="osprey-nav-row panel-rail-button disabled" id="sidebar-agent-row"
+                  data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent">
+            <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
+            <span class="osprey-nav-label">Agent</span>
+            <span class="osprey-dot sidebar-agent-dot" data-agent-dot aria-hidden="true"></span>
+            <span class="sidebar-open-hint" aria-hidden="true">Open</span>
+            <span class="osprey-nav-badge" data-agent-badge hidden></span>
           </button>
-          <div class="rail-more-menu" id="rail-more-menu" role="menu" aria-label="More"></div>
+
+          <div class="sidebar-row" id="sidebar-artifacts-row">
+            <button class="osprey-nav-row parent panel-rail-button disabled" data-panel-id="artifacts"
+                    type="button" aria-expanded="true" aria-controls="sidebar-artifacts-kids"
+                    aria-label="Artifacts" title="Artifacts" data-tip="Artifacts">
+              <svg class="osprey-ic osprey-nav-icon" data-icon="layers" aria-hidden="true"></svg>
+              <span class="osprey-nav-label">Artifacts</span>
+              <span class="osprey-nav-badge" data-art-count hidden></span>
+              <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
+            </button>
+            <div class="sidebar-row-actions">
+              <button class="osprey-mini" type="button" data-art-filter-toggle title="Filter"
+                      aria-label="Filter artifacts" aria-pressed="false"><svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg></button>
+              <button class="osprey-mini" type="button" data-art-menu title="More"
+                      aria-label="Artifact options" aria-haspopup="menu" aria-expanded="false"
+                      aria-controls="sidebar-artifacts-menu"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+            </div>
+            <div class="sidebar-kids" id="sidebar-artifacts-kids">
+              <label class="sidebar-kids-filter" data-art-filter hidden>
+                <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
+                <input type="search" placeholder="Filter by title" aria-label="Filter artifacts by title">
+              </label>
+              <div class="sidebar-kids-list" id="sidebar-artifacts-list" role="listbox" aria-label="Artifacts"></div>
+            </div>
+          </div>
+
+          <div class="sidebar-row" id="sidebar-runs-row">
+            <button class="osprey-nav-row parent" id="sidebar-runs-toggle" type="button"
+                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs"
+                    data-tip="Script runs" data-tip-detail="Output of scripts the agent ran">
+              <svg class="osprey-ic osprey-nav-icon" data-icon="bash" aria-hidden="true"></svg>
+              <span class="osprey-nav-label">Script runs</span>
+              <span class="osprey-nav-badge" data-runs-count hidden></span>
+              <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
+            </button>
+            <div class="sidebar-kids" id="sidebar-runs-kids" hidden>
+              <div class="sidebar-kids-list" id="sidebar-runs-list" role="listbox" aria-label="Script runs"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-group" data-group="tools" role="listitem" aria-labelledby="sidebar-tools-label">
+          <div class="osprey-section-label sidebar-group-head">
+            <span class="sidebar-group-name" id="sidebar-tools-label">Tools</span>
+            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
+                    aria-expanded="false" aria-label="Tools group options"
+                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          </div>
+          <button class="osprey-nav-row add" id="panel-add-btn" type="button" aria-label="Add panel"
+                  aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel"
+                  data-tip-detail="Show a hidden panel or add one by URL">
+            <svg class="osprey-ic osprey-nav-icon" data-icon="plus" aria-hidden="true"></svg>
+            <span class="osprey-nav-label">Add panel</span>
+          </button>
         </div>
       </div>
-    </div>
 
-    <!-- Dockview workspace: fills the row beside the rail. #dock-root is the
-         dockview-managed grid; dock-workspace.js adopts the terminal card below
-         into the shell's one native dockview panel at boot. Service panels dock
-         as overlay-backed placeholders (dock-iframe.js) — the first opens left
-         of the terminal at the old 60/40 split.
+      <!-- Footer. The docs href is filled in at boot from GET
+           /api/panels.docs_url; the row stays hidden until it has one
+           (rail-utility.js). Feedback opens the feedback dialog
+           (feedback-boot.js). Sign out, rendered only where the deployment
+           has a user and somewhere to send them, asks first and then runs
+           logout.js (app.js, sign-out.js). ☰ More opens #more-menu
+           (more-menu.js). -->
+      <div class="sidebar-foot">
+        <a class="osprey-nav-row" id="panel-docs-link" target="_blank" rel="noopener"
+           title="Documentation" aria-label="Docs" data-tip="Docs"
+           data-tip-detail="Open the documentation" hidden>
+          <svg class="osprey-ic osprey-nav-icon" data-icon="help" aria-hidden="true"></svg>
+          <span class="osprey-nav-label">Docs</span>
+        </a>
+        <button class="osprey-nav-row" id="panel-feedback-btn" type="button"
+                title="Send feedback" aria-label="Feedback" data-tip="Feedback"
+                data-tip-detail="Send feedback about this deployment">
+          <svg class="osprey-ic osprey-nav-icon" data-icon="message" aria-hidden="true"></svg>
+          <span class="osprey-nav-label">Feedback</span>
+        </button>
+        {% if terminal_user and landing_url %}
+        <button class="osprey-nav-row" id="logout-btn" type="button" aria-haspopup="dialog"
+                data-landing-url="{{ landing_url }}"
+                aria-label="Sign out {{ terminal_user }} and return to the landing page"
+                data-tip="Sign out"
+                data-tip-detail="End your terminal and agent sessions and return to the landing page">
+          <svg class="osprey-ic osprey-nav-icon" data-icon="logout" aria-hidden="true"></svg>
+          <span class="osprey-nav-label">Sign out</span>
+        </button>
+        {% endif %}
+        <button class="osprey-nav-row" id="more-btn" type="button" aria-label="More"
+                aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" data-tip="More"
+                data-tip-detail="View, appearance, settings and more">
+          <svg class="osprey-ic osprey-nav-icon" data-icon="menu" aria-hidden="true"></svg>
+          <span class="osprey-nav-label">More</span>
+        </button>
+      </div>
+      {#- The resize handle (sidebar-resize.js): placed on the right edge by
+          terminal.css, last so it comes last in the tab order. -#}
+      <div class="sidebar-resize" id="sidebar-resize" role="separator" tabindex="0"
+           aria-orientation="vertical" aria-controls="sidebar" aria-label="Sidebar width"
+           aria-valuemin="180" aria-valuemax="400" aria-valuenow="232"
+           data-tip="Resize sidebar" data-tip-place="right"
+           data-tip-detail="Drag to set the sidebar's width, or past its edge to show icons only; double-click resets it"></div>
+    </nav>
+
+    <!-- Dockview workspace: fills the column beside the sidebar. #dock-root is
+         the dockview-managed grid; dock-workspace.js adopts the terminal card
+         below into the shell's one native dockview panel at boot. Service
+         panels dock as overlay-backed placeholders (dock-iframe.js).
          (#right-panel keeps its historical id — a frozen contract with
          panel-manager/tests, not a position.) -->
     <div class="main-container">
@@ -402,18 +313,14 @@
           </div>
         </div>
 
-        <!-- Terminal / chat card -->
+        <!-- Agent pane: the terminal / chat card. The header is Expert's (the
+             session selector and "+ New"); Simple's Agent bar is the chat
+             console's own. -->
         <div class="terminal-panel">
           <div class="terminal-card">
             <div class="terminal-header">
               <span class="session-led" id="session-led"></span>
-              <span class="terminal-label" id="terminal-label">Session</span>
-              <!-- Simple-mode label: a static plain-language "Connected" that replaces
-                   the mono SESSION <hex> + selector. CSS-gated off html[data-ui-mode]
-                   so the swap tracks live mode flips; terminal.js keeps writing the
-                   (now hidden) #terminal-label harmlessly, and expert restores on
-                   toggle-back. -->
-              <span class="terminal-label-simple">Connected</span>
+              <span class="terminal-label" id="terminal-label">Agent</span>
               <div class="session-selector" id="session-selector"></div>
               <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
             </div>
@@ -430,20 +337,114 @@
 
   </div><!-- /.shell-body -->
 
-  <!-- Status bar — the second bar-item host. It holds its items directly
-       rather than through wrappers: the old .status-left / .status-right
-       groups (and the space-between that spread them to the two edges) are
-       gone, so every item sits on the bar's one uniform gap and a `space`
-       item is what pushes the trailing items right — spacing an operator can
-       see and move, instead of a layout mode they cannot.
-       Hidden by html[data-status-bar="hidden"], stamped on <html> above, so
-       .shell-body can reclaim the height before the first paint rather than
-       reflowing after it. -->
-  <footer class="status-bar" data-bar-host="status">
-    {%- for item in bar_status %}
-    <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}{% if item.options %} data-bar-options='{{ item.options|tojson }}'{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
-    {%- endfor %}
-  </footer>
+  <!-- ===== Body-level popovers (design-system popover.js places them) ===== -->
+
+  <!-- The collapsed sidebar's Artifacts flyout: the same list beside the
+       sidebar. sidebar-artifacts.js renders its list and count. -->
+  <div class="osprey-popover sidebar-flyout" id="sidebar-artifacts-flyout" role="dialog" aria-label="Artifacts" hidden>
+    <div class="sidebar-flyout-head">
+      <b>Artifacts</b>
+      <span class="osprey-count" data-art-count></span>
+      <div class="sidebar-row-actions">
+        <button class="osprey-mini" type="button" data-art-filter-toggle title="Filter"
+                aria-label="Filter artifacts" aria-pressed="false"><svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg></button>
+        <button class="osprey-mini" type="button" data-art-menu title="More"
+                aria-label="Artifact options" aria-haspopup="menu" aria-expanded="false"
+                aria-controls="sidebar-artifacts-menu"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+      </div>
+    </div>
+    <div class="sidebar-kids">
+      <label class="sidebar-kids-filter" data-art-filter hidden>
+        <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
+        <input type="search" placeholder="Filter by title" aria-label="Filter artifacts by title">
+      </label>
+      <div class="sidebar-kids-list" id="sidebar-artifacts-flyout-list" role="listbox" aria-label="Artifacts"></div>
+    </div>
+  </div>
+
+  <!-- The artifact lists' ⋯ menu (sidebar-artifacts.js fills it). -->
+  <div class="osprey-popover" id="sidebar-artifacts-menu" role="menu" aria-label="Artifact options" hidden></div>
+
+  <!-- The "+ Add panel" popover (panel-add-menu.js renders it on open). -->
+  <div class="osprey-popover panel-add-menu" id="panel-add-menu" role="dialog" aria-label="Add panel" hidden></div>
+
+  <!-- ☰ More (more-menu.js). Server-rendered so #more-settings — whose
+       data-drawer-trigger settings-warning-gate.js binds — is in the page
+       from the first paint. The theme families are built from
+       theme-manager.js. -->
+  <div class="osprey-popover more-menu" id="more-menu" role="menu" aria-label="More" hidden>
+    {#- The deployment name (web.app_name) is a fact about WHERE this is and
+        shows with or without a signed-in user; the avatar and the user line
+        exist only when the deployment knows one. -#}
+    {% if terminal_user or app_name %}
+    <div class="more-menu-who" role="group" aria-label="Signed in">
+      {% if terminal_user %}
+      <span class="more-menu-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
+      <span class="more-menu-user">{{ terminal_user }}</span>
+      {% endif %}
+      {#- The tier this login resolved to (a roster `role:` or the provider's
+          claim), forwarded by nginx on this request: stated where it is
+          known, never a default. Its source is named only beside a role. -#}
+      {% if auth_role %}<span class="more-menu-role" title="Role for this session">{{ auth_role }}</span>{% endif %}
+      {% if auth_role and auth_role_source_label %}<span class="more-menu-role-source" title="Where this session's role came from">{{ auth_role_source_label }}</span>{% endif %}
+      {% if app_name %}<span class="more-menu-sub">{{ app_name }}</span>{% endif %}
+    </div>
+    <div class="osprey-popover-sep" role="separator"></div>
+    {% endif %}
+    <div role="group" aria-labelledby="more-view-label">
+      <div class="osprey-popover-title" id="more-view-label">View</div>
+      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-view="simple">Simple<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
+      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-view="expert">Expert<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
+    </div>
+    <div class="osprey-popover-sep" role="separator"></div>
+    <div role="group" aria-labelledby="more-appearance-label">
+      <div class="osprey-popover-title" id="more-appearance-label">Appearance</div>
+      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-appearance="auto">Match system<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
+      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-appearance="light">Light<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
+      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-appearance="dark">Dark<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
+    </div>
+    <div role="group" aria-labelledby="more-family-label">
+      <div class="osprey-popover-title" id="more-family-label">Theme family</div>
+      <div data-theme-families></div>
+    </div>
+    <div class="osprey-popover-sep" role="separator"></div>
+    <button class="osprey-popover-item" id="more-settings" type="button" role="menuitem"
+            data-drawer-trigger="settings-drawer">
+      <svg class="osprey-ic" data-icon="sliders" aria-hidden="true"></svg>Settings
+      <span class="osprey-popover-aside" data-chord="," aria-hidden="true">&#8984;,</span>
+    </button>
+    <button class="osprey-popover-item" type="button" role="menuitem" data-more="shortcuts"
+            aria-haspopup="dialog" aria-controls="shortcuts-popover">
+      <svg class="osprey-ic" data-icon="keyboard" aria-hidden="true"></svg>Keyboard shortcuts
+    </button>
+    <button class="osprey-popover-item" type="button" role="menuitem" data-more="tour">
+      <svg class="osprey-ic" data-icon="compass" aria-hidden="true"></svg>Take the tour
+    </button>
+    <button class="osprey-popover-item" type="button" role="menuitem" data-more="activity">
+      <svg class="osprey-ic" data-icon="activity" aria-hidden="true"></svg>Activity log
+    </button>
+    <button class="osprey-popover-item" type="button" role="menuitem" data-more="about"
+            aria-haspopup="dialog" aria-controls="about-popover">
+      <svg class="osprey-ic" data-icon="info" aria-hidden="true"></svg>About OSPREY
+    </button>
+  </div>
+
+  <!-- Keyboard shortcuts (opened from ☰ More). -->
+  <div class="osprey-popover shortcuts-popover" id="shortcuts-popover" role="dialog" aria-label="Keyboard shortcuts" hidden>
+    <div class="osprey-popover-title">Keyboard shortcuts</div>
+    <dl class="shortcuts-list">
+      <div><dt>Search everything</dt><dd><kbd class="osprey-kbd" data-chord="K">&#8984;K</kbd></dd></div>
+      <div><dt>Show or hide sidebar labels</dt><dd><kbd class="osprey-kbd" data-chord="\">&#8984;\</kbd></dd></div>
+      <div><dt>Open settings</dt><dd><kbd class="osprey-kbd" data-chord=",">&#8984;,</kbd></dd></div>
+      <div><dt>Focus the terminal</dt><dd><kbd class="osprey-kbd">Ctrl+`</kbd></dd></div>
+    </dl>
+  </div>
+
+  <!-- About OSPREY (opened from ☰ More; the version is read from /health). -->
+  <div class="osprey-popover about-popover" id="about-popover" role="dialog" aria-label="About OSPREY" hidden>
+    <div class="osprey-popover-title">About OSPREY</div>
+    <p class="about-popover-version" data-osprey-version>Version …</p>
+  </div>
 
   <!-- Drawer Backdrop -->
   <div class="drawer-backdrop" id="drawer-backdrop"></div>
@@ -543,33 +544,11 @@
     </div>
   </osprey-drawer>
 
-  <!-- Adopted-node pool: every adopted item this deployment renders but this
-       layout does not place. The nodes are HERE, in the document, on every
-       request — hidden, but resolvable — so that removing an item from a bar
-       can never make a getElementById() consumer go dark. bar-host.js moves
-       nodes between the two hosts and this pool (they are moved, never
-       rebuilt, so a node keeps its identity, its listeners and its focus), and
-       reads membership of this element as "not live".
-       A parked item is a SHELL, exactly as it is in a bar — bar-host.js indexes
-       `.bar-item[data-bar-item]` and nothing else, so a bare body parked here
-       would be invisible to the reconcile: placing the item back would build a
-       fresh empty shell while the real node stayed orphaned in this element,
-       with every id it owns pointing at a node no bar contains.
-       Empty on a deployment whose layout places everything, which is the
-       default — but the element itself is always here, because a pool that
-       appears only when something is missing is a pool the code has to check
-       for before it can use it. -->
-  <div id="bar-item-pool" hidden>
-    {%- for type in bar_pooled %}
-    <div class="bar-item" data-bar-item="{{ type }}">{{ bar_body(type) }}</div>
-    {%- endfor %}
-  </div>
-
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
 
-  <!-- Onboarding tour (replaces the one-time rail hint): self-registering
-       module; invite card + spotlighted steps over the live shell. -->
+  <!-- Onboarding tour: self-registering module; invite card + spotlighted
+       steps over the live shell. -->
   <script type="module" src="{{ prefixed('/static/js/tour.js') }}"></script>
 
 </body>

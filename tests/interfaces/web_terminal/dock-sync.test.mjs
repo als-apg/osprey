@@ -73,6 +73,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js
   setPanelVisibility,
   reportPanelLayout,
 }));
+// The one question dock-sync asks the pop-out seam: whether a panel lives in
+// its own window. The seam's own behaviour is popout.test.mjs's contract.
+const { isPoppedOut } = vi.hoisted(() => ({
+  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({ isPoppedOut }));
 
 beforeEach(() => {
   vi.resetModules();
@@ -1161,6 +1167,20 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
 
     expect(api.removePanel).not.toHaveBeenCalled();
     expect(api.addPanel).not.toHaveBeenCalled();
+  });
+
+  test('a panel living in its own pop-out window never gets a placeholder, by any placement verb', async () => {
+    const api = makeApi();
+    api.activeGroup = { id: 'group-1' };
+    const { mod } = await wire(api);
+    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'okf');
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: 'group-2' }, direction: 'right' });
+    mod.dockPanelBesideActive('okf', 'KNOWLEDGE');
+    mod.dockPanelBesideActive('ariel', 'ARIEL');
+
+    expect(api._added.map((/** @type {any} */ p) => p.id)).toEqual(['iframe:ariel']);
+    isPoppedOut.mockImplementation(() => false);
   });
 });
 

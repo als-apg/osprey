@@ -337,7 +337,7 @@ same request is **refused** whatever he does: the write tool is denied in his
 project's rendered permissions, and his chip has no switch to turn on.
 
 **Switch.** In alice's terminal, use the control-target chip to switch to the
-Real machine or the Rehearsal, and ask for the same write. It is refused —
+Live machine or the Rehearsal, and ask for the same write. It is refused —
 by the safety hook and the connector, not by a rendered deny — because her
 switch for that machine is still off.
 

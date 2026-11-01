@@ -1,4 +1,4 @@
-A status-bar clock that shows the viewer's own time now names the viewer's zone
-in either bar whenever that time differs from the facility's. A deployment
-still on the default `system.timezone: UTC` therefore labels the plain clock
-for any viewer outside UTC.
+The web terminal clock always names its zone. It shows the facility's city,
+or the viewer's own short zone name (for example `PST`) when the browser cannot
+resolve `system.timezone`. A deployment still on the default
+`system.timezone: UTC` therefore shows `UTC` beside the clock.

@@ -481,6 +481,18 @@ def test_labs_vega_output_renderer_is_switched_off() -> None:
     assert lab_page_config()["disabledExtensions"]["@jupyterlab/vega5-extension"] is True
 
 
+def test_labs_app_is_published_for_the_jupyter_tiles_theme_follower() -> None:
+    """``window.jupyterapp`` is the handle ``lab-theme-follow.js`` drives.
+
+    A boolean is enough: Lab reads the option through ``PageConfig.getOption``,
+    which hands every non-string value back JSON-encoded, and compares it with
+    ``"true"``.
+    """
+    from osprey.interfaces.web_terminal.jupyter_sidecar import lab_page_config
+
+    assert lab_page_config()["exposeAppInBrowser"] is True
+
+
 # --- where Lab loads prebuilt extensions from --------------------------------
 #
 # ``lab/extensions/`` is in the policy's path list, and jupyter-server serves it

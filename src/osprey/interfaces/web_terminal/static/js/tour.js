@@ -21,7 +21,7 @@
  *            again", or completing the tour)
  *   always — invite on every load, no permanent dismissal (shared screens)
  *   never  — no automatic invite
- * ⋯ More in the rail and the command palette start the tour on demand
+ * ☰ More in the sidebar and the command palette start the tour on demand
  * regardless of policy. The dismissal flag is storage-scoped so users
  * sharing a browser on a multi-user deployment do not dismiss each other's
  * invite.
@@ -30,23 +30,23 @@
  * because two rendered values (the chip's target name and state) originate
  * in facility-configured free text.
  *
- * Steps whose anchor is absent on this page (panel not enabled, simple UI
- * mode, no chip) drop out and the step count adjusts — and so do steps whose
- * anchor is a bar item the operator removed, which is a different fact from
- * absence: a removed item is parked in the hidden pool, not deleted, so it
- * still answers `querySelector`. See `liveAnchor()`. Esc closes at any
- * point; arrows/Enter navigate; focus is trapped inside the card.
+ * Steps whose anchor is absent or hidden on this page (panel not enabled,
+ * simple UI mode) drop out and the step count adjusts. The control-target
+ * step also drops out when the deployment has no control target
+ * (`<html data-control-target="off">`): the block then holds only the clock.
+ * See `liveAnchor()`. Esc closes at any point; arrows/Enter navigate; focus
+ * is trapped inside the card.
  */
 
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
 import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
-import { isLive } from './bar-host.js';
 import { KIND_REAL, KIND_REHEARSAL, KIND_SIMULATOR, KIND_WORDS } from './control-target-facts.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
+import { createSpotlight } from './tour-spotlight.js';
 
 /** Dismissal flag ("Don't show this again" / completed). Scoped per user. */
-const DISMISS_BASE = 'osprey-tour-dismissed-v1';
+const DISMISS_BASE = 'osprey-tour-dismissed-v2';
 
 /** Delay between boot and the automatic invite, so the shell settles. */
 export const INVITE_DELAY_MS = 700;
@@ -57,29 +57,33 @@ const SETTLE_MS = 160;
 /* ---- Server-derived facts (applyTourConfig) ---- */
 
 /**
- * What the tour reads off `GET /api/panels` for itself: when to invite, and
- * the display labels the rail is actually wearing. Everything the cards SAY
- * about this deployment belongs to first-contact.js, which panel-manager.js
- * hands the same payload.
- *
- * `labels` covers the ENABLED built-in panels only, so every card that names
- * one keeps a literal fallback for the deployment where that panel is off.
- * @type {{policy: string, labels: Record<string, string>}}
+ * What the tour reads off `GET /api/panels` for itself: when to invite.
+ * Everything the cards SAY about this deployment belongs to first-contact.js,
+ * which panel-manager.js hands the same payload.
+ * @type {{policy: string}}
  */
-let facts = { policy: 'never', labels: {} };
+let facts = { policy: 'never' };
 
 /**
- * The label the rail is wearing for a built-in panel, or `fallback` when this
- * deployment does not enable it (`/api/panels` reports labels for enabled
- * panels only).
+ * The label a panel's sidebar row is wearing, read off the row itself so the
+ * card and the sidebar cannot disagree. `fallback` covers a row that renders
+ * no label element.
  *
  * @param {string} panelId
  * @param {string} fallback
  * @returns {string}
  */
 function panelLabel(panelId, fallback) {
-  return facts.labels[panelId] ?? fallback;
+  const label = panelRow(panelId)?.querySelector('.osprey-nav-label')?.textContent?.trim();
+  return label || fallback;
 }
+
+/**
+ * The chord that hides and shows the sidebar labels, as this viewer's
+ * platform spells it (collapsible.js binds Cmd+\ on macOS, Ctrl+\ elsewhere).
+ * @returns {string}
+ */
+const sidebarChord = () => (isMacPlatform() ? '⌘\\' : 'Ctrl+\\');
 
 /* ---- Storage ---- */
 
@@ -155,16 +159,26 @@ const toggleOpen = (selector) => {
 };
 
 /**
- * Show a panel by pressing its rail entry. A click on the ACTIVE entry
+ * A panel's sidebar row.
+ * @param {string} panelId
+ * @returns {HTMLElement | null}
+ */
+const panelRow = (panelId) =>
+  /** @type {HTMLElement | null} */ (
+    document.querySelector(`.panel-rail-button[data-panel-id="${panelId}"]`)
+  );
+
+/**
+ * Show a panel by pressing its sidebar row. A click on the ACTIVE row
  * toggles the panel closed, so only click to open. Panels deliberately stay
- * where the tour put them (no cleanup) — ending on an open WORKSPACE is the
+ * where the tour put them (no cleanup) — ending on open Artifacts is the
  * point.
  * @param {string} panelId
  * @returns {null}
  */
 const showPanel = (panelId) => {
-  const btn = document.querySelector(`.panel-rail-button[data-panel-id="${panelId}"]`);
-  if (btn instanceof HTMLElement && !btn.classList.contains('active')) btn.click();
+  const btn = panelRow(panelId);
+  if (btn && !btn.classList.contains('active')) btn.click();
   return null;
 };
 
@@ -196,7 +210,7 @@ const chipFacts = () => {
  * @property {() => (string | HTMLElement)[]} body
  * @property {(() => (() => void) | null)} [activate]
  * @property {() => (Element | null)[]} [extras]
- * @property {'left'} [place]
+ * @property {'right'} [place]
  * @property {string} [foot]
  * @property {() => string[]} [chips] resolved at render, not at module load —
  *   the prompts on offer follow the machine this deployment stands on, and that
@@ -204,49 +218,20 @@ const chipFacts = () => {
  */
 
 /**
- * A step's anchor, but only when it is somewhere the operator can see.
- *
- * Four anchors are now bar ITEMS — the control-target chip, the display menu,
- * the command-palette button and (through the rail) the feedback control — a
- * fifth rides INSIDE one of them (the display menu's Customize row, which is
- * why removing that item drops two steps, not one) — and
- * a bar item the layout does not name is MOVED into the hidden
- * `#bar-item-pool`, never removed. So `querySelector` keeps answering for
- * chrome that is off screen, and a presence check alone would spotlight a
- * zero-rect node inside a hidden container: an empty highlight, a card
- * positioned against nothing, and a step count that lies.
- *
- * `isLive()` is bar-host.js's own answer to "is this node in a bar or in the
- * pool", so the tour and the bars cannot disagree about it. It is deliberately
- * the whole test — measuring the anchor instead would drop live chrome that
- * happens to measure zero at the moment the tour starts (an item mid-transition,
- * a bar not yet laid out), which is the opposite failure and a much quieter one.
- * A non-bar anchor (`.terminal-card`, a rail button) is never inside the pool,
- * so it behaves exactly as before.
+ * A step's anchor, but only when it is on the page and not inside a
+ * `[hidden]` subtree. The sidebar keeps some controls in the DOM while they
+ * are withdrawn (the Docs link until a docs URL is known), so presence alone
+ * would spotlight a box that is not on screen. The test is deliberately not
+ * a measurement: live chrome can measure zero for a frame while it lays out,
+ * and dropping it then would be the quieter failure.
  *
  * @param {TourStep} step
  * @returns {Element | null}
  */
 const liveAnchor = (step) => {
   const node = step.anchor();
-  return node && isLive(node) ? node : null;
+  return node && !node.closest('[hidden]') ? node : null;
 };
-
-/**
- * Where the feedback step points: the rail's Feedback control, or the status
- * bar's Feedback item when the operator hid the rail one. A hidden rail control
- * is withdrawn by CSS but stays in the DOM (the bar item clicks it by id), so
- * it still answers `querySelector` and has to be ruled out by its flag. With
- * neither on screen the step drops out like any other absent anchor.
- * @returns {Element | null}
- */
-function feedbackAnchor() {
-  if (document.documentElement.dataset.railFeedback !== 'hidden') {
-    const rail = document.querySelector('#panel-feedback-btn');
-    if (rail) return rail;
-  }
-  return document.querySelector('.bar-feedback');
-}
 
 /** @type {TourStep[]} */
 const STEPS = [
@@ -264,10 +249,27 @@ const STEPS = [
     foot: 'Enter sends · Esc interrupts the agent at any time.',
   },
   {
-    anchor: () => document.querySelector('.control-target-chip'),
+    anchor: () => document.querySelector('#sidebar-toggle'),
+    place: 'right',
+    title: 'The sidebar',
+    body: () => [
+      strong('Workspace'),
+      ' holds the agent, its artifacts and its script runs; ',
+      strong('Tools'),
+      ' holds the other panels. Hide the labels with this button or ',
+      strong(sidebarChord()),
+      ' to give the work more room.',
+    ],
+  },
+  {
+    // With no control target the block holds only the health dot: nothing to tour.
+    anchor: () =>
+      document.documentElement.dataset.controlTarget === 'off'
+        ? null
+        : document.querySelector('#sidebar-target'),
     activate: () => toggleOpen('.control-target-chip'),
-    extras: () => [document.querySelector('.ctc-popover.open')],
-    place: 'left',
+    extras: () => [document.querySelector('#control-target-popover:not([hidden])')],
+    place: 'right',
     title: 'Your control target',
     body: () => {
       // The chip's own names (D4), lower-cased to sit inside the sentence.
@@ -276,7 +278,7 @@ const STEPS = [
       const parts = [
         'The deployment points at one control target: the ',
         name(KIND_REAL),
-        ', a ',
+        ' machine, a ',
         name(KIND_REHEARSAL),
         ' (a copy of the real controls — nothing moves), or a ',
         name(KIND_SIMULATOR),
@@ -292,37 +294,13 @@ const STEPS = [
           '.'
         );
       }
-      parts.push(' Click the chip to see the details, turn writes on or off, or switch targets.');
+      parts.push(' Click it to see the details, turn writes on or off, or switch targets.');
       return parts;
     },
   },
   {
-    anchor: () => document.querySelector('#display-menu'),
-    activate: () => toggleOpen('.display-menu-trigger'),
-    extras: () => [document.querySelector('.display-menu-card')],
-    place: 'left',
-    title: 'Make it yours',
-    body: () => [
-      'Light or dark theme, and a ',
-      strong('simple or expert view'),
-      ' of the terminal. Expert ',
-      strong('Settings'),
-      ' open from here too.',
-    ],
-  },
-  {
-    anchor: () => document.querySelector('.bar-customize-entry'),
-    activate: () => toggleOpen('.display-menu-trigger'),
-    place: 'left',
-    title: 'Arrange the bars',
-    body: () => [
-      'The header and status bar are yours to arrange. Open ',
-      strong('Customize bars'),
-      ' here, or right-click either bar, to add, move and remove items.',
-    ],
-  },
-  {
     anchor: () => document.querySelector('#command-palette-btn'),
+    place: 'right',
     title: 'Search everything',
     body: () => {
       // The chord this viewer's platform actually binds (palette-boot.js reads
@@ -341,40 +319,44 @@ const STEPS = [
     },
   },
   {
-    anchor: () => document.querySelector('.panel-rail-button[data-panel-id="artifacts"]'),
+    anchor: () => panelRow('artifacts'),
     activate: () => showPanel('artifacts'),
     extras: () => [document.querySelector('iframe[data-panel-id="artifacts"]')],
+    place: 'right',
     title: 'Your workspace',
     body: () => [
       'Everything the agent produces — plots, data files, reports — lands in ',
-      strong(panelLabel('artifacts', 'WORKSPACE')),
-      ', ready to open or download.',
+      strong(panelLabel('artifacts', 'Artifacts')),
+      ', listed here in the sidebar, ready to open or download.',
     ],
-    foot: '＋ on the rail adds more panels.',
+    foot: '＋ Add panel, under Tools, adds more panels.',
   },
   {
-    anchor: () => document.querySelector('.panel-rail-button[data-panel-id="okf"]'),
+    anchor: () => panelRow('okf'),
     activate: () => showPanel('okf'),
     extras: () => [document.querySelector('iframe[data-panel-id="okf"]')],
+    place: 'right',
     title: 'Facility knowledge',
     body: () => [
-      strong(panelLabel('okf', 'KNOWLEDGE')),
+      strong(panelLabel('okf', 'Knowledge')),
       ' holds this facility’s curated documentation, the same material the agent consults when you ask about the machine. Browse it directly here.',
     ],
   },
   {
-    anchor: () => document.querySelector('.panel-rail-button[data-panel-id="ariel"]'),
+    anchor: () => panelRow('ariel'),
     activate: () => showPanel('ariel'),
     extras: () => [document.querySelector('iframe[data-panel-id="ariel"]')],
+    place: 'right',
     title: 'The logbook',
     body: () => [
-      strong(panelLabel('ariel', 'ARIEL')),
+      strong(panelLabel('ariel', 'Ariel')),
       ' searches the electronic logbook. Ask the agent what happened on a shift, or search it yourself here.',
     ],
-    foot: 'Tip: right-click any panel entry → “Open in a new window” for a standalone version.',
+    foot: 'Tip: right-click any sidebar row → “Pop out” to move the panel into its own window.',
   },
   {
-    anchor: feedbackAnchor,
+    anchor: () => document.querySelector('#panel-feedback-btn'),
+    place: 'right',
     title: 'Something wrong? Tell us',
     body: () => ['If something is not working as you expect, please let us know.'],
     foot: 'Tip: save it as Local, then paste the record id into your coding-agent session to have it looked at.',
@@ -384,7 +366,7 @@ const STEPS = [
     title: 'Try it',
     body: () => ['Pick a question to start.'],
     chips: starterPrompts,
-    foot: 'Retake this tour any time from ⋯ More in the rail.',
+    foot: 'Retake this tour any time from ☰ More in the sidebar.',
   },
 ];
 
@@ -403,6 +385,11 @@ const tour = {
   activatedStep: null,
   /** @type {(() => void) | null} */
   activeCleanup: null,
+  /**
+   * The spotlight layer while a step shows (`els.spot` is its element).
+   * @type {ReturnType<typeof createSpotlight> | null}
+   */
+  spotlight: null,
 
   runCleanup() {
     if (this.activeCleanup) this.activeCleanup();
@@ -503,10 +490,8 @@ const tour = {
     this.drop('veil');
 
     const step = this.steps[this.i];
-    // Re-resolved every render, and through the same liveness test start()
-    // used: a step's anchor can be parked mid-tour — the overflow ladder folds
-    // an item the moment the window narrows past it — and spotlighting a node
-    // that has since moved into the pool is exactly what liveAnchor prevents.
+    // Re-resolved every render, through the same test start() used: a step's
+    // anchor can leave the page or be hidden while the tour is open.
     const target = liveAnchor(step);
     if (!target) return this.next();
 
@@ -520,24 +505,25 @@ const tour = {
       }, SETTLE_MS);
     }
 
-    // Spotlight rect: the anchor plus whatever its activation revealed.
+    // Spotlight parts: the anchor plus whatever its activation revealed.
     // Falls back to the bare anchor when nothing measures visible (a
-    // zero-rect anchor must still produce a finite union).
+    // zero-rect anchor must still produce a finite union). The spotlight is
+    // their union; the card is placed against their bounding box.
     const parts = [target, ...(step.extras ? step.extras() : [])].filter(visible);
     const rects = (parts.length ? parts : [target]).map((p) => p.getBoundingClientRect());
     const top0 = Math.min(...rects.map((q) => q.top));
     const left0 = Math.min(...rects.map((q) => q.left));
     const right0 = Math.max(...rects.map((q) => q.right));
     const bottom0 = Math.max(...rects.map((q) => q.bottom));
-    const pad = 6;
 
-    const spot = this.ensure('spot', 'tour-spot');
-    Object.assign(spot.style, {
-      top: `${top0 - pad}px`,
-      left: `${left0 - pad}px`,
-      width: `${right0 - left0 + 2 * pad}px`,
-      height: `${bottom0 - top0 + 2 * pad}px`,
-    });
+    if (!this.spotlight || !this.els.spot) {
+      this.spotlight = createSpotlight();
+      this.els.spot = this.spotlight.el;
+      document.body.appendChild(this.spotlight.el);
+    }
+    this.spotlight.move(
+      rects.map(({ left, top, right, bottom }) => ({ left, top, right, bottom }))
+    );
     this.ensure('blocker', 'tour-blocker');
 
     const card = this.rebuildCard();
@@ -580,9 +566,9 @@ const tour = {
     nav.append(backBtn, dots, nextBtn);
     card.appendChild(nav);
 
-    // Position: 'left' steps sit beside the spotlight (their activation
-    // opens a dropdown below the anchor); otherwise below when there is
-    // room, else above. Clamped to the viewport.
+    // Position: 'right' steps sit beside the spotlight (their anchor is in
+    // the sidebar, and an activated popover opens beside it); otherwise below
+    // when there is room, else above. Clamped to the viewport.
     const cw = 372;
     const margin = 12;
     card.style.visibility = 'hidden';
@@ -591,9 +577,9 @@ const tour = {
     const ch = card.getBoundingClientRect().height || 200;
     let top;
     let left;
-    if (step.place === 'left' && left0 - cw - margin >= 12) {
+    if (step.place === 'right' && right0 + margin + cw <= window.innerWidth - 12) {
       top = Math.min(Math.max(12, top0), window.innerHeight - ch - 12);
-      left = left0 - cw - margin;
+      left = right0 + margin;
     } else {
       top = bottom0 + margin;
       if (top + ch > window.innerHeight - 40) top = Math.max(12, top0 - ch - margin);
@@ -663,8 +649,8 @@ window.addEventListener('resize', () => {
 /* ---- Public seams ---- */
 
 /**
- * Start the tour on demand (⋯ More in the rail, command palette), regardless
- * of the invite policy. Restarts from the first step when already open.
+ * Start the tour on demand (☰ More in the sidebar, command palette),
+ * regardless of the invite policy. Restarts from the first step when already open.
  */
 export function startTour() {
   tour.stop();
@@ -684,16 +670,12 @@ export function startTour() {
  * panel-manager calls whether or not this one returns early: what the cards
  * say must not depend on whether the tour is on offer.
  *
- * @param {{tour?: {policy?: unknown}, labels?: Record<string, string>} | null | undefined} panelsPayload
+ * @param {{tour?: {policy?: unknown}} | null | undefined} panelsPayload
  */
 export function applyTourConfig(panelsPayload) {
   const cfg = panelsPayload?.tour;
   if (!cfg) return;
-  const labels = panelsPayload?.labels;
-  facts = {
-    policy: typeof cfg.policy === 'string' ? cfg.policy : 'never',
-    labels: labels && typeof labels === 'object' ? labels : {},
-  };
+  facts = { policy: typeof cfg.policy === 'string' ? cfg.policy : 'never' };
 
   const invite = facts.policy === 'always' || (facts.policy === 'once' && !isDismissed());
   if (!invite || document.body.classList.contains('embedded')) return;

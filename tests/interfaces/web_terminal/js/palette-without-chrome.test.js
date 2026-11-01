@@ -1,27 +1,26 @@
 // @ts-check
 /**
- * The command palette does not depend on any bar item being present:
+ * The command palette does not depend on any page chrome being present:
  *   npx vitest run tests/interfaces/web_terminal/js/palette-without-chrome.test.js
  *
- * Every header item can be removed, so the two palette rows that used to reach
- * THROUGH a header item — "Switch to … mode" clicked the display menu's View
- * segment, "Log out" clicked the identity menu's button — have to work on a
- * page that has neither. The mode pick goes through the same function the
- * display menu's own row calls; Log out reads the landing URL the server
- * stamps on `<html>` and runs logout.js's flow itself.
+ * Two palette rows used to reach THROUGH a chrome control — "Switch to … mode"
+ * clicked the display menu's View segment, "Log out" clicked the identity
+ * menu's button — so they have to work on a page that has neither. The mode
+ * pick goes through the same function the display menu's own row calls; Log
+ * out reads the landing URL the server stamps on `<html>`, asks with the
+ * sign-out dialog (sign-out.js) and runs logout.js's flow on confirm.
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
 
-import { boot, settle, teardown } from './bar-customize-fixture.mjs';
-
 const PALETTE_BOOT_PATH =
   '../../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js';
 
-/** @type {any} */
-let customize;
-/** @type {any} */
-let sync;
+/** Let the palette's open and everything it queued settle. */
+async function settle() {
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 /** Every action label the palette is currently showing. */
 function paletteLabels() {
@@ -40,9 +39,11 @@ function paletteRow(label) {
 
 /**
  * Open the palette the way the header trigger does, through palette-boot's own
- * dependency builder — the point of the test is what THAT assembles.
+ * dependency builder — the point of the test is what THAT assembles. The page
+ * holds nothing but the trigger, and the module graph is fresh.
  */
 async function openPalette() {
+  vi.resetModules();
   const trigger = document.createElement('button');
   trigger.id = 'command-palette-btn';
   document.body.append(trigger);
@@ -53,9 +54,7 @@ async function openPalette() {
 }
 
 afterEach(() => {
-  teardown({ customize, sync });
-  customize = null;
-  sync = null;
+  document.body.innerHTML = '';
   delete document.documentElement.dataset.landingUrl;
   delete document.documentElement.dataset.uiMode;
   delete document.documentElement.dataset.expertView;
@@ -65,7 +64,6 @@ afterEach(() => {
 
 describe('the mode switch', () => {
   test('flips the mode with no display menu on the page', async () => {
-    ({ customize, sync } = await boot());
     expect(document.querySelector('osprey-display-menu')).toBe(null);
     const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
 
@@ -82,7 +80,7 @@ describe('the mode switch', () => {
 
 describe('the mode switch on a deployment with no Expert view', () => {
   test('is not offered at all (web.expert_view: false)', async () => {
-    ({ customize, sync } = await boot({ uiMode: 'simple' }));
+    document.documentElement.dataset.uiMode = 'simple';
     document.documentElement.dataset.expertView = 'off';
 
     await openPalette();
@@ -93,7 +91,6 @@ describe('the mode switch on a deployment with no Expert view', () => {
 
 describe('Log out', () => {
   test('is offered from the landing URL on <html>, with no logout button anywhere', async () => {
-    ({ customize, sync } = await boot());
     document.documentElement.dataset.landingUrl = '/landing';
     expect(document.getElementById('logout-btn')).toBe(null);
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
@@ -105,13 +102,36 @@ describe('Log out', () => {
     expect(paletteLabels()).toContain('Log out');
     paletteRow('Log out')?.click();
 
+    // It asks first: nothing is sent until the dialog is confirmed.
+    const dialog = document.querySelector('.posture-modal-overlay:not([data-closing])');
+    if (!dialog) throw new Error('the sign-out dialog did not open');
+    expect(dialog.querySelector('.posture-modal-title')?.textContent).toBe('Sign out of OSPREY?');
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/terminal/logout', expect.anything());
+
+    const confirm = dialog.querySelector('.posture-modal-confirm');
+    if (!(confirm instanceof HTMLButtonElement)) throw new Error('the dialog has no confirm');
+    confirm.click();
+
     await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/landing'));
     expect(fetchMock).toHaveBeenCalledWith('/api/terminal/logout', { method: 'POST' });
   });
 
-  test('is not offered where the server stamped no landing URL', async () => {
-    ({ customize, sync } = await boot());
+  test('Cancel in the dialog signs nobody out', async () => {
+    document.documentElement.dataset.landingUrl = '/landing';
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
 
+    await openPalette();
+    paletteRow('Log out')?.click();
+    const cancel = document.querySelector('.posture-modal-cancel');
+    if (!(cancel instanceof HTMLButtonElement)) throw new Error('the sign-out dialog did not open');
+    cancel.click();
+
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/terminal/logout', expect.anything());
+  });
+
+  test('is not offered where the server stamped no landing URL', async () => {
     await openPalette();
 
     expect(paletteLabels()).not.toContain('Log out');
@@ -123,7 +143,6 @@ describe('Open activity log', () => {
     ['Expert', undefined],
     ['Simple', 'simple'],
   ])('is offered in %s and opens the page in a new tab', async (_view, uiMode) => {
-    ({ customize, sync } = await boot());
     if (uiMode) document.documentElement.dataset.uiMode = uiMode;
     const open = vi.fn();
     vi.stubGlobal('open', open);

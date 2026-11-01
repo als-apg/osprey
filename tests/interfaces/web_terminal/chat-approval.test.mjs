@@ -35,7 +35,7 @@ const hooks = () => ({ answer: vi.fn(async () => ({})), onSettled: vi.fn() });
 const targetLine = (el) => /** @type {HTMLElement | null} */ (el.querySelector('.op-card-target'));
 
 test.each([
-  ['real', 'live', 'Real machine — writes move hardware'],
+  ['real', 'live', 'Live — writes move hardware'],
   ['rehearsal', 'standin', 'Rehearsal — nothing moves'],
   ['simulator', 'va', 'Simulator — nothing moves'],
 ])('a %s write names its machine and kind', (kind, key, words) => {
@@ -68,7 +68,7 @@ test('an unknown kind reads as the real machine, words and all', () => {
   );
   const line = targetLine(card.el);
   expect(line?.dataset.targetKind).toBe('real');
-  expect(line?.textContent).toContain('Real machine — writes move hardware');
+  expect(line?.textContent).toContain('Live — writes move hardware');
   expect(line?.textContent).not.toContain('nothing moves');
 });
 
@@ -98,7 +98,7 @@ test('a plan card carries no target line', () => {
       target: {
         key: 'live',
         machine_kind: 'real',
-        kind_words: 'Real machine — writes move hardware',
+        kind_words: 'Live — writes move hardware',
       },
     }),
     hooks()

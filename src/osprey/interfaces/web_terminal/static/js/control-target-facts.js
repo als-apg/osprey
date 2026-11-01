@@ -119,7 +119,7 @@ export function machineKind(row) {
  * @type {Record<string, string>}
  */
 export const KIND_WORDS = {
-  [KIND_REAL]: 'Real machine',
+  [KIND_REAL]: 'Live',
   [KIND_REHEARSAL]: 'Rehearsal',
   [KIND_SIMULATOR]: 'Simulator',
 };
@@ -134,7 +134,7 @@ export const KIND_WORDS = {
  * @type {Record<string, string>}
  */
 export const KIND_BANNERS = {
-  [KIND_REAL]: 'Real machine — writes move hardware',
+  [KIND_REAL]: 'Live — writes move hardware',
   [KIND_REHEARSAL]: 'Rehearsal — nothing moves',
   [KIND_SIMULATOR]: 'Simulator — nothing moves',
 };
@@ -171,7 +171,7 @@ const TIER_CAPS_SENTENCE = 'your tier caps writes at asked';
  * @type {Record<string, string>}
  */
 export const KIND_READ_PHRASES = {
-  [KIND_REAL]: 'read values from the real machine',
+  [KIND_REAL]: 'read values from the live machine',
   [KIND_REHEARSAL]: 'read values from the rehearsal copy',
   [KIND_SIMULATOR]: 'read values from the simulator',
 };
@@ -184,7 +184,7 @@ export const KIND_READ_PHRASES = {
  */
 const KIND_DESCRIPTORS = {
   [KIND_REAL]: 'Writes move hardware',
-  [KIND_REHEARSAL]: "Copy of the real machine's controls · nothing moves",
+  [KIND_REHEARSAL]: "Copy of the live machine's controls · nothing moves",
   [KIND_SIMULATOR]: 'Physics model · nothing moves',
 };
 
@@ -288,7 +288,7 @@ export const REASON_PHRASES = {
   archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
-  reaches_live_machine: 'points at the real machine',
+  reaches_live_machine: 'points at the live machine',
   selected_role_missing: 'no endpoint for role',
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
   [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',
@@ -296,7 +296,6 @@ export const REASON_PHRASES = {
   // Minted by the chip for a request nothing answered before its deadline.
   request_expired: 'no answer',
   tier_caps: TIER_CAPS_SENTENCE,
-  waiver_not_allowed: 'this move always confirms',
 };
 
 /**
@@ -509,16 +508,15 @@ export function reachException(reachability) {
 
 /**
  * The banner a confirm carries ({@link KIND_BANNERS}): the real machine's
- * "writes move hardware", the rehearsal's "nothing moves", nothing for the
- * simulator. It says what a write does to the machine; whether the write
+ * "writes move hardware", the others' "nothing moves". It says what a write does to the machine; whether the write
  * prompts first is the confirm's body, from the position. What limits apply is
  * deployment configuration this module cannot see, so it makes no claim about
- * them. The dialog's `data-target-kind` decides its tone (red, amber).
+ * them. The stylesheet tones it from the dialog's `data-to` and `data-target-kind`.
  * @param {string} kind
  * @returns {string|null}
  */
 function hardwareNote(kind) {
-  return kind === KIND_SIMULATOR ? null : KIND_BANNERS[kind] || null;
+  return KIND_BANNERS[kind] || null;
 }
 
 /**
@@ -556,7 +554,7 @@ export function identTitle(row) {
  * @param {string} kind
  * @param {'asked'|'allowed'} [to]  the position the move arrives at
  * @returns {{title: string, body: ConfirmRun[][], live: string|null,
- *            confirmLabel: string, targetKind: string}}
+ *            confirmLabel: string, targetKind: string, to: string|null}}
  */
 export function turnOnConfirm(row, kind, to = 'asked') {
   const name = displayName(row, kind);
@@ -574,6 +572,7 @@ export function turnOnConfirm(row, kind, to = 'asked') {
     live: hardwareNote(kind),
     confirmLabel: `Set writes to ${position}`,
     targetKind: kind,
+    to: position,
   };
 }
 
@@ -600,7 +599,7 @@ const ARRIVAL_ENDINGS = {
  * @param {string} kind
  * @param {'off'|'asked'|'allowed'|'locked'} word  stateWord's answer for the row
  * @returns {{title: string, body: ConfirmRun[][], live: string|null,
- *            confirmLabel: string, targetKind: string}}
+ *            confirmLabel: string, targetKind: string, to: string|null}}
  */
 export function switchConfirm(row, kind, word) {
   const armed = word === 'asked' || word === 'allowed';
@@ -618,26 +617,8 @@ export function switchConfirm(row, kind, word) {
     live: armed ? hardwareNote(kind) : null,
     confirmLabel: 'Switch',
     targetKind: kind,
+    to: known ? word : null,
   };
-}
-
-/**
- * Whether one confirm may offer "don't ask again". Per gesture and per machine
- * kind, because the dialogs guard different things: a target switch is
- * recoverable (switch back, and the position does not travel), so its ceremony
- * may be waived anywhere; a move to `writes-allowed` removes the prompt, and
- * that dialog keeps asking on every machine; a move to `writes-asked` is the
- * gesture after which a write can land, and on the real machine that write
- * moves hardware, so only the rehearsal and the simulator keep its waiver. Any
- * kind or gesture this module does not know is treated as the real machine,
- * the direction this must fail in. The route refuses the same waivers.
- * @param {'switch'|'writes-asked'|'writes-allowed'} gesture
- * @param {string} kind  kindAttr's answer for the row
- * @returns {boolean}
- */
-export function confirmSkippable(gesture, kind) {
-  if (gesture === 'switch') return true;
-  return gesture === 'writes-asked' && (kind === KIND_REHEARSAL || kind === KIND_SIMULATOR);
 }
 
 /* ---- has the switch this browser asked for landed? ---------------------- */
@@ -789,20 +770,11 @@ export function switchFailureNote(pid, detail = null) {
 }
 
 /**
- * The localStorage key BASE under which a waived confirm is remembered — one
- * slot per gesture per machine, so the first switch to each machine still
- * explains itself once. Callers resolve it through `scopedStorageKey()`
- * (storage-scope.js): on a multi-user mount one operator's waiver must not
- * silence the dialog for everyone else.
- *
- * A move to asked's slot also names the machine's kind: a waiver given while
- * `standin` was the rehearsal must not answer for it once it reads as the
- * real machine (C-KIND), whose moves are never waived.
- * @param {'switch'|'writes-asked'} gesture
- * @param {any} row
- * @returns {string}
+ * The localStorage key BASES under which a waived confirm is remembered: one
+ * slot for every move of the writes switch, to asked or allowed on any machine,
+ * and one for every switch of target. Callers resolve them through
+ * `scopedStorageKey()` (storage-scope.js): on a multi-user mount one operator's
+ * waiver must not silence the dialog for everyone else.
  */
-export function confirmSkipKeyBase(gesture, row) {
-  const base = `osprey-ctc-skip-confirm:${gesture}:${row.target}`;
-  return gesture === 'writes-asked' ? `${base}:${machineKind(row)}` : base;
-}
+export const SKIP_KEY_MOVE = 'osprey-ctc-skip-confirm:move';
+export const SKIP_KEY_SWITCH = 'osprey-ctc-skip-confirm:switch';

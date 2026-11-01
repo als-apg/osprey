@@ -1,7 +1,7 @@
 """Tests for the target identity the `osprey_approval` hook renders.
 
 Every approval prompt carries one line naming the control-system target the
-deployment is pointed at — `Target: Real machine — writes move hardware
+deployment is pointed at — `Target: Live — writes move hardware
 (<endpoint>)`, `Target: Rehearsal — nothing moves (<endpoint>)`, `Target: Simulator
 — nothing moves`, or, when the context cannot be resolved, the explicit
 `Target: deployment baseline (state unavailable)`. The third spelling is the
@@ -56,7 +56,7 @@ BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 
 #: The owner-facing words for each machine (C-WORDS, D4): the package's
 #: ``KIND_BANNERS``, restated in the hook.
-REAL_WORDS = "Real machine — writes move hardware"
+REAL_WORDS = "Live — writes move hardware"
 REHEARSAL_WORDS = "Rehearsal — nothing moves"
 SIM_WORDS = "Simulator — nothing moves"
 
@@ -917,7 +917,7 @@ def test_end_to_end_an_allowed_call_carries_no_target_line(
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
     assert "Target:" not in json.dumps(result)
-    assert "Real machine" not in json.dumps(result)
+    assert REAL_WORDS not in json.dumps(result)
 
 
 def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner, make_config):

@@ -58,12 +58,11 @@ const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 const jsonOk = (body) => ({ ok: true, status: 200, statusText: 'OK', json: async () => body });
 
 /**
- * Serve the two endpoints the panel-manager import graph asks for: the panel
- * catalog this file gates on, and the bar layout bar-sync.js GETs at import.
- * Both are reached from every suite below that loads that graph, and nothing
- * else is served — an endpoint this file did not name is a missing stub, and
- * answering it with an empty body would hide that as effectively as the
- * environment's old synthetic 503 did.
+ * Serve the one endpoint the panel-manager import graph asks for: the panel
+ * catalog this file gates on. It is reached from every suite below that loads
+ * that graph, and nothing else is served — an endpoint this file did not name
+ * is a missing stub, and answering it with an empty body would hide that as
+ * effectively as the environment's old synthetic 503 did.
  * @param {boolean} configPanelEnabled
  * @param {string|null} [unreadablePath] - `config_unreadable_path` in the payload.
  */
@@ -81,16 +80,6 @@ function stubPanelsFetch(configPanelEnabled, unreadablePath = null) {
           labels: {},
           config_panel_enabled: configPanelEnabled,
           config_unreadable_path: unreadablePath,
-        });
-      }
-      if (url === '/api/bar-items') {
-        return jsonOk({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
         });
       }
       // Anything else is a dependency this file never declared: fail the test
@@ -278,6 +267,15 @@ describe('boot wiring: initPanelManager applies the gate', () => {
       'beforeend',
       '<nav id="panel-rail"></nav><div id="panel-manager"><div id="panel-content"></div></div>'
     );
+    // The pop-out seam rolls call on a BroadcastChannel at boot, which the
+    // test environment does not provide.
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        postMessage() {}
+        close() {}
+      }
+    );
   });
 
   afterEach(() => {
@@ -362,7 +360,6 @@ describe('command palette guards on the tab being gone', () => {
     'panel-placement.js': () => ({ openPanelBeside: () => {} }),
     'settings.js': () => ({ openDrawerTab: async () => true, revealSetting: async () => {} }),
     'sessions.js': () => ({ startNewSession: () => {} }),
-    'rail-position.js': () => ({ setRailPosition: () => {} }),
     'feedback-modal.js': () => ({ isFeedbackModalOpen: () => false }),
     'dock-workspace.js': () => ({ resetDockLayout }),
   };
@@ -373,7 +370,7 @@ describe('command palette guards on the tab being gone', () => {
     vi.resetModules();
   });
 
-  /** Open the palette through the header trigger and return the deps it built. */
+  /** Open the palette through the sidebar's Search trigger and return the deps it built. */
   async function openThroughTrigger() {
     opens.length = 0;
     vi.resetModules();
@@ -391,8 +388,8 @@ describe('command palette guards on the tab being gone', () => {
   }
 
   beforeEach(() => {
-    // palette-boot.js reaches bar-sync.js, which GETs the bar layout at import
-    // — and `openThroughTrigger` re-imports it after every resetModules().
+    // `openThroughTrigger` re-imports palette-boot.js after every
+    // resetModules(), and its graph reads the panel catalog.
     stubPanelsFetch(true);
     renderDrawer();
     document.body.insertAdjacentHTML('beforeend', '<button id="command-palette-btn"></button>');

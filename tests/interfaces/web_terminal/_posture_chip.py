@@ -49,7 +49,7 @@ TIMEOUT = 15_000
 CHIP = "#control-target-chip"
 CHIP_SHORT = f"{CHIP} .ctc-short"
 CHIP_STATE = f"{CHIP} .ctc-state"
-POPOVER = ".ctc-popover.open"
+POPOVER = "#control-target-popover:not([hidden])"
 CARD = f"{POPOVER} .ctc-card"
 FOOT_NOTE = f"{POPOVER} .ctc-foot-note"
 
@@ -132,7 +132,7 @@ LABELS = {target: KIND_BANNERS[kind] for target, kind in KINDS.items()}
 #: confirm's waiver) follows :data:`KINDS`. The confirm titles quote these —
 #: never the labels above.
 NAMES = {
-    "live": "Real machine",
+    "live": "Live",
     "va": "Simulator",
     "standin": "Rehearsal",
 }

@@ -51,8 +51,8 @@ export function isConfirmUp() {
  * Build and show one confirm. The caller's popover stays open beneath it.
  *
  * A spec with a `skipKeyBase` renders the "don't ask again" checkbox above
- * the actions (a raiser passes one only for a waivable move, so a dialog with
- * none offers no way to mute it), pre-ticked when the waiver is already recorded (the Shift
+ * the actions (a dialog with none offers no way to mute it), pre-ticked when
+ * the waiver is already recorded (the Shift
  * re-show is where it can be unticked), and the waiver is written the moment
  * the operator confirms — before the POST, because the checkbox answers "ask
  * me next time?", not "did this request succeed?".
@@ -61,6 +61,7 @@ export function isConfirmUp() {
  *          live: string|null, confirmLabel: string,
  *          skipKeyBase?: string|null,
  *          targetKind?: string|null,
+ *          to?: string|null,
  *          focus?: 'confirm'|'cancel',
  *          onConfirm: (ui: ConfirmUi) => void,
  *          onDismiss?: () => void}} spec
@@ -68,9 +69,9 @@ export function isConfirmUp() {
  *   `'confirm'` (the default) or `'cancel'`, for a question whose safe answer
  *   is the one a stray Enter should give. `targetKind` is the machine kind
  *   the dialog is about (`real` | `rehearsal` | `simulator`), set on the
- *   dialog as `data-target-kind` so the stylesheet tones its banner and its
- *   confirm button — red for the real machine, amber for the rehearsal — from
- *   the same attribute the chip keys on. A dialog about no machine has none.
+ *   dialog as `data-target-kind`; `to` is the position the move lands on
+ *   (`off` | `asked` | `allowed`), set as `data-to`. The stylesheet tones the
+ *   banner and the confirm button from them. A dialog about no machine has neither.
  */
 export function showConfirm(spec) {
   dismissConfirm();
@@ -86,6 +87,7 @@ export function showConfirm(spec) {
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-labelledby', 'posture-modal-title');
   if (spec.targetKind) dialog.dataset.targetKind = spec.targetKind;
+  if (spec.to) dialog.dataset.to = spec.to;
 
   const heading = el('div', 'posture-modal-title', spec.title);
   heading.id = 'posture-modal-title';
@@ -116,7 +118,7 @@ export function showConfirm(spec) {
     skipBox = /** @type {HTMLInputElement} */ (document.createElement('input'));
     skipBox.type = 'checkbox';
     skipBox.checked = confirmSkipped(spec.skipKeyBase);
-    skipRow.append(skipBox, el('span', undefined, "Don't ask again for this machine"));
+    skipRow.append(skipBox, el('span', undefined, "Don't ask again on any machine"));
   }
 
   const actions = el('div', 'posture-modal-actions');

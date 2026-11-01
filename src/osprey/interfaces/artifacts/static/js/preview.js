@@ -1,23 +1,31 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — preview pane shell, pin/fullscreen/focus.
+ * OSPREY Artifact Gallery — preview pane shell, pin/delete/fullscreen/focus.
  *
  * Owns the biggest single view in the gallery: `renderPreview` (the preview
- * pane's header/meta/viewport markup and its button wiring), pin toggling,
- * fullscreen enter/exit (+ the "N new" badge while fullscreen), and
- * agent-focus (`setAsFocus`).
+ * pane's header/meta/viewport markup and its button wiring), pinning and
+ * deleting an artifact, fullscreen enter/exit (+ the "N new" badge while
+ * fullscreen), and agent-focus (`setAsFocus`).
  *
  * What this pane owns is the *chrome*: the header, the action buttons, the
  * meta strip, fullscreen. The viewport inside it — which markup an artifact of
  * a given type renders as, and what has to be mounted into it afterwards —
- * belongs to artifact-viewport.js, shared verbatim with Simple mode's result
- * card (simple-view.js's `render`). The two surfaces differ in chrome and
- * never in the viewport, so there is exactly one dispatch and this module
- * calls it: `artifactViewportHtml(a)` for the markup, then
- * `mountArtifactViewport(...)` once it is live. That dispatch in turn owns the
- * calls into preview-content.js's markdown+KaTeX pipeline and JSON viewer.
+ * belongs to artifact-viewport.js, the one dispatch for how an artifact
+ * renders full-size, and this module calls it: `artifactViewportHtml(a)` for
+ * the markup, then `mountArtifactViewport(...)` once it is live. That dispatch
+ * in turn owns the calls into preview-content.js's markdown+KaTeX pipeline and
+ * JSON viewer.
  *
- * `createPreviewRenderer(callbacks)` follows render.js's
+ * The header is optional. Embedded in the Web Terminal hub, the gallery is a
+ * viewer whose pane header the hub renders (title, pager, Open full size,
+ * Save) and whose actions arrive as messages (viewer.js), so gallery.js asks
+ * for a pane without one: the description, the meta strip and the viewport
+ * render as they do standalone, and nothing of the header (badge, title,
+ * fullscreen Back button and "N new" badge, action buttons) is rendered or
+ * wired. The actions behind the header's buttons are exposed (`setPinned`,
+ * `deleteArtifact`) so the viewer runs the same code paths.
+ *
+ * `createPreviewRenderer(callbacks, options)` follows render.js's
  * `createSidebarRenderer(callbacks)` precedent: the fullscreen flag and the
  * "new artifacts since fullscreen" counter are real mutable state, so they
  * live in this factory's closure behind explicit accessors, while a handful
@@ -26,8 +34,8 @@
  * job) are supplied as injected callbacks.
  *
  * `injectLogbookButtons()`/`injectPrintButton()` are called directly at the
- * end of `renderPreview`: logbook.js/print.js are ES modules that import
- * state.js directly — there is no global-object bridge.
+ * end of a render with a header: logbook.js/print.js are ES modules that
+ * import state.js directly — there is no global-object bridge.
  *
  * @module preview
  */
@@ -85,6 +93,42 @@ function resizePreviewMedia() {
   }
 }
 
+/**
+ * The preview header: the type badge and title, the fullscreen Back button
+ * and "N new" badge, and the action buttons (logbook.js and print.js add
+ * theirs after each render).
+ * @param {any} a
+ * @returns {string}
+ */
+function headerHtml(a) {
+  return `
+      <div class="preview-header">
+        <div class="preview-header-left">
+          <button class="fullscreen-back-btn" id="fullscreen-back" title="Exit fullscreen (Esc)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <span class="badge badge-${escapeHtml(a.category || a.artifact_type)}">${typeBadge(a.category || a.artifact_type)}</span>
+          <span class="preview-header-title">${escapeHtml(a.title)}</span>
+        </div>
+        <div class="preview-header-actions">
+          <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
+          <button class="btn-action-icon ${a.pinned ? 'btn-action-pinned' : ''}" id="preview-toggle-pin" title="${a.pinned ? 'Unpin' : 'Pin'}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M5 9l2-1V4a1 1 0 011-1h8a1 1 0 011 1v4l2 1a1 1 0 01.4 1.6l-1.4 2a1 1 0 01-.8.4H6.8a1 1 0 01-.8-.4l-1.4-2A1 1 0 015 9z"/></svg>
+          </button>
+          <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+          </button>
+          <a href="${openUrl(a, getTheme())}" data-theme-link target="_blank" class="btn-action-icon" title="Open in new tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+          </a>
+          <button class="btn-action-icon btn-action-danger" id="preview-delete" title="Delete artifact">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+          </button>
+        </div>
+      </div>`;
+}
+
 // ---- Preview Renderer (factory: fullscreen state + effects this module doesn't own) ---- //
 
 /**
@@ -96,13 +140,20 @@ function resizePreviewMedia() {
  */
 
 /**
- * Create the gallery's preview renderer: the preview pane (`renderPreview`),
- * pin toggling, fullscreen enter/exit (+ its "N new" badge), and setting
- * agent focus. Bound to a small set of injected callbacks for the effects
- * owned elsewhere (sidebar re-render, header count, timeseries rendering).
- * @param {PreviewRenderCallbacks} callbacks
+ * @typedef {object} PreviewRenderOptions
+ * @property {boolean} [header] - render the header row (default true). The embedded viewer passes false: the hub renders that pane's header, and its actions arrive as messages.
  */
-export function createPreviewRenderer(callbacks) {
+
+/**
+ * Create the gallery's preview renderer: the preview pane (`renderPreview`),
+ * pinning and deleting, fullscreen enter/exit (+ its "N new" badge), and
+ * setting agent focus. Bound to a small set of injected callbacks for the
+ * effects owned elsewhere (sidebar re-render, header count, timeseries
+ * rendering).
+ * @param {PreviewRenderCallbacks} callbacks
+ * @param {PreviewRenderOptions} [options]
+ */
+export function createPreviewRenderer(callbacks, { header = true } = {}) {
   let isFullscreen = false;
   let newArtifactsSinceFullscreen = 0;
 
@@ -135,37 +186,12 @@ export function createPreviewRenderer(callbacks) {
 
     const a = getSelectedArtifact();
 
-    // The viewport itself is the shared dispatch (artifact-viewport.js) — the
-    // same one Simple's result card renders through. Only the chrome below is
-    // this pane's own.
+    // The viewport itself is the shared dispatch (artifact-viewport.js). Only
+    // the chrome around it is this pane's own.
     const viewportHtml = artifactViewportHtml(a);
 
     previewContent.innerHTML = `
-      <div class="preview-header">
-        <div class="preview-header-left">
-          <button class="fullscreen-back-btn" id="fullscreen-back" title="Exit fullscreen (Esc)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            Back
-          </button>
-          <span class="badge badge-${escapeHtml(a.category || a.artifact_type)}">${typeBadge(a.category || a.artifact_type)}</span>
-          <span class="preview-header-title">${escapeHtml(a.title)}</span>
-        </div>
-        <div class="preview-header-actions">
-          <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
-          <button class="btn-action-icon ${a.pinned ? 'btn-action-pinned' : ''}" id="preview-toggle-pin" title="${a.pinned ? 'Unpin' : 'Pin'}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M5 9l2-1V4a1 1 0 011-1h8a1 1 0 011 1v4l2 1a1 1 0 01.4 1.6l-1.4 2a1 1 0 01-.8.4H6.8a1 1 0 01-.8-.4l-1.4-2A1 1 0 015 9z"/></svg>
-          </button>
-          <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
-          </button>
-          <a href="${openUrl(a, getTheme())}" data-theme-link target="_blank" class="btn-action-icon" title="Open in new tab">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
-          </a>
-          <button class="btn-action-icon btn-action-danger" id="preview-delete" title="Delete artifact">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-          </button>
-        </div>
-      </div>
+      ${header ? headerHtml(a) : ''}
       ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ''}
       <div class="preview-meta-strip">
         <span class="preview-meta-item">
@@ -195,30 +221,7 @@ export function createPreviewRenderer(callbacks) {
       </div>
     `;
 
-    // Wire action buttons
-    /** @type {HTMLElement} */ (document.getElementById('preview-toggle-pin')).addEventListener(
-      'click',
-      () => togglePin(a)
-    );
-    /** @type {HTMLElement} */ (document.getElementById('preview-delete')).addEventListener(
-      'click',
-      () => {
-        if (!confirm(`Delete "${a.title}"? This cannot be undone.`)) return;
-        fetch(`/api/artifacts/${a.id}`, { method: 'DELETE' })
-          .then((r) => {
-            if (!r.ok) throw new Error();
-            return r.json();
-          })
-          .then(() => {
-            removeArtifact(a.id);
-            if (getSelectedArtifact()?.id === a.id) setSelectedArtifact(null);
-            if (getFocusedArtifact()?.id === a.id) setFocusedArtifact(null);
-            callbacks.onArtifactDeleted();
-            renderPreview();
-          })
-          .catch((err) => console.error('Delete failed:', err));
-      }
-    );
+    if (header) wireHeader(a);
 
     // Copy path to clipboard
     const copyPathBtn = document.getElementById('preview-copy-path');
@@ -231,6 +234,34 @@ export function createPreviewRenderer(callbacks) {
         });
       });
     }
+
+    // Post-mount step for the types whose content is fetched (timeseries,
+    // markdown, JSON), scoped to this pane's own content element.
+    mountArtifactViewport(previewContent, a, {
+      onTimeseriesNeeded: callbacks.onTimeseriesNeeded,
+    });
+
+    requestColorPass();
+    if (header) {
+      injectLogbookButtons();
+      injectPrintButton();
+    }
+  }
+
+  /**
+   * Wire the buttons {@link headerHtml} just rendered for `a`.
+   * @param {any} a
+   * @returns {void}
+   */
+  function wireHeader(a) {
+    /** @type {HTMLElement} */ (document.getElementById('preview-toggle-pin')).addEventListener(
+      'click',
+      () => togglePin(a)
+    );
+    /** @type {HTMLElement} */ (document.getElementById('preview-delete')).addEventListener(
+      'click',
+      () => deleteArtifact(a)
+    );
 
     // Fullscreen buttons
     const enterBtn = document.getElementById('fullscreen-enter');
@@ -256,36 +287,64 @@ export function createPreviewRenderer(callbacks) {
 
     // Update badge if in fullscreen
     if (isFullscreen) updateNewArtifactBadge();
-
-    // Post-mount step for the types whose content is fetched (timeseries,
-    // markdown, JSON), scoped to this pane's own content element.
-    mountArtifactViewport(previewContent, a, {
-      onTimeseriesNeeded: callbacks.onTimeseriesNeeded,
-    });
-
-    requestColorPass();
-    injectLogbookButtons();
-    injectPrintButton();
   }
 
-  // ---- Pin / Focus actions ----
+  // ---- Pin / Delete / Focus actions ----
 
-  /** @param {any} artifact */
-  async function togglePin(artifact) {
-    const newPinned = !artifact.pinned;
+  /**
+   * Pin or unpin an artifact. On success the local entry follows, and the
+   * sidebar and this pane re-render; a refused or failed request leaves both
+   * as they were.
+   * @param {any} artifact
+   * @param {boolean} pinned
+   * @returns {Promise<void>}
+   */
+  async function setPinned(artifact, pinned) {
     try {
       const resp = await fetch(`/api/artifacts/${artifact.id}/pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pinned: newPinned }),
+        body: JSON.stringify({ pinned }),
       });
       if (resp.ok) {
-        artifact.pinned = newPinned;
+        artifact.pinned = pinned;
         callbacks.onPinToggled();
         renderPreview();
       }
     } catch (err) {
       console.error('Failed to toggle pin:', err);
+    }
+  }
+
+  /**
+   * @param {any} artifact
+   * @returns {Promise<void>}
+   */
+  function togglePin(artifact) {
+    return setPinned(artifact, !artifact.pinned);
+  }
+
+  /**
+   * Delete an artifact once the operator confirms: DELETE it, drop it from
+   * the held list, the selection and the agent focus, let the caller
+   * re-render, and re-render this pane. A declined confirm does nothing; a
+   * failed request leaves every state as it was.
+   * @param {any} artifact
+   * @returns {Promise<void>}
+   */
+  async function deleteArtifact(artifact) {
+    if (!confirm(`Delete "${artifact.title}"? This cannot be undone.`)) return;
+    try {
+      const resp = await fetch(`/api/artifacts/${artifact.id}`, { method: 'DELETE' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await resp.json();
+      removeArtifact(artifact.id);
+      if (getSelectedArtifact()?.id === artifact.id) setSelectedArtifact(null);
+      if (getFocusedArtifact()?.id === artifact.id) setFocusedArtifact(null);
+      callbacks.onArtifactDeleted();
+      renderPreview();
+    } catch (err) {
+      console.error('Delete failed:', err);
     }
   }
 
@@ -361,6 +420,8 @@ export function createPreviewRenderer(callbacks) {
 
   return {
     renderPreview,
+    setPinned,
+    deleteArtifact,
     enterFullscreen,
     exitFullscreen,
     setAsFocus,

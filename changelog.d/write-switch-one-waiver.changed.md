@@ -1,0 +1,1 @@
+One "Don't ask again on any machine" now covers every move of the writes switch to asked or allowed, the live machine included, and a second one covers target switches. Per-machine waivers already recorded no longer apply, so each operator opts in afresh; "Ask again" in the popover clears both.

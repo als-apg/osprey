@@ -30,7 +30,6 @@ from osprey.facility.layers.mml.importer import (
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
 from osprey.facility.validate import run_stages
 from tests.facility._mml_built import BuiltModel
-from tests.facility.test_word_ratchet import OUTSIDE_FORMAT_FILES
 
 #: The module's readers share one import per tree, which only holds on one worker.
 pytestmark = pytest.mark.xdist_group("layer_mml_import")
@@ -443,7 +442,7 @@ def test_no_facility_word_under_the_layer() -> None:
         text=True,
         check=True,
     ).stdout.split()
-    files = [path for path in tracked if path not in OUTSIDE_FORMAT_FILES]
+    files = [path for path in tracked if path != "src/osprey/facility/layers/mml/mml_export.m"]
     assert "src/osprey/facility/layers/mml/importer.py" in files
     word = re.compile(r"\b(als|spear3?|nsls-?(ii|2)?|ltb|gtl|gtb|bts|quokka)\b", re.IGNORECASE)
     found = [

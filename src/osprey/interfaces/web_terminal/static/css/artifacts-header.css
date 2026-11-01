@@ -1,0 +1,58 @@
+/* OSPREY Web Terminal — Artifacts tile header items
+ *
+ * Places the items the hub contributes to the Artifacts tile's bar (see
+ * contributeLocal in tile-header-contrib.js): the `root › leaf` breadcrumb,
+ * the pager count between the previous and next buttons, and the icon
+ * buttons. Their look comes from primitives.css (.osprey-crumb,
+ * .osprey-icon-btn, .osprey-btn, .osprey-head-sep); this file only fits
+ * them into the tile bar's contribution region (dockview-overrides.css),
+ * whose left/right split runs on CSS `order` around a flexible spacer.
+ * Values follow the layout F mockup's pane header.
+ */
+
+/* The breadcrumb names the tile, so it sits left like a subtitle and the
+ * tile's own title steps aside while one is shown. Its floor keeps the title
+ * readable: a narrow bar folds Open full size and Save before it squeezes
+ * the crumb to nothing. */
+.tile-tab .tile-tab-contrib > .osprey-crumb {
+  order: 0;
+  flex: 0 1 auto;
+  min-width: 120px;
+  font-family: var(--font-display);
+}
+
+.tile-tab:has(> .tile-tab-contrib.has-crumb) > .tile-tab-title {
+  display: none;
+}
+
+/* The pager count is a text item, but it belongs in the right-hand cluster
+ * between previous and next, in the display face rather than the mono
+ * subtitle face, with fixed-width digits so the arrows do not shift. */
+.tile-tab .tile-tab-contrib > .contrib-text[data-contrib-key="text:pager"] {
+  order: 2;
+  flex: none;
+  min-width: 52px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A narrow tile keeps the breadcrumb's room: Open full size and Save become
+ * icon-only, their labels still the tooltips. */
+.tile-tab:has(> .tile-tab-contrib.has-crumb) {
+  container: artifacts-head / inline-size;
+}
+
+@container artifacts-head (max-width: 640px) {
+  .tile-tab-contrib.has-crumb .osprey-btn {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .tile-tab-contrib.has-crumb .osprey-btn-label {
+    display: none;
+  }
+}

@@ -442,7 +442,7 @@ class TestCardTarget:
                 {
                     "key": "live",
                     "machine_kind": "real",
-                    "kind_words": "Real machine — writes move hardware",
+                    "kind_words": "Live — writes move hardware",
                 },
                 id="real",
             ),
@@ -462,7 +462,7 @@ class TestCardTarget:
                 {
                     "key": "standin",
                     "machine_kind": "real",
-                    "kind_words": "Real machine — writes move hardware",
+                    "kind_words": "Live — writes move hardware",
                 },
                 id="standin-not-vouched-for",
             ),

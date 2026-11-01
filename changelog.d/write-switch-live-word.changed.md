@@ -1,0 +1,1 @@
+The facility's machine is now called "Live" instead of "Real machine" everywhere an operator or the agent reads it, including the banner `Live — writes move hardware` and the refusal word `the live machine`.

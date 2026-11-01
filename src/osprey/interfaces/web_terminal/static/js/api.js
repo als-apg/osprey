@@ -93,6 +93,14 @@ function probeSessionExpired() {
 }
 
 /**
+ * The page is leaving by its own navigation (a logout): no channel reconnects
+ * from here, and no probe that lands now reloads the page over that navigation.
+ */
+export function stopForLeaving() {
+  sessionExpired = true;
+}
+
+/**
  * Probe after a channel closed and, on an expired session, reload the page.
  *
  * The reload is a *navigation*, and that is the whole point: a navigation

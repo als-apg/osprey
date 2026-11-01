@@ -219,7 +219,7 @@ describe('inputView', () => {
 
   test.each([
     ['va', 'Simulator'],
-    ['live', 'Real machine'],
+    ['live', 'Live'],
     ['standin', 'Rehearsal'],
     ['ioc2', 'ioc2'],
     ['constructor', 'constructor'],
@@ -231,7 +231,7 @@ describe('inputView', () => {
     // The kind comes from GET, never from the target's name: a `standin` no
     // live server vouched for is the real machine.
     expect(valueOf(inputView({ approved_target: 'standin' }, { standin: 'real' }), 'Target')).toBe(
-      'Real machine'
+      'Live'
     );
   });
 

@@ -83,9 +83,8 @@ router = APIRouter()
 # The GET roster reports each machine's switch and the write verdict a new call
 # by the login would meet (C-GET); it carries no narrowing.
 
-#: The switch position that arms nothing, and the one no waiver may reach.
+#: The switch position that arms nothing.
 SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
-SWITCH_ALLOWED = control_context.SWITCH_POSITIONS[-1]
 
 #: The positions in widening order. The login's ceiling compares on the same
 #: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
@@ -1987,12 +1986,10 @@ STOP_NOT_TAKEN_PHRASE = (
 
 #: Route outcomes of ``POST /api/terminal/posture`` that are not write-verdict
 #: reasons. They are answers about the request — a turn-on of everything, a
-#: machine this render does not describe, a waiver the move may not carry, a
-#: position above the login's ceiling, a record that did not take the gesture —
+#: machine this render does not describe, a position above the login's ceiling, a record that did not take the gesture —
 #: so they stay out of :data:`osprey_connectors.refusals.REASONS`.
 POSTURE_REASON_BULK_ON = "bulk_on_refused"
 POSTURE_REASON_UNKNOWN_TARGET = "unknown_target"
-POSTURE_REASON_WAIVER = "waiver_not_allowed"
 POSTURE_REASON_TIER_CAPS = "tier_caps"
 POSTURE_REASON_NOT_TAKEN = "not_taken"
 POSTURE_REASON_INVALID_SESSION = "invalid_session_id"
@@ -2026,8 +2023,6 @@ class _PostureRequestFacts:
     before: str | None = None
     #: The login's ceiling (:func:`_login_tier`) for a widening, else ``None``.
     ceiling: str | None = None
-    #: The machine's kind when the render configures it, else ``None``.
-    kind: str | None = None
 
 
 def _widens(state: str, before: str | None) -> bool:
@@ -2062,23 +2057,17 @@ def _posture_post_facts(
         before = control_context.switch_position(record, target)
     lock = None
     ceiling = None
-    kind = None
-    if target in configured:
-        kind = published_machine_kind(target)
-        if _widens(state, before):
-            ceiling = _login_tier(section, login)
-            verdict = posture_store.write_verdict(
-                section, target, owner=login, ignore_launch_pin=True
-            )
-            if verdict.reason in _TURN_ON_LOCKS:
-                lock = verdict
+    if target in configured and _widens(state, before):
+        ceiling = _login_tier(section, login)
+        verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
+        if verdict.reason in _TURN_ON_LOCKS:
+            lock = verdict
     return _PostureRequestFacts(
         configured=configured,
         record_status=status,
         lock=lock,
         before=before,
         ceiling=ceiling,
-        kind=kind,
     )
 
 
@@ -2196,9 +2185,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     is ``{detail: {reason, ...}}``):
 
     * **400** ``invalid_session_id`` (a session id outside the key grammar),
-      ``bulk_on_refused`` (``all`` with anything but ``off``), ``unknown_target``,
-      ``waiver_not_allowed`` (``waived`` on a move to ``allowed`` or on a real
-      machine; a stop has no confirm to waive and is not refused for one).
+      ``bulk_on_refused`` (``all`` with anything but ``off``), ``unknown_target``.
     * **403** ``tier_caps`` with ``ceiling`` and no phrase — a position above
       the login's ceiling; the chip composes that sentence from ``locks.tier``.
     * **403** ``tier_never`` / ``readonly_run`` with ``phrase`` — a widening the
@@ -2247,15 +2234,6 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     if body.target != ALL_TARGETS and body.target not in facts.configured:
         raise _refuse_posture(
             session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_UNKNOWN_TARGET
-        )
-
-    if (
-        body.waived
-        and body.state != SWITCH_OFF
-        and (body.state == SWITCH_ALLOWED or facts.kind == "real")
-    ):
-        raise _refuse_posture(
-            session_id, status_code=400, gesture=gesture, reason=POSTURE_REASON_WAIVER
         )
 
     # ``never`` and ``unknown`` have no rank: the first is the lock below, and

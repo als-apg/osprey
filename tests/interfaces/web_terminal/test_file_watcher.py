@@ -286,10 +286,11 @@ class TestSeveralStoresAreConcealed:
     """``concealed`` is a collection: every server-side store the watched tree
     happens to contain is dropped, not just the feedback one.
 
-    The feedback store and the bar-items store both land under the agent-data
-    root, which *is* the watched tree in a default deployment. A layout PUT
-    writes ``bar_items/layout.json``; without concealment every save would push
-    a ``created``/``modified`` frame to every connected browser. The file
+    A server-side store lands under the agent-data root, which *is* the watched
+    tree in a default deployment. The names below are stand-ins for any two
+    stores: an atomic store write passes through a dot-prefixed temp name, and
+    without concealment every write would push a ``created``/``modified`` frame
+    to every connected browser. The file
     panel's own listing is a separate predicate in ``routes/files.py`` and is
     not what these tests are about.
     """
@@ -494,9 +495,7 @@ class TestLifespanConcealsItsStores:
     def test_every_store_path_reaches_the_watcher(self, tmp_path):
         workspace_dir, constructed, state = self._boot(tmp_path)
 
-        stores = (PurePath("bar_items"), PurePath("panel_status"))
-        assert constructed == [(workspace_dir, stores)]
-        assert state.bar_items_rel == PurePath("bar_items")
+        assert constructed == [(workspace_dir, (PurePath("panel_status"),))]
         assert state.panel_status_rel == PurePath("panel_status")
 
 
@@ -957,7 +956,7 @@ class TestFirstEverStartup:
                 return_value=store_root,
             ),
         ) as client:
-            assert client.app.state.bar_items_rel == PurePath("bar_items")
+            assert client.app.state.panel_status_rel == PurePath("panel_status")
 
 
 class TestStoreRelDerivation:
