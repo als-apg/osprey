@@ -140,7 +140,8 @@ $ uv run make -C docs doc-videos VIDEOOPTS="--video landing --theme dark"
 
 **Adding a video.** A new video starts as a written description, agreed with
 the maintainer before any storyboard code: the view (Simple or Expert), the active
-sidebar entry, the open tiles, the prompts, the beats and the captions. Then add
+sidebar entry, the open tiles, any history played off camera before recording
+(real agent turns; the note must say so), the prompts, the beats and the captions. Then add
 a `DocVideo` to `VIDEOS` in `docs/screenshots/videos.py`: its name and file stem,
 the `layout` that records the agreed screen, the page that embeds it, any
 `osprey init --set` values and environment variable names its deployment needs,

@@ -49,6 +49,22 @@ ERRORED_JS = """
   '#operator-container .op-error-block, #operator-container .op-footer-error')
 """
 
+# Finished turns on screen: the chat closes each answer with a footer.
+TURNS_JS = """
+() => document.querySelectorAll('#operator-container .op-footer').length
+"""
+
+FLAGGED_JS = """
+() => !!document.querySelector('.watchdog-alert-overlay, .watchdog-status-line')
+"""
+
+SCROLL_END_JS = """
+() => {
+  const messages = document.querySelector('#operator-container .op-messages');
+  if (messages) messages.scrollTop = messages.scrollHeight;
+}
+"""
+
 POINTER_JS = """
 () => {
   for (let i = 0; i < localStorage.length; i++) {
@@ -82,6 +98,20 @@ def text(page: Any) -> str:
 def errored(page: Any) -> bool:
     """Whether a turn on screen ended in an error."""
     return bool(page.evaluate(ERRORED_JS))
+
+
+def turns_done(page: Any) -> int:
+    """How many turns on screen have finished."""
+    return int(page.evaluate(TURNS_JS) or 0)
+
+
+def flagged(page: Any) -> bool:
+    """Whether a watchdog dialog or its unavailable line is on screen."""
+    return bool(page.evaluate(FLAGGED_JS))
+
+
+def scroll_to_end(page: Any) -> None:
+    page.evaluate(SCROLL_END_JS)
 
 
 def session_id(page: Any) -> str | None:

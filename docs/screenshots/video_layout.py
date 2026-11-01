@@ -17,11 +17,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from docs.screenshots.video_probes import ProbeFailed
+from docs.screenshots.video_probes import POLL_MS, ProbeFailed
 
 VIEWS = ("expert", "simple")
 
 APPLY_BUDGET_MS = 30_000
+TILE_BUDGET_MS = 30_000
+# A tile counts as rendered once its text has held still for this many polls.
+TILE_STABLE_POLLS = 3
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,43 @@ def apply(page: Any, layout: Layout, budget_ms: int = APPLY_BUDGET_MS) -> None:
             f"the page did not take the layout (active {layout.active!r}, tiles "
             f"{list(layout.tiles)}) within {budget_ms} ms; it shows {detail}",
         )
+
+
+def tile_text(page: Any, panel_id: str) -> str:
+    """The text a tile's page shows; empty while its frame is missing or loading."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    element = page.query_selector(f'.dock-iframe-overlay iframe[data-panel-id="{panel_id}"]')
+    frame = element.content_frame() if element else None
+    if frame is None:
+        return ""
+    try:
+        return frame.evaluate(
+            "() => document.readyState === 'complete' && document.body"
+            " ? document.body.innerText.trim() : ''"
+        )
+    except PlaywrightError:
+        return ""  # the frame navigated or was replaced mid-read
+
+
+def await_tiles(page: Any, layout: Layout, budget_ms: int = TILE_BUDGET_MS) -> None:
+    """Wait until every tile of *layout* shows real content that has stopped changing.
+
+    A mounted tile can still be an empty page for a second, and the first frame
+    of a video must not show that. ProbeFailed ``tiles`` names a tile that never
+    renders.
+    """
+    for panel_id in layout.tiles:
+        previous, stable = "", 0
+        for _ in range(max(1, budget_ms // POLL_MS)):
+            text = tile_text(page, panel_id)
+            stable = stable + 1 if text and text == previous else 0
+            if stable >= TILE_STABLE_POLLS:
+                break
+            previous = text
+            page.wait_for_timeout(POLL_MS)
+        else:
+            raise ProbeFailed("tiles", f"tile {panel_id!r} did not render in {budget_ms} ms")
 
 
 def validate(layout: Any) -> str | None:

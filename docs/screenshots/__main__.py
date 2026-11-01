@@ -412,7 +412,12 @@ def _video(videos: list[DocVideo], themes: list[str], out_dir: Path) -> int:
                     try:
                         with _video_stack(Path(tmp), video) as stack:
                             take, timeline = video_take.record_theme(
-                                stack, theme, video.storyboard, layout=video.layout
+                                stack,
+                                theme,
+                                video.storyboard,
+                                layout=video.layout,
+                                history=video.history,
+                                write_switch=video.write_switch,
                             )
                     except video_take.ProbeFailed as exc:
                         last = exc

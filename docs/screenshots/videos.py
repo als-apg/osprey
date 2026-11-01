@@ -67,6 +67,14 @@ class DocVideo:
     needs_env: tuple[str, ...] = ()
     """Variables the deployment needs from the recording shell (names only)."""
 
+    history: tuple[str, ...] = ()
+    """Operator prompts played off camera before recording, each to the end of a
+    real agent turn, so the video opens on that exchange. Simple view only. The
+    note under the video must say its first exchange predates the recording."""
+
+    write_switch: tuple[str, str] | None = None
+    """(target, position) the login's write switch is moved to before ``history``."""
+
 
 VIDEOS: tuple[DocVideo, ...] = (
     DocVideo(
@@ -120,6 +128,8 @@ def validate_videos(videos: Sequence[DocVideo] = VIDEOS) -> None:
             raise ValueError(
                 f"video {video.name!r}: poster_step {video.poster_step!r} is not a beat"
             )
+        if video.history and video.layout.view != "simple":
+            raise ValueError(f"video {video.name!r}: history needs the simple view")
         for pair in video.init_sets:
             if "=" not in pair:
                 raise ValueError(f"video {video.name!r}: init_sets value {pair!r} is not KEY=VALUE")

@@ -236,3 +236,8 @@ def test_an_entry_cannot_be_declared_without_a_layout() -> None:
 
 def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
     assert LANDING.layout == Layout(view="expert", active="artifacts", tiles=("artifacts",))
+
+
+def test_history_is_refused_on_the_expert_view() -> None:
+    with pytest.raises(ValueError, match="history needs the simple view"):
+        validate_videos([dataclasses.replace(LANDING, history=("p",))])

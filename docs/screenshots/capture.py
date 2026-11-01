@@ -851,6 +851,9 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
         "OSPREY_OFFLINE": "1",
         # The session must never update the host's Claude Code.
         "DISABLE_AUTOUPDATER": "1",
+        # The server keeps its panels in a set, so its sidebar order follows
+        # the per-process string hash; a fixed seed makes every take alike.
+        "PYTHONHASHSEED": "0",
     }
     try:
         proc = subprocess.Popen(

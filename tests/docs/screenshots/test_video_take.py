@@ -79,6 +79,9 @@ class FakeLocator:
     def click(self, **kwargs) -> None:
         self.log.append(("click", self.selector))
 
+    def fill(self, text: str) -> None:
+        self.log.append(("fill", text))
+
 
 class FakeKeyboard:
     def __init__(self, log: list, world=None) -> None:
@@ -173,6 +176,20 @@ class FakePage:
         if script == video_chat.MOUNTED_JS:
             self.log.append(("chat-mounted?",))
             return True
+        if script == video_chat.FLAGGED_JS:
+            return self.scenario.get("flagged", False)
+        if script == video_chat.TURNS_JS:
+            self.log.append(("turns?",))
+            return self.scenario.get("turns", 9)
+        if script == video_chat.ERRORED_JS:
+            return self.scenario.get("errored", False)
+        if script == video_chat.POINTER_JS:
+            return "chat-uuid"
+        if script == video_chat.TEXT_JS:
+            return self.scenario.get("chat", "one")
+        if script == video_chat.SCROLL_END_JS:
+            self.log.append(("scroll-end",))
+            return None
         if script == video_chat.READY_JS:
             self.log.append(("chat-ready?",))
             return True
@@ -262,6 +279,7 @@ class FakeResponse:
 def env(monkeypatch, tmp_path):
     log: list = []
     requests: list = []
+    monkeypatch.setattr(video_layout, "tile_text", lambda _page, _panel: "rendered")
 
     def fake_urlopen(request, **_kwargs):
         requests.append(request)
@@ -1754,3 +1772,91 @@ def test_a_simple_take_reports_an_error_turn_from_the_chat(env) -> None:
     take.page.evaluate = lambda script, arg=None: script == video_chat.ERRORED_JS
     runner = video_take.Take(take, Timeline(theme="dark", version="1", recorded_at=0.0))
     assert runner.turn() == "errored"
+
+
+# ---------------------------------------------------------------------------
+# Settle before recording, and the off-camera history
+# ---------------------------------------------------------------------------
+
+
+def _screencast_at(log: list) -> int:
+    return next(i for i, e in enumerate(log) if e[:2] == ("cdp", "Page.startScreencast"))
+
+
+def test_the_screencast_starts_after_a_settle(env) -> None:
+    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    settle = env.log.index(("wait", video_take.SETTLE_MS))
+    assert settle < _screencast_at(env.log)
+
+
+def test_a_tile_that_never_renders_fails_at_tiles_before_recording(env, monkeypatch) -> None:
+    monkeypatch.setattr(video_layout, "tile_text", lambda _page, _panel: "")
+    with pytest.raises(ProbeFailed) as exc:
+        start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    assert exc.value.step == "tiles" and "'artifacts'" in exc.value.detail
+    assert not [e for e in env.log if e[:2] == ("cdp", "Page.startScreencast")]
+
+
+def test_a_tile_still_changing_is_not_yet_rendered(env, monkeypatch) -> None:
+    texts = iter(["", "a", "ab", "abc", "abc", "abc", "abc"])
+    monkeypatch.setattr(video_layout, "tile_text", lambda _page, _panel: next(texts))
+    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    assert next(texts, None) is None
+
+
+def test_history_plays_before_the_screencast_starts(env) -> None:
+    start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT, history=("first", "second"))
+    fills = [e[1] for e in env.log if e[0] == "fill"]
+    assert fills == ["first", "second"]
+    assert env.log.index(("fill", "second")) < env.log.index(("scroll-end",))
+    assert env.log.index(("scroll-end",)) < _screencast_at(env.log)
+
+
+def test_an_empty_history_plays_nothing(env) -> None:
+    start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+    assert not [e for e in env.log if e[0] in ("fill", "scroll-end", "turns?")]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "detail"),
+    [({"flagged": True}, "watchdog"), ({"errored": True}, "API error")],
+)
+def test_a_history_failure_names_the_step(env, scenario, detail) -> None:
+    with pytest.raises(ProbeFailed) as exc:
+        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", SIMPLE_LAYOUT, history=("p",))
+    assert exc.value.step == "history" and detail in exc.value.detail
+    assert not [e for e in env.log if e[:2] == ("cdp", "Page.startScreencast")]
+
+
+def test_a_history_that_never_ends_stalls_at_the_history_step(env) -> None:
+    now = [0.0]
+
+    class Browser(FakeBrowser):
+        pass
+
+    browser = Browser(env.log, {"turns": 0})
+    with pytest.raises(ProbeFailed) as exc:
+        start_take(
+            browser,
+            env.stack,
+            "dark",
+            SIMPLE_LAYOUT,
+            history=("p",),
+            clock=lambda: now.__setitem__(0, now[0] + 1.0) or now[0],
+        )
+    assert exc.value.step == "history" and "no progress" in exc.value.detail
+
+
+def test_the_expert_view_refuses_a_history(env) -> None:
+    with pytest.raises(ProbeFailed) as exc:
+        start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT, history=("p",))
+    assert exc.value.step == "history"
+    assert not env.requests
+
+
+def test_the_write_switch_moves_before_the_history(env) -> None:
+    start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT, write_switch=("va", "asked"))
+    (request,) = env.requests
+    assert request.full_url.endswith("/api/terminal/posture")
+    assert json.loads(request.data) == {"target": "va", "state": "asked", "epoch": None}
+    assert request.get_header("Content-type") == "application/json"

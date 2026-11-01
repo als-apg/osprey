@@ -74,6 +74,10 @@ WIDEN_SETTLE_MS = 500
 # The first request after launch waits for the server's startup to finish,
 # which takes tens of seconds on a loaded host.
 RESTART_TIMEOUT_S = 60.0
+# Held after every tile has rendered, before the screencast starts.
+SETTLE_MS = 1_500
+# How long one off-camera history turn may take.
+HISTORY_BUDGET_MS = 300_000
 
 SCREENCAST_PARAMS = {
     "format": "jpeg",
@@ -273,8 +277,81 @@ def _settle_chat(page: Any) -> None:
         raise ProbeFailed("layout", f"dock boot layout did not settle in {SETTLE_BUDGET_MS} ms")
 
 
+def set_write_switch(stack: VideoStack, target: str, state: str) -> None:
+    """Move this login's write switch for *target*, as the chip's gesture does.
+
+    A null epoch stands for a record the switch has never moved on; a 409 names
+    the epoch that is current, and the move is tried once more with it.
+    """
+
+    def post(epoch: str | None) -> None:
+        body = json.dumps({"target": target, "state": state, "epoch": epoch}).encode()
+        request = urllib.request.Request(
+            f"{stack.base_url}/api/terminal/posture",
+            data=body,
+            method="POST",
+            headers={
+                capture.OPERATOR_SECRET_HEADER: stack.operator_secret,
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=RESTART_TIMEOUT_S):
+            pass
+
+    try:
+        try:
+            post(None)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 409:
+                raise
+            post(json.loads(exc.read())["detail"]["epoch"])
+    except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+        raise ProbeFailed("write-switch", f"could not set {target} to {state}: {exc}") from exc
+
+
+def _play_history(
+    ctx: TakeContext, prompts: Sequence[str], clock: Callable[[], float] | None
+) -> None:
+    """Play *prompts* in the chat before recording, each until the agent's turn ends.
+
+    These are real turns of the real agent, off camera. A watchdog flag, an API
+    error, an unanswered dialog, a stall or a turn that never ends fails the take
+    at ``history``: the video would open on something nobody agreed to show.
+    """
+    page = ctx.page
+    timeline = Timeline(theme=ctx.theme, version="history", recorded_at=0.0)
+    if clock is not None:
+        timeline.clock = clock
+    runner = Take(ctx, timeline)
+    for done, prompt in enumerate(prompts, start=1):
+        watch = runner.watch("history", video_check_stall.NOTICE_DIALOGS)
+        runner.submitted_at = timeline.clock()
+        page.locator(video_chat.COMPOSER).fill(prompt)
+        page.keyboard.press("Enter")
+        for _ in range(max(1, HISTORY_BUDGET_MS // video_probes.POLL_MS)):
+            if video_chat.flagged(page):
+                raise ProbeFailed("history", f"a watchdog reacted to the history prompt {prompt!r}")
+            if runner.turn() == "errored":
+                raise ProbeFailed("history", "the agent's turn ended in an API error")
+            if video_chat.turns_done(page) >= done and video_chat.ready(page):
+                break
+            watch()
+            page.wait_for_timeout(video_probes.POLL_MS)
+        else:
+            raise ProbeFailed(
+                "history", f"no end of the turn within {HISTORY_BUDGET_MS} ms for {prompt!r}"
+            )
+    video_chat.scroll_to_end(page)
+
+
 def start_take(
-    browser: Browser | Any, stack: VideoStack, theme: str, layout: Layout
+    browser: Browser | Any,
+    stack: VideoStack,
+    theme: str,
+    layout: Layout,
+    history: Sequence[str] = (),
+    write_switch: tuple[str, str] | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> TakeContext:
     """Bootstrap one take in ``theme`` on *layout* and return it with the screencast running.
 
@@ -282,7 +359,10 @@ def start_take(
     its REPL; the simple view gets a fresh chat session from the fresh browser
     context (a new tab has no session pointer) and waits for the composer.
     Either way the layout's sidebar entry and tiles are applied before the
-    console takes focus. The new take becomes ``stack.current`` as soon as its
+    console takes focus. *write_switch* (target, position) is then set and
+    *history* played off camera, simple view only. The screencast starts last,
+    once every tile has rendered and a short settle has passed, so the first frame
+    already shows the finished screen. The new take becomes ``stack.current`` as soon as its
     context exists, so a take that fails part-way is still closed by the next
     call. Raises :class:`ProbeFailed` naming the step that gave up.
     """
@@ -291,6 +371,8 @@ def start_take(
         stack.current = None
 
     expert = layout.view == "expert"
+    if history and expert:
+        raise ProbeFailed("history", "a history needs the simple view's chat")
     if expert:
         restart_terminal(stack)
 
@@ -334,6 +416,14 @@ def start_take(
         page.locator(video_chat.COMPOSER).click(timeout=CLICK_TIMEOUT_MS)
         if not poll(page, lambda: video_chat.ready(page), MOUNT_BUDGET_MS):
             raise ProbeFailed("layout", "the chat composer never became ready")
+
+    if write_switch is not None:
+        set_write_switch(stack, *write_switch)
+    if history:
+        _play_history(take, history, clock)
+        video_layout.apply(page, layout)
+    video_layout.await_tiles(page, layout)
+    page.wait_for_timeout(SETTLE_MS)
 
     take.before_ids = capture.artifact_ids(stack.artifact_port, stack.operator_secret)
     _start_screencast(take)
@@ -541,6 +631,8 @@ def record_theme(
     storyboard: Storyboard,
     layout: Layout,
     clock: Callable[[], float] | None = None,
+    history: Sequence[str] = (),
+    write_switch: tuple[str, str] | None = None,
 ) -> tuple[TakeContext, Timeline]:
     """Record one take of *storyboard* in ``theme`` on ``stack``, set up on *layout*.
 
@@ -554,7 +646,15 @@ def record_theme(
 
     timeline = Timeline(theme=theme) if clock is None else Timeline(theme=theme, clock=clock)
     try:
-        take = start_take(stack.browser, stack, theme, layout)
+        take = start_take(
+            stack.browser,
+            stack,
+            theme,
+            layout,
+            history=history,
+            write_switch=write_switch,
+            clock=timeline.clock,
+        )
         record_take(take, timeline, storyboard)
     except (ProbeFailed, PlaywrightError) as exc:
         if stack.current is not None:
