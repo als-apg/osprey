@@ -261,6 +261,11 @@ def _ask_for_execute(deployment: Deployment, monkeypatch) -> None:
     path = deployment.render / "config-approval.yml"
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(path))
+    # In-process the hook runs from the template tree, so the render's prefix table, which
+    # a deployed hook finds beside itself, has to be named.
+    hook_config = deployment.render / ".claude" / "hooks" / "hook_config.json"
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(hook_config))
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
 
 
 def _execute_through_approval_hook(code: str, description: str, monkeypatch, capsys):
@@ -283,8 +288,9 @@ def _execute_through_approval_hook(code: str, description: str, monkeypatch, cap
     with pytest.raises(SystemExit) as exit_info:
         hook.main()
     assert exit_info.value.code == 0
-    stdout = capsys.readouterr().out
-    return json.loads(stdout)["hookSpecificOutput"] if stdout.strip() else None
+    captured = capsys.readouterr()
+    assert captured.out.strip(), f"the hook printed no decision; its log:\n{captured.err}"
+    return json.loads(captured.out)["hookSpecificOutput"]
 
 
 def _assert_readable_pass(verdict, message: str | None) -> None:
