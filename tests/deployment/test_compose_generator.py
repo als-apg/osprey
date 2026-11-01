@@ -1703,7 +1703,7 @@ def _render_bluesky_template(
     # control_system is omitted by default (matching every pre-existing call
     # site below). The template reads each lane's posture from
     # `svc.writes_enabled`, which compose_generator precomputes per lane from
-    # the render's tier (`_bluesky_lane_write_posture`) rather than from the
+    # the render's tier (`drives_target_write_posture`) rather than from the
     # config, so a caller that cares stamps the lane the way the generator does.
     if writes_enabled is not None:
         kwargs["control_system"] = {"writes": "allowed" if writes_enabled else "never"}

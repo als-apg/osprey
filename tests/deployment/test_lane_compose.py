@@ -188,7 +188,7 @@ def _context(
     the generator precomputes it for exactly this template, so a hand-supplied
     value would exercise the gate without exercising what decides it.
     """
-    from osprey.deployment.compose_generator import _bluesky_lane_write_posture
+    from osprey.deployment.compose_generator import drives_target_write_posture
 
     section = (
         control_system
@@ -197,7 +197,7 @@ def _context(
     )
     services: dict[str, Any] = dict(lanes)
     services["virtual_accelerator"] = {"port": va_port}
-    posture = _bluesky_lane_write_posture(services, section)
+    posture = drives_target_write_posture(services, section)
     for lane_key, armed in posture.items():
         services[lane_key] = {**services[lane_key], "writes_enabled": armed}
     context: dict[str, Any] = {
@@ -1066,12 +1066,12 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     here is a rendered one: a retired ``writes_enabled`` leaf the build did not
     rewrite arms nothing (D2; row ``tier-absent-old-armed-flat``).
     """
-    from osprey.deployment.compose_generator import _bluesky_lane_write_posture
+    from osprey.deployment.compose_generator import drives_target_write_posture
 
     lane = {"bluesky": {"port": BLUESKY_PORT}}
 
     def posture(control_system: dict[str, Any] | None) -> bool:
-        return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
+        return drives_target_write_posture(lane, control_system)["bluesky"]
 
     assert posture({"writes": "allowed"}) is True
     assert posture({"writes": "asked"}) is True
