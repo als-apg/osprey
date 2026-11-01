@@ -58,7 +58,7 @@ APP_PYPROJECT = """\
 [project]
 name = "Knob_App"
 version = "0.1.0"
-dependencies = ["lume-base==0.6"]
+dependencies = ["lume-base"]
 """
 
 KIND_PYPROJECT = """\
@@ -440,7 +440,7 @@ def test_an_entry_naming_an_application_package_is_that_package_in_place(
 def test_the_venv_resolves_the_wheels_with_the_framework_and_records_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An app requiring lume-base 0.6 is resolved WITH the framework's pins.
+    """An app requiring a pinned package is resolved WITH the framework's pins.
 
     One install command carries the framework spec and every wheel, so a
     requirement that would move a pinned version fails the resolve instead of

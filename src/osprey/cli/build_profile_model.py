@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1178,6 +1178,37 @@ class BuildProfile:
                 claimed.setdefault(key, port)
 
         return claimed
+
+    def projected_port_collisions(
+        self, services: Mapping[str, Mapping[str, Any]]
+    ) -> list[tuple[str, str]]:
+        """Every projected port the profile, or another projected service, already spends.
+
+        The ledger is :meth:`_claimed_ports` plus the stand-in's own ports, which
+        the ledger leaves to their own rule among the profile's blocks.
+
+        Args:
+            services: The projected ``services.<key>`` entries, each holding its
+                ``config.port`` and ``config.app``.
+
+        Returns:
+            ``(service key, message)`` per collision, naming both holders.
+        """
+        holders = {port: key for key, port in self._claimed_ports().items()}
+        va = self.virtual_accelerator
+        if va is not None:
+            holders.setdefault(va.port, "virtual_accelerator.port")
+            if va.pva_port is not None:
+                holders.setdefault(va.pva_port, "virtual_accelerator.pva_port")
+        found: list[tuple[str, str]] = []
+        for key, entry in services.items():
+            config = entry["config"]
+            port = config["port"]
+            where = f"apps.{config['app']}.services.{key}"
+            holder = holders.setdefault(port, where)
+            if holder != where:
+                found.append((key, f"{where} publishes port {port}, which {holder} already spends"))
+        return found
 
     def _resolved_port_base(self) -> int:
         """Return the port base this profile's ``config:`` block resolves to.

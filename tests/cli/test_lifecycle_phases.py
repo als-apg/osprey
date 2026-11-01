@@ -318,6 +318,9 @@ class TestBuildPhases:
         )
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
         monkeypatch.setattr(
+            build_cmd, "check_deployment", lambda *a, **k: build_cmd.DeploymentApps()
+        )
+        monkeypatch.setattr(
             build_cmd,
             "_plan_project_venv",
             lambda *a, **k: _ProjectVenvPlan(
