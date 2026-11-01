@@ -21,7 +21,12 @@ import pytest
 
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
 from tests.integration._qmd_ariel_support import SIDECAR_CONTAINER_PORT as _SIDECAR_PORT
-from tests.integration._qmd_ariel_support import require_sidecar_image, wait_for_health
+from tests.integration._qmd_ariel_support import (
+    SIDECAR_HEALTH_CEILING,
+    SIDECAR_ROUND_S,
+    require_sidecar_image,
+    wait_for_health,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,14 @@ SIDECAR_BUNDLE_TARGET = "/corpus/okf"
 #: re-indexes; on macOS the bind-mount stat() also has to propagate into the
 #: Docker VM.
 SIDECAR_REINDEX_TIMEOUT = 180.0
+
+#: Seconds each test of the OKF sidecar module may take, setup included. The
+#: longest chain one test can hit is one sidecar boot, whose ``/health`` wait is
+#: bounded by :data:`SIDECAR_HEALTH_CEILING`, then the drafting test's poll for
+#: its concept, bounded by :data:`SIDECAR_REINDEX_TIMEOUT`; each may run one
+#: :data:`SIDECAR_ROUND_S` past its bound, so the wait's own failure lands
+#: before this mark kills the test.
+SIDECAR_OKF_TEST_TIMEOUT = SIDECAR_HEALTH_CEILING + SIDECAR_REINDEX_TIMEOUT + 2 * SIDECAR_ROUND_S
 
 #: Marker poll interval the lane runs the sidecar with. Far below the shipped
 #: default, because every freshness assertion here waits on it — the *mechanism*

@@ -21,7 +21,12 @@ from typing import Any
 import pytest
 
 from tests import _container_support
-from tests.integration import _qmd_ariel_support, test_qmd_ariel_search_sidecar
+from tests.integration import (
+    _qmd_ariel_support,
+    _qmd_okf_support,
+    test_qmd_ariel_search_sidecar,
+    test_qmd_okf_search_sidecar,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -101,6 +106,20 @@ def test_the_ariel_sidecar_mark_is_its_longest_chain_of_waits(pytest_check):
 
     assert budget == s.SIDECAR_ARIEL_TEST_TIMEOUT
     assert chain == budget
+    assert budget < pytest_check.bound_s
+
+
+def test_the_okf_sidecar_mark_is_its_longest_chain_of_waits(pytest_check):
+    """One sidecar boot, then the drafting test's poll for its concept.
+
+    Each of the two may run one round past its bound.
+    """
+    s = _qmd_ariel_support
+    chain = s.SIDECAR_HEALTH_CEILING + _qmd_okf_support.SIDECAR_REINDEX_TIMEOUT
+    budget = _timeout_mark(test_qmd_okf_search_sidecar)
+
+    assert budget == _qmd_okf_support.SIDECAR_OKF_TEST_TIMEOUT
+    assert chain + 2 * s.SIDECAR_ROUND_S == budget
     assert budget < pytest_check.bound_s
 
 

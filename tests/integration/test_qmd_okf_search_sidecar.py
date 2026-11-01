@@ -47,6 +47,7 @@ import pytest
 from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION
 from tests.fixtures.qmd_okf import BUNDLE_ROOT, OKF_QUERY_FIXTURES
 from tests.integration._qmd_okf_support import (
+    SIDECAR_OKF_TEST_TIMEOUT,
     SIDECAR_REINDEX_TIMEOUT,
     require_docker,
     start_okf_sidecar,
@@ -55,10 +56,13 @@ from tests.integration._qmd_okf_support import (
 
 # xdist_group("docker") pins every container-starting module onto one worker: a
 # run must have a single testcontainers session and a single ryuk reaper,
-# because concurrent reaper starts race the Docker daemon's port mapper.
+# because concurrent reaper starts race the Docker daemon's port mapper. The
+# timeout mark lets the sidecar's own waits fail before the check's per-test cap
+# would.
 pytestmark = [
     pytest.mark.dockerbuild,
     pytest.mark.xdist_group("docker"),
+    pytest.mark.timeout(SIDECAR_OKF_TEST_TIMEOUT),
 ]
 
 #: How many hits a fixture query is allowed to need. The acceptance criterion is
