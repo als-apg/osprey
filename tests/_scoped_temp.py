@@ -240,8 +240,8 @@ def _settle_run_root(config: pytest.Config) -> None:
     root = config.stash.get(_RUN_ROOT, None)
     if root is None or not root.is_dir():
         return
-    # The shared build's record and lock files sit beside the base temps; only
-    # a directory is something a test left to read.
+    # Only a directory is a kept tree; a loose file here is bookkeeping and goes
+    # with the root.
     kept = any(entry.is_dir() for top in root.iterdir() if top.is_dir() for entry in top.iterdir())
     if kept:
         config.stash[_ROOT_KEPT] = root
