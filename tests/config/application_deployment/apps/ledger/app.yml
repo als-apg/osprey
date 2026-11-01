@@ -1,0 +1,10 @@
+name: ledger
+containers:
+  ledger-store:
+    image: registry.example/ledger-store:1.0
+tools:
+  module: ledger_app.tools
+  read: [ledger_entries]
+  errors:
+    unreachable: The ledger store is not running.
+    refused: The ledger store refused the read.
