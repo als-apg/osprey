@@ -623,10 +623,7 @@ def build_deployment_packages(
             "        Point it at the package's directory, or name an index requirement."
         )
 
-    # Once each, however its path is spelled.
-    sources = list(
-        {path.resolve(): path for path in deployment_packages(root, list(dependencies))}.values()
-    )
+    sources = deployment_packages(root, list(dependencies))
     if dest.exists():
         shutil.rmtree(dest)
     if not sources:
@@ -644,7 +641,7 @@ def build_deployment_packages(
                 name=str(name),
                 version=str(version),
                 wheel=wheel,
-                replaces=tuple(replaced.get(pyproject.resolve(), ())),
+                replaces=tuple(replaced.get(pyproject, ())),
             )
         )
     _write_deployment_packages_manifest(packages, dest)

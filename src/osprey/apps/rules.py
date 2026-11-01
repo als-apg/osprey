@@ -532,7 +532,7 @@ def deployment_packages(root: Path, dependencies: Sequence[str]) -> list[Path]:
         for entry in sorted(apps_dir.iterdir(), key=lambda p: p.name):
             candidate = entry / "pyproject.toml"
             if entry.is_dir() and candidate.is_file():
-                found.append(candidate)
+                found.append(candidate.resolve())
     for raw in dependencies:
         directory = local_path(raw, root)
         if directory is None:
