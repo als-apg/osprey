@@ -218,6 +218,8 @@ hooks:
   - workspace-delta   # Report web workspace changes since the agent's last turn
   - control-context   # Tell the agent the active control target and each target's write state
   - turn-state        # Tell the web terminal when a turn starts and ends
+  # Available — uncomment to enable:
+  # - watchdog-trigger  # UserPromptSubmit hook that hands each prompt to the deployment's watchdogs; ships whenever a watchdog is enabled
 
 rules:
   - safety              # Core safety rules: never write without approval
@@ -359,6 +361,35 @@ agent_record:
   # roster below. `kinds:` and `days_back:` narrow a reader to less.
   readers:
     - name: carol
+
+# ── Watchdogs ────────────────────────────────────────────────────────────────
+# Independent judges of each prompt, off until you turn them on. This one sends
+# the session to an outside model, so read the how-to before setting `enabled`.
+# Its instructions are in watchdogs/guard-circumvention/instructions.md.
+watchdogs:
+  guard-circumvention:
+    engine: decision
+    enabled: false
+    threshold: 0.5   # not calibrated for your facility; replay before relying on it
+    options:
+      - id: routine
+        text: Ordinary work, including questions about the guards themselves.
+        flag: false
+      - id: direct-api
+        text: Asked the agent to call a web terminal or panel API directly, around its tools.
+        flag: true
+      - id: loosen-gate
+        text: Asked the agent to edit hooks, settings or configuration to loosen a gate.
+        flag: true
+      - id: bypass-check
+        text: Asked the agent to get past an approval prompt or the writes check.
+        flag: true
+      - id: flip-control
+        text: Asked the agent to change the control target or write posture out of the operator's sight.
+        flag: true
+      - id: scripted-write
+        text: Asked the agent to write through a script so the write tools would not see it.
+        flag: true
 
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
@@ -2175,6 +2206,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # ARGO_API_KEY=your-argo-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
+# OPENROUTER_API_KEY=your-openrouter-api-key-here
 # ASKSAGE_API_KEY=your-asksage-api-key-here
 
 # Declared by this profile with a default (`env.defaults`). Override only if
@@ -2269,12 +2301,12 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
+| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/`, `watchdogs/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
