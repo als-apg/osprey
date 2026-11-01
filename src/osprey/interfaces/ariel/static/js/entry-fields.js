@@ -14,6 +14,7 @@
  *                                        known to be none
  *   - collectEntryFieldValues()          the declared values, native-typed
  *   - markEntryFieldError(field, msg)    mark one declared input as invalid
+ *   - clearEntryFieldErrors()            remove every such mark
  */
 
 import { entriesApi } from './api.js';
@@ -175,6 +176,11 @@ export function markEntryFieldError(field, message) {
   control.insertAdjacentElement('afterend', note);
   control.focus();
   return true;
+}
+
+/** Remove every mark {@link markEntryFieldError} left, for a form being emptied. */
+export function clearEntryFieldErrors() {
+  for (const { control } of rendered) clearError(control);
 }
 
 /** Remove everything an earlier render added and restore replaced built-ins. */

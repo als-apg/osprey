@@ -7,8 +7,8 @@
 
 import { entriesApi, draftsApi, ApiError } from './api.js';
 import { escapeHtml } from './components.js';
-import { showEntry } from './entries-detail.js';
 import {
+  clearEntryFieldErrors,
   collectEntryFieldValues,
   entryFieldsRendered,
   markEntryFieldError,
@@ -105,19 +105,11 @@ export async function handleCreateEntry(e) {
       : '';
     alert(`Entry created: ${result.entry_id}${attachMsg}`);
 
-    // Reset form, file preview, and draft state
-    form.reset();
-    const tagsContainer = document.getElementById('entry-tags');
-    if (tagsContainer) tagsContainer.innerHTML = '';
-    if (preview) preview.innerHTML = '';
-    draftMetadata = null;
-    const sessionPanel = document.getElementById('session-info-panel');
-    if (sessionPanel) sessionPanel.remove();
-    const draftBanner = document.getElementById('draft-banner');
-    if (draftBanner) draftBanner.remove();
+    resetCreateForm();
 
-    // Navigate to entry
-    showEntry(result.entry_id);
+    // Open the new entry over Browse, which lists it now; closing the card
+    // lands there rather than on an empty create form.
+    window.location.hash = `entry?id=${encodeURIComponent(result.entry_id)}`;
   } catch (error) {
     console.error('Failed to create entry:', error);
     if (error instanceof ApiError && error.code === 'auth_required') {
@@ -143,6 +135,29 @@ export async function handleCreateEntry(e) {
       submitBtn.textContent = originalText;
     }
   }
+}
+
+/**
+ * Empty the create form and everything a loaded draft or the last entry left
+ * on it: field values, tag chips, file previews and the draft attachments
+ * recorded on the preview (which the next submit would otherwise attach
+ * again), the draft's metadata, banner and session panel, and any entry-field
+ * error marks.
+ * @returns {void}
+ */
+export function resetCreateForm() {
+  /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
+  document.getElementById('entry-tags')?.replaceChildren();
+  const preview = document.getElementById('file-preview');
+  if (preview) {
+    preview.replaceChildren();
+    delete preview.dataset.draftAttachments;
+    delete preview.dataset.draftId;
+  }
+  draftMetadata = null;
+  document.getElementById('session-info-panel')?.remove();
+  document.getElementById('draft-banner')?.remove();
+  clearEntryFieldErrors();
 }
 
 /**
