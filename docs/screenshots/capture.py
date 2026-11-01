@@ -64,10 +64,11 @@ if TYPE_CHECKING:
 
 # The throwaway deployment's own port block, and its virtual accelerator's two
 # host ports, which a block does not move. A real deployment routinely holds the
-# default block and 5064/5075 on a dev host, so the capture stack sits beside it.
-_PORT_BASE = 34000
-_VA_CA_PORT = 35064
-_VA_PVA_PORT = 35075
+# default block and 5064/5075 on a dev host, so the capture stack sits beside it,
+# below the kernel's outbound range (32768 up).
+_PORT_BASE = 26000
+_VA_CA_PORT = 27064
+_VA_PVA_PORT = 27075
 
 # Host TCP port Postgres publishes once ``osprey up -d`` is healthy.
 _POSTGRES_PORT = default_port("postgres", base=_PORT_BASE)
@@ -98,6 +99,51 @@ class ScreenshotSkip(Exception):
     for the not-yet-available ``tutorial_stack`` provider, so callers can print a
     clear one-line notice instead of surfacing a traceback.
     """
+
+
+class CaptureRejected(Exception):
+    """Raised when a page reached its capture point showing an error state.
+
+    Unlike :class:`ScreenshotSkip` this is a failure: the run reports it, writes
+    no image for the recipe, and exits non-zero.
+    """
+
+
+#: Text that only an interface in an error state shows: ARIEL's
+#: "Failed to Load Entries/Status" and its database-unavailable notice.
+ERROR_STATE_TEXTS = ("Failed to Load", "Database unavailable")
+
+#: Elements that only an error state shows: the operator chat's error block and
+#: the control-target popover's warning banner.
+ERROR_STATE_SELECTORS = (".op-error-block", ".ctc-banner")
+
+
+def find_error_state(page: object) -> str | None:
+    """Name the error state *page* shows, or ``None`` when it shows none.
+
+    Reads the text of every frame (a panel's error lives in its iframe) for
+    :data:`ERROR_STATE_TEXTS`, and the top page for a visible element matching
+    :data:`ERROR_STATE_SELECTORS`.
+    """
+    for frame in page.frames:
+        try:
+            text = frame.locator("body").inner_text(timeout=2_000)
+        except Exception:  # a detached or still-loading frame has no text to judge
+            continue
+        for needle in ERROR_STATE_TEXTS:
+            if needle in text:
+                return f"the page shows {needle!r}"
+    for selector in ERROR_STATE_SELECTORS:
+        if page.locator(selector).first.is_visible():
+            return f"the page shows {selector}"
+    return None
+
+
+def reject_error_state(page: object, what: str) -> None:
+    """Raise :class:`CaptureRejected` when *page* shows an error state."""
+    problem = find_error_state(page)
+    if problem is not None:
+        raise CaptureRejected(f"{what}: {problem}; no image was written")
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +374,7 @@ def capture_shot(browser: Browser, base_url: str, shot: DocShot) -> list[Path]:
 
                 # Let the theme swap and any async init settle before shooting.
                 page.wait_for_timeout(600)
+                reject_error_state(page, f"{shot.name} ({view.out}, {theme})")
 
                 if shot.capture_mode == "element":
                     png = page.locator(shot.element_selector).screenshot()
@@ -414,7 +461,10 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     with hermetic_hub() as hub:
         for theme in shot.themes:
             dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
-            capture_hub_view(browser, hub, theme, shot.hub_agent, dest, stage=shot.stage)
+            element = shot.element_selector if shot.capture_mode == "element" else None
+            capture_hub_view(
+                browser, hub, theme, shot.hub_agent, dest, stage=shot.stage, element=element
+            )
             paths.append(dest)
     return paths
 
@@ -1016,6 +1066,7 @@ def _capture_agentic(
 
                 # Let the plot preview render (Plotly draws async) before shooting.
                 page.wait_for_timeout(2_000)
+                reject_error_state(page, f"{shot.name} ({theme})")
                 png = page.screenshot()
                 assert_hero_structural(png, shot.viewport)
 
@@ -1089,6 +1140,7 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                 expect(target).to_be_attached(timeout=10_000)
                 # Let the open animation and the first re-render settle.
                 page.wait_for_timeout(600)
+                reject_error_state(page, f"{shot.name} ({theme})")
 
                 png = target.screenshot()
                 dest = dest_dir / _output_filename(shot.name, theme, n_themes)
@@ -1102,49 +1154,71 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
 def capture_tutorial_stack(
     browser_factory: Callable[[], Browser], shot: DocShot, *, agentic: bool
 ) -> list[Path]:
-    """Capture a ``tutorial_stack`` recipe (container lifecycle owner).
+    """Capture one ``tutorial_stack`` recipe on a stack of its own.
 
     ``browser_factory`` is a zero-argument callable returning a live browser to
     reuse for the capture. Builds and seeds the tutorial stack (via
-    :func:`tutorial_stack`), then dispatches on ``shot.kind`` and
-    ``shot.stack_app``: ``"static"`` boots the ARIEL app on a throwaway port
-    and reuses :func:`capture_shot` — or, for ``stack_app="web_terminal"``,
-    drives the live web terminal statically via
-    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
-    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
-    Raises :class:`ScreenshotSkip` when the container runtime is unavailable
-    so a ``--stack`` run degrades gracefully.
+    :func:`tutorial_stack`) and captures the recipe on it with
+    :func:`capture_on_stack`. Raises :class:`ScreenshotSkip` when the container
+    runtime is unavailable so a ``--stack`` run degrades gracefully.
     """
     with tutorial_stack() as project_dir:
-        artifact_port = rendered_artifact_port(project_dir)
-        browser = browser_factory()
+        return capture_on_stack(browser_factory(), project_dir, shot, agentic=agentic)
 
-        if shot.kind == "agentic":
-            if not agentic:
-                raise ScreenshotSkip(f"{shot.name}: agentic recipe requires the --agentic flag")
-            try:
-                return _capture_agentic(browser, project_dir, artifact_port, shot)
-            except TimeoutError as exc:
-                # The live agent never produced the expected artifact (e.g. no
-                # provider credentials in this environment) — degrade to a clear
-                # skip rather than a traceback.
-                raise ScreenshotSkip(
-                    f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
-                ) from exc
 
-        if shot.stack_app == "web_terminal":
-            return _capture_web_terminal_static(browser, project_dir, shot)
+def capture_on_stack(
+    browser: Browser, project_dir: Path, shot: DocShot, *, agentic: bool
+) -> list[Path]:
+    """Capture a ``tutorial_stack`` recipe on an already running tutorial stack.
 
-        from osprey.interfaces.ariel.app import create_app
+    Dispatches on ``shot.kind`` and ``shot.stack_app``: ``"static"`` boots the
+    ARIEL app on a throwaway port and reuses :func:`capture_shot` — or, for
+    ``stack_app="web_terminal"``, drives the live web terminal statically via
+    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
+    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
+    """
+    artifact_port = rendered_artifact_port(project_dir)
 
-        # The rendered config moved under build/; older layouts kept it at the repo root.
-        config_path = project_dir / "build" / "config.yml"
-        if not config_path.is_file():
-            config_path = project_dir / "config.yml"
+    if shot.kind == "agentic":
+        if not agentic:
+            raise ScreenshotSkip(f"{shot.name}: agentic recipe requires the --agentic flag")
+        try:
+            return _capture_agentic(browser, project_dir, artifact_port, shot)
+        except TimeoutError as exc:
+            # The live agent never produced the expected artifact (e.g. no
+            # provider credentials in this environment) — degrade to a clear
+            # skip rather than a traceback.
+            raise ScreenshotSkip(
+                f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
+            ) from exc
 
+    if shot.stack_app == "web_terminal":
+        return _capture_web_terminal_static(browser, project_dir, shot)
+
+    from osprey.interfaces.ariel.app import create_app
+
+    # The rendered config moved under build/; older layouts kept it at the repo root.
+    config_path = project_dir / "build" / "config.yml"
+    if not config_path.is_file():
+        config_path = project_dir / "config.yml"
+
+    # `osprey up` minted the database password into the repo's `.env`; the
+    # in-process app reads it from the environment, as the container does.
+    from dotenv import dotenv_values
+
+    password = dotenv_values(project_dir / ".env").get("ARIEL_DB_PASSWORD")
+    previous = os.environ.get("ARIEL_DB_PASSWORD")
+    if password:
+        os.environ["ARIEL_DB_PASSWORD"] = password
+    try:
         app = create_app(config_path=str(config_path))
         with run_app_server(app) as ariel_url:
             return capture_shot(browser, ariel_url, shot)
+    finally:
+        if previous is None:
+            os.environ.pop("ARIEL_DB_PASSWORD", None)
+        else:
+            os.environ["ARIEL_DB_PASSWORD"] = previous
 
 
 # ---------------------------------------------------------------------------
@@ -1152,27 +1226,67 @@ def capture_tutorial_stack(
 # ---------------------------------------------------------------------------
 
 
-def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> None:  # noqa: ARG001 - the CLI passes both selector flags by keyword; the recipe list arrives already filtered on stack
+def _capture_stack_shots(
+    browser: Browser, shots: list[DocShot], *, agentic: bool, failed: list[str]
+) -> list[Path]:
+    """Capture every ``tutorial_stack`` recipe on one tutorial stack, built once.
+
+    A recipe that skips, or fails on an error state (its name is appended to
+    *failed*), is reported and the rest still run; a stack that never comes up
+    skips them all. One manifest entry is stamped per captured recipe.
+    """
+    written: list[Path] = []
+    try:
+        with tutorial_stack() as project_dir:
+            for shot in shots:
+                try:
+                    paths = capture_on_stack(browser, project_dir, shot, agentic=agentic)
+                except ScreenshotSkip as exc:
+                    print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                    continue
+                except CaptureRejected as exc:
+                    print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
+                    failed.append(shot.name)
+                    continue
+                stamp_manifest(shot.name, shot.kind)
+                written.extend(paths)
+                print(f"captured {shot.name}: {len(paths)} file(s)")
+    except ScreenshotSkip as exc:
+        for shot in shots:
+            print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+    return written
+
+
+def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> bool:  # noqa: ARG001 - the CLI passes both selector flags by keyword; the recipe list arrives already filtered on stack
     """Capture the selected recipes, sharing one headless browser for the run.
 
     ``standalone_interface`` recipes are booted and captured directly;
     ``static_page`` recipes are served from their committed HTML file;
     ``hermetic_hub`` recipes boot the contact sheet's seeded web terminal;
-    ``tutorial_stack`` recipes are delegated to :func:`capture_tutorial_stack`
-    and skipped per-recipe (with a clear notice) where its runtime is absent.
+    ``tutorial_stack`` recipes all share one stack (:func:`_capture_stack_shots`)
+    and are skipped (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
     entry is stamped per successfully captured recipe ``name``.
+
+    Returns:
+        ``False`` when any recipe was rejected for showing an error state.
     """
     if not shots:
         print("No screenshot recipes selected; nothing to capture.")
-        return
+        return True
 
     written: list[Path] = []
+    failed: list[str] = []
     try:
         with chromium_context() as browser:
             for shot in shots:
                 if shot.environment == "standalone_interface":
-                    paths = _capture_standalone(browser, shot)
+                    try:
+                        paths = _capture_standalone(browser, shot)
+                    except CaptureRejected as exc:
+                        print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
+                        failed.append(shot.name)
+                        continue
                 elif shot.environment == "static_page":
                     try:
                         paths = _capture_static_page(browser, shot)
@@ -1186,17 +1300,22 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                         print(f"skipped {shot.name}: {exc}", file=sys.stderr)
                         continue
                 else:
-                    try:
-                        paths = capture_tutorial_stack(lambda: browser, shot, agentic=agentic)
-                    except ScreenshotSkip as exc:
-                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
-                        continue
+                    continue  # captured below, on one stack shared by every such recipe
 
                 stamp_manifest(shot.name, shot.kind)
                 written.extend(paths)
                 print(f"captured {shot.name}: {len(paths)} file(s)")
+
+            stack_shots = [s for s in shots if s.environment == "tutorial_stack"]
+            if stack_shots:
+                written.extend(
+                    _capture_stack_shots(browser, stack_shots, agentic=agentic, failed=failed)
+                )
     except ScreenshotSkip as exc:
         print(f"screenshot capture skipped: {exc}", file=sys.stderr)
-        return
+        return not failed
 
     print(f"Wrote {len(written)} screenshot file(s) to {output_dir()}.")
+    if failed:
+        print(f"FAILED: {', '.join(failed)} showed an error state.", file=sys.stderr)
+    return not failed

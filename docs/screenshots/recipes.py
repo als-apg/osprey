@@ -130,28 +130,14 @@ class DocShot:
 
 REGISTRY: list[DocShot] = [
     # Default (container-free) target of ``make screenshots``: an element crop of
-    # the design-system display menu's open popover card, light + dark, for the
-    # theming how-to. ``channel_finder`` is the lightest interface that mounts
-    # the menu in its own standalone header — its ``create_app()`` takes no
-    # required argument and needs no workspace or backend, unlike
-    # ``artifacts``/``lattice`` which need a workspace_root to show anything
-    # useful. The card only exists open, so the single sub-view's anchor is the
-    # trigger to click before the crop.
+    # the terminal's open ☰ More menu, light + dark, for the theming how-to.
     DocShot(
         name="display_menu",
-        environment="standalone_interface",
+        environment="hermetic_hub",
         kind="static",
-        app_factory="osprey.interfaces.channel_finder.app:create_app",
+        stage="more_menu",
         capture_mode="element",
-        element_selector="osprey-display-menu .display-menu-card.open",
-        wait_selector="osprey-display-menu .display-menu-trigger",
-        subviews=(
-            SubView(
-                anchor="osprey-display-menu .display-menu-trigger",
-                out="display_menu",
-                wait_selector="osprey-display-menu .display-menu-card.open",
-            ),
-        ),
+        element_selector="#more-menu",
         themes=("light", "dark"),
     ),
     # Architecture diagrams: hand-authored SVG in a committed HTML page, one
@@ -191,8 +177,8 @@ REGISTRY: list[DocShot] = [
         viewport=(1400, 1000),
     ),
     # ARIEL views (opt-in ``--stack``). One tutorial stack → four PNGs, one per
-    # hash-routed view. Keyword mode is ARIEL's default, so ``#search`` shows the
-    # keyword form + results with no extra activation (Postgres-only, no Ollama).
+    # hash-routed view. ``#search`` shows the search form in ARIEL's default mode
+    # with no extra activation.
     # Single-theme (light) → no theme suffix, matching the committed filenames;
     # viewport 1280x900 matches the committed aspect so the .rst needs no re-layout.
     DocShot(
@@ -222,9 +208,9 @@ REGISTRY: list[DocShot] = [
     # The control-target popover (opt-in ``--stack``): the panel behind the
     # sidebar's control-system chip, captured live from the tutorial
     # deployment's web terminal.
-    # The tutorial baseline is the stand-in, so the shot shows the full shape —
-    # the Rehearsal card with its writes switch, the real machine's not-set-up
-    # row, and the simulator — real roster, real states, nothing staged. The
+    # The shot shows the full shape — the active machine's card with its writes
+    # switch and a row per other machine — real roster, real states, nothing
+    # staged. The
     # popover only exists open, and only renders banner-free once the terminal
     # holds the deployment's control-context record, so the flow lives in
     # capture._capture_web_terminal_static rather than in a subview click.
@@ -234,7 +220,7 @@ REGISTRY: list[DocShot] = [
         kind="static",
         stack_app="web_terminal",
         capture_mode="element",
-        element_selector=".ctc-popover.open",
+        element_selector=".ctc-popover:not([hidden])",
         themes=("light", "dark"),
         viewport=(1280, 800),
     ),

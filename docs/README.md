@@ -33,7 +33,7 @@ runs for you.
   the control-target popover. Builds the `control-assistant` tutorial project, brings up Postgres
   (`osprey up -d`), and seeds the logbook with
   `osprey sim apply nominal --yes --now <anchor>`. Needs a container runtime
-  and free host ports 34000–34999, 35064 and 35075 (its own port block, so a
+  and free host ports 26000–26999, 27064 and 27075 (its own port block, so a
   deployment on the default one can keep running). The `--now` anchor freezes the seeded dates, so
   repeat captures are byte-stable.
 - `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Sends its prompt through

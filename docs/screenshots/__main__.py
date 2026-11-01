@@ -234,8 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     # heavy capture dependencies (Playwright/chromium) are unavailable.
     from docs.screenshots import capture
 
-    capture.run(selected, stack=args.stack, agentic=args.agentic)
-    return 0
+    return 0 if capture.run(selected, stack=args.stack, agentic=args.agentic) else 1
 
 
 def _preflight() -> None:

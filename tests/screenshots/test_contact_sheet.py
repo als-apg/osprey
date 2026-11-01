@@ -359,6 +359,10 @@ class _FakeLocator:
         if not self.page.drawn.pop(0):
             raise PlaywrightTimeoutError("Timeout 30000ms exceeded.")
 
+    def screenshot(self) -> bytes:
+        self.page.events.append(f"crop:{self.selector}")
+        return b"cropped"
+
 
 class _FakeFrame:
     """A stand-in frame locator carrying the chain of iframe selectors that led to it."""
@@ -458,7 +462,8 @@ class _FakeBrowser:
     def __init__(self, page: _FakeHubPage) -> None:
         self.page = page
 
-    def new_page(self, viewport: object = None) -> _FakeHubPage:  # noqa: ARG002
+    def new_page(self, viewport: object = None, **kwargs: object) -> _FakeHubPage:  # noqa: ARG002
+        self.page_kwargs = kwargs
         return self.page
 
 
@@ -472,7 +477,8 @@ def _drive(
     *,
     agent: str = "terminal",
     stage: str | None = None,
-) -> None:
+    element: str | None = None,
+) -> _FakeBrowser:
     """Run :func:`capture_hub_view` against *page* with the live-hub waits stubbed out."""
     from docs.screenshots import contact_sheet as cs
 
@@ -482,7 +488,11 @@ def _drive(
     monkeypatch.setattr(cs, "_read_fitted_cols", lambda page: None)
     monkeypatch.setattr(serving, "authorize_browser_context", lambda context: None)
     hub = HermeticHub("http://127.0.0.1:9", "http://127.0.0.1:9", tmp_path, tmp_path / "sessions")
-    capture_hub_view(_FakeBrowser(page), hub, "light", agent, tmp_path / "shot.png", stage=stage)
+    browser = _FakeBrowser(page)
+    capture_hub_view(
+        browser, hub, "light", agent, tmp_path / "shot.png", stage=stage, element=element
+    )
+    return browser
 
 
 def test_fitted_cols_reader_distinguishes_none_from_a_number() -> None:
@@ -748,6 +758,26 @@ def test_hub_capture_shoots_after_both_plot_checks(
     assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible", "shot"]
     # The plot is picked in the hub's own sidebar list, never inside an iframe.
     assert page.clicks == [((), _PLOT_ROW_SELECTOR)]
+
+
+def test_hub_capture_crops_to_an_element_at_2x(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An element crop replaces the viewport shot and renders at 2x, like every crop."""
+    page = _FakeHubPage(drawn=[True, True])
+    browser = _drive(monkeypatch, tmp_path, page, element="#more-menu")
+    assert (tmp_path / "shot.png").read_bytes() == b"cropped"
+    assert browser.page_kwargs == {"device_scale_factor": 2}
+    assert "crop:#more-menu" in page.events
+    assert "shot" not in page.events
+
+
+def test_more_menu_stage_opens_the_menu(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The stage clicks ☰ More, then waits for the menu before the shot."""
+    page = _FakeHubPage(drawn=[True, True, True])
+    _drive(monkeypatch, tmp_path, page, stage="more_menu", element="#more-menu")
+    assert ((), "#more-btn") in page.clicks
+    assert ((), "#more-menu", "visible") in page.waits
 
 
 # ---------------------------------------------------------------------------

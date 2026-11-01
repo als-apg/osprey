@@ -352,3 +352,38 @@ def test_an_unreadable_catalog_skips_the_capture(tmp_path) -> None:
     (tmp_path / "profile.yml").write_text("provider: gw\n")
     with pytest.raises(ScreenshotSkip):
         capture._opus_model_id(tmp_path)
+
+
+def test_run_shares_one_stack_across_stack_recipes(monkeypatch, tmp_path) -> None:
+    """Every tutorial_stack recipe of a run is captured on one stack, built once."""
+    from contextlib import contextmanager
+
+    entered: list[int] = []
+    captured: list[str] = []
+
+    @contextmanager
+    def _one_stack():
+        entered.append(1)
+        yield tmp_path
+
+    @contextmanager
+    def _browser():
+        yield object()
+
+    def _capture(_browser, project_dir, shot, *, agentic):  # noqa: ARG001
+        assert project_dir == tmp_path
+        if shot.name == "b":
+            raise ScreenshotSkip("not this one")
+        captured.append(shot.name)
+        return [tmp_path / f"{shot.name}.png"]
+
+    monkeypatch.setattr(capture, "tutorial_stack", _one_stack)
+    monkeypatch.setattr(capture, "chromium_context", _browser)
+    monkeypatch.setattr(capture, "capture_on_stack", _capture)
+    monkeypatch.setattr(capture, "stamp_manifest", lambda name, kind: None)
+    shots = [DocShot(name=n, environment="tutorial_stack", kind="static") for n in "abc"]
+
+    capture.run(shots, stack=True)
+
+    assert entered == [1]
+    assert captured == ["a", "c"]

@@ -321,7 +321,7 @@ cd docs && make screenshots          # all container-free recipes — no contain
 Two recipes are opt-in because they cost more:
 
 - `ariel` and `control_target_popover` need a container runtime and free host
-  ports 34000–34999, 35064 and 35075 (the capture stack's own block) —
+  ports 26000–26999, 27064 and 27075 (the capture stack's own block) —
   `make screenshots SCREENSHOTOPTS=--stack`.
 - `web_terminal_hero` drives a live agent session on that stack —
   `python -m docs.screenshots --agentic --only web_terminal_hero`. It spends
