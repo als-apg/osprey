@@ -20,18 +20,18 @@ import pytest
 
 from osprey_connectors import config
 from osprey_connectors.config import (
-    SHELL_ONLY_ENV_PREFIXES,
-    SHELL_ONLY_ENV_VARS,
+    _SHELL_ONLY_ENV_PREFIXES,
+    _SHELL_ONLY_ENV_VARS,
+    _is_shell_only_env_var,
     apply_env_chain,
     dotenv_shell_overrides,
-    is_shell_only_env_var,
     load_project_dotenv,
 )
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 
 #: Every shell-only name, plus one name per loader prefix.
-PROBE_NAMES = sorted(SHELL_ONLY_ENV_VARS) + [
-    f"{prefix}OSPREY_PROBE" for prefix in SHELL_ONLY_ENV_PREFIXES
+PROBE_NAMES = sorted(_SHELL_ONLY_ENV_VARS) + [
+    f"{prefix}OSPREY_PROBE" for prefix in _SHELL_ONLY_ENV_PREFIXES
 ]
 
 
@@ -170,8 +170,8 @@ DELIBERATE_PASS_THROUGH: frozenset[str] = frozenset(
 
 
 def test_every_denylisted_name_belongs_to_a_runtime_row():
-    assert SHELL_ONLY_ENV_VARS <= set(RUNTIME_LAUNCH_NAMES)
-    for prefix in SHELL_ONLY_ENV_PREFIXES:
+    assert _SHELL_ONLY_ENV_VARS <= set(RUNTIME_LAUNCH_NAMES)
+    for prefix in _SHELL_ONLY_ENV_PREFIXES:
         assert any(name.startswith(prefix) for name in RUNTIME_LAUNCH_NAMES), prefix
 
 
@@ -180,7 +180,7 @@ def test_pinned_hijack_variable_is_refused(tmp_path, name):
     path = tmp_path / ".env"
     path.write_text(f"{name}={_file_value(name)}\n", encoding="utf-8")
     environ = {name: _shell_value(name)}
-    assert is_shell_only_env_var(name)
+    assert _is_shell_only_env_var(name)
     assert apply_env_chain(environ, [path]) == []
     assert environ == {name: _shell_value(name)}
 
@@ -195,7 +195,7 @@ def test_deliberate_pass_through_names_are_applied(tmp_path):
     assert apply_env_chain(environ, [path]) == sorted(DELIBERATE_PASS_THROUGH)
     assert environ == {name: _file_value(name) for name in DELIBERATE_PASS_THROUGH}
     for name in DELIBERATE_PASS_THROUGH:
-        assert not is_shell_only_env_var(name), name
+        assert not _is_shell_only_env_var(name), name
 
 
 def test_certificate_trust_and_facility_keys_pass_through(tmp_path):
@@ -228,8 +228,8 @@ def test_names_compare_case_insensitively(tmp_path, caplog):
 
 def test_every_probe_name_is_shell_only():
     for name in PROBE_NAMES:
-        assert is_shell_only_env_var(name), name
-    assert not is_shell_only_env_var("EPICS_CA_ADDR_LIST")
+        assert _is_shell_only_env_var(name), name
+    assert not _is_shell_only_env_var("EPICS_CA_ADDR_LIST")
 
 
 @pytest.mark.parametrize("override", [True, False])

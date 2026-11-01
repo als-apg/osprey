@@ -498,8 +498,8 @@ def inject_provider_env(
     ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
     full host-propagation contract — narrowing it would silently break control-
     system MCP addressing. The one exception is the shell-only launch
-    variables (:func:`osprey_connectors.config.is_shell_only_env_var`), which
-    keep the shell's value. The chain is applied local-over-shared, and the
+    variables, which :func:`osprey_connectors.config.apply_env_chain` skips, so
+    they keep the shell's value. The chain is applied local-over-shared, and the
     result wins over a stale shell export. An unparseable
     ``HTTP_PROXY`` (from the chain or the shell) is carried straight through
     but reported via :func:`_warn_on_invalid_proxy_env` — #352.

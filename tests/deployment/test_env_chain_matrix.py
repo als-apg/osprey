@@ -581,9 +581,9 @@ PROCESS_ENV_LOADERS = [
 
 
 def test_the_probes_are_shell_only() -> None:
-    from osprey_connectors.config import is_shell_only_env_var
+    from osprey_connectors.config import _is_shell_only_env_var
 
-    assert all(is_shell_only_env_var(name) for name in SHELL_ONLY_PROBES)
+    assert all(_is_shell_only_env_var(name) for name in SHELL_ONLY_PROBES)
 
 
 @pytest.mark.parametrize("probe", PROCESS_ENV_LOADERS)
