@@ -176,7 +176,8 @@ plugin tree changes.
 manifests disagree. `bump` advances `YYYY.M.N` in both (`--set` writes a given
 version). `check --base <ref>` compares the branch against what it merges into:
 when `plugins/`, `.claude-plugin/` or `.agents/plugins/` changed since the merge
-base, the head version must differ from every version the base tip carries. A
+base, the head version must be newer than every version the base tip carries,
+compared as numbers (2026.10.0 is newer than 2026.9.9). A
 plain branch name such as `main` is read as `origin/main` first, as every
 range check in this directory reads it.
 
@@ -184,6 +185,7 @@ range check in this directory reads it.
 ```bash
 uv run python scripts/plugin_version.py show
 uv run python scripts/plugin_version.py bump
+uv run python scripts/plugin_version.py bump --base origin/main   # on a branch behind its base
 
 # What the `lint` CI job and `scripts/check.py`'s plugin-version check run;
 # --worktree judges staged, unstaged and untracked files too
@@ -195,8 +197,8 @@ uv run python scripts/plugin_version.py check --base origin/main
 
 **Exit codes** (`check`):
 - `0`: The plugin tree is untouched, new, or carries a new version
-- `1`: The plugin tree changed without a version bump, or the manifests cannot
-  be read or disagree
+- `1`: The plugin tree changed without a version newer than the base's, a
+  version is not CalVer, or the manifests cannot be read or disagree
 - `2`: Environment problem — the base ref was not found, or the clone is too
   shallow to find a common ancestor
 
