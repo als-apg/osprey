@@ -83,6 +83,33 @@ pass included, leaves an entry in the audit trail with reason
 ``code_review`` (:ref:`reference-audit-trail`), so the record shows that the code was read
 even when nothing was found.
 
+.. raw:: html
+
+   <div class="osprey-demo">
+     <video id="code-review-demo" preload="metadata" muted loop playsinline controls
+            poster="../../_static/demo/code-review-light-poster.jpg"
+            aria-label="Demo video of code review blocking a corrector scan"
+            aria-describedby="code-review-demo-note">
+       <source src="../../_static/demo/code-review-light.mp4" type="video/mp4">
+       <img src="../../_static/demo/code-review-light-poster.jpg"
+            alt="An approval card for a corrector scan, with the verdict Code review: pass.">
+     </video>
+     <p class="osprey-demo-note" id="code-review-demo-note">
+       The demo rule: a corrector scan must first read SR:BEAM:USER_MODE. The review blocks
+       the first script, the agent adds the check, and the operator approves the corrected
+       one. One unedited session; the agent's working time is sped up (marked ⏩&nbsp;with
+       its factor), and the clock in the corner shows the real elapsed time.
+     </p>
+     <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
+       <span>Speed</span>
+       <button type="button" data-rate="1">1×</button>
+       <button type="button" data-rate="1.5">1.5×</button>
+       <button type="button" data-rate="2">2×</button>
+       <button type="button" data-rate="3">3×</button>
+     </div>
+   </div>
+   <script src="../../_static/js/doc-video.js"></script>
+
 When the reviewer is down
 =========================
 
