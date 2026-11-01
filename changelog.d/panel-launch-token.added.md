@@ -1,1 +1,1 @@
-An application panel's launch token is held by the terminal and injected on that panel's proxy hop, never sent to the browser; an inbound `X-Launch-Token` is dropped on every panel hop.
+An application panel's launch token is held by the terminal and injected on that panel's proxy hop, never sent to the browser; an inbound `X-Launch-Token` is dropped on every panel hop. A panel naming any variable but its application's own launch token refuses the deploy.

@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 
+from osprey.apps.manifest import launch_token_env
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import (
@@ -917,11 +918,21 @@ def _hold_panel_launch_tokens(app: FastAPI, custom_panels: list[dict]) -> None:
     Read from this process's environment: compose hands it to a roster's
     container, and a roster-less terminal loads it from the deploy ``.env``. An
     empty variable holds nothing, so the backend refuses the launch; the warning
-    names the variable and never a value.
+    names the variable and never a value. A variable that is not the application's
+    own is never read: what is held goes upstream as a header.
     """
     for panel in custom_panels:
         name = panel.get("launchTokenEnv")
         if not name:
+            continue
+        try:
+            own = launch_token_env(str(panel.get("app") or ""))
+        except ValueError:
+            own = None
+        if name != own:
+            logger.warning(
+                "Panel %s names %s, which is not its application's launch token", panel["id"], name
+            )
             continue
         token = os.environ.get(name, "")
         if token.strip():
