@@ -653,6 +653,39 @@ def config_port_base(config: Any) -> int:
     )
 
 
+def config_image_platform(config: Any) -> str | None:
+    """The platform a profile's flat ``config:`` block states for its images.
+
+    The one reading of ``images.platform``: the parse runs it so a value no
+    builder accepts is refused here, and the build reads the same answer from
+    the root profile. Only the keys addressing ``images`` are folded, for the
+    reason :func:`config_port_base` gives.
+
+    Returns:
+        The stated platform, or None when the block states none.
+
+    Raises:
+        BuildProfileError: The block names a platform outside
+            :data:`~osprey.deployment.image_facts.IMAGE_PLATFORMS`.
+    """
+    from osprey.deployment.image_facts import stated_image_platform
+
+    from .build_profile_emit import effective_config_subtree
+
+    if not isinstance(config, Mapping):
+        return None
+    images_keys = {
+        key: value
+        for key, value in config.items()
+        if key == "images" or (isinstance(key, str) and key.startswith("images."))
+    }
+    images = effective_config_subtree(images_keys, ("images",))
+    try:
+        return stated_image_platform(images.get("platform"))
+    except ValueError as error:
+        raise BuildProfileError(f"{PROFILE_FILENAME} config: {error}") from error
+
+
 def _parse_live_standin(value: Any, base: int) -> int | None:
     """Normalise ``virtual_accelerator.live_standin`` to a port or ``None``.
 
@@ -1829,6 +1862,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     # that asked for 20000, leaving the rendered config disagreeing with the
     # compose templates that derive from `osprey_ports`.
     port_base = _profile_port_base(raw)
+    config_image_platform(raw.get("config"))
 
     dispatch_raw = raw.get("dispatch")
     dispatch = None
