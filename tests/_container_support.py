@@ -29,7 +29,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from contextlib import suppress
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import pytest
 import requests
@@ -347,6 +347,45 @@ _TERMINAL_STATES = frozenset({"exited", "dead", "removing"})
 _EXITED_ENDING_PREFIX = "the container reached state"
 
 
+#: Seconds one daemon call of a state read may take. A readiness wait reads
+#: liveness every round, and a failure reads the state of a store that stopped
+#: answering; both run at moments the daemon is often slow too, so each call is
+#: bounded rather than left to the client's default minute.
+CONTAINER_STATE_TIMEOUT = 10.0
+
+
+class _BoundedDaemon:
+    """A docker client of its own whose every call is bounded by *timeout*.
+
+    Opened at the first lookup, so a caller that never reads a container never
+    asks the daemon anything, and closed by :meth:`close`, which is safe to call
+    whether or not it was opened.
+    """
+
+    def __init__(self, timeout: float) -> None:
+        self._timeout = timeout
+        self._client: Any = None
+
+    def get(self, container_id: str) -> Any:
+        """The daemon's current view of the container with *container_id*.
+
+        Raises:
+            Exception: Whatever the client raises when the daemon does not
+                answer within the timeout or no longer knows the container.
+        """
+        if self._client is None:
+            import docker
+
+            self._client = docker.from_env(timeout=self._timeout)
+        return self._client.containers.get(container_id)
+
+    def close(self) -> None:
+        """Close the client if it was opened."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+
 class ContainerExitedError(AssertionError):
     """A readiness wait ended because the container it was waiting on exited.
 
@@ -439,47 +478,52 @@ def wait_until_ready(
     seen_tail: bytes | None = None
     ending = ""
 
-    while True:
-        attempts += 1
-        try:
-            probe()
-        except Exception as exc:  # any failure means "not ready yet"
-            last = exc
-            only_refusals = only_refusals and _is_refused_connection(exc)
-        else:
-            return
+    # One bounded client serves every liveness read of this wait.
+    daemon = _BoundedDaemon(CONTAINER_STATE_TIMEOUT)
+    try:
+        while True:
+            attempts += 1
+            try:
+                probe()
+            except Exception as exc:  # any failure means "not ready yet"
+                last = exc
+                only_refusals = only_refusals and _is_refused_connection(exc)
+            else:
+                return
 
-        if container is not None:
-            status, tail = _container_liveness(container)
-            if status in _TERMINAL_STATES:
-                ending = f"{_EXITED_ENDING_PREFIX} {status!r}"
+            if container is not None:
+                status, tail = _container_liveness(container, daemon)
+                if status in _TERMINAL_STATES:
+                    ending = f"{_EXITED_ENDING_PREFIX} {status!r}"
+                    break
+                if tail is not None and tail != seen_tail:
+                    if seen_tail is not None:
+                        deadline = time.monotonic() + timeout
+                    seen_tail = tail
+
+            now = time.monotonic()
+            if now >= hard_deadline:
+                ending = f"it reached the {ceiling:g}s ceiling"
                 break
-            if tail is not None and tail != seen_tail:
-                if seen_tail is not None:
-                    deadline = time.monotonic() + timeout
-                seen_tail = tail
+            if now >= deadline:
+                ending = f"it went {timeout:g}s without visible progress"
+                break
+            time.sleep(interval)
 
-        now = time.monotonic()
-        if now >= hard_deadline:
-            ending = f"it reached the {ceiling:g}s ceiling"
-            break
-        if now >= deadline:
-            ending = f"it went {timeout:g}s without visible progress"
-            break
-        time.sleep(interval)
-
-    exited = ending.startswith(_EXITED_ENDING_PREFIX)
-    raise (ContainerExitedError if exited else AssertionError)(
-        _readiness_failure(
-            label=label,
-            elapsed=time.monotonic() - started,
-            attempts=attempts,
-            ending=ending,
-            only_refusals=only_refusals,
-            last=last,
-            container=container,
+        exited = ending.startswith(_EXITED_ENDING_PREFIX)
+        raise (ContainerExitedError if exited else AssertionError)(
+            _readiness_failure(
+                label=label,
+                elapsed=time.monotonic() - started,
+                attempts=attempts,
+                ending=ending,
+                only_refusals=only_refusals,
+                last=last,
+                container=container,
+            )
         )
-    )
+    finally:
+        daemon.close()
 
 
 def _is_refused_connection(exc: BaseException) -> bool:
@@ -501,8 +545,15 @@ def _is_refused_connection(exc: BaseException) -> bool:
     return "connection refused" in text or "connection reset" in text
 
 
-def _container_liveness(container: object) -> tuple[str | None, bytes | None]:
+def _container_liveness(
+    container: object, daemon: _BoundedDaemon
+) -> tuple[str | None, bytes | None]:
     """Read *container*'s state and the tail of its log.
+
+    A docker container, one whose wrapped container has an ``id``, is read
+    through *daemon*: two daemon calls, each bounded by *daemon*'s timeout, the
+    lookup that returns the current state and the log tail. Any other subject,
+    a child process seen through the same interface, reads its own state.
 
     Returns ``(None, None)`` when the daemon will not answer. A readiness wait
     that could not read the state must keep waiting on the probe alone rather
@@ -511,7 +562,11 @@ def _container_liveness(container: object) -> tuple[str | None, bytes | None]:
     """
     try:
         wrapped = container.get_wrapped_container()  # type: ignore[attr-defined]
-        wrapped.reload()
+        container_id = getattr(wrapped, "id", None)
+        if container_id is None:
+            wrapped.reload()
+        else:
+            wrapped = daemon.get(container_id)
         status = str(wrapped.status)
         tail = wrapped.logs(tail=_PROGRESS_TAIL_LINES)
     except Exception as exc:  # an unreadable container is not a verdict
@@ -582,11 +637,6 @@ def _skip_message(label: str, exc: BaseException, attempt: int) -> str:
     )
 
 
-#: Seconds a state read may take. It runs at the moment a store has stopped
-#: answering, which is often a moment the daemon is slow too, so it is bounded
-#: rather than left to the client's default minute.
-CONTAINER_STATE_TIMEOUT = 10.0
-
 #: States that end a container's run, for which the exit code is the fact.
 _STOPPED_STATES = frozenset({"exited", "dead"})
 
@@ -616,18 +666,17 @@ def container_state(container: object, *, timeout: float = CONTAINER_STATE_TIMEO
         import docker.errors
     except ImportError as exc:
         return f"unreadable ({type(exc).__name__}: {exc})"
+    daemon = _BoundedDaemon(timeout)
     try:
         container_id = container.get_wrapped_container().id  # type: ignore[attr-defined]
-        client = docker.from_env(timeout=timeout)
-        try:
-            state = client.containers.get(container_id).attrs.get("State") or {}
-        finally:
-            client.close()
+        state = daemon.get(container_id).attrs.get("State") or {}
     except docker.errors.NotFound:
         return "gone"
     except Exception as exc:
         # Reported as the state, never raised over the failure being reported.
         return f"unreadable ({type(exc).__name__}: {exc})"
+    finally:
+        daemon.close()
     status = str(state.get("Status") or "unknown")
     if status not in _STOPPED_STATES:
         return status

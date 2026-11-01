@@ -353,7 +353,7 @@ STORE_PROBE_INTERVAL_S = 1.0
 #: there is no progress signal to extend on: this is a plain window that ends
 #: early only on an answer or an exited container. The window, the lost read
 #: before it (up to the driver's 60 s acquisition deadline) and one liveness
-#: read that a stalled daemon can hold for its client's default minute must
+#: read (two daemon calls, each bounded by ``CONTAINER_STATE_TIMEOUT``) must
 #: all fit together inside a 300 s per-test cap.
 STORE_RECOVERY_S = 120.0
 
