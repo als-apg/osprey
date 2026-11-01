@@ -681,14 +681,14 @@ example <em>Control system: Rehearsal, writes asked</em>. Put the pointer on the
 health dot to see the health of the services.</p>
 <p>The first part names the machine this deployment stands on, by what it <strong>is</strong>:</p>
 <ul class="simple">
-<li><p><strong>Real machine</strong> — the facility’s own. Writes move hardware.</p></li>
+<li><p><strong>Live</strong> — the facility’s own. Writes move hardware.</p></li>
 <li><p><strong>Rehearsal</strong> — a copy of the real machine’s controls, same channel names,
 no hardware behind it. Nothing moves.</p></li>
 <li><p><strong>Simulator</strong> — the virtual accelerator: a physics model with beam in it,
 served from its container or in process. Nothing moves.</p></li>
 </ul>
 <p>A deployment can put its own names on its machines (<em>Example Research
-Facility storage ring</em> rather than <em>Real machine</em>); what the machine is stays
+Facility storage ring</em> rather than <em>Live</em>); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server’s own technical label.</p>
 <p>The second part is <strong>your login’s</strong> write switch for that machine, and what
@@ -746,10 +746,10 @@ refuses it — no lock, no read-only run, no second terminal. If a stop cannot
 be recorded you are told plainly that it did not take effect; the chip never
 shows an off that was not recorded.</p>
 <p><strong>Widening</strong> asks first. The confirmation names the machine and says whether
-writes will still prompt. Tick <em>Don’t ask again for this machine</em> to skip it
-for a move to <em>asked</em> (Shift-click brings it back). A move to <em>allowed</em>, and
-the real machine, always ask. If a stop lands while you are confirming, the
-move does not take effect: the chip re-reads and you click again.</p>
+writes will still prompt. Tick <em>Don’t ask again on any machine</em> to skip it for
+every move to <em>asked</em> or <em>allowed</em>, the live machine included; Shift-click or
+<em>Ask again</em> in the popover brings it back. If a stop lands while you are
+confirming, the move does not take effect: the chip re-reads and you click again.</p>
 <p><strong>Nothing is restarted.</strong> Every gate reads the switch at the moment of the
 write. A narrowing reaches every next write, runs already going included: the
 agent’s next tool call, a running notebook cell’s or Python run’s next write.
@@ -806,8 +806,8 @@ until the tier is restored.</p>
 <p><strong>Switch to</strong> on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
 your switch’s position there — the switch is per machine, and it does not
-travel with you. This dialog too can be skipped with <em>Don’t ask again
-for this machine</em>. The page that holds the control context runs the same
+travel with you. This dialog too can be skipped with its own <em>Don’t ask
+again on any machine</em>. The page that holds the control context runs the same
 checks the agent’s own switch runs — that the move is allowed, and that
 nothing is mid-flight on the machine you are leaving — and records the
 outcome; the deployment’s control-system servers then move themselves onto it
