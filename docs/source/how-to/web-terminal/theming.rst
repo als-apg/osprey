@@ -46,7 +46,7 @@ Until you pick Light or Dark, pages follow your operating system's light/dark
 preference.
 
 Panels shown inside the terminal are a separate case. The terminal hands each
-one its theme and view in the page address, and an address outranks the
+one its theme in the page address, and an address outranks the
 remembered preference, so an embedded panel always matches the terminal
 around it. The JUPYTER panel matches the light or dark side only, in
 JupyterLab's own *JupyterLab Dark* and *JupyterLab Light* themes

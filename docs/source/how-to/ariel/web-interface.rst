@@ -140,7 +140,7 @@ comes up that way the next time you load it, and the other way round too. There
 is no separate preference to keep in step.
 
 ARIEL running *inside* the web terminal, as a panel, behaves differently on
-purpose. The terminal passes its own theme and view to the panel in the page
+purpose. The terminal passes its own theme to the panel in the page
 address, and an address always outranks the remembered preference, so an
 embedded panel matches the terminal it sits in no matter what was set
 elsewhere. The embedded panel has no header of its own either --- the
