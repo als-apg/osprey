@@ -214,15 +214,12 @@ jobs:
       # the floating uv defaults to: a pre-release is taken only where nothing
       # stable satisfies a requirement — which includes a requirement that names
       # one, since no stable satisfies `==X.YbN` — the policy the resolvers
-      # deployments use behave like. Since uv 0.12 that is what `if-necessary`
-      # means (stable first, a pre-release only when every stable candidate is
-      # rejected, transitive dependencies included); the older
-      # `if-necessary-or-explicit` is now its deprecated alias and warns. Before
-      # 0.12, `if-necessary` admitted a pre-release only for a package with no
-      # stable release at all, but setup-uv installs the current uv. After the
-      # cut-over the framework's floor names a stable connectors release
-      # (osprey-connectors 2026.10.0, published before the floor is raised), so
-      # this resolves the stable one and a connectors beta is never absorbed.
+      # deployments use behave like. With uv ≥ 0.12, `if-necessary` means
+      # stable first, a pre-release only when every stable candidate is
+      # rejected, transitive dependencies included; `if-necessary-or-explicit`
+      # is its deprecated alias. setup-uv installs the current uv. The
+      # framework's floor names a stable osprey-connectors release, so this
+      # resolves a stable one and a connectors beta is never absorbed.
       run: |
         mkdir -p /tmp/sibling
         for wheel in dist/*.whl; do
