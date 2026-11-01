@@ -39,14 +39,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:7d90bd6a35a692ae1a8baca9a4d7fc2b1a77a83f11b653697c9a9059773dc64b"
     ),
     "hello-world": ("sha256:64e800d50fa5250991e06c374a10282f0728f3daa77dfb6db748bf8306dc576f"),
-    "tiers/admin": ("sha256:b3c44a1abcfd7f1e0a2172b1bc3ef91017d581c04441ce37b8ca50bea4322fec"),
-    "tiers/readonly": ("sha256:2de7e2480b79ffafde8a2fd34b37c4195c31f12fdce5ff376e92c048c44af47f"),
-    "tiers/readwrite": ("sha256:c6915b1f77c865a131df33ad4de1ec9464f9d8e27e434838cb7c9c4c17a80adf"),
+    "tiers/admin": ("sha256:dc41dc870db1340a707c9bf6e475ed0998b37e0db3f635a77c80115106d1f106"),
+    "tiers/readonly": ("sha256:9cfce627f4df87aac7f8d212cce4819d487471e2ce4b386c4b6da3f127f41605"),
+    "tiers/readwrite": ("sha256:787e5efd355a84b81c1d9c8cd9d6fa6252dda5e0d7d096ea417a0e8805ceb3bd"),
     "apps/channel-finder": (
-        "sha256:0a5ebde0372a23ed24d2dd676231ba871233bc05d7d698ac7c79322f7623e196"
+        "sha256:ba2a4a1ecf0e0909186e356e6c7048914c04f85de986fdb021b8b5760a1f0ccf"
     ),
-    "apps/knowledge": ("sha256:9b2cb4dc882df398eca494148016d61e8cf37a0dd18ab8b39fdc7f0c3a9f53d3"),
-    "apps/logbook": ("sha256:3b02f7e2ed3653f996605d480d563407411d8b4d1aad61490d95e24d46013108"),
+    "apps/knowledge": ("sha256:2935d762f22f240e7b5c70ba4277dd657daa7cfb3012b7b2f78c87502c7e2e7e"),
+    "apps/logbook": ("sha256:940270aee05d7b67254e91c61f0bb459bb8433282d183736c60e39993a7d7290"),
 }
 
 

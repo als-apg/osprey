@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode chat: turn blocks.
+/* OSPREY Web Terminal — operator chat: turn blocks.
  *
  * DOM builders for the pieces an agent turn is made of that are not tool calls
  * or cards: the live loader, the thinking row, the turn footer, the error,

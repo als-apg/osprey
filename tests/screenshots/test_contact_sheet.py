@@ -145,7 +145,7 @@ def test_seed_covers_three_types_including_plotly(tmp_path: Path) -> None:
 
 
 def test_seed_descriptions_serve_as_captions(tmp_path: Path) -> None:
-    """Simple-mode captions come from description, so every entry has one."""
+    """Captions come from description, so every entry has one."""
     seed_demo_workspace(tmp_path)
 
     store = ArtifactStore(workspace_root=tmp_path)
@@ -253,35 +253,34 @@ def test_launcher_cleans_up_project_and_session_dirs_on_exit() -> None:
 
 
 def test_capture_variants_cover_dark_and_light() -> None:
-    """The default variant list is the full theme × UI-mode matrix."""
+    """The default variant list is the full theme × agent-surface matrix."""
     for theme in ("dark", "light"):
-        for mode in ("expert", "simple"):
-            assert (theme, mode) in VARIANTS
+        for agent in ("chat", "terminal"):
+            assert (theme, agent) in VARIANTS
     assert len(VARIANTS) == 4
     # Output filenames are unique across variants.
-    names = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
+    names = [_variant_filename(theme, agent) for theme, agent in VARIANTS]
     assert len(names) == len(set(names))
 
 
 def test_capture_variant_filename_and_url() -> None:
-    """Mode is absent from both filename and URL until one is set."""
+    """The agent is in the filename when set, and never in the URL."""
     assert _variant_filename("dark", None) == "web_terminal_dark.png"
-    assert _variant_filename("light", "simple") == "web_terminal_light_simple.png"
-    assert _variant_filename("dark", "expert", "teal") == "web_terminal_dark_expert_teal.png"
+    assert _variant_filename("light", "chat") == "web_terminal_light_chat.png"
+    assert _variant_filename("dark", "terminal", "teal") == "web_terminal_dark_terminal_teal.png"
 
-    assert _variant_url("http://h", "dark", None) == "http://h/?theme=dark"
-    assert _variant_url("http://h", "light", "simple") == "http://h/?theme=light&mode=simple"
+    assert _variant_url("http://h", "dark") == "http://h/?theme=dark"
 
 
 def test_extra_variants_unique_filenames() -> None:
     """The showcase extras never collide with the base matrix or each other."""
-    base = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
-    extra = [_variant_filename(theme, mode) for theme, mode in EXTRA_VARIANTS]
+    base = [_variant_filename(theme, agent) for theme, agent in VARIANTS]
+    extra = [_variant_filename(theme, agent) for theme, agent in EXTRA_VARIANTS]
     names = base + extra
     assert len(names) == len(set(names))
     # Every extra is a retro theme — the showcase never silently duplicates a
     # base 2×2 cell.
-    for theme, _mode in EXTRA_VARIANTS:
+    for theme, _agent in EXTRA_VARIANTS:
         assert theme.startswith("retro")
 
 
@@ -471,7 +470,7 @@ def _drive(
     tmp_path: Path,
     page: _FakeHubPage,
     *,
-    mode: str = "expert",
+    agent: str = "terminal",
     stage: str | None = None,
 ) -> None:
     """Run :func:`capture_hub_view` against *page* with the live-hub waits stubbed out."""
@@ -479,11 +478,11 @@ def _drive(
 
     import osprey.interfaces._serving as serving
 
-    monkeypatch.setattr(cs, "_wait_for_resumed_session", lambda page, mode, *, variant: None)
+    monkeypatch.setattr(cs, "_wait_for_resumed_session", lambda page, agent, *, variant: None)
     monkeypatch.setattr(cs, "_read_fitted_cols", lambda page: None)
     monkeypatch.setattr(serving, "authorize_browser_context", lambda context: None)
     hub = HermeticHub("http://127.0.0.1:9", "http://127.0.0.1:9", tmp_path, tmp_path / "sessions")
-    capture_hub_view(_FakeBrowser(page), hub, "light", mode, tmp_path / "shot.png", stage=stage)
+    capture_hub_view(_FakeBrowser(page), hub, "light", agent, tmp_path / "shot.png", stage=stage)
 
 
 def test_fitted_cols_reader_distinguishes_none_from_a_number() -> None:
@@ -504,7 +503,7 @@ def test_fitted_cols_reader_distinguishes_none_from_a_number() -> None:
     # The three legitimate skips, each for a different reason.
     #  - the seam never reports a fitted size (no terminal on this page)
     assert _read_fitted_cols(_FakePage(dims=None, ready=False)) is None
-    #  - a zero-width .xterm: Simple mode's hidden terminal, whose dims are
+    #  - a zero-width .xterm: the chat surface's hidden terminal, whose dims are
     #    xterm's 10x4 fallback rather than a fit
     assert _read_fitted_cols(_FakePage(dims={"cols": 96, "rows": 24}, term_width=0)) is None
     #  - the seam answers null (getTerminalDimensions() before initTerminal())
@@ -562,7 +561,7 @@ def test_compose_contact_sheet_is_self_contained(tmp_path: Path) -> None:
     """The composed sheet references only sibling PNGs — no external assets."""
     captured = [
         CapturedVariant("dark", None, None, "web_terminal_dark.png"),
-        CapturedVariant("light", "simple", "teal", "web_terminal_light_simple_teal.png"),
+        CapturedVariant("light", "chat", "teal", "web_terminal_light_chat_teal.png"),
     ]
     for cv in captured:
         (tmp_path / cv.filename).write_bytes(b"\x89PNG\r\n")  # placeholder image bytes
@@ -574,9 +573,9 @@ def test_compose_contact_sheet_is_self_contained(tmp_path: Path) -> None:
     # One <img> per variant, pointing at the local sibling PNG.
     for cv in captured:
         assert f'src="{cv.filename}"' in doc
-    # Labels surface theme, mode, and accent candidate.
-    assert "Light · Simple · teal" in doc
-    assert "Dark · Default" in doc
+    # Labels surface theme, agent, and accent candidate.
+    assert "Light · Chat · teal" in doc
+    assert ">Dark<" in doc
     # Provenance header is present.
     assert "rev " in doc
     # Fully self-contained: no external (remote) asset references.
@@ -585,11 +584,10 @@ def test_compose_contact_sheet_is_self_contained(tmp_path: Path) -> None:
 
 
 def test_compose_variant_label_omits_empty_axes() -> None:
-    """The label drops mode/accent when unset, includes them when present."""
-    assert _variant_label(CapturedVariant("dark", None, None, "x.png")) == "Dark · Default"
+    """The label drops agent/accent when unset, includes them when present."""
+    assert _variant_label(CapturedVariant("dark", None, None, "x.png")) == "Dark"
     assert (
-        _variant_label(CapturedVariant("light", "simple", "blue", "x.png"))
-        == "Light · Simple · blue"
+        _variant_label(CapturedVariant("light", "chat", "blue", "x.png")) == "Light · Chat · blue"
     )
 
 
@@ -646,12 +644,12 @@ def test_accent_effective_variants_double_and_are_paired() -> None:
     ab = _effective_variants(True)
     assert all(accent is None for _, _, accent in base)
     assert len(ab) == 2 * len(base)
-    assert ("dark", "expert", "blue") in ab
-    assert ("dark", "expert", "teal") in ab
+    assert ("dark", "terminal", "blue") in ab
+    assert ("dark", "terminal", "teal") in ab
     # Distinct output filenames per accent.
     names = [_variant_filename(t, m, a) for t, m, a in ab]
     assert len(names) == len(set(names))
-    assert "web_terminal_dark_expert_teal.png" in names
+    assert "web_terminal_dark_terminal_teal.png" in names
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +679,7 @@ def test_drawn_plot_selector_needs_a_drawn_trace() -> None:
 def test_plot_wait_asks_the_viewer_for_a_visible_trace() -> None:
     """One wait, for a visible drawn trace, inside the artifacts viewer's preview frame."""
     page = _FakeHubPage(drawn=[True])
-    _wait_for_plot_drawn(page, variant="theme=light, mode=expert", moment="before the shot")
+    _wait_for_plot_drawn(page, variant="theme=light, agent=terminal", moment="before the shot")
     assert page.waits == [
         ((_ARTIFACTS_PANEL, _PLOT_FRAME_SELECTOR), _PLOT_DRAWN_SELECTOR, "visible")
     ]
@@ -691,9 +689,9 @@ def test_plot_wait_names_the_variant_when_the_plot_never_draws() -> None:
     """A timeout becomes a RuntimeError naming the variant and the moment."""
     page = _FakeHubPage(drawn=[False])
     with pytest.raises(RuntimeError) as info:
-        _wait_for_plot_drawn(page, variant="theme=dark, mode=expert", moment="before the shot")
+        _wait_for_plot_drawn(page, variant="theme=dark, agent=terminal", moment="before the shot")
     message = str(info.value)
-    assert "theme=dark, mode=expert" in message
+    assert "theme=dark, agent=terminal" in message
     assert "before the shot" in message
     assert "did not draw" in message
     assert isinstance(info.value.__cause__, PlaywrightTimeoutError)
@@ -712,7 +710,7 @@ def test_hub_capture_writes_no_image_when_the_plot_never_draws(
 ) -> None:
     """A plot that never draws fails the capture, writes nothing, and still tears down."""
     page = _FakeHubPage(drawn=[False])
-    with pytest.raises(RuntimeError, match="theme=light, mode=expert"):
+    with pytest.raises(RuntimeError, match="theme=light, agent=terminal"):
         _drive(monkeypatch, tmp_path, page)
     assert "shot" not in page.events
     assert not (tmp_path / "shot.png").exists()
@@ -758,14 +756,14 @@ def test_hub_capture_shoots_after_both_plot_checks(
 
 
 def test_fake_session_opens_on_the_demo_prompt() -> None:
-    """The fake session's one user line is the prompt the Simple chat replays."""
+    """The fake session's one user line is the prompt the chat replays."""
     assert json.loads(_fake_session_line())["message"]["content"] == DEMO_OPENING_PROMPT
 
 
-def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
-    """Simple waits once, on the chat's replayed operator message, never on the terminal."""
+def test_resumed_session_wait_reads_the_chat() -> None:
+    """The chat waits once, on its replayed operator message, never on the terminal."""
     page = _FakeHubPage(drawn=[])
-    _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
+    _wait_for_resumed_session(page, "chat", variant="theme=light, agent=chat")
     assert len(page.functions) == 1
     expression, arg = page.functions[0]
     assert ".op-entry.operator > .op-bubble" in expression
@@ -774,11 +772,10 @@ def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
     assert arg == DEMO_OPENING_PROMPT
 
 
-@pytest.mark.parametrize("mode", ["expert", None])
-def test_resumed_session_wait_reads_the_terminal_in_expert(mode: str | None) -> None:
-    """Expert waits for the sentinel in the terminal, then for the confirmed id."""
+def test_resumed_session_wait_reads_the_terminal() -> None:
+    """The terminal waits for the sentinel, then for the confirmed id."""
     page = _FakeHubPage(drawn=[])
-    _wait_for_resumed_session(page, mode, variant="theme=light")
+    _wait_for_resumed_session(page, "terminal", variant="theme=light")
     assert len(page.functions) == 2
     (first, first_arg), (second, second_arg) = page.functions
     assert ".xterm-rows" in first
@@ -788,14 +785,16 @@ def test_resumed_session_wait_reads_the_terminal_in_expert(mode: str | None) -> 
     assert second_arg == DEMO_SESSION_ID[:8]
 
 
-@pytest.mark.parametrize(("mode", "view"), [("simple", "operator chat"), ("expert", "terminal")])
-def test_resumed_session_wait_names_the_variant_when_it_never_appears(mode: str, view: str) -> None:
+@pytest.mark.parametrize(("agent", "view"), [("chat", "operator chat"), ("terminal", "terminal")])
+def test_resumed_session_wait_names_the_variant_when_it_never_appears(
+    agent: str, view: str
+) -> None:
     """A session that never appears raises a RuntimeError naming the variant and view."""
     timeout = PlaywrightTimeoutError("Timeout 30000ms exceeded.")
     page = _FakeHubPage(drawn=[], function_error=timeout)
-    variant = f"theme=dark, mode={mode}"
+    variant = f"theme=dark, agent={agent}"
     with pytest.raises(RuntimeError) as info:
-        _wait_for_resumed_session(page, mode, variant=variant)
+        _wait_for_resumed_session(page, agent, variant=variant)
     assert variant in str(info.value)
     assert view in str(info.value)
     assert info.value.__cause__ is timeout
@@ -805,7 +804,7 @@ def test_resumed_session_wait_does_not_swallow_other_errors() -> None:
     """A Playwright error other than a timeout propagates unchanged."""
     page = _FakeHubPage(drawn=[], function_error=PlaywrightError("frame detached"))
     with pytest.raises(PlaywrightError, match="frame detached") as info:
-        _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
+        _wait_for_resumed_session(page, "chat", variant="theme=light, agent=chat")
     assert not isinstance(info.value, RuntimeError)
 
 
@@ -826,7 +825,7 @@ def test_hub_capture_stops_when_the_hub_keeps_its_terminal_pool(
     page = _FakeHubPage(drawn=[True, True], restart_ok=False, restart_status=403)
     with pytest.raises(RuntimeError) as info:
         _drive(monkeypatch, tmp_path, page)
-    assert "theme=light, mode=expert" in str(info.value)
+    assert "theme=light, agent=terminal" in str(info.value)
     assert "403" in str(info.value)
     assert "goto" not in page.events
     assert "shot" not in page.events
@@ -837,12 +836,12 @@ def test_hub_capture_stops_when_the_hub_keeps_its_terminal_pool(
 def test_hub_capture_names_the_variant_when_the_plot_row_is_not_clickable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A row click that times out names theme and mode, and writes no image."""
+    """A row click that times out names theme and agent, and writes no image."""
     timeout = PlaywrightTimeoutError("Timeout 30000ms exceeded.")
     page = _FakeHubPage(drawn=[True, True], click_error=timeout)
     with pytest.raises(RuntimeError) as info:
         _drive(monkeypatch, tmp_path, page)
-    assert "theme=light, mode=expert" in str(info.value)
+    assert "theme=light, agent=terminal" in str(info.value)
     assert "plot row" in str(info.value)
     assert info.value.__cause__ is timeout
     assert "shot" not in page.events
@@ -851,25 +850,25 @@ def test_hub_capture_names_the_variant_when_the_plot_row_is_not_clickable(
 
 
 @pytest.mark.browser
-def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
-    """Every mode captures in one hub, and a repeat Expert capture does not stall."""
+def test_hub_capture_writes_every_surface_twice_in_one_hub(tmp_path: Path) -> None:
+    """Every surface captures in one hub, and a repeat terminal capture does not stall."""
     from docs.screenshots.capture import ScreenshotSkip, chromium_context
 
     sequence = [
-        ("dark", "expert"),
-        ("dark", "simple"),
-        ("light", "expert"),
-        ("light", "simple"),
-        ("dark", "expert"),
+        ("dark", "terminal"),
+        ("dark", "chat"),
+        ("light", "terminal"),
+        ("light", "chat"),
+        ("dark", "terminal"),
     ]
     try:
         with chromium_context() as browser, hermetic_hub() as hub:
-            for index, (theme, mode) in enumerate(sequence):
-                dest = tmp_path / f"{index}_{theme}_{mode}.png"
+            for index, (theme, agent) in enumerate(sequence):
+                dest = tmp_path / f"{index}_{theme}_{agent}.png"
                 try:
-                    capture_hub_view(browser, hub, theme, mode, dest)
+                    capture_hub_view(browser, hub, theme, agent, dest)
                 except RuntimeError as exc:
-                    exc.add_note(f"capture {index} of {len(sequence)} ({theme}, {mode})")
+                    exc.add_note(f"capture {index} of {len(sequence)} ({theme}, {agent})")
                     raise
                 assert dest.exists()
                 assert dest.read_bytes().startswith(b"\x89PNG")

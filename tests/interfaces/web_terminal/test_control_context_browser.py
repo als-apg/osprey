@@ -21,12 +21,12 @@ and none of them is observable from a single page or from a route test:
       pin that for a hand-built body; only a browser proves the shipped chip
       really sends one.
 
-  (5) **A real surface hand-off does not move the deployment.** The Simple
+  (5) **A real surface hand-off does not move the deployment.** The chat
       view takes a session off the terminal surface through
       ``POST /api/session/{key}/handoff``. Under the retired per-session model
       that flip reset the target to the baseline; under the record it cannot,
       because the target was never the session's to carry. So the hand-off is
-      driven for real, the roster is exercised from the Simple view afterwards
+      driven for real, the roster is exercised from the chat afterwards
       (the chip paints, and Switch still works there), and the flip back is
       asserted to leave the generation exactly where the switch left it.
 
@@ -89,6 +89,7 @@ from tests.interfaces.web_terminal._posture_chip import (
     write_verdict_for,
     writes_option,
 )
+from tests.interfaces.web_terminal._surface import back_to_chat, open_terminal
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -518,7 +519,7 @@ def test_a_chip_gesture_sends_no_session_and_audits_on_the_lab_surface(
 
 
 # ---------------------------------------------------------------------------
-# (5) a real hand-off, then the roster from the Simple view
+# (5) a real hand-off, then the roster from the chat
 # ---------------------------------------------------------------------------
 
 #: Every answer ``POST /api/session/{key}/handoff`` is allowed to give for a
@@ -533,24 +534,7 @@ def test_a_chip_gesture_sends_no_session_and_audits_on_the_lab_surface(
 _HANDOFF_ANSWERS = frozenset({200, 204, 409, 503})
 
 
-def _flip_view(page: Page, mode: str) -> None:
-    """Drive the sidebar's ☰ More View rows to *mode*, the way an operator does.
-
-    The menu is dismissed afterwards if the pick left it open, returning the
-    caller to the closed state — an open menu sits over the sidebar the chip
-    lives in.
-    """
-    page.locator("#more-btn").click()
-    menu = page.locator("#more-menu")
-    expect(menu).to_be_visible(timeout=TIMEOUT)
-    menu.locator(f'[role="menuitemradio"][data-view="{mode}"]').click()
-    if menu.is_visible():
-        page.keyboard.press("Escape")
-    expect(menu).to_be_hidden(timeout=TIMEOUT)
-    expect(page.locator("html")).to_have_attribute("data-ui-mode", mode, timeout=TIMEOUT)
-
-
-def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
+def test_a_real_handoff_and_the_chat_view_leave_the_deployment_where_it_is(
     tmp_path, monkeypatch, chromium_browser
 ):
     """A surface hand-off moves a session; it does not move the deployment.
@@ -562,14 +546,14 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
        it answers — the flip taken, or refused because one process holds the
        session, or refused for capacity — the record is asserted UNMOVED. Under
        the per-session model this is where the target went back to baseline;
-    2. the tab is flipped to the Simple view, where the terminal deliberately
+    2. the tab goes to the chat, where the terminal deliberately
        does not connect and the console holds the session instead. The chip
        still paints, still names ``va``, and is still writable — it is a
        deployment surface now, so a view with no PTY behind it changes nothing
        about it;
-    3. Switch is exercised from that Simple view and moves the record one
+    3. Switch is exercised from that chat and moves the record one
        generation;
-    4. the tab is flipped back to Expert, and the generation is asserted to be
+    4. the tab goes back to the terminal, and the generation is asserted to be
        exactly where the switch left it — not re-derived, not reset.
 
     A live controls server is planted so the switch gate has a reachability
@@ -579,16 +563,16 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
         publish_report(root)
         page, session_id = settled_chip(chromium_browser, base_url)
         try:
-            assert session_id, "the expert tab minted no PTY session to hand off"
+            assert session_id, "the terminal tab minted no PTY session to hand off"
 
             # --- 1. the hand-off, for real -------------------------------
-            # One surface holds a session at a time, and the Expert tab is
+            # One surface holds a session at a time, and the terminal tab is
             # holding this one on its terminal socket right now. So the honest
             # answer is the refusal that rule produces, and it is asserted by
             # its slug rather than by its sentence.
             answer = requests.post(
                 f"{base_url}/api/session/{session_id}/handoff",
-                json={"to": "simple"},
+                json={"to": "chat"},
                 timeout=60,
             )
             assert answer.status_code in _HANDOFF_ANSWERS, (
@@ -605,10 +589,10 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
             assert settled.target == ACTIVE_TARGET, settled
             assert settled.generation == RECORD_GENERATION, settled
 
-            # --- 2. the Simple view still speaks for the deployment ------
-            # The flip is the client's own hand-off: chat.js POSTs the same
+            # --- 2. the chat still speaks for the deployment ------
+            # The change is the client's own hand-off: chat.js POSTs the same
             # route as it takes the session onto the console. Watching for it
-            # is what makes this a hand-off lane rather than a mode-flip lane —
+            # is what makes this a hand-off lane —
             # the assertion below is about the request the SHIPPED page makes.
             handoffs: list[str] = []
             page.on(
@@ -619,7 +603,7 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
                     else None
                 ),
             )
-            _flip_view(page, "simple")
+            back_to_chat(page)
             page.wait_for_function(
                 "() => document.querySelector('#control-target-chip') !== null",
                 timeout=TIMEOUT,
@@ -629,10 +613,7 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
                 "data-enforceable", "true", timeout=TIMEOUT
             )
             expect(page.locator(CHIP_SHORT)).to_have_text(NAMES[ACTIVE_TARGET], timeout=TIMEOUT)
-            assert handoffs, (
-                "flipping to Simple issued no hand-off — this lane would then be a "
-                "mode flip, not a hand-off"
-            )
+            assert handoffs, "going back to chat issued no hand-off"
             assert all(session_id in url for url in handoffs), (
                 f"the client handed off some other key: {handoffs}"
             )
@@ -654,17 +635,17 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
             assert switched.target == SWITCH_TARGET, switched
             assert switched.generation == RECORD_GENERATION + 1, switched
 
-            # --- 4. the flip back changes nothing ------------------------
+            # --- 4. the change back changes nothing ------------------------
             page.keyboard.press("Escape")
             expect(page.locator(POPOVER)).to_have_count(0, timeout=TIMEOUT)
-            _flip_view(page, "expert")
+            open_terminal(page)
             expect(page.locator(CHIP_SHORT)).to_have_text(NAMES[SWITCH_TARGET], timeout=TIMEOUT)
 
             final = read_record()
             assert final is not None
             assert final.target == SWITCH_TARGET, final
             assert final.generation == switched.generation, (
-                "flipping the view re-derived the deployment's generation",
+                "changing the surface re-derived the deployment's generation",
                 final,
             )
         finally:

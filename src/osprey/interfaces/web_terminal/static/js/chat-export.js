@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode chat: copy a reply, export the conversation.
+/* OSPREY Web Terminal — operator chat: copy a reply, export the conversation.
  *
  * Two things an operator takes out of the chat, both as Markdown.
  *

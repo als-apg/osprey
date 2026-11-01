@@ -43,7 +43,7 @@ beforeEach(() => {
   getDockApi.mockImplementation(() => state.api);
   state.api = null;
   document.body.innerHTML = '';
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
 });
 
 /** Fake DockviewApi exposing only the external-dnd hooks rail-drag wires. */
@@ -273,17 +273,17 @@ describe('railDragStart / railDragEnd — payload + shields', () => {
     expect(setIframePointerShield).not.toHaveBeenCalled();
   });
 
-  test('proceeds in simple mode — the view is not a locked layout', async () => {
+  test('proceeds in chat', async () => {
     const api = makeApi();
     const { mod, container } = await wire(api);
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     try {
       expect(mod.railDragStart('ariel', fakeDT())).toBe(true);
       expect(container.classList.contains('dock-dragging')).toBe(true);
       expect(setIframePointerShield).toHaveBeenCalledWith(true);
     } finally {
       mod.railDragEnd();
-      document.documentElement.removeAttribute('data-ui-mode');
+      document.documentElement.removeAttribute('data-agent-surface');
     }
   });
 

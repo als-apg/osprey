@@ -28,6 +28,7 @@ from osprey_connectors_tests._harness import write_control_context, write_server
 from osprey_connectors_tests._harness._control_context_fixtures import SELF_OWNER
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces.web_terminal._control_context import read_record
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -253,7 +254,6 @@ def chip_hub(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    ui_mode: str = "expert",
     switch: dict[str, str] | None = None,
     owned_by: Any = SELF_OWNER,
     writes: str = "allowed",
@@ -287,10 +287,6 @@ def chip_hub(
     and owned by this process. That is what makes the lifespan's claim a merge
     instead of a mint from ``load_osprey_config``, and what makes this terminal
     the owner — the two conditions behind ``data-enforceable="true"``.
-
-    ``web.ui_mode`` reaches the page through ``app.state.web_ui_mode``, which
-    the ``GET /`` handler reads per request; it is overridden post-startup, the
-    same seam ``test_ui_mode_browser.py`` uses.
 
     The keyword arguments are the states the chip criteria are about, all of
     them planted before ``create_app`` so the lifespan's claim merges them:
@@ -344,7 +340,6 @@ def chip_hub(
             shell_command=LONG_LIVED_SHELL,
             config_path=config,
         ) as (base_url, app):
-            app.state.web_ui_mode = ui_mode
             yield base_url, app, root
     finally:
         reset_process_memos()
@@ -588,14 +583,14 @@ def settled_chip(
             switches would be refused.
 
     Returns:
-        (page, session_id) — the id the owning surface settled on: the
-        terminal's confirmation in the Expert view, the console's key in the
-        Simple one. Both views write it and this helper waits for it, so a
+        (page, session_id) — the id the terminal's server confirmed on the
+        tab this opens, armed for the terminal. This helper waits for it, so a
         missing id is a timeout here, never an empty return. Nothing the chip
         does needs it; test_posture_toggle_browser's case (b) uses it to name
         the PTY it asserts was not respawned.
     """
     page = browser.new_page()
+    arm_terminal_tab(page)
     if init_script:
         page.add_init_script(init_script)
     page.goto(base_url, wait_until="domcontentloaded")
@@ -605,9 +600,8 @@ def settled_chip(
         "data-enforceable", str(enforceable).lower(), timeout=TIMEOUT
     )
 
-    # The pointer is written by the surface that owns the session — the
-    # terminal's own confirmation in the Expert view, the console's key in the
-    # Simple one — and the chip settles on two local reads, ahead of either. A
+    # The pointer is written by the surface that owns the session — here the
+    # terminal's own confirmation — and the chip settles on two local reads, ahead of either. A
     # single read here would be a read of whatever had happened by then.
     page.wait_for_function(
         "() => Boolean(localStorage.getItem('osprey-pty-session'))", timeout=TIMEOUT

@@ -8,13 +8,6 @@
   wrong theme.
 -->
 <script src="/design-system/js/theme-boot.js"></script>
-<!--
-  Pre-paint UI-mode boot: stamps data-ui-mode (expert|simple) from the host's
-  `?mode=` before first paint, the same zero-dep contract as theme-boot above.
-  Live Expert<->Simple flips arrive as the hub's `osprey-mode-change`
-  postMessage, handled in panel.js.
--->
-<script src="/design-system/js/mode-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <!-- Shared agent-activity flash (.agent-flash), fired by draft-client.js via
@@ -63,8 +56,7 @@
   <!--
     In-body view switcher, for standalone serving only. Embedded, the same
     three views are described to the web terminal's tile bar (panel.js,
-    `contributeHeader`) in every UI mode, and the hub draws that bar in Simple
-    as well as Expert, so this strip is hidden whenever the panel is embedded
+    `contributeHeader`), so this strip is hidden whenever the panel is embedded
     (see `.panel-tabs` in panel.css). Standalone, `contributeHeader` is a
     strict no-op and this strip is the only way to navigate.
   -->
@@ -79,8 +71,8 @@
 
   <!--
     The queue control strip. NOT a tab and NEVER contributed to the tile bar:
-    the queue state and the two halts must be live from first paint in EVERY
-    UI mode and wherever the panel runs, and the tile bar does not exist
+    the queue state and the two halts must be live from first paint wherever
+    the panel runs, and the tile bar does not exist
     standalone. They must also never be a tab switch away, which is why the
     ONE set of controls sits outside the three view containers below and
     stays on screen for all of them.
@@ -100,8 +92,7 @@
          lane (panel.js fills it from GET /lanes). It lives HERE, beside the
          queue badge and the two halts, because which machine this panel is
          pointed at is safety-bearing context for all three: it must be
-         visible from every tab and in every UI mode, and the tile bar does
-         not exist standalone. Switching lanes navigates to a fresh document:
+         visible from every tab, and the tile bar does not exist standalone. Switching lanes navigates to a fresh document:
          a lane is a different machine, and one document never shows two (see
          lane-client.js). -->
     <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>

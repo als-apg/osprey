@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the agent turn in flight.
+ * OSPREY Web Terminal — operator chat: the agent turn in flight.
  *
  * One agent entry and the block it is writing into: the text, the reasoning,
  * the tool rows (folded into runs by chat-tool-runs.js), and whatever else the

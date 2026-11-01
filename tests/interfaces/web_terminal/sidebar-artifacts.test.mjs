@@ -240,7 +240,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(Date.UTC(2026, 9, 30, 12, 0));
   document.documentElement.setAttribute('data-facility-timezone', 'UTC');
-  document.documentElement.dataset.uiMode = 'expert';
+  document.documentElement.dataset.agentSurface = 'terminal';
   localStorage.clear();
   mocks.sessionId = 'sess-1';
   mocks.sessionListeners.length = 0;
@@ -271,7 +271,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.body.replaceChildren();
   document.documentElement.removeAttribute('data-facility-timezone');
-  delete document.documentElement.dataset.uiMode;
+  delete document.documentElement.dataset.agentSurface;
   document.documentElement.removeAttribute('data-osprey-storage-scope');
 });
 
@@ -717,7 +717,7 @@ describe('the event stream', () => {
 /* ---- agent focus ------------------------------------------------------- */
 
 describe('agent focus', () => {
-  test('Expert: a focus frame jumps the selection, automatic or not', async () => {
+  test('terminal surface: a focus frame jumps the selection, automatic or not', async () => {
     await boot();
     row('sidebar-artifacts-list', 'a2').click();
     events.emit({ type: 'focus', domain: 'artifact', id: 'a1', automatic: true });
@@ -725,8 +725,8 @@ describe('agent focus', () => {
     expect(shown()).toBe('a1');
   });
 
-  test('Simple: an automatic focus does not take the operator pick; a requested one does', async () => {
-    document.documentElement.dataset.uiMode = 'simple';
+  test('chat: an automatic focus does not take the operator pick; a requested one does', async () => {
+    delete document.documentElement.dataset.agentSurface;
     await boot();
     row('sidebar-artifacts-list', 'a2').click();
     events.emit({ type: 'focus', domain: 'artifact', id: 'a1', automatic: true });
@@ -737,8 +737,8 @@ describe('agent focus', () => {
     expect(shown()).toBe('a1');
   });
 
-  test('Simple: with no pick the focus shows, unless it is a script run', async () => {
-    document.documentElement.dataset.uiMode = 'simple';
+  test('chat: with no pick the focus shows, unless it is a script run', async () => {
+    delete document.documentElement.dataset.agentSurface;
     await boot();
     events.emit({ type: 'focus', domain: 'artifact', id: 'r1', automatic: true });
     await settle();
@@ -778,8 +778,8 @@ describe('agent focus', () => {
     expect(shown()).toBe('a3');
   });
 
-  test('Simple: a kept focus on a script run is recorded, not shown', async () => {
-    document.documentElement.dataset.uiMode = 'simple';
+  test('chat: a kept focus on a script run is recorded, not shown', async () => {
+    delete document.documentElement.dataset.agentSurface;
     server.focus = { focused: true, artifact: R1 };
     await boot();
     expect(shown()).toBe('a3');

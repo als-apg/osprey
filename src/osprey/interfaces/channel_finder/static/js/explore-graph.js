@@ -37,8 +37,7 @@
  * Embedded in the web terminal the toolbar's search box and ⋯ menu move into
  * the hub's tile bar (graph-finder-verbs.js contributeHeader →
  * state.setViewHeader → app.js), so the panel body starts at the filters like
- * every other tile. The hub draws the tile bar in Expert and Simple alike, so
- * this holds in both modes; only standalone keeps the in-body toolbar.
+ * every other tile; only standalone keeps the in-body toolbar.
  */
 
 import { state } from './state.js';

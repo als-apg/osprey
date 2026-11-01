@@ -16,7 +16,7 @@
  * than importing it, each scenario sets up
  * window.location/localStorage/data-theme and then re-executes the exact
  * on-disk source against those happy-dom globals, exactly as the sibling
- * mode-boot.test.mjs does. Pure DOM/logic guard, happy-dom environment
+ * sidebar-boot.test.mjs does. Pure DOM/logic guard, happy-dom environment
  * (configured globally in vitest.config.js):
  *   npx vitest run tests/interfaces/design_system/theme-boot.test.mjs
  */

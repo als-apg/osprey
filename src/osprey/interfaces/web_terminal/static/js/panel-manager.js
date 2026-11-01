@@ -36,10 +36,8 @@ import { fetchJSON } from './api.js';
 import {
   sendThemeToIframe,
   sendSessionToIframe,
-  sendModeToIframe,
   sendThemeToWindow,
   sendSessionToWindow,
-  sendModeToWindow,
   buildPopoutSrc,
 } from './panel-iframe-sync.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
@@ -196,16 +194,6 @@ const panelState = {};
 // init. An id in here has a rail entry; toggling one is paired with
 // addEntry()/removeEntry() on the rail.
 const visiblePanels = new Set();
-
-// Simple-UX chat-only first boot: while true, ensureActivePanel leaves the
-// workspace slot empty, so no dockview placeholder is ever created and the
-// chat keeps the full width. Seeded in initPanelManager (simple mode + empty
-// agent workspace, per /api/panels' workspace_has_artifacts); cleared one-way
-// by ANY panel activation (agent add_panel_to_rail/open_panel, rail click,
-// palette) or a flip to expert — once the workspace has appeared, the
-// onboarding state is over for this page lifetime. A reload re-derives it
-// from the server flag.
-let workspaceSuppressed = false;
 
 // Default panel to activate first (catalog fallback until a profile-pinned
 // value arrives via panelConfig.default in initPanelManager).
@@ -392,9 +380,9 @@ export async function initPanelManager(panelId) {
   // Pop-out windows (popout.js): the tile leaves the dock while the window is
   // open and comes back when it closes. The verbs it needs are this module's
   // own retire and re-dock; the state it pushes into a window is the same
-  // three messages every iframe gets. The sidebar row follows every change,
+  // two messages every iframe gets. The sidebar row follows every change,
   // and the hub's theme and session broadcasts reach the windows alongside
-  // the iframes (the mode broadcast does the same in broadcastMode).
+  // the iframes.
   initPopouts({
     // No page to open until the config resolves a URL; and none for a panel
     // whose frame resolved to an opaque origin (panel-iframe-factory.js), whose
@@ -408,7 +396,6 @@ export async function initPanelManager(panelId) {
     redock: redockPanel,
     sync: (win) => {
       sendThemeToWindow(win);
-      sendModeToWindow(win);
       sendSessionToWindow(win);
     },
   });
@@ -479,15 +466,6 @@ export async function initPanelManager(panelId) {
   } else {
     for (const panel of PANELS) visiblePanels.add(panel.id);
   }
-
-  // Simple-UX onboarding: boot chat-only while the agent workspace is empty.
-  // html[data-ui-mode] is the resolved runtime mode (mode-boot.js) — it can
-  // out-rank the server's ui_mode default, so it is the authority here. Only
-  // set when /api/panels answered: a failed fetch keeps today's behavior.
-  workspaceSuppressed =
-    document.documentElement.getAttribute('data-ui-mode') === 'simple' &&
-    panelConfig != null &&
-    !panelConfig.workspace_has_artifacts;
 
   // Whether the human "+" menu may register URL panels (server config gate).
   allowRuntimePanels = !!panelConfig?.allow_runtime_panels;
@@ -624,10 +602,6 @@ export async function initPanelManager(panelId) {
     // away again (clearActivePanel is the human-close path, not this one).
     resetActive: () => {
       activeTabId = null;
-    },
-    isWorkspaceSuppressed: () => workspaceSuppressed,
-    endWorkspaceSuppression: () => {
-      workspaceSuppressed = false;
     },
     renderEmpty: renderEmptyState,
     // Closure, not the value: onAgentActivity is reassigned whenever the
@@ -777,10 +751,6 @@ function hydrateRestoredTiles() {
  */
 function ensureActivePanel() {
   if (activeTabId) return;
-  // Simple-UX chat-only boot: nothing auto-claims the empty slot while the
-  // workspace is suppressed — an agent reveal, a rail click, or an expert
-  // flip ends the suppression and re-runs this policy.
-  if (workspaceSuppressed) return;
   const ds = panelState[DEFAULT_PANEL];
   if (!ds?.configLoaded) return; // default may still claim the slot — wait
   // Hidden disqualifies the default exactly as unhealthy does; activateTab
@@ -793,37 +763,6 @@ function ensureActivePanel() {
           (p) => visiblePanels.has(p.id) && panelState[p.id]?.healthy && !isPoppedOut(p.id)
         )?.id;
   if (target) activateTab(target, { auto: true, landing: true });
-}
-
-// ---- UI Mode ----
-
-/**
- * Broadcast the current UI mode to every panel iframe and every pop-out
- * window — the hub-role fan-out the header toggle fires after it swaps
- * <html data-ui-mode>. Mirrors theme-manager's own theme _broadcast(); the
- * mode axis has no such manager, so panel-manager drives it over its own
- * iframes.
- */
-export function broadcastMode() {
-  for (const panel of PANELS) {
-    sendModeToIframe(panelState[panel.id]?.iframe ?? null);
-  }
-  broadcastToPopouts(sendModeToWindow);
-}
-
-/**
- * React to the header Expert/Simple toggle — called by app.js's initModeToggle
- * AFTER the html[data-ui-mode] swap and the dock's applyDockMode. The expert
- * surface always shows the full workspace, so flipping to it ends the
- * simple-UX chat-only suppression and lets the default panel claim the still-
- * empty slot. Flipping to simple mid-session changes nothing here: a live
- * workspace stays (suppression is a first-boot state, never re-armed).
- * @param {'expert'|'simple'} mode
- */
-export function handleUiModeFlip(mode) {
-  if (mode !== 'expert') return;
-  workspaceSuppressed = false;
-  ensureActivePanel();
 }
 
 // ---- Tab Switching ----
@@ -862,10 +801,6 @@ export function activateTab(
   // that refused to surface at the guarded returns above keep theirs too.
   if (!landing) clearBadge(panelId);
 
-  // Any surfaced panel means the workspace is open — the simple-UX chat-only
-  // suppression (if still armed) is over for this page lifetime.
-  workspaceSuppressed = false;
-
   activeTabId = panelId;
 
   // Reflect the active entry on the rail
@@ -897,10 +832,9 @@ export function activateTab(
     focusPanel(panelId);
   });
 
-  // Re-send current theme, mode and session ID to the newly visible iframe
+  // Re-send current theme and session ID to the newly visible iframe
   // (handles edge cases where a postMessage was missed while hidden/loading)
   sendThemeToIframe(state.iframe);
-  sendModeToIframe(state.iframe);
   sendSessionToIframe(state.iframe);
 
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)

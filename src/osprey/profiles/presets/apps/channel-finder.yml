@@ -94,8 +94,6 @@ config:
   #
   # The write boundary: `never`, the only value an app may spell.
   control_system.writes: never
-  # Full split-pane layout: the CHANNELS panel needs the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.

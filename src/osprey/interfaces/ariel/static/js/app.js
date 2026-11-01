@@ -6,11 +6,11 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { capabilitiesApi } from './api.js';
 import { applyFacilityTimezone } from './components.js';
-import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
+import { initSearch, performSearch, clearSearch } from './search.js';
 import {
   initEntries,
   loadEntries,
@@ -36,13 +36,6 @@ applyEmbedded();
 // this panel only follows its broadcasts. theme-boot.js already applied
 // data-theme pre-paint either way.
 initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
-
-// Live Expert<->Simple switch — broadcast by the hub's header toggle when
-// embedded, posted by the display menu's View row when standalone. The shared
-// receive-side helper stamps data-ui-mode (CSS deltas key off it); the
-// callback repaints the current results so plain cards <-> scored cards swap
-// without re-running the query. Mirrors the artifacts panel's gallery.js.
-onModeChange(() => onUiModeChange());
 
 // Current view
 let currentView = 'search';
@@ -84,10 +77,7 @@ function defaultView() {
 /**
  * Views the tile bar's nav offers when embedded. Status remains standalone
  * because the terminal owns service health; Search is there only when the
- * deployment turns it on. The nav goes up in Expert and Simple alike: the hub
- * keeps the tile bar in Simple, and the standalone Simple header's "Browse
- * all entries" link sits in the header that embedded hides, so this nav's
- * Browse entry is how embedded Simple reaches Browse.
+ * deployment turns it on.
  * @returns {{ id: string, label: string }[]}
  */
 function headerViews() {

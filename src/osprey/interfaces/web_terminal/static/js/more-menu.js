@@ -2,14 +2,9 @@
 /* OSPREY Web Terminal — the sidebar's ☰ More menu
  *
  * The page has no header bar, so the controls an operator reaches for rarely
- * — but in both views — live behind ☰ More at the foot of the sidebar:
+ * live behind ☰ More at the foot of the sidebar:
  *
  *   - who is signed in (user, role, deployment), when the page knows;
- *   - View: Simple or Expert (frame-params.js's `pickUiMode()`, the same pick
- *     the command palette makes). On a page that offers no Expert view
- *     (`expertViewOffered()`, false under `web.expert_view: false`) the group
- *     and its separator are removed at boot: there is nothing to choose
- *     between;
  *   - Appearance: follow the system, light or dark, and Theme family — the
  *     hub's theme preference through theme-manager.js, which owns it;
  *   - Settings (⌘, / Ctrl+,), Keyboard shortcuts, Take the tour, Activity log
@@ -28,7 +23,7 @@
  * The menu is a body-level `.osprey-popover` opened by the design system's
  * popover.js beside the sidebar, bottom-aligned with ☰ More: an outside
  * click, Escape (focus back on ☰ More) and a window resize close it. A pick
- * of View, Appearance or Theme leaves it open, so the operator can compare
+ * of Appearance or Theme leaves it open, so the operator can compare
  * and go straight back; a row that moves the operator elsewhere closes it.
  * Keyboard shortcuts and About open beside the menu, which stays open
  * beneath them. popover.js also moves ArrowUp / ArrowDown / Home / End
@@ -36,7 +31,6 @@
  * with focus inside it.
  */
 
-import { expertViewOffered, onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
 import { closePopover, openPopover, togglePopover } from '/design-system/js/popover.js';
 import {
   getFamily,
@@ -62,16 +56,11 @@ const ABOUT_ID = 'about-popover';
 /** The rows a click acts on. */
 const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
 
-/** @returns {'simple'|'expert'} the view stamped on <html> */
-function currentView() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
-}
-
 /**
  * Mark the radios of one group: `aria-checked` true on the one whose
  * `data-<key>` equals `value`.
  * @param {HTMLElement} menu
- * @param {string} key - the dataset key (`view`, `appearance`, `themeFamily`)
+ * @param {string} key - the dataset key (`appearance`, `themeFamily`)
  * @param {string | null} value
  */
 function checkRadios(menu, key, value) {
@@ -87,7 +76,6 @@ function checkRadios(menu, key, value) {
  * @param {HTMLElement} menu
  */
 function syncMenu(menu) {
-  checkRadios(menu, 'view', currentView());
   checkRadios(menu, 'appearance', modePreference());
   checkRadios(menu, 'themeFamily', getFamily());
 }
@@ -161,13 +149,6 @@ export function initMoreMenu({ getSessionId }) {
   const families = menu.querySelector('[data-theme-families]');
   if (families) families.replaceChildren(...themeFamilies().map(familyRadio));
 
-  if (!expertViewOffered()) {
-    const viewGroup = menu.querySelector('[aria-labelledby="more-view-label"]');
-    const sep = viewGroup?.nextElementSibling;
-    if (sep?.getAttribute('role') === 'separator') sep.remove();
-    viewGroup?.remove();
-  }
-
   // A row that moves the operator elsewhere closes the menu; popover.js parks
   // focus on ☰ More, so whatever opens next (the drawer, the tour) returns
   // focus to a control that is on screen rather than into the hidden menu.
@@ -194,13 +175,8 @@ export function initMoreMenu({ getSessionId }) {
     const target = /** @type {Element | null} */ (event.target);
     const row = /** @type {HTMLElement | null} */ (target?.closest(ITEM_SELECTOR) ?? null);
     if (!row || !menu.contains(row)) return;
-    const { view, appearance, themeFamily, more } = row.dataset;
-    if (view === 'simple' || view === 'expert') {
-      pickUiMode(view);
-      // Reflect the pick now: the mode lands on <html> when the posted message
-      // round-trips, and the row must not look unchanged in between.
-      checkRadios(menu, 'view', view);
-    } else if (appearance) {
+    const { appearance, themeFamily, more } = row.dataset;
+    if (appearance) {
       pickAppearance(appearance);
     } else if (themeFamily) {
       setFamily(themeFamily);
@@ -224,6 +200,5 @@ export function initMoreMenu({ getSessionId }) {
   });
 
   subscribeTheme(() => syncMenu(menu));
-  onModeChange(() => syncMenu(menu));
   syncMenu(menu);
 }

@@ -105,7 +105,7 @@ def test_a_selection_with_no_block_projects_nothing_for_it() -> None:
     no block is the template's or the injector's job (and, for a Reach tab,
     ``selected_panel_errors``'s refusal), not this function's."""
     assert panel_selection_overrides(["okf", "events"], {}) == {}
-    assert panel_selection_overrides(["okf"], {"web": {"ui_mode": "expert"}}) == {}
+    assert panel_selection_overrides(["okf"], {"web": {"theme": "main"}}) == {}
 
 
 def test_a_non_mapping_block_is_projected_too() -> None:

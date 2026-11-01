@@ -2,14 +2,13 @@
 /**
  * <osprey-display-menu> — the shared standalone settings popover: one quiet
  * faders button that collapses every display preference behind a popover
- * card (Appearance, View, Theme), with an optional Settings entry.
+ * card (Appearance, Theme), with an optional Settings entry.
  *
  * This is THE display popover of the fleet: the web-terminal hub, standalone
  * ARIEL and every standalone panel mount this one element. It is deliberately
  * page-agnostic: it carries no page-specific markup, ids, or logic, and its
- * only coupling points are the two shared preference keys, theme-manager.js,
- * the `osprey-mode-change` message it posts to its own window, the
- * `settings-drawer` attribute, and the projected action slot below.
+ * only coupling points are theme-manager.js, the `settings-drawer` attribute,
+ * and the projected action slot below.
  *
  * Rows (FIXED — there is no row-configuration API, and none is added until
  * a consumer actually needs one):
@@ -18,22 +17,6 @@
  *     it never hand-resolves a concrete theme id: theme-manager.js is the
  *     single source of truth and this element reads state back through
  *     `getTheme()`/`getFamily()` + `subscribe()`.
- *   - **View** (Expert/Simple) — frame-params.js's `pickUiMode()`, which
- *     persists the explicit choice under the per-render `osprey-ui-mode`
- *     key, drops a leftover one-shot `?mode=` deep-link so it cannot out-rank
- *     that choice on the next reload, then posts
- *     `{type: 'osprey-mode-change', mode}` to this element's OWN window.
- *     Stamping `data-ui-mode` is deliberately NOT done here: the page's
- *     same-origin `osprey-mode-change` listener owns that, and a
- *     same-document post carries `event.origin === location.origin`, so the
- *     hub-broadcast path and the standalone path are the same path. This
- *     element registers frame-params.js's shared `onModeChange()` receive
- *     side for itself as well, so the View row reflects what was actually
- *     applied — and so a page that mounts the element without wiring a
- *     listener of its own still gets a working mode flip.
- *     On a page that offers no Expert view (frame-params.js's
- *     `expertViewOffered()`, false under `web.expert_view: false`) the row
- *     is removed at render: there is nothing to choose between.
  *   - **Theme** (family pills) — one pill per family from theme-manager.js's
  *     `themeFamilies()`, applied with `setFamily()` so the current light/dark
  *     preference survives the family change.
@@ -51,7 +34,7 @@
  *
  * The action row is also where a page projects its own chrome. Any element
  * children the tag carries in the page's markup are moved, in order, into the
- * card's `.display-menu-actions` row after the three rows — after the
+ * card's `.display-menu-actions` row after the two rows — after the
  * built-in Settings entry when both are present. This is the light-DOM
  * equivalent of a slot, and it is the whole of the page-specific surface: the
  * web-terminal hub projects its own Settings button (which must keep the
@@ -62,8 +45,8 @@
  * click nor styles anything beyond the shared `.display-menu-settings` look;
  * a page that wants the card closed calls `closeMenu()` on the element.
  *
- * Only the built-in Settings row closes the card. Appearance, View, and Theme
- * picks all leave it open: every row renders identically either way, so the
+ * Only the built-in Settings row closes the card. Appearance and Theme picks
+ * both leave it open: every row renders identically either way, so the
  * card an operator is looking at survives the pick and they can compare (or
  * go straight back) without re-opening the menu. Opening a drawer, by
  * contrast, moves them to a different surface entirely.
@@ -99,7 +82,6 @@
  * @module components/osprey-display-menu
  */
 
-import { expertViewOffered, onModeChange, pickUiMode } from '/design-system/js/frame-params.js';
 import {
   getFamily,
   getTheme,
@@ -113,19 +95,7 @@ import {
 const STYLE_ID = 'osprey-display-menu-style';
 
 /**
- * The UI mode currently stamped on `<html>` by mode-boot.js (pre-paint) or by
- * a since-applied `osprey-mode-change`. Anything other than `'simple'` reads
- * as `'expert'`, matching both mode-boot.js's default and frame-params.js's
- * `onModeChange()` normalization.
- *
- * @returns {'expert'|'simple'}
- */
-function _currentUiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
-}
-
-/**
- * This instance's markup: the faders trigger plus the popover card's three
+ * This instance's markup: the faders trigger plus the popover card's two
  * fixed rows. Classes only — see the multi-instance note in the module
  * docstring. The Settings entry is not here; it is built programmatically
  * (and only when `settings-drawer` is present) so the attribute's value is
@@ -148,17 +118,6 @@ function _renderTemplate() {
           </button>
           <button class="display-seg-option" data-appearance="dark" type="button" aria-pressed="false">
             <svg class="display-seg-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>Dark
-          </button>
-        </div>
-      </div>
-      <div class="display-menu-row">
-        <span class="display-menu-heading">View</span>
-        <div class="display-menu-seg display-menu-view" role="group" aria-label="UI mode">
-          <button class="display-seg-option" data-mode="expert" type="button" aria-pressed="false">
-            <span class="display-seg-icon" aria-hidden="true">&#x269b;</span>Expert
-          </button>
-          <button class="display-seg-option" data-mode="simple" type="button" aria-pressed="false">
-            <span class="display-seg-icon" aria-hidden="true">&#x25c9;</span>Simple
           </button>
         </div>
       </div>
@@ -270,8 +229,7 @@ function _ensureStyleInjected() {
       border-radius: var(--radius-md);
       transition: transform var(--duration-base) ease;
     }
-    osprey-display-menu .display-menu-seg[data-active="dark"]::before,
-    osprey-display-menu .display-menu-seg[data-active="simple"]::before {
+    osprey-display-menu .display-menu-seg[data-active="dark"]::before {
       transform: translateX(100%);
     }
     osprey-display-menu .display-seg-option {
@@ -367,25 +325,20 @@ function _ensureStyleInjected() {
 
 /**
  * Light-DOM display-preferences popover. Renders its own markup, wires its own
- * handlers straight to theme-manager.js and the shared mode key, and keeps
- * itself in sync via `subscribe()` and `onModeChange()`. See the module
- * docstring for the full contract.
+ * handlers straight to theme-manager.js, and keeps itself in sync via
+ * `subscribe()`. See the module docstring for the full contract.
  */
 export class OspreyDisplayMenu extends HTMLElement {
   constructor() {
     super();
     /** True once this instance has rendered its markup. */
     this._rendered = false;
-    /** True once this instance registered the mode-broadcast receive side. */
-    this._modeListenerBound = false;
     /** @type {HTMLButtonElement|null} */
     this._trigger = null;
     /** @type {HTMLElement|null} */
     this._card = null;
     /** @type {HTMLElement|null} */
     this._appearanceSeg = null;
-    /** @type {HTMLElement|null} */
-    this._viewSeg = null;
     /** @type {HTMLElement|null} */
     this._familyPicker = null;
     /** Unsubscribe callback from theme-manager.js's `subscribe()`, while connected. */
@@ -418,13 +371,6 @@ export class OspreyDisplayMenu extends HTMLElement {
     this._appearanceSeg = /** @type {HTMLElement} */ (
       this.querySelector('.display-menu-appearance')
     );
-    this._viewSeg = /** @type {HTMLElement} */ (this.querySelector('.display-menu-view'));
-    if (!expertViewOffered()) {
-      // No Expert view on this deployment: the View row has one option, so
-      // it goes rather than offering a toggle that cannot toggle.
-      this._viewSeg.closest('.display-menu-row')?.remove();
-      this._viewSeg = null;
-    }
     this._familyPicker = /** @type {HTMLElement} */ (this.querySelector('.display-menu-families'));
 
     this._buildFamilyPills();
@@ -436,11 +382,9 @@ export class OspreyDisplayMenu extends HTMLElement {
       else this.openMenu();
     });
     this._appearanceSeg.addEventListener('click', (event) => this._onAppearancePick(event));
-    this._viewSeg?.addEventListener('click', (event) => this._onViewPick(event));
 
     this._syncUI();
     this._subscribeToThemeManager();
-    this._listenForModeBroadcasts();
   }
 
   disconnectedCallback() {
@@ -585,26 +529,6 @@ export class OspreyDisplayMenu extends HTMLElement {
     if (want !== modeOf(getTheme())) toggleTheme();
   }
 
-  /**
-   * View pick: frame-params.js's `pickUiMode()` for the row's own segment —
-   * the same call a page makes to flip the mode with no instance of this
-   * element on it.
-   * @param {Event} event
-   */
-  _onViewPick(event) {
-    const target =
-      event.target instanceof Element ? event.target.closest('.display-seg-option') : null;
-    if (!(target instanceof HTMLElement)) return;
-    const mode = target.dataset.mode;
-    if (mode !== 'expert' && mode !== 'simple') return;
-
-    pickUiMode(mode);
-    // Reflect the pick now rather than waiting for the message to round-trip:
-    // the post is asynchronous, and the row must not look unchanged in
-    // between. The listener's own sync then confirms what was applied.
-    this._syncView(mode);
-  }
-
   // ---- State reflection ----
 
   _subscribeToThemeManager() {
@@ -613,21 +537,8 @@ export class OspreyDisplayMenu extends HTMLElement {
   }
 
   /**
-   * Register frame-params.js's shared `osprey-mode-change` receive side once
-   * per instance. `onModeChange()` has no unsubscribe (it is designed for a
-   * page's one-time boot wiring), so this is deliberately bound once and left
-   * bound across disconnect/reconnect rather than re-registered — the
-   * callback is a pure UI sync and is harmless on a disconnected element.
-   */
-  _listenForModeBroadcasts() {
-    if (this._modeListenerBound) return;
-    this._modeListenerBound = true;
-    onModeChange((mode) => this._syncView(mode));
-  }
-
-  /**
-   * Reflect theme-manager.js's current (family, mode) plus the active UI mode
-   * into this instance's markup: the segmented controls' thumb position rides
+   * Reflect theme-manager.js's current (family, mode) into this instance's
+   * markup: the segmented controls' thumb position rides
    * `data-active` (CSS moves it), and the active family pill gets `.active`.
    * Called once at connect (covering an `initTheme()` that already ran before
    * this element upgraded) and on every subsequent theme apply.
@@ -649,24 +560,6 @@ export class OspreyDisplayMenu extends HTMLElement {
         pill.classList.toggle('active', active);
         pill.setAttribute('aria-pressed', active ? 'true' : 'false');
       }
-    }
-
-    this._syncView();
-  }
-
-  /**
-   * Reflect the UI mode into the View row. Defaults to whatever is stamped on
-   * `<html>`; an explicit argument is the mode just picked, applied ahead of
-   * the broadcast round-trip.
-   * @param {'expert'|'simple'} [mode]
-   */
-  _syncView(mode) {
-    if (!this._viewSeg) return;
-    const resolved = mode ?? _currentUiMode();
-    this._viewSeg.setAttribute('data-active', resolved);
-    for (const option of this._viewSeg.querySelectorAll('.display-seg-option')) {
-      const active = option instanceof HTMLElement && option.dataset.mode === resolved;
-      option.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
   }
 }

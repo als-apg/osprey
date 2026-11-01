@@ -34,7 +34,6 @@ const FIGURE_NAMES = ['optics', 'da'];
 function mountFixture() {
   document.body.innerHTML = `
     <span id="lattice-name"></span>
-    <span id="lattice-simple-status"></span>
     <button id="btn-refresh"></button>
     <button id="btn-verify"></button>
     <button id="btn-baseline"></button>
@@ -422,21 +421,6 @@ describe('createRenderer / updateSliders debounce', () => {
     expect(byId('lattice-name').textContent).toBe('LINE');
     expect(/** @type {HTMLButtonElement} */ (byId('btn-verify')).disabled).toBe(true);
     expect(/** @type {HTMLButtonElement} */ (byId('btn-refresh')).disabled).toBe(false);
-  });
-
-  test('the Simple status line describes the figure and never names the model', () => {
-    const renderer = createRenderer(FIGURE_NAMES, callbacks);
-    const status = byId('lattice-simple-status');
-    const render = (/** @type {any} */ selection) =>
-      renderer.renderState({ selection, summary: {}, families: {}, figures: {} });
-
-    render({ model: 'LINE', status: 'ready', capabilities: {} });
-    expect(status.textContent).toBe('Showing beta functions and dispersion along the lattice');
-    render({ model: 'LINE', status: 'failed' });
-    expect(status.textContent).toBe('No optics to show');
-    render({ status: 'none' });
-    expect(status.textContent).toBe('Optics appear when a lattice loads');
-    expect(status.textContent).not.toContain('LINE');
   });
 
   test('renderState is a no-op on a null/undefined state', () => {

@@ -9,7 +9,7 @@ is written and read.
 
 The file has exactly one writer at a time — its **owner**: the web terminal
 when one is running, otherwise a controls MCP server. Everything else is a
-reader: every chat session, the Simple view, every notebook kernel, every
+reader: every chat session, every notebook kernel, every
 executor sandbox, every sibling MCP server, and the stdlib-only hooks, which
 cannot import this module and therefore restate the rules below. Treat
 them as the contract; a change here is a change there.

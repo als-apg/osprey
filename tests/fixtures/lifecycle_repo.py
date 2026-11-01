@@ -1587,13 +1587,6 @@ config:
   # ceiling, since a tier's key beats the root's, so no session of this
   # tier writes to any machine the deployment configures.
   control_system.writes: never
-  # Pared-down operator layout: chat only, workspace hidden until the agent
-  # puts something in it. Pinned on both sides of the tier boundary (readwrite
-  # pins `expert`), same rationale as control_system.writes.
-  #
-  # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
-  # because only the write-capable tiers add them by name.
-  web.ui_mode: simple
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed tier and reports every
@@ -1635,10 +1628,6 @@ config:
   # The tier boundary, pinned rather than left to the deployment's root, so
   # a root that says `never` does not take this tier's writes away.
   control_system.writes: asked
-  # Full split-pane terminal + workspace layout for the write-armed operator.
-  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
-  # than left to the server default, for the same reason control_system.writes is.
-  web.ui_mode: expert
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed tier and reports every
@@ -1705,10 +1694,6 @@ config:
   # delete surfaces back on. Its contents are shared deployment state, which is
   # exactly what this tier is for.
   web.scaffold_gallery.write_enabled: true
-  # Full split-pane terminal + workspace layout: the Config panel and the
-  # gallery editors need the panel area. Pinned rather than left to the server
-  # default, for the same reason the other tiers pin theirs.
-  web.ui_mode: expert
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed tier and reports every
@@ -1823,8 +1808,6 @@ config:
   # the facility's logbook, so it is gated too.
   approval.tools.entry_create: always
   approval.tools.entry_publish: always
-  # Full split-pane layout: the ARIEL search panel needs the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.
@@ -1932,8 +1915,6 @@ config:
     - mcp__osprey_facility_knowledge__draft_concept
   # The write boundary: `never`, the only value an app may spell.
   control_system.writes: never
-  # Full split-pane layout: the KNOWLEDGE and CHANNELS panels need the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.
@@ -2039,8 +2020,6 @@ config:
   #
   # The write boundary: `never`, the only value an app may spell.
   control_system.writes: never
-  # Full split-pane layout: the CHANNELS panel needs the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this app cannot produce.

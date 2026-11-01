@@ -3,16 +3,14 @@
 Standalone ARIEL mounts the shared display-preferences popover in its header
 (``<osprey-display-menu settings-drawer="settings-drawer">``). Everything the
 popover does is runtime browser behavior — custom-element upgrade, the theme
-manager's live apply, the pre-paint boot scripts, ``localStorage`` persistence,
-the ``?mode=`` strip — so a real Chromium page is the only oracle for it.
+manager's live apply, the pre-paint boot script, ``localStorage`` persistence —
+so a real Chromium page is the only oracle for it.
 
 Covered here, one concern per test:
 
-- the popover opens from the header trigger and renders its three fixed rows;
-- a family / appearance / view pick applies immediately (``data-theme``,
-  ``data-ui-mode``);
-- both preferences survive a reload, including from a page first opened with a
-  one-shot ``?mode=`` deep-link — the explicit pick strips the param and wins;
+- the popover opens from the header trigger and renders its two fixed rows;
+- a family / appearance pick applies immediately (``data-theme``);
+- the preference survives a reload;
 - a family picked on standalone ARIEL is adopted by the web-terminal hub on its
   next load (the two surfaces share one origin-scoped preference);
 - embedded (``?embedded=true``), the component's own hide rule takes the
@@ -210,14 +208,12 @@ def _open_menu(page: Page) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: the popover opens and renders its three fixed rows
+# Test 1: the popover opens and renders its two fixed rows
 # ---------------------------------------------------------------------------
 
 
-def test_popover_opens_with_its_three_rows(
-    tmp_path, monkeypatch, chromium_browser: Browser
-) -> None:
-    """The trigger reveals a card carrying Appearance, View and Theme."""
+def test_popover_opens_with_its_two_rows(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
+    """The trigger reveals a card carrying Appearance and Theme."""
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
@@ -229,11 +225,9 @@ def test_popover_opens_with_its_three_rows(
         # a `text-transform`, which inner_text would report back.
         assert menu.locator(".display-menu-heading").all_text_contents() == [
             "Appearance",
-            "View",
             "Theme",
         ]
         expect(menu.locator(".display-seg-option[data-appearance]")).to_have_count(2)
-        expect(menu.locator(".display-seg-option[data-mode]")).to_have_count(2)
 
         # The Theme row offers exactly the registry's families, in its order —
         # asserted against theme-manager.js itself rather than a hardcoded list,
@@ -262,13 +256,12 @@ def test_popover_opens_with_its_three_rows(
 
 
 def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
-    """Family, appearance and view picks land on <html> without a reload."""
+    """Family and appearance picks land on <html> without a reload."""
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         menu = _goto_ariel(page, base_url)
         _seed_explicit_theme(page, "dark")
         html = page.locator("html")
-        expect(html).to_have_attribute("data-ui-mode", "expert", timeout=10_000)
 
         _open_menu(page)
 
@@ -283,10 +276,6 @@ def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browse
         menu.locator('.display-seg-option[data-appearance="light"]').click()
         expect(html).to_have_attribute("data-theme", "desy-light", timeout=5_000)
 
-        # View: the pick round-trips through the same-window mode broadcast.
-        menu.locator('.display-seg-option[data-mode="simple"]').click()
-        expect(html).to_have_attribute("data-ui-mode", "simple", timeout=5_000)
-
         # Display picks leave the card open — only the Settings entry closes it.
         expect(page.locator(_CARD)).to_be_visible()
 
@@ -294,40 +283,26 @@ def test_picks_apply_immediately(tmp_path, monkeypatch, chromium_browser: Browse
 
 
 # ---------------------------------------------------------------------------
-# Test 3: both preferences survive a reload, and outrank a ?mode= deep-link
+# Test 3: the theme preference survives a reload
 # ---------------------------------------------------------------------------
 
 
-def test_theme_and_view_survive_reload_over_a_query_mode_deep_link(
-    tmp_path, monkeypatch, chromium_browser: Browser
-) -> None:
-    """An explicit view pick strips a leftover ``?mode=`` and wins on reload."""
+def test_theme_survives_reload(tmp_path, monkeypatch, chromium_browser: Browser) -> None:
+    """A family pick is what the page boots into after a reload."""
     with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
-        menu = _goto_ariel(page, f"{base_url}/?mode=simple")
+        menu = _goto_ariel(page, base_url)
         html = page.locator("html")
-        expect(html).to_have_attribute("data-ui-mode", "simple", timeout=10_000)
 
         _seed_explicit_theme(page, "dark")
-        assert page.evaluate("location.search") == "?mode=simple", (
-            "the deep-link must still be on the URL when the pick is made"
-        )
 
         _open_menu(page)
-        menu.locator('.display-seg-option[data-mode="expert"]').click()
-        expect(html).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
-        assert page.evaluate("location.search") == "", (
-            "an explicit view pick must drop the one-shot ?mode= param"
-        )
-
         menu.locator('.display-family-pill[data-family="retro"]').click()
         expect(html).to_have_attribute("data-theme", "retro-dark", timeout=5_000)
 
         page.reload(wait_until="load")
         expect(page.locator(_TRIGGER)).to_be_attached(timeout=10_000)
         expect(html).to_have_attribute("data-theme", "retro-dark", timeout=5_000)
-        expect(html).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
-        assert page.evaluate("location.search") == ""
 
         page.close()
 

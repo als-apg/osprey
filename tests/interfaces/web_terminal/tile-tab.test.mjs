@@ -4,7 +4,7 @@
  * on the left, actions right-anchored; the bar itself is the drag handle.
  * Service tiles carry a visible `.tile-tab-title` and a Pop out button; the
  * Agent tile adopts a live bar instead — the chat console's `.op-session-bar`
- * in Simple, the `.terminal-header` in Expert. Run:
+ * in chat, the `.terminal-header` on the terminal surface. Run:
  *   npx vitest run tests/interfaces/web_terminal/tile-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -303,14 +303,14 @@ describe('tile-tab renderer', () => {
 
     beforeEach(() => {
       header = detachedTerminalHeader();
-      document.documentElement.setAttribute('data-ui-mode', 'expert');
+      document.documentElement.setAttribute('data-agent-surface', 'terminal');
     });
 
     afterEach(() => {
-      document.documentElement.removeAttribute('data-ui-mode');
+      document.documentElement.removeAttribute('data-agent-surface');
     });
 
-    test('Expert adopts .terminal-header and renders close, but no title', async () => {
+    test('the terminal surface adopts .terminal-header and renders close, but no title', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -328,11 +328,11 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('Simple adopts the console bar: dot, Agent, pen, bell, share, more, close', async () => {
+    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
-      document.documentElement.setAttribute('data-ui-mode', 'simple');
+      document.documentElement.removeAttribute('data-agent-surface');
       setTerminalHeaderSource(header);
       const bar = detachedConsoleBar();
       setTerminalConsoleBarSource(bar);
@@ -357,32 +357,58 @@ describe('tile-tab renderer', () => {
       ]);
     });
 
-    test('Simple falls back to the header when the console never built', async () => {
+    test('the chat falls back to the header when the console never built', async () => {
       const { createTileTab, setTerminalHeaderSource } = await import(MOD);
-      document.documentElement.setAttribute('data-ui-mode', 'simple');
+      document.documentElement.removeAttribute('data-agent-surface');
       setTerminalHeaderSource(header);
       const tab = createTileTab('terminal');
       tab.init({ title: 'Agent', params: {}, api: fakeApi() });
       expect(tab.element.querySelector('.terminal-header')).toBe(header);
     });
 
-    test('a view flip rebuilds the tab, which adopts the other bar', async () => {
+    test('a surface change swaps the bar on the live tab and sends the other home', async () => {
+      const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
+        MOD
+      );
+      const { showChatSurface, showTerminalSurface } =
+        await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js');
+      const card = document.createElement('div');
+      card.append(header);
+      const console_ = document.createElement('div');
+      const bar = detachedConsoleBar();
+      console_.append(bar);
+      setTerminalHeaderSource(header);
+      setTerminalConsoleBarSource(bar);
+      const tab = createTileTab('terminal');
+      tab.init({ title: 'Agent', params: {}, api: fakeApi() });
+      expect(header.parentElement).toBe(tab.element);
+
+      showChatSurface();
+      expect(bar.parentElement).toBe(tab.element);
+      expect(header.parentElement).toBe(card);
+
+      showTerminalSurface();
+      expect(header.parentElement).toBe(tab.element);
+      expect(bar.parentElement).toBe(console_);
+    });
+
+    test('a tab built after a surface change adopts the other bar', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
       setTerminalHeaderSource(header);
       const bar = detachedConsoleBar();
       setTerminalConsoleBarSource(bar);
-      const expert = createTileTab('terminal');
-      expert.init({ title: 'Agent', params: {}, api: fakeApi() });
-      expect(header.parentElement).toBe(expert.element);
+      const onTerminal = createTileTab('terminal');
+      onTerminal.init({ title: 'Agent', params: {}, api: fakeApi() });
+      expect(header.parentElement).toBe(onTerminal.element);
 
-      document.documentElement.setAttribute('data-ui-mode', 'simple');
-      const simple = createTileTab('terminal');
-      simple.init({ title: 'Agent', params: {}, api: fakeApi() });
-      expect(bar.parentElement).toBe(simple.element);
+      document.documentElement.removeAttribute('data-agent-surface');
+      const inChat = createTileTab('terminal');
+      inChat.init({ title: 'Agent', params: {}, api: fakeApi() });
+      expect(bar.parentElement).toBe(inChat.element);
 
-      document.documentElement.setAttribute('data-ui-mode', 'expert');
+      document.documentElement.setAttribute('data-agent-surface', 'terminal');
       const back = createTileTab('terminal');
       back.init({ title: 'Agent', params: {}, api: fakeApi() });
       expect(header.parentElement).toBe(back.element);
@@ -422,7 +448,7 @@ describe('tile-tab renderer', () => {
 
     test("the console bar's buttons act instead of dragging; its plain surface drags", async () => {
       const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
-      document.documentElement.setAttribute('data-ui-mode', 'simple');
+      document.documentElement.removeAttribute('data-agent-surface');
       const bar = detachedConsoleBar();
       setTerminalConsoleBarSource(bar);
       const tab = createTileTab('terminal');
@@ -625,7 +651,7 @@ describe('tile header context menu', () => {
     const { createTileTab, setTerminalConsoleBarSource, setTileContextMenuHandler } = await import(
       MOD
     );
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     const bar = detachedConsoleBar();
     setTerminalConsoleBarSource(bar);
     const handler = vi.fn(() => true);
@@ -639,6 +665,6 @@ describe('tile header context menu', () => {
     const { id, opts } = firstCall(handler);
     expect(id).toBe('terminal');
     expect(opts.anchorEl).toBe(bar);
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
   });
 });

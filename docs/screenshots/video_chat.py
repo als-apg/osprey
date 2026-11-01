@@ -1,4 +1,4 @@
-"""Probes on the Simple view's operator chat, the counterpart of the xterm probes.
+"""Probes on the operator chat, the counterpart of the xterm probes.
 
 The selectors are the ones the chat's own browser tests use
 (``tests/interfaces/web_terminal/test_chat_browser.py``): the console mounts in
@@ -16,9 +16,9 @@ from typing import Any
 
 COMPOSER = "#operator-container .op-input-area textarea"
 
-# The page is in the Simple view and its composer is on screen.
+# The page is on the chat and its composer is on screen.
 MOUNTED_JS = """
-() => document.documentElement.dataset.uiMode === 'simple'
+() => document.documentElement.dataset.agentSurface !== 'terminal'
   && !!document.querySelector('#operator-container .op-input-area textarea')
 """
 

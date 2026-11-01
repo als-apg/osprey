@@ -68,7 +68,7 @@ def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
 
 
 def chat_uploads_dir(config: dict, project_dir: Path) -> str:
-    """The directory the Simple view stores attachments in, as an absolute path.
+    """The directory the operator chat stores attachments in, as an absolute path.
 
     The web terminal stores a file the operator attaches under
     ``<agent-data root>/uploads`` and hands the agent its absolute path, with the
@@ -356,7 +356,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # the directory the moment a project relocated `agent_data.base_dir` —
         # and the agent would be refused the files it had just written.
         "agent_data_root": agent_data_base_dir(config),
-        # Where the Simple view stores the files operators attach, as the absolute
+        # Where the operator chat stores the files operators attach, as the absolute
         # path the agent reads them by; settings.json allows exactly that
         # directory (see chat_uploads_dir).
         "chat_uploads_dir": chat_uploads_dir(config, project_dir),

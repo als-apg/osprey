@@ -1,7 +1,7 @@
 """Attachment ownership in the PTY pool.
 
 A pool key can be reached by more than one consumer — a second tab, a reload
-whose disconnect the server sees late, a view flip. Attachment is therefore
+whose disconnect the server sees late, a surface change. Attachment is therefore
 owned by a *token* the consumer holds, not by the key: only the holder can
 release it, and a key that is already attached is refused rather than shared,
 because two readers on one PTY file descriptor split the child's output

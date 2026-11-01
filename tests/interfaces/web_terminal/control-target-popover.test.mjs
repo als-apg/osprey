@@ -44,7 +44,6 @@
  *   their write switches stay live — writing is a separate question;
  * - `Turn all writes off` POSTs `all`/`off`, enabled exactly when `any_armed`;
  * - a waived widening shows its sentence once in the status line;
- * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
  * Seams: `fetch` is stubbed the way the other suites here stub it, and
  * `EventSource` is stubbed as a class, since happy-dom has none. Both modules hold module-private state
@@ -407,7 +406,7 @@ beforeEach(async () => {
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.
   localStorage.clear();
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
   chipModule = await import(CHIP);
   popoverModule = await import(POPOVER);
@@ -2471,51 +2470,6 @@ describe('no process claims', () => {
 });
 
 /* ---- one DOM for both densities ------------------------------------------- */
-
-describe('simple and expert are one DOM', () => {
-  /**
-   * Every popover render, as markup, for a given ui-mode.
-   * @param {string} mode @param {any} view
-   */
-  async function markupUnder(mode, view) {
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    await bootOpen(view);
-    const html = popEl()?.innerHTML ?? '';
-    popoverModule.teardownControlTargetPopover();
-    chipModule.teardownControlTargetChip();
-    return html;
-  }
-
-  test('the plain roster produces identical markup in either mode', async () => {
-    const simple = await markupUnder('simple', viewOf());
-    const expert = await markupUnder('expert', viewOf());
-    expect(simple).toBe(expert);
-  });
-
-  test('a locked, unreachable, followed roster is identical too', async () => {
-    // The lock here is a context this terminal follows rather than owns: every
-    // row is read-only and the banner names the holder. That is the widest
-    // difference the two modes could have rendered differently, and they must
-    // not — the modes differ in defaults, never in markup.
-    const view = () =>
-      viewOf({
-        owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false },
-        targets: [
-          rowOf(KINDS.live, {
-            ...STATES.off,
-            reachability: { state: 'down', role: 'read_only', age_s: 8 },
-          }),
-          rowOf(KINDS.va, { is_baseline: true, active: true }),
-        ],
-      });
-    const simple = await markupUnder('simple', view());
-    const expert = await markupUnder('expert', view());
-    expect(simple).toBe(expert);
-    // And the lock is really in the markup being compared — a seed that stopped
-    // biting would leave two plain rosters agreeing about nothing.
-    expect(simple).toContain('holds the control context');
-  });
-});
 
 /* ---- request plumbing ----------------------------------------------------- */
 

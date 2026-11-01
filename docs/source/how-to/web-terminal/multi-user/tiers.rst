@@ -89,20 +89,20 @@ permissions, because permissions are a property of a project's ``config.yml``
      - ``never``. Every write surface refuses
      - No. The ``setup_patch`` tool is denied, the Config panel is off, and
        the scaffold gallery is readable but not writable
-     - Chat-first ``simple`` layout, without the EVENTS and BLUESKY panels
+     - Operator chat, without the EVENTS and BLUESKY panels
    * - **readwrite** (alice)
      - ``asked``. Alice writes to a machine once she moves its switch to
        *asked* from the chip, and nowhere else. A channel write still passes the
        writes-check hook, the per-channel limits, and a human approval prompt
        before it executes
      - No — the same floor as readonly
-     - Full ``expert`` workspace with the EVENTS and BLUESKY panels
+     - Operator chat, with the EVENTS and BLUESKY panels
    * - **admin** (carol)
      - ``allowed``: as above, and the switch may also go to *allowed*
      - Yes, and only here: the ``setup-mode`` skill, the ``setup_patch``
        tool, the web Config panel, and the gallery's edit, create and delete
        surfaces
-     - Full ``expert`` workspace with the EVENTS and BLUESKY panels, plus
+     - Operator chat, with the EVENTS and BLUESKY panels, plus
        the Config panel
 
 .. _multi-user-tiers-posture:

@@ -12,9 +12,9 @@ on disk. The outcomes covered here:
 - A cold resume of an id with no transcript spawns nothing: the server
   answers ``transcript_missing`` and closes, and the client renders that
   state instead of a dead PTY.
-- A cold resume of an id the chat pool answers to is served: both views are
+- A cold resume of an id the chat pool answers to is served: both surfaces are
   windows onto one session key, so a conversation the operator started in
-  Simple is a session here even before a transcript names it. Serving it is
+  chat is a session here even before a transcript names it. Serving it is
   a hand-off — the chat is torn down and the terminal spawned in its place.
 - A ``--resume`` child that the pre-spawn check let through but which still
   reports ``No conversation found with session ID`` and exits gets the same
@@ -250,7 +250,7 @@ def test_resume_child_exiting_for_another_reason_still_sends_exit(ws_app, sessio
 def test_cold_resume_of_a_chat_held_key_is_not_refused(ws_app):
     """An id only the chat pool holds resumes instead of being refused.
 
-    The Simple view keys its pool on the same session key the terminal does,
+    The chat keys its pool on the same session key the terminal does,
     so a conversation started there names a session on this surface too — and
     it can name one before any ``.jsonl`` exists, because the transcript is
     written on the first turn. Refusing it would tell the operator the

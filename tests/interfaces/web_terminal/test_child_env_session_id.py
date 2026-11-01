@@ -1,6 +1,6 @@
 """One execution root per conversation: ``OSPREY_SESSION_ID`` on every spawn.
 
-Both views are windows onto one session key. The key is the PTY pool key, the
+Both surfaces are windows onto one session key. The key is the PTY pool key, the
 chat pool key, the audit session id — and it has to be the execution root too,
 or the two children a flip puts on either side of one conversation work out of
 different directories: the python and sandbox executors put their run
@@ -225,7 +225,7 @@ class TestTheTelemetryPair:
         assert "OSPREY_TELEMETRY_SESSION_ID" not in env
         assert "OSPREY_TELEMETRY_SESSION_START" not in env
 
-    def test_every_pty_session_is_marked_expert_surface(self, client):
-        """PTY sessions serve the expert web surface — new and resumed alike."""
-        assert _pty_env(client, None, SESSION_A)["OSPREY_WEB_UX"] == "expert"
-        assert _pty_env(client, SESSION_A, SESSION_A)["OSPREY_WEB_UX"] == "expert"
+    def test_every_pty_session_is_marked_terminal_surface(self, client):
+        """PTY sessions serve the terminal surface — new and resumed alike."""
+        assert _pty_env(client, None, SESSION_A)["OSPREY_WEB_UX"] == "terminal"
+        assert _pty_env(client, SESSION_A, SESSION_A)["OSPREY_WEB_UX"] == "terminal"

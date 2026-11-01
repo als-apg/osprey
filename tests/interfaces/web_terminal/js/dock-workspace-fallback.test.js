@@ -11,7 +11,7 @@
  * global and drive the REAL hub receive side (tile-header-contrib.js): a
  * contribution renders into the fallback bar, a click round-trips to the
  * iframe, the bar follows the active panel, and it steps aside only when no
- * panel is active — in both views, as a docked tile's bar does.
+ * panel is active — in both surfaces, as a docked tile's bar does.
  */
 
 import { test, expect, describe, beforeAll, beforeEach, afterEach, vi } from 'vitest';
@@ -45,7 +45,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** The hub page's DOM as index.html ships it, minus dockview. */
 function mountHub() {
-  document.documentElement.setAttribute('data-ui-mode', 'expert');
+  document.documentElement.setAttribute('data-agent-surface', 'terminal');
   document.body.innerHTML = `
     <nav>
       <button class="panel-rail-button" data-panel-id="tuning" aria-label="Tuning"></button>
@@ -188,7 +188,7 @@ describe('hub with no dockview', () => {
     expect(artifacts.postMessage).not.toHaveBeenCalled();
   });
 
-  test('the bar hides only with no active panel, and shows in both views', async () => {
+  test('the bar hides only with no active panel, and shows in both surfaces', async () => {
     addIframe('tuning');
     initDockWorkspace();
     expect(bar().style.display).toBe('none');
@@ -198,10 +198,10 @@ describe('hub with no dockview', () => {
     await flush();
     expect(bar().style.display).toBe('');
 
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     await flush();
     expect(bar().style.display).toBe('');
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
     delete host.dataset.activePanel;
     await flush();

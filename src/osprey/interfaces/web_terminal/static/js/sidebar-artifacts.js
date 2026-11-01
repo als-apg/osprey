@@ -21,14 +21,14 @@
  *
  * Which artifact is shown (the rules the gallery applied before the list moved
  * here):
- *   - Expert: the selection. A row click picks; an agent focus frame jumps the
- *     pick to the focused artifact.
- *   - Simple: the operator's pick while it is still listed, else the agent's
+ *   - On the terminal surface: the selection. A row click picks; an agent focus
+ *     frame jumps the pick to the focused artifact.
+ *   - In chat: the operator's pick while it is still listed, else the agent's
  *     focus unless it is a run record, else the fallback. A focus frame the
  *     agent's tooling sent on its own (`automatic`: the approval hook showing
  *     its review notebook, which the chat's approval card already shows) only
  *     records the focus; any other focus frame also takes the pick.
- *   - Fallback, both views: the newest result, then the newest script run,
+ *   - Fallback, both surfaces: the newest result, then the newest script run,
  *     then the shipped example.
  * A page that opens after the agent focused (a reload, a second tab) or a
  * stream that reconnects reads the focus the panel kept, as an automatic one.
@@ -50,7 +50,7 @@
 
 import { closePopover, togglePopover } from '/design-system/js/popover.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
-import { onModeChange } from '/design-system/js/frame-params.js';
+import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { createEventSource } from './api.js';
 import { getCurrentSessionId, onSessionChange } from './terminal.js';
 import { contributeLocal } from './tile-header-contrib.js';
@@ -184,7 +184,7 @@ export function initSidebarArtifacts() {
       render();
       void refresh();
     });
-    onModeChange(() => {
+    onSurfaceChange(() => {
       if (active) render();
     });
   }
@@ -238,7 +238,7 @@ function refresh() {
  * first page replaces what the lists hold, the fetched focus included) and
  * only when it changed, so a reconnect does not take back the operator's pick.
  * It counts as automatic: the panel does not keep whether the agent's tooling
- * sent it, and an automatic focus never puts a run record in Simple's viewer.
+ * sent it, and an automatic focus never puts a run record in the chat's viewer.
  */
 async function restoreFocus() {
   const [, id] = await Promise.all([refresh(), fetchFocusedId()]);
@@ -275,11 +275,6 @@ function inScope(entry) {
   return !sessionId || !entry.session_id || entry.session_id === sessionId;
 }
 
-/** @returns {boolean} */
-function isSimple() {
-  return document.documentElement.dataset.uiMode === 'simple';
-}
-
 /**
  * The artifact the viewer shows (see the module docstring for the rules).
  * @returns {ArtifactEntry | null}
@@ -287,7 +282,7 @@ function isSimple() {
 function resolveShown() {
   const pick = held(state.pickId);
   if (pick) return pick;
-  if (isSimple()) {
+  if (!isTerminalSurface()) {
     const focus = held(state.focusId);
     if (focus && focus.run_record !== true) return focus;
   }
@@ -381,7 +376,7 @@ async function onFocus(id, automatic) {
     listingFor(entry).add(entry, { counted: false });
   }
   state.focusId = id;
-  if (!automatic || !isSimple()) state.pickId = id;
+  if (!automatic || isTerminalSurface()) state.pickId = id;
   render();
 }
 

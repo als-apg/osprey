@@ -1,4 +1,4 @@
-"""Ending the Simple view's agent, on every path that ends it, also ends what the agent started.
+"""Ending the chat's agent, on every path that ends it, also ends what the agent started.
 
 Real processes: the chat child is the ``_chat_child`` stand-in, held by a real
 ``OperatorSession`` through the agent runner, and the commands it starts are
@@ -457,7 +457,7 @@ async def test_a_replaced_operator_session_ends_what_it_started(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tmp_path):
+async def test_the_terminal_asks_before_ending_the_chats_started_processes(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     session = await start_chat(factory, session_key=KEY)
     app = make_app()
@@ -467,7 +467,7 @@ async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tm
         pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "expert", object(), spawn=pty_spawner(app))
+            await acquire(app, KEY, "terminal", object(), spawn=pty_spawner(app))
 
         assert refused.value.error == "handoff_started_commands"
         assert chats(app).sessions[KEY] is session
@@ -489,7 +489,7 @@ async def test_stop_both_ends_the_chat_and_what_it_started(tmp_path):
     try:
         pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
 
-        await acquire(app, KEY, "expert", object(), spawn=pty_spawner(app), end_started=True)
+        await acquire(app, KEY, "terminal", object(), spawn=pty_spawner(app), end_started=True)
 
         assert session.process_exited is True
         await wait_gone(pids)

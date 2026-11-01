@@ -414,7 +414,7 @@ def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: 
     yet, because Claude Code writes the transcript on the first prompt. A key
     the chat pool answers to (:func:`_chat_pool_answers_to`, so a creation
     still inside ``start()`` counts) is equally a session: both views are
-    windows onto one key, and the conversation the operator started in Simple
+    windows onto one key, and the conversation the operator started in chat
     is the one they are asking for here. Only with none of those is the
     transcript directory the authority: ``--resume`` on an id with no file
     there prints :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER` and exits, which is the dead
@@ -490,7 +490,7 @@ def _build_extra_env(
     included. It scopes the child's execution root
     (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
-    conversation is one session whichever view is showing it, so the chat
+    conversation is one session whichever surface is showing it, so the chat
     child spawned under that key
     (:func:`~osprey.interfaces.web_terminal.operator_session.build_operator_child_env`)
     works out of the same directory as this one. The name is in
@@ -515,12 +515,11 @@ def _build_extra_env(
     operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
-    # The PTY terminal IS the expert web surface — every session spawned here
-    # serves it, whatever web.ui_mode the deployment defaults to (the operator
-    # can flip modes live; the chat surface runs its own SDK sessions, marked
-    # "simple" in operator_session.py). The panels-context SessionStart hook
-    # reads this to tell the agent which UI the operator is looking at.
-    extra_env["OSPREY_WEB_UX"] = "expert"
+    # Every session spawned here serves the terminal surface; the chat runs its
+    # own SDK sessions, marked in operator_session.py. The panels-context
+    # SessionStart hook reads this to tell the agent which UI the operator is
+    # looking at.
+    extra_env["OSPREY_WEB_UX"] = session_handoff.SURFACE_TERMINAL
     session_key = claude_session_id or telemetry_session_id
     if session_key:
         extra_env["OSPREY_SESSION_ID"] = session_key
@@ -696,7 +695,7 @@ class _TerminalChannel:
         spawn: SpawnCallback,
         end_started: bool = False,
     ) -> AcquireResult:
-        """Take *key* for the Expert surface while reading the socket.
+        """Take *key* for the terminal surface while reading the socket.
 
         The acquire runs in the handler's own task — a cancellation delivered
         while phase (c) runs is then honoured only once the phase is done,
@@ -709,7 +708,7 @@ class _TerminalChannel:
             return await session_handoff.acquire_surface(
                 app,
                 key,
-                session_handoff.SURFACE_EXPERT,
+                session_handoff.SURFACE_TERMINAL,
                 self.token,
                 interrupt=interrupt,
                 spawn=spawn,
@@ -867,10 +866,10 @@ async def _spawn_pooled_pty(
 
 
 #: Close code of a ``/ws/terminal`` refused because the deployment offers no
-#: Expert view (``web.expert_view: false``). In the 4000-4999 application
+#: terminal (``web.terminal: false``). In the 4000-4999 application
 #: range beside the hand-off's 4409; 4403 reads as "forbidden" the way HTTP's
 #: 403 does.
-WS_CLOSE_EXPERT_VIEW_OFF = 4403
+WS_CLOSE_TERMINAL_OFF = 4403
 
 
 @router.websocket("/ws/terminal")
@@ -899,7 +898,7 @@ async def terminal_ws(websocket: WebSocket):
 
     Every PTY this handler serves comes through
     :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`:
-    the key is one session whichever view shows it, so taking it here hands
+    the key is one session whichever surface shows it, so taking it here hands
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
@@ -919,23 +918,23 @@ async def terminal_ws(websocket: WebSocket):
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
     that it found no such conversation and quits.
 
-    A deployment with ``web.expert_view: false`` offers no Expert view, and
-    this socket is the Expert view's PTY session: it is refused before
-    anything is looked up or spawned, with an ``error`` frame naming the key
-    and close code :data:`WS_CLOSE_EXPERT_VIEW_OFF`. The page never opens it
+    A deployment with ``web.terminal: false`` offers no terminal, and this
+    socket is its PTY session: it is refused before anything is looked up or
+    spawned, with an ``error`` frame naming the key and close code
+    :data:`WS_CLOSE_TERMINAL_OFF`. The page never opens it
     there; the refusal is what stops a hand-made client.
     """
     await websocket.accept()
 
     app = websocket.app
-    if not getattr(app.state, "web_expert_view", True):
+    if not getattr(app.state, "web_terminal_offered", True):
         # Imported here for the routes -> app cycle routes/panels.py avoids too.
-        from osprey.interfaces.web_terminal.app import EXPERT_VIEW_REFUSAL
+        from osprey.interfaces.web_terminal.app import TERMINAL_REFUSAL
 
-        logger.info("Refusing /ws/terminal: web.expert_view is false")
+        logger.info("Refusing /ws/terminal: web.terminal is false")
         with suppress(Exception):
-            await websocket.send_text(json.dumps({"type": "error", "message": EXPERT_VIEW_REFUSAL}))
-            await websocket.close(code=WS_CLOSE_EXPERT_VIEW_OFF)
+            await websocket.send_text(json.dumps({"type": "error", "message": TERMINAL_REFUSAL}))
+            await websocket.close(code=WS_CLOSE_TERMINAL_OFF)
         return
 
     registry = app.state.pty_registry
@@ -980,8 +979,8 @@ async def terminal_ws(websocket: WebSocket):
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
     # terminal the operator cannot use. The server knows before spawning, so
-    # it says so and closes, spawning nothing for that id; the client says so
-    # and starts a new session (terminal.js).
+    # it says so and closes, spawning nothing for that id; the client
+    # starts a new session (terminal.js).
     if (
         mode == "resume"
         and req_session_id

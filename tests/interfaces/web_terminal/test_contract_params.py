@@ -64,6 +64,7 @@ from tests.interfaces._launchers import (
     launch_okf_panel,
     launch_web_terminal,
 )
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 try:
     from playwright.sync_api import expect
@@ -288,6 +289,7 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
     # Arrange
     with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
+        arm_terminal_tab(page)
         sent_frames: list[str] = []
 
         def _on_websocket(ws) -> None:

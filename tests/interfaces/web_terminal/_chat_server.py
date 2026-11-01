@@ -260,7 +260,7 @@ def seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     A real transcript is written by a real ``claude`` process, which needs the
     binary and a provider; the conversation is therefore seeded in the shape
     the readers expect (``<config-dir>/projects/<encoded>/<id>.jsonl``, one
-    entry per line). This single file is what the resume decision, the Simple
+    entry per line). This single file is what the resume decision, the chat
     view's replay and the PTY idle judgement all read.
 
     Args:
@@ -339,7 +339,6 @@ def _record_pty_spawns(app) -> None:
 @contextmanager
 def live_chat_server(
     tmp_path,
-    ui_mode: str = "simple",
     *,
     enabled_panels: frozenset[str] = frozenset({"artifacts"}),
     panel_urls: dict[str, str] | None = None,
@@ -349,9 +348,7 @@ def live_chat_server(
     Mirrors the panels-browser ``_live_server`` patch set (web/panel config +
     artifact-server bypass) and adds the SDK seam: ``HAS_SDK`` on both the
     session and route modules, and the fake client where the agent runner
-    constructs it. ``ui_mode``
-    is applied post-startup (root() re-reads it per request), the same
-    app.state seam the ui-mode browser suite uses.
+    constructs it.
 
     The project served is a fresh directory under ``tmp_path`` carrying the
     turn-state hook registrations, and both roots the session machinery writes
@@ -405,6 +402,5 @@ def live_chat_server(
     ) as app:
         _install_test_routes(app)
         with run_app_server(app) as base_url:
-            app.state.web_ui_mode = ui_mode
             _record_pty_spawns(app)
             yield base_url, app

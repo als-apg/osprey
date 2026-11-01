@@ -1,6 +1,6 @@
 """The chat child's approval gates, proved on the Claude Code the project pins.
 
-The Simple view launches its child with the project's own hooks, no hooks of
+The chat launches its child with the project's own hooks, no hooks of
 its own and no bypass, and puts every tool ask the child raises in front of the
 operator as an approval card. These scripted runs drive that real launch
 (:class:`~osprey.interfaces.web_terminal.operator_session.OperatorSession`)

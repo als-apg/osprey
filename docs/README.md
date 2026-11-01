@@ -79,8 +79,8 @@ $ uv run python -m docs.screenshots.contact_sheet --out /tmp/sheet
 ```
 
 That captures the Web Terminal's four shells — the **dark** and **light**
-themes crossed with the **expert** and **simple** UI modes — writes one PNG per
-cell into the output directory, composes them into `contact-sheet.html` there,
+themes crossed with the Agent tile's **chat** and **terminal** surfaces — writes
+one PNG per cell into the output directory, composes them into `contact-sheet.html` there,
 and prints its path. Open that one file to review every variant side by side.
 
 **Comparing accent candidates.** Add `--accents` to render each of the four
@@ -99,9 +99,9 @@ launches. Where no browser runtime is available the run skips with a one-line
 notice instead of erroring.
 
 **Extending it to another target.** The variant grid is the `VARIANTS` list of
-`(theme, mode)` tuples near the top of `contact_sheet.py`, and the completeness
+`(theme, agent)` tuples near the top of `contact_sheet.py`, and the completeness
 invariant `_FULL_MATRIX` mirrors it — add a cell to *both* to capture a new
-theme/mode combination. To cover a new panel, seed its backing store the way
+theme/agent combination. To cover a new panel, seed its backing store the way
 `seed_demo_workspace` seeds the workspace artifacts and wire it into
 `hermetic_hub` so the panel renders populated; the capture loop and the
 composed sheet then pick it up unchanged. A hub card in a particular UI state is
@@ -139,7 +139,7 @@ $ uv run make -C docs doc-videos VIDEOOPTS="--video landing --theme dark"
 ```
 
 **Adding a video.** A new video starts as a written description, agreed with
-the maintainer before any storyboard code: the view (Simple or Expert), the active
+the maintainer before any storyboard code: the Agent surface (chat or terminal), the active
 sidebar entry, the open tiles, any history played off camera before recording
 (real agent turns; the note must say so), the prompts, the beats and the captions. Then add
 a `DocVideo` to `VIDEOS` in `docs/screenshots/videos.py`: its name and file stem,

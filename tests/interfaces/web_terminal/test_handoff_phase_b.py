@@ -87,14 +87,14 @@ ESC = b"\x1b"
 # ---------------------------------------------------------------------------
 
 
-async def test_simple_reusing_a_busy_chat_waits_too():
+async def test_chat_reusing_a_busy_chat_waits_too():
     """Same surface, chat held: the route cannot take a turn on a busy chat."""
     app = make_app()
     chat = FakeChatSession(busy=True)
     chats(app).sessions[KEY] = chat
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "simple", object()))
+        task = asyncio.create_task(acquire(app, KEY, "chat", object()))
         await ticks(app, 5)
         assert not task.done()
         chat.is_busy = False
@@ -110,7 +110,7 @@ async def test_chat_vanishing_mid_wait_is_an_error_and_releases_the_slot():
     recorder = Recorder()
     channel = object()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "expert", channel))
+        task = asyncio.create_task(acquire(app, KEY, "terminal", channel))
         await ticks(app, 3)
         del chats(app).sessions[KEY]
         with pytest.raises(HandoffError) as excinfo:
@@ -126,7 +126,7 @@ async def test_chat_dying_while_pooled_ends_the_wait_as_exited():
     chats(app).sessions[KEY] = chat
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "expert", object()))
+        task = asyncio.create_task(acquire(app, KEY, "terminal", object()))
         await ticks(app, 3)
         chat._active = False
         await task
@@ -146,13 +146,13 @@ def _started(chat: FakeChatSession) -> FakeChatSession:
     return chat
 
 
-async def test_an_expert_acquire_of_an_idle_chat_with_started_commands_is_refused():
+async def test_an_terminal_acquire_of_an_idle_chat_with_started_commands_is_refused():
     app = make_app()
     chat = _started(FakeChatSession())
     chats(app).sessions[KEY] = chat
 
     with pytest.raises(HandoffRefused) as excinfo:
-        await acquire(app, KEY, "expert", object())
+        await acquire(app, KEY, "terminal", object())
 
     refused = excinfo.value
     assert refused.error == ERROR_HANDOFF_STARTED_COMMANDS
@@ -165,13 +165,13 @@ async def test_an_expert_acquire_of_an_idle_chat_with_started_commands_is_refuse
     assert_released(app)
 
 
-async def test_an_interrupting_expert_acquire_asks_before_the_turn_is_cut():
+async def test_an_interrupting_terminal_acquire_asks_before_the_turn_is_cut():
     app = make_app()
     chat = _started(Chat(busy=True))
     chats(app).sessions[KEY] = chat
 
     with pytest.raises(HandoffRefused) as excinfo:
-        await acquire(app, KEY, "expert", object(), interrupt=True)
+        await acquire(app, KEY, "terminal", object(), interrupt=True)
 
     assert excinfo.value.error == ERROR_HANDOFF_STARTED_COMMANDS
     assert chat.cancels == 0
@@ -184,7 +184,7 @@ async def test_a_busy_chat_is_looked_at_only_once_it_is_idle():
     app = make_app()
     chat = _started(FakeChatSession(busy=True))
     chats(app).sessions[KEY] = chat
-    task = asyncio.create_task(acquire(app, KEY, "expert", object()))
+    task = asyncio.create_task(acquire(app, KEY, "terminal", object()))
     await ticks(app, 5)
     assert chat.started_calls == 0
 
@@ -196,39 +196,39 @@ async def test_a_busy_chat_is_looked_at_only_once_it_is_idle():
     assert chat.started_calls == 1
 
 
-async def test_end_started_lets_the_expert_acquire_proceed():
+async def test_end_started_lets_the_terminal_acquire_proceed():
     app = make_app()
     chat = _started(FakeChatSession())
     chats(app).sessions[KEY] = chat
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        plan = await acquire(app, KEY, "expert", object(), end_started=True)
+        plan = await acquire(app, KEY, "terminal", object(), end_started=True)
 
     assert plan.action == ACTION_HANDOFF and plan.end_started is True
     assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
     assert chat.started_calls == 0
 
 
-async def test_a_simple_acquire_reusing_its_chat_never_looks():
+async def test_a_chat_acquire_reusing_its_chat_never_looks():
     app = make_app()
     chat = _started(FakeChatSession())
     chats(app).sessions[KEY] = chat
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        plan = await acquire(app, KEY, "simple", object())
+        plan = await acquire(app, KEY, "chat", object())
 
     assert plan.action == ACTION_REUSE
     assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
     assert chat.started_calls == 0
 
 
-async def test_with_nothing_started_the_expert_acquire_goes_straight_through():
+async def test_with_nothing_started_the_terminal_acquire_goes_straight_through():
     app = make_app()
     chat = FakeChatSession()
     chats(app).sessions[KEY] = chat
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        await acquire(app, KEY, "expert", object())
+        await acquire(app, KEY, "terminal", object())
 
     assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
     assert chat.started_calls == 1
@@ -246,7 +246,7 @@ async def test_a_running_turn_is_never_terminated_while_the_channel_is_open():
     recorder = Recorder()
     channel = ChannelToken()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        task = asyncio.create_task(acquire(app, KEY, "chat", channel))
         # Hours of fake time, a few hundred looks.
         await ticks(app, 300)
         app.clock.now += 6 * 3600
@@ -271,7 +271,7 @@ async def test_pty_going_idle_in_the_store_ends_the_wait():
     set_store(app, "busy", time.time())
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "simple", object()))
+        task = asyncio.create_task(acquire(app, KEY, "chat", object()))
         await ticks(app, 5)
         assert not task.done()
         set_store(app, "idle", time.time())
@@ -287,7 +287,7 @@ async def test_pty_vanishing_mid_wait_is_an_error_and_releases_the_slot():
     recorder = Recorder()
     channel = object()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        task = asyncio.create_task(acquire(app, KEY, "chat", channel))
         await ticks(app, 3)
         assert registry(app).pop_session(KEY) is pty
         with pytest.raises(HandoffError) as excinfo:
@@ -304,7 +304,7 @@ async def test_pty_dying_while_pooled_ends_the_wait_as_exited():
     set_store(app, "busy", time.time())
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire(app, KEY, "simple", object()))
+        task = asyncio.create_task(acquire(app, KEY, "chat", object()))
         await ticks(app, 3)
         pty._alive = False
         await task
@@ -327,7 +327,7 @@ async def test_the_channel_is_asked_on_every_look():
         probes += 1
         return False
 
-    task = asyncio.create_task(acquire(app, KEY, "expert", ChannelToken(is_closed)))
+    task = asyncio.create_task(acquire(app, KEY, "terminal", ChannelToken(is_closed)))
     await ticks(app, 10)
     looks = len(app.clock.sleeps)
     assert probes >= looks
@@ -343,7 +343,7 @@ async def test_a_closed_channel_is_seen_on_the_first_look():
     app = make_app()
     chats(app).sessions[KEY] = FakeChatSession(busy=True)
     with pytest.raises(ChannelClosed):
-        await acquire(app, KEY, "expert", ChannelToken(lambda: True))
+        await acquire(app, KEY, "terminal", ChannelToken(lambda: True))
     assert app.clock.sleeps == []
     assert_released(app)
 
@@ -373,7 +373,7 @@ async def test_hookless_pty_with_interrupt_is_escaped_and_ends_on_the_marker(tmp
         patch.object(session_handoff, "_transcript_path", lambda _app, _tid: transcript),
         patch.object(session_handoff, "_phase_c", recorder),
     ):
-        await acquire(app, KEY, "simple", object(), interrupt=True)
+        await acquire(app, KEY, "chat", object(), interrupt=True)
     assert recorder.calls[-1][1] == WaitOutcome(REASON_INTERRUPTED)
     assert pty.writes == [ESC]
     assert pty.terminates == 0
@@ -405,7 +405,7 @@ async def test_interrupt_writes_escape_then_proceeds_on_the_store_idle_edge():
     app.clock.on_sleep.append(idle_on_the_fourth_look)
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        plan = await acquire(app, KEY, "simple", object(), interrupt=True)
+        plan = await acquire(app, KEY, "chat", object(), interrupt=True)
     assert pty.writes == [ESC]
     assert plan.interrupt is True
     assert recorder.calls[-1][1] == WaitOutcome(REASON_INTERRUPTED)
@@ -422,7 +422,7 @@ async def test_interrupt_on_an_idle_pty_writes_nothing():
     set_store(app, "idle", time.time())
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        await acquire(app, KEY, "simple", object(), interrupt=True)
+        await acquire(app, KEY, "chat", object(), interrupt=True)
     assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
     assert pty.writes == []
 
@@ -434,7 +434,7 @@ async def test_interrupt_that_never_lands_terminates_after_the_grace():
     recorder = Recorder()
     channel = object()
     with patch.object(session_handoff, "_phase_c", recorder):
-        plan = await acquire(app, KEY, "simple", channel, interrupt=True)
+        plan = await acquire(app, KEY, "chat", channel, interrupt=True)
     assert pty.writes == [ESC]
     assert pty.terminates == 1
     assert recorder.calls[-1] == (plan, WaitOutcome(REASON_FORCED))
@@ -462,7 +462,7 @@ async def test_the_loop_stays_responsive_during_a_slow_terminate():
     beat = asyncio.create_task(heartbeat())
     with patch.object(session_handoff, "_phase_c", Recorder()):
         started = time.monotonic()
-        await acquire(app, KEY, "simple", object(), interrupt=True)
+        await acquire(app, KEY, "chat", object(), interrupt=True)
         wall = time.monotonic() - started
     stop.set()
     await beat
@@ -486,7 +486,7 @@ async def test_a_failed_escape_write_is_classified_by_the_next_look():
     pty.write_input = write_input  # type: ignore[method-assign]
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        await acquire(app, KEY, "simple", object(), interrupt=True)
+        await acquire(app, KEY, "chat", object(), interrupt=True)
     assert recorder.calls[-1][1] == WaitOutcome(REASON_EXITED)
     assert pty.terminates == 0
 
@@ -502,7 +502,7 @@ async def test_a_failed_escape_write_on_a_live_pty_still_runs_the_grace():
     pty.write_input = write_input  # type: ignore[method-assign]
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        await acquire(app, KEY, "simple", object(), interrupt=True)
+        await acquire(app, KEY, "chat", object(), interrupt=True)
     assert recorder.calls[-1][1] == WaitOutcome(REASON_FORCED)
     assert pty.terminates == 1
     assert sum(app.clock.sleeps) == pytest.approx(INTERRUPT_GRACE_S, abs=2 * IDLE_POLL_S)
@@ -528,7 +528,7 @@ async def test_channel_closing_during_the_interrupt_grace_still_cancels():
 
     app.clock.on_sleep.append(close_on_the_third_look)
     with pytest.raises(ChannelClosed):
-        await acquire(app, KEY, "simple", channel, interrupt=True)
+        await acquire(app, KEY, "chat", channel, interrupt=True)
     assert pty.terminates == 0
     assert len(app.clock.sleeps) == looks_before_close
     assert sum(app.clock.sleeps) < INTERRUPT_GRACE_S
@@ -625,7 +625,7 @@ async def test_the_tail_is_read_for_the_keys_current_transcript(tmp_path):
         return files.get(transcript_id)
 
     with patch.object(session_handoff, "_transcript_path", transcript_path):
-        task = asyncio.create_task(acquire(app, KEY, "simple", object()))
+        task = asyncio.create_task(acquire(app, KEY, "chat", object()))
         await ticks(app, 3)
         assert not task.done(), "the old transcript's marker must not end the wait"
         assert set(asked) == {moved}
@@ -655,7 +655,7 @@ async def test_an_unchanged_transcript_is_read_once_per_wait(tmp_path):
         patch.object(session_handoff, "tail_state", counting_tail_state),
         patch.object(session_handoff, "_phase_c", Recorder()),
     ):
-        task = asyncio.create_task(acquire(app, KEY, "simple", object()))
+        task = asyncio.create_task(acquire(app, KEY, "chat", object()))
         await ticks(app, 30)
         assert not task.done()
         assert reads == 1
@@ -689,12 +689,12 @@ def test_the_tail_memo_keys_on_size_mtime_and_busy_stamp(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# A newer Simple acquire with an interrupt supersedes a pending Simple wait
+# A newer chat acquire with an interrupt supersedes a pending chat wait
 # ---------------------------------------------------------------------------
 
 
 def busy_pty_app() -> tuple[SimpleNamespace, RecordingPty]:
-    """A hooked terminal in the middle of a turn: the wait a Simple acquire meets."""
+    """A hooked terminal in the middle of a turn: the wait a chat acquire meets."""
     app = make_app()
     pty = pool_pty(app)
     set_store(app, "busy", time.time())
@@ -726,8 +726,8 @@ async def test_the_superseded_mark_lands_before_the_waiter_runs():
     recorder = Recorder()
     first_channel = ChannelToken()
     with patch.object(session_handoff, "_phase_c", recorder):
-        first = await start_wait(app, "simple", first_channel)
-        second = asyncio.create_task(acquire(app, KEY, "simple", ChannelToken(), interrupt=True))
+        first = await start_wait(app, "chat", first_channel)
+        second = asyncio.create_task(acquire(app, KEY, "chat", ChannelToken(), interrupt=True))
         # One loop step: the second has looked and cancelled; the first has not run yet.
         await asyncio.sleep(0)
         pending = get_state(app).pending[KEY]
@@ -748,8 +748,8 @@ async def test_a_cancellation_from_elsewhere_arriving_with_the_supersede_is_hono
     recorder = Recorder()
     first_channel = ChannelToken()
     with patch.object(session_handoff, "_phase_c", recorder):
-        first = await start_wait(app, "simple", first_channel)
-        second = asyncio.create_task(acquire(app, KEY, "simple", ChannelToken(), interrupt=True))
+        first = await start_wait(app, "chat", first_channel)
+        second = asyncio.create_task(acquire(app, KEY, "chat", ChannelToken(), interrupt=True))
         await asyncio.sleep(0)
         assert get_state(app).pending[KEY].superseded
         first.cancel()
@@ -763,16 +763,16 @@ async def test_a_cancellation_from_elsewhere_arriving_with_the_supersede_is_hono
     assert pty.writes == [ESC]
 
 
-async def test_without_an_interrupt_a_second_simple_acquire_waits_out_the_grace():
+async def test_without_an_interrupt_a_second_chat_acquire_waits_out_the_grace():
     """No interrupt, no supersede: blocked through the attach grace, then 409."""
     app, pty = busy_pty_app()
     recorder = Recorder()
     first_channel = ChannelToken()
     with patch.object(session_handoff, "_phase_c", recorder):
-        first = await start_wait(app, "simple", first_channel)
+        first = await start_wait(app, "chat", first_channel)
 
         with pytest.raises(HandoffRefused) as excinfo:
-            await acquire(app, KEY, "simple", ChannelToken())
+            await acquire(app, KEY, "chat", ChannelToken())
         assert excinfo.value.error == ERROR_SESSION_ATTACHED_ELSEWHERE
         assert not isinstance(excinfo.value, HandoffSuperseded)
 
@@ -787,16 +787,16 @@ async def test_without_an_interrupt_a_second_simple_acquire_waits_out_the_grace(
     assert_released(app)
 
 
-async def test_an_expert_acquire_never_supersedes_a_pending_simple_wait():
+async def test_an_terminal_acquire_never_supersedes_a_pending_chat_wait():
     """The terminal handshake carries no interrupt; even asked for one it waits like today."""
     app, pty = busy_pty_app()
     recorder = Recorder()
     first_channel = ChannelToken()
     with patch.object(session_handoff, "_phase_c", recorder):
-        first = await start_wait(app, "simple", first_channel)
+        first = await start_wait(app, "chat", first_channel)
 
         with pytest.raises(HandoffRefused) as excinfo:
-            await acquire(app, KEY, "expert", ChannelToken(), interrupt=True)
+            await acquire(app, KEY, "terminal", ChannelToken(), interrupt=True)
         assert excinfo.value.error == ERROR_SESSION_ATTACHED_ELSEWHERE
 
         assert not first.done()
@@ -810,26 +810,26 @@ async def test_an_expert_acquire_never_supersedes_a_pending_simple_wait():
     assert_released(app)
 
 
-async def test_a_pending_expert_wait_is_not_superseded_by_a_simple_interrupt():
-    """The interrupt is a gesture at the Simple view's own wait, not at the other view's."""
+async def test_a_pending_terminal_wait_is_not_superseded_by_a_chat_interrupt():
+    """The interrupt is a gesture at the chat's own wait, not at the other surface's."""
     app = make_app()
     chat = FakeChatSession(busy=True)
     chats(app).sessions[KEY] = chat
     recorder = Recorder()
-    expert_channel = ChannelToken()
+    terminal_channel = ChannelToken()
     with patch.object(session_handoff, "_phase_c", recorder):
-        first = await start_wait(app, "expert", expert_channel)
+        first = await start_wait(app, "terminal", terminal_channel)
 
         with pytest.raises(HandoffRefused) as excinfo:
-            await acquire(app, KEY, "simple", ChannelToken(), interrupt=True)
+            await acquire(app, KEY, "chat", ChannelToken(), interrupt=True)
         assert excinfo.value.error == ERROR_SESSION_ATTACHED_ELSEWHERE
 
         assert not first.done()
-        assert get_state(app).pending[KEY].channel is expert_channel
+        assert get_state(app).pending[KEY].channel is terminal_channel
         assert not get_state(app).pending[KEY].superseded
         chat.is_busy = False
         plan = await first
-    assert plan.surface == "expert"
+    assert plan.surface == "terminal"
     assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
     assert chats(app).get(KEY) is chat
 
@@ -863,10 +863,10 @@ async def test_three_requests_settle_on_one_supersede_and_one_completion():
         patch.object(session_handoff, "_phase_c", recorder),
         patch.object(session_handoff, "_pty_turn_idle", judge_from_the_store),
     ):
-        first = await start_wait(app, "simple", first_channel)
+        first = await start_wait(app, "chat", first_channel)
         idle_once_escaped(app, pty)
-        second = asyncio.create_task(acquire(app, KEY, "simple", second_channel, interrupt=True))
-        third = asyncio.create_task(acquire(app, KEY, "simple", third_channel, interrupt=True))
+        second = asyncio.create_task(acquire(app, KEY, "chat", second_channel, interrupt=True))
+        third = asyncio.create_task(acquire(app, KEY, "chat", third_channel, interrupt=True))
         # One step: the second has marked the first, the third has met the
         # mark and been plainly blocked, and the first has not run yet.
         await asyncio.sleep(0)
@@ -950,7 +950,7 @@ async def test_a_supersede_meeting_the_channel_probes_scope_still_ends_the_wait(
 
     def spawn() -> None:
         started.append(
-            asyncio.create_task(acquire(app, KEY, "simple", second_channel, interrupt=True))
+            asyncio.create_task(acquire(app, KEY, "chat", second_channel, interrupt=True))
         )
 
     first_channel = AbsorbingProbe(on_look=3, spawn=spawn, before_scope=before_scope)
@@ -959,7 +959,7 @@ async def test_a_supersede_meeting_the_channel_probes_scope_still_ends_the_wait(
         patch.object(session_handoff, "_pty_turn_idle", store_judge(app)),
     ):
         idle_once_escaped(app, pty)
-        first = asyncio.create_task(acquire(app, KEY, "simple", first_channel))
+        first = asyncio.create_task(acquire(app, KEY, "chat", first_channel))
 
         with pytest.raises(HandoffSuperseded):
             await first
@@ -988,7 +988,7 @@ async def test_the_mark_alone_ends_the_wait_with_no_cancellation_counted():
         patch.object(session_handoff, "_phase_c", recorder),
         patch.object(session_handoff, "_pty_turn_idle", store_judge(app)),
     ):
-        first = await start_wait(app, "simple", first_channel)
+        first = await start_wait(app, "chat", first_channel)
         looks = len(app.clock.sleeps)
         get_state(app).pending[KEY].superseded = True
 
@@ -1033,7 +1033,7 @@ async def test_a_mark_set_between_the_probe_and_an_idle_verdict_still_ends_the_w
         patch.object(session_handoff, "_phase_c", recorder),
         patch.object(session_handoff, "_pty_turn_idle", store_judge(app)),
     ):
-        first = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        first = asyncio.create_task(acquire(app, KEY, "chat", channel))
         with pytest.raises(HandoffSuperseded):
             await first
 

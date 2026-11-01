@@ -475,11 +475,16 @@ def test_a_comment_only_edit_keeps_the_file_and_prints_the_manual_step(tmp_path:
 
     assert result.exit_code == 0, result.output
     # Kept as written, but for the write posture: the three retired keys become
-    # the tier key they amount to (simulator armed: `allowed`), and the one
-    # comment line the previous release shipped about them takes today's words.
+    # the tier key they amount to (simulator armed: `allowed`), and the comment
+    # the previous release shipped above `web.ui_mode` leaves with the preset's.
     assert (root / "tiers" / "readwrite.yml").read_text(encoding="utf-8") == edited.replace(
         _READWRITE_RETIRED_KEYS, "  control_system.writes: allowed\n"
-    ).replace("same reason writes_enabled is.", "same reason control_system.writes is.")
+    ).replace(
+        "  # Full split-pane terminal + workspace layout for the write-armed operator.\n"
+        "  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather\n"
+        "  # than left to the server default, for the same reason writes_enabled is.\n",
+        "",
+    )
     assert "tiers/readwrite.yml was made from `control-assistant-readwrite`" in result.output
     assert "# The tier boundary, and it takes three keys." in result.output
 

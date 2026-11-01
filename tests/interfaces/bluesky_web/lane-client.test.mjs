@@ -72,7 +72,7 @@ describe('parseLaneRoster', () => {
 describe('resolveLaneFromSearch', () => {
   test('no parameter is lane 1 — the only lane a single-lane deployment has', () => {
     expect(resolveLaneFromSearch('')).toBe(LANE_ONE);
-    expect(resolveLaneFromSearch('?embedded=true&mode=simple')).toBe(LANE_ONE);
+    expect(resolveLaneFromSearch('?embedded=true&theme=dark')).toBe(LANE_ONE);
   });
 
   test('an empty parameter names no lane, matching the sidecar', () => {
@@ -131,8 +131,8 @@ describe('laneSearch', () => {
   test('switching to a second lane preserves every host parameter', () => {
     // Dropping ?embedded/?mode/?theme on a lane switch would un-embed the
     // panel or flash it into the wrong theme mid-shift.
-    expect(laneSearch('?embedded=true&mode=simple', 'bluesky_va')).toBe(
-      '?embedded=true&mode=simple&lane=bluesky_va'
+    expect(laneSearch('?embedded=true&theme=dark', 'bluesky_va')).toBe(
+      '?embedded=true&theme=dark&lane=bluesky_va'
     );
   });
 

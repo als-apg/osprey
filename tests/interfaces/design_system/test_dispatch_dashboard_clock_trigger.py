@@ -66,13 +66,9 @@ def dashboard_url() -> Iterator[str]:
 def test_a_clock_trigger_shows_its_times_and_next_fire(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
-    """In Expert mode, the trigger row names the times, the days and the next fire."""
+    """The trigger row names the times, the days and the next fire."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    page.goto(f"{dashboard_url}/?mode=expert", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "() => document.documentElement.getAttribute('data-ui-mode') === 'expert'",
-        timeout=10_000,
-    )
+    page.goto(f"{dashboard_url}/", wait_until="domcontentloaded")
     page.click("#tab-triggers")
     page.wait_for_selector("#trigger-list .trigger-row", timeout=10_000)
     # The next fire renders once the facility-time module has loaded.

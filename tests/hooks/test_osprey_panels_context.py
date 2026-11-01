@@ -474,14 +474,14 @@ def test_main_writes_no_snapshot_when_web_terminal_down(monkeypatch, capsys, tem
 
 def test_main_keeps_surface_line_when_web_terminal_down(monkeypatch, capsys):
     """Reading stdin must not cost the env-derived line when the fetch fails."""
-    monkeypatch.setenv("OSPREY_WEB_UX", "expert")
+    monkeypatch.setenv("OSPREY_WEB_UX", "terminal")
     _stub_urlopen(monkeypatch, raises=ConnectionRefusedError("down"))
     _stub_stdin(monkeypatch, {"session_id": "sess-1"})
 
     assert panels.main() == 0
 
     context = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
-    assert "EXPERT surface" in context
+    assert "terminal on the Agent tile" in context
 
 
 # ---------------------------------------------------------------------------

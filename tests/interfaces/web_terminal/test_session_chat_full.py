@@ -1,7 +1,7 @@
 """Tests for the replay reads of ``GET /api/session-chat``.
 
 The endpoint serves two callers from one route: the diagnostics view, which
-wants a capped preview of the conversation, and a view flip, which wants the
+wants a capped preview of the conversation, and a surface change, which wants the
 whole thing. These cover the second caller — the ``full`` flag, the
 session-key-to-transcript mapping the route reads through, and the decision each
 replayed call carries (``events=1``).
@@ -160,8 +160,8 @@ class TestSessionChatFull:
 #: The time every entry of a test transcript carries unless the test sets one: the
 #: record orders a session by time, and lines of one instant in their file order.
 STAMP = datetime(2026, 2, 19, 12, 0, 0, tzinfo=UTC).isoformat()
-#: The text a Simple-view decline reaches the SDK with, and the CLI's rejection at its prompt.
-SIMPLE_DECLINE = "The operator declined this tool call."
+#: The text a chat-view decline reaches the SDK with, and the CLI's rejection at its prompt.
+CHAT_DECLINE = "The operator declined this tool call."
 CLI_REJECTION = (
     "The user doesn't want to proceed with this tool use. The tool use was rejected "
     "(eg. if it was a file edit, the new_string was NOT written to the file). STOP what "
@@ -253,8 +253,8 @@ class TestReplayedDecisions:
                 "allowed",
                 id="approved-and-failed",
             ),
-            pytest.param(SIMPLE_DECLINE, True, None, "denied", id="simple-view-decline"),
-            pytest.param(CLI_REJECTION, True, None, "denied", id="expert-view-rejection"),
+            pytest.param(CHAT_DECLINE, True, None, "denied", id="chat-decline"),
+            pytest.param(CLI_REJECTION, True, None, "denied", id="terminal-rejection"),
             # Nobody answered, so the row shows neither the operator's "No" nor an expiry
             # the transcript does not record.
             pytest.param(_EXPIRED_MESSAGES["tool"], True, None, None, id="expired-ask"),
@@ -262,7 +262,7 @@ class TestReplayedDecisions:
             pytest.param(HOOK_REFUSAL, True, None, None, id="hook-refusal"),
             pytest.param("1", False, None, None, id="no-note-and-no-decline"),
             # Only an error result can be a decline; a tool that printed the words did not.
-            pytest.param(SIMPLE_DECLINE, False, None, None, id="decline-words-printed"),
+            pytest.param(CHAT_DECLINE, False, None, None, id="decline-words-printed"),
         ],
     )
     def test_a_replayed_call_shows_the_decision_its_row_showed_live(
@@ -307,7 +307,7 @@ class TestReplayedBookkeeping:
         ["[Request interrupted by user for tool use]", "[Request interrupted by user]"],
     )
     def test_an_interrupt_marker_is_no_operator_bubble(self, replay_client, transcripts, marker):
-        """The marker after an Expert-view rejection stands alone, beside the result, or both."""
+        """The marker after a terminal-view rejection stands alone, beside the result, or both."""
         _, transcript_dir = transcripts
         beside = _result("toolu_no", CLI_REJECTION, is_error=True)
         beside["message"]["content"].append({"type": "text", "text": marker})
@@ -465,7 +465,7 @@ def test_the_approval_note_is_the_hooks_own_text():
 
 
 async def test_the_decline_the_chat_sends_is_one_the_replay_reads(tmp_path):
-    """A decline given in the Simple view reaches the SDK as a text the replay reads."""
+    """A decline given in the chat reaches the SDK as a text the replay reads."""
     async with armed_chat(tmp_path) as chat:
         answer, card = await chat.ask()
         assert await chat.session.resolve_permission(card["request_id"], allow=False)

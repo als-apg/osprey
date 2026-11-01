@@ -1,8 +1,7 @@
-/* OSPREY Web Terminal — Operator Mode (Simple-view chat)
+/* OSPREY Web Terminal — the operator chat
 
-   Simple mode swaps the xterm PTY for this chat. It fills the Agent card's
-   body, the card interior under the Agent bar, so this file styles the chat
-   interior on the shared design tokens: one column of turns, the operator's own
+   The chat fills the Agent card's body, the card interior under the Agent bar,
+   so this file styles the chat interior on the shared design tokens: one column of turns, the operator's own
    turns as soft bubbles, the agent's as plain reading text, and the agent's
    actions (thinking, tool calls, subagents) as one timeline of quiet rows,
    with the plan and the approval cards between them.
@@ -11,13 +10,13 @@
    used for prose and controls. Code, tool inputs and numbers stay on
    --font-mono. Radii come from the shared --radius-* scale. */
 
-/* ---- Container + mode gate ---- */
+/* ---- Container + surface gate ---- */
 
 /* #terminal-container and #operator-container both stay mounted inside
-   .terminal-body; visibility is a pure display gate off html[data-ui-mode]
-   (resolved pre-paint by the FOUC boot script). The matching rule that hides
-   #terminal-container in simple mode lives in terminal.css. A live mode flip
-   therefore tears down no DOM and either view restores exactly on toggle-back. */
+   .terminal-body; visibility is a pure display gate off html[data-agent-surface]
+   (stamped pre-paint by agent-surface-boot.js). The matching rule that hides
+   #terminal-container in chat lives in terminal.css. A change of surface
+   therefore tears down no DOM. */
 .operator-container {
   --chat-font: var(--font-display);
   /* The chat's text scale. The fleet's text steps are sized for terminal
@@ -42,7 +41,7 @@
   --op-think: light-dark(#b5206b, #f27ab8); /* hygiene-allow-color: thinking's pink has no fleet token; one value per colour scheme */
   /* The gutter every action row's glyph sits in; the turn's timeline runs through its middle. */
   --op-gutter: 25px;
-  display: none;
+  display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
@@ -52,8 +51,8 @@
   position: relative;
 }
 
-html[data-ui-mode="simple"] #operator-container {
-  display: flex;
+html[data-agent-surface="terminal"] #operator-container {
+  display: none;
 }
 
 /* Anything the controller hides with the `hidden` attribute stays hidden: a
@@ -138,7 +137,7 @@ html[data-ui-mode="simple"] #operator-container {
 
 /* ---- Session hand-off overlay ---- */
 
-/* Shown while the session is handed over from the Expert view, and where a
+/* Shown while the session is handed over from the terminal, and where a
    refused hand-off says why. Covers the whole console, input row included, and
    sits above the streaming edge. */
 .op-handoff {
@@ -2271,19 +2270,24 @@ html[data-ui-mode="simple"] #operator-container {
   }
 }
 
-/* ── The Agent bar replaces the terminal header in the Simple view ── */
+/* ── The Agent bar replaces the terminal header in chat ── */
 
-/* The console's Agent bar is the Agent pane's one header row in Simple; the
-   card's .terminal-header (session label, picker, "+ New") is the Expert
-   view's. In the dock the Agent tile adopts whichever bar the view uses
+/* The console's Agent bar is the Agent pane's one header row in chat; the card's
+   .terminal-header (session label, picker, "+ New", ⋯) is the terminal
+   surface's. In the dock the Agent tile adopts whichever bar the surface uses
    (dock-tab.js) and the other stays behind, so this hides the header wherever
-   it is left in the card: always in fallback mode (no dock), and in the dock
-   until a flip to Expert adopts it. */
-html[data-ui-mode="simple"] .terminal-card > .terminal-header {
+   it is left in the card. */
+html:not([data-agent-surface="terminal"]) .terminal-card > .terminal-header {
   display: none;
 }
 
 /* ── Earlier conversations (the Agent bar's ⋯ menu, sessions.js) ── */
+
+/* The menu's last row: the way to the other surface, deliberately quiet. */
+.op-conversations .op-surface-row {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
 
 /* Body-level `.osprey-popover`: the primitives draw the surface, the title and
    the rows. A row is a conversation's first message, ellipsized, with how

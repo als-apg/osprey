@@ -26,7 +26,7 @@ from tests.interfaces.web_terminal._proxy_fakes import (
 )
 
 #: The design-system scripts that read the attribute in the browser.
-_READERS = ("storage-scope.js", "mode-boot.js", "sidebar-boot.js", "theme-boot.js")
+_READERS = ("storage-scope.js", "sidebar-boot.js", "theme-boot.js")
 
 _DESIGN_SYSTEM_JS = (
     Path(__file__).resolve().parents[3]
