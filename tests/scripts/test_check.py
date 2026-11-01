@@ -1642,6 +1642,99 @@ def test_fix_rewrites_nothing_when_a_need_is_refused(
     assert recorder.calls == []
 
 
+def last_error_line(capsys: pytest.CaptureFixture[str]) -> str:
+    return capsys.readouterr().err.strip().splitlines()[-1]
+
+
+def _faulting(probe: str, fact: str) -> Any:
+    """A need probe that says this machine cannot judge."""
+
+    def need() -> str | None:
+        raise kit.EnvironmentFault(probe, fact)
+
+    return need
+
+
+def test_a_raising_need_gives_the_environment_verdict_and_runs_nothing(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fault = _faulting("docker storage", "volume create input/output error")
+    monkeypatch.setitem(check.NEED_PROBES, "uv", fault)
+    assert check.main(["quick", "--fix"]) == kit.ENVIRONMENT_EXIT == 3
+    assert last_error_line(capsys) == (
+        "check: environment: docker storage: volume create input/output error"
+    )
+    assert recorder.calls == []
+
+
+def test_a_fault_wins_over_a_refusal(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "uv", lambda: "uv is not on PATH")
+    monkeypatch.setitem(check.NEED_PROBES, "node", _faulting("free space", "1 MiB free"))
+    assert check.main(["full"]) == 3
+    assert last_error_line(capsys) == "check: environment: free space: 1 MiB free"
+    assert recorder.calls == []
+
+
+def test_a_reports_directory_that_cannot_open_is_the_environment_verdict(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def full(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(check.tempfile, "TemporaryDirectory", full)
+    assert check.main(["quick"]) == 3
+    assert last_error_line(capsys) == (
+        "check: environment: free space: [Errno 28] No space left on device"
+    )
+    assert recorder.calls == []
+
+
+def test_a_selected_need_is_probed_from_the_selection_and_the_run(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[Any, Any]] = []
+    probed: list[str] = []
+
+    def hook(selection: Any, context: Any) -> tuple[str, ...]:
+        seen.append((selection, context))
+        return ("gitleaks",)
+
+    monkeypatch.setitem(check.NEED_PROBES, "gitleaks", lambda: probed.append("gitleaks"))
+    _replace(monkeypatch, "pytest", selected_needs=hook)
+    assert check.main(["run", "pytest", "--shard", "cli"]) == 0
+    ((selection, context),) = seen
+    assert selection.state == check.WHOLE
+    assert context.shard == "cli"
+    assert probed == ["gitleaks"]
+    assert recorder.ran("pytest")
+
+
+def test_an_unmet_selected_need_is_a_refusal(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "gitleaks", lambda: "gitleaks is not on PATH")
+    _replace(monkeypatch, "pytest", selected_needs=lambda _s, _c: ("gitleaks",))
+    assert check.main(["run", "pytest"]) == 2
+    assert "gitleaks is not on PATH" in last_error_line(capsys)
+    assert recorder.calls == []
+
+
+@pytest.mark.parametrize("words", [["list"], ["list", "--json"]])
+def test_list_probes_nothing(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, words: list[str]
+) -> None:
+    for need in check.NEED_PROBES:
+        monkeypatch.setitem(check.NEED_PROBES, need, _faulting("free space", "listed"))
+    assert check.main(words) == 0
+    assert recorder.calls == []
+
+
+def test_the_selection_hook_stays_out_of_the_declaration() -> None:
+    assert all("selected_needs" not in entry for entry in check.declaration()["checks"])
+
+
 def test_a_check_off_its_venue_has_its_needs_left_unprobed(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
