@@ -1194,6 +1194,10 @@ the sixteen rows above:
      - ``OSPREY_IMAGE_TAG``
      - ``images.tag``
      - ``local``
+   * - Platform
+     - none: set in ``profile.yml`` only
+     - ``images.platform`` (``linux/amd64`` or ``linux/arm64``)
+     - built for this host
 
 .. code-block:: yaml
 
