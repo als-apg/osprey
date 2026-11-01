@@ -1,10 +1,9 @@
 """The application's backend: the panel, and the state and write routes behind the panel door.
 
-The application has no machine of its own. It reads and writes through a connector built
-for the control target it is told, and whether a write goes ahead is the connector's
-verdict for the request's owner: the login's tier, then that owner's switch for the target.
-A state read names no target when the caller knows none, and is answered from the
-deployment's baseline.
+The application has no machine of its own. A state read answers from the machine the
+request's owner is on, which the owner's record says; nobody tells the backend. A write goes
+to the target it was approved for, and whether it goes ahead is the connector's verdict for
+the owner: the login's tier, then that owner's switch for the target.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ from osprey.apps.sdk import (
     bind_owner,
     configure_app,
     owner_from_header,
+    owner_target,
     verify_launch_token,
 )
 from osprey_connectors.config import get_config_value
@@ -39,7 +39,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from osprey_connectors.types import baseline_target, resolve_target
+from osprey_connectors.types import resolve_target
 
 #: The one channel this application shows and sets.
 CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
@@ -116,8 +116,11 @@ def create_app(connector_for: ConnectorFor = build_connector) -> FastAPI:
         return {"status": "ok"}
 
     @app.get(STATE_ROUTE)
-    async def state(target: str | None = None) -> dict[str, Any]:
-        target = target or baseline_target(_section())
+    async def state(request: Request) -> dict[str, Any]:
+        owner = owner_from_header(getattr(request.state, OWNER_STATE_KEY, None))
+        target = owner_target(_section(), owner)
+        if target is None:
+            raise HTTPException(503, f"the control target of {owner} could not be read")
         return {"channel": CHANNEL, "target": target, "readback": await read(target)}
 
     @app.post(WRITE_ROUTE)

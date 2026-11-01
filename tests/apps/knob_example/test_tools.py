@@ -109,11 +109,11 @@ async def _call(name: str, **arguments: Any) -> dict[str, Any]:
 
 
 @pytest.mark.usefixtures("stamps")
-async def test_the_read_tool_asks_for_the_sessions_target(door: Door) -> None:
+async def test_the_read_tool_names_no_target(door: Door) -> None:
     await _call("read_corrector")
     [request] = door.requests
     assert request.method == "GET"
-    assert str(request.url) == f"http://terminal/panel/{APP_NAME}{STATE_ROUTE}?target=va"
+    assert str(request.url) == f"http://terminal/panel/{APP_NAME}{STATE_ROUTE}"
     assert request.headers["authorization"] == "Bearer panel"
 
 
