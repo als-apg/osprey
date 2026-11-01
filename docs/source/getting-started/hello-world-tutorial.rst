@@ -189,7 +189,8 @@ Step 5: Read Some Channels
 The simulator serves the channels of ``build/facility.json``, which
 ``osprey build`` writes from ``data/facility/``, inside this process — that is
 the whole trick behind a five-minute first session. The session is on the
-``va`` target, and the web terminal's header chip reads "Simulator". Any other
+``va`` target, and the control-target chip in the web terminal's sidebar reads
+"Simulator". Any other
 address is answered with ``<address> is not a channel of this facility``, for
 example ``ANY:RANDOM:NAME is not a channel of this facility``. Try:
 

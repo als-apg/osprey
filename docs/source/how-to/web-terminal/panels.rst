@@ -387,7 +387,7 @@ unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
-Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
+Layouts are just a shortcut over adding and removing sidebar rows, so the OSPREY
 agent can reach the same end state either way — but not with the same prompting.
 Applying a layout with ``arrange_workspace`` does not ask; the
 ``add_panel_to_rail`` / ``remove_panel_from_rail`` tools ask the operator to
@@ -399,24 +399,25 @@ Panel tools the agent uses
 --------------------------
 
 The panel tools come in two kinds: the ones that say what is on screen, which
-are auto-allowed, and the ones that change rail membership, which ask the
+are auto-allowed, and the ones that add or remove a sidebar row, which ask the
 operator first.
 
 What is on screen:
 
 - ``list_panels`` — the panels this deployment has, which of them are on
   screen, and the configured layouts.
-- ``open_panel`` — put a panel on screen; it joins the rail if it was off it.
-- ``close_panel`` — take a panel's tile off screen, leaving it on the rail.
+- ``open_panel`` — put a panel on screen; it gets a sidebar row if it had none.
+- ``close_panel`` — take a panel's tile off screen, leaving its sidebar row.
 - ``arrange_workspace`` — state a whole layout: exactly these tiles, in this
   order.
 
-Rail membership, each one approved by the operator:
+Sidebar rows, each one approved by the operator (the tool names keep the
+older word *rail* for the row list):
 
-- ``add_panel_to_rail`` — make a panel launchable from the rail in one click.
-- ``remove_panel_from_rail`` — take a panel off the rail, and off screen with
-  it.
-- ``register_panel`` — add a rail entry at runtime for an upstream URL the
+- ``add_panel_to_rail`` — give a panel a sidebar row, so one click opens it.
+- ``remove_panel_from_rail`` — take a panel's sidebar row away, and its tile
+  off screen with it.
+- ``register_panel`` — add a sidebar row at runtime for an upstream URL the
   terminal proxies.
 
 :doc:`/architecture/mcp-servers` lists these beside the rest of the workspace
