@@ -23,12 +23,15 @@ into the directory every image context carries, with their manifest.
 import atexit
 import contextlib
 import os
+import platform
+import re
 import shutil
 import subprocess
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
+from typing import Any
 
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
@@ -549,6 +552,10 @@ FACILITY_KINDS_GROUP = "osprey.facility.kinds"
 #: The framework's own distribution name.
 FRAMEWORK_DISTRIBUTION = "osprey-framework"
 
+#: The ``FROM python:<major>.<minor>-slim`` of the project Dockerfile, which a wheel
+#: has to install on.
+IMAGE_PYTHON = (3, 12)
+
 # A wheel build that fails exits nonzero; this cap bounds only one that hangs.
 _WHEEL_BUILD_TIMEOUT_S = 600
 
@@ -644,7 +651,8 @@ def build_deployment_packages(
     packages: list[DeploymentPackage] = []
     for pyproject in sources:
         wheel = _build_wheel(pyproject.parent, dest)
-        name, version, _build, _tags = parse_wheel_filename(wheel.name)
+        name, version, _build, tags = parse_wheel_filename(wheel.name)
+        _refuse_unfit_wheel(wheel, tags, pyproject.parent)
         packages.append(
             DeploymentPackage(
                 name=str(name),
@@ -699,6 +707,42 @@ def _build_wheel(source: Path, out_dir: Path) -> Path:
         built = out_dir / wheels[0].name
         shutil.copy2(wheels[0], built)
     return built
+
+
+def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path) -> None:
+    """Refuse a wheel the project image cannot install.
+
+    The image binds the name to this wheel, so an unfit one could only fail there,
+    late, or tempt a fallback to an index; neither is an answer. The architecture
+    is this host's: the image is built here.
+    """
+    from packaging.tags import compatible_tags, cpython_tags
+
+    from osprey_connectors.errors import BuildProfileError
+
+    abi = f"cp{IMAGE_PYTHON[0]}{IMAGE_PYTHON[1]}"
+    runs_on_python = {
+        (tag.interpreter, tag.abi)
+        for tag in (
+            *cpython_tags(IMAGE_PYTHON, [abi], ["any"]),
+            *compatible_tags(IMAGE_PYTHON, abi, ["any"]),
+        )
+    }
+    machine = platform.machine()
+    arch = {"arm64": "aarch64", "amd64": "x86_64"}.get(machine.lower(), machine.lower())
+    linux = re.compile(rf"(linux|manylinux[0-9_]*)_{re.escape(arch)}")
+    if any(
+        (tag.interpreter, tag.abi) in runs_on_python
+        and (tag.platform == "any" or linux.fullmatch(tag.platform))
+        for tag in tags
+    ):
+        return
+    raise BuildProfileError(
+        f"the wheel {wheel.name} of the deployment package {_shown(source)} does not fit the "
+        f"project image (CPython {IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]} on Linux {arch}).\n"
+        "        Make the package pure Python, or publish a fitting wheel and name it as an "
+        "index requirement."
+    )
 
 
 def _shown(source: Path) -> str:
