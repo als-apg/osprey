@@ -651,12 +651,16 @@ def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
             "parent_tool_use_id": event.parent_tool_use_id,
         }
     if isinstance(event, ResultEvent):
+        # The result names the transcript the turn was written to. It is how a
+        # conversation that moved under a live child (``/clear``) is noticed:
+        # the SDK answers that turn with a new id and no text.
         return {
             "type": "result",
             "is_error": event.is_error,
             "total_cost_usd": event.total_cost_usd,
             "duration_ms": event.duration_ms,
             "num_turns": event.num_turns,
+            "session_id": event.session_id,
         }
     if isinstance(event, SystemEvent):
         frame: dict[str, Any] = {"type": "system", "subtype": event.subtype}
@@ -964,6 +968,10 @@ class OperatorSession:
         # that lets a client holding two streams draw each frame once.
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._seq = 0
+        # The transcript the live child is writing to, as the child last
+        # reported it: the init message's id, then every result's. ``None``
+        # until the child has said.
+        self._transcript_id: str | None = None
         # Per-turn one-in-flight guard. ``_turn_epoch`` only ever increments and
         # names each turn ever started; ``_active_token`` holds the current
         # turn's epoch or None when idle. Manipulated only by the synchronous,
@@ -1502,6 +1510,12 @@ class OperatorSession:
                     frame = _event_to_wire(event)
                     if frame is None:
                         continue
+                    if self._conversation_moved(frame):
+                        # The turn that moved the conversation is still the
+                        # one in flight; the marker goes out before its
+                        # result so the turn's consumer sees it too, and the
+                        # page draws the boundary where the old log ends.
+                        await self._emit({"type": "session_reset"})
                     if frame["type"] == "result":
                         saw_result = True
                         if self._background and self._turn_open:
@@ -1553,6 +1567,42 @@ class OperatorSession:
         await self._emit(ended)
         if in_turn:
             self._close_turn()
+
+    @property
+    def transcript_id(self) -> str | None:
+        """The transcript the live child is on, as it last reported; ``None`` before it has.
+
+        What a session key must resolve to: ``/clear`` and its kin move the
+        child to a new conversation without a restart, and only the child's
+        own reports say where it went. Read after a turn by the chat route,
+        which records it where every reader and every respawn looks.
+        """
+        return self._transcript_id
+
+    def _conversation_moved(self, frame: dict[str, Any]) -> bool:
+        """Note the transcript id *frame* carries; True when a result moved the child.
+
+        The init message states the id a child starts on -- a conversation
+        the route already announced, fresh or resumed -- so it is recorded and
+        nothing is said. A result naming a different id than the last one
+        known is a conversation the child started on its own, and the one
+        case worth a marker.
+        """
+        if frame["type"] == "system":
+            if frame.get("subtype") != "init":
+                return False
+        elif frame["type"] != "result":
+            return False
+        reported = frame.get("session_id")
+        if not isinstance(reported, str) or not reported:
+            return False
+        moved = (
+            frame["type"] == "result"
+            and self._transcript_id is not None
+            and reported != self._transcript_id
+        )
+        self._transcript_id = reported
+        return moved
 
     async def _emit_context(self, agent: AgentSession) -> None:
         """Send the context window's reading as a response ends, when the CLI gives one.
