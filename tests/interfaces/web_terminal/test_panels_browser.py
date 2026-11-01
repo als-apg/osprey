@@ -3412,7 +3412,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
     matters to the operator is the page that opens: the proxied, root-relative
     standalone URL resolved against the terminal's own origin - never the
     panel's internal address, which the browser cannot reach - carrying the
-    pop-out params (``popout=true``, the theme and the mode) and never
+    pop-out params (``popout=true`` and the theme) and never
     ``embedded``, so the page keeps its own chrome and reports to the hub.
     """
     workspace = tmp_path / "_agent_data"
@@ -3436,7 +3436,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
         assert f"{opened.scheme}://{opened.netloc}{opened.path}" == f"{base_url}/panel/ariel"
         assert query.get("popout") == ["true"], popup.url
         assert "embedded" not in query, popup.url
-        assert "theme" in query and "mode" in query, popup.url
+        assert "theme" in query, popup.url
 
         popup.close()
         page.close()

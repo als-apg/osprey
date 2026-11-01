@@ -745,7 +745,7 @@ def test_handoff_terminal_to_chat_and_back_keeps_one_session(
         # ...and the restart was on screen while it happened. The terminal was
         # idle, so what the operator watched was the agent moving, not a turn
         # finishing.
-        assert any("Restarting the agent in this surface" in line for line in _handoff_log(page)), (
+        assert any("Restarting the agent…" in line for line in _handoff_log(page)), (
             f"the transitional state was never shown: {_handoff_log(page)}"
         )
 
@@ -838,7 +838,7 @@ def test_handoff_pending_shows_the_wait_and_stop_switches_now(tmp_path, chromium
         overlay = page.locator("#terminal-handoff")
         expect(overlay).to_be_visible(timeout=10_000)
         expect(overlay.locator(".terminal-handoff-message")).to_contain_text(
-            "Finishing in the other surface", timeout=10_000
+            "Finishing the running turn", timeout=10_000
         )
         # The counter is the honest thing to show for a wait with no bound.
         expect(overlay.locator(".terminal-handoff-elapsed")).to_have_text(
@@ -883,7 +883,7 @@ def _flip_into_a_busy_terminal(base_url: str, chromium_browser) -> tuple[Page, s
     # mid-turn, so it shows the restart first and the wait once the restart
     # budget is spent — the copy below arrives a few seconds in.
     expect(overlay.locator(".op-handoff-message")).to_contain_text(
-        "Finishing in the other surface", timeout=15_000
+        "Finishing the running turn", timeout=15_000
     )
     expect(overlay.locator(".op-handoff-elapsed")).to_have_text(re.compile(r"^\d+:\d{2}$"))
     # The input stays out of reach: the session is not this surface's yet.

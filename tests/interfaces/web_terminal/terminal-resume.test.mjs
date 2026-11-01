@@ -245,14 +245,14 @@ describe('auto-resume failover window', () => {
   });
 });
 
-describe('transcript missing: a new session, said out loud, never a dead PTY', () => {
+describe('transcript missing: a new session, never a dead PTY', () => {
   // routes/websocket.py refuses to resume an id with no live PTY, no chat and no
   // transcript, and says so with a `transcript_missing` frame (before spawning,
   // or after a `--resume` child reports `No conversation found` and exits). The
   // usual cause is a terminal opened and never prompted, since the CLI writes
   // the transcript on the first prompt, whose PTY did not survive a restart:
-  // nothing was lost. So the client drops the stale pointer, says what happened
-  // and starts a session; there is nothing for the operator to decide.
+  // nothing was lost. So the client drops the stale pointer and starts a
+  // session; there is nothing for the operator to decide or read.
 
   test('auto-resume: a new session starts with no key press', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
@@ -271,7 +271,7 @@ describe('transcript missing: a new session, said out loud, never a dead PTY', (
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  test('the state is said in the terminal, and asks nothing', () => {
+  test('the new session starts silently and asks nothing', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
     terminal.initTerminal('terminal-container');
     openSocket();
@@ -280,42 +280,9 @@ describe('transcript missing: a new session, said out loud, never a dead PTY', (
     openSocket();
 
     const written = /** @type {FakeTerminal} */ (FakeTerminal.last).written;
-    expect(written).toContain('gone-id');
-    expect(written).toMatch(/transcript/i);
-    expect(written).not.toMatch(/Enter/);
+    expect(written).not.toContain('gone-id');
+    expect(written).not.toMatch(/transcript|Enter/i);
     expect(written).not.toContain('[Process exited');
-  });
-
-  test('the note outlives the reset the new connection opens with', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    const fake = /** @type {FakeTerminal} */ (FakeTerminal.last);
-    const reset = vi.spyOn(fake, 'reset').mockImplementation(() => {
-      fake.written = '';
-    });
-
-    openSocket();
-
-    expect(reset).toHaveBeenCalled();
-    expect(fake.written).toContain('gone-id');
-  });
-
-  test('the note is said once, not on every later connection', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    openSocket();
-    const fake = /** @type {FakeTerminal} */ (FakeTerminal.last);
-    fake.written = '';
-
-    terminal.stopTerminal();
-    terminal.startTerminal();
-    openSocket();
-
-    expect(fake.written).not.toContain('gone-id');
   });
 
   test('keystrokes reach the new session, and Enter starts nothing else', () => {

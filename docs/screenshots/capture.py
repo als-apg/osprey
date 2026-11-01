@@ -779,6 +779,14 @@ def _reap_web_server(pid: int) -> None:
         os.kill(pid, signal.SIGKILL)
 
 
+#: Opens the hub's Agent tile on the terminal rather than the chat: the per-tab
+#: choice the tile's ⋯ menu stores, seeded before the page loads. The captures
+#: answer the CLI trust prompt and type into the PTY, so they need the terminal.
+TERMINAL_SURFACE_INIT = (
+    "if (window === window.top) sessionStorage.setItem('osprey-agent-surface', 'terminal');"
+)
+
+
 @dataclass(frozen=True)
 class WebTerminal:
     """A detached ``osprey web`` launched by :func:`web_terminal`."""
@@ -925,6 +933,7 @@ def _capture_agentic(
                 viewport={"width": shot.viewport[0], "height": shot.viewport[1]}
             )
             try:
+                page.add_init_script(TERMINAL_SURFACE_INIT)
                 # First navigation carries the operator secret as ``?token=``:
                 # the gate admits this GET to ``/``, the root handler mints a
                 # session, sets the session cookie, and redirects to the
@@ -1018,6 +1027,7 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                 device_scale_factor=2,
             )
             try:
+                page.add_init_script(TERMINAL_SURFACE_INIT)
                 token = urllib.parse.quote(operator_secret, safe="")
                 page.goto(
                     f"{base_url}/?theme={theme}&token={token}",

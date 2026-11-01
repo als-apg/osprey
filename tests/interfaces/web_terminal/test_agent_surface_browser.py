@@ -70,12 +70,16 @@ def test_boot_is_the_chat_and_opens_no_pty_socket(tmp_path, chromium_browser):
 def test_the_entry_opens_the_terminal_and_back_to_chat_returns(tmp_path, chromium_browser):
     with live_chat_server(tmp_path) as (base_url, _app):
         page, sockets = _open(chromium_browser, base_url)
+        page.wait_for_timeout(500)
+        assert sockets == []
 
         open_terminal(page)
         _on_terminal(page)
         expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
         page.wait_for_function("() => document.querySelector('#session-led.active') !== null")
-        assert len(sockets) == 1
+        # The chat's key has no transcript yet, so the terminal may start its own
+        # session after asking for that one; either way it opened only on the click.
+        assert sockets, sockets
 
         back_to_chat(page)
         _on_chat(page)

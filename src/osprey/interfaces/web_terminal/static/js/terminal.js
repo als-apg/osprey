@@ -21,7 +21,7 @@ let currentSessionId = null;
 // routes/websocket.py carrying the id ACTUALLY attached. A resume of an id
 // with no live PTY and no transcript on disk gets 'transcript_missing'
 // instead, and nothing is spawned for it — see that branch in onMessage
-// below, which says so and starts a new session. The
+// below, which starts a new session. The
 // 'session_info' branch treats the confirmation as ground truth: a mismatch
 // clears the stored id (the isStaleResumeMismatch check there) instead of
 // leaving a dead id in localStorage. The two timers in startTerminal() and
@@ -50,12 +50,6 @@ const RESUME_FAILOVER_WINDOW_MS = 10000;
 // fallback.
 /** @type {string|null} */
 let autoResumeFailoverId = null;
-
-// Set by the 'transcript_missing' branch in onMessage, written by the new
-// socket's onOpen after its term.reset() (which would erase it), then cleared
-// so it is said exactly once.
-/** @type {string|null} */
-let pendingNote = null;
 
 /**
  * Read the tab's session pointer. Returns null if none is stored.
@@ -362,10 +356,6 @@ export function startTerminal(
         term.reset();
       }
       hasConnectedBefore = true;
-      if (pendingNote) {
-        term.write(pendingNote);
-        pendingNote = null;
-      }
 
       setConnectionIndicator(true);
 
@@ -468,7 +458,7 @@ export function startTerminal(
             // opened and never prompted whose PTY did not survive a restart:
             // the CLI writes the transcript on the first prompt. Nothing is
             // lost and there is nothing for the operator to decide, so the
-            // terminal says what happened and starts a session.
+            // terminal starts a session.
             autoResumeFailoverId = null;
             if (msg.session_id === currentSessionId) {
               // This connection's own resume. The pointer is the session key
@@ -484,17 +474,11 @@ export function startTerminal(
               currentSessionId = null;
               stopTerminal();
               setSessionLabel(null);
-              // The terminal says what happened and starts a new session. In chat
-              // it is hidden, so a note would land in a window nobody can see —
-              // and nothing is started in its place either: a hidden terminal
-              // spawning the session's agent would take the conversation away
-              // from the console.
-              // The note waits for onOpen: the new socket's term.reset() would
-              // erase it now.
-              if (isTerminalSurface()) {
-                pendingNote = `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed. Started a new session.\x1b[0m\r\n`;
-                startTerminal();
-              }
+              // The terminal starts a new session, saying nothing: an id with no
+              // transcript never held a conversation. In chat the terminal is
+              // hidden and nothing is started: a hidden terminal spawning the
+              // session's agent would take the conversation away from the console.
+              if (isTerminalSurface()) startTerminal();
             } else {
               // A refused switch_session: the server kept the current PTY
               // attached, so the operator is still on a live session.

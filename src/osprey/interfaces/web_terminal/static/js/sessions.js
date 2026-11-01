@@ -69,8 +69,9 @@ let chatBusy = false;
 /**
  * In chat the console runs the session, so a pick while a turn streams would cut
  * the turn off and leave the agent working on a conversation nobody is watching.
- * Both openers are withheld while the chat is busy, as the console's New button
- * is. The terminal has its own session controls, and a hidden console can stay
+ * The picker is withheld while the chat is busy, as the console's New button is,
+ * and the ⋯ menu keeps only its way to the terminal, whose hand-off waits the
+ * turn out (withheld too where no terminal is offered). The terminal has its own session controls, and a hidden console can stay
  * busy there after a refused hand-off, so the surface is part of the verdict and
  * a change re-evaluates it.
  */
@@ -81,7 +82,9 @@ function syncPicker() {
     if (blocked) closeDropdown();
   }
   if (conversationMenu) {
-    for (const opener of conversationMenu.openers) opener.disabled = blocked;
+    for (const opener of conversationMenu.openers) {
+      opener.disabled = blocked && !terminalOffered();
+    }
     if (blocked) closePopover(conversationMenu.menu);
   }
 }
@@ -148,7 +151,7 @@ export function attachConversationMenu(opener) {
       closePopover(menu);
       return;
     }
-    if (!isTerminalSurface()) await fetchSessions();
+    if (!isTerminalSurface() && !chatBusy) await fetchSessions();
     // The chat may have turned busy while the list loaded.
     if (opener.disabled) return;
     renderConversationMenu(menu);
@@ -202,8 +205,9 @@ function surfaceRow(menu) {
  * @param {HTMLElement} menu
  */
 function renderConversationMenu(menu) {
-  if (isTerminalSurface()) {
-    // The picker beside this ⋯ lists the sessions; only the way back is left.
+  if (isTerminalSurface() || chatBusy) {
+    // On the terminal the picker beside this ⋯ lists the sessions, and while a
+    // chat turn streams a pick would cut it off: only the way across is left.
     menu.replaceChildren(...surfaceRow(menu).slice(1));
     return;
   }

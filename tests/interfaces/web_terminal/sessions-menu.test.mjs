@@ -303,25 +303,36 @@ describe("the Agent bar's Earlier conversations menu", () => {
     );
   });
 
-  test('a busy chat withholds the ⋯ and closes its open menu, as it does the picker', async () => {
+  test('a busy chat closes the open menu; reopened, it offers only the terminal', async () => {
     stubSessions({ sessions: RECORDS });
     await openMenu();
 
     bus.emitChat('busy', { busy: true });
 
-    expect(opener.disabled).toBe(true);
     expect(menu().hidden).toBe(true);
-
-    bus.emitChat('busy', { busy: false });
     expect(opener.disabled).toBe(false);
+    opener.click();
+    await flush();
+    expect(menu().hidden).toBe(false);
+    expect(menu().querySelectorAll('[data-session-id]')).toHaveLength(0);
+    expect(menu().textContent).toBe('Open terminal');
   });
 
-  test('a turn that starts while the list loads keeps the menu shut', async () => {
+  test('a turn that starts while the list loads leaves only the terminal row', async () => {
     stubSessions({ sessions: RECORDS });
     opener.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     bus.emitChat('busy', { busy: true });
     await flush();
-    expect(menu().hidden).toBe(true);
+    expect(menu().querySelectorAll('[data-session-id]')).toHaveLength(0);
+  });
+
+  test('with no terminal offered a busy chat withholds the ⋯ outright', () => {
+    document.documentElement.setAttribute('data-terminal', 'off');
+    bus.emitChat('busy', { busy: true });
+    expect(opener.disabled).toBe(true);
+    bus.emitChat('busy', { busy: false });
+    expect(opener.disabled).toBe(false);
+    document.documentElement.removeAttribute('data-terminal');
   });
 });
 
