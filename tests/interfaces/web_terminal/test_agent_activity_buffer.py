@@ -4,7 +4,7 @@
 frontend highlighter::
 
     request:   {"tool": str, "target": {"kind": "panel"|"channel"|"run"|"artifact"
-                                                |"config"|"ui",
+                                                |"config"|"ui"|"review",
                                         "panel"?: str, "detail"?: str}}
     broadcast: {"type": "agent_activity", "tool": ..., "target": {...}, "ts": ...}
 
@@ -80,6 +80,10 @@ def _post(client: TestClient, tool: str = "open_panel", **target) -> None:
         ),
         ({"tool": "emit", "target": {"kind": "config"}}, {"kind": "config"}),
         ({"tool": "emit", "target": {"kind": "ui"}}, {"kind": "ui"}),
+        (
+            {"tool": "execute", "target": {"kind": "review", "detail": "blocked: writes to /etc"}},
+            {"kind": "review", "detail": "blocked: writes to /etc"},
+        ),
     ],
 )
 def test_valid_post_broadcasts_frame_and_returns_ok(body, expected_target):
@@ -123,6 +127,10 @@ def test_valid_post_broadcasts_frame_and_returns_ok(body, expected_target):
             {"tool": "write_channel", "target": {"kind": "channel", "detail": "d" * 1025}},
             id="long-detail",
         ),
+        pytest.param(
+            {"tool": "execute", "target": {"kind": "review", "detail": "d" * 1025}},
+            id="long-review-detail",
+        ),
     ],
 )
 def test_malformed_body_422_and_no_broadcast(body):
@@ -135,7 +143,7 @@ def test_malformed_body_422_and_no_broadcast(body):
     assert len(client.app.state.agent_activity_buffer) == 0
 
 
-@pytest.mark.parametrize("kind", ["widget", "Config", "UI", "", "settings"])
+@pytest.mark.parametrize("kind", ["widget", "Config", "UI", "Review", "", "settings"])
 def test_unknown_kinds_still_rejected(kind):
     """The kind Literal stays closed and case-sensitive: never a free-form string."""
     client = _make_client()
@@ -229,6 +237,16 @@ def test_recent_returns_the_broadcast_frame_verbatim():
             "target": {"kind": "channel", "detail": "SR01C:BPM1:X"},
             "ts": frame["ts"],
         }
+    ]
+
+
+def test_recent_serves_a_review_frame_back():
+    """A review frame is buffered like any other, so a late browser still sees the notice."""
+    client = _make_client()
+    _post(client, tool="execute", kind="review", detail="blocked: writes to /etc")
+
+    assert [(event["tool"], event["target"]) for event in _get_recent(client)] == [
+        ("execute", {"kind": "review", "detail": "blocked: writes to /etc"})
     ]
 
 

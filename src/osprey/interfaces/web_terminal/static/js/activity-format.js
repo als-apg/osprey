@@ -70,6 +70,8 @@ export function formatActivity(frame, opts = {}) {
       return { verb: 'agent changed config', subject: t.detail || frame.tool };
     case 'ui':
       return { verb: 'agent moved window', subject: t.detail || frame.tool };
+    case 'review':
+      return { verb: 'code review', subject: t.detail || frame.tool };
     case 'panel': {
       if (frame.tool === ARRANGE_TOOL) {
         // A lone arrange row (in history, or the first frame of a burst) has
