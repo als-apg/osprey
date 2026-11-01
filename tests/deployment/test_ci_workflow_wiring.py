@@ -8765,8 +8765,8 @@ def test_full_chain_auth_lane_caps_and_reads_the_playwright_install__mutation_sa
 def test_full_chain_auth_lane_outbudgets_the_single_build_lanes(workflow: dict[str, Any]) -> None:
     """The lane builds BOTH real framework images — the deployed sidecar
     Dockerfile and the production project image — where each sibling below
-    builds one, and its neighbours measure a single such build at 7-11 minutes
-    cold. Held to the SAME cap as a one-build lane, the worst legal in-test path
+    builds one (the cold single-build figure is in docs/source/contributing/workflow.rst,
+    "Measured CI Figures"). Held to the SAME cap as a one-build lane, the worst legal in-test path
     runs past the ceiling and the lane reds on wall clock rather than on
     anything it asserts. What is pinned is the relation, not the minute counts:
     strictly more work must carry strictly more budget, at both the job cap and
@@ -8801,8 +8801,9 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_t
 
 
 #: The full-chain lane's measured caps, in minutes: the job, and its one pytest
-#: step under it. Measured with the history page deployed (see the job's
-#: comment for the wall clock); a change to either is a re-measurement.
+#: step under it. The wall clock they were sized against is in
+#: docs/source/contributing/workflow.rst, "Measured CI Figures"; a change to
+#: either is a re-measurement.
 FULL_CHAIN_JOB_CAP = 85
 FULL_CHAIN_STEP_CAP = 75
 
