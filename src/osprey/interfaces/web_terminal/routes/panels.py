@@ -510,6 +510,14 @@ async def get_panels(request: Request):
             str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
         ),
         "tour": tour,
+        # Whether this deployment lets a user run on a personal Claude login,
+        # and whether this terminal's user has one: the browser's nudge
+        # ("/login here and your usage bills to you") shows on allowed-and-absent
+        # and never on a guess. Both decided at startup in app.py.
+        "personal_login": {
+            "allowed": bool(getattr(request.app.state, "personal_login_allowed", False)),
+            "present": bool(getattr(request.app.state, "personal_login_present", False)),
+        },
         "loopback_ports": _loopback_backend_ports(
             request, [*enabled, *(cp["id"] for cp in custom if cp.get("id"))]
         ),

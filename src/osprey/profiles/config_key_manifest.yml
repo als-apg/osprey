@@ -1981,6 +1981,18 @@ keys:
   claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search, default: derived, default_note: the logbook-search agent's FRAMEWORK_AGENTS default_enabled}
   claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research', default: n/a}
   claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
+  claude_code.allow_personal_login:
+    rendered: false
+    evidence: 'get\("allow_personal_login"\)'
+    note: >-
+      Lets a web terminal run on its user's own Claude subscription: when on,
+      a terminal whose CLAUDE_CONFIG_DIR holds a completed `/login` is
+      launched with the deployment provider withheld (no auth, base URL or
+      model variables, no translation proxy), so Claude Code falls through to
+      the subscription. The credential never leaves the user's config volume.
+      Off, nothing changes; headless paths (the dispatch worker) always keep
+      the deployment provider.
+    default: false
   claude_code.cli_version:
     rendered: false
     evidence: 'get\("cli_version"\)'

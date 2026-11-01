@@ -1525,9 +1525,20 @@ def _create_lifespan(
             format_managed_policy_conflicts,
             inject_provider_env,
             load_provider_spec,
+            personal_login_allowed,
+            personal_login_present,
+            withhold_provider_env,
         )
 
         _spec = None
+        # Whether this terminal's user may, and does, run on a personal
+        # Claude login (claude_code.allow_personal_login + a completed
+        # /login in this container's CLAUDE_CONFIG_DIR). Published for the
+        # browser's nudge; decided once, here, where the environment the
+        # agent launches with is settled.
+        app.state.personal_login_allowed = False
+        app.state.personal_login_present = False
+        app.state.personal_login = False
         if app.state.config_path:
             from osprey_connectors.workspace import repo_root_for_config
 
@@ -1544,7 +1555,28 @@ def _create_lifespan(
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
             _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
-            if _spec:
+            from osprey_connectors.workspace import load_osprey_config as _load_config
+
+            app.state.personal_login_allowed = personal_login_allowed(_load_config() or {})
+            app.state.personal_login_present = personal_login_present(os.environ)
+            if _spec and app.state.personal_login_allowed and app.state.personal_login_present:
+                # The deployment lets its users bring their own subscription,
+                # and this one has: the provider env is withheld rather than
+                # injected -- Claude Code's credential precedence puts a
+                # subscription login last, so the only way to reach it is for
+                # every provider variable to be absent -- and no translation
+                # proxy is started. The deployment never holds the credential:
+                # it stays in the user's own config volume, unread.
+                withheld = withhold_provider_env(os.environ, _env_dir)
+                app.state.personal_login = True
+                logger.info(
+                    "Terminal for %s runs on a personal Claude login: the deployment "
+                    "provider %s is withheld from this session (%s)",
+                    app.state.terminal_user or "the operator",
+                    _spec.provider,
+                    ", ".join(withheld) if withheld else "nothing to scrub",
+                )
+            elif _spec:
                 # The SPEC is read from the render; the ENV is read from the
                 # repo. inject_provider_env's bulk `.env` passthrough is given
                 # the repo root for the same reason load_provider_spec is given
