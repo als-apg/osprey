@@ -77,6 +77,7 @@ from osprey.deployment.web_terminals.roster import (
     control_identity_problems,
     effective_image_source,
     entry_is_shared,
+    expand_tier_principals,
     is_app_entry,
     resolve_access_principals,
     resolve_cards,
@@ -1223,7 +1224,9 @@ def render_web_terminals(
                 # this roster authored — a render that emitted a fixed token
                 # would hand a `domain:` card to the whole roster. Empty for an
                 # owner-only entry, and the template then emits no line at all.
-                "access_value": access_wire_value(resolve_access_principals(entry)),
+                "access_value": access_wire_value(
+                    expand_tier_principals(resolve_access_principals(entry), resolved_users)
+                ),
                 # The env-var name that subject is emitted under, resolved HERE
                 # through env_var_suffix() — the single definition of the
                 # username->env-var mapping, shared with credential

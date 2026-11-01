@@ -105,7 +105,7 @@ carries and what makes the boundary hold.
 
 **An app is a second agent on the same services.** Each file in ``apps/`` is a
 complete agent definition, opened from a shared card by everyone on the roster
-and read-only on the machine. The preset lists three under ``shared:``:
+(or by the principals its ``shared:`` entry names) and read-only on the machine. The preset lists three under ``shared:``:
 ``logbook`` searches and synthesises the logbook from the same PostgreSQL the
 operators write to; ``knowledge`` answers how the machine is built from the
 facility knowledge graph, the channel finder and the knowledge bundle;
