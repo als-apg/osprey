@@ -18,13 +18,23 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
+from osprey.apps.errors import AppManifestError, Violation
+from osprey.apps.projection import APP_CONFIG_FILE, project_deployment, project_login
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
-from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.cli.build_profile_schema import (
+    AppEntry,
+    McpServerDef,
+    ServiceDef,
+    osprey_declares_binding,
+)
 from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
@@ -35,6 +45,7 @@ from osprey.deployment.host_binding import (
     BIND_ENV_KEY,
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
+    osprey_owns_binding,
 )
 from osprey.utils.config_writer import (
     anchored_append,
@@ -50,6 +61,8 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
+    from osprey.apps.manifest import AppManifest
+    from osprey.apps.rules import LoginSelection
     from osprey.cli.build_profile import (
         BlueskyConfig,
         BlueskyWebConfig,
@@ -60,6 +73,7 @@ if TYPE_CHECKING:
         VAConfig,
     )
     from osprey.cli.build_profile_archiver import VAArchiverConfig
+    from osprey.cli.build_profile_model import BuildProfile
 
 logger = get_logger("build")
 
@@ -548,13 +562,111 @@ def _inject_profile_services(
     return count
 
 
+def project_app_services(
+    build_profile: BuildProfile, manifests: Iterable[AppManifest]
+) -> dict[str, ServiceDef]:
+    """The profile's applications as ``services:`` entries, their ports cleared.
+
+    The projection is handed the profile as one mapping carrying its ``apps:``
+    block and resolved port base, and the ports the profile already spends.
+
+    Args:
+        build_profile: The resolved profile.
+        manifests: The deployment's validated manifests.
+
+    Returns:
+        One entry per projected container, by service key.
+
+    Raises:
+        AppManifestError: A projected port collides, or the facility band is full.
+    """
+    config = {
+        **build_profile.config,
+        "apps": {
+            name: {**asdict(entry), "services": _axes_as_written(entry)}
+            for name, entry in build_profile.apps.items()
+        },
+        "deployment": {"port_base": build_profile._resolved_port_base()},
+    }
+    services = project_deployment(
+        manifests, config, claimed_ports=frozenset(build_profile._claimed_ports().values())
+    )["services"]
+    collisions = build_profile.projected_port_collisions(services)
+    if collisions:
+        raise AppManifestError.from_violations(
+            [
+                Violation(
+                    services[key]["config"]["app"], f"containers.{key}.port", "port_collision", text
+                )
+                for key, text in collisions
+            ]
+        )
+    return {key: ServiceDef(**entry) for key, entry in services.items()}
+
+
+def _axes_as_written(entry: AppEntry) -> dict[str, dict[str, Any]]:
+    """An entry's per-container axes with only the keys the profile spells."""
+    return {
+        key: {axis: value for axis, value in asdict(axes).items() if value is not None}
+        for key, axes in entry.services.items()
+    }
+
+
+def write_app_configs(
+    project_path: Path, build_profile: BuildProfile, services: Mapping[str, ServiceDef]
+) -> None:
+    """Write each projected service's ``apps.<name>.config`` to its recorded file.
+
+    Args:
+        project_path: Root of the built project.
+        build_profile: The resolved profile, holding each application's config.
+        services: The projected entries, each naming its application.
+    """
+    for key, service in services.items():
+        target = project_path / "services" / key / APP_CONFIG_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        settings = build_profile.apps[service.config["app"]].config
+        target.write_text(yaml.safe_dump(settings, sort_keys=False), encoding="utf-8")
+
+
+def project_app_login(
+    project_path: Path,
+    manifests: Iterable[AppManifest],
+    ports: Mapping[str, Any],
+    selection: LoginSelection,
+) -> tuple[list[str], dict[str, McpServerDef]]:
+    """Write what one login's render carries of its applications into ``config.yml``.
+
+    Args:
+        project_path: Root of the built project.
+        manifests: The deployment's validated manifests.
+        ports: A config holding each projected ``services.<key>.port``.
+        selection: This render's selection.
+
+    Returns:
+        The panel ids this render adds to its own selection, and its projected
+        tool servers, for the caller's panel selection and server persistence.
+    """
+    projected = project_login(manifests, ports, selection)
+    overrides: dict[str, Any] = {
+        f"web.panels.{pid}": block for pid, block in projected["web"]["panels"].items()
+    }
+    overrides.update({f"apps.{name}": block for name, block in projected["apps"].items()})
+    overrides["dispatch.denied_app_tools"] = projected["dispatch"]["denied_app_tools"]
+    config_update_fields(project_path / "config.yml", overrides)
+    servers = {name: McpServerDef(**spec) for name, spec in projected["mcp_servers"].items()}
+    return projected["web_panels"], servers
+
+
 def _declare_bundled_host_bindings(
     project_path: Path, profile_dir: Path, services: Mapping[str, ServiceDef] | None
 ) -> None:
     """Write OSPREY's own host-binding declarations into the rendered service blocks.
 
     Each bundled host-capable template holds one fact about what it binds
-    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`). Writing it
+    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`), read through
+    the template a block renders from, so a service keyed apart from its template
+    (a projected application container) declares like any other. Writing it
     into the ``services.<name>`` block means the readers at ``osprey up`` — the
     host-port preflight, the off-host bind check — read one spelling whether
     OSPREY or a facility wrote it. A service is declared here only when OSPREY
@@ -575,8 +687,8 @@ def _declare_bundled_host_bindings(
         project_path: Root of the built project.
         profile_dir: Directory holding the profile, where a claimed service
             lives.
-        services: The profile's ``services:`` entries, whose templates decide
-            whether a bundled name is rendered from OSPREY's own template.
+        services: The profile's ``services:`` entries and the projected ones,
+            whose templates decide whether a block renders from OSPREY's own.
     """
     config_path = project_path / "config.yml"
     if not config_path.exists():
@@ -588,13 +700,24 @@ def _declare_bundled_host_bindings(
     services = services or {}
 
     wrote = False
-    for name, entry in BUNDLED_HOST_BINDINGS.items():
-        block = rendered.get(name)
+    for key, block in rendered.items():
         if not isinstance(block, MutableMapping):
             continue
-        if ServiceDef(template="", config=dict(block)).network_mode() != "host":
+        service = services.get(key)
+        if service is None:
+            bundled = str(key)
+            owned = osprey_declares_binding(bundled, services, profile_dir)
+        else:
+            bundled = service.template.removeprefix("osprey.")
+            owned = osprey_owns_binding(
+                bundled,
+                template=service.template,
+                claimed=(profile_dir / "services" / str(key)).is_dir(),
+            )
+        entry = BUNDLED_HOST_BINDINGS.get(bundled)
+        if entry is None or not owned:
             continue
-        if not osprey_declares_binding(name, services, profile_dir):
+        if ServiceDef(template="", config=dict(block)).network_mode() != "host":
             continue
         if not entry.binding.listens:
             block[LISTENS_KEY] = False

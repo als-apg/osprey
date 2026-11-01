@@ -50,6 +50,7 @@ from uuid import uuid4
 
 import click
 
+from osprey.apps.loader import ROOT_LOGIN, DeploymentApps, check_deployment
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.wheel_build import (
@@ -97,6 +98,9 @@ from .build_injectors import (
     _inject_va_archiver,
     _locate_pkg_services,
     graphdb_corpus_fill,
+    project_app_login,
+    project_app_services,
+    write_app_configs,
 )
 from .build_lifecycle import (
     _SHELL_METACHARACTERS,
@@ -118,6 +122,7 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
+    from osprey.apps.manifest import AppManifest
     from osprey.facility.build import FacilityDocument
     from osprey.facility.render import WrittenViews
 
@@ -1417,6 +1422,10 @@ class _SharedRenderInputs(NamedTuple):
     stack they ship in.
     """
 
+    applications: DeploymentApps = DeploymentApps()
+    """The applications the deployment runs and each render's selection of them,
+    as :func:`osprey.apps.loader.check_deployment` found them before any write."""
+
     deployment_packages: tuple[DeploymentPackage, ...] = ()
     """The deployment's own packages, built once into the staged render's
     deployment-packages directory before the venv. Every image context carries
@@ -1750,7 +1759,12 @@ def _template_host_config(
             _apply_config_overrides(scratch_dir, overlay)
         # A view of the profile as the deployment it extends: the injectors
         # skip an attached profile wholesale, and this reading is of the host.
-        _inject_services(replace(build_profile, deploy_services=True), profile_dir, scratch_dir)
+        _inject_services(
+            replace(build_profile, deploy_services=True),
+            profile_dir,
+            scratch_dir,
+            app_manifests=shared.applications.manifests,
+        )
         return _rendered_config(scratch_dir)
 
 
@@ -2304,10 +2318,28 @@ def _render_project(
                 raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
 
         injected = _inject_services(
-            build_profile, repo_root, render_dir, facility_name=context["facility_name"]
+            build_profile,
+            repo_root,
+            render_dir,
+            facility_name=context["facility_name"],
+            app_manifests=shared.applications.manifests,
         )
         if injected_out is not None:
             injected_out.extend(injected)
+
+        # What this render carries of the applications, before its panels are
+        # told whether they show and its servers are persisted. An attached render
+        # publishes no port of its own: the host's reading says where a panel is.
+        app_panels: list[str] = []
+        app_servers: dict[str, Any] = {}
+        if shared.applications.manifests:
+            login = ROOT_LOGIN if profile_path.parent == repo_root else profile_path.stem
+            app_panels, app_servers = project_app_login(
+                render_dir,
+                shared.applications.manifests,
+                _rendered_config(render_dir) if build_profile.deploy_services else host_config,
+                shared.applications.logins[login],
+            )
 
         # The selection, projected. The tab strip is read from `web.panels` alone,
         # and by now every block this render will carry is there: the template's
@@ -2318,7 +2350,7 @@ def _render_project(
         # `config:`, and the Reach Contract copies addresses from the host's
         # render); only `enabled` moves, and it says one thing: selected here.
         projected_tabs = panel_selection_overrides(
-            build_profile.web_panels or (), _rendered_config(render_dir)
+            [*(build_profile.web_panels or ()), *app_panels], _rendered_config(render_dir)
         )
         if projected_tabs:
             apply_panel_selection(render_dir / "config.yml", projected_tabs)
@@ -2438,9 +2470,10 @@ def _render_project(
         if limits_errors:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))
 
-        if build_profile.mcp_servers:
-            _persist_mcp_servers(render_dir, build_profile.mcp_servers)
-            progress("  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers))
+        mcp_servers = {**(build_profile.mcp_servers or {}), **app_servers}
+        if mcp_servers:
+            _persist_mcp_servers(render_dir, mcp_servers)
+            progress("  ✓ Persisted %d MCP server(s) to config.yml", len(mcp_servers))
         if build_profile.artifact_server:
             _persist_artifact_server(render_dir, build_profile.artifact_server)
             progress("  ✓ Merged artifact_server overrides into config.yml")
@@ -3571,6 +3604,25 @@ def _build_repo(
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
         _warn_facility_build(facility_warnings)
 
+        # The applications, before the venv and every render: the rules, the pins
+        # and the vendor files refuse here, with nothing installed or written.
+        from osprey.interfaces.vendor import AppVendorError, fetch_app_vendor, offline_from_config
+
+        applications = check_deployment(repo_root)
+        for unnamed in applications.unnamed:
+            output.note(
+                f"⚠ apps/{unnamed}/ is not built: the apps: block of {PROFILE_FILENAME} "
+                "does not name it."
+            )
+        try:
+            fetch_app_vendor(
+                repo_root,
+                applications.manifests,
+                offline=offline_from_config(build_profile.config),
+            )
+        except AppVendorError as exc:
+            raise BuildProfileError(str(exc)) from exc
+
         # The project venv, at its final path. It is the one artifact that
         # cannot be rendered somewhere and moved (see `_swap_in_render`), so it
         # is written where it will be read from and joins the staged tree at
@@ -3640,6 +3692,7 @@ def _build_repo(
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
+            applications=applications,
             deployment_packages=deployment_packages,
         )
 
@@ -4375,7 +4428,12 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
 
 
 def _inject_services(
-    build_profile: Any, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+    build_profile: Any,
+    profile_dir: Path,
+    project_path: Path,
+    *,
+    facility_name: str = "",
+    app_manifests: Sequence[AppManifest] = (),
 ) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
@@ -4401,6 +4459,9 @@ def _inject_services(
     build hands it from its in-memory facility document, because the facility
     file reaches the project only after the injectors run; ``""`` has the
     dispatch injector read the project's facility identity instead.
+
+    ``app_manifests`` are the applications the profile names. Their containers
+    join the profile's own services, each with its rendered settings file.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4431,6 +4492,11 @@ def _inject_services(
             # about and skipped, so the profile's own keys can name more
             # services than were injected.
             injected.append(f"{psvc_count} profile service(s)")
+    app_services = project_app_services(build_profile, app_manifests) if app_manifests else {}
+    if app_services:
+        _inject_profile_services(profile_dir, project_path, app_services)
+        write_app_configs(project_path, build_profile, app_services)
+        injected.append(f"{len(app_services)} application service(s)")
     if build_profile.dispatch is not None:
         _inject_dispatch(
             build_profile.dispatch, profile_dir, project_path, facility_name=facility_name
@@ -4476,7 +4542,9 @@ def _inject_services(
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
 
-    _declare_bundled_host_bindings(project_path, profile_dir, build_profile.services)
+    _declare_bundled_host_bindings(
+        project_path, profile_dir, {**(build_profile.services or {}), **app_services}
+    )
     return injected
 
 
