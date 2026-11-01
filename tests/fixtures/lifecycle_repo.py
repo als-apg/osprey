@@ -91,6 +91,7 @@ import contextlib
 import importlib.resources
 import os
 import re
+import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -3115,6 +3116,68 @@ def seeded_facility_rule(profile_text: str) -> str:
         root = Path(scratch)
         ensure_profile_facility_rule(root, enabled_agents=agents)
         return (root / "rules" / "facility.md").read_text(encoding="utf-8")
+
+
+#: The live ``apps:`` block the exemplar's profile carries for the preset's application.
+LISTED_APPLICATIONS = """# ── Applications ─────────────────────────────────────────────────────────────
+# Each entry runs the application in apps/<name>/. Knob is the bundled example:
+# one panel, one read tool, one write tool. Delete the entry to turn it off.
+apps:
+  knob-example: {}
+
+"""
+
+#: What a profile listing no application carries at its end instead.
+UNLISTED_APPLICATIONS = """
+# --- Applications ------------------------------------------------------------
+# The applications this deployment runs, one entry per apps/<name>/ directory
+# holding its app.yml. Listing one turns it on; to turn it off, remove the
+# entry. Its tool server is added by the build, so no tool-server key goes here,
+# and its writes follow each login's control_system.writes tier.
+#
+# apps:
+#   knob-example:
+#     config:                    # free-form; handed to the application as a file
+#       step: 0.5
+#     services:
+#       knob-example:            # a container key from its app.yml
+#         network: host          # bridge | host
+#         env: [HTTP_PROXY]      # host variables passed through
+#
+# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
+# {shown: false}}`, and `lists: own` to show only what it names.
+"""
+
+
+def profile_without_applications(text: str) -> str:
+    """*text* as a profile that lists no application reads."""
+    assert text.count(LISTED_APPLICATIONS) == 1
+    return text.replace(LISTED_APPLICATIONS, "") + UNLISTED_APPLICATIONS
+
+
+def drop_applications(root: Path) -> None:
+    """Take the preset's application out of the repo at *root*, listing and directory."""
+    profile = root / "profile.yml"
+    profile.write_text(
+        profile_without_applications(profile.read_text(encoding="utf-8")), encoding="utf-8"
+    )
+    shutil.rmtree(root / "apps")
+
+
+def lay_preset_applications(preset: str, root: Path) -> None:
+    """Copy what *preset* lists under ``root/apps/``, as ``osprey init`` lays it beside a profile.
+
+    For a test that writes the emitted profile itself: the emitter lists the
+    application and copies nothing, and a listing with no directory is refused.
+    """
+    from osprey.cli.build_profile_presets import _presets_dir, preset_apps
+
+    for name in preset_apps(preset):
+        shutil.copytree(
+            _presets_dir() / "apps" / name,
+            root / "apps" / name,
+            ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+        )
 
 
 def packaged_application_files() -> dict[str, str]:

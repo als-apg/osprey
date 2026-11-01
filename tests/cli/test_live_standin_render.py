@@ -429,20 +429,22 @@ def test_live_standin_render_adds_only_the_standin_block_to_an_epics_deployment(
     deployment whose real machine is live cannot have its recorder follow the
     stand-in. That refusal has its own test; what this one is about is the
     ``epics`` block, so the archive is taken out of the picture on BOTH sides —
-    keeping the two profiles identical apart from the one key under test.
+    keeping the two profiles identical apart from the one key under test. So is
+    ``apps:``: an application on the bridge is refused where no name server can
+    be derived for the machine, and a facility names its own address for it.
     """
     epics_baseline = {"control_system.type": "epics"}
     standin_repo = _exemplar(
         tmp_path / "with",
         standin=STANDIN_PORT,
         config=epics_baseline,
-        drop_blocks=("va_archiver",),
+        drop_blocks=("va_archiver", "apps"),
     )
     plain_repo = _exemplar(
         tmp_path / "without",
         standin=None,
         config=epics_baseline,
-        drop_blocks=("va_archiver",),
+        drop_blocks=("va_archiver", "apps"),
     )
     with_standin = _build(standin_repo)
     without = _build(plain_repo)

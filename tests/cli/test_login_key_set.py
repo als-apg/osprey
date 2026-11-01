@@ -29,6 +29,7 @@ from osprey.cli.build_profile_load import (
 from osprey.cli.profile_root import ProfileKind
 from osprey.utils.workspace import LAYER_DIR_KINDS
 from osprey_connectors.errors import BuildProfileError
+from tests.fixtures.lifecycle_repo import lay_preset_applications
 
 _PRESETS_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
@@ -126,6 +127,7 @@ def test_an_init_materialised_login_loads(tmp_path: Path, tier: str) -> None:
         ),
         encoding="utf-8",
     )
+    lay_preset_applications("control-assistant", tmp_path)
     text = emit_layer_delta_yaml(
         preset_name=f"tiers/{tier}", profile_name="Site", profile_filename=f"tiers/{tier}.yml"
     )

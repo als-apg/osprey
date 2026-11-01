@@ -19,7 +19,11 @@ from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey_connectors.types import tier_writes
 from tests.cli._lifecycle_build import invoke_build, rendered_config, stub_build
-from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
+from tests.fixtures.lifecycle_repo import (
+    EXEMPLAR_DIRNAME,
+    build_exemplar_repo,
+    drop_applications,
+)
 
 KNOB: dict[str, Any] = {
     "name": "knob",
@@ -69,6 +73,13 @@ def _quiet_login(tier: str) -> str:
         f"config:\n  control_system.writes: {tier}\n"
         "apps:\n  knob:\n    shown: false\n"
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_preset_application(request: pytest.FixtureRequest) -> None:
+    """These tests list what they build on a repo that starts with no application."""
+    if "lifecycle_repo" in request.fixturenames:
+        drop_applications(request.getfixturevalue("lifecycle_repo"))
 
 
 def _knob(**changes: Any) -> dict[str, Any]:
