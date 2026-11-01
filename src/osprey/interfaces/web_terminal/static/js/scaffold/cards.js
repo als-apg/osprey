@@ -81,7 +81,7 @@ export function createScaffoldGalleryCards(gallery) {
     // The class tints the card's existing left border (10-prompt-gallery.css)
     // so a reserved file is separable at a glance down a long grid.
     if (artifact.read_only) {
-      markReadOnlyCard(card);
+      markReadOnlyCard(card, artifact);
     }
 
     card.addEventListener('click', () => gallery.openDetail(artifact));

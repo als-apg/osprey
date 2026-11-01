@@ -26,6 +26,7 @@ import {
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
+  SAFETY_PINNED_CATEGORIES,
   CONFIG_NAMES,
 } from './scaffold/utils.js';
 import { resetFetchCache, createScaffoldDataActions } from './scaffold/data.js';
@@ -457,6 +458,9 @@ export function initScaffoldGallery() {
   const safetyGallery = new ArtifactGallery({
     container: safetyGalleryContainer,
     categoryFilter: (a) => SAFETY_CATEGORIES.has(a.category),
+    // Pinned so neither section opens collapsed: two short sections are the
+    // whole tab, and the reviewer's rules are short enough to lead it.
+    options: { pinnedCategories: SAFETY_PINNED_CATEGORIES },
   });
 
   const configGallery = configGallerySection

@@ -42,7 +42,8 @@ write must follow. Every rule adds to the tokens of each review.
 
 The reviewer cannot look anything up, so a rule has to say what it needs: the channel name
 as the agent spells it, the limit, the state. The agent cannot edit this file, and a change
-to it counts from the next review on, with no rebuild.
+to it counts from the next review on, with no rebuild. While code review is on, the web
+terminal shows the rules under Settings → Safety.
 
 Blocking or advisory
 ====================

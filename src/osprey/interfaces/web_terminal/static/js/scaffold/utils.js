@@ -47,6 +47,8 @@ export const CATEGORY_HELP = {
     'Markdown files in .claude/output-styles/. An output style is appended to the system prompt itself. Exactly one is active at a time, selected by the outputStyle setting, and a change takes effect in the next session. Unless the file sets keep-coding-instructions: true, it replaces the built-in software-engineering instructions. Output styles do not reach subagents.',
   hooks:
     "Programs wired to session lifecycle events in settings.json. The runtime runs them itself, not the agent, so a PreToolUse hook can block a tool call before it executes, independent of the agent's decision. This is the only layer in this drawer that enforces rather than advises.",
+  'code-review':
+    "The code reviewer's instructions, named by code_review.prompt. Read fresh for every review, so an edit applies to the next one. The file sits in the profile, where the agent cannot write it.",
   config:
     ".mcp.json declares which MCP servers start with the session; their tools become the agent's tools. settings.json holds the permission lists, the hook wiring, and the model and output-style selection. Both are read at session start; edits apply on the next session.",
 };
@@ -55,7 +57,9 @@ export const CATEGORY_HELP = {
 
 export const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'rules', 'output-styles']);
 export const BEHAVIOR_OUTPUTS = new Set(['CLAUDE.md']); // whichever render builds it, behavior tab
-export const SAFETY_CATEGORIES = new Set(['hooks']);
+export const SAFETY_CATEGORIES = new Set(['hooks', 'code-review']);
+/** @type {string[]} */
+export const SAFETY_PINNED_CATEGORIES = ['code-review', 'hooks'];
 export const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config category, config tab
 
 /**
@@ -96,6 +100,8 @@ export function iconForCategory(cat) {
       return '🤖'; // robot
     case 'hooks':
       return '⚡'; // lightning
+    case 'code-review':
+      return '🔍'; // magnifier
     case 'output-styles':
       return '🎨'; // palette
     case 'config':
@@ -321,16 +327,35 @@ export const READ_ONLY_REASON =
   'happen.';
 
 /**
+ * Why a deployment data file (`kind: 'data'`, such as the code reviewer's
+ * rules) is read-only here. It is not rendered by a build, so the advice in
+ * {@link READ_ONLY_REASON} would be wrong for it.
+ */
+export const DATA_READ_ONLY_REASON =
+  'A file in the profile, read fresh each time it is used. Edit it in the ' +
+  'profile; this panel does not write it.';
+
+/**
+ * The read-only reason that fits *artifact*.
+ * @param {{kind?: string}} [artifact]
+ * @returns {string}
+ */
+export function readOnlyReason(artifact) {
+  return artifact?.kind === 'data' ? DATA_READ_ONLY_REASON : READ_ONLY_REASON;
+}
+
+/**
  * Build the READ-ONLY badge shown on a reserved artifact's card and in its
- * detail header. Carries {@link READ_ONLY_REASON} as its tooltip so the badge
+ * detail header. Carries {@link readOnlyReason} as its tooltip so the badge
  * answers "why" on hover rather than just asserting the state.
+ * @param {{kind?: string}} [artifact]
  * @returns {HTMLSpanElement}
  */
-export function createReadOnlyBadge() {
+export function createReadOnlyBadge(artifact) {
   const badge = document.createElement('span');
   badge.className = 'prompts-badge read-only';
   badge.textContent = 'READ-ONLY';
-  badge.title = READ_ONLY_REASON;
+  badge.title = readOnlyReason(artifact);
   return badge;
 }
 
@@ -345,10 +370,11 @@ export function createReadOnlyBadge() {
  * wants the badge without the card class.
  *
  * @param {HTMLElement} card Card element for a reserved artifact.
+ * @param {{kind?: string}} [artifact] The artifact the card shows.
  */
-export function markReadOnlyCard(card) {
+export function markReadOnlyCard(card, artifact) {
   card.classList.add('prompts-card-readonly');
-  card.appendChild(createReadOnlyBadge());
+  card.appendChild(createReadOnlyBadge(artifact));
 }
 
 /**
