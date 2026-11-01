@@ -162,7 +162,8 @@ address means anything to OSPREY. What a channel is comes from its fields:
    * - ``precision``
      - Optional, on float channels only: an integer from 0 to 17, the number
        of decimals a display shows. The simulator serves it as the channel's
-       display precision on both Channel Access and PVAccess.
+       display precision on both Channel Access and PVAccess, and serves a
+       float channel that states none with 4.
    * - ``former_addresses``, ``attributes``
      - Addresses the channel was known by, and a free map carried verbatim.
 
