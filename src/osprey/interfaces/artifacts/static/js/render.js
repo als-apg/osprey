@@ -77,11 +77,6 @@ function pickMarkup(a, picked) {
 // ---- Gallery Card HTML (shared by both sidebar modes in gallery layout) ----
 
 /**
- * @param {any} a
- * @param {number} i
- * @returns {string}
- */
-/**
  * How many rows of a render reveal one after another. Every row carries the
  * `itemReveal` animation (opacity 0 until its delay has passed), so an
  * uncapped delay of `i * 30ms` kept the thousandth row of a large list
@@ -102,6 +97,11 @@ export function revealDelayMs(i, stepMs = 30) {
   return Math.min(i, REVEAL_STAGGER_ROWS) * stepMs;
 }
 
+/**
+ * @param {any} a
+ * @param {number} i
+ * @returns {string}
+ */
 function galleryCardHtml(a, i) {
   const sel = getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : '';
   const pinnedCls = a.pinned ? ' pinned' : '';

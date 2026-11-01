@@ -850,7 +850,7 @@ describe('reveal stagger with many rows (#924)', () => {
     const rows = document.querySelectorAll('.tree-item');
     expect(rows.length).toBe(500);
     const delays = [...rows].map((row) =>
-      parseInt(row.getAttribute('style').match(/animation-delay: (\d+)ms/)[1], 10)
+      parseInt((row.getAttribute('style') ?? '').match(/animation-delay: (\d+)ms/)?.[1] ?? '-1', 10)
     );
     expect(delays[0]).toBe(0);
     expect(Math.max(...delays)).toBe(revealDelayMs(499));
