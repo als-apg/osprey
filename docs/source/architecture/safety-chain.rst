@@ -52,9 +52,9 @@ drive meet the first and the last:
    position decides: at *asked* the operator answers a prompt at the terminal, at *allowed*
    the write runs unprompted on a record naming the switch. Every other tool keeps its own
    policy: ``always``, ``selective``, or ``skip``. When a Python run
-   needs approval, the exact code is saved as a **Pre-Execution Review** notebook in the
+   needs approval, the exact code is saved as an **Approval preview** notebook in the
    artifact gallery and linked from the prompt, so the operator can read what is about to run.
-   The approval is the terminal prompt; the gallery only shows the code.
+   The approval is the terminal prompt; the preview only shows the code.
 
    **What a prompt guarantees (stage 1).** A governed write, and a Phoebus drive where its
    policy asks, go ahead only on the record the hook left for that call; a call the hook

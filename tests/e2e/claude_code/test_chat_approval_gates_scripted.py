@@ -98,7 +98,7 @@ EXECUTE = "mcp__python__execute"
 EXECUTE_CODE = "x = 1 + 1\nprint(x)\n"
 #: The description the python tool requires on every call.
 EXECUTE_DESCRIPTION = "Scripted proof: approval review notebook"
-REVIEW_TITLE = "Pre-Execution Review"
+REVIEW_TITLE = "Approval preview"
 REVIEW_NOT_RUN = "Not run: declined or interrupted at the prompt"
 
 

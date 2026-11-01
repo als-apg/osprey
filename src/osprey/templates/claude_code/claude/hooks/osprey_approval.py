@@ -76,7 +76,7 @@ Per-tool policies from `approval.tools` in config.yml:
   every call is denied with the fix
 - **default_policy**: fail-closed default for unmapped tools
 
-Creates a pre-execution notebook artifact for code review whenever
+Creates an approval-preview notebook of the code whenever
 `execute` requires approval (write mode, write patterns, or always policy).
 
 ## Write posture
@@ -2715,7 +2715,7 @@ def _gallery_base_url(config: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Review notebook: the artifact an `execute` ask puts in front of the operator
+# Approval preview: the notebook an `execute` ask puts in front of the operator
 # ---------------------------------------------------------------------------
 # An `execute` ask saves the code under review as a notebook, which says
 # "Pending approval". The answer then settles that notebook through the ask
@@ -2729,8 +2729,8 @@ def _gallery_base_url(config: dict) -> str:
 #: The ask-stamp field that names the review notebook's artifact id.
 REVIEW_ARTIFACT_KEY = "review_artifact_id"
 
-_REVIEW_TITLE = "Pre-Execution Review"
-_REVIEW_FILENAME = "pre_execution_review.ipynb"
+_REVIEW_TITLE = "Approval preview"
+_REVIEW_FILENAME = "approval_preview.ipynb"
 _REVIEW_PENDING = "pending approval"
 
 #: How each outcome reads in a review. A call that ran or failed may then name its approver.
@@ -3513,7 +3513,7 @@ def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_re
         if isinstance(code, str) and code.strip():
             gallery_link, review_id = _create_pre_execution_notebook(code, exec_mode, config)
             if gallery_link:
-                lines.append(f"\nReview notebook: {gallery_link}")
+                lines.append(f"\nApproval preview: {gallery_link}")
     elif short_name == "channel_write":
         channel_list = _channel_write_summary(tool_input)
         if channel_list:
@@ -3799,7 +3799,7 @@ def main():
                         code, exec_mode, config
                     )
                     if gallery_link:
-                        reason_parts.append(f"\nReview notebook: {gallery_link}")
+                        reason_parts.append(f"\nApproval preview: {gallery_link}")
                 reason = "\n".join(reason_parts)
                 log_hook("approval", hook_input, status="ask", detail="execute_selective")
                 _emit_ask(
