@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import posixpath
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -515,24 +515,27 @@ def check_pins(packages: Sequence[Path], pins: Mapping[str, str]) -> None:
         raise AppManifestError.from_violations(found)
 
 
-def deployment_packages(root: Path, dependencies: Sequence[str]) -> list[Path]:
+def deployment_packages(
+    root: Path, dependencies: Sequence[str], *, apps: Iterable[str]
+) -> list[Path]:
     """The ``pyproject.toml`` of every Python package the deployment builds.
 
-    Each ``apps/<name>/`` holding one, sorted by name, then each local-path
-    entry of the profile's ``dependencies`` (``./x``, ``~/x``, ``/x``, ``-e``
-    forms, or ``name @ file://...``) that holds one, in order, once each.
+    Each listed ``apps/<name>/`` holding one, sorted by name, then each
+    local-path entry of the profile's ``dependencies`` (``./x``, ``~/x``, ``/x``,
+    ``-e`` forms, or ``name @ file://...``) that holds one, in order, once each.
+    ``apps/`` holds applications only: a directory the profile does not list is
+    switched off, and a package that is no application is a ``dependencies`` entry.
 
     Args:
         root: The deployment root.
         dependencies: The profile's ``dependencies`` entries.
+        apps: The applications the profile's ``apps:`` block lists.
     """
     found: list[Path] = []
-    apps_dir = root / "apps"
-    if apps_dir.is_dir():
-        for entry in sorted(apps_dir.iterdir(), key=lambda p: p.name):
-            candidate = entry / "pyproject.toml"
-            if entry.is_dir() and candidate.is_file():
-                found.append(candidate.resolve())
+    for name in sorted(apps):
+        candidate = root / "apps" / name / "pyproject.toml"
+        if candidate.is_file():
+            found.append(candidate.resolve())
     for raw in dependencies:
         directory = local_path(raw, root)
         if directory is None:

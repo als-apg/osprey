@@ -555,15 +555,19 @@ class BuildProfile:
         if not self.apps:
             return []
         from osprey.apps.errors import AppManifestError
+        from osprey.apps.loader import MANIFEST_FILE
         from osprey.apps.loader import load as load_apps
 
+        from .application_material import application_dirs
+
         try:
-            manifests = {manifest.name: manifest for manifest in load_apps(profile_dir)}
+            manifests = {m.name: m for m in load_apps(profile_dir, self.apps)}
         except AppManifestError as exc:
             return [f"apps: {exc}"]
 
         errors: list[str] = []
-        known = ", ".join(sorted(manifests)) or "none"
+        dirs = application_dirs(profile_dir)
+        known = ", ".join(d.name for d in dirs if (d / MANIFEST_FILE).is_file()) or "none"
         for name, entry in sorted(self.apps.items()):
             manifest = manifests.get(name)
             if manifest is None:

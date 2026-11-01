@@ -526,7 +526,7 @@ def _copy_local_framework_for_override(out_dir):
 
 
 # ── Deployment packages ──────────────────────────────────────────────────────
-# A deployment's own Python packages — each `apps/<name>/` holding a
+# A deployment's own Python packages — each listed `apps/<name>/` holding a
 # `pyproject.toml`, and each local-path entry of the profile's `dependencies`
 # (osprey.apps.rules.deployment_packages) — are built to wheels by `osprey build`
 # into one directory of the render, which every image context carries. The
@@ -639,7 +639,7 @@ class DeploymentPackage:
 
 
 def build_deployment_packages(
-    root: Path, dependencies: Sequence[str], dest: Path, *, build: bool = True
+    root: Path, dependencies: Sequence[str], dest: Path, *, apps: Iterable[str], build: bool = True
 ) -> tuple[DeploymentPackage, ...]:
     """Build every deployment package of *root* into *dest*, with its manifest.
 
@@ -648,6 +648,7 @@ def build_deployment_packages(
         dependencies: The profile's ``dependencies`` entries.
         dest: The deployment-packages directory; replaced whole, and not created
             when the deployment has no package.
+        apps: The applications the profile's ``apps:`` block lists.
         build: Run each package's build backend. False (``--skip-deps``) runs nothing:
             each package's name and version are read from its ``pyproject.toml``,
             it has no wheel, and *dest* is not created.
@@ -686,7 +687,7 @@ def build_deployment_packages(
             "        Point it at the package's directory, or name an index requirement."
         )
 
-    sources = deployment_packages(root, list(dependencies))
+    sources = deployment_packages(root, list(dependencies), apps=apps)
     if dest.exists():
         shutil.rmtree(dest)
     if not sources:
