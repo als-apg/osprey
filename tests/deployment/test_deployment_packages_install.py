@@ -245,6 +245,62 @@ def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
     assert f"\nFROM python:{major}.{minor}-slim\n" in source.read_text(encoding="utf-8")
 
 
+def _build_with_members(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *members: str
+) -> tuple[DeploymentPackage, ...]:
+    def fake(source: Path, out_dir: Path) -> Path:
+        wheel = _fake_wheel(source, out_dir)
+        with zipfile.ZipFile(wheel, "a") as archive:
+            for member in members:
+                archive.writestr(member, "KEY=value\n")
+        return wheel
+
+    monkeypatch.setattr(wheel_build, "_build_wheel", fake)
+    root = _deployment(tmp_path / "repo")
+    return build_deployment_packages(root, [], tmp_path / "stage")
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "knob/.env",
+        ".env",
+        "knob/conf/.env.production",
+        "knob/.env/production",
+        "knob/.env.d/key",
+    ],
+)
+def test_a_wheel_holding_an_env_file_is_refused_naming_wheel_and_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, member: str
+) -> None:
+    """The wheels reach the image inside a file no sweep of the tree can open."""
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_members(tmp_path, monkeypatch, member)
+
+    assert "knob_app-0.1.0-py3-none-any.whl" in str(refused.value)
+    assert member in str(refused.value)
+
+
+def test_a_wheel_holding_the_env_example_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _build_with_members(tmp_path, monkeypatch, "knob/.env.example", "knob/environment.py")
+
+
+def test_the_image_sweep_and_the_wheel_refusal_are_one_rule(tmp_path: Path) -> None:
+    from osprey.cli.build_cmd import _strip_secrets
+
+    names = [".env", ".env.local", ".envrc", ".env.example", "env", "a.env"]
+    for name in names:
+        (tmp_path / name).write_text("", encoding="utf-8")
+
+    _strip_secrets(tmp_path)
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
+        name for name in names if not wheel_build.is_secret_file(name)
+    )
+
+
 # --- the two spellings of one list --------------------------------------------
 
 
