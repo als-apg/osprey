@@ -48,6 +48,7 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/agent_record/writer.py", "write_batch"): (
         "seals a fresh spool segment under a new name, never over an existing file"
     ),
+    ("src/osprey/cli/app_cmd.py", "_toolchain"): "moves a finished install directory into place",
     ("src/osprey/cli/build_cmd.py", "_clear_leftover"): "sets an existing build entry aside",
     ("src/osprey/cli/build_cmd.py", "_repair_interrupted_swap"): (
         "completes an interrupted directory swap"
