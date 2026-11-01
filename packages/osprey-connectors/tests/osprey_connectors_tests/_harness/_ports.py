@@ -33,8 +33,10 @@ from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
 
 #: Lowest port a reservation hands out, clear of the well-known and registered
-#: ports fixed services listen on.
-PORT_FLOOR = 20000
+#: ports fixed services listen on, and of the thousand-port blocks the e2e
+#: deployments claim up to 30999: a build refuses a reserved port that lands
+#: inside its own block.
+PORT_FLOOR = 31000
 
 #: The one directory every test process on the host locks ports in, shared by
 #: every user of the host.
