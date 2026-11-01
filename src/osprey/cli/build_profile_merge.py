@@ -19,7 +19,12 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
+from osprey.utils.workspace import (
+    LAYER_DIR_KINDS,
+    PROFILE_FILENAME,
+    RETIRED_LAYER_DIRS,
+    RUNTIME_DATA_DIR_NAME,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
@@ -38,7 +43,7 @@ from .build_profile_presets import (
     resolve_triggers_path,
 )
 from .derived_keys import derived_key_errors
-from .profile_root import ProfileKind, resolve_profile_root
+from .profile_root import ProfileKind, resolve_profile_root, symlink_escapes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1768,14 +1773,15 @@ def _fold_source_tree(
 
     * Symlinks. A symlinked *file* is folded — ``is_file`` and ``read_bytes``
       both follow it — and so is a ``source`` that is itself a symlink to a
-      directory, which arrives here already resolved. A symlinked *directory
-      nested inside* the tree is not: ``rglob`` does not recurse into one, so
-      its contents are invisible to the digest while ``shutil.copytree``
-      (``symlinks=False``) does follow it and copy them into the project. A
-      data tree that reaches its content through a nested directory symlink
-      therefore has a known blind spot in the staleness advisory: edits behind
-      that link do not move the hash. Recursing resolved targets would change
-      the pinned algorithm and is left to the maintainer.
+      directory, which arrives here already resolved. A nested link whose
+      target is outside the repository never reaches the fold:
+      :func:`refuse_inputs_outside_repository` refuses it before hashing. A
+      nested *directory* link that resolves inside the repository is the one
+      thing still outside the digest: ``rglob`` does not recurse into it, while
+      ``shutil.copytree`` (``symlinks=False``) follows it and copies its
+      contents into the project, so edits behind that link do not move the
+      hash. Recursing resolved targets would change the pinned algorithm and is
+      left to the maintainer.
     * Unicode. Relative paths are folded as their UTF-8 bytes with no
       normalization, so cross-platform determinism is guaranteed for ASCII
       names; a non-ASCII name stored NFD on one filesystem and NFC on another
@@ -2119,30 +2125,64 @@ def _is_service_template_label(label: str) -> bool:
 _MOVE_INSIDE = "Move it into the repository."
 
 
-def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[ProfileInput, ...]:
-    """The inputs of *document* whose resolved path is not under its root.
+@dataclass(frozen=True)
+class OutsideInput:
+    """One place a repository profile reaches outside its repository.
+
+    Attributes:
+        entry: The input that reaches out: its top path is outside, or it holds
+            the link.
+        link: The link's path relative to ``entry.path``, POSIX, or ``None``
+            when the top path itself is outside.
+    """
+
+    entry: ProfileInput
+    link: str | None = None
+
+    @property
+    def path(self) -> Path:
+        """The outside thing: the link, or the input's top path."""
+        return self.entry.path if self.link is None else self.entry.path / self.link
+
+
+def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[OutsideInput, ...]:
+    """The inputs of *document* outside its root, or holding a link that resolves outside.
 
     The repository is the profile root, ``document.root_dir``. Both sides are
     resolved, so a symlink whose target lies outside counts as outside: a clone
-    does not carry it. A bundled preset is package content, not a repository,
-    and has none.
+    does not carry it. An input directory inside the root is walked, and every
+    link in it that resolves outside is reported, except under the runtime
+    subtree the fold skips. A bundled preset is package content, not a
+    repository, and has none.
 
     Args:
         document: The profile's resolution, from :func:`resolve_profile_document`.
 
     Returns:
-        The outside entries of :func:`profile_inputs`, in enumeration order.
+        The outside entries of :func:`profile_inputs`, in enumeration order,
+        each followed by its outside links in path order.
     """
     if is_bundled_preset_dir(document.root_dir):
         return ()
     root = document.root_dir.resolve()
-    return tuple(
-        entry for entry in profile_inputs(document) if not entry.path.resolve().is_relative_to(root)
-    )
+    outside: list[OutsideInput] = []
+    for entry in profile_inputs(document):
+        if not entry.path.resolve().is_relative_to(root):
+            outside.append(OutsideInput(entry))
+            continue
+        if not entry.path.is_dir():
+            continue
+        for path in sorted(entry.path.rglob("*")):
+            rel = path.relative_to(entry.path).as_posix()
+            if entry.skips_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
+                continue
+            if symlink_escapes(path, root):
+                outside.append(OutsideInput(entry, rel))
+    return tuple(outside)
 
 
 def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
-    """Refuse a repository profile that reads any input outside the repository.
+    """Refuse a profile whose input is outside the repository or holds a link that resolves outside.
 
     Called by the profile loaders before validation, so a repository builds
     from a clone or is refused before anything is installed.
@@ -2151,16 +2191,17 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
         document: The profile's resolution, with any command-line edits applied.
 
     Raises:
-        BuildProfileError: One line per outside input, in enumeration order,
-            naming the profile key, the resolved path and the remedy.
+        BuildProfileError: One line per outside input or link, in enumeration
+            order, naming the profile key, the resolved path and the remedy.
     """
     outside = inputs_outside_repository(document)
     if not outside:
         return
     root_document = (document.root_dir / PROFILE_FILENAME).resolve()
     lines = []
-    for entry in outside:
-        resolved = entry.path.resolve().as_posix()
+    for found in outside:
+        entry = found.entry
+        resolved = found.path.resolve().as_posix()
         if entry.role is ProfileInputRole.DOCUMENT and entry.path.resolve() != root_document:
             lines.append(f"extends: {resolved} is outside the repository. {_MOVE_INSIDE}")
             continue
@@ -2173,6 +2214,8 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
             key = f"{entry.label}: {document.raw['services'][name]['template']}"
         else:
             key = entry.key
+        if found.link is not None:
+            key = f"{key.rstrip('/')}/{found.link}"
         lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")
     raise BuildProfileError("\n".join(lines))
 

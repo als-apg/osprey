@@ -21,6 +21,7 @@ from click.testing import CliRunner
 from osprey.cli.build_injectors import _locate_pkg_services
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
+    OutsideInput,
     bundled_service_template,
     inputs_outside_repository,
     profile_inputs,
@@ -98,7 +99,7 @@ def _template_outside(repo: Path) -> Path:
     return template
 
 
-def _outside(repo: Path) -> tuple[Any, ...]:
+def _outside(repo: Path) -> tuple[OutsideInput, ...]:
     profile = repo / PROFILE_FILENAME
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
     return inputs_outside_repository(document)
@@ -109,7 +110,7 @@ def test_an_extends_base_beside_the_repository_is_outside(repo: Path) -> None:
 
     outside = _outside(repo)
 
-    assert [entry.path.resolve() for entry in outside] == [base.resolve()]
+    assert [found.entry.path.resolve() for found in outside] == [base.resolve()]
 
 
 def test_an_extends_base_inside_the_repository_is_not(repo: Path) -> None:
@@ -124,7 +125,9 @@ def test_a_data_tree_beside_the_repository_is_outside(repo: Path) -> None:
 
     outside = _outside(repo)
 
-    assert [(entry.label, entry.path.resolve()) for entry in outside] == [("data", data.resolve())]
+    assert [(found.entry.label, found.entry.path.resolve()) for found in outside] == [
+        ("data", data.resolve())
+    ]
 
 
 def test_a_data_symlink_that_resolves_outside_is_outside(repo: Path) -> None:
@@ -134,7 +137,61 @@ def test_a_data_symlink_that_resolves_outside_is_outside(repo: Path) -> None:
 
     outside = _outside(repo)
 
-    assert [(entry.label, entry.path.resolve()) for entry in outside] == [("data", data.resolve())]
+    assert [(found.entry.label, found.entry.path.resolve()) for found in outside] == [
+        ("data", data.resolve())
+    ]
+
+
+def test_a_nested_directory_link_that_resolves_outside_is_refused(repo: Path) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    elsewhere = repo.parent / "elsewhere"
+    elsewhere.mkdir()
+    (repo / "data" / "sub").symlink_to(elsewhere, target_is_directory=True)
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/sub resolves to {elsewhere.resolve().as_posix()}, "
+        f"outside the repository. {REMEDY}"
+    )
+
+
+def test_a_nested_file_link_that_resolves_outside_is_refused(repo: Path) -> None:
+    from osprey.cli.build_profile_load import load_profile
+
+    target = repo.parent / "x.yml"
+    target.write_text("{}\n", encoding="utf-8")
+    (repo / "data" / "x.yml").symlink_to(target)
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile(repo / PROFILE_FILENAME)
+
+    assert str(raised.value) == (
+        f"data: data/x.yml resolves to {target.resolve().as_posix()}, "
+        f"outside the repository. {REMEDY}"
+    )
+
+
+def test_a_nested_link_inside_the_repository_is_admitted(repo: Path) -> None:
+    other = repo / "other"
+    other.mkdir()
+    (repo / "data" / "sub").symlink_to(other, target_is_directory=True)
+
+    assert _outside(repo) == ()
+
+
+def test_a_link_under_the_runtime_subtree_is_not_walked(repo: Path) -> None:
+    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+
+    elsewhere = repo.parent / "elsewhere"
+    elsewhere.mkdir()
+    runtime = repo / "data" / RUNTIME_DATA_DIR_NAME
+    runtime.mkdir(exist_ok=True)
+    (runtime / "k").symlink_to(elsewhere, target_is_directory=True)
+
+    assert _outside(repo) == ()
 
 
 def test_the_loader_refuses_an_outside_extends_naming_the_key_path_and_remedy(
