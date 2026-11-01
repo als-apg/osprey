@@ -87,6 +87,7 @@ from osprey.interfaces.web_terminal.routes.websocket import (
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
+from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
@@ -336,6 +337,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
         "authorization",
         "x-osprey-terminal-secret",
         OWNER_HEADER.lower(),
+        LAUNCH_TOKEN_HEADER.lower(),
     }
 )
 
@@ -596,7 +598,8 @@ def _panel_auth_header(
     A sidecar this process starts is handed a credential of its own and refuses
     anything that arrives without it. The launcher publishes that credential as
     a ready-made header mapping on ``app.state.panel_auth_headers``, keyed by
-    panel id, and it is injected on this hop so the browser never holds it.
+    panel id, and it is injected on this hop so the browser never holds it. An
+    application panel's launch token is held the same way.
 
     Gated exactly as the operator secret is
     (:func:`_backend_earns_credentials`): a credential handed to a listener the
@@ -1803,13 +1806,12 @@ async def _forward_to_panel(
     # An application panel on a login that does not arm it is read-only here:
     # a write method is refused before anything leaves the terminal.
     method = request.method.upper()
-    if is_write_method(method):
-        application = await _unarmed_application(request, panel_id)
-        if application is not None:
-            return Response(
-                content=_unarmed_refusal(request, application, method),
-                status_code=403,
-            )
+    unarmed_application = await _unarmed_application(request, panel_id)
+    if unarmed_application is not None and is_write_method(method):
+        return Response(
+            content=_unarmed_refusal(request, unarmed_application, method),
+            status_code=403,
+        )
 
     outer_prefix = compute_url_prefix()
     panel_prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
@@ -1885,8 +1887,12 @@ async def _forward_to_panel(
         if token:
             fwd_headers["authorization"] = f"Bearer {token}"
 
-    # A launched sidecar's own credential, on the same gate as the secret above.
-    fwd_headers.update(_panel_auth_header(request, panel_id, backend_url))
+    # A launched sidecar's own credential or an application's launch token, on
+    # the same gate as the secret above. A safe method still reaches an
+    # application this login does not arm; its launch token does not go with it.
+    panel_auth = _panel_auth_header(request, panel_id, backend_url)
+    if panel_auth and unarmed_application is None:
+        fwd_headers.update(panel_auth)
 
     # Who is driving, for the backends that file work under it and gate that
     # work by the driver's own chip. Minted in this same run, after the strip,
