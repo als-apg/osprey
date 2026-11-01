@@ -80,6 +80,7 @@ from osprey.deployment.web_terminals.roster import (
     REGISTRY_MODE_MISSING_URL,
     RENDER_CATALOG_REQUIRED,
     SUPPORTED_MCP_TOPOLOGY,
+    TIER_PRINCIPAL_PREFIX,
     USERNAME_CHARSET_RE,
     _is_shared_entry,
     _roster_entry_name,
@@ -94,6 +95,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     effective_tier,
     entry_is_shared,
+    expand_tier_principals,
     is_app_entry,
     privilege_phrase,
     privileged_default_tier_problem,
@@ -106,6 +108,7 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
     roster_people,
     served_render_names,
+    shared_app_name,
     shared_card_privileged_problems,
     tier_privileges,
 )
@@ -240,6 +243,7 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
+    findings.extend(_check_shared_app_access(web_terminals))
     findings.extend(_check_render_charset(web_terminals))
     findings.extend(_check_render_seed_base(web_terminals))
     findings.extend(_check_default_tier_exists(web_terminals))
@@ -1058,6 +1062,82 @@ def _known_apps(
     )
 
 
+#: The keys a mapping item of ``shared:`` may carry.
+_SHARED_ITEM_KEYS = frozenset({"name", "access"})
+
+
+def _check_shared_app_access(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A shared app's ``access`` must parse and must admit somebody. ERROR.
+
+    * ``invalid_shared_access`` — the authored ``access`` is refused by
+      :func:`resolve_access_principals`; the finding carries its sentence.
+    * ``access_principal_without_idp`` — under ``method: password`` a ``user:``,
+      ``domain:`` or ``tier:`` member names an identity no password login
+      asserts, so the app opens to nobody it names.
+    * ``tier_principal_admits_nobody`` — under ``method: oidc`` a ``tier:``
+      member names a tier no roster person with an ``oidc_subject`` runs, so it
+      expands to nobody at render.
+    """
+    raw = web_terminals.get("shared")
+    if not isinstance(raw, list):
+        return []
+    context = _auth_context(web_terminals)
+    method = context["auth_method"] if context is not None else None
+    cards = resolve_cards(web_terminals, {}, strict=False)
+    findings: list[Finding] = []
+    for item in raw:
+        name = shared_app_name(item)
+        if name is None or not isinstance(item, dict) or "access" not in item:
+            continue
+        try:
+            principals = resolve_access_principals(
+                {"kind": APP_ENTRY_KIND, "name": name, "access": item["access"]}
+            )
+        except ValueError as exc:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_shared_access",
+                    message=str(exc),
+                )
+            )
+            continue
+        for member in sorted(principals):
+            if method == "password" and member.startswith(("user:", "domain:", "tier:")):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.access_principal_without_idp",
+                        message=(
+                            f"modules.web_terminals.shared app {name!r} has an access member "
+                            f"{member!r}, but auth.method is 'password': that member names "
+                            "an identity by an ID-token claim, and a password login asserts "
+                            "none, so nobody it names can open the app. Set auth.method: "
+                            "oidc, or open the app to the whole roster by listing its name "
+                            "alone"
+                        ),
+                    )
+                )
+            elif (
+                method == "oidc"
+                and member.startswith(TIER_PRINCIPAL_PREFIX)
+                and not expand_tier_principals(frozenset({member}), cards)
+            ):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.tier_principal_admits_nobody",
+                        message=(
+                            f"modules.web_terminals.shared app {name!r} has an access member "
+                            f"{member!r}, but no roster person with an oidc_subject runs "
+                            f"that tier, so it admits nobody. Name a tier the roster uses, "
+                            "or give its people an oidc_subject"
+                        ),
+                    )
+                )
+    return findings
+
+
 def _check_shared_apps(
     web_terminals: dict[str, Any],
     users: list[Any],
@@ -1069,8 +1149,9 @@ def _check_shared_apps(
 
     Errors, each its own code:
 
-    * ``invalid_shared_entry`` — ``shared`` is not a list, or an item is not a
-      non-empty string (it derives no card but keeps its slot).
+    * ``invalid_shared_entry`` — ``shared`` is not a list, or an item is neither
+      a non-empty string nor a ``{name, access}`` mapping naming one (it derives
+      no card but keeps its slot).
     * ``duplicate_shared_app`` — one app named twice would run two cards under
       one compose service name.
     * ``unknown_shared_app`` — no app file backs the name, so there is nothing to
@@ -1097,8 +1178,10 @@ def _check_shared_apps(
     findings: list[Finding] = []
     names: list[str] = []
     for position, item in enumerate(raw):
-        if isinstance(item, str) and item:
-            names.append(item)
+        name = shared_app_name(item)
+        extra = sorted(set(item) - _SHARED_ITEM_KEYS) if isinstance(item, dict) else []
+        if name is not None and not extra:
+            names.append(name)
             continue
         findings.append(
             Finding(
@@ -1106,7 +1189,9 @@ def _check_shared_apps(
                 code="web_terminals.invalid_shared_entry",
                 message=(
                     f"modules.web_terminals.shared[{position}] is {item!r}; each entry "
-                    "must be the name of an app in this repo's apps/ directory"
+                    "must be the name of an app in this repo's apps/ directory, or a "
+                    "mapping with that name under 'name' and, optionally, who may open "
+                    "it under 'access'"
                 ),
             )
         )

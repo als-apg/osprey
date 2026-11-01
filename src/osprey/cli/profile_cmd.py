@@ -1313,7 +1313,7 @@ def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[
     from one file reports it.
     """
     from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP
-    from osprey.deployment.web_terminals.roster import served_render_names
+    from osprey.deployment.web_terminals.roster import served_render_names, shared_app_name
 
     from .build_profile_emit import effective_web_terminals
 
@@ -1324,8 +1324,9 @@ def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[
     tiers = {name for name, kind in served.items() if kind != RENDER_KIND_APP}
     apps = {name for name, kind in served.items() if kind == RENDER_KIND_APP}
     shared = web_terminals.get("shared")
-    for name in shared if isinstance(shared, list) else []:
-        if isinstance(name, str) and name in tiers:
+    for item in shared if isinstance(shared, list) else []:
+        name = shared_app_name(item)
+        if name is not None and name in tiers:
             apps.add(name)
     return sorted(tiers), sorted(apps)
 
