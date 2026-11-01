@@ -612,3 +612,57 @@ def test_an_attached_render_is_told_the_panel_port_from_the_scratch_reading(
 
     assert "knob" not in render.get("deployed_services", [])
     assert _knob_panel(render)["url"].startswith("http://127.0.0.1:")
+
+
+# --- the deploy summary ---------------------------------------------------------------
+
+
+def _summary_config(*, launch_token: str | None) -> dict[str, Any]:
+    row: dict[str, Any] = {"app": "knob", "url": "http://127.0.0.1:18950"}
+    if launch_token is not None:
+        row["launch_token_env"] = launch_token
+    return {"deployed_services": ["knob"], "services": {"knob": row}}
+
+
+def test_the_summary_names_the_launch_token_variable_under_its_service() -> None:
+    from osprey.deployment.deploy_summary import application_summary
+
+    block = application_summary(_summary_config(launch_token="KNOB_LAUNCH_TOKEN"))
+
+    assert list(block) == ["apps.knob"]
+    rows = dict(block["apps.knob"])
+    assert rows["knob"] == "http://127.0.0.1:18950"
+    assert rows["knob launch token"] == "KNOB_LAUNCH_TOKEN (minted by osprey up into .env)"
+
+
+def test_the_summary_carries_no_token_line_without_a_launch_token() -> None:
+    from osprey.deployment.deploy_summary import application_summary
+
+    block = application_summary(_summary_config(launch_token=None))
+
+    assert [label for label, _ in block["apps.knob"]] == ["knob"]
+
+
+def test_a_built_deployment_names_each_service_under_its_application(roster_repo: Path) -> None:
+    from osprey.deployment.deploy_summary import application_summary
+
+    rows = dict(application_summary(rendered_config(roster_repo))["apps.knob"])
+
+    assert rows["knob launch token"].startswith("KNOB_LAUNCH_TOKEN ")
+    assert "cache launch token" not in rows
+    assert rows["cache"].startswith("http://127.0.0.1:")
+
+
+def test_the_summary_is_empty_with_no_applications() -> None:
+    from osprey.deployment.deploy_summary import application_summary
+
+    assert application_summary({"deployed_services": [], "services": {"postgresql": {}}}) == {}
+
+
+def test_the_text_summary_carries_the_application_block() -> None:
+    from osprey.deployment.deploy_summary import format_endpoint_summary
+
+    text = format_endpoint_summary(_summary_config(launch_token="KNOB_LAUNCH_TOKEN"), [])
+
+    assert "apps.knob" in text
+    assert "KNOB_LAUNCH_TOKEN" in text

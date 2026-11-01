@@ -1343,6 +1343,46 @@ def _summary_text(title: str, entries: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines)
 
 
+def application_summary(config: dict) -> dict[str, list[tuple[str, str]]]:
+    """The ``apps.<name>`` blocks of a deployment: each application's services.
+
+    One ``(service, url)`` row per projected service and, under a service whose
+    application asks for one, a row naming the launch-token variable ``osprey up``
+    mints for it. The name comes from the mint's own map, and never a value.
+
+    Args:
+        config: Loaded configuration dictionary.
+
+    Returns:
+        ``(label, value)`` rows by ``apps.<name>``, in ``services`` order; empty
+        for a deployment with no application.
+    """
+    from osprey.deployment.container_lifecycle import service_token_vars
+
+    deployed = {str(service) for service in config.get("deployed_services") or []}
+    token_vars = service_token_vars(config)
+    blocks: dict[str, list[tuple[str, str]]] = {}
+    for key, row in (config.get("services") or {}).items():
+        if str(key) not in deployed or not isinstance(row, Mapping) or not row.get("app"):
+            continue
+        rows = blocks.setdefault(f"apps.{row['app']}", [])
+        rows.append((str(key), str(row.get("url") or "")))
+        rows.extend(
+            (f"{key} launch token", f"{name} (minted by osprey up into .env)")
+            for name in token_vars.get(str(key), ())
+        )
+    return blocks
+
+
+def _application_text(blocks: Mapping[str, list[tuple[str, str]]]) -> str:
+    """Lay :func:`application_summary` out at the record's fixed column width."""
+    lines: list[str] = []
+    for block, rows in blocks.items():
+        lines.append(block)
+        lines.extend(f"    {label:<{_LOGGED_SERVICE_WIDTH}} {value}" for label, value in rows)
+    return "\n".join(lines)
+
+
 def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
     """Render :func:`endpoint_entries` as the text block a deploy or report prints.
 
@@ -1351,7 +1391,9 @@ def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
         resolvable from the working directory — they are opened here
     :return: Multi-line summary text
     """
-    return _summary_text(summary_title(config), endpoint_entries(config, compose_files))
+    text = _summary_text(summary_title(config), endpoint_entries(config, compose_files))
+    applications = _application_text(application_summary(config))
+    return f"{text}\n{applications}" if applications else text
 
 
 def log_endpoint_summary(config: dict, compose_files: list[str]) -> None:
@@ -1380,6 +1422,12 @@ def log_endpoint_summary(config: dict, compose_files: list[str]) -> None:
         title = summary_title(config)
         entries = endpoint_entries(config, compose_files)
         output.section(title, summary_rows(entries))
-        logger.key_info(_summary_text(title, entries))
+        applications = application_summary(config)
+        for block, rows in applications.items():
+            output.section(block, rows)
+        text = _summary_text(title, entries)
+        if applications:
+            text = f"{text}\n{_application_text(applications)}"
+        logger.key_info(text)
     except Exception as exc:
         logger.debug(f"Endpoint summary skipped: {exc}")
