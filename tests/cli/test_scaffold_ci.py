@@ -45,6 +45,7 @@ from osprey.cli.deploy_scaffold_templates import CI_MARKER, VERIFY_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
+from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
@@ -884,10 +885,14 @@ class TestEnvironmentUrl:
 #: The six upstream images the pipeline pins by name. A runner that cannot
 #: reach Docker Hub needs every one of them from somewhere else, so the prefix
 #: is checked against the whole set rather than the two the exemplar renders.
-UPSTREAM_PINS = ("python:3.12-slim", "docker:29", "docker:29-dind", "alpine:3.23")
+#: The Python the pipeline's render job runs ``osprey build`` on, which builds the
+#: deployment wheels the fit check judges: the images' own.
+PYTHON_PIN = f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim"
+
+UPSTREAM_PINS = (PYTHON_PIN, "docker:29", "docker:29-dind", "alpine:3.23")
 
 
-def _full_pipeline(ci_image_prefix: str = "") -> str:
+def _full_pipeline(ci_image_prefix: str = "", image_platform: str | None = None) -> str:
     """The pipeline with every stage rendered, prefix applied.
 
     The exemplar declares no registry and no facility-owned image, so its
@@ -919,8 +924,43 @@ def _full_pipeline(ci_image_prefix: str = "") -> str:
                 }
             ],
             ci_image_prefix=ci_image_prefix,
+            image_platform=image_platform,
         ),
     )
+
+
+def test_a_stated_image_platform_reaches_the_service_image_build() -> None:
+    pipeline = _full_pipeline(image_platform="linux/amd64")
+
+    assert 'docker build --platform linux/amd64 -t "$REGISTRY/$SERVICE' in pipeline
+
+
+def test_unstated_the_service_image_build_names_no_platform() -> None:
+    pipeline = _full_pipeline()
+
+    assert '    - docker build -t "$REGISTRY/$SERVICE' in pipeline
+    assert "--platform" not in pipeline
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({"images.platform": "linux/arm64"}, "linux/arm64"),
+        ({"images": {"platform": "linux/amd64"}}, "linux/amd64"),
+        ({}, None),
+    ],
+)
+def test_the_pipeline_reads_the_platform_from_the_profile(config: dict, expected) -> None:
+    from osprey.cli.build_profile_deploy import DeployConfig, DeployHost
+    from osprey.cli.deploy_scaffold_templates import build_ci_context
+
+    deploy = DeployConfig(
+        ci="gitlab", host=DeployHost(name="h", project_path="/srv/d", user="svc", fqdn="h")
+    )
+    ctx = build_ci_context({"name": "d", "config": config}, deploy, Path("."), "d")
+
+    assert ctx.image_platform == expected
+    assert ctx.image_python == f"{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}"
 
 
 def test_every_upstream_pin_is_rendered_without_a_prefix_by_default() -> None:
@@ -975,7 +1015,7 @@ def test_a_prefix_without_a_trailing_slash_renders_the_same(runner: CliRunner, r
     assert emit(runner, repo).exit_code == 0
 
     assert (repo / CI_PATH).read_text(encoding="utf-8") == bare
-    assert "image: mirror.example.org/python:3.12-slim" in bare
+    assert f"image: mirror.example.org/{PYTHON_PIN}" in bare
 
 
 def test_a_mapping_under_the_prefix_is_refused_by_name(runner: CliRunner, repo: Path) -> None:

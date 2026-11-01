@@ -35,6 +35,7 @@ from osprey.deployment.deployment_record import (
     DEPLOYMENT_RECORD_RELPATH,
     RUNTIME_KEY,
 )
+from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.docs_links import DEPLOY_DOCS_URL
@@ -255,6 +256,12 @@ class CIContext:
             the environment's link, so it is derived from the one origin
             authority rather than assembled here (see
             :func:`_environment_url`).
+        image_platform: The platform ``images.platform`` states, which the
+            facility-owned service images are built for; ``None`` builds them
+            for the runner's own.
+        image_python: The Python of the images, as ``<major>.<minor>``: the
+            render job runs ``osprey build`` on it, which builds the deployment
+            wheels the fit check judges against that Python.
         runs_verify_on_up: Whether ``osprey up`` runs the health check itself.
             True only with the web tier enabled — the post-up hook that runs
             ``scripts/verify.sh`` sits on the deploy's web-terminal branch, so
@@ -277,6 +284,8 @@ class CIContext:
     external_projects: list[dict[str, str]] = field(default_factory=list)
     environment_url: str | None = None
     runs_verify_on_up: bool = False
+    image_platform: str | None = None
+    image_python: str = f"{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}"
 
     @property
     def has_images_stage(self) -> bool:
@@ -533,6 +542,8 @@ def build_ci_context(
     Returns:
         The context :data:`CI_TEMPLATES` renders against.
     """
+    from .build_profile_load import config_image_platform
+
     registry_url = deploy.registry.url if deploy.registry else None
     return CIContext(
         facility_name=str(profile.get("name", repo_name)),
@@ -557,6 +568,7 @@ def build_ci_context(
         ],
         environment_url=_environment_url(profile),
         runs_verify_on_up=_web_terminals(profile) is not None,
+        image_platform=config_image_platform(profile.get("config")),
     )
 
 
