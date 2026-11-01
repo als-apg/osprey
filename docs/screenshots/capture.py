@@ -62,10 +62,15 @@ if TYPE_CHECKING:
     from docs.screenshots.recipes import DocShot
     from playwright.sync_api import Browser
 
-# Host TCP port Postgres publishes once ``osprey up -d`` is healthy. This module
-# builds its own throwaway control-assistant deployment below and never sets
-# ``deployment.port_base``, so the layout's default base is the right one here.
-_POSTGRES_PORT = default_port("postgres")
+# The throwaway deployment's own port block, and its virtual accelerator's two
+# host ports, which a block does not move. A real deployment routinely holds the
+# default block and 5064/5075 on a dev host, so the capture stack sits beside it.
+_PORT_BASE = 34000
+_VA_CA_PORT = 35064
+_VA_PVA_PORT = 35075
+
+# Host TCP port Postgres publishes once ``osprey up -d`` is healthy.
+_POSTGRES_PORT = default_port("postgres", base=_PORT_BASE)
 
 # Directory name for the throwaway tutorial deployment repo. ``osprey init
 # <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``
@@ -525,6 +530,12 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             # preset's multi-user roster would own the same index-0 panel ports.
             "--set",
             "config.modules.web_terminals.enabled=false",
+            "--set",
+            f"port_base={_PORT_BASE}",
+            "--set",
+            f"virtual_accelerator.port={_VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={_VA_PVA_PORT}",
         ]
         provider = os.environ.get(PROVIDER_ENV)
         if provider:
@@ -791,8 +802,8 @@ def _reap_web_server(pid: int) -> None:
 
 
 #: Opens the hub's Agent tile on the terminal rather than the chat: the per-tab
-#: choice the tile's ⋯ menu stores, seeded before the page loads. The captures
-#: answer the CLI trust prompt and type into the PTY, so they need the terminal.
+#: choice the tile's ⋯ menu stores, seeded before the page loads. The popover
+#: capture answers the CLI trust prompt in the PTY, so it needs the terminal.
 TERMINAL_SURFACE_INIT = (
     "if (window === window.top) sessionStorage.setItem('osprey-agent-surface', 'terminal');"
 )
@@ -924,18 +935,25 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
             proc.terminate()
 
 
+#: The operator chat's composer, in the Agent pane every session opens on.
+CHAT_COMPOSER = '#operator-container textarea[aria-label="Message the agent"]'
+
+
 def _capture_agentic(
     browser: Browser, project_dir: Path, artifact_port: int, shot: DocShot
 ) -> list[Path]:
     """Drive the live web terminal to produce the agentic hero screenshot(s).
 
     Launches a detached ``osprey web`` bound to a free port, then for each theme:
-    opens the UI with ``?theme=``, answers the PTY trust prompt, types the
-    operator prompt, waits (bounded) for a matching
-    artifact, reveals the artifacts panel, opens the plot, and screenshots the
-    viewport. Every launched process and page is torn down in ``finally``; the
-    web server is stopped with the repo-scoped ``osprey web stop --repo``.
+    opens the UI with ``?theme=``, sends the operator prompt through the Agent
+    pane's chat composer, waits (bounded) for a matching artifact, opens the plot
+    in the work pane from its sidebar row, waits for the turn to finish, and
+    screenshots the viewport. Every launched process and page is torn down in
+    ``finally``; the web server is stopped with the repo-scoped
+    ``osprey web stop --repo``.
     """
+    from playwright.sync_api import expect
+
     with web_terminal(project_dir) as web:
         base_url = web.base_url
         operator_secret = web.operator_secret
@@ -949,33 +967,26 @@ def _capture_agentic(
                 viewport={"width": shot.viewport[0], "height": shot.viewport[1]}
             )
             try:
-                page.add_init_script(TERMINAL_SURFACE_INIT)
                 # First navigation carries the operator secret as ``?token=``:
                 # the gate admits this GET to ``/``, the root handler mints a
                 # session, sets the session cookie, and redirects to the
-                # token-stripped URL. Every later request (and the PTY websocket)
-                # then authenticates with the cookie the child issued.
+                # token-stripped URL. Every later request then authenticates
+                # with the cookie the child issued.
                 token = urllib.parse.quote(operator_secret, safe="")
                 page.goto(
                     f"{base_url}/?theme={theme}&token={token}",
                     wait_until="domcontentloaded",
                     timeout=30_000,
                 )
-                # The Claude-Code trust prompt lives in the PTY, not the DOM:
-                # focus the terminal and answer it, then type the operator prompt.
-                # The Enter that accepts the trust prompt kicks the CLI into its
-                # REPL; typing before that transition finishes drops the prompt
-                # characters, so settle briefly before typing.
-                page.locator("#terminal-container").click(timeout=30_000)
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(2_000)
+                composer = page.locator(CHAT_COMPOSER)
+                expect(composer).to_be_enabled(timeout=60_000)
 
                 # Baseline the artifacts already present (from earlier themes) so
                 # the wait below matches the plot *this* prompt produces, not a
                 # stale one carried over in the shared artifact store.
                 before = artifact_ids(artifact_port, operator_secret)
-                page.keyboard.type(shot.prompt or "")
-                page.keyboard.press("Enter")
+                composer.fill(shot.prompt or "")
+                composer.press("Enter")
 
                 plot_id = _wait_for_artifact(
                     artifact_port,
@@ -986,9 +997,8 @@ def _capture_agentic(
                 )
 
                 # Select the plot by its row in the hub sidebar's artifact list:
-                # the row click shows the plot in the artifacts tile (opening
-                # the tile when it is not on screen), and the row's ``data-id``
-                # pins the viewer to the plot (unlike relying on
+                # the row click shows the plot in the work pane, and the row's
+                # ``data-id`` pins the viewer to the plot (unlike relying on
                 # newest-auto-select) even as the agent keeps emitting later
                 # artifacts.
                 page.locator(
@@ -997,6 +1007,11 @@ def _capture_agentic(
                 panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
                 panel.locator("#preview-content .preview-viewport > *").first.wait_for(
                     state="visible", timeout=30_000
+                )
+
+                # The chat shows the agent's answer rather than a running turn.
+                expect(page.locator("#operator-container")).not_to_have_class(
+                    re.compile(r"\bstreaming\b"), timeout=240_000
                 )
 
                 # Let the plot preview render (Plotly draws async) before shooting.
@@ -1016,9 +1031,10 @@ def _capture_agentic(
 def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocShot) -> list[Path]:
     """Capture a static element out of the live web terminal (no agent turn).
 
-    Launches a detached ``osprey web`` against the built tutorial repo exactly
-    as :func:`_capture_agentic` does — the ``?token=`` login, the PTY trust
-    prompt — but sends no operator prompt and needs no provider credentials.
+    Launches a detached ``osprey web`` against the built tutorial repo as
+    :func:`_capture_agentic` does — the ``?token=`` login — but opens the Agent
+    pane on the terminal to answer the PTY trust prompt, sends no operator
+    prompt, and needs no provider credentials.
     What it waits for instead is the control-target chip reporting an
     enforceable session (``data-enforceable="true"``): the signal that the
     CLI's controls server has published its state record, so the popover will

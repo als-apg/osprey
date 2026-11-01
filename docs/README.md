@@ -29,14 +29,15 @@ runs for you.
 
 **Two opt-in environments** cover the images that need real data:
 
-- `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views.
-  Builds the `control-assistant` tutorial project, brings up Postgres
+- `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views and
+  the control-target popover. Builds the `control-assistant` tutorial project, brings up Postgres
   (`osprey up -d`), and seeds the logbook with
   `osprey sim apply nominal --yes --now <anchor>`. Needs a container runtime
-  and a free host port 5432. The `--now` anchor freezes the seeded dates, so
+  and free host ports 34000–34999, 35064 and 35075 (its own port block, so a
+  deployment on the default one can keep running). The `--now` anchor freezes the seeded dates, so
   repeat captures are byte-stable.
-- `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Drives a live agent
-  session to produce a real beam-current plot, so it needs a live Claude
+- `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Sends its prompt through
+  the operator chat of a live agent session to produce a real beam-current plot, so it needs a live Claude
   session on your subscription budget. Success is a structural check (non-blank
   image, correct viewport, plot present), not a byte comparison.
 

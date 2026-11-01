@@ -35,7 +35,7 @@ livehtml:
 # Regenerate committed documentation screenshots from the declarative registry
 # (docs/screenshots). Run from the repo root so `docs.screenshots` resolves as a
 # namespace package. The default target captures only the container-free
-# standalone recipes; pass SCREENSHOTOPTS=--stack (containers + port 5432) or
+# standalone recipes; pass SCREENSHOTOPTS=--stack (containers) or
 # SCREENSHOTOPTS=--agentic (live Claude session) to opt into the heavier ones.
 PYTHON        ?= python
 SCREENSHOTOPTS ?=

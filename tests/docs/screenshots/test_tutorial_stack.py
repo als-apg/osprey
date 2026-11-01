@@ -99,6 +99,15 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
     # The capture drives a single-user `osprey web` on the host, whose index-0
     # panel ports the preset's multi-user roster would otherwise own.
     assert init[init.index("--set") + 1] == "config.modules.web_terminals.enabled=false"
+    # A real deployment on the default block (and on the VA's 5064/5075) may be
+    # running on the same host, so the capture stack takes a block of its own.
+    for pair in (
+        f"port_base={capture._PORT_BASE}",
+        f"virtual_accelerator.port={capture._VA_CA_PORT}",
+        f"virtual_accelerator.pva_port={capture._VA_PVA_PORT}",
+    ):
+        assert init[init.index(pair) - 1] == "--set"
+    assert capture._POSTGRES_PORT == capture._PORT_BASE + 800
     # The model is pinned after init, by id, because only the written catalog
     # says which Opus id the chosen provider serves.
     assert not any(t.startswith("model=") for t in init)
