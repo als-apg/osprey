@@ -17,10 +17,9 @@ import yaml
 
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.profiles.web_panels import panel_spec_enabled
+from osprey_connectors.types import tier_writes
 from tests.cli._lifecycle_build import invoke_build, rendered_config, stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
-
-PROJECT = "als-exemplar"
 
 KNOB: dict[str, Any] = {
     "name": "knob",
@@ -52,11 +51,24 @@ KNOB: dict[str, Any] = {
     },
 }
 
+#: A requirement the framework's own pin of the package refuses.
+MOVED_PIN = "lume-base==0.0.1"
+
 GET_ROUTE = {"method": "GET", "path": "/api/state"}
 POST_ROUTE = {"method": "POST", "path": "/api/set"}
 
-#: A login file showing nothing of the deployment's applications.
-QUIET_LOGIN = "name: Quiet\napps:\n  knob:\n    shown: false\n"
+WRITE_TOOL = "mcp__knob__knob_zero"
+
+TIERS = ("asked", "allowed", "never")
+
+
+def _quiet_login(tier: str) -> str:
+    """A login file at *tier* showing nothing of the deployment's applications."""
+    return (
+        f"name: Quiet {tier}\n"
+        f"config:\n  control_system.writes: {tier}\n"
+        "apps:\n  knob:\n    shown: false\n"
+    )
 
 
 def _knob(**changes: Any) -> dict[str, Any]:
@@ -97,16 +109,43 @@ def _roster_less(repo: Path, tier: str = "allowed") -> Path:
     return repo
 
 
+def _set_config(repo: Path, key: str, value: Any) -> None:
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["config"][key] = value
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+
+def _render_dir(repo: Path, login: str) -> Path:
+    project, _ = render_project(EXEMPLAR_DIRNAME, login)
+    return repo / "build" / project
+
+
 def _render(repo: Path, login: str) -> dict[str, Any]:
-    project, _ = render_project(PROJECT, login)
-    path = repo / "build" / project / "config.yml"
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return yaml.safe_load((_render_dir(repo, login) / "config.yml").read_text(encoding="utf-8"))
+
+
+def _denied(repo: Path, login: str) -> list[str]:
+    settings = _render_dir(repo, login) / ".claude" / "settings.json"
+    return json.loads(settings.read_text(encoding="utf-8"))["permissions"]["deny"]
+
+
+def _gated(render_dir: Path) -> list[str]:
+    path = render_dir / ".claude" / "hooks" / "hook_config.json"
+    return json.loads(path.read_text(encoding="utf-8"))["facility_write_tools"]
 
 
 def _built(repo: Path) -> Path:
     result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     return repo
+
+
+def _package(directory: Path, name: str, *dependencies: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pyproject.toml").write_text(
+        f'[project]\nname = "{name}"\nversion = "0.1.0"\ndependencies = {list(dependencies)!r}\n',
+        encoding="utf-8",
+    )
 
 
 def _tree(root: Path) -> dict[str, bytes]:
@@ -156,18 +195,16 @@ def test_two_invalid_apps_report_both_violations_and_leave_build_untouched(
 def test_a_pinned_package_moved_by_an_app_names_app_package_and_both_versions(
     lifecycle_repo: Path, no_artifact
 ) -> None:
-    app_dir = _with_knob(lifecycle_repo) / "apps" / "knob"
-    (app_dir / "pyproject.toml").write_text(
-        '[project]\nname = "knob-app"\nversion = "0.1.0"\ndependencies = ["lume-base==0.6.0"]\n',
-        encoding="utf-8",
-    )
+    from osprey.apps.rules import framework_pins
+
+    _package(_with_knob(lifecycle_repo) / "apps" / "knob", "knob-app", MOVED_PIN)
 
     output = no_artifact(lifecycle_repo)
 
     assert "knob" in output
     assert "lume-base" in output
-    assert "0.6.0" in output
-    assert "0.5.0" in output
+    assert "0.0.1" in output
+    assert framework_pins()["lume-base"] in output
 
 
 def test_an_audit_identity_taken_by_a_roster_user_is_refused(
@@ -365,7 +402,11 @@ def roster_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             }
         },
     )
-    (repo / "tiers" / "quiet.yml").write_text(QUIET_LOGIN, encoding="utf-8")
+    for tier in TIERS:
+        (repo / "tiers" / f"quiet-{tier}.yml").write_text(_quiet_login(tier), encoding="utf-8")
+    (repo / "tiers" / "asker.yml").write_text(
+        "name: Asker\nconfig:\n  control_system.writes: asked\n", encoding="utf-8"
+    )
     # A shared login showing the application, which it can never arm.
     with (repo / "tiers" / "logbook.yml").open("a", encoding="utf-8") as logbook:
         logbook.write("\napps:\n  knob:\n    shown: true\n")
@@ -386,7 +427,7 @@ def _knob_panel(render: dict[str, Any]) -> dict[str, Any] | None:
     return (render.get("web", {}).get("panels") or {}).get("knob")
 
 
-@pytest.mark.parametrize("login", ["readwrite", "admin"])
+@pytest.mark.parametrize("login", ["asker", "readwrite", "admin"])
 def test_an_arming_login_gets_routes_token_and_write_tool(roster_repo: Path, login: str) -> None:
     render = _render(roster_repo, login)
     panel = _knob_panel(render)
@@ -398,6 +439,7 @@ def test_an_arming_login_gets_routes_token_and_write_tool(roster_repo: Path, log
     assert server["writes"] == ["knob_zero"]
     assert server["condition"] == "panel:knob"
     assert render["apps"]["knob"]["approval"]["knob_zero"]["prompt"] == "Zero the knob"
+    assert WRITE_TOOL not in _denied(roster_repo, login)
 
 
 def test_a_never_login_gets_the_panel_and_read_routes_only(roster_repo: Path) -> None:
@@ -406,13 +448,20 @@ def test_a_never_login_gets_the_panel_and_read_routes_only(roster_repo: Path) ->
     assert panel_spec_enabled(panel)
     assert panel["agent_routes"] == [GET_ROUTE]
     assert "launch_token_env" not in panel
+    assert WRITE_TOOL in _denied(roster_repo, "readonly")
 
 
-def test_a_login_that_does_not_show_the_application_has_no_shown_panel(roster_repo: Path) -> None:
-    render = _render(roster_repo, "quiet")
+@pytest.mark.parametrize("tier", TIERS)
+def test_a_login_that_does_not_show_the_application_gets_none_of_it(
+    roster_repo: Path, tier: str
+) -> None:
+    login = f"quiet-{tier}"
+    render = _render(roster_repo, login)
 
+    assert tier_writes(render["control_system"]) == tier
     assert not panel_spec_enabled(_knob_panel(render) or {"enabled": False})
     assert "knob" not in render["claude_code"].get("servers", {})
+    assert WRITE_TOOL not in _gated(_render_dir(roster_repo, login))
 
 
 def test_a_shared_login_that_shows_the_application_is_never_armed(roster_repo: Path) -> None:
@@ -428,6 +477,26 @@ def test_the_root_of_a_roster_deployment_is_projected_too(roster_repo: Path) -> 
 
     assert panel_spec_enabled(panel)
     assert "denied_app_tools" in rendered_config(roster_repo)["dispatch"]
+
+
+@pytest.mark.parametrize(
+    ("tier", "routes", "token"),
+    [
+        ("asked", [GET_ROUTE, POST_ROUTE], True),
+        ("allowed", [GET_ROUTE, POST_ROUTE], True),
+        ("never", [GET_ROUTE], False),
+    ],
+)
+def test_the_root_of_a_roster_deployment_follows_its_tier(
+    lifecycle_repo: Path, tier: str, routes: list[dict[str, str]], token: bool
+) -> None:
+    _with_knob(lifecycle_repo)
+    _set_config(lifecycle_repo, "control_system.writes", tier)
+
+    panel = _knob_panel(rendered_config(_built(lifecycle_repo)))
+
+    assert panel["agent_routes"] == routes
+    assert ("launch_token_env" in panel) is token
 
 
 def test_every_render_addresses_the_panel_at_the_deployment_port(roster_repo: Path) -> None:
