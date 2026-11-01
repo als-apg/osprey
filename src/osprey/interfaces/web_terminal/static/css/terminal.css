@@ -1301,7 +1301,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 /* ---- The machine glyph ----
 
    The machine in a mark, never a colour: a crosshair on the live machine, the
-   same with a broken ring on the rehearsal, a wave on the simulator. A mask per
+   same with a broken circle on the rehearsal, a wave on the simulator. A mask per
    kind, so the page and the Lab bar share it with no icon module. */
 [data-target-kind="real"] {
   --machine-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M22 12h-4M6 12H2M12 6V2M12 22v-4'/%3E%3C/svg%3E"); /* hygiene-allow-color: mask alpha only, never painted */
