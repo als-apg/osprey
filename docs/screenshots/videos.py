@@ -151,7 +151,7 @@ VIDEOS: tuple[DocVideo, ...] = (
         layout=Layout(surface="chat", active="channel-finder", tiles=("channel-finder",)),
         pages=("how-to/control-systems/code-review.rst",),
         poster_step="verdict",
-        window_s=(30.0, 70.0),
+        window_s=(40.0, 80.0),
         init_sets=INIT_SETS,
     ),
 )

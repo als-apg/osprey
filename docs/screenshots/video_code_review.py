@@ -1,6 +1,7 @@
 """The code review demo: its storyboard and the probes only it needs.
 
-The deployment ships one rule, that a script moving a corrector first reads the beam mode. The
+The video opens on that rule, in the reviewer's instructions under Settings → Safety. The
+deployment ships one rule, that a script moving a corrector first reads the beam mode. The
 operator asks for a corrector scan, which the agent writes without the check, since the rule is
 the reviewer's and not the agent's. The review blocks it before anyone is asked, the agent adds
 the check, and the corrected script reaches the operator with the verdict on its card.
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from docs.screenshots import video_chat
-from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, wait_for
+from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, spotlight, wait_for
 from docs.screenshots.video_probes import POLL_MS, ProbeFailed
 
 if TYPE_CHECKING:
@@ -41,6 +42,15 @@ INIT_SETS = (
     f"hooks={json.dumps(HOOKS, separators=(',', ':'))}",
     f"skills={json.dumps(SKILLS, separators=(',', ':'))}",
 )
+
+# The way to the reviewer's rules: ☰ More → Settings → Safety → the rules' card.
+MORE = "#more-btn"
+SETTINGS = "#more-settings"
+SAFETY_TAB = '#settings-drawer .drawer-tab[data-tab="tab-safety"]'
+RULES_CARD = '#tab-safety .prompts-card[data-name="code-review/rules"]'
+RULE = "#tab-safety .osprey-md-rendered li"
+CLOSE_DRAWER = "#settings-drawer .drawer-close-btn"
+DRAWER_BUDGET_MS = 15_000
 
 CARD = "#operator-container .op-card-reason"
 ALLOW = "#operator-container .op-btn-primary"
@@ -123,10 +133,21 @@ def _wait_done(take: Take) -> Any:
 
 
 CODE_REVIEW = (
-    Beat(
-        "arm", "The deployment wrote one rule: read the beam mode before moving a corrector.", _arm
+    click("more", None, MORE),
+    click("settings", None, SETTINGS),
+    click("safety", None, SAFETY_TAB),
+    wait_for("rules-listed", None, RULES_CARD, budget_ms=DRAWER_BUDGET_MS),
+    click("rules", None, RULES_CARD),
+    wait_for("rules-shown", None, RULE, budget_ms=DRAWER_BUDGET_MS, text=BEAM_MODE),
+    spotlight(
+        "rule",
+        "The code reviewer's one rule: read the beam mode before moving a corrector.",
+        RULE,
+        text=BEAM_MODE,
+        ms=HOLD_MS,
     ),
-    hold("rule", None, HOLD_MS),
+    click("close", None, CLOSE_DRAWER),
+    Beat("arm", None, _arm),
     focus("focus", None),
     prompt("ask", None, PROMPT_SCAN),
     wait_for(

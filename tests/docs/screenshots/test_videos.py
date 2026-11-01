@@ -247,3 +247,11 @@ def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
 def test_history_is_refused_on_the_terminal() -> None:
     with pytest.raises(ValueError, match="history needs the chat"):
         validate_videos([dataclasses.replace(LANDING, history=("p",))])
+
+
+def test_the_code_review_video_shows_the_rule_before_the_mark_and_the_prompt() -> None:
+    """Settings → Safety → the rules, spotlit, then the drawer closes before the arm."""
+    beats = [b.name for b in video_named("code-review").storyboard]
+    opening = ["more", "settings", "safety", "rules-listed", "rules", "rules-shown", "rule"]
+    assert beats[: len(opening)] == opening
+    assert beats.index("rule") < beats.index("close") < beats.index("arm") < beats.index("ask")

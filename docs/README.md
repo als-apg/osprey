@@ -147,7 +147,7 @@ a `DocVideo` to `VIDEOS` in `docs/screenshots/videos.py`: its name and file stem
 the `layout` that records the agreed screen, the page that embeds it, any
 `osprey init --set` values and environment variable names its deployment needs,
 the beat that becomes the poster, and a storyboard built from the beats in
-`video_beats.py` (focus, prompt, wait for a selector, click, hold); a probe only
+`video_beats.py` (focus, prompt, wait for a selector, click, hold, spotlight); a probe only
 that video needs is a custom beat. Keep the note under the video honest about
 its speed-up. Embed it by copying the `raw:: html` block of `docs/source/index.rst` with
 the new stem (paths gain `../` on a page one level down); `_static/js/doc-video.js` swaps the theme and handles the fallback.

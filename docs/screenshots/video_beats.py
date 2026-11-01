@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from docs.screenshots import video_check_stall, video_probes
+from docs.screenshots import video_check_stall, video_overlay, video_probes
 from docs.screenshots.video_probes import ProbeFailed
 
 if TYPE_CHECKING:
@@ -79,6 +79,35 @@ def click(name: str, caption: str | None, selector: str, *, text: str | None = N
         if not shown(take.page, selector, text):
             raise ProbeFailed(name, f"nothing to click: no visible {selector}")
         take.click(locator.first)
+
+    return Beat(name, caption, run)
+
+
+def spotlight(
+    name: str, caption: str | None, selector: str, *, text: str | None = None, ms: int
+) -> Beat:
+    """Outline the first visible *selector* (holding *text*) for *ms* milliseconds.
+
+    The outline is the video's own overlay, drawn over the page and cleared when
+    the beat ends; the page under it is not touched.
+    """
+
+    def run(take: Take) -> None:
+        if not shown(take.page, selector, text):
+            raise ProbeFailed(name, f"nothing to spotlight: no visible {selector}")
+        locator = take.page.locator(selector)
+        if text is not None:
+            locator = locator.filter(has_text=text)
+        target = locator.first
+        target.scroll_into_view_if_needed()
+        box = target.bounding_box()
+        if not box:
+            raise ProbeFailed(name, f"{selector} has no box on screen")
+        video_overlay.set_spotlight(take.page, box)
+        try:
+            take.page.wait_for_timeout(ms)
+        finally:
+            video_overlay.set_spotlight(take.page, None)
 
     return Beat(name, caption, run)
 
