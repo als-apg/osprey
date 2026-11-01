@@ -54,6 +54,7 @@ from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
     DANGEROUSLY_ALLOW_BASH_KEY,
     BashLaunchTokenConflictError,
+    LaunchTokenNameError,
     OpenModeEgressError,
     application_shell_conflicts,
     bash_launch_token_offenders,
@@ -61,6 +62,7 @@ from osprey.deployment.web_terminals.artifacts import (
     check_open_mode_requirements,
     dangerously_allowed_bash_renders,
     deployment_is_open,
+    launch_token_name_problems,
     open_mode_missing_by_render,
     web_compose_file,
     write_web_terminal_artifacts,
@@ -428,6 +430,8 @@ def web_terminal_preflight_report(
 
     if (problem := render_problem(config, root)) is not None:
         findings.append((problem, ""))
+    if name_problems := launch_token_name_problems(config, root):
+        findings.append((str(LaunchTokenNameError(name_problems)), ""))
     # Same position as in the gate: ahead of the .env.users question, because a
     # render that may arm hardware from a shell is the more serious of the two
     # and an operator reading top-down should meet it first.

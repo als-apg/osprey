@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
-from osprey.apps.manifest import is_write_method
+from osprey.apps.manifest import is_write_method, launch_token_env
 from osprey.bluesky_bridge_connection import lane_env_prefix
 from osprey.deployment.errors import DeploymentError
 from osprey.deployment.web_terminals.auth_credentials import (
@@ -112,6 +112,26 @@ def dangerously_allow_bash(config: Any) -> bool:
     if value is True:
         return True
     raise DangerouslyAllowBashValueError(value)
+
+
+class LaunchTokenNameError(DeploymentError):
+    """A panel block names a variable that is not its application's launch token.
+
+    The terminal sends what the variable holds upstream as a header, and the
+    render hands the variable to its container, so the name decides what leaves.
+    The build only ever writes :func:`osprey.apps.manifest.launch_token_env` of
+    the application; anything else is a hand-set block.
+    """
+
+    def __init__(self, problems: Iterable[str]) -> None:
+        self.problems = list(problems)
+        listed = "".join(f"\n  - {problem}" for problem in self.problems)
+        super().__init__(
+            "Refusing to deploy: a panel names a launch-token variable that is not "
+            f"its application's own.{listed}\n"
+            "Remove launch_token_env from that web.panels block and let the build "
+            "project it from the application's manifest."
+        )
 
 
 class BashLaunchTokenConflictError(DeploymentError):
@@ -294,6 +314,16 @@ def _route_label(route: Any) -> str | None:
     return f"{method} {route.get('path')}"
 
 
+def _rendered_panels(
+    config: Any, project_root: Path | str
+) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Every ``web.panels`` block of every referenced render, as ``(render, id, block)``."""
+    for render, render_config in sorted(rendered_configs(config, project_root).items()):
+        panels = as_dict(as_dict(as_dict(render_config).get("web")).get("panels"))
+        for panel_id, block in sorted(panels.items()):
+            yield render, panel_id, as_dict(block)
+
+
 def application_rows(config: Any, project_root: Path | str) -> list[ApplicationRow]:
     """Every application each referenced render arms, from its rendered config.
 
@@ -308,27 +338,66 @@ def application_rows(config: Any, project_root: Path | str) -> list[ApplicationR
             resolve against it.
     """
     rows = []
-    for render, render_config in sorted(rendered_configs(config, project_root).items()):
-        panels = as_dict(as_dict(as_dict(render_config).get("web")).get("panels"))
-        for panel_id, block in sorted(panels.items()):
-            block = as_dict(block)
-            token_env = block.get("launch_token_env") or None
-            routes = block.get("agent_routes")
-            write_routes = tuple(
-                label
-                for route in (routes if isinstance(routes, list) else [])
-                if (label := _route_label(route)) is not None
-            )
-            if token_env or write_routes:
-                rows.append(
-                    ApplicationRow(
-                        render=render,
-                        app=str(block.get("app") or panel_id),
-                        token_env=str(token_env) if token_env else None,
-                        write_routes=write_routes,
-                    )
+    for render, panel_id, block in _rendered_panels(config, project_root):
+        token_env = block.get("launch_token_env") or None
+        routes = block.get("agent_routes")
+        write_routes = tuple(
+            label
+            for route in (routes if isinstance(routes, list) else [])
+            if (label := _route_label(route)) is not None
+        )
+        if token_env or write_routes:
+            rows.append(
+                ApplicationRow(
+                    render=render,
+                    app=str(block.get("app") or panel_id),
+                    token_env=str(token_env) if token_env else None,
+                    write_routes=write_routes,
                 )
+            )
     return rows
+
+
+def _is_own_launch_token(token_env: Any, application: Any) -> bool:
+    """Whether *token_env* is the one name :func:`launch_token_env` gives *application*."""
+    try:
+        return bool(token_env == launch_token_env(str(application or "")))
+    except ValueError:
+        return False
+
+
+def launch_token_name_problems(config: Any, project_root: Path | str) -> list[str]:
+    """One line per panel block naming a variable it may not be granted.
+
+    A block's ``launch_token_env`` must be its application's own name, and never
+    one of OSPREY's own credentials: an application called ``bluesky`` does not
+    earn the lane's token. Computed without refusing anything, for the
+    collect-all preflight; :func:`check_bash_launch_token_conflict` refuses on it.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+    """
+    # Imported here, as compose_generator is: container_lifecycle reaches this package.
+    from osprey.deployment.container_lifecycle import builtin_token_vars
+
+    problems = []
+    for render, panel_id, block in _rendered_panels(config, project_root):
+        token_env = block.get("launch_token_env")
+        if not token_env:
+            continue
+        application = block.get("app")
+        if not application:
+            why = "the block names no application"
+        elif not _is_own_launch_token(token_env, application):
+            why = f"application {application!r} holds only its own launch-token variable"
+        elif token_env in builtin_token_vars():
+            why = "that is one of OSPREY's own credentials"
+        else:
+            continue
+        problems.append(f"{render!r}: web.panels.{panel_id} names {token_env}, but {why}")
+    return problems
 
 
 def application_shell_conflicts(config: Any, project_root: Path | str) -> list[ApplicationRow]:
@@ -424,6 +493,8 @@ def check_bash_launch_token_conflict(
         for the application launch tokens.
 
     Raises:
+        LaunchTokenNameError: A panel block names a variable other than its
+            application's own launch token (:func:`launch_token_name_problems`).
         BashLaunchTokenConflictError: One or more renders entitled on SOME lane,
             or arming an application, ship a ``.claude/settings.json`` that does
             not deny both ``Bash`` and ``Monitor``.
@@ -433,6 +504,9 @@ def check_bash_launch_token_conflict(
     # Read FIRST, so a mis-set key is a config error even on a roster with no
     # conflict to waive.
     waived = dangerously_allow_bash(config)
+    # Ahead of the entitlement below, which grants whatever name a block carries.
+    if name_problems := launch_token_name_problems(config, project_root):
+        raise LaunchTokenNameError(name_problems)
     entitled_by_lane = renders_needing_launch_token_by_lane(config, project_root)
     permitting = renders_with_open_shell(config, project_root)
     rows = application_rows(config, project_root)

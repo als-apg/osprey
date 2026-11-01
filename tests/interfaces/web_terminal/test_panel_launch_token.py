@@ -24,8 +24,12 @@ import osprey as osprey_package
 from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
 from osprey.deployment.web_terminals.artifacts import (
     LaunchTokenEntitlement,
+    LaunchTokenNameError,
+    check_bash_launch_token_conflict,
     resolve_render_inputs,
+    write_web_terminal_artifacts,
 )
+from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces.web_terminal.app import _load_panel_config
 from osprey.interfaces.web_terminal.panel_cap import PANEL_CAP_SEGMENT, mint_cap
@@ -411,3 +415,97 @@ def test_a_dispatch_worker_render_is_handed_no_launch_token():
     template = _TEMPLATES / "services" / "dispatch_worker" / "docker-compose.yml.j2"
 
     assert "LAUNCH_TOKEN" not in template.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Only the application's own variable is ever granted or read
+# ---------------------------------------------------------------------------
+
+#: (app, launch_token_env) pairs no build writes: each is a hand-set panel block.
+_REFUSED_NAMES = {
+    "built_in_token": ("knob", f"{lane_env_prefix(LANE_ONE)}_LAUNCH_TOKEN"),
+    "built_in_token_under_its_own_name": ("bluesky", "BLUESKY_LAUNCH_TOKEN"),
+    "unrelated_variable": ("knob", "ANTHROPIC_API_KEY"),
+    "no_app": (None, TOKEN_ENV),
+}
+
+
+def _hand_set(app: str | None, token_env: str) -> dict:
+    """A render whose knob panel names *token_env* for *app*."""
+    render = _panel_render("allowed", token=True)
+    block = render["web"]["panels"][PANEL_ID]
+    block["launch_token_env"] = token_env
+    if app is None:
+        del block["app"]
+    else:
+        block["app"] = app
+    return render
+
+
+@pytest.fixture(params=_REFUSED_NAMES.values(), ids=_REFUSED_NAMES.keys())
+def refused_name(request):
+    return request.param
+
+
+def test_a_name_that_is_not_the_applications_own_refuses_the_deploy(tmp_path, refused_name):
+    app, token_env = refused_name
+    config = _roster(tmp_path, {"rw": (_hand_set(app, token_env), False)})
+
+    with pytest.raises(LaunchTokenNameError) as refused:
+        check_bash_launch_token_conflict(config, tmp_path)
+
+    assert PANEL_ID in str(refused.value)
+    assert token_env in str(refused.value)
+    assert "'rw'" in str(refused.value)
+
+
+def test_the_refusal_stops_the_render_before_any_artifact_is_written(tmp_path, refused_name):
+    config = _roster(tmp_path, {"rw": (_hand_set(*refused_name), False)})
+
+    with pytest.raises(LaunchTokenNameError):
+        resolve_render_inputs(config, tmp_path)
+    with pytest.raises(LaunchTokenNameError):
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert not (tmp_path / "build" / "docker-compose.web.yml").exists()
+
+
+def test_the_collected_preflight_report_names_the_same_refusal(tmp_path, refused_name):
+    app, token_env = refused_name
+    config = _roster(tmp_path, {"rw": (_hand_set(app, token_env), False)})
+
+    problems = [
+        problem for problem, _ in web_terminal_preflight_problems(config, repo_root=tmp_path)
+    ]
+
+    assert any(PANEL_ID in problem and token_env in problem for problem in problems)
+
+
+def test_the_applications_own_name_is_granted(tmp_path):
+    config = _roster(tmp_path, {"rw": (_hand_set("knob", TOKEN_ENV), False)})
+
+    assert check_bash_launch_token_conflict(config, tmp_path).by_token_env == {TOKEN_ENV: {"rw"}}
+
+
+@pytest.mark.parametrize(
+    ("app", "token_env"),
+    [
+        pytest.param("knob", "BLUESKY_LAUNCH_TOKEN", id="another_token"),
+        pytest.param("knob", "ANTHROPIC_API_KEY", id="unrelated_variable"),
+        pytest.param(None, TOKEN_ENV, id="no_app"),
+    ],
+)
+def test_the_terminal_never_reads_another_variable_into_a_header(
+    workspace_dir, caplog, app, token_env
+):
+    os.environ[token_env] = TOKEN
+    with patch(_LOGIN_TIER, return_value="allowed"):
+        for test_app, client in panel_app(
+            workspace_dir, [_panel(**{"app": app, "launchTokenEnv": token_env})]
+        ):
+            sent = _capture(test_app)
+            assert PANEL_ID not in test_app.state.panel_auth_headers
+            client.get(f"/panel/{PANEL_ID}/api/state")
+            assert _token_on(sent[0]) is None
+    assert token_env in caplog.text
+    assert TOKEN not in caplog.text
