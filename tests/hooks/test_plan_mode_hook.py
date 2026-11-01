@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.hooks.conftest import import_hook
+from tests.hooks.conftest import hook_audit_records, import_hook
 
 HOOK = "osprey_plan_mode.py"
 
@@ -71,10 +71,9 @@ def test_plan_mode_denies_a_listed_tool_with_the_one_reason(tmp_path, hook_runne
     result = _run(hook_runner, "mcp__controls__channel_write", cwd=tmp_path)
 
     assert _deny_reason(result) == module.PLAN_MODE_DENY_REASON.format(tool="channel_write")
-    ledgers = list(Path(tmp_path).rglob("hook_plan_mode.jsonl"))
-    assert [path.parent.name for path in ledgers] == [identity]
-    records = [json.loads(line) for line in ledgers[0].read_text().splitlines() if line.strip()]
+    records = hook_audit_records(tmp_path, "hook_plan_mode")
     assert len(records) == 1
+    assert records[0]["actor"] == identity
     assert records[0]["decision"] == "refused"
     assert records[0]["subject"] == "mcp__controls__channel_write"
     assert records[0]["reason"] == "plan_mode"

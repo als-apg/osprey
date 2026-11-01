@@ -2821,19 +2821,15 @@ def test_plan_mode_leaves_a_denied_tool_to_the_plan_mode_rule(
 ):
     """An ask here would win over the plan-mode deny, so the hook says nothing."""
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
-    (tmp_path / ".claude" / "hooks").mkdir(parents=True)
 
     result = _plan_mode_run(
         hook_runner, make_config, tmp_path, "mcp__controls__channel_write", "plan", tid="pm1"
     )
 
     assert result is None
-    debug = [
-        json.loads(line)
-        for line in (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
-    approval_lines = [rec for rec in debug if rec["hook"] == "approval"]
+    from tests.hooks.conftest import hook_debug_records
+
+    approval_lines = hook_debug_records(tmp_path, hook="approval")
     assert [rec["status"] for rec in approval_lines] == ["defer"]
     assert "plan_mode" in approval_lines[0]["detail"]
     assert sorted(plan_stamp_dir.glob("approval_ask_*.json")) == []
