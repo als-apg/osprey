@@ -137,18 +137,7 @@ PRESET_PROSE_FILES = (
 #: ``PRESET_PROSE_FILES`` each is declared in, with the reason. A count inside
 #: a phrase passes in that file only; a phrase its file does not hold fails, so
 #: an exception leaves with the text it excused.
-PRESET_COUNT_EXCEPTIONS = {
-    ".github/workflows/ci.yml": {
-        "Tier 3 — Agentic flow (both presets)": (
-            "the agentic-flow lane's name in the CI gate's skipped-lanes notice"
-        ),
-    },
-    "tests/deployment/test_ci_workflow_wiring.py": {
-        "Tier 3 — Agentic flow (both presets)": (
-            "the test asserts the skipped-lanes notice names that lane"
-        ),
-    },
-}
+PRESET_COUNT_EXCEPTIONS: dict[str, dict[str, str]] = {}
 
 #: The union's non-preset half: the framework template's renders, under one
 #: name so a failure can say which side of the config a key came from.
