@@ -221,6 +221,20 @@ def test_two_spellings_of_one_local_path_are_one_package(tmp_path: Path) -> None
     ]
 
 
+def test_a_symlinked_root_enumerates_an_application_named_in_the_dependencies_once(
+    tmp_path: Path,
+) -> None:
+    from osprey.apps.rules import deployment_packages
+
+    real = _deployment(tmp_path / "repo")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    found = deployment_packages(link, ["./apps/knob"])
+
+    assert found == [(real / "apps" / "knob" / "pyproject.toml").resolve()]
+
+
 def test_an_entry_naming_an_application_package_is_that_package_in_place(
     tmp_path: Path,
 ) -> None:
