@@ -7,8 +7,9 @@ the write verdict for the control target the run will launch on
 spelling, so any *other* string falls through both — not "readonly", so write
 patterns are not blocked; not "readwrite", so the verdict is never asked.
 Rejecting unknown modes here closes that hole for every caller at once. The
-verdict is :func:`osprey_connectors.posture_store.write_verdict`, the same one
-the connector's reference monitor asks at the moment of every write, and its
+verdict is :func:`osprey_connectors.posture_store.execution_verdict`, the write
+verdict the connector's reference monitor asks at the moment of every write plus
+the session's hold, and its
 refusal is spoken in that verdict's words
 (:func:`osprey_connectors.refusals.refusal_phrase`).
 
@@ -47,11 +48,12 @@ from osprey.audit import posture
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor import executor
+from osprey.utils.session_hold_api import execution_verdict
+from osprey_connectors.posture_store import WriteVerdict
 from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
-    from osprey_connectors.posture_store import WriteVerdict
 
 logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 
@@ -190,18 +192,16 @@ def _launch_target(section: Any) -> str | None:
 def _launch_verdict() -> WriteVerdict:
     """The write verdict for the target a run launched now would write to.
 
-    :func:`osprey_connectors.posture_store.write_verdict` over the deployment's
+    :func:`osprey_connectors.posture_store.execution_verdict` over the deployment's
     ``control_system`` section (:func:`osprey.audit.posture.control_system_section`)
     and :func:`_launch_target`, with the owner left to the verdict's own
     ladder. Never raises: a verdict that cannot be reached refuses as
     ``record_unavailable``.
     """
-    from osprey_connectors.posture_store import WriteVerdict, write_verdict
-
     try:
         section = posture.control_system_section()
-        return write_verdict(section, _launch_target(section))
-    except Exception:  # write_verdict never raises by contract; refuse if it does
+        return execution_verdict(section, _launch_target(section))
+    except Exception:  # execution_verdict never raises by contract; refuse if it does
         logger.warning("Write verdict could not be reached; refusing", exc_info=True)
         return WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
 
@@ -330,7 +330,7 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
     reason = verdict.reason or "record_unavailable"
     make_error(
         "safety_error",
-        refusal_text(reason, verdict.kind),
+        refusal_text(reason, verdict.kind, detail=verdict.detail),
         ['Re-run with execution_mode="readonly" — reads are unaffected.'],
         details={"reason": reason, "target": verdict.target},
     )
