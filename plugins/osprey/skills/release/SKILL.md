@@ -375,9 +375,11 @@ uv run make -C docs upload-doc-videos VERSION=YYYY.M.P  # uploads the new takes,
 
 The upload names the release in `docs/source/_static/demo/manifest.json`; that
 manifest and the posters ride along in the release-notes PR below, and the
-MP4s are never committed. Adding a video is one `DocVideo` entry in
-`docs/screenshots/videos.py` plus the embed snippet; both are documented in
-`docs/README.md`.
+MP4s are never committed. A new video is agreed with the maintainer as a
+written description before any storyboard code: the view, the active sidebar
+entry and open tiles (its `layout`), the prompts, the beats and the captions.
+Then it is one `DocVideo` entry in `docs/screenshots/videos.py` plus the embed
+snippet, both documented in `docs/README.md`.
 
 The framework itself (environments, provenance, and why it is capture-only and
 never a CI gate) is documented in the contributing guide under "Refreshing
