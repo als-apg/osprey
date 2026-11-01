@@ -1209,6 +1209,12 @@ services:
   archive:
     template: osprey.archive
 
+# ── Applications ─────────────────────────────────────────────────────────────
+# Each entry runs the application in apps/<name>/. Knob is the bundled example:
+# one panel, one read tool, one write tool. Delete the entry to turn it off.
+apps:
+  knob-example: {}
+
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
 # ship need no control system, so a single `curl` after `osprey up` exercises

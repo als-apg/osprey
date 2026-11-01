@@ -232,11 +232,6 @@ def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
     )
 
 
-#: The control-assistant renders the feature moves: its root and its
-#: ``readwrite`` tier open at ``asked`` instead of ``allowed``. ``admin``,
-#: ``readonly`` and the apps keep their writes posture.
-_ASKED_RENDERS = ("root", "readwrite")
-
 #: Every render a control-assistant cell freezes.
 _CONTROL_ASSISTANT_RENDERS = (
     "root",
@@ -264,22 +259,6 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
-def _control_assistant_deltas() -> tuple[Delta, ...]:
-    deltas: list[Delta] = []
-    for document in _CONTROL_ASSISTANT_RENDERS:
-        deltas.extend(_retired_governed_policies(document))
-        if document in _ASKED_RENDERS:
-            deltas.append(
-                Delta(
-                    document=document,
-                    path="control_system.writes",
-                    fixture="allowed",
-                    live="asked",
-                )
-            )
-    return tuple(deltas)
-
-
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
 #: mapping must equal its fixture exactly. See the module docstring for how to
@@ -288,25 +267,16 @@ def _control_assistant_deltas() -> tuple[Delta, ...]:
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
     **{
-        f"control-assistant/{mode}": _control_assistant_deltas()
-        + _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
+        f"control-assistant/{mode}": _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }
 
 #: Logins whose staged tier posture each cell is allowed to differ from its
 #: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the
-#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. A login that
-#: lands on the deployment's default or on ``readwrite`` follows that render's
-#: ``control_system.writes`` from ``allowed`` to ``asked``; one granted another
-#: tier (``admin``'s ``allowed``, ``readonly``'s ``never``) does not move.
-STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {
-    f"control-assistant/{mode}": {
-        "alice": ("allowed", "asked"),
-        "osprey-freeze-builder": ("allowed", "asked"),
-    }
-    for mode in ("in_context", "hierarchical", "middle_layer", "graph")
-}
+#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. Empty while
+#: the fixtures match the live render.
+STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
