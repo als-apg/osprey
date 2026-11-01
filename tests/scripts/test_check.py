@@ -101,7 +101,14 @@ def malformed(checks: tuple[Any, ...]) -> list[str]:
             problems.append(f"{c.id}: unknown tier in {sorted(c.tiers)}")
         problems += [
             f"{c.id}: unknown need {need}"
-            for need in c.needs
+            for need in (
+                *c.needs,
+                *(
+                    c.selected_needs(check.Selection(check.WHOLE), check.Context())
+                    if c.selected_needs
+                    else ()
+                ),
+            )
             if need != "base" and need not in check.NEED_PROBES
         ]
         if c.venue and c.venue not in check.VENUES:
@@ -2478,7 +2485,53 @@ def test_the_pin_probe_runs_the_resolver() -> None:
 
 
 def test_the_test_sweep_needs_the_pin() -> None:
-    assert BY_ID["pytest"].needs == ("uv", "claude-pin")
+    assert BY_ID["pytest"].needs == ("free-space", "uv", "install-current", "claude-pin")
+
+
+def _runs_pytest(c: Any) -> bool:
+    return "pytest" in c.argv
+
+
+def test_free_space_is_the_first_need_of_every_check_that_writes() -> None:
+    writes = [
+        c
+        for c in check.CHECKS
+        if c.kind in ("tests", "build") or "node" in c.needs or _runs_pytest(c)
+    ]
+    assert writes
+    assert [c.id for c in writes if c.needs[:1] != ("free-space",)] == []
+
+
+def test_every_pytest_run_on_the_synced_venv_needs_a_current_install() -> None:
+    synced = [
+        c
+        for c in check.CHECKS
+        if _runs_pytest(c)
+        and tuple(c.argv[:3]) == fw.UV_RUN
+        and "--isolated" not in c.argv
+        and c.id != "invariant-tests"
+    ]
+    assert {c.id for c in synced} >= {"pytest", "pytest-pty", "pytest-wallclock", "app-check-js"}
+    assert [c.id for c in synced if "install-current" not in c.needs] == []
+
+
+def test_a_check_that_writes_nothing_runs_under_a_free_space_fault(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "free-space", _faulting("free space", "1 MiB free"))
+    assert check.main(["run", "lockfile", "ruff"]) == 0
+    assert recorder.ran("uv lock --check") and recorder.ran("ruff check .")
+
+
+def test_a_shard_narrows_the_roots_the_docker_hook_reads() -> None:
+    assert fw._unit_roots(check.Context(shard="cli")) == ["tests/cli"]
+    assert fw._unit_roots(check.Context()) == list(fw.UNIT_SELECTION.roots)
+    assert fw._pytest_paths(BY_ID["pytest-wallclock"].argv) == ["tests/integration"]
+
+
+def test_docker_storage_is_derived_from_the_selection_never_declared() -> None:
+    assert [c.id for c in check.CHECKS if "docker-storage" in c.needs] == []
+    assert {c.id for c in check.CHECKS if c.selected_needs} == {"pytest", "pytest-wallclock"}
 
 
 @pytest.mark.usefixtures("recorder")
@@ -2498,7 +2551,7 @@ def test_the_pin_goes_first_on_path_before_any_check(
     monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
     assert check.main(["quick"]) == 0
     assert os.environ["PATH"].startswith(str(pin) + os.pathsep)
-    assert probed == [fw.CLAUDE_PIN_PROBE]
+    assert [argv for argv in probed if argv[0] != "git"] == [fw.CLAUDE_PIN_PROBE]
 
 
 @pytest.mark.parametrize(
@@ -2611,7 +2664,8 @@ def test_a_pytest_check_leaves_its_output_on_the_callers_stdout(
 ) -> None:
     assert check.main(["run", "pytest-pty", "--", "-q"]) == 0
     assert "stub uv says hello" in capfd.readouterr().out
-    logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip()
+    probe, logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip().splitlines()
+    assert probe == shlex.join(fw.INSTALLED_VERSIONS_PROBE[1:])
     pty = shlex.join(BY_ID["pytest-pty"].argv)
     command = f"{shlex.join(kit.UV_RUN[1:])} python scripts/run_bounded.py 600 -- {pty} -q"
     written = re.fullmatch(re.escape(command) + r" --junitxml=(\S+) -o junit_family=xunit1", logged)
@@ -3027,7 +3081,7 @@ def test_the_docs_build_refuses_without_graphviz(
 def test_the_dock_engine_steps_run_in_both_tiers() -> None:
     for check_id in ("dock-engine-bundle", "dock-engine-tests"):
         declared = BY_ID[check_id]
-        assert declared.tiers == check.BOTH and declared.needs == ("node",)
+        assert declared.tiers == check.BOTH and declared.needs == ("free-space", "node")
         assert fw.DOCK_ENGINE in declared.scope
     assert fw.DOCK_ENGINE in fw.TSC_SCOPE
     got = selected("quick", "packages/dock-engine/src/rules.ts")
