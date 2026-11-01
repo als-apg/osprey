@@ -27,13 +27,20 @@ PROMPT_SCAN = f"Write a Python script that steps {CORRECTOR} from 0 to 1 in 10 s
 _PRESET = (
     Path(__file__).parents[2] / "src" / "osprey" / "profiles" / "presets" / "control-assistant.yml"
 )
-HOOKS = [*yaml.safe_load(_PRESET.read_text(encoding="utf-8"))["hooks"], "code-review"]
+_PROFILE = yaml.safe_load(_PRESET.read_text(encoding="utf-8"))
+HOOKS = [*_PROFILE["hooks"], "code-review"]
+# No Bluesky on this stack: with it, a scan is a plan, which the reviewer does not read.
+SKILLS = [skill for skill in _PROFILE["skills"] if "bluesky" not in skill]
 INIT_SETS = (
     # The deployment offers the Simple view only: Expert is not on this stack at all.
     "config.web.expert_view=false",
     "config.code_review.enabled=true",
     "config.code_review.level=block",
+    "config.claude_code.servers.bluesky.enabled=false",
+    "bluesky=null",
+    "bluesky_web=null",
     f"hooks={json.dumps(HOOKS, separators=(',', ':'))}",
+    f"skills={json.dumps(SKILLS, separators=(',', ':'))}",
 )
 
 CARD = "#operator-container .op-card-reason"
