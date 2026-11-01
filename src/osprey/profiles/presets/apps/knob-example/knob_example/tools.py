@@ -7,10 +7,9 @@ the approval it was called under, whose fields the approval hook filled in.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastmcp import FastMCP
 
 from knob_example import APP_NAME, STATE_ROUTE, WRITE_ROUTE
 from osprey.apps.sdk import (
@@ -21,6 +20,9 @@ from osprey.apps.sdk import (
     serve_tools,
     web_terminal_url,
 )
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
 
 #: A panel call's bound, in seconds.
 TIMEOUT_S = 10.0
@@ -42,9 +44,8 @@ async def _panel_call(method: str, route: str, **kwargs: Any) -> dict[str, Any]:
     return answer
 
 
-def build_server() -> FastMCP:
-    """The application's tools."""
-    server = FastMCP(APP_NAME)
+def register(server: FastMCP) -> None:
+    """Register the application's tools on the server the SDK built for it."""
 
     @server.tool()
     async def read_corrector() -> dict[str, Any]:
@@ -83,8 +84,6 @@ def build_server() -> FastMCP:
         }
         return await _panel_call("POST", WRITE_ROUTE, json=body)
 
-    return server
-
 
 if __name__ == "__main__":
-    serve_tools(build_server)
+    serve_tools(register)

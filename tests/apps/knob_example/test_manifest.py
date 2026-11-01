@@ -9,11 +9,12 @@ import pytest
 import yaml
 from knob_example import APP_NAME, STATE_ROUTE, WRITE_ROUTE
 from knob_example import server as backend
-from knob_example.tools import build_server
+from knob_example.tools import register
 
 from osprey.apps.manifest import AppManifest, launch_token_env, parse_manifest
 from osprey.apps.projection import project_login
 from osprey.apps.rules import AppSelection, LoginSelection, Reserved, fixed_names, validate
+from osprey.mcp_server.startup import application_server
 from osprey.profiles import presets
 
 APP_DIR = Path(presets.__file__).parent / "apps" / APP_NAME
@@ -77,7 +78,9 @@ def test_the_tool_server_registers_exactly_the_declared_tools() -> None:
     manifest = _manifest()
     assert manifest.tools is not None
     declared = {*manifest.tools.read, *(entry.tool for entry in manifest.tools.approval)}
-    assert {tool.name for tool in asyncio.run(build_server().list_tools())} == declared
+    server = application_server(APP_NAME)
+    register(server)
+    assert {tool.name for tool in asyncio.run(server.list_tools())} == declared
 
 
 def test_the_write_is_bound_to_the_target_and_the_readback() -> None:
