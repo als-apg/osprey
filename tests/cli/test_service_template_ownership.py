@@ -210,22 +210,23 @@ class TestProfileServiceTemplateResolution:
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
         assert config["services"]["typesense"]["port"] == 8108
 
-    def test_missing_bundled_template_warns_and_skips(self, tmp_path: Path) -> None:
-        """An unknown ``osprey.<name>`` is skipped, not raised — as in _copy_service_templates."""
+    def test_unknown_bundled_template_raises(self, tmp_path: Path) -> None:
+        """An unknown ``osprey.<name>`` stops the build; no service is half-injected."""
         from osprey.cli.build_injectors import _inject_profile_services
         from osprey.cli.build_profile import ServiceDef
+        from osprey_connectors.errors import BuildProfileError
 
         project_path = self._project(tmp_path)
         profile_dir = tmp_path / "profile"
         profile_dir.mkdir()
 
-        count = _inject_profile_services(
-            profile_dir,
-            project_path,
-            {"nope": ServiceDef(template="osprey.no_such_service")},
-        )
+        with pytest.raises(BuildProfileError, match=r"'nope'.*'osprey\.no_such_service'"):
+            _inject_profile_services(
+                profile_dir,
+                project_path,
+                {"nope": ServiceDef(template="osprey.no_such_service")},
+            )
 
-        assert count == 0
         assert not (project_path / "services" / "nope").exists()
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
         assert "nope" not in (config.get("services") or {})

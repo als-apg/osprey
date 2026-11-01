@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
-from osprey.cli.build_profile_presets import bundled_service_template, bundled_services_dir
+from osprey.cli.build_profile_presets import bundled_services_dir, resolve_service_template
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
 from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
 from osprey.deployment.graphdb_service import (
@@ -471,6 +471,9 @@ def _inject_profile_services(
 
     Returns:
         Number of profile services injected.
+
+    Raises:
+        BuildProfileError: A service's template resolves to no source directory.
     """
 
     if not services:
@@ -489,23 +492,19 @@ def _inject_profile_services(
 
     count = 0
     for name, svc_def in services.items():
-        # Resolve the template source. ``osprey.<name>`` selects the framework's
-        # own bundled template (same form _copy_service_templates accepts, and the
-        # form BuildProfile.validate deliberately leaves unresolved); anything else
-        # is a directory shipped inside the profile.
-        bundled = bundled_service_template(svc_def.template)
-        if bundled is not None:
-            src_dir = bundled_services_dir() / bundled
-        else:
-            src_dir = profile_dir / svc_def.template
-
-        if not src_dir.is_dir():
-            # Warn and skip rather than raise, mirroring _copy_service_templates:
-            # one unresolvable service must not abort the whole build. A missing
-            # profile-relative dir is already a validation error, so in practice
-            # this only fires for an unknown ``osprey.<name>``.
-            logger.warning("No template for profile service %r at %s. Skipping it.", name, src_dir)
-            continue
+        source = resolve_service_template(profile_dir, svc_def.template)
+        if not source.exists:
+            # Validation has already refused a template that resolves to no
+            # source directory; reaching one here is a broken invariant, not a
+            # skippable service.
+            if source.bundled:
+                reason = f"template '{svc_def.template}' names no template OSPREY ships"
+            elif not source.path.is_dir():
+                reason = f"template dir not found: {source.path}"
+            else:
+                reason = "template dir missing docker-compose.yml.j2"
+            raise BuildProfileError(f"Service '{name}' {reason}")
+        src_dir = source.path
 
         # Copy template directory (skipped for claimed services)
         dest_dir = dest_services_root / name
