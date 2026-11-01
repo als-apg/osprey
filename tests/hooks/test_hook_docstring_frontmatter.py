@@ -28,6 +28,7 @@ HOOK_FILES = [
     "osprey_workspace_delta.py",
     "osprey_control_context.py",
     "osprey_turn_state.py",
+    "osprey_watchdog_trigger.py",
     "osprey_cf_feedback_capture.py",
 ]
 
