@@ -44,6 +44,7 @@ from osprey.deployment.compose_generator import (
     prepare_compose_files,
     repo_identity,
     resolve_image_defaults,
+    resolve_image_platform,
     resolve_project_name,
     resolve_repo_root,
     resolve_site_image_axes,
@@ -2028,7 +2029,7 @@ SITE_CA_CONTEXT_FILENAME = "osprey-site-ca.crt"
 
 
 def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
-    """The site's ``--build-arg`` flags for one image build, context staged.
+    """The site's build flags for one image build, context staged.
 
     One producer for the three images ``osprey up`` builds from OSPREY's own
     recipes — the project image, each render image and the web-terminal auth
@@ -2038,11 +2039,14 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     honours them. Before this, the Dockerfiles declared the ARGs and no builder
     passed them: the settings existed only for a hand-run ``docker build``.
 
-    Two producers feed it:
+    Three producers feed it:
 
     * :func:`~osprey.deployment.compose_generator.resolve_site_image_axes` for
       the ``images.*`` block — the site CA, pip's proxy bypass list and the two
-      index URLs; and
+      index URLs;
+    * :func:`~osprey.deployment.compose_generator.resolve_image_platform` for
+      ``images.platform``, passed as ``--platform``, the platform the wheel fit
+      check judged and the rendered ``FROM`` names; and
     * the top-level ``offline`` key, read exactly as
       :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
       vendoring and the runtime check that decides whether to SERVE the
@@ -2060,6 +2064,7 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     :raises FileNotFoundError: If ``images.site_ca`` names a file that is not
         there. A CA the build cannot find is a build that silently fails TLS
         verification against the site proxy much later.
+    :raises ValueError: If ``images.platform`` names no accepted platform.
     """
     from osprey.interfaces.vendor import offline_from_config
 
@@ -2073,6 +2078,9 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
         # "1" is the one spelling the Dockerfiles compare against; the config
         # layer accepts every truthy spelling `is_offline` does.
         args.extend(["--build-arg", "OSPREY_OFFLINE=1"])
+    stated = resolve_image_platform(config)
+    if stated:
+        args.extend(["--platform", stated])
     return args
 
 
