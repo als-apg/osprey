@@ -1735,6 +1735,87 @@ def test_the_selection_hook_stays_out_of_the_declaration() -> None:
     assert all("selected_needs" not in entry for entry in check.declaration()["checks"])
 
 
+def _probing(monkeypatch: pytest.MonkeyPatch, *answers: tuple[int, str]) -> list[list[str]]:
+    """``_probe`` answers each call with the next (status, stdout); the argv are returned."""
+    calls: list[list[str]] = []
+    queue = list(answers)
+
+    def probe(argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:  # noqa: ARG001
+        calls.append(list(argv))
+        status, out = queue.pop(0)
+        return status, out, ""
+
+    monkeypatch.setattr(fw, "_probe", probe)
+    return calls
+
+
+STALE_ROW = "osprey-connectors\t2026.9.0b3\t2026.10.0\n"
+
+
+def test_a_current_install_syncs_nothing(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read = _probing(monkeypatch, (0, ""))
+    assert fw._need_install_current() is None
+    assert read == [list(fw.INSTALLED_VERSIONS_PROBE)]
+    assert "--no-sync" in fw.INSTALLED_VERSIONS_PROBE
+    assert recorder.calls == []
+
+
+def test_a_stale_install_is_resynced_and_rechecked(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    read = _probing(monkeypatch, (0, STALE_ROW + "pyaml-cs-osprey\t2026.9.0\t2026.10.0\n"), (0, ""))
+    assert fw._need_install_current() is None
+    assert len(read) == 2
+    assert recorder.calls == [
+        [
+            "uv",
+            "sync",
+            "--frozen",
+            "--inexact",
+            "--reinstall-package",
+            "osprey-connectors",
+            "--reinstall-package",
+            "pyaml-cs-osprey",
+        ]
+    ]
+    assert "osprey-connectors installed 2026.9.0b3" in capsys.readouterr().out
+
+
+def test_an_install_still_stale_after_the_sync_is_a_fault(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _probing(monkeypatch, (0, STALE_ROW), (0, STALE_ROW))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_install_current()
+    assert fault.value.probe == "install currency"
+    assert fault.value.fact == (
+        "osprey-connectors installed 2026.9.0b3, tree describes 2026.10.0 after uv sync"
+    )
+    assert len(recorder.calls) == 1
+
+
+def test_a_failed_sync_is_a_fault_whatever_the_reread_prints(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder.failing = {"uv sync": 1}
+    _probing(monkeypatch, (0, STALE_ROW), (1, ""))
+    with pytest.raises(kit.EnvironmentFault, match="after uv sync"):
+        fw._need_install_current()
+
+
+@pytest.mark.parametrize("status", [127, 1])
+def test_a_reader_that_cannot_run_answers_met(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """127: the ``uv`` need refuses. Otherwise a checkout with no environment
+    yet: the check's own ``uv run`` creates it current."""
+    _probing(monkeypatch, (status, ""))
+    assert fw._need_install_current() is None
+    assert recorder.calls == []
+
+
 def test_a_check_off_its_venue_has_its_needs_left_unprobed(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
