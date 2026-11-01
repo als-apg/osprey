@@ -9047,25 +9047,34 @@ def test_workflow_fires_when_the_full_ci_label_is_applied__mutation_drops_labele
         test_workflow_fires_when_the_full_ci_label_is_applied(mutated)
 
 
+#: The gate step's two skipped-lanes blocks, by the start of each heading it echoes.
+DEPENDABOT_SUMMARY_HEADING = "### ⚠️ Secret-dependent lanes did not run"
+UNLABELED_SUMMARY_HEADING = "### ℹ️ Model-spending lanes did not run"
+SUMMARY_HEADINGS = (DEPENDABOT_SUMMARY_HEADING, UNLABELED_SUMMARY_HEADING)
+SUMMARY_BULLET = re.compile(r'echo "- (.+)"')
+
+
+def _summary_block_lanes(run: str, heading: str) -> list[str]:
+    """The lanes one summary block prints, a line naming two split into its two."""
+    block = run.partition(f'echo "{heading}')[2].partition('} >> "$GITHUB_STEP_SUMMARY"')[0]
+    bullets = (SUMMARY_BULLET.fullmatch(line.strip()) for line in block.splitlines())
+    return [lane for bullet in bullets if bullet for lane in bullet[1].split(" / ")]
+
+
 def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(workflow: dict[str, Any]) -> None:
     """Same rule as the Dependabot block: a green gate with skipped lanes says
-    so where a reviewer sees it, and prints the one command that runs them."""
+    so where a reviewer sees it, under each lane's real name, and prints the one
+    command that runs them."""
     step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
     assert step["env"]["HAS_FULL_CI"] == "${{ " + FULL_CI_LABEL_CLAUSE + " }}"
     assert "--add-label full-ci" in step["run"]
-    for lane_name in (
-        "Tier 3 — Agentic flow (both presets)",
-        "E2E Tests",
-        "Dispatch Deploy E2E / Dispatch Overlay E2E",
-        "Single-User Narrowing E2E",
-        "Nextcloud Talk Bridge E2E / Google Chat Bridge E2E",
-        "Scan Stack Agentic E2E",
-        "Control-Target Switch Agentic E2E",
-    ):
-        # named twice: once in the Dependabot block, once in the unlabeled one
-        assert step["run"].count(lane_name) == 2, (
-            f"{lane_name!r} must be named in both summary blocks"
-        )
+    prefixes = _required_lane_prefixes().values()
+    for heading in SUMMARY_HEADINGS:
+        lanes = _summary_block_lanes(step["run"], heading)
+        for prefix in prefixes:
+            assert lanes.count(prefix) == 1, f"{prefix!r} must be one bullet under {heading!r}"
+    # The label gates these lanes and no other, so its block names nothing else.
+    assert sorted(_summary_block_lanes(step["run"], UNLABELED_SUMMARY_HEADING)) == sorted(prefixes)
 
 
 def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the_command() -> None:
@@ -9073,6 +9082,18 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
     step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
     step["run"] = step["run"].replace("--add-label full-ci", "")
     with pytest.raises(AssertionError):
+        test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
+
+
+@pytest.mark.parametrize("heading", SUMMARY_HEADINGS, ids=("dependabot", "unlabeled"))
+def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_a_lane(
+    heading: str,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    before, marker, after = step["run"].partition(heading)
+    step["run"] = before + marker + after.replace('echo "- Host Record E2E"', "", 1)
+    with pytest.raises(AssertionError, match="Host Record E2E"):
         test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
 
 
