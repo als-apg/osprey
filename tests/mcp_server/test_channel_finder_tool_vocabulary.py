@@ -125,8 +125,11 @@ def server_tools() -> dict[str, dict[str, Any]]:
         assert tools, f"no tools registered for {server}; the fixture is not registering"
         registered[server] = tools
     registered[DISPATCH] = _dispatch_tools()
+    from osprey.mcp_server.startup import application_server
+
     for application, module in _application_modules().items():
-        server = importlib.import_module(module).build_server()
+        server = application_server(application)
+        importlib.import_module(module).register(server)
         registered[application] = {t.name: t for t in asyncio.run(server.list_tools())}
     return registered
 
@@ -140,11 +143,12 @@ def variant_tools(server_tools) -> dict[str, dict[str, Any]]:
 def test_every_mcp_server_is_guarded():
     """A server the guard does not list would offer unread text.
 
-    The event dispatcher is the one framework FastMCP server outside
-    ``osprey.mcp_server``; the guard reads it as the ``dispatch`` source. A shipped
-    application builds one server in the tool module its manifest names; the guard
-    reads it under the application's name. The project templates are scaffolds
-    rendered into user projects, not servers OSPREY runs.
+    The event dispatcher is the one FastMCP server outside ``osprey.mcp_server``;
+    the guard reads it as the ``dispatch`` source. A shipped application's tool
+    module registers its tools on the server the SDK builds for it (in
+    ``osprey.mcp_server.startup``); the guard reads it under the application's
+    name. The project templates are scaffolds rendered into user projects, not
+    servers OSPREY runs.
     """
     import osprey
     import osprey.mcp_server
@@ -155,28 +159,28 @@ def test_every_mcp_server_is_guarded():
     package = Path(osprey.__path__[0])
     applications = package / "profiles" / "presets" / "apps"
     assert sorted(path.parent.name for path in applications.glob("*/app.yml")) == list(APPLICATIONS)
-    tool_modules = {
+    tool_modules = [
         applications / application / Path(*module.split(".")).with_suffix(".py")
         for application, module in _application_modules().items()
-    }
+    ]
 
     outside = sorted(
         path.relative_to(package).as_posix()
         for path in package.rglob("*.py")
         if not path.is_relative_to(root)
         and not path.is_relative_to(package / "templates")
-        and path not in tool_modules
         and "FastMCP(" in path.read_text(encoding="utf-8")
     )
     assert outside == ["dispatch/server.py"]
     assert DISPATCH in SOURCES
 
-    # An application hands the server it builds to the SDK, whose one start-up path is
-    # the framework's: a module that builds a server and serves it itself is refused here.
+    # An application hands its register function to the SDK, whose one start-up path is
+    # the framework's: a module that serves a server itself is refused here.
     for path in tool_modules:
         text = path.read_text(encoding="utf-8")
         assert "serve_tools(" in text
-        assert ".run(" not in text
+        for spelling in ("create_server", "run_mcp_server", ".run("):
+            assert spelling not in text, f"{path.name} spells {spelling}"
 
 
 def test_no_variant_still_registers_query_channels(variant_tools):

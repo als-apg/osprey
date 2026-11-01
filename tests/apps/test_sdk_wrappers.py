@@ -70,13 +70,12 @@ def served(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(osprey_connectors.logger, "configure_logging", lambda *a, **k: None)
     servers: list[FastMCP] = []
 
-    def serve(build) -> FastMCP:
-        def create() -> FastMCP:
-            server = build()
+    def serve(register) -> FastMCP:
+        def recording(server: FastMCP) -> None:
+            register(server)
             server.run = lambda *a, **k: servers.append(server)
-            return server
 
-        sdk.serve_tools(create)
+        sdk.serve_tools(recording)
         assert servers, "serve_tools returned without running the server"
         return servers[-1]
 
@@ -87,19 +86,22 @@ def _read_knob() -> float:
     return 1.0
 
 
-def _server(*extra: str, read_knob=_read_knob) -> FastMCP:
-    server = FastMCP("knob")
-    server.tool(read_knob, name="read_knob")
+def _server(*extra: str, read_knob=_read_knob):
+    """A register function adding ``read_knob``, ``set_knob`` and *extra* to the SDK's server."""
 
-    @server.tool
-    def set_knob(value: float) -> str:
-        raise sdk.ApprovalRefused(
-            APPROVAL_MISSING, "not run: no approval record.", {"value": value}
-        )
+    def register(server: FastMCP) -> None:
+        server.tool(read_knob, name="read_knob")
 
-    for name in extra:
-        server.tool(lambda: None, name=name)
-    return server
+        @server.tool
+        def set_knob(value: float) -> str:
+            raise sdk.ApprovalRefused(
+                APPROVAL_MISSING, "not run: no approval record.", {"value": value}
+            )
+
+        for name in extra:
+            server.tool(lambda: None, name=name)
+
+    return register
 
 
 async def _serve_async(served, build) -> FastMCP:
@@ -130,7 +132,7 @@ def _classified(envelope: dict) -> str:
 @pytest.mark.usefixtures("rendered")
 def test_serve_tools_refuses_a_tool_the_rendered_config_does_not_declare(served):
     with pytest.raises(AppManifestError) as info:
-        served(lambda: _server("reset_knob"))
+        served(_server("reset_knob"))
     assert info.value.rule == "undeclared_tool"
     assert "reset_knob" in str(info.value)
     assert f"apps.{APP}.tools.read" in str(info.value)
@@ -138,7 +140,13 @@ def test_serve_tools_refuses_a_tool_the_rendered_config_does_not_declare(served)
 
 @pytest.mark.usefixtures("rendered")
 def test_serve_tools_serves_a_server_whose_tools_are_all_declared(served):
-    assert isinstance(served(_server), FastMCP)
+    assert isinstance(served(_server()), FastMCP)
+
+
+@pytest.mark.usefixtures("rendered")
+def test_serve_tools_builds_the_server_under_the_applications_name(served):
+    """The application registers its tools; the server it registers them on is the SDK's."""
+    assert served(_server()).name == APP
 
 
 def test_serve_tools_reads_the_declared_tools_from_the_rendered_config(
@@ -147,17 +155,17 @@ def test_serve_tools_reads_the_declared_tools_from_the_rendered_config(
     monkeypatch.setenv("OSPREY_APP_NAME", APP)
     config = tmp_path / "config.yml"
     _write_config(config, monkeypatch, _declaring(_config(), "read_knob", "reset_knob"))
-    assert isinstance(served(lambda: _server("reset_knob")), FastMCP)
+    assert isinstance(served(_server("reset_knob")), FastMCP)
     _write_config(config, monkeypatch, _config())
     with pytest.raises(AppManifestError, match="read_knob"):
-        served(_server)
+        served(_server())
 
 
 @pytest.mark.usefixtures("rendered")
 def test_serve_tools_refuses_a_server_no_application_names(served, monkeypatch):
     monkeypatch.delenv("OSPREY_APP_NAME")
     with pytest.raises(AppManifestError) as info:
-        served(_server)
+        served(_server())
     assert info.value.rule == "unnamed_app"
 
 
@@ -166,7 +174,7 @@ def test_serve_tools_refuses_a_server_no_application_names(served, monkeypatch):
 
 @pytest.mark.usefixtures("rendered")
 async def test_an_uncaught_approval_refusal_answers_app_refused_classified_safety(served):
-    server = await _serve_async(served, _server)
+    server = await _serve_async(served, _server())
     envelope = await _envelope(server, "set_knob", {"value": 1.0})
     assert envelope["error_type"] == f"{APP}.refused"
     assert envelope["error_message"] == "not run: no approval record."
@@ -179,7 +187,7 @@ async def test_make_error_unreachable_answers_app_unreachable_classified_connect
     def read_knob() -> float:
         sdk.make_error("unreachable", "the panel backend did not answer")
 
-    server = await _serve_async(served, lambda: _server(read_knob=read_knob))
+    server = await _serve_async(served, _server(read_knob=read_knob))
     envelope = await _envelope(server, "read_knob")
     assert envelope["error_type"] == f"{APP}.unreachable"
     assert envelope["error_message"] == "the panel backend did not answer"
@@ -191,7 +199,7 @@ async def test_any_other_error_type_passes_through_unchanged(served):
     def read_knob() -> float:
         sdk.make_error("limits_violation", "out of range")
 
-    server = await _serve_async(served, lambda: _server(read_knob=read_knob))
+    server = await _serve_async(served, _server(read_knob=read_knob))
     envelope = await _envelope(server, "read_knob")
     assert envelope["error_type"] == "limits_violation"
 
@@ -200,9 +208,7 @@ async def test_any_other_error_type_passes_through_unchanged(served):
 
 
 def _chain_server(fired: list[tuple[list[str], Any]]):
-    def build() -> FastMCP:
-        server = FastMCP(APP)
-
+    def build(server: FastMCP) -> None:
         @server.tool
         def read_knob() -> float:
             return 1.0
@@ -224,8 +230,6 @@ def _chain_server(fired: list[tuple[list[str], Any]]):
             )
             sdk.check_approved_call(TOOL, arguments)
             return await sdk.command_write(None, ["SYN:KNOB:ARM"], value)
-
-        return server
 
     async def recording_command_write(_connector, addresses, value) -> list[str]:
         fired.append((list(addresses), value))

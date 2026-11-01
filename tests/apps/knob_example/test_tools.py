@@ -16,6 +16,7 @@ from knob_example import APP_NAME, STATE_ROUTE, WRITE_ROUTE
 
 from osprey.apps.sdk import ApprovalRefused
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
+from osprey.mcp_server.startup import application_server
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import (
@@ -102,8 +103,15 @@ def stamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_config_cache()
 
 
+def _server() -> Any:
+    """The server the SDK builds for the application, with the example's tools on it."""
+    server = application_server(APP_NAME)
+    tools.register(server)
+    return server
+
+
 async def _call(name: str, **arguments: Any) -> dict[str, Any]:
-    async with Client(tools.build_server()) as client:
+    async with Client(_server()) as client:
         result = await client.call_tool(name, arguments)
     return json.loads(result.content[0].text)
 
@@ -130,7 +138,7 @@ async def test_an_approved_write_posts_what_the_approval_bound(
 
 async def tools_set(**arguments: Any) -> dict[str, Any]:
     """Run the tool in the caller's call scope, as the audit middleware binds it."""
-    server = tools.build_server()
+    server = _server()
     tool = await server.get_tool("set_corrector")
     return await tool.fn(**arguments)
 
