@@ -39,6 +39,25 @@ async def test_the_deployments_own_provider_failing_is_an_error() -> None:
     assert by_name["other"].status is Status.WARNING
 
 
+async def test_with_personal_logins_allowed_the_own_provider_failing_is_a_warning() -> None:
+    """A terminal on its user's own login never touches the provider (#925).
+
+    Which terminals are login-routed is decided inside each container and is
+    not visible to health, so the row stays the probe's warning and says who
+    is affected instead of declaring the deployment down.
+    """
+    registry = StubRegistry({"own": fake_provider(_AUTH_FAILED)})
+    config = {
+        "claude_code": {"provider": "own", "allow_personal_login": True},
+        "api": {"providers": {"own": {"api_key": "k"}}},
+    }
+    (row,) = await _run(config, registry)
+    assert row.status is Status.WARNING
+    assert "Authentication failed" in row.message
+    assert "allow_personal_login" in row.message
+    assert "without a personal login" in row.message
+
+
 async def test_the_deployments_own_provider_passing_is_plain_ok() -> None:
     registry = StubRegistry({"own": fake_provider((True, "API accessible and authenticated"))})
     config = {"claude_code": {"provider": "own"}, "api": {"providers": {"own": {"api_key": "k"}}}}

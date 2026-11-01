@@ -48,6 +48,7 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { applyConfigTabGate, applyConfigUnreadableNotice } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
+import { applyLoginNudge } from './login-nudge.js';
 import { applyTourConfig } from './tour.js';
 import { setFacts } from './first-contact.js';
 import {
@@ -518,6 +519,11 @@ export async function initPanelManager(panelId) {
   // capability list) on the same single /api/panels round trip. tour.js owns
   // the policy; a failed fetch (null) leaves the tour on-demand only.
   applyTourConfig(panelConfig);
+
+  // The personal-login nudge reads its two facts off the same round trip:
+  // shown only when the deployment allows a personal login and this terminal
+  // holds none. login-nudge.js owns the dismissal; a failed fetch shows nothing.
+  applyLoginNudge(panelConfig);
 
   // Hand first contact the same facts off the same round trip. Unlike every
   // other server-config read above, the failed fetch (null) is NOT a no-op

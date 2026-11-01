@@ -127,7 +127,43 @@ worth retrying, and the card offers **Retry**.
    take the full five seconds to hand over.
 
 The two views run the same Claude Code version, the one
-``claude_code.cli_version`` names. If the chat is refused because that version
+``claude_code.cli_version`` names.
+
+.. _personal-login:
+
+A user's own Claude subscription
+--------------------------------
+
+By default every terminal authenticates with the deployment's provider
+(``claude_code.provider``), one gateway and one key. Some sites let a
+colleague use their own Claude subscription inside the terminal while
+forbidding the deployment to hold that person's credential. The route that
+satisfies both is the interactive ``/login`` inside the user's own terminal,
+whose credential stays in that terminal's config volume.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.allow_personal_login: true   # default false
+
+With the key on, a terminal that holds a completed ``/login`` is launched
+with the deployment provider withheld: no auth token, base URL or model
+variables and no translation proxy, so Claude Code's own credential
+precedence falls through to the subscription. The decision is made per
+terminal container at launch, by the presence of the credential file under
+that user's ``CLAUDE_CONFIG_DIR``; the file is never read, and a login
+survives a container restart because the config volume does. A terminal
+without a login routes to the deployment provider exactly as before and
+shows a dismissable card saying ``/login`` is on offer. With the key off,
+nothing changes.
+
+Two consequences follow. A login-routed session bypasses the gateway, so it
+leaves no row in the deployment's spend ledger; that is the point. And
+``osprey health`` can no longer treat a failed probe of the agent provider
+as the whole deployment down: with the key on it stays a warning, naming the
+dispatch worker and the terminals without a login as the ones affected.
+The dispatch worker and every other headless path keep the deployment
+provider unconditionally. If the chat is refused because that version
 is not installed, the server log says which one to install; see
 :doc:`/getting-started/installation`.
 

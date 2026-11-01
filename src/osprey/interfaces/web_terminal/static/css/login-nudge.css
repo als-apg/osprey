@@ -1,0 +1,41 @@
+/* Personal-login nudge: a small card in the lower right, above the shell.
+   Buttons reuse the tour's. */
+.login-nudge {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1150;
+  max-width: 360px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--surface-elevated, var(--surface-2, #1e1f24));
+  color: var(--text, inherit);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.login-nudge-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.login-nudge-body {
+  margin: 0 0 12px;
+}
+
+.login-nudge-body code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-inset, rgba(127, 127, 127, 0.18));
+}
+
+.login-nudge-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
