@@ -36,6 +36,7 @@ import {
   createSidebarRenderer,
   isNearListEnd,
   pickRange,
+  revealDelayMs,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs, byId } from '../_support/dom.mjs';
@@ -363,7 +364,8 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     sidebarRenderer.renderSidebar();
 
     const item = qs(document, '.tree-item[data-id="1"]');
-    expect(item.draggable).toBe(true);
+    // Carried in the markup, so a rebuilt row is draggable without a per-row property set.
+    expect(item.getAttribute('draggable')).toBe('true');
 
     const meta = document.createElement('meta');
     meta.setAttribute('name', 'osprey-artifact-dir');
@@ -813,5 +815,58 @@ describe('picking several rows', () => {
     setPicked(['1', '3']);
     renderer(makeCallbacks());
     expect(pickedRows()).toEqual(['3', '1']);
+  });
+});
+
+describe('reveal stagger with many rows (#924)', () => {
+  /** @param {number} n */
+  function manyArtifacts(n) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: String(i + 1),
+      title: `Paged Artifact ${String(i).padStart(4, '0')}`,
+      filename: `paged-${i}.md`,
+      artifact_type: 'markdown',
+      category: i % 3 ? 'document' : 'visualization',
+      pinned: false,
+      timestamp: `2026-07-01T10:${String(i % 60).padStart(2, '0')}:00Z`,
+      size_bytes: 10,
+    }));
+  }
+
+  test('the per-row delay is staggered over the first rows only, then flat', () => {
+    expect(revealDelayMs(0)).toBe(0);
+    expect(revealDelayMs(1)).toBe(30);
+    expect(revealDelayMs(12)).toBe(360);
+    expect(revealDelayMs(13)).toBe(360);
+    expect(revealDelayMs(4000)).toBe(360);
+    expect(revealDelayMs(4000, 25)).toBe(300);
+  });
+
+  test('the deepest row of a large render is not held invisible for the length of the list', () => {
+    mountFixture();
+    setArtifacts(manyArtifacts(500));
+    const renderer = createSidebarRenderer(makeCallbacks());
+    renderer.renderSidebar();
+    const rows = document.querySelectorAll('.tree-item');
+    expect(rows.length).toBe(500);
+    const delays = [...rows].map((row) =>
+      parseInt(row.getAttribute('style').match(/animation-delay: (\d+)ms/)[1], 10)
+    );
+    expect(delays[0]).toBe(0);
+    expect(Math.max(...delays)).toBe(revealDelayMs(499));
+    expect(Math.max(...delays)).toBeLessThanOrEqual(360);
+  });
+
+  test('row handlers are installed once on the container, so a rebuilt row selects once', () => {
+    mountFixture();
+    setArtifacts(manyArtifacts(30));
+    const onSelect = vi.fn();
+    const renderer = createSidebarRenderer({ ...makeCallbacks(), onSelect });
+    renderer.renderSidebar();
+    renderer.renderSidebar();
+    renderer.renderSidebar();
+    qs(document, '.tree-item[data-id="7"]').click();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect.mock.calls[0][0].id).toBe('7');
   });
 });
