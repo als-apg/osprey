@@ -161,7 +161,8 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     - ``context``  reduce to the window's occupancy: ``used_tokens``,
                    ``window_tokens`` and ``percent``.
     - every other type (``text``, ``thinking``, ``system``, ``error``,
-      ``session_reset``, …) passes through unchanged.
+      ``session_reset``, the ``watchdog_*`` change notices, …) passes through
+      unchanged.
 
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
