@@ -688,7 +688,7 @@ does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
 banner reads ``Rehearsal — nothing moves``, the roster says the same, and the
-web terminal's header chip reads *Rehearsal* — named for what it is for, with
+control-target chip in the web terminal's sidebar reads *Rehearsal* — named for what it is for, with
 the technical label kept on its ⓘ tooltip. It carries a real machine's posture — the
 same limits, the same approval prompts — because it is operated as one, not
 because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.

@@ -3535,6 +3535,15 @@ deleted:
   # no file directory names the one and no on-disk store bounds the other.
 - file_paths.api_calls_dir
 - web.feedback.max_store_bytes
+  # The header and status bar arrangement. The sidebar shell replaced both
+  # bars, and the sidebar's groups are arranged in the browser, per user. The
+  # parse point drops the key with one warning naming the sidebar
+  # (`normalize_retired_bar_items`); a profile that still spells it builds.
+- web.bar_items
+- web.bar_items.header
+- web.bar_items.status
+- web.bar_items.status_visible
+- web.bar_items.locked
   # The roster's retired spellings. A person's access level is a tier and a
   # shared card is an app: `default_tier` and `shared` are authored, and the
   # render catalog is the build's `renders`. A profile that still spells either
