@@ -274,8 +274,10 @@ class TestCheck:
         assert pv.PLUGIN_TREE == ("plugins", ".claude-plugin", ".agents/plugins")
         assert pv.UNTOUCHED == "plugin tree untouched — no version bump required"
         assert pv.NEW_MANIFEST == "new plugin manifest — no bump required"
-        assert pv.UNCHANGED == (
-            "plugin tree changed without a version bump — run python scripts/plugin_version.py bump"
+        assert pv.UNCHANGED == "plugin tree changed without a version bump"
+        assert pv.not_newer("2026.9.0", "2026.9.1", "main") == (
+            "plugin tree changed without a version bump — 2026.9.0 is not newer than 2026.9.1"
+            " at main; run python scripts/plugin_version.py bump --base main"
         )
 
     def test_an_untouched_tree_owes_no_bump(self, repo, capsys):
@@ -289,7 +291,8 @@ class TestCheck:
 
     def test_a_changed_tree_at_the_base_version_is_refused(self, repo, capsys):
         on_work(repo, {SKILL: "changed\n"})
-        assert check(repo, capsys) == (1, pv.UNCHANGED + "\n", "")
+        refusal = pv.not_newer("2026.9.0", "2026.9.0", "main") + "\n"
+        assert check(repo, capsys) == (1, refusal, "")
 
     def test_a_changed_tree_with_a_bump_passes(self, repo, capsys):
         on_work(repo, {SKILL: "changed\n"}, bump=True)
@@ -298,7 +301,7 @@ class TestCheck:
     @pytest.mark.parametrize("tree", pv.PLUGIN_TREE)
     def test_every_plugin_tree_path_owes_a_bump(self, repo, capsys, tree):
         on_work(repo, {TREE_FILES[tree]: "changed\n"})
-        assert check(repo, capsys)[:2] == (1, pv.UNCHANGED + "\n")
+        assert check(repo, capsys)[:2] == (1, pv.not_newer("2026.9.0", "2026.9.0", "main") + "\n")
 
     def test_a_base_without_a_manifest_is_a_new_plugin(self, tmp_path, capsys):
         repo = make_repo(tmp_path, manifests=False)
@@ -312,7 +315,71 @@ class TestCheck:
         assert run(repo, "bump", "--today", "2026-09-15") == 0
         commit(repo, "main mints 2026.9.1")
         git(repo, "checkout", "-q", "work")
-        assert check(repo, capsys) == (1, pv.UNCHANGED + "\n", "")
+        refusal = pv.not_newer("2026.9.1", "2026.9.1", "main") + "\n"
+        assert check(repo, capsys) == (1, refusal, "")
+
+    def test_a_version_below_the_tip_the_base_never_carried_is_refused(self, repo, capsys):
+        """Head 2026.9.1 is a version main never carried, and still older than its tip."""
+        git(repo, "checkout", "-q", "-b", "work")
+        git(repo, "checkout", "-q", "main")
+        assert run(repo, "bump", "--set", "2026.9.5") == 0
+        commit(repo, "main at 2026.9.5")
+        git(repo, "checkout", "-q", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        commit(repo, "work")
+        refusal = pv.not_newer("2026.9.1", "2026.9.5", "main") + "\n"
+        assert check(repo, capsys) == (1, refusal, "")
+
+    def test_a_version_the_base_minted_and_moved_past_is_refused(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        git(repo, "checkout", "-q", "main")
+        for minted in ("2026.9.1", "2026.9.2"):
+            assert run(repo, "bump", "--today", "2026-09-15") == 0
+            commit(repo, f"main mints {minted}")
+        git(repo, "checkout", "-q", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        commit(repo, "work")
+        refusal = pv.not_newer("2026.9.1", "2026.9.2", "main") + "\n"
+        assert check(repo, capsys) == (1, refusal, "")
+
+    @pytest.mark.parametrize(
+        ("base_version", "head_version", "code"),
+        [("2026.9.9", "2026.10.0", 0), ("2026.10.0", "2026.9.9", 1)],
+    )
+    def test_month_rollover_orders_by_number(self, repo, capsys, base_version, head_version, code):
+        """String order puts 2026.9.9 after 2026.10.0; the numbers do not."""
+        git(repo, "checkout", "-q", "-b", "work")
+        git(repo, "checkout", "-q", "main")
+        assert run(repo, "bump", "--set", base_version) == 0
+        commit(repo, f"main at {base_version}")
+        git(repo, "checkout", "-q", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--set", head_version) == 0
+        commit(repo, "work")
+        expected = (
+            f"plugin version {base_version} -> {head_version}"
+            if code == 0
+            else pv.not_newer(head_version, base_version, "main")
+        )
+        assert check(repo, capsys) == (code, expected + "\n", "")
+
+    def test_an_unparseable_head_version_is_refused(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        bad = {path: text.replace("2026.9.0", "2026.x.1") for path, text in TEXTS.items()}
+        commit(repo, "work", {**bad, SKILL: "changed\n"})
+        code, out, err = check(repo, capsys)
+        assert (code, out) == (1, "")
+        assert "2026.x.1" in err and "not CalVer" in err
+
+    def test_an_unparseable_base_version_is_refused(self, repo, capsys):
+        bad = {path: text.replace("2026.9.0", "2026.x.1") for path, text in TEXTS.items()}
+        commit(repo, "main", bad)
+        on_work(repo, {**TEXTS, SKILL: "changed\n"})
+        code, out, err = check(repo, capsys)
+        assert (code, out) == (1, "")
+        assert "2026.x.1" in err and "at main" in err
 
     def test_skewed_head_manifests_are_refused(self, repo, capsys):
         on_work(repo, {SKILL: "changed\n"})
@@ -347,9 +414,9 @@ class TestCheck:
     @pytest.mark.parametrize("bump", [False, True])
     def test_a_sha_and_a_relative_ref_answer_as_the_branch_name(self, repo, capsys, bump):
         on_work(repo, {SKILL: "changed\n"}, bump=bump)
-        by_name = check(repo, capsys, "main")
-        assert check(repo, capsys, git(repo, "rev-parse", "main")) == by_name
-        assert check(repo, capsys, "HEAD~1") == by_name
+        code, out, err = check(repo, capsys, "main")
+        for spelling in (git(repo, "rev-parse", "main"), "HEAD~1"):
+            assert check(repo, capsys, spelling) == (code, out.replace("main", spelling), err)
 
     def test_a_plain_branch_name_prefers_the_remote_copy(self, repo, capsys):
         """The changelog gate's resolution: ``main`` reads ``origin/main`` when both exist."""
@@ -364,7 +431,8 @@ class TestCheck:
             0,
             "plugin version 2026.9.0 -> 2026.9.1\n",
         )
-        assert check(repo, capsys, "main") == (1, pv.UNCHANGED + "\n", "")
+        refusal = pv.not_newer("2026.9.1", "2026.9.1", "main") + "\n"
+        assert check(repo, capsys, "main") == (1, refusal, "")
 
     def test_uncommitted_plugin_edits_are_not_judged(self, repo, capsys):
         """Without ``--worktree`` the range is committed state, which a pull request carries."""
