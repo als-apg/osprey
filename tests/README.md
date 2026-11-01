@@ -58,11 +58,18 @@ holding it, and the exit callbacks registered with `atexit`.
 test module under `-n 2` to that bound.
 
 A run keeps only failing tests' `tmp_path` directories
-(`tmp_path_retention_policy = "failed"` in `pyproject.toml`): a passing test's
-files are gone after the run, and a failing test's files stay under
-`{temproot}/pytest-of-<user>/pytest-N/`. A run that exits in silence after its
-summary while that root holds other runs' trees is pytest pruning them at exit;
-the exit report names it (`cleanup_numbered_dir`).
+(`tmp_path_retention_policy = "failed"` in `pyproject.toml`). Every run takes a
+temporary root of its own when it starts (`tests/_scoped_temp.py`), from any
+entry point, so no other pytest process prunes or removes what it holds. A
+green run removes the root; a red run keeps it and prints its path, with the
+failing tests' trees under `<root>/pytest-of-<user>/pytest-N/`. A
+`PYTEST_DEBUG_TEMPROOT` set by the caller is kept.
+
+A test that reads a built project requests `built_control_assistant`
+(`tests/_builds.py`): one `osprey build --skip-deps` per run, which every xdist
+worker reads. A test that writes to it takes its own copy with `copy_build`.
+Only a test whose subject is the install makes its own full build, under
+`offline_build_env`.
 
 **E2E tests are separate.** Run them with `pytest tests/e2e/`.
 
