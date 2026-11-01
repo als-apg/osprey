@@ -167,6 +167,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
+        "app-check-js",
         "dock-engine-tests",
         "dock-engine-bundle",
         "docs",
@@ -178,10 +179,22 @@ def test_the_check_ids_are_the_public_names() -> None:
         "pytest-wallclock",
         "readonly-warmups-py314",
         "live-ca",
+        "app-check-js",
         "docs",
         "linkcheck",
         "package",
     ]
+
+
+def test_the_js_check_lane_opens_the_test_it_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OSPREY_JS_CHECK", "0")  # Puts the variable back after the test.
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+
+    assert BY_ID["app-check-js"].prepare(None) == 0
+
+    assert os.environ["OSPREY_JS_CHECK"] == "1"
 
 
 #: Modules whose import is a read of the whole tests tree.
@@ -916,7 +929,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800"]
-    assert bounds("full") == ["5400", "600", "900", "900"]
+    assert bounds("full") == ["5400", "600", "900", "900", "600"]
 
 
 # ---------------------------------------------------------------------------
@@ -1610,12 +1623,13 @@ def test_a_refusal_names_every_unmet_need(
         f"check: eslint: refused ({node})",
         f"check: prettier: refused ({node})",
         f"check: vitest: refused ({node})",
+        f"check: app-check-js: refused ({node})",
         f"check: dock-engine-tests: refused ({node})",
         f"check: dock-engine-bundle: refused ({node})",
         f"check: docs: refused ({docs})",
         f"check: linkcheck: refused ({docs})",
-        f"check: refused: tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle "
-        f"({node}); "
+        f"check: refused: tsc, eslint, prettier, vitest, app-check-js, dock-engine-tests, "
+        f"dock-engine-bundle ({node}); "
         f"refused: docs, linkcheck ({docs})",
     ]
 

@@ -291,6 +291,7 @@ def test_every_pytest_check_resolves_through_the_bound(check):
         "pytest-pty",
         "pytest-wallclock",
         "readonly-warmups-py314",
+        "app-check-js",
     ]
     assert _unbounded_pytest_checks(check, check.CHECKS) == []
 
