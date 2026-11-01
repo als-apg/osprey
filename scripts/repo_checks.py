@@ -715,6 +715,9 @@ CLAUDE_PIN_PROBE = (*UV_RUN, "python", "scripts/pinned_claude.py")
 #: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
 JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 
+#: Below this a run can die halfway through its temp tree; one figure, no knob.
+FREE_SPACE_FLOOR_GIB = 5
+
 #: ``--no-sync``: a plain ``uv run`` is what would hide a stale install, or install it.
 INSTALLED_VERSIONS_PROBE = (*UV_RUN, "--no-sync", "python", "scripts/installed_versions.py")
 
@@ -804,6 +807,29 @@ def _need_node() -> str | None:
     return None
 
 
+def _device(path: str | Path) -> int:
+    return os.stat(path).st_dev
+
+
+def _need_free_space() -> str | None:
+    """Met when the temp directory and the checkout each hold the floor; each
+    device is read once."""
+    try:
+        places: dict[int, str | Path] = {}
+        for place in (tempfile.gettempdir(), kit.ROOT):
+            places.setdefault(_device(place), place)
+        for path in places.values():
+            free = shutil.disk_usage(path).free
+            if free < FREE_SPACE_FLOOR_GIB * 2**30:
+                raise EnvironmentFault(
+                    "free space",
+                    f"{free // 2**20} MiB free on {path}, floor {FREE_SPACE_FLOOR_GIB} GiB",
+                )
+    except OSError as error:
+        raise EnvironmentFault("free space", str(error)) from error
+    return None
+
+
 def _stale_installs() -> list[list[str]]:
     """The reader's rows. It prints none on a checkout with no environment yet:
     the check's own ``uv run`` creates that one current."""
@@ -866,6 +892,7 @@ NEEDS = {
     "graphviz": _need_graphviz,
     "workflow-linters": _need_workflow_linters,
     "va-extra": _need_va_extra,
+    "free-space": _need_free_space,
     "install-current": _need_install_current,
 }
 

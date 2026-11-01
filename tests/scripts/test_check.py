@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -1814,6 +1815,69 @@ def test_a_reader_that_cannot_run_answers_met(
     _probing(monkeypatch, (status, ""))
     assert fw._need_install_current() is None
     assert recorder.calls == []
+
+
+def _free(monkeypatch: pytest.MonkeyPatch, **by_place: int) -> list[str]:
+    """``shutil.disk_usage`` answers *temp* and *root* bytes free; the paths asked are returned."""
+    asked: list[str] = []
+
+    def usage(path: Any) -> Any:
+        asked.append(str(path))
+        free = by_place["temp"] if str(path) == fw.tempfile.gettempdir() else by_place["root"]
+        return shutil._ntuple_diskusage(10**15, 10**15 - free, free)
+
+    monkeypatch.setattr(fw.shutil, "disk_usage", usage)
+    return asked
+
+
+GIB = 2**30
+
+
+def test_free_space_above_the_floor_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    _free(monkeypatch, temp=fw.FREE_SPACE_FLOOR_GIB * GIB, root=fw.FREE_SPACE_FLOOR_GIB * GIB)
+    assert fw._need_free_space() is None
+
+
+def test_free_space_under_the_floor_names_the_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    _free(monkeypatch, temp=313 * 2**20, root=100 * GIB)
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_free_space()
+    assert fault.value.probe == "free space"
+    assert fault.value.fact == f"313 MiB free on {tmp_path}, floor 5 GiB"
+
+
+def test_free_space_is_read_once_per_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(kit, "ROOT", tmp_path / "root")
+    (tmp_path / "root").mkdir()
+    asked = _free(monkeypatch, temp=100 * GIB, root=100 * GIB)
+    assert fw._need_free_space() is None
+    assert asked == [str(tmp_path)]
+
+
+def test_a_second_device_is_read_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "root"
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(kit, "ROOT", root)
+    monkeypatch.setattr(fw, "_device", lambda path: str(path))
+    asked = _free(monkeypatch, temp=100 * GIB, root=1 * GIB)
+    with pytest.raises(kit.EnvironmentFault, match="1024 MiB free on .*root"):
+        fw._need_free_space()
+    assert asked == [str(tmp_path), str(root)]
+
+
+def test_no_usable_temporary_directory_is_a_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    def nowhere() -> str:
+        raise FileNotFoundError(2, "No usable temporary directory found")
+
+    monkeypatch.setattr(fw.tempfile, "gettempdir", nowhere)
+    with pytest.raises(kit.EnvironmentFault, match="No usable temporary directory found"):
+        fw._need_free_space()
 
 
 def test_a_check_off_its_venue_has_its_needs_left_unprobed(
