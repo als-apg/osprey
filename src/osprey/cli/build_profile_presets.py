@@ -41,8 +41,19 @@ DEFAULT_DATA_BUNDLE = "control_assistant"
 #: owned by no app template and no preset; a preset only names which one it shows.
 PRESET_FACILITY_KEY = "facility"
 
-#: Every key a preset spells for ``osprey init`` and never for the profile it emits.
-PRESET_ONLY_KEYS: tuple[str, ...] = (PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY)
+#: The preset-side key listing the applications ``osprey init`` copies from beside
+#: the preset and writes into the profile it emits. Like the two names above,
+#: resolution consumes it and ``extends:`` never carries it: an application is
+#: code a deployment holds, so a profile runs exactly what it lists and holds. A
+#: login file's ``apps:`` is a different fact (what its card shows) and stays.
+PRESET_APPS_KEY = "apps"
+
+#: Every key a preset spells for ``osprey init`` and never as a layer of a resolved profile.
+PRESET_ONLY_KEYS: tuple[str, ...] = (
+    PRESET_DATA_BUNDLE_KEY,
+    PRESET_FACILITY_KEY,
+    PRESET_APPS_KEY,
+)
 
 
 def _normalize_preset_name(name: str) -> str:
@@ -250,8 +261,8 @@ def _read_preset_document(name: str) -> tuple[dict[str, Any], Path]:
     """Read a bundled preset YAML verbatim; return (raw_dict, preset_file_path).
 
     Keeps every preset-side key, including :data:`PRESET_ONLY_KEYS`. Only
-    :func:`preset_data_bundle` and :func:`preset_facility` read those keys, and
-    only from here — every other caller goes through :func:`_load_preset_raw`,
+    :func:`preset_data_bundle`, :func:`preset_facility` and :func:`preset_apps`
+    read those keys, and only from here — every other caller goes through :func:`_load_preset_raw`,
     which consumes them.
 
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
@@ -273,17 +284,20 @@ def _read_preset_document(name: str) -> tuple[dict[str, Any], Path]:
 def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     """Read a bundled preset YAML as a profile layer; return (raw_dict, path).
 
-    ``app_template:`` and ``facility:`` are popped here, exactly the way
-    ``extends:`` is consumed during resolution: they select the packaged data
-    tree ``osprey init`` copies, and are not part of what the resolved profile
-    says. Popping them at the single read point is what lets them stay out of
-    ``_KNOWN_PROFILE_KEYS`` while the presets keep spelling them.
+    :data:`PRESET_ONLY_KEYS` are popped here, exactly the way ``extends:`` is
+    consumed during resolution: they select the packaged material ``osprey init``
+    copies, and are not part of what the resolved profile says. Popping them at
+    the single read point is what keeps the names out of ``_KNOWN_PROFILE_KEYS``
+    while the presets keep spelling them; a login file (a kind-qualified name)
+    keeps its ``apps:``, which is its card's selection.
 
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
     """
     raw, target = _read_preset_document(name)
+    is_login = target.parent != _presets_dir()
     for key in PRESET_ONLY_KEYS:
-        raw.pop(key, None)
+        if not (is_login and key == PRESET_APPS_KEY):
+            raw.pop(key, None)
     return raw, target
 
 
@@ -353,3 +367,17 @@ def preset_facility(name: str | None) -> str | None:
     if not name:
         return None
     return _nearest_preset_value(name, PRESET_FACILITY_KEY)
+
+
+def preset_apps(name: str) -> dict[str, Any]:
+    """The applications preset *name* itself lists, for ``osprey init``.
+
+    The preset's own block, not the nearest on its chain as for
+    :func:`preset_data_bundle`: a preset runs the applications it lists, whatever
+    it extends.
+
+    Raises:
+        BuildProfileError: If the preset is unknown or is not a YAML mapping.
+    """
+    listed = _read_preset_document(name)[0].get(PRESET_APPS_KEY)
+    return dict(listed) if isinstance(listed, dict) else {}

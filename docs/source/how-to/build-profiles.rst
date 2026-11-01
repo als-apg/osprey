@@ -106,6 +106,8 @@ What ``osprey init`` writes
 
 ``triggers.yml``, ``tiers/``, ``apps/`` and ``web-terminal-context/`` appear
 only when the preset calls for them — a ``hello-world`` deployment has none of them.
+A preset's applications come with ``osprey init``, never through ``extends:``: a
+profile runs the applications it lists and holds.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its ``deploy:`` block commented out, so there are no
