@@ -214,7 +214,6 @@ class EnvConfig:
     # the store or from around it. Same upper-snake names as `required`.
     pinned: list[str] = field(default_factory=list)
     defaults: dict[str, str] = field(default_factory=dict)
-    file: str | None = None  # Profile-relative path to copy as .env
 
 
 @dataclass

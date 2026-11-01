@@ -1608,12 +1608,6 @@ class BuildProfile:
                 if not isinstance(var, str) or not ENV_NAME_RE.match(var)
             )
 
-        # Validate env file path
-        if self.env.file:
-            env_file_path = profile_dir / self.env.file
-            if not env_file_path.is_file():
-                errors.append(f"env.file not found: {self.env.file} (resolved: {env_file_path})")
-
         # Validate the environment block (interpreter base + extra packages)
         errors.extend(self._validate_environment())
 

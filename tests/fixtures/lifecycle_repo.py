@@ -1376,15 +1376,14 @@ dispatch:
 # secure with no editing. Put your own values in .env to override.
 # Environment variables the deployment needs. Replace `env: {}` with any
 # of `required` (the variable must be set somewhere), `pinned` (this
-# repo's own env chain owns it outright, and nowhere else), `defaults`
-# (name to value) and `file` (a profile-relative path copied in as .env):
+# repo's own env chain owns it outright, and nowhere else) and `defaults`
+# (name to value):
 #
 #   env:
 #     required: [DISPATCH_WORKER_TOKEN]
 #     pinned: [ARIEL_DB_PASSWORD]
 #     defaults:
 #       OSPREY_FACILITY_NAME: "Example Facility"
-#     file: env/facility.env
 #
 # If `env:` already has children, add yours under it.
 env:

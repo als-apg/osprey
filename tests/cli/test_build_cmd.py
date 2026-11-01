@@ -1639,10 +1639,8 @@ class TestProfileExtends:
         assert "mml_get" in matlab.permissions["allow"]
 
     def test_env_merge(self, tmp_path: Path):
-        """Env is deep-merged: file overridden, required unioned, defaults merged."""
+        """Env is deep-merged: required unioned, defaults merged."""
         self._make_base(tmp_path)
-        # Create the env file that the child references
-        (tmp_path / ".env.local").write_text("API_KEY=test\n")
 
         child_path = _write_yaml(
             tmp_path / "child.yml",
@@ -1650,7 +1648,6 @@ class TestProfileExtends:
                 "extends": "base.yml",
                 "name": "Child",
                 "env": {
-                    "file": ".env.local",
                     "required": ["API_KEY", "EXTRA_VAR"],
                     "defaults": {"DEBUG": "true"},
                 },
@@ -1658,7 +1655,6 @@ class TestProfileExtends:
         )
 
         profile = load_profile(child_path)
-        assert profile.env.file == ".env.local"  # overridden
         assert "API_KEY" in profile.env.required  # from both (deduped)
         assert "EXTRA_VAR" in profile.env.required  # from child
         assert profile.env.defaults["LOG_LEVEL"] == "info"  # inherited
