@@ -3,7 +3,8 @@ name: release
 description: >
   Guides a maintainer through cutting an OSPREY release on the GitHub Flow
   workflow: run the two advisory drift sweeps, test in a clean environment,
-  refresh the doc screenshots, land the release-notes PR, tag the merge commit,
+  refresh the doc screenshots, re-record and review every docs video, land the
+  release-notes PR, tag the merge commit,
   push the tag, verify the automated PyPI publish. Use when someone says "create
   a release", "bump the version", "cut v2026.X.Y", "publish to PyPI", "tag a
   release", or asks about the release process. Composes with `/osprey:contribute`
@@ -25,9 +26,12 @@ The shape is:
 1. Verify the working state and decide on the version number.
 2. Run the two **advisory drift sweeps**, housekeeping and doc-sync, and land
    their accepted fixes as ordinary PRs before the release PR.
-3. Test in a clean environment and refresh the doc screenshots.
+3. Test in a clean environment, refresh the doc screenshots, and **re-record
+   every docs video and watch each take**: a pre-release check, run by hand,
+   on every release.
 4. Open a **release-notes PR**, labeled `full-ci`, carrying the CHANGELOG fold
-   and rotation, the RELEASE_NOTES title, and any re-captured screenshots (no
+   and rotation, the RELEASE_NOTES title, the re-captured screenshots and the
+   video manifest and posters (no
    direct push to `main`; branch protection rejects it).
 5. Merge the PR to `main`.
 6. Tag the merge commit and push the tag. **This is what sets the version.**
@@ -305,12 +309,9 @@ there is no CI job and no release step, so they age quietly, and a release is
 where that staleness becomes public.
 
 Read `docs/source/_static/screenshots/manifest.json`: every entry carries the
-version and timestamp of its last capture. Read
-`docs/source/_static/demo/manifest.json` too: per theme it carries the OSPREY
-version and recording time of the landing-page demo video, and the release its
-videos live in. Compare both against the UI work in this release. If a screen
-shown in the docs changed, re-capture it now, so the images, the video and
-their captions ship with the version being released.
+version and timestamp of its last capture. Compare it against the UI work in
+this release. If a screen shown in the docs changed, re-capture it now, so the
+images and their captions ship with the version being released.
 
 ```bash
 python -m docs.screenshots list      # every recipe, its kind, its output files
@@ -330,24 +331,53 @@ Two recipes are opt-in because they cost more:
 `channel_finder_*.png` has no recipe at all; it is hand-captured, so it can
 only be redone by hand.
 
-Refresh the landing-page demo video when the UI it shows (the Web Terminal,
-the gallery, the plots, the approval step, the logbook draft) changed visibly
-in this release. It needs containers and a live Claude session and spends real
-subscription budget, so skip it when nothing it shows has changed; the docs of
-this version then keep playing the last release's video. Each OSPREY version
-has its own release of demo videos, so record and upload to the version being
-released:
+### Pre-release check: re-record and review the docs videos
+
+**Every release, run by hand.** The docs embed recorded web-terminal sessions,
+the landing-page demo and one per feature page (`python -m docs.screenshots
+list` names them all), and a UI change can make any of them wrong without
+anyone noticing. So the maintainer re-records all of them before every release,
+whether or not the UI looks changed, and watches every take. It is never a CI
+job and never skipped: a release whose videos were not watched does not get
+tagged. A beta is a release here too.
+
+Each take builds a fresh control-assistant stack and runs a live agent, so it
+needs a container runtime, the provider keys the run uses (the
+`OSPREY_DOCSHOTS_PROVIDER` override when the default provider's key is over
+budget), any key a video names (the watchdog video needs `TYPESAFE_API_KEY`),
+and only one stack on the host at a time. It spends real budget: minutes per
+take.
 
 ```bash
-uv run make -C docs demo-video                          # both themes, a fresh stack per take
-uv run python -m docs.screenshots upload-check          # takes vs manifest, window and size warnings
-uv run make -C docs upload-demo-video VERSION=YYYY.M.P  # creates docs-media-vYYYY.M.P
+python -m docs.screenshots list                         # every registered video and its page
+uv run make -C docs doc-videos                          # every video, both themes, a fresh stack per take
+uv run python -m docs.screenshots upload-check          # takes vs manifest, length and size warnings
 ```
 
-Review both takes before the upload. The upload names the release in
-`docs/source/_static/demo/manifest.json`; that manifest and the two posters
-ride along in the release-notes PR below, and the MP4s are never committed. The
-steps are documented in the contributing guide under "Landing-page demo video".
+To redo one take: `uv run make -C docs doc-videos VIDEOOPTS="--video <name>
+--theme dark"`. A video skipped for a missing key prints one line; record it
+before going on, never ship it stale.
+
+**Watch every take, both themes, start to finish** (`docs/demo-video/*.mp4`).
+Check that the dialogs, captions and panels shown match this release's UI,
+that nothing covers what the caption points at, and that no stray notice (a
+CLI update banner, an error toast) is on screen. A take outside its length
+window is a warning, not a failure: judge it by watching. A take that shows the
+wrong thing is re-recorded; when the storyboard itself no longer fits the UI,
+fix its entry in `docs/screenshots/videos.py` first.
+
+Then publish to the version being released (each OSPREY version has its own
+`docs-media-vYYYY.M.P` release):
+
+```bash
+uv run make -C docs upload-doc-videos VERSION=YYYY.M.P  # uploads the new takes, names the release in the manifest
+```
+
+The upload names the release in `docs/source/_static/demo/manifest.json`; that
+manifest and the posters ride along in the release-notes PR below, and the
+MP4s are never committed. Adding a video is one `DocVideo` entry in
+`docs/screenshots/videos.py` plus the embed snippet; both are documented in
+`docs/README.md`.
 
 The framework itself (environments, provenance, and why it is capture-only and
 never a CI gate) is documented in the contributing guide under "Refreshing
@@ -419,7 +449,7 @@ before applying:
 | `CHANGELOG.md` | After the fold and repair, convert `## [Unreleased]` to `## [YYYY.M.P] - YYYY-MM-DD`; insert a fresh empty `## [Unreleased]` above it |
 | `changelog.d/` | Fragment files deleted by `apply`; only `README.md` remains |
 | `docs/source/_static/screenshots/` | Any images re-captured in Step 3, plus the updated `manifest.json` |
-| `docs/source/_static/demo/` | If the demo video was re-recorded in Step 3: the two posters and `manifest.json`, naming the `docs-media-vYYYY.M.P` release the upload created |
+| `docs/source/_static/demo/` | Every video's two posters and `manifest.json`, re-recorded in Step 3, naming the `docs-media-vYYYY.M.P` release the upload created |
 
 Stage the fold and the rotation together: `git add -A changelog.d/ CHANGELOG.md`
 (pathspec-scoped, so the fragment deletions are included).
