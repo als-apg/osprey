@@ -39,33 +39,33 @@
       "release": null,
       "themes": {
         "dark": {
-          "duration_s": 22.6,
+          "duration_s": 15.84,
           "mp4": {
             "name": "osprey-watchdog-dark.mp4",
-            "sha256": "0a8986f0a210494ded60daf493c051dab3eb973255ced4bbbb107c293ba75b21"
+            "sha256": "0e3b2f2983bfae4ded24bc59a4ccff6b03eee50ceefdd0ebda579cf4835911df"
           },
-          "osprey_version": "2026.9.0b3.post4855+g736707099",
+          "osprey_version": "2026.9.0b3.post4858+ga7225b790.d20261101",
           "poster": {
             "name": "osprey-watchdog-dark-poster.jpg",
-            "sha256": "a6046bb28b8299689f2435d4ac34b4a666cdd7b4549279543746a7dc2c4383e0"
+            "sha256": "948a4ffc880a883122c753f992a9e28baa894bdfe265fdfce04d79fc9b755fcb"
           },
-          "real_session_s": 22.6,
-          "recorded_at": "2026-11-01T18:27:44.348907+00:00",
+          "real_session_s": 15.8,
+          "recorded_at": "2026-11-01T19:20:24.532566+00:00",
           "speed": 1.0
         },
         "light": {
-          "duration_s": 19.0,
+          "duration_s": 15.6,
           "mp4": {
             "name": "osprey-watchdog-light.mp4",
-            "sha256": "15f68850de03e785710d7335c99fe644c58f327cb2459adeae0a871d4a0c3f03"
+            "sha256": "ff78127b73c180e899259365da4cb4587e9c0f552fa7dd8495c6b35f53b5ae93"
           },
-          "osprey_version": "2026.9.0b3.post4855+g736707099",
+          "osprey_version": "2026.9.0b3.post4858+ga7225b790.d20261101",
           "poster": {
             "name": "osprey-watchdog-light-poster.jpg",
-            "sha256": "3f551a073368ba0df611841518213f749820d0354c19ead9dc754f4958e48dce"
+            "sha256": "e5ade713634805a129dd96ed31154f9628785477e8922a86805267331bd307b6"
           },
-          "real_session_s": 19.0,
-          "recorded_at": "2026-11-01T18:32:19.509073+00:00",
+          "real_session_s": 15.6,
+          "recorded_at": "2026-11-01T19:24:58.677623+00:00",
           "speed": 1.0
         }
       }

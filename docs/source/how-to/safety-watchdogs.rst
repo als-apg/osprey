@@ -92,11 +92,35 @@ idle. The build wires the hook that hands prompts to the watchdogs by itself.
    osprey build
    osprey up -d
 
-**6. See it work.** In a web-terminal session, type a prompt from your risky fixtures. The
-agent starts at once, and shortly after a dialog names ``guard-circumvention``, your prompt and
-the reason. Until you answer, the agent's writes in that session are refused with
-``session_held``. Click **Continue** to release it. The verdict and your answer are both in the
-audit trail, on the ``safety_watchdog`` surface.
+**6. See it work.** In a web-terminal session, type a prompt from your risky fixtures:
+
+.. raw:: html
+
+   <div class="osprey-demo">
+     <video id="osprey-watchdog" preload="metadata" muted loop playsinline controls
+            poster="../_static/demo/osprey-watchdog-light-poster.jpg"
+            aria-label="Video of a watchdog flagging a prompt in the web terminal"
+            aria-describedby="osprey-watchdog-note">
+       <source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">
+       <img src="../_static/demo/osprey-watchdog-light-poster.jpg"
+            alt="The web terminal with the dialog of the guard-circumvention watchdog.">
+     </video>
+     <p class="osprey-demo-note" id="osprey-watchdog-note">
+       One session on the control-assistant demo, played in real time. Its first exchange
+       happened before recording started.
+     </p>
+     <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
+       <span>Speed</span>
+       <button type="button" data-rate="1">1×</button>
+       <button type="button" data-rate="1.5">1.5×</button>
+       <button type="button" data-rate="2">2×</button>
+       <button type="button" data-rate="3">3×</button>
+     </div>
+   </div>
+   <script src="../_static/js/doc-video.js"></script>
+
+Until you answer, the agent's writes in that session are refused with ``session_held``. The
+verdict and your answer are both in the audit trail, on the ``safety_watchdog`` surface.
 
 If a line saying ``Watchdog guard-circumvention: unavailable`` appears instead, the watchdog
 could not decide: look for ``error_type`` in its audit entry. ``missing_key`` means the key in

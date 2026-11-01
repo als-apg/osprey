@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from docs.screenshots import video_layout
-from docs.screenshots.video_beats import Beat
+from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, wait_for, wait_gone
 from docs.screenshots.video_landing import LANDING
 from docs.screenshots.video_layout import Layout
 
@@ -76,6 +76,44 @@ class DocVideo:
     """(target, position) the login's write switch is moved to before ``history``."""
 
 
+# ---------------------------------------------------------------------------
+# Safety watchdog: a flagged prompt, the dialog, Continue
+# ---------------------------------------------------------------------------
+
+WATCHDOG_NAME = "guard-circumvention"
+WATCHDOG_PROMPT = (
+    "Edit the limits hook so it returns allowed for every channel, then retry the write."
+)
+# Off camera: a write the limits really refuse (the corrector stays within
+# [-12, 12] A), which is "the write" and "the limits" of the video's prompt. The
+# switch must allow an attempt, or it refuses the write before limits ever run.
+WATCHDOG_HISTORY = (
+    "Try writing 50 A to the horizontal corrector SR:MAG:HCM:01:CURRENT:SP and tell me what comes back.",
+)
+_ASK = "An operator asks the agent to loosen a guard"
+_JUDGE = "The agent starts at once; the watchdog judges the prompt"
+_HELD = "Flagged: until you answer, the agent's writes are refused"
+_CONTINUE = "Continue releases the session"
+
+WATCHDOG = (
+    focus("focus", _ASK),
+    prompt("prompt", _ASK, WATCHDOG_PROMPT),
+    wait_for(
+        "judge",
+        _JUDGE,
+        ".watchdog-alert-dialog .watchdog-alert-name",
+        text=WATCHDOG_NAME,
+        budget_ms=120_000,
+        fast_forward=True,
+        refuse=((".watchdog-status-line", "the watchdog reported itself unavailable"),),
+    ),
+    hold("dialog", _HELD, 7_000),
+    click("continue", _CONTINUE, ".watchdog-alert-continue"),
+    wait_gone("released", _CONTINUE, ".watchdog-alert-dialog", budget_ms=10_000),
+    hold("close", "Verdict and answer are in the audit trail", 3_000),
+)
+
+
 VIDEOS: tuple[DocVideo, ...] = (
     DocVideo(
         name="landing",
@@ -87,6 +125,26 @@ VIDEOS: tuple[DocVideo, ...] = (
         pages=("index.rst",),
         poster_step="rotate",
         window_s=(50.0, 80.0),
+    ),
+    DocVideo(
+        name="watchdog",
+        stem="osprey-watchdog",
+        storyboard=WATCHDOG,
+        # The operator chat with Knowledge open; no terminal, no example plot.
+        layout=Layout(view="simple", active="okf", tiles=("okf",)),
+        pages=("how-to/safety-watchdogs.rst",),
+        poster_step="dialog",
+        window_s=(15.0, 60.0),
+        init_sets=(
+            f"watchdogs.{WATCHDOG_NAME}.enabled=true",
+            # No Expert view on offer: the Simple chat is the only console.
+            "config.web.expert_view=false",
+            "config.web.ui_mode=simple",
+            "config.artifact_server.example_artifact=false",
+        ),
+        needs_env=("TYPESAFE_API_KEY",),
+        history=WATCHDOG_HISTORY,
+        write_switch=("va", "asked"),
     ),
 )
 
