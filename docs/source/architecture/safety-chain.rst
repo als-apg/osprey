@@ -90,6 +90,86 @@ A write meets its gates in this order, and the first that refuses ends it:
 The hooks and the connector share one verdict and one order, so a write refused at either
 names the same reason.
 
+Where a watchdog has flagged the session, the hook's verdict (gate 2), the server (gate 3) and
+the connector (gate 4) each refuse the write with ``session_held``. The approval prompt does
+not answer a flag, so a write approved while the flag is open is refused at the server. See
+:ref:`Safety watchdogs <architecture-safety-watchdogs>`.
+
+.. _architecture-safety-watchdogs:
+
+Safety watchdogs
+================
+
+.. raw:: html
+   :file: ../_diagrams/safety-watchdogs.html
+
+A **watchdog** is a check a facility writes, in plain language, that judges each operator
+prompt in the background: is this session heading somewhere it should not? A deployment may
+enable any number, off by default, and each uses one of two engines:
+
+- **The decision engine** asks a decision model (TypeSafe Jev) to pick among options the
+  facility wrote. It sees the watchdog's instructions and the session's recent history, and
+  nothing else, and usually answers within seconds.
+- **The agent engine** runs a read-only agent, which also sees the watchdog's references and
+  facility knowledge and can read the machine. It is slower and costs more, and each run is
+  capped in time and cost. Every write or edit it attempts is refused and recorded.
+
+A watchdog answers *clear*, *flagged* or *unavailable*. Nothing it says means an action is
+safe, so no record or screen says so: a clear verdict is logged and not shown. An unavailable
+watchdog raises no dialog and no hold, and the terminal shows it as unavailable.
+
+**The hold.** A flag holds the writes of the agent in that session, by every route the agent
+has: write tools, executed scripts, plans queued through its tools, ``phoebus_drive``. Each
+flag stays open until an operator answers it, whether or not anyone is attached; a reload or
+a reattach brings the dialog back. The hold is one more reason to refuse, and it loosens
+nothing: every other gate on this page still applies once it is gone. Stopping a plan, and
+switching the control target, are never held.
+
+**A watchdog is advisory, not a gate on the first write.** The prompt goes to the agent at
+once, because a watchdog must never delay it, so a verdict can land after a write has already
+run. The hold covers the time from the flag to the answer. A fooled or failed watchdog fails
+to warn, and that is all it can do.
+
+**The dialog** names each watchdog, the prompt it judged and its reason, and flags raised
+together share one dialog. Only a click answers it. **Stop** interrupts the turn and waits;
+when the turn has ended and nothing the agent started still runs, the flags are released. If
+not, they stay open, the dialog says the turn did not stop, and it lists what still runs.
+**Continue** releases the flags and records who chose to proceed. The next write then meets
+the checks above, including the approval prompt.
+
+What watchdogs do not cover
+---------------------------
+
+- **Only the prompt.** A watchdog judges when a prompt arrives, not after each tool call or
+  at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
+  session, and it does not treat what a tool returned as hostile.
+- **Only the agent's writes.** A write the operator makes directly, from a notebook cell or
+  the BLUESKY panel, is not held.
+- **Not motion already running.** A plan the agent started keeps running; stop it with the
+  existing tools.
+- **Only the web terminal holds.** ``osprey chat`` or a bare ``claude`` in a built project
+  records its flags and is never held, because no dialog could answer them.
+- **Only an operator's prompts.** Dispatch jobs, webhooks and ``osprey query`` trigger no
+  watchdog.
+- **Not code set on releasing its own hold.** The hold record sits with the deployment's other
+  state records, and the agent's file tools and shell are denied its directory. Code running
+  as the agent's user that deliberately rewrites the record can still release its own hold
+  with no audited Continue, the same boundary as :ref:`the switch's record
+  <architecture-safety-chain-residual>`.
+
+Setting one up
+--------------
+
+A watchdog is an entry in the profile's ``watchdogs:`` block plus an instructions file at
+``watchdogs/<name>/instructions.md``, and ``enabled: true`` and a rebuild turn it on. Run
+``osprey watchdog replay`` over labelled prompts before enabling one: the thresholds are not
+calibrated for any facility. A decision watchdog sends session history to TypeSafe (hosted in
+the US) or OpenRouter; an agent watchdog uses the deployment's own LLM provider. Each adds its
+cost to every prompt.
+
+:doc:`/how-to/safety-watchdogs` has the steps, and :ref:`reference-watchdog` has the exact
+behaviour.
+
 Five paths below the checks
 ===========================
 

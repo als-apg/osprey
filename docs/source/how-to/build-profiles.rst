@@ -183,6 +183,9 @@ everything else lands in every render.
    * - ``services/``
      - ``services/``
      - a directory per compose service
+   * - ``watchdogs/``
+     - ``watchdogs/``, for enabled watchdogs only
+     - a directory named for one watchdog (see :ref:`profile-watchdogs-block`)
    * - ``project/``
      - the build root (``build/``)
      - any file, mirrored verbatim
@@ -889,6 +892,67 @@ Every key ``profile.yml`` accepts — the field table, ``config:`` overrides, MC
 servers, tool permissions, ``services``, ``va_archiver``, lifecycle commands,
 ``env``, dependencies and the execution environment — is in
 :doc:`/reference/configuration/profile`.
+
+.. _profile-watchdogs-block:
+
+The ``watchdogs:`` block
+------------------------
+
+A map from a watchdog's name to its definition, with any number of entries. The name is
+lowercase letters, digits, ``-`` and ``_``, starting with a letter or digit, and it names the
+directory ``watchdogs/<name>/`` beside ``profile.yml``. That directory holds
+``instructions.md`` and, optionally, ``references/``. A rendered project carries only the
+enabled entries and their directories; with none enabled, it carries neither the block nor the
+trigger hook. :doc:`safety-watchdogs` has the steps.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 14 14 52
+
+   * - Key
+     - Engine
+     - Default
+     - Meaning
+   * - ``engine``
+     - both
+     - required
+     - ``decision`` or ``agent``.
+   * - ``enabled``
+     - both
+     - ``false``
+     - Run it on every prompt. An enabled watchdog needs its instructions, and needs
+       ``turn-state`` in ``hooks:``.
+   * - ``options``
+     - decision
+     - required
+     - A list of ``{id, text, flag}``, with at least one ``flag: true`` and one not. ``text``
+       is what the operator reads.
+   * - ``threshold``
+     - decision
+     - ``0.5``
+     - The summed probability of the flag options at which it flags, between 0 and 1,
+       exclusive. Not calibrated.
+   * - ``tools``
+     - agent
+     - ``[]``
+     - Read tools beyond those it always has. An entry is a tool name, optionally ending in
+       ``*`` or ``.*``; one that reaches a write tool fails the build.
+   * - ``model``
+     - agent
+     - ``null``
+     - A model name; ``null`` is the deployment's own.
+   * - ``timeout_s``
+     - agent
+     - ``90``
+     - Seconds one run may take.
+   * - ``max_cost_usd``
+     - agent
+     - ``0.25``
+     - Dollars one run may spend.
+
+A key the entry's engine does not read fails the build. A profile that inherits a watchdog
+through ``extends`` does not inherit its files, so it may carry the entry disabled as it stands
+and must add the files itself to enable it.
 
 
 Building

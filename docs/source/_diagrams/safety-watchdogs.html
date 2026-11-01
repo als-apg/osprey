@@ -1,0 +1,103 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 640 620" role="img" aria-labelledby="safety-watchdogs-title safety-watchdogs-desc">
+  <title id="safety-watchdogs-title">What happens to an operator's prompt when watchdogs are enabled</title>
+  <desc id="safety-watchdogs-desc">An operator types a prompt. The OSPREY agent runs it at once, and no watchdog delays it. In the background every enabled watchdog judges the prompt separately: decision-engine watchdogs, the fast judges, where a model picks one of the facility's options after seeing only the instructions and the session; and agent-engine watchdogs, the deep judges, where a read-only agent uses references, facility knowledge and machine reads, capped in time and cost. A deployment may have several of each. Each one ends in one of three ways. Clear is logged, nothing is shown, and it is never called safe. Unavailable, from an error, a timeout or a cap, is logged and shown as unavailable, with no dialog and no hold. Risky raises a flag, which holds the session's agent writes: each write the agent starts in that session is refused with session_held until the flag is answered. Flags from one prompt share one dialog, which names the watchdog, the prompt and the reason, and detaching from the session releases nothing. The operator answers with a click on Stop or Continue. Stop interrupts the turn and waits for it; if it ended and nothing the agent started still runs, the flag is released, otherwise the flag stays open and the dialog says the turn did not stop. Continue releases the flag, the answer is audited with who answered, and later writes meet the normal checks and the approval prompt. Every verdict, failure and answer leaves an entry on the safety_watchdog audit surface, joined to the session and the judged prompt.</desc>
+  <defs>
+    <marker id="safety-watchdogs-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+    <marker id="safety-watchdogs-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/>
+    </marker>
+  </defs>
+
+  <!-- the prompt -->
+  <rect class="nb nb-acc-stroke" x="170" y="16" width="200" height="44" rx="6"/>
+  <text class="tn" x="270" y="35" text-anchor="middle">Operator types a prompt</text>
+  <text class="ts" x="270" y="50" text-anchor="middle">a person, in an interactive session</text>
+  <path class="e" d="M170,38 H100 V84" marker-end="url(#safety-watchdogs-arr)"/>
+  <text class="ta" x="104" y="32">at once</text>
+  <path class="e" d="M370,38 H415 V84" marker-end="url(#safety-watchdogs-arr)"/>
+  <text class="ta" x="376" y="32">in the background</text>
+
+  <!-- the agent -->
+  <rect class="nb-in" x="20" y="84" width="160" height="456" rx="6"/>
+  <text class="tn" x="100" y="106" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="100" y="122" text-anchor="middle">the prompt is never delayed</text>
+  <text class="ts" x="100" y="135" text-anchor="middle">tool calls meet the checks</text>
+  <text class="ts" x="100" y="148" text-anchor="middle">and approval prompt as usual</text>
+  <text class="ts" x="172" y="331" text-anchor="end">writes refused:</text>
+  <text class="ts" x="172" y="344" text-anchor="end">session_held</text>
+  <text class="ts" x="172" y="498" text-anchor="end">turn interrupted</text>
+
+  <!-- the watchdogs -->
+  <rect class="zone" x="210" y="84" width="410" height="110" rx="6"/>
+  <text class="te" x="222" y="101">EVERY ENABLED WATCHDOG, SEPARATELY</text>
+  <rect class="nb" x="222" y="110" width="188" height="74" rx="6"/>
+  <text class="tn" x="316" y="130" text-anchor="middle">Decision engine: fast</text>
+  <text class="ts" x="316" y="146" text-anchor="middle">a model picks one of your options</text>
+  <text class="ts" x="316" y="159" text-anchor="middle">sees instructions + session only</text>
+  <text class="ts" x="316" y="172" text-anchor="middle">several, each with its own focus</text>
+  <rect class="nb" x="420" y="110" width="188" height="74" rx="6"/>
+  <text class="tn" x="514" y="130" text-anchor="middle">Agent engine: deep</text>
+  <text class="ts" x="514" y="146" text-anchor="middle">read-only agent: references,</text>
+  <text class="ts" x="514" y="159" text-anchor="middle">facility knowledge, machine reads</text>
+  <text class="ts" x="514" y="172" text-anchor="middle">capped in time and cost</text>
+
+  <line class="e" x1="274" y1="194" x2="274" y2="214" marker-end="url(#safety-watchdogs-arr)"/>
+  <line class="e" x1="415" y1="194" x2="415" y2="214" marker-end="url(#safety-watchdogs-arr)"/>
+  <line class="e-warn" x1="556" y1="194" x2="556" y2="214" marker-end="url(#safety-watchdogs-arr-warn)"/>
+
+  <!-- the three endings -->
+  <rect class="nb" x="210" y="218" width="128" height="68" rx="6"/>
+  <text class="tn" x="274" y="237" text-anchor="middle">Clear</text>
+  <text class="ts" x="274" y="253" text-anchor="middle">logged, nothing shown</text>
+  <text class="ts" x="274" y="266" text-anchor="middle">never called safe</text>
+  <rect class="nb-st" x="351" y="218" width="128" height="68" rx="6"/>
+  <text class="tn" x="415" y="237" text-anchor="middle">Unavailable</text>
+  <text class="ts" x="415" y="253" text-anchor="middle">error, timeout or cap</text>
+  <text class="ts" x="415" y="266" text-anchor="middle">logged, shown as such</text>
+  <text class="ts" x="415" y="279" text-anchor="middle">no dialog, no hold</text>
+  <rect class="nb-warn" x="492" y="218" width="128" height="68" rx="6"/>
+  <text class="tn" x="556" y="237" text-anchor="middle">Risky: a flag</text>
+  <text class="ts" x="556" y="253" text-anchor="middle">names the watchdog,</text>
+  <text class="ts" x="556" y="266" text-anchor="middle">the prompt, a reason</text>
+
+  <line class="e-warn" x1="556" y1="286" x2="556" y2="306" marker-end="url(#safety-watchdogs-arr-warn)"/>
+
+  <!-- the hold -->
+  <rect class="nb-warn" x="210" y="310" width="410" height="54" rx="6"/>
+  <text class="tn" x="415" y="329" text-anchor="middle">Hold on this session's agent writes</text>
+  <text class="ts" x="415" y="344" text-anchor="middle">each write the agent starts in this session is refused until answered</text>
+  <text class="ts" x="415" y="357" text-anchor="middle">flags from one prompt share one dialog · detaching releases nothing</text>
+  <line class="e-warn" x1="210" y1="334" x2="181" y2="334" marker-end="url(#safety-watchdogs-arr-warn)"/>
+  <line class="e" x1="415" y1="364" x2="415" y2="384" marker-end="url(#safety-watchdogs-arr)"/>
+
+  <!-- the dialog -->
+  <rect class="nb-foc" x="210" y="388" width="410" height="42" rx="6"/>
+  <text class="tn" x="415" y="406" text-anchor="middle">Dialog: "This looks risky." Stop or Continue?</text>
+  <text class="ts" x="415" y="421" text-anchor="middle">web terminal, either mode · only a click on Stop or Continue answers</text>
+  <line class="e" x1="309" y1="430" x2="309" y2="450" marker-end="url(#safety-watchdogs-arr)"/>
+  <line class="e" x1="521" y1="430" x2="521" y2="450" marker-end="url(#safety-watchdogs-arr)"/>
+
+  <!-- the answers -->
+  <rect class="nb" x="210" y="454" width="198" height="86" rx="6"/>
+  <text class="tn" x="309" y="473" text-anchor="middle">Stop</text>
+  <text class="ts" x="309" y="489" text-anchor="middle">interrupt the turn, wait for it</text>
+  <text class="ts" x="309" y="502" text-anchor="middle">ended, nothing running: released</text>
+  <text class="ts" x="309" y="515" text-anchor="middle">otherwise the flag stays open:</text>
+  <text class="ts" x="309" y="528" text-anchor="middle">"The turn did not stop."</text>
+  <line class="e" x1="210" y1="494" x2="181" y2="494" marker-end="url(#safety-watchdogs-arr)"/>
+  <rect class="nb" x="422" y="454" width="198" height="86" rx="6"/>
+  <text class="tn" x="521" y="473" text-anchor="middle">Continue</text>
+  <text class="ts" x="521" y="489" text-anchor="middle">releases the flag it names</text>
+  <text class="ts" x="521" y="502" text-anchor="middle">audited with who answered</text>
+  <text class="ts" x="521" y="515" text-anchor="middle">writes meet the normal checks</text>
+  <text class="ts" x="521" y="528" text-anchor="middle">and the approval prompt</text>
+
+  <!-- the audit -->
+  <rect class="nb-st" x="20" y="560" width="600" height="44" rx="6"/>
+  <text class="tn" x="320" y="578" text-anchor="middle">Audit trail: safety_watchdog</text>
+  <text class="ts" x="320" y="594" text-anchor="middle">every verdict, failure and answer, joined to the session and the judged prompt</text>
+</svg>
+</div>
