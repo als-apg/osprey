@@ -1,0 +1,34 @@
+# Test-only: proves the agent engine. No preset ships an agent watchdog.
+# `data` names a tree the test lays beside a copy of this directory, from the
+# hello_world bundle; both watchdogs stay off until a test enables one.
+name: Watchdog Agent Fixture
+project_name: watchdog-agent-fixture
+provider: anthropic
+model: claude-haiku-4-5
+channel_finder_mode: hierarchical
+data: data
+hooks:
+  - turn-state
+  - memory-guard
+  - writes-check
+config:
+  control_system.type: virtual_accelerator
+  control_system.connector.virtual_accelerator.serving: in_process
+  archiver.type: mock_archiver
+  approval.enabled: false
+  approval.default_policy: always
+  hooks.debug: false
+watchdogs:
+  guard-circumvention-agent:
+    engine: agent
+    enabled: false
+    tools: []
+    timeout_s: 90
+    max_cost_usd: 0.25
+  agent-reader:
+    engine: agent
+    enabled: false
+    tools:
+      - mcp__controls__channel_read
+    timeout_s: 90
+    max_cost_usd: 0.25
