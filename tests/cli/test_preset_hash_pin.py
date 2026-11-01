@@ -14,9 +14,15 @@ deploy-visible event: update the digest here in the same commit, knowingly.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from osprey.cli.build_profile import list_presets
+from osprey.cli.build_profile_drift import app_tree_digest
 from osprey.cli.build_profile_merge import _hash_resolved_profile, compute_preset_hash
 from osprey.cli.build_profile_presets import list_tiers
+from osprey.profiles import presets
+
+PRESET_APPS_DIR = Path(presets.__file__).parent / "apps"
 
 
 def _bundled_names() -> list[str]:
@@ -46,6 +52,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 }
 
 
+# application name -> the digest ``osprey init`` records for its copy in the
+# application's ``.provenance``. An application is deploy-visible source as a
+# preset is: moving its digest reports every copy in a deployment as drifted.
+PINNED_APP_TREE_DIGESTS: dict[str, str] = {
+    "knob-example": ("sha256:cd4b0be82e794645266956fcd0ce91c3face1fdc3f13e00c92ea61ca6942e408"),
+}
+
+
 def test_bundled_preset_set_is_pinned():
     """A new preset or login must be classified here before it ships.
 
@@ -65,6 +79,12 @@ def test_every_bundled_preset_hash_is_unchanged():
     """
     actual = {name: compute_preset_hash(name) for name in _bundled_names()}
     assert actual == PINNED_PRESET_HASHES
+
+
+def test_every_bundled_application_tree_is_pinned_and_unchanged():
+    """Every application the presets ship is classified here, at its pinned digest."""
+    actual = {path.name: app_tree_digest(path) for path in PRESET_APPS_DIR.iterdir()}
+    assert actual == PINNED_APP_TREE_DIGESTS
 
 
 def test_hashing_does_not_mutate_the_callers_dict(tmp_path):

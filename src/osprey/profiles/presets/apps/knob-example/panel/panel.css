@@ -1,0 +1,17 @@
+.knob {
+  padding: 1.5rem;
+}
+
+.knob-channel,
+.knob-target {
+  color: var(--text-secondary);
+}
+
+.knob-readback {
+  font-size: 2.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.knob-error {
+  color: var(--color-error);
+}

@@ -40,6 +40,10 @@ export default {
     // Works around Node >= 26 shadowing happy-dom's localStorage with its own
     // undefined experimental global (see the comment in the setup file).
     setupFiles: ['./tests/vitest.setup.mjs'],
-    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}'],
+    include: [
+      'tests/**/*.test.{js,mjs}',
+      'src/osprey/interfaces/**/*.test.{js,mjs}',
+      'src/osprey/profiles/presets/apps/*/tests/**/*.test.{js,mjs}',
+    ],
   },
 };

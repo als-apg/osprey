@@ -97,11 +97,17 @@ READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.
 #: its Vitest suite and the cases both runtimes read.
 DOCK_ENGINE = "packages/dock-engine/**"
 
+#: The bundled applications, each with its own panel and Vitest tests.
+PRESET_APPS_ROOT = "src/osprey/profiles/presets/apps/"
+
 #: The scope of ``tsc``: the include globs of both ``tsconfig.json`` files and their inputs.
 TSC_SCOPE = (
     "src/osprey/interfaces/vendor-globals.d.ts",
     "src/osprey/interfaces/**/static/js/**/*.js",
     "src/osprey/interfaces/bluesky_web/panels/**/*.js",
+    f"{PRESET_APPS_ROOT}*/panel/**/*.js",
+    f"{PRESET_APPS_ROOT}*/tests/**/*.js",
+    f"{PRESET_APPS_ROOT}*/tests/**/*.mjs",
     "tests/**/*.js",
     "tests/**/*.mjs",
     "tsconfig.json",
@@ -467,7 +473,7 @@ def _select_vitest(
     for path in paths:
         name = path.rsplit("/", 1)[-1]
         if path.endswith(guard.TEST_SUFFIXES):
-            if path.startswith(("tests/", guard.INTERFACES_ROOT)):
+            if path.startswith(("tests/", guard.INTERFACES_ROOT, PRESET_APPS_ROOT)):
                 chosen.append(path)
         elif guard.modules([path]):
             interface = guard.interface_of(path)
