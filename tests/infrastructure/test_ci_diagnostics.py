@@ -396,9 +396,43 @@ _FAKE_LOGS = 'echo "2026-01-01T00:00:00Z log line from $3"'
 #: A ``logs`` call that outlives any per-call bound the tests set.
 _SLOW_LOGS = "exec sleep 60"
 
-#: The per-call bound the in-process timeout tests set: well past what a fast
-#: engine call costs on a loaded host, well short of the slow call.
+#: The per-call bound handed to the capture, short of the slow call.
 _CALL_BOUND = 5.0
+
+
+def _fake_engine_stdout(argv: list[str]) -> str:
+    """What the fake engine prints for *argv* while its containers are up."""
+    match argv:
+        case ["ps", "-aq"]:
+            return "c1\nc2\n"
+        case ["ps", *_]:
+            return "CONTAINER ID   NAMES\nc1   fake-c1\nc2   fake-c2\n"
+        case ["logs", _, cid]:
+            return f"2026-01-01T00:00:00Z log line from {cid}\n"
+        case ["inspect", _, "{{.Name}}", cid]:
+            return f"/fake-{cid}\n"
+        case ["inspect", _, "{{json .State.Health}}", cid]:
+            return '{"Status":"healthy"}\n' if cid == "c1" else "null\n"
+        case ["inspect", _, _, cid]:
+            return f"/fake-{cid} image=fake status=running exit=0 oomkilled=false\n"
+    return ""
+
+
+#: Every engine call a capture of the fake engine's two containers makes.
+_CAPTURE_ARGVS = [
+    ["ps", "-aq"],
+    ["ps", "-a"],
+    *(
+        argv
+        for cid in ("c1", "c2")
+        for argv in (
+            ["inspect", "--format", "{{.Name}}", cid],
+            ["logs", "--timestamps", cid],
+            ["inspect", "--format", ci_diagnostics._STATE_FORMAT, cid],
+            ["inspect", "--format", "{{json .State.Health}}", cid],
+        )
+    ),
+]
 
 
 def _write_engine(bin_dir: Path, name: str, body: str) -> Path:
@@ -672,8 +706,26 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
     assert "fake-c2" in state.read_text()
 
 
+def test_the_in_process_engine_answers_what_the_fake_engine_prints(fake_engine):
+    for argv in _CAPTURE_ARGVS:
+        done = subprocess.run([fake_engine.name, *argv], capture_output=True, text=True, check=True)
+        assert done.stdout == _fake_engine_stdout(argv), argv
+
+
 def test_a_capture_that_times_out_is_marked_incomplete(slow_engine, tmp_path, monkeypatch):
-    """A wedged engine costs one bounded call, and the snapshot says it stopped short."""
+    """A wedged engine costs one bounded call, and the snapshot says it stopped short.
+
+    Every call but ``logs c1`` is answered in process, so the bound handed to the
+    capture times only the call that never answers.
+    """
+    real_run = subprocess.run
+
+    def router(cmd, *args, **kwargs):
+        if cmd[1] == "logs" and cmd[-1] == "c1":
+            return real_run(cmd, *args, **kwargs)
+        return subprocess.CompletedProcess(cmd, 0, _fake_engine_stdout(cmd[1:]), "")
+
+    monkeypatch.setattr(ci_diagnostics.subprocess, "run", router)
     monkeypatch.setattr(ci_diagnostics, "SNAPSHOT_CALL_TIMEOUT", _CALL_BOUND)
     snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", slow_engine.name)
 
