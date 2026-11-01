@@ -39,6 +39,7 @@ from check_kit import (
     WHOLE,
     Check,
     Context,
+    EnvironmentFault,
     Lane,
     Refused,
     Selection,
@@ -714,6 +715,9 @@ CLAUDE_PIN_PROBE = (*UV_RUN, "python", "scripts/pinned_claude.py")
 #: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
 JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 
+#: ``--no-sync``: a plain ``uv run`` is what would hide a stale install, or install it.
+INSTALLED_VERSIONS_PROBE = (*UV_RUN, "--no-sync", "python", "scripts/installed_versions.py")
+
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
@@ -800,6 +804,33 @@ def _need_node() -> str | None:
     return None
 
 
+def _stale_installs() -> list[list[str]]:
+    """The reader's rows. It prints none on a checkout with no environment yet:
+    the check's own ``uv run`` creates that one current."""
+    rows = (line.split("\t") for line in _probe(INSTALLED_VERSIONS_PROBE)[1].splitlines())
+    return [row for row in rows if len(row) == 3]
+
+
+def _need_install_current() -> str | None:
+    """Met when the install is what the tree describes; re-syncs it when it is not."""
+    stale = _stale_installs()
+    if not stale:
+        return None
+    for dist, installed, described in stale:
+        kit.say(f"install-current: {dist} installed {installed}, tree describes {described}")
+    reinstall = [word for row in stale for word in ("--reinstall-package", row[0])]
+    # --inexact: a plain sync removes the extras this environment was given.
+    status = kit.run(("uv", "sync", "--frozen", "--inexact", *reinstall))
+    still = _stale_installs() or (stale if status != 0 else [])
+    if not still:
+        return None
+    dist, installed, described = still[0]
+    raise EnvironmentFault(
+        "install currency",
+        f"{dist} installed {installed}, tree describes {described} after uv sync",
+    )
+
+
 def _need_history() -> str | None:
     if kit.git("rev-parse", "--is-shallow-repository").strip() == "true":
         return "this clone is shallow: run git fetch --unshallow"
@@ -835,6 +866,7 @@ NEEDS = {
     "graphviz": _need_graphviz,
     "workflow-linters": _need_workflow_linters,
     "va-extra": _need_va_extra,
+    "install-current": _need_install_current,
 }
 
 
