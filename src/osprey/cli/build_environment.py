@@ -23,6 +23,7 @@ from typing import Any, NamedTuple
 from urllib.parse import unquote, urlparse
 
 from osprey.deployment.wheel_build import (
+    DEPLOYMENT_PACKAGES_DIRNAME,
     FRAMEWORK_DISTRIBUTION,
     DeploymentPackage,
     refuse_unshipped_kinds,
@@ -388,6 +389,7 @@ def _write_project_pyproject(
     osprey_label: str,
     extra_deps: list[str],
     base_python: str,
+    deployment_packages: Sequence[DeploymentPackage] = (),
 ) -> None:
     """Write the built project's ``pyproject.toml`` dependency record.
 
@@ -396,9 +398,10 @@ def _write_project_pyproject(
     1. **Dependency record.** Declares the exact set
        :func:`_create_project_venv` installed, so ``uv sync`` rebuilds the
        environment rather than pruning it down to nothing. A deployment package
-       is recorded as ``name==version`` with no source: its wheel is in the
-       render's deployment-packages directory, which a resolve from this record
-       alone does not search.
+       is recorded as ``name==version``, bound through ``[tool.uv.sources]`` to
+       its wheel in the render's deployment-packages directory by a path relative
+       to this file, so ``uv sync`` and ``uv run`` resolve it from that wheel and
+       never from an index.
     2. **Project anchor.** ``uv run`` locates an environment by walking *up*
        from the working directory looking for a ``pyproject.toml``. Without one,
        ``uv run osprey web`` inside a built project that happens to sit under
@@ -426,6 +429,8 @@ def _write_project_pyproject(
             comment for provenance only — nothing ever reads it back, so a
             path that is meaningless on another machine cannot mislead a
             rebuild there.
+        deployment_packages: The built packages *extra_deps* names, each bound
+            to its wheel.
     """
     deps = [_osprey_requirement(osprey_spec)] + list(extra_deps)
 
@@ -459,6 +464,16 @@ def _write_project_pyproject(
             "# The osprey pin is a pre-release, and so is every workspace-member",
             "# release it ships with; a resolve from this record has to admit them.",
             'prerelease = "allow"',
+            "",
+        ]
+    if deployment_packages:
+        lines += [
+            "[tool.uv.sources]",
+            *(
+                f"{p.name} = {{ path = "
+                f"{json.dumps(f'{DEPLOYMENT_PACKAGES_DIRNAME}/{p.wheel.name}')} }}"
+                for p in deployment_packages
+            ),
             "",
         ]
     (project_path / "pyproject.toml").write_text("\n".join(lines), encoding="utf-8")
@@ -1123,4 +1138,11 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
 
     # --- Record deps in pyproject.toml ---
     # The recorded list is the installed list — same object, no re-derivation.
-    _write_project_pyproject(project_path, osprey_spec, osprey_label, extra_deps, base_python_arg)
+    _write_project_pyproject(
+        project_path,
+        osprey_spec,
+        osprey_label,
+        extra_deps,
+        base_python_arg,
+        plan.deployment_packages,
+    )

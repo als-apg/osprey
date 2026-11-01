@@ -9,17 +9,23 @@ path a profile dependency takes, in two spellings of one list:
 - the build venv installs each from its wheel, beside the framework, in one
   resolve;
 - the recorded ``pyproject.toml`` and the rendered Dockerfile carry the
-  distribution names, which the image installs from the directory staged into
+  distribution names, each bound to its wheel, which the record reaches through a
+  relative ``[tool.uv.sources]`` path and the image from the directory staged into
   every image context, on the same line as ``$OSPREY_PIP_SPEC``.
 
-Neither the record nor any Dockerfile names a path on the building host.
+Neither the record nor any Dockerfile names a path on the building host, and no
+index can serve a deployment package's name instead of its wheel.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
+import sys
+import tomllib
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,6 +39,7 @@ from jinja2 import Template
 from osprey.cli.build_environment import (
     _create_project_venv,
     _plan_project_venv,
+    _write_project_pyproject,
     deployment_dependencies,
 )
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
@@ -279,7 +286,142 @@ def test_the_venv_resolves_the_wheels_with_the_framework_and_records_names(
     assert "--no-deps" not in installs[0]
     record = (project / "pyproject.toml").read_text(encoding="utf-8")
     assert '"knob-app==0.1.0"' in record and '"ring-kind==0.2.0"' in record
+    assert tomllib.loads(record)["tool"]["uv"]["sources"].keys() == {"knob-app", "ring-kind"}
     assert str(tmp_path) not in record
+
+
+def test_the_record_binds_each_package_to_its_wheel_by_relative_path(tmp_path: Path) -> None:
+    _root, dest, packages = _built(tmp_path)
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+    project = tmp_path / "stage"
+
+    _write_project_pyproject(
+        project,
+        plan.osprey_spec,
+        plan.osprey_label,
+        plan.extra_deps,
+        plan.base_python_arg,
+        plan.deployment_packages,
+    )
+
+    record = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "knob-app==0.1.0" in record["project"]["dependencies"]
+    sources = record["tool"]["uv"]["sources"]
+    assert set(sources) == {"knob-app", "ring-kind"}
+    for package in packages:
+        path = sources[package.name]["path"]
+        assert not Path(path).is_absolute()
+        assert (project / path).resolve() == package.wheel.resolve()
+
+
+def test_a_deployment_with_no_package_records_no_source(tmp_path: Path) -> None:
+    _write_project_pyproject(tmp_path, "osprey-framework==2026.10.1", "pin", ["numpy>=1"], "py")
+
+    record = tomllib.loads((tmp_path / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "sources" not in record.get("tool", {}).get("uv", {})
+
+
+def _real_wheel(out_dir: Path, name: str, version: str, who: str) -> Path:
+    """A wheel an installer accepts: ``import <name>`` then says which one it was."""
+    module = name.replace("-", "_")
+    info = f"{module}-{version}.dist-info"
+    wheel = out_dir / f"{module}-{version}-py3-none-any.whl"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{module}/__init__.py", f"WHO = {who!r}\n")
+        archive.writestr(
+            f"{info}/METADATA", f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+        )
+        archive.writestr(
+            f"{info}/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+        archive.writestr(
+            f"{info}/RECORD",
+            f"{module}/__init__.py,,\n{info}/METADATA,,\n{info}/WHEEL,,\n{info}/RECORD,,\n",
+        )
+    return wheel
+
+
+def _uv_env() -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV" and not k.startswith("UV")}
+    return {**env, "UV_INDEX_STRATEGY": "unsafe-best-match"}
+
+
+def _which_uv() -> str:
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is not installed")
+    return uv
+
+
+def test_uv_sync_rebuilds_the_environment_from_the_record_offline(tmp_path: Path) -> None:
+    """The record resolves, from the wheel, with an index offering the same name and version."""
+    uv = _which_uv()
+    project = tmp_path / "project"
+    wheel = _real_wheel(project / DEPLOYMENT_PACKAGES_DIRNAME, "knob-app", "0.1.0", "staged")
+    framework = _real_wheel(tmp_path / "framework", "osprey-framework", "1.0", "framework")
+    index = tmp_path / "index"
+    _real_wheel(index, "knob-app", "0.1.0", "index")
+    package = wheel_build.DeploymentPackage(name="knob-app", version="0.1.0", wheel=wheel)
+
+    _write_project_pyproject(
+        project, str(framework), "wheel", [package.requirement], sys.executable, (package,)
+    )
+    synced = subprocess.run(
+        [uv, "sync", "--offline", "--python", sys.executable, "--find-links", str(index)],
+        cwd=project,
+        env=_uv_env(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert synced.returncode == 0, synced.stdout + synced.stderr
+    probe = subprocess.run(
+        [str(project / ".venv" / "bin" / "python"), "-c", "import knob_app; print(knob_app.WHO)"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert probe.stdout.strip() == "staged", probe.stderr
+
+
+def test_the_image_install_line_takes_the_staged_wheel_over_an_index(tmp_path: Path) -> None:
+    """The Dockerfile's two spellings, on one line, against an index of the same name and version."""
+    uv = _which_uv()
+    env = _uv_env()
+    staged = _real_wheel(tmp_path / "staged", "knob-app", "0.1.0", "staged")
+    index = tmp_path / "index"
+    _real_wheel(index, "knob-app", "0.1.0", "index")
+    venv = tmp_path / "venv"
+    subprocess.run(
+        [uv, "venv", "--python", sys.executable, str(venv)], check=True, env=env, timeout=60
+    )
+    python = str(venv / "bin" / "python")
+
+    installed = subprocess.run(
+        [
+            *[uv, "pip", "install", "--no-index", "--python", python],
+            *["--find-links", str(index)],
+            "knob-app==0.1.0",
+            *["--refresh-package", "knob-app"],
+            f"knob-app @ {staged.as_uri()}",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    probe = subprocess.run(
+        [python, "-c", "import knob_app; print(knob_app.WHO)"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert probe.stdout.strip() == "staged", probe.stderr
 
 
 def test_a_registered_kind_with_no_shipped_package_is_refused(
