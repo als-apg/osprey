@@ -15,6 +15,7 @@ its commands the way the agent CLI does, and the door runs through
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,6 +70,23 @@ def _pool_terminal(
     return session, pid_file, input_file
 
 
+def _hold_writes_until_read(session: PtySession, input_file: Path) -> None:
+    """Return from *session*'s input write only once the real child has recorded it.
+
+    The fake clock spends the interrupt grace at once, so without this the door
+    can terminate the child before it has read what it was sent.
+    """
+    write = session.write_input
+
+    def write_then_wait(data: bytes) -> None:
+        write(data)
+        deadline = time.monotonic() + 30.0
+        while not input_file.read_bytes() and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+    session.write_input = write_then_wait  # type: ignore[method-assign]
+
+
 async def test_stop_and_switch_asks_before_a_started_command_is_ended(tmp_path):
     app = make_app(hook=False)
     session, pid_file, input_file = _pool_terminal(
@@ -103,6 +121,7 @@ async def test_stop_both_ends_the_agent_and_its_commands(tmp_path):
     pids: list[int] = []
     try:
         pids = wait_for_pids(session, pid_file, 2)
+        _hold_writes_until_read(session, input_file)
 
         await acquire(
             app,
@@ -252,6 +271,7 @@ async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_p
     pids: list[int] = []
     try:
         pids = wait_for_pids(session, pid_file, 2)
+        _hold_writes_until_read(session, input_file)
         _fail_reads(monkeypatch)
 
         await acquire(
