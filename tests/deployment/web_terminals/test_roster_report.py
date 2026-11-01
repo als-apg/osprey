@@ -37,7 +37,8 @@ CONFIG = textwrap.dedent(
              control_identity: alice}
           - {name: bob, index: 2, tier: viewer, oidc_subject: bob@other.org}
           - {name: lab, index: 3, tier: viewer, display_name: Lab,
-             access: [self, "user:bob@other.org", "domain:partner.org"]}
+             access: [self, "user:bob@other.org", "user:eve@else.org", "domain:partner.org"]}
+          - {name: ops, index: 4, tier: viewer, display_name: Ops, access: ["tier:editor"]}
         shared: [search]
     services:
       dispatch_worker: {tier: runner}
@@ -80,7 +81,7 @@ def test_a_shared_login_is_a_card_and_not_a_person(repo):
 
 def test_every_login_opens_its_own_card_and_the_whole_roster_ones(repo):
     report = _report(repo)
-    assert set(_person(report, "alice")["opens"]) == {"desk", "alice", "search"}
+    assert set(_person(report, "alice")["opens"]) == {"desk", "alice", "ops", "search"}
 
 
 def test_a_user_principal_opens_the_card_to_that_identity_alone(repo):
@@ -90,7 +91,7 @@ def test_a_user_principal_opens_the_card_to_that_identity_alone(repo):
 
 
 def test_principals_reaching_past_the_roster_are_named(repo):
-    assert _report(repo)["off_roster"] == {"lab": ["domain:partner.org", "user:bob@other.org"]}
+    assert _report(repo)["off_roster"] == {"lab": ["domain:partner.org", "user:eve@else.org"]}
 
 
 def test_a_card_reports_its_own_renders_write_posture(repo):
@@ -130,10 +131,11 @@ def test_the_grid_marks_who_may_open_each_shared_card(repo):
         "own",
         "desk",
         "lab",
+        "ops",
         "search",
     ]
-    assert grid[1].split() == ["alice", "editor", "●", "●", "·", "●"]
-    assert grid[2].split() == ["bob", "viewer", "●", "●", "●", "●"]
+    assert grid[1].split() == ["alice", "editor", "●", "●", "·", "●", "●"]
+    assert grid[2].split() == ["bob", "viewer", "●", "●", "●", "·", "●"]
     assert "unused tiers: spare" in result.output
 
 
@@ -145,7 +147,7 @@ def test_json_is_one_document_on_stdout(repo):
 
 def test_naming_a_login_answers_for_that_login(repo):
     output = CliRunner().invoke(users, ["list", "alice", "--repo", str(repo)]).output
-    assert "opens: desk, alice, search" in output
+    assert "opens: desk, alice, ops, search" in output
 
 
 def test_naming_a_card_answers_who_may_open_it(repo):
@@ -206,3 +208,9 @@ def test_live_inspects_with_the_runtime_and_not_its_compose_command(repo, monkey
     assert seen[0][:2] == ["podman", "inspect"]
     assert seen[0][-1] == "demo-web-desk"
     assert _card(report, "desk")["state"] == "running"
+
+
+def test_a_tier_principal_admits_that_tiers_people_only(repo):
+    report = _report(repo)
+    assert "ops" in _person(report, "alice")["opens"]
+    assert "ops" not in _person(report, "bob")["opens"]

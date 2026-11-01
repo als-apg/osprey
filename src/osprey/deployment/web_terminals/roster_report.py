@@ -63,6 +63,7 @@ _SIGN_IN_ROWS = 1000
 
 _USER_PREFIX = "user:"
 _DOMAIN_PREFIX = "domain:"
+_TIER_PREFIX = "tier:"
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -107,6 +108,14 @@ def _may_open(person: Mapping[str, Any], card: Mapping[str, Any], *, claim: str)
         if member == "roster":
             return True
         if member == "self" and person["name"] == card["name"]:
+            return True
+        # The render spells a tier out as its people's identities, so a person
+        # without one is admitted by nothing it expands to.
+        if (
+            member.startswith(_TIER_PREFIX)
+            and person.get("identity")
+            and person.get("render") == member[len(_TIER_PREFIX) :]
+        ):
             return True
         if member.startswith(_USER_PREFIX) and same_identity(
             identity, member[len(_USER_PREFIX) :], claim=claim
@@ -202,12 +211,21 @@ def build_roster_report(
         for name, render in catalog.items()
         if _as_dict(render).get("kind") == "tier" and name not in used
     )
+    rostered = [card["identity"] for card in cards if card["kind"] == "user" and card["identity"]]
+
+    def beyond_roster(member: str) -> bool:
+        """A domain, or an identity no roster person carries."""
+        if member.startswith(_DOMAIN_PREFIX):
+            return True
+        if not member.startswith(_USER_PREFIX):
+            return False
+        named = member[len(_USER_PREFIX) :]
+        return not any(same_identity(known, named, claim=claim) for known in rostered)
+
     off_roster = {
-        card["name"]: [
-            member for member in card["access"] if member.startswith((_USER_PREFIX, _DOMAIN_PREFIX))
-        ]
+        card["name"]: [member for member in card["access"] if beyond_roster(member)]
         for card in cards
-        if any(member.startswith((_USER_PREFIX, _DOMAIN_PREFIX)) for member in card["access"])
+        if any(beyond_roster(member) for member in card["access"])
     }
     return {
         "deployment": project_name,
