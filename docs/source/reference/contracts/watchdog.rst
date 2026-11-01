@@ -46,7 +46,8 @@ that variable or a session key is never held. **Under a store, the hold fails cl
 missing or unreadable record, a record of another schema or another session, a symbolic link at
 the directory or the record, and an unsafe key all hold. Such a record is reported as the one
 flag ``hold-record-unreadable``, with source ``session_hold``, and answering it writes a fresh
-record.
+record. ``GET /api/watchdog/flags`` reports no flags only for a key with no running session and
+nothing on disk: a session that has not started.
 
 Writes hold an exclusive lock on ``record.json.lock`` and land atomically, so a reader sees the
 old record or the new one and two writers never lose each other's flag.

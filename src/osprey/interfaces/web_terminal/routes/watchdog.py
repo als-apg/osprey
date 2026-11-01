@@ -57,6 +57,7 @@ from osprey.services.watchdog.verdict import (
 from osprey_connectors.session_hold import (
     HoldFlag,
     answer_flags,
+    has_no_record,
     is_safe_session_key,
     mark_stop_unconfirmed,
     open_flags,
@@ -195,11 +196,21 @@ async def get_flags(
     request: Request,
     session_key: Annotated[str, Query(max_length=_MAX_ID_LEN)] = "",
 ) -> dict[str, Any]:
-    """Report whether a watchdog runs here and the session's open flags."""
+    """Report whether a watchdog runs here and the session's open flags.
+
+    A key no session runs under, with nothing on disk, has not started: a Simple
+    tab names its session before its first prompt. There is no child to hold and
+    nothing to answer, so it reports no flags. Every other missing or unreadable
+    record reports as :func:`open_flags` says, and writes still read ``is_held``.
+    """
     root = session_hold_root_of(request.app)
     if root is None:
         return {"enabled": False, "flags": []}
     key = _checked_key(session_key)
+    if not session_is_live(request.app, key) and await asyncio.to_thread(
+        has_no_record, key, root=root
+    ):
+        return {"enabled": True, "flags": []}
     flags = await asyncio.to_thread(open_flags, key, root=root)
     return {
         "enabled": True,

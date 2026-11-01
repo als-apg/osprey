@@ -255,6 +255,53 @@ def test_get_flags_refuses_a_key_that_is_no_path_segment(client):
     assert client.get("/api/watchdog/flags", params={"session_key": "../x"}).status_code == 400
 
 
+# KEY is live in the fixture's terminal pool; OTHER_KEY names no running session.
+def _no_record(_root: Path, _key: str) -> None:
+    pass
+
+
+def _dir_without_record(root: Path, key: str) -> None:
+    (root / key).mkdir(parents=True)
+
+
+def _unreadable_record(root: Path, key: str) -> None:
+    (root / key).mkdir(parents=True)
+    (root / key / RECORD_NAME).write_text("{ not json")
+
+
+def _open_flag(root: Path, key: str) -> None:
+    _flag(root, "flag-a", key=key)
+
+
+@pytest.mark.parametrize(
+    ("key", "arrange", "expected"),
+    [
+        pytest.param(OTHER_KEY, _no_record, [], id="not_live-no_record"),
+        pytest.param(OTHER_KEY, _dir_without_record, [UNREADABLE_FLAG_ID], id="not_live-empty_dir"),
+        pytest.param(OTHER_KEY, _unreadable_record, [UNREADABLE_FLAG_ID], id="not_live-unreadable"),
+        pytest.param(OTHER_KEY, _open_flag, ["flag-a"], id="not_live-open_flag"),
+        pytest.param(KEY, _no_record, [UNREADABLE_FLAG_ID], id="live-no_record"),
+        pytest.param(KEY, _unreadable_record, [UNREADABLE_FLAG_ID], id="live-unreadable"),
+        pytest.param(KEY, _open_flag, ["flag-a"], id="live-open_flag"),
+    ],
+)
+def test_get_flags_is_silent_only_for_a_session_not_started(client, root, key, arrange, expected):
+    arrange(root, key)
+
+    body = client.get("/api/watchdog/flags", params={"session_key": key}).json()
+
+    assert body["enabled"] is True
+    assert [flag["flag_id"] for flag in body["flags"]] == expected
+
+
+def test_a_session_not_started_reports_no_flags_and_still_holds_its_writes(client, root):
+    body = client.get("/api/watchdog/flags", params={"session_key": OTHER_KEY}).json()
+
+    assert body["flags"] == []
+    assert is_held(OTHER_KEY, root=root) is True
+    assert not (root / OTHER_KEY).exists()
+
+
 # ---- Answer ----
 
 
