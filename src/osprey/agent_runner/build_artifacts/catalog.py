@@ -356,6 +356,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/hooks/osprey_turn_state.py",
             description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
         ),
+        BuildArtifact(
+            canonical_name="hooks/watchdog-trigger",
+            template_path="claude/hooks/osprey_watchdog_trigger.py",
+            output_path=".claude/hooks/osprey_watchdog_trigger.py",
+            description="UserPromptSubmit hook that hands each prompt to the deployment's watchdogs; ships whenever a watchdog is enabled",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="skills/session-report",
