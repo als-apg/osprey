@@ -397,7 +397,7 @@ def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
 def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     """Boot the contact sheet's hermetic web terminal and capture a recipe from it.
 
-    One stack serves every theme. Each theme loads in ``shot.hub_mode`` and is
+    One stack serves every theme. Each theme boots on ``shot.hub_agent`` and is
     driven into ``shot.stage`` before the shot, through the same routine the
     contact sheet uses, so the doc image and the review card cannot drift apart.
     """
@@ -409,7 +409,7 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     with hermetic_hub() as hub:
         for theme in shot.themes:
             dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
-            capture_hub_view(browser, hub, theme, shot.hub_mode, dest, stage=shot.stage)
+            capture_hub_view(browser, hub, theme, shot.hub_agent, dest, stage=shot.stage)
             paths.append(dest)
     return paths
 

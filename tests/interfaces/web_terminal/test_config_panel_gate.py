@@ -589,11 +589,11 @@ def test_lifespan_keeps_the_defaults_when_no_config_file_exists(workspace_dir, m
         next(generator, None)
 
 
-def test_lifespan_cosmetic_flags_stay_open_on_an_unreadable_config(workspace_dir):
+def test_lifespan_reads_the_terminal_gate_apart_from_the_config_panel(workspace_dir):
     generator = _started_app(workspace_dir, None, raises=True)
     client = next(generator)
     try:
         assert client.app.state.config_panel_enabled is False
-        assert client.app.state.web_ui_mode == "expert"
+        assert client.app.state.web_terminal_offered is True
     finally:
         next(generator, None)

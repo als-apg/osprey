@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: tool calls.
+ * OSPREY Web Terminal — operator chat: tool calls.
  *
  * The rows a tool call is drawn as: one row per tool call, and one row per
  * subagent call with its own trace nested inside. Both are action rows

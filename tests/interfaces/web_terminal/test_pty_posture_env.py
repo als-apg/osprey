@@ -104,7 +104,7 @@ def _connection_env(
     started_at: str = "2026-08-23T00:00:00+00:00",
 ) -> dict[str, str]:
     env = {
-        "OSPREY_WEB_UX": "expert",
+        "OSPREY_WEB_UX": "terminal",
         "OSPREY_PANEL_TOKEN": "panel-token-constant",
     }
     if session_id:

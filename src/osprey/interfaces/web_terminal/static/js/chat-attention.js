@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode attention signal
+/* OSPREY Web Terminal — the chat's attention signal
  *
  * Makes a wait on the operator visible from another tab and from the sidebar.
  * While an approval, plan, or question card is pending, the tab title carries

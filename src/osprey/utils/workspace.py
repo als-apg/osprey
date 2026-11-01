@@ -164,7 +164,7 @@ SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
 STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR,)
 
 #: Subdirectory of the agent-data root holding the files operators attach in the
-#: Simple view's chat. The web terminal stores them there and hands the agent
+#: operator chat. The web terminal stores them there and hands the agent
 #: their absolute paths; the rendered permissions allow the agent to read exactly
 #: that directory. Spelled once so the store and the rule cannot name two places.
 CHAT_UPLOADS_SUBDIR = "uploads"

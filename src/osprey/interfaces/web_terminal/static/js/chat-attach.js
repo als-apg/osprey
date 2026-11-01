@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode chat: files attached to a message.
+/* OSPREY Web Terminal — operator chat: files attached to a message.
  *
  * The composer takes files three ways: the paperclip button, a paste, and a
  * drop onto the composer or the log. Each file is uploaded as it is picked and

@@ -3,7 +3,7 @@
  *
  * What a newcomer reads before they type anything: one sentence naming what
  * the agent can do in THIS deployment, and up to three questions they can send
- * as-is. The Simple view's empty state and the tour's first card both draw
+ * as-is. The chat's empty state and the tour's first card both draw
  * from here, so a visitor cannot be told two different stories about the same
  * deployment depending on which surface they met first.
  *
@@ -20,6 +20,7 @@
  * tour can call them with no arguments and get this session's answer.
  */
 
+import { isTerminalSurface } from './agent-surface.js';
 import { activeKind, subscribe } from './control-target-chip.js';
 import { KIND_READ_PHRASES } from './control-target-facts.js';
 import { focusTerminal, onSessionChange, pasteToTerminal } from './terminal.js';
@@ -33,7 +34,7 @@ import { focusTerminal, onSessionChange, pasteToTerminal } from './terminal.js';
 
 /**
  * What the capability sentence opens with. Shared by the string form and the
- * rendered form, so the tour's card and the Simple block cannot drift apart.
+ * rendered form, so the tour's card and the chat's block cannot drift apart.
  */
 const SENTENCE_LEAD = 'Here the agent can ';
 
@@ -117,16 +118,16 @@ export function starterPrompts(kind = activeKind(), facts = current) {
 
 /* ---- insert seam -------------------------------------------------------- */
 
-/** The Simple view's one prompt input. */
-const SIMPLE_INPUT = '#operator-container .op-input-area textarea';
+/** The chat's one prompt input. */
+const CHAT_INPUT = '#operator-container .op-input-area textarea';
 
 /**
  * Put one prompt where the operator is typing, and leave the cursor there.
  *
- * The one seam the Simple empty state and the tour's chips share, because a
+ * The one seam the chat's empty state and the tour's chips share, because a
  * chip that inserts somewhere the reader cannot see is worse than no chip: the
- * Simple view hides the terminal, so a paste there reaches nobody, and the
- * tour runs in both views. Routing on the rendered mode here keeps that
+ * chat hides the terminal, so a paste there reaches nobody, and the tour runs
+ * on both surfaces. Routing on the surface showing here keeps that
  * impossible to reintroduce from a new caller.
  *
  * Never sends. The text lands with no trailing newline and focus moves into
@@ -138,15 +139,15 @@ const SIMPLE_INPUT = '#operator-container .op-input-area textarea';
  * one: a panel handing over the addresses it just found is an ingredient of
  * whatever the operator is already writing, and replacing that half-written
  * sentence would destroy the only copy of it. A chip, which offers a whole
- * question, still replaces. Nothing is appended in the terminal view: the
+ * question, still replaces. Nothing is appended on the terminal surface: the
  * terminal has no value to read back, and pasting is already additive there.
  * @param {string} text
  * @param {{append?: boolean}} [options]  `append`: add below existing text
  *   instead of replacing it
  */
 export function insertPrompt(text, { append = false } = {}) {
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
-    const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(SIMPLE_INPUT));
+  if (!isTerminalSurface()) {
+    const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(CHAT_INPUT));
     // Disabled means a turn is streaming: the chat owns the input until it is
     // done, and overwriting a value it is about to clear would be a no-op the
     // operator watched happen.
@@ -167,7 +168,7 @@ export function insertPrompt(text, { append = false } = {}) {
   focusTerminal();
 }
 
-/* ---- the Simple view's empty state -------------------------------------- */
+/* ---- the chat's empty state ---------------------------------------------- */
 
 /**
  * The capability sentence as nodes, each phrase emphasised and the connective
@@ -200,7 +201,7 @@ function introParagraph(phrases) {
 /**
  * One row of prompt chips, each inserting its text through {@link insertPrompt}.
  *
- * The one chip row for both surfaces — the tour's card and the Simple empty
+ * The one chip row for both surfaces — the tour's card and the chat's empty
  * state — because the same prompts offered in two places that LOOK like two
  * different affordances is how an operator learns to distrust both.
  * @param {string[]} prompts
@@ -245,7 +246,7 @@ export function renderEmptyStateContent(el) {
 }
 
 /**
- * The block the Simple view shows in place of an empty message list: what the
+ * The block the chat shows in place of an empty message list: what the
  * agent can do here, and the questions that start a conversation about it.
  * @returns {HTMLElement}
  */
@@ -327,7 +328,7 @@ const kindListeners = [];
  * Be called once, when there is enough known to render first contact.
  *
  * A listener registered after the moment has passed fires immediately: a
- * surface built late (a view the operator only now switched to) must not be
+ * surface built late (one the operator only now switched to) must not be
  * the one that misses it.
  * @param {() => void} fn
  */

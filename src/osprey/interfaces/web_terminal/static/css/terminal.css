@@ -1813,7 +1813,7 @@ html[data-sidebar-resizing] {
   overflow: hidden;
 }
 
-/* The Agent pane's header row (Expert: LED · label · selector · "+ New"),
+/* The terminal surface's header row (LED · label · selector · "+ New" · ⋯),
    with the pane-head metrics. Fallback mode (no dockview) shows it as the
    card's own header; docked, dock-tab.js adopts it into the tile bar. */
 .terminal-header {
@@ -1974,15 +1974,14 @@ html[data-sidebar-resizing] {
   height: 100%;
 }
 
-/* ---- Mode gate: PTY vs operator chat console ----
-   Expert shows the xterm PTY (#terminal-container); simple swaps in the
-   operator chat console (#operator-container, styled in operator.css). Both
+/* ---- Surface gate: operator chat console vs PTY ----
+   The Agent tile shows the chat (#operator-container, styled in operator.css);
+   a tab that opted into the terminal shows the PTY (#terminal-container). Both
    stay mounted inside .terminal-body — this is pure display gating off
-   html[data-ui-mode] (resolved pre-paint by the FOUC boot script), so a live
-   mode flip tears down no DOM and either view restores exactly on toggle-back.
-   The matching rule that reveals #operator-container in simple mode lives in
-   operator.css. */
-html[data-ui-mode="simple"] #terminal-container {
+   html[data-agent-surface] (stamped pre-paint by agent-surface-boot.js), so a
+   change tears down no DOM. The matching rule that hides #operator-container
+   lives in operator.css. */
+html:not([data-agent-surface="terminal"]) #terminal-container {
   display: none;
 }
 
@@ -2221,9 +2220,9 @@ html[data-ui-mode="simple"] #terminal-container {
   background: var(--overlay-black-70);
 }
 
-/* The Simple view shows the chat in this same body. Its transitional state is
-   the chat's own; this one would cover it. */
-html[data-ui-mode="simple"] .terminal-handoff {
+/* The chat shows in this same body. Its transitional state is its own; this one
+   would cover it. */
+html:not([data-agent-surface="terminal"]) .terminal-handoff {
   display: none;
 }
 

@@ -11,7 +11,7 @@
  * Why the posture rides `GET /api/panels`: the gallery's own payloads describe
  * ARTIFACTS (what each one is, whether it is reserved), and the deployment's
  * tier is not a property of any artifact. `/api/panels` is the payload every
- * boot consumer already reads for exactly this class of fact — `ui_mode`,
+ * boot consumer already reads for exactly this class of fact —
  * `allow_runtime_panels`, `config_panel_enabled` — so gating off it keeps one
  * source of truth and costs the page no extra round trip.
  *

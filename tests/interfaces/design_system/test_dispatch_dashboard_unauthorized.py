@@ -56,8 +56,8 @@ VIEWPORT = {"width": 1100, "height": 900}
 FALSE_EMPTY_CLAIM = "No triggers are registered."
 
 #: The two trigger surfaces that branch on `state.triggers.length`. `#lane-list`
-#: renders on the default view; `#trigger-list` needs the Triggers screen, which
-#: is expert-only — hence the explicit mode and view in the URLs below.
+#: renders on the default view; `#trigger-list` needs the Triggers screen, hence
+#: the explicit view in the URLs below.
 LANE_LIST = "#lane-list"
 TRIGGER_LIST = "#trigger-list"
 
@@ -134,8 +134,8 @@ def _open_and_settle(page: Page, url: str, selector: str) -> str:
 @pytest.mark.parametrize(
     "path,selector",
     [
-        ("/?mode=expert", LANE_LIST),
-        ("/?mode=expert&view=triggers", TRIGGER_LIST),
+        ("/", LANE_LIST),
+        ("/?view=triggers", TRIGGER_LIST),
     ],
     ids=["timeline-lanes", "trigger-list"],
 )
@@ -162,7 +162,7 @@ def test_standalone_page_is_told_to_open_the_events_tab(
 ) -> None:
     """Opened directly, the actionable advice is to use the tab that injects a token."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}/?mode=expert", LANE_LIST)
+    text = _open_and_settle(page, f"{dashboard_url}/", LANE_LIST)
     page.close()
 
     assert "EVENTS tab" in text
@@ -174,7 +174,7 @@ def test_in_terminal_page_is_not_told_to_open_the_tab_it_is_already_in(
     """Inside the EVENTS tab a 401 means the terminal holds no token, so the page
     must name that instead of repeating navigation advice already followed."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    text = _open_and_settle(page, f"{dashboard_url}/panel/events/dashboard?mode=expert", LANE_LIST)
+    text = _open_and_settle(page, f"{dashboard_url}/panel/events/dashboard", LANE_LIST)
     page.close()
 
     assert "EVENT_DISPATCHER_TOKEN" in text

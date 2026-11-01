@@ -1,9 +1,9 @@
 """Hand a session key from one surface to the other, one live process at a time.
 
-The Expert view (a PTY-hosted TUI) and the Simple view (an SDK chat) are two
+The terminal (a PTY-hosted TUI) and the chat (an SDK session) are two
 windows onto one OSPREY session. Both pools key their entries on the same
 session key ``K``, and the rule that makes them one session is that **at most
-one process is live under ``K`` at any moment**. A view flip therefore hands
+one process is live under ``K`` at any moment**. A surface change therefore hands
 the key over: the surface that holds it lets go, its process is torn down and
 observed dead, and only then does the incoming surface resume the key's
 transcript. :func:`acquire_surface` is the one door every spawn walks through
@@ -34,15 +34,15 @@ and the entry point sequences them.
     another connection, a chat still starting — is a *transient* blocker: it
     is re-inspected every :data:`ATTACH_POLL_S` seconds for up to
     :data:`ATTACH_GRACE_S`, with the lock released between looks so the
-    holder can finish, and only then refused with 409. A same-surface Expert
+    holder can finish, and only then refused with 409. A same-surface terminal
     connection meeting an attached PTY does not wait: it takes the key over,
-    and the plan names the displaced owner for a 4409 close. A Simple
-    acquire carrying ``interrupt=True`` that meets another Simple acquire's
+    and the plan names the displaced owner for a 4409 close. A chat
+    acquire carrying ``interrupt=True`` that meets another chat acquire's
     pending wait does not wait for it either: it supersedes it — the waiter's
     task is cancelled, its wait ends in :class:`HandoffSuperseded`, and the
     next look finds the slot free — because that wait is the one the
     operator is asking to end, whether it is their own abandoned request or
-    a second tab's. An Expert acquire never supersedes anything. The phase ends by
+    a second tab's. A terminal acquire never supersedes anything. The phase ends by
     registering the call as the key's pending acquire and reserving the key in
     the PTY pool, so the outgoing entry cannot be evicted from under the wait
     that follows.
@@ -85,7 +85,7 @@ and the entry point sequences them.
     second teardown signals it again before the death check re-runs. Only
     then is the incoming process started, through the caller's
     :data:`SpawnCallback`, told which transcript to resume by a fresh look at
-    the transcript map and the transcripts on disk. An Expert caller is
+    the transcript map and the transcripts on disk. A terminal caller is
     attached to the PTY (its channel token is the owner token) before the
     slot is released, so the eviction pass never sees the entry unheld. The
     phase ends in an :class:`AcquireResult`.
@@ -123,11 +123,11 @@ logger = logging.getLogger(__name__)
 # Vocabulary
 # ---------------------------------------------------------------------------
 
-Surface = Literal["expert", "simple"]
-"""Which view is acquiring: the PTY-hosted TUI or the SDK chat."""
+Surface = Literal["terminal", "chat"]
+"""Which surface is acquiring: the PTY-hosted TUI or the SDK chat."""
 
-SURFACE_EXPERT: Surface = "expert"
-SURFACE_SIMPLE: Surface = "simple"
+SURFACE_TERMINAL: Surface = "terminal"
+SURFACE_CHAT: Surface = "chat"
 
 AcquireAction = Literal["spawn", "reuse", "takeover", "handoff"]
 """What phase (c) has to do once phase (b) has let the outgoing entry go idle.
@@ -136,10 +136,10 @@ AcquireAction = Literal["spawn", "reuse", "takeover", "handoff"]
     Nothing live holds the key. Spawn the incoming surface's process.
 ``reuse``
     The incoming surface already holds the key and nobody else is reading it.
-    No teardown: an Expert reattaches to the pooled PTY, a chat proceeds to
+    No teardown: a terminal reattaches to the pooled PTY, a chat proceeds to
     the pooled session (or joins the creation still in flight).
 ``takeover``
-    An Expert connection met a PTY another Expert connection is attached to.
+    A terminal connection met a PTY another terminal connection is attached to.
     The older owner is closed with 4409 and the newcomer attaches to the same
     PTY. No teardown.
 ``handoff``
@@ -156,7 +156,7 @@ ACTION_HANDOFF: AcquireAction = "handoff"
 #: How long phase (a) keeps re-inspecting a key somebody else is consuming
 #: before it gives up with 409. Long enough for a tab that closed its socket a
 #: moment ago to be seen detaching; short enough that a key held for real is
-#: refused before the operator wonders what the view is doing.
+#: refused before the operator wonders what the surface is doing.
 ATTACH_GRACE_S = 2.0
 #: How often phase (a) re-inspects during that grace.
 ATTACH_POLL_S = 0.05
@@ -237,11 +237,11 @@ class HandoffRefused(Exception):
 
     @classmethod
     def attached_elsewhere(cls, key: str) -> HandoffRefused:
-        """409 — another connection or view is consuming *key* right now."""
+        """409 — another connection or surface is consuming *key* right now."""
         return cls(
             409,
             ERROR_SESSION_ATTACHED_ELSEWHERE,
-            f"session {key!r} is attached to another connection or view",
+            f"session {key!r} is attached to another connection or surface",
         )
 
     @classmethod
@@ -272,7 +272,7 @@ class HandoffRefused(Exception):
 
     @classmethod
     def superseded(cls, key: str) -> HandoffSuperseded:
-        """409 — a newer Simple acquire with an interrupt took *key* over.
+        """409 — a newer chat acquire with an interrupt took *key* over.
 
         See :class:`HandoffSuperseded`.
         """
@@ -295,11 +295,11 @@ class HandoffNeedsInterrupt(HandoffRefused):
     Phase (b) cannot wait for a PTY to go idle without the turn-state hook
     installed in the TUI (``app.state.turn_hook_present``): the transcript
     tail alone cannot tell an answered prompt from one still being worked on.
-    So a Simple view acquiring such a key is refused with this, and offers the
+    So a chat acquiring such a key is refused with this, and offers the
     operator *Stop and switch now* — the same acquire again with
     ``interrupt=True``, which phase (b) does honour without the hook.
 
-    Only ever answered to a POST: an Expert acquire never waits on a PTY, so
+    Only ever answered to a POST: a terminal acquire never waits on a PTY, so
     the refusal has no websocket form.
     """
 
@@ -316,19 +316,19 @@ class HandoffNeedsInterrupt(HandoffRefused):
 
 
 class HandoffSuperseded(HandoffRefused):
-    """The wait was ended by a newer Simple acquire of the same key carrying an interrupt.
+    """The wait was ended by a newer chat acquire of the same key carrying an interrupt.
 
-    The Simple view's *Stop and switch now* is a second request for the key
+    The chat's *Stop and switch now* is a second request for the key
     while its first still waits in phase (b) — the browser abandons the first
     but the server cannot rely on seeing that, and a second tab has no
-    request to abandon at all. Phase (a) therefore lets a Simple acquire with
-    ``interrupt=True`` supersede a pending Simple acquire: the waiter's task
+    request to abandon at all. Phase (a) therefore lets a chat acquire with
+    ``interrupt=True`` supersede a pending chat acquire: the waiter's task
     is cancelled, its pending slot released, and its wait ends in this
     refusal, so the route it was made from answers 409 like any other. An
     abandoned request's answer is discarded by the client that abandoned it;
     a second tab's shows the operator what happened.
 
-    Only ever answered to a POST: an Expert acquire neither supersedes nor is
+    Only ever answered to a POST: a terminal acquire neither supersedes nor is
     superseded, so the refusal has no websocket form.
     """
 
@@ -501,7 +501,7 @@ class PendingAcquire:
             for the phases' reads of their own record, so a later acquire from
             the same channel that replaced the record is never touched by the
             earlier call.
-        superseded: A newer Simple acquire with an interrupt has cancelled
+        superseded: A newer chat acquire with an interrupt has cancelled
             this call's wait. Set before the cancel is delivered, so the
             waiter can tell it from any other cancellation and end in
             :class:`HandoffSuperseded`; also what stops a second look from
@@ -648,19 +648,19 @@ class AcquirePlan:
         outgoing: The live entry the plan is about, or ``None`` when nothing
             live holds the key (``spawn``), or when a chat creation is still
             in flight and the incoming chat will join it (``reuse`` for the
-            Simple surface only).
+            chat surface only).
         teardown: Phase (c) must tear ``outgoing`` down before spawning. True
             exactly for ``handoff``.
         wait_for_idle: Phase (b) must wait for ``outgoing`` to finish its
             turn. True for every ``handoff`` and for a chat reusing a chat —
             the chat route cannot take a turn on a busy session, so the
-            hand-off is what tells the Simple view when the session is free.
-            False for an Expert reattaching or taking over: a TUI keeps
+            hand-off is what tells the chat when the session is free.
+            False for a terminal reattaching or taking over: a TUI keeps
             running and the newcomer simply sees its output.
         spawn: The caller's :data:`SpawnCallback`, carried through for phase
             (c), which calls it only when the incoming surface's entry is not
             already pooled.
-        displaced_owner: On ``takeover``, the attach token of the Expert
+        displaced_owner: On ``takeover``, the attach token of the terminal
             connection currently holding the PTY, to be closed with 4409 by
             phase (c). ``None`` otherwise.
         end_started: The operator agreed that the hand-off ends the commands
@@ -694,7 +694,7 @@ class WaitOutcome:
 
             ``none``
                 There was nothing to wait on: the plan has no outgoing entry,
-                or does not ask for idleness (an Expert reattaching to or
+                or does not ask for idleness (a terminal reattaching to or
                 taking over a running TUI).
             ``idle``
                 The outgoing entry was observed idle — a chat's ``is_busy``
@@ -732,15 +732,15 @@ class AcquireResult:
         plan: What phase (a) decided.
         outcome: How phase (b)'s wait ended.
         session: The incoming surface's live entry under the key — the
-            ``PtySession`` an Expert caller is now attached to (its channel
+            ``PtySession`` a terminal caller is now attached to (its channel
             token is the owner token; it detaches with the same token when it
-            is done), or the ``OperatorSession`` a Simple caller takes its
+            is done), or the ``OperatorSession`` a chat caller takes its
             turn on (through ``acquire_turn``, which is where a concurrent
             turn is still refused).
         spawned: The spawn callback ran for this acquire. False when the
             caller was handed the surface's already-pooled entry without a
             call. True also when the callback joined a chat creation already
-            in flight (the Simple ``reuse`` with no outgoing entry): the
+            in flight (the chat ``reuse`` with no outgoing entry): the
             callback ran, whether or not it started the process itself.
         resume_id: What the spawn was asked to resume, ``None`` for a fresh
             start under the key — and ``None`` whenever nothing was spawned.
@@ -773,16 +773,16 @@ async def acquire_surface(
     """Take session key *key* for *surface* on behalf of *channel*.
 
     Runs the three phases and returns once the incoming surface's process is
-    live under the key: for an Expert caller, attached to the returned
-    ``PtySession`` with *channel* as the owner token; for a Simple caller,
+    live under the key: for a terminal caller, attached to the returned
+    ``PtySession`` with *channel* as the owner token; for a chat caller,
     with the returned ``OperatorSession`` pooled and free of any other
     surface. The caller never releases the pending slot: the phases own it.
 
     Raises :class:`HandoffRefused` when the key cannot be taken — 409 when
-    another connection or view is consuming it (or, as
+    another connection or surface is consuming it (or, as
     :class:`HandoffNeedsInterrupt`, when a hook-less PTY holds it and no
     interrupt was asked for; or, as :class:`HandoffSuperseded`, when a newer
-    Simple acquire with an interrupt ended this call's wait; or, as
+    chat acquire with an interrupt ended this call's wait; or, as
     :class:`HandoffStartedCommands`, when the agent the hand-off would end
     started commands still running and *end_started* is False), 503 when the
     outgoing process survived its kill, 429 when the chat pool is full; the
@@ -800,7 +800,7 @@ async def acquire_surface(
 
     A cancellation delivered while phase (c) runs is honoured only once the
     phase has finished; the outgoing process is torn down and the incoming
-    one started, pooled and (Expert) attached regardless. An Expert caller
+    one started, pooled and (terminal) attached regardless. A terminal caller
     therefore detaches its token in its own cleanup whether or not this call
     returned — ``detach_session`` is owner-checked and a no-op for a token
     that never attached.
@@ -809,7 +809,7 @@ async def acquire_surface(
         app: The application; its ``state`` carries the two pools and the
             :class:`HandoffState`.
         key: The session key.
-        surface: ``"expert"`` or ``"simple"``.
+        surface: ``"terminal"`` or ``"chat"``.
         channel: A token identifying the calling connection, compared by
             identity. The terminal handler passes its attach token. A token
             implementing :class:`AcquireChannel` is polled for closure during
@@ -821,7 +821,7 @@ async def acquire_surface(
             :class:`HandoffStartedCommands`, which lists them.
         spawn: How the incoming surface starts its process; see
             :data:`SpawnCallback`. Called only when the key holds no live
-            entry of the incoming surface, so a Simple caller that is merely
+            entry of the incoming surface, so a chat caller that is merely
             taking its next turn on its own pooled chat is handed that chat
             back without a spawn.
     """
@@ -953,7 +953,7 @@ async def _inspect_and_register(
             _supersede(key, pending)
             # Blocked for this look only: the cancelled waiter releases the
             # slot as soon as it runs, and the next look finds the key free.
-            raise _Blocked("a simple acquire from another connection is being superseded")
+            raise _Blocked("a chat acquire from another connection is being superseded")
         raise _Blocked(f"a {pending.surface} acquire from another connection is pending")
 
     pty = registry.get_session(key)
@@ -975,7 +975,7 @@ async def _inspect_and_register(
     chat_starting = chat is None and pool.has_key(key)
 
     if pty is not None and registry.is_attached(key):
-        if surface != SURFACE_EXPERT:
+        if surface != SURFACE_TERMINAL:
             raise _Blocked("the PTY is attached to a terminal connection")
         # Same surface, live PTY, somebody reading it: the newer connection
         # wins. The older one is closed with 4409 by phase (c); the PTY is
@@ -986,7 +986,7 @@ async def _inspect_and_register(
             channel=channel,
             interrupt=interrupt,
             action=ACTION_TAKEOVER,
-            outgoing=OutgoingEntry(SURFACE_EXPERT, pty),
+            outgoing=OutgoingEntry(SURFACE_TERMINAL, pty),
             teardown=False,
             wait_for_idle=False,
             displaced_owner=registry.attached_owner(key),
@@ -996,7 +996,7 @@ async def _inspect_and_register(
         return _register(state, registry, plan)
 
     if chat_starting:
-        if surface != SURFACE_SIMPLE:
+        if surface != SURFACE_CHAT:
             raise _Blocked("a chat session is still starting")
         # The chat route's get_or_create joins the in-flight creation; there
         # is no session object to wait on yet and nothing to tear down.
@@ -1023,20 +1023,20 @@ async def _inspect_and_register(
         logger.warning(
             "Session %s is live in both pools; handing off the %s entry",
             key,
-            SURFACE_SIMPLE if surface == SURFACE_EXPERT else SURFACE_EXPERT,
+            SURFACE_CHAT if surface == SURFACE_TERMINAL else SURFACE_TERMINAL,
         )
 
     outgoing: OutgoingEntry | None = None
-    if surface == SURFACE_EXPERT:
+    if surface == SURFACE_TERMINAL:
         if chat is not None:
-            outgoing = OutgoingEntry(SURFACE_SIMPLE, chat)
+            outgoing = OutgoingEntry(SURFACE_CHAT, chat)
         elif pty is not None:
-            outgoing = OutgoingEntry(SURFACE_EXPERT, pty)
+            outgoing = OutgoingEntry(SURFACE_TERMINAL, pty)
     else:
         if pty is not None:
-            outgoing = OutgoingEntry(SURFACE_EXPERT, pty)
+            outgoing = OutgoingEntry(SURFACE_TERMINAL, pty)
         elif chat is not None:
-            outgoing = OutgoingEntry(SURFACE_SIMPLE, chat)
+            outgoing = OutgoingEntry(SURFACE_CHAT, chat)
 
     if outgoing is None:
         action: AcquireAction = ACTION_SPAWN
@@ -1045,7 +1045,7 @@ async def _inspect_and_register(
     elif outgoing.surface == surface and not survivor:
         action = ACTION_REUSE
         teardown = False
-        wait_for_idle = surface == SURFACE_SIMPLE
+        wait_for_idle = surface == SURFACE_CHAT
     else:
         # The other surface's entry — or a chat survivor, which no surface
         # can use: its client is closed, only its child remains to be killed.
@@ -1101,20 +1101,20 @@ def _register(state: HandoffState, registry: PtyRegistry, plan: AcquirePlan) -> 
 def _supersedes(pending: PendingAcquire, surface: Surface, *, interrupt: bool) -> bool:
     """Whether an acquire for *surface* may end *pending*'s wait instead of waiting on it.
 
-    Only a Simple acquire that asks for an interrupt, meeting a Simple call
+    Only a chat acquire that asks for an interrupt, meeting a chat call
     that is still waiting in phase (b), has a task to cancel and has not been
     superseded already. A call already in phase (c) is carrying the key out
     and is left alone: it answers its caller, and the superseder's next look
-    meets the chat it pooled. An Expert acquire never supersedes: its
+    meets the chat it pooled. A terminal acquire never supersedes: its
     handshake carries no interrupt, and a terminal that wants a key a chat is
-    waiting for is the ordinary blocked case. A pending Expert wait is never
-    superseded either — the interrupt is a gesture at the Simple view's own
-    wait, not at the other view's.
+    waiting for is the ordinary blocked case. A pending terminal wait is never
+    superseded either — the interrupt is a gesture at the chat's own
+    wait, not at the other surface's.
     """
     return (
         interrupt
-        and surface == SURFACE_SIMPLE
-        and pending.surface == SURFACE_SIMPLE
+        and surface == SURFACE_CHAT
+        and pending.surface == SURFACE_CHAT
         and pending.waiting
         and pending.task is not None
         and not pending.superseded
@@ -1133,7 +1133,7 @@ def _supersede(key: str, pending: PendingAcquire) -> None:
     assert pending.task is not None
     pending.superseded = True
     pending.task.cancel()
-    logger.info("Superseding the pending simple acquire of session %s on an interrupt", key)
+    logger.info("Superseding the pending chat acquire of session %s on an interrupt", key)
 
 
 # ---------------------------------------------------------------------------
@@ -1151,7 +1151,7 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
     is free for the next acquire and a caller never has to know which of
     those ended its wait. The wait itself is :func:`_wait_for_idle`.
 
-    One cancellation is not passed on as one: a wait that a newer Simple
+    One cancellation is not passed on as one: a wait that a newer chat
     acquire superseded (see :func:`_supersede`) ends in
     :class:`HandoffSuperseded` instead, so the route that made it answers a
     refusal rather than dying cancelled. The mark is read off this call's own
@@ -1227,7 +1227,7 @@ async def _wait_for_idle(app: Any, plan: AcquirePlan) -> WaitOutcome:
     if plan.outgoing is None or not plan.wait_for_idle:
         return WaitOutcome(REASON_NONE)
     state = get_state(app)
-    if plan.outgoing.surface == SURFACE_SIMPLE:
+    if plan.outgoing.surface == SURFACE_CHAT:
         return await _wait_for_chat_idle(app, state, plan)
     return await _wait_for_pty_idle(app, state, plan)
 
@@ -1254,7 +1254,7 @@ async def _wait_for_chat_idle(app: Any, state: HandoffState, plan: AcquirePlan) 
         _raise_if_superseded(state, plan)
         await _raise_if_channel_closed(plan)
         if pool.get(plan.key) is not session:
-            raise HandoffError.vanished(plan.key, SURFACE_SIMPLE)
+            raise HandoffError.vanished(plan.key, SURFACE_CHAT)
         if not session.is_active:
             _raise_if_superseded(state, plan)
             return WaitOutcome(REASON_EXITED)
@@ -1293,7 +1293,7 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
         _raise_if_superseded(state, plan)
         await _raise_if_channel_closed(plan)
         if registry.get_session(plan.key) is not session:
-            raise HandoffError.vanished(plan.key, SURFACE_EXPERT)
+            raise HandoffError.vanished(plan.key, SURFACE_TERMINAL)
         if not session.is_alive:
             _raise_if_superseded(state, plan)
             return WaitOutcome(REASON_EXITED)
@@ -1564,11 +1564,11 @@ async def _teardown_and_spawn(
     """Clear the key of the other surface, then fill it for the incoming one.
 
     What clearing means depends on the plan: a ``takeover`` closes the
-    displaced Expert connection and takes its attachment; a ``handoff`` tears
-    the outgoing entry down and confirms its death; a Simple ``reuse`` of a
+    displaced terminal connection and takes its attachment; a ``handoff`` tears
+    the outgoing entry down and confirms its death; a chat ``reuse`` of a
     busy chat the caller interrupted cancels that turn, and of a chat that
     died discards the corpse. Filling the key is the incoming surface's own
-    pooled entry when it has one, else the caller's spawn callback. An Expert
+    pooled entry when it has one, else the caller's spawn callback. An terminal
     caller is attached last, before the slot is released by the caller of
     this function.
     """
@@ -1581,8 +1581,8 @@ async def _teardown_and_spawn(
         await _displace(state, registry, plan)
     elif outgoing is not None and plan.teardown:
         await _tear_down(app, state, plan, outcome)
-    elif outgoing is not None and outgoing.surface == SURFACE_SIMPLE:
-        # A Simple caller on its own chat. The wait left a running turn only
+    elif outgoing is not None and outgoing.surface == SURFACE_CHAT:
+        # A chat caller on its own chat. The wait left a running turn only
         # when the caller asked for it to be cut short; a chat that died while
         # pooled is discarded here so the spawn below replaces it.
         chat = cast("OperatorSession", outgoing.session)
@@ -1593,7 +1593,7 @@ async def _teardown_and_spawn(
             await pool.terminate(key)
             logger.info("Discarded dead chat session under session %s", key)
 
-    if plan.surface == SURFACE_EXPERT:
+    if plan.surface == SURFACE_TERMINAL:
         pooled: PtySession | OperatorSession | None = registry.get_session(key)
     else:
         pooled = pool.get(key)
@@ -1614,13 +1614,15 @@ async def _teardown_and_spawn(
             session = await plan.spawn(request)
         except ChatCapacityError:
             raise HandoffRefused.chat_capacity(key) from None
-        now_pooled = registry.get_session(key) if plan.surface == SURFACE_EXPERT else pool.get(key)
+        now_pooled = (
+            registry.get_session(key) if plan.surface == SURFACE_TERMINAL else pool.get(key)
+        )
         if now_pooled is not session:
             raise HandoffError.not_pooled(key, plan.surface)
-        if plan.surface == SURFACE_EXPERT:
+        if plan.surface == SURFACE_TERMINAL:
             reset_turn_state(app, key)
 
-    if plan.surface == SURFACE_EXPERT and not registry.attach_session(key, plan.channel):
+    if plan.surface == SURFACE_TERMINAL and not registry.attach_session(key, plan.channel):
         raise HandoffRefused.attached_elsewhere(key)
 
     return AcquireResult(
@@ -1633,7 +1635,7 @@ async def _teardown_and_spawn(
 
 
 async def _displace(state: HandoffState, registry: PtyRegistry, plan: AcquirePlan) -> None:
-    """Close the Expert connection holding the PTY and take its attachment.
+    """Close the terminal connection holding the PTY and take its attachment.
 
     The displaced handler registered how to close its socket under its attach
     token; a token with no closer belongs to a handler already on its way
@@ -1672,14 +1674,14 @@ async def _tear_down(
     """
     assert plan.outgoing is not None
     key = plan.key
-    if plan.outgoing.surface == SURFACE_EXPERT:
+    if plan.outgoing.surface == SURFACE_TERMINAL:
         pty = cast("PtySession", plan.outgoing.session)
         registry = _pty_registry(app)
         pooled = registry.get_session(key)
         if pooled is None:
             logger.info("Outgoing PTY for session %s already left its pool", key)
         elif pooled is not pty:
-            raise HandoffError.vanished(key, SURFACE_EXPERT)
+            raise HandoffError.vanished(key, SURFACE_TERMINAL)
         else:
             registry.pop_session(key)
         # ``terminate`` on a dead child only closes the fd and collects the
@@ -1707,7 +1709,7 @@ async def _tear_down(
         logger.info("Outgoing chat for session %s already left its pool", key)
         await chat.teardown()
     elif pooled_chat is not chat:
-        raise HandoffError.vanished(key, SURFACE_SIMPLE)
+        raise HandoffError.vanished(key, SURFACE_CHAT)
     else:
         # Pops and tears down; an ``interrupted`` outcome's running turn is
         # cancelled by the teardown itself.

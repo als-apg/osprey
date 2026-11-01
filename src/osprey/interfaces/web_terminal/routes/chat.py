@@ -17,7 +17,7 @@ GET /api/chat/commands
 Answers {"commands": [{"name", "description", "argument_hint", "kind"}, ...]},
 the slash commands the chat agent accepts in this project.
 
-The Simple-mode chat is keyed on a caller-supplied ``chat_id`` and backed by a
+The operator chat is keyed on a caller-supplied ``chat_id`` and backed by a
 registry-managed :class:`OperatorSession` (the ``ChatSessionPool``). Each POST
 mints a per-session turn guard, then consumes one
 :meth:`OperatorSession.run_turn` — the turn machine (queue consumption,
@@ -52,7 +52,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes.chat_attachments import mark_sent
 from osprey.interfaces.web_terminal.session_handoff import (
-    SURFACE_SIMPLE,
+    SURFACE_CHAT,
     ChannelClosed,
     ChannelToken,
     HandoffError,
@@ -196,10 +196,10 @@ def _turn_timeout_s(request: Request) -> float:
 
 
 async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSession, int, bool]:
-    """Take the session key for the Simple view, then mint this turn's guard.
+    """Take the session key for the chat, then mint this turn's guard.
 
     Every turn goes through :func:`acquire_surface`, because the key may be
-    held by the Expert view's terminal and only the hand-off door can stand
+    held by the terminal and only the hand-off door can stand
     that process down before this one starts. A key the chat already holds
     passes straight through: the pooled child is handed back and the spawn
     callback below is never called, so the pool's own environment comparison
@@ -210,11 +210,11 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
     is True only when the child that will answer this prompt was started with
     no transcript to resume: the conversation begins here and the client is
     told so with a ``session_reset`` marker. A resumed child continues a
-    conversation the operator has already seen — in the other view, or in this
+    conversation the operator has already seen — in the other surface, or in this
     one before a restart — so it carries no marker.
 
     Maps every failure to the HTTP contract with a machine-readable ``error``
-    in the body: 409 when another view or connection is consuming the key,
+    in the body: 409 when another surface or connection is consuming the key,
     when a terminal turn can only be ended by an interrupt
     (``handoff_needs_interrupt`` — the client offers to stop it and ask
     again), when the chat was torn down as it started
@@ -276,7 +276,7 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
         result = await acquire_surface(
             request.app,
             chat_id,
-            SURFACE_SIMPLE,
+            SURFACE_CHAT,
             ChannelToken(request.is_disconnected),
             spawn=spawn,
         )

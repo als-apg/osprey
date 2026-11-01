@@ -6,7 +6,7 @@
  * Every send funnels through one guarded postMessage: a frame with no window
  * yet (not loaded, detached) is skipped, a cross-origin throw is swallowed, and
  * every message but the theme is addressed to the hub's own origin, so an
- * opaque panel never receives the session id, the mode, a header action or an
+ * opaque panel never receives the session id, a header action or an
  * artifact message. The embed src carries the load-time half of the same
  * state.
  */
@@ -40,11 +40,11 @@ function fakeFrame() {
 beforeEach(() => {
   mocks.sessionId = 'sess-1';
   mocks.theme = 'dark';
-  document.documentElement.setAttribute('data-ui-mode', 'simple');
+  document.documentElement.removeAttribute('data-agent-surface');
 });
 
 afterEach(() => {
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.restoreAllMocks();
 });
 
@@ -62,7 +62,7 @@ describe('the guarded send', () => {
     postMessage.mockImplementation(() => {
       throw new Error('SecurityError');
     });
-    expect(() => sync.sendModeToIframe(iframe)).not.toThrow();
+    expect(() => sync.sendSessionToIframe(iframe)).not.toThrow();
   });
 });
 
@@ -86,21 +86,6 @@ describe('the state messages', () => {
     expect(postMessage).not.toHaveBeenCalled();
   });
 
-  test('the mode is read off <html>, expert when unstamped', () => {
-    const { iframe, postMessage } = fakeFrame();
-    sync.sendModeToIframe(iframe);
-    expect(postMessage).toHaveBeenLastCalledWith(
-      { type: 'osprey-mode-change', mode: 'simple' },
-      window.location.origin
-    );
-    document.documentElement.removeAttribute('data-ui-mode');
-    sync.sendModeToIframe(iframe);
-    expect(postMessage).toHaveBeenLastCalledWith(
-      { type: 'osprey-mode-change', mode: 'expert' },
-      window.location.origin
-    );
-  });
-
   test('a header action carries its value only when it has one', () => {
     const { iframe, postMessage } = fakeFrame();
     sync.sendHeaderActionToIframe(iframe, 'refresh');
@@ -113,16 +98,14 @@ describe('the state messages', () => {
 });
 
 describe('the state messages to a pop-out window', () => {
-  test('theme, session and mode reach the window as its iframe twins would, at the hub origin', () => {
+  test('theme and session reach the window as its iframe twins would, at the hub origin', () => {
     const postMessage = vi.fn();
     const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
     sync.sendThemeToWindow(win);
     sync.sendSessionToWindow(win);
-    sync.sendModeToWindow(win);
     expect(postMessage.mock.calls).toEqual([
       [{ type: 'osprey-theme-change', theme: 'dark' }, window.location.origin],
       [{ type: 'osprey-session-change', session_id: 'sess-1' }, window.location.origin],
-      [{ type: 'osprey-mode-change', mode: 'simple' }, window.location.origin],
     ]);
   });
 
@@ -136,7 +119,8 @@ describe('the state messages to a pop-out window', () => {
     postMessage.mockImplementation(() => {
       throw new Error('SecurityError');
     });
-    expect(() => sync.sendModeToWindow(win)).not.toThrow();
+    mocks.sessionId = 'sess-1';
+    expect(() => sync.sendSessionToWindow(win)).not.toThrow();
   });
 });
 
@@ -180,24 +164,24 @@ describe('the artifacts viewer messages', () => {
 });
 
 describe('buildEmbedSrc', () => {
-  test('stamps embedded, theme and mode and keeps a prefixed path verbatim', () => {
+  test('stamps embedded and theme and keeps a prefixed path verbatim', () => {
     const src = new URL(sync.buildEmbedSrc('/u/alice/panel/artifacts/?x=1'));
     expect(src.pathname).toBe('/u/alice/panel/artifacts/');
     expect(src.searchParams.get('x')).toBe('1');
     expect(src.searchParams.get('embedded')).toBe('true');
     expect(src.searchParams.get('theme')).toBe('dark');
-    expect(src.searchParams.get('mode')).toBe('simple');
+    expect(src.searchParams.has('mode')).toBe(false);
   });
 });
 
 describe('buildPopoutSrc', () => {
-  test('stamps popout, theme and mode — never embedded — and keeps a prefixed path verbatim', () => {
+  test('stamps popout and theme — never embedded — and keeps a prefixed path verbatim', () => {
     const src = new URL(sync.buildPopoutSrc('/u/alice/panel/artifacts/?x=1'));
     expect(src.pathname).toBe('/u/alice/panel/artifacts/');
     expect(src.searchParams.get('x')).toBe('1');
     expect(src.searchParams.get('popout')).toBe('true');
     expect(src.searchParams.has('embedded')).toBe(false);
     expect(src.searchParams.get('theme')).toBe('dark');
-    expect(src.searchParams.get('mode')).toBe('simple');
+    expect(src.searchParams.has('mode')).toBe(false);
   });
 });

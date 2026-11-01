@@ -4,7 +4,7 @@ FR17. Each reader is driven through its own production entry point, with its
 own record client resolved from the environment the way it is deployed:
 
 * **agent-record stopped.** Every record client aims at a port nothing
-  listens on. The history page, ``session_log``, the session list, Simple-view
+  listens on. The history page, ``session_log``, the session list, chat
   replay, ``/api/audit/recent``, the hook debug panel, dispatch status and
   bridge replay each answer "record unavailable" (dispatch status: ``pending``
   with ``record: "unavailable"``) within the reader's bound — its client
@@ -16,7 +16,7 @@ own record client resolved from the environment the way it is deployed:
 * **A stalled consumer, the service up.** A real agent-record over the
   embedded backend serves on a real port, but its spool consumer commits
   nothing and its drain waits one second. Every reader that waits on a drain —
-  ``session_log``, the session list, Simple-view replay, dispatch status, bridge
+  ``session_log``, the session list, chat replay, dispatch status, bridge
   replay and the feedback read — answers ``incomplete`` within its bound, with a
   line still pending in the spool its drain covers.
 """
@@ -374,7 +374,7 @@ def test_the_session_list_answers_incomplete(stalled_record, monkeypatch, web_te
     assert STALLED_WAIT_S <= elapsed < STALLED_BOUND_S
 
 
-def test_simple_view_replay_answers_incomplete(stalled_record, monkeypatch, web_terminal):
+def test_chat_replay_answers_incomplete(stalled_record, monkeypatch, web_terminal):
     _aim(monkeypatch, stalled_record)
 
     response, elapsed = _timed(

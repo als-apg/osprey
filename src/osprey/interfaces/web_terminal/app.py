@@ -456,59 +456,6 @@ def _launch_panel_server(app: FastAPI, key: str) -> None:
         setattr(app.state, attr, None)
 
 
-#: The two supported web UI modes. ``expert`` is the full split-pane terminal
-#: workspace; ``simple`` is the pared-down operator layout. ``expert`` is the
-#: default so an absent/misconfigured ``web.ui_mode`` never strands a deployment
-#: in the reduced surface.
-UI_MODES = ("expert", "simple")
-DEFAULT_UI_MODE = "expert"
-
-
-def resolve_ui_mode(configured: str, *, expert_view: bool = True) -> str:
-    """Resolve the ``web.ui_mode`` config value into a concrete UI mode.
-
-    ``configured`` must be one of :data:`UI_MODES` (``"expert"`` or
-    ``"simple"``). Anything else — a typo, ``None``, an empty string — is
-    logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
-
-    With ``expert_view`` false (``web.expert_view: false``, resolved by
-    :func:`resolve_expert_view`) the answer is ``simple`` whatever
-    ``configured`` says: a deployment that rules the Expert view out cannot
-    open in it. The build refuses a profile that states both, so a stated
-    ``expert`` here is a hand-edited render and is reported.
-
-    Mirrors the warn+fallback shape of the ``web.theme`` resolver
-    (:func:`~osprey.interfaces.design_system.theme_config.resolve_theme_id`): it never
-    raises, so a bad value degrades to the safe default instead of blocking
-    server startup.
-
-    Args:
-        configured: The raw ``web.ui_mode`` config value.
-        expert_view: Whether this deployment offers the Expert view at all.
-
-    Returns:
-        A concrete mode string in :data:`UI_MODES` — the value stamped onto
-        ``<html data-ui-mode>`` for the pre-paint mode-boot rung, which only
-        honors a real mode.
-    """
-    if not expert_view:
-        if configured == "expert":
-            logger.warning(
-                "web.ui_mode is 'expert' but web.expert_view is false; opening in 'simple'."
-            )
-        return "simple"
-    if configured in UI_MODES:
-        return configured
-
-    logger.warning(
-        "Unknown web.ui_mode %r (expected one of %s); falling back to %r.",
-        configured,
-        list(UI_MODES),
-        DEFAULT_UI_MODE,
-    )
-    return DEFAULT_UI_MODE
-
-
 #: Onboarding-tour invite policy (``web.tour``, per-user override via the
 #: ``OSPREY_WEB_TOUR`` environment variable — the ``web.theme`` /
 #: ``OSPREY_WEB_THEME`` shape, so a roster can arm the invite per user).
@@ -524,7 +471,7 @@ DEFAULT_TOUR_POLICY = "once"
 def resolve_tour_policy(configured: str | None) -> str:
     """Resolve ``web.tour`` / ``OSPREY_WEB_TOUR`` into a concrete policy.
 
-    Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: anything
+    Mirrors the warn+fallback shape of the ``web.theme`` resolver: anything
     outside :data:`TOUR_POLICIES` — a typo, ``None``, an empty string — is
     logged as a warning and resolved to :data:`DEFAULT_TOUR_POLICY`, so a bad
     value degrades to the safe default instead of blocking server startup.
@@ -656,27 +603,22 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
     )
 
 
-#: The refusal every Expert-surface route gives when ``web.expert_view`` is
+#: The refusal every terminal-surface route gives when ``web.terminal`` is
 #: false. One sentence, so the websocket's error frame and the log say the same.
-EXPERT_VIEW_REFUSAL = (
-    "The Expert view is not offered on this deployment (web.expert_view: false); "
-    "use the Simple view."
-)
+TERMINAL_REFUSAL = "The terminal is not offered on this deployment (web.terminal: false)."
 
 
-def resolve_expert_view(config_path: str | Path | None) -> bool:
-    """Whether this deployment offers the Expert view (``web.expert_view``).
+def resolve_terminal_offered(config_path: str | Path | None) -> bool:
+    """Whether this deployment offers the terminal on the Agent tile (``web.terminal``).
 
     Default ``True``: a deployment that never mentions the key keeps the
-    Expert view, exactly as before the key existed. ``false`` takes the whole
-    Expert surface away — the resolved UI mode is ``simple``
-    (:func:`resolve_ui_mode`), the browser drops every way to flip to Expert,
-    and ``/ws/terminal`` refuses to open a PTY session.
+    runtime opt-in. ``false`` takes the terminal surface away — the browser
+    drops the entry to it, and ``/ws/terminal`` refuses to open a PTY session.
 
     Read the way :func:`resolve_privilege_gates` reads its gates, because it
     is one in kind — the server refuses a route on it, not only the page: no
     file resolved means the default, a resolved file that cannot be read means
-    no Expert view, and a value nobody can interpret takes the default through
+    no terminal, and a value nobody can interpret takes the default through
     :func:`coerce_config_flag`.
 
     Args:
@@ -690,15 +632,15 @@ def resolve_expert_view(config_path: str | Path | None) -> bool:
     from osprey_connectors.config import get_config_value
 
     try:
-        raw = get_config_value("web.expert_view", True, str(config_path))
+        raw = get_config_value("web.terminal", True, str(config_path))
     except Exception:
         logger.error(
-            "Could not read the config file %s; the Expert view is closed until it reads cleanly",
+            "Could not read the config file %s; the terminal is closed until it reads cleanly",
             config_path,
             exc_info=True,
         )
         return False
-    return coerce_config_flag("web.expert_view", raw, True)
+    return coerce_config_flag("web.terminal", raw, True)
 
 
 def unreadable_config_refusal(path: str | Path) -> str:
@@ -1035,9 +977,9 @@ def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
 
 
 def _settle_agent_cli(argv: list[str], project_cwd: str) -> None:
-    """Settle and name the Claude Code the two views run.
+    """Settle and name the Claude Code the two surfaces run.
 
-    The expert view spawns the CLI named by ``argv`` in a PTY; the simple view
+    The terminal spawns the CLI named by ``argv`` in a PTY; the chat
     goes through the Agent SDK, which OSPREY points at the installed ``claude``
     of the same version. The executable the chat's runs execute is resolved
     here, once for the life of the server, and named beside the terminal's
@@ -1219,7 +1161,7 @@ def _create_lifespan(
         # rather than starting a fresh one under the same key.
         load_transcript_map(app)
 
-        # What the expert view's Claude Code process last reported it was
+        # What the terminal's Claude Code process last reported it was
         # doing, keyed by session key (routes/agent_turn.py). Empty at
         # startup: no report is not a claim of idleness, and every reader
         # treats a missing entry as "unknown" rather than "free to take over".
@@ -1230,10 +1172,10 @@ def _create_lifespan(
         # cannot arrive.
         app.state.turn_hook_present = False
 
-        # ── Simple-mode chat pool bounds ──
+        # ── Operator-chat pool bounds ──
         # Three knobs bound the operator-chat pool; each fails open to its
         # default so a missing/broken config never blocks startup. Read from
-        # the top-level `web` section (same section as web.theme/web.ui_mode).
+        # the top-level `web` section (same section as web.theme).
         # The route handlers re-read the two timeouts off app.state via getattr
         # with these same defaults, so the attribute names are load-bearing.
         try:
@@ -1387,37 +1329,12 @@ def _create_lifespan(
             app.state.web_theme_id = "dark"
             app.state.web_theme_mode = None
 
-        # ── Web UI mode (SSR no-flash attribute) ──
-        # Resolved once at startup and server-rendered onto <html data-ui-mode>
-        # so the pre-paint mode-boot script first-paints in the right
-        # mode. GET /api/panels also carries ui_mode, but first paint must never
-        # depend on that API field — this server-rendered attribute is the
-        # authoritative first-paint rung. Read via load_osprey_config (the same
-        # top-level `web` section the panel loaders in this file use). Fails open
-        # to the default mode on any config-read error.
-        #
-        # `web.expert_view: false` is resolved first because it bounds the
-        # mode: with the Expert view ruled out the mode is `simple` whatever
-        # `web.ui_mode` says, and /ws/terminal refuses to open a PTY session
-        # (routes/websocket.py). Read like the privilege gates below — the
-        # server refuses a route on it — so an unreadable config closes it.
-        app.state.web_expert_view = resolve_expert_view(resolved_config_path)
-        try:
-            from osprey_connectors.workspace import load_osprey_config
-
-            configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
-            app.state.web_ui_mode = resolve_ui_mode(
-                configured_ui_mode, expert_view=app.state.web_expert_view
-            )
-        except Exception:  # never let config load block startup
-            fallback_ui_mode = DEFAULT_UI_MODE if app.state.web_expert_view else "simple"
-            logger.warning(
-                "Could not resolve web.ui_mode (config load failed); "
-                "server-rendering fallback mode %r",
-                fallback_ui_mode,
-                exc_info=True,
-            )
-            app.state.web_ui_mode = fallback_ui_mode
+        # ── The terminal gate (web.terminal) ──
+        # Server-rendered onto <html data-terminal="off"> when false, and
+        # /ws/terminal refuses to open a PTY session (routes/websocket.py). Read
+        # like the privilege gates below — the server refuses a route on it —
+        # so an unreadable config closes it.
+        app.state.web_terminal_offered = resolve_terminal_offered(resolved_config_path)
 
         # ── Onboarding-tour invite policy ──
         # OSPREY_WEB_TOUR (the per-user roster path) outranks web.tour, the
@@ -1463,7 +1380,7 @@ def _create_lifespan(
         # content, which the agent loads at PROJECT scope — instruction it
         # obeys, not decoration — so "may this tier author it" is a privilege
         # boundary. Hiding the buttons alone would be the same cosmetic gate
-        # `ui_mode: simple` was: a client-only guard is undone by curl.
+        # a client-only guard would be: it is undone by curl.
         #
         # Resolved once here and read back as
         # ``getattr(app.state, "scaffold_write_enabled", False)``: an app that
@@ -1611,7 +1528,7 @@ def _create_lifespan(
         app.state.workspace_base = workspace_dir  # alias for clarity
 
         # ── Documentation + feedback controls ──
-        # Read once here (the web.ui_mode pattern) and
+        # Read once here and
         # echoed to the browser by GET /api/panels. Every read fails open: a
         # facility with no config.yml still gets working Documentation and
         # Feedback controls pointed at the project defaults.
@@ -1859,7 +1776,7 @@ def _create_lifespan(
         # ── Idle chat-session reaper ──
         # Periodically evicts idle chat sessions (per the registry's idle
         # predicate, which also collects zombie-busy sessions) so an abandoned
-        # Simple-mode tab does not pin a pool slot indefinitely. Fail-open at
+        # chat tab does not pin a pool slot indefinitely. Fail-open at
         # every level: a per-cycle exception is swallowed+logged, and the whole
         # task is wrapped so a reaper crash can never take the app down. Interval
         # is idle_timeout/4, clamped to [30s, 300s].
@@ -2027,8 +1944,7 @@ def create_app(
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
         web_theme_mode = getattr(request.app.state, "web_theme_mode", None)
-        web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
-        web_expert_view = bool(getattr(request.app.state, "web_expert_view", True))
+        web_terminal_offered = bool(getattr(request.app.state, "web_terminal_offered", True))
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
         # The role nginx forwarded on THIS request, and where that role came
@@ -2053,11 +1969,10 @@ def create_app(
                 "app_name": app_name,
                 "web_theme_id": web_theme_id,
                 "web_theme_mode": web_theme_mode or "",
-                "web_ui_mode": web_ui_mode,
-                # Stamped as data-expert-view="off" only when false: the
-                # pre-paint mode-boot rung and frame-params.js read it to keep
-                # the page out of Expert, whatever ?mode= or storage say.
-                "web_expert_view": web_expert_view,
+                # Stamped as data-terminal="off" only when false: the pre-paint
+                # boot script and frame-params.js read it to keep the page out
+                # of the terminal, whatever the tab's storage says.
+                "web_terminal_offered": web_terminal_offered,
                 "terminal_user": terminal_user,
                 # Namespace for everything this page keeps in localStorage.
                 # Empty on a single-user deployment, and the template omits

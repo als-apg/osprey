@@ -70,7 +70,6 @@ DENY_KEY = "claude_code.permissions.deny"
 REMOVE_DENY_KEY = "claude_code.permissions.remove_deny"
 CONFIG_PANEL_KEY = "web.config_panel.enabled"
 SCAFFOLD_WRITE_KEY = "web.scaffold_gallery.write_enabled"
-UI_MODE_KEY = "web.ui_mode"
 WEB_TERMINALS_KEY = "modules.web_terminals"
 SEEDED_PASSWORD_CODE = "web_terminals.auth_seeded_password"
 
@@ -392,7 +391,6 @@ class TestControlAssistantAdminPreset:
         admin = resolve_preset(ADMIN_LAYER)
         assert admin.deploy_services is False
         assert admin.config.get(f"{WEB_TERMINALS_KEY}.enabled") is False
-        assert admin.config.get(UI_MODE_KEY) == "expert"
 
     def test_base_catalog_deploys_the_admin_render(self) -> None:
         """The admin tier exists because a bundled file ships it: ``osprey
@@ -536,4 +534,3 @@ class TestControlAssistantRenderedAdmin:
         config = yaml.safe_load((rendered_admin_project / "config.yml").read_text("utf-8"))
         assert config["web"]["config_panel"]["enabled"] is True
         assert config["web"]["scaffold_gallery"]["write_enabled"] is True
-        assert config["web"]["ui_mode"] == "expert"

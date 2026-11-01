@@ -19,9 +19,6 @@
  *     covering BOTH shapes it arrives in: an HTTP rejection, and the backend's
  *     own 200-with-WARNING rerank fallback (indistinguishable from success
  *     except for the diagnostic);
- *   - Simple mode gets one plain-language line, and a UI-mode flip repaints the
- *     status the search actually finished on rather than resurrecting a stale
- *     "still reranking";
  *   - a mode with reranking off (or no reranker at all) still issues exactly
  *     ONE query, with no `rerank` key injected.
  *
@@ -240,7 +237,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  document.documentElement.removeAttribute('data-ui-mode');
   vi.restoreAllMocks();
 });
 
@@ -480,95 +476,6 @@ describe('two-phase search: a phase-2 failure keeps the fast results', () => {
     expect(results().querySelector('.text-error')).not.toBeNull();
     expect(statusText()).toBeNull();
     expect(searchBtn().disabled).toBe(false);
-  });
-});
-
-describe('two-phase search: Simple mode', () => {
-  test('Simple gets one plain-language line per phase', async () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    const fast = deferred();
-    const reranked = deferred();
-    searchMock
-      .mockImplementationOnce(() => fast.promise)
-      .mockImplementationOnce(() => reranked.promise);
-
-    const pending = search.performSearch('quench');
-    fast.resolve(searchResponse({ entries: [entry('FAST-1')] }));
-    await flush();
-
-    expect(
-      results().querySelectorAll('[data-testid="rerank-status"]').length,
-      'exactly one line'
-    ).toBe(1);
-    expect(statusText()).toBe('Showing quick results — improving the order now…');
-    // Simple deliberately omits the search-mechanics chrome, status line aside.
-    expect(results().querySelector('.diagnostics-bar')).toBeNull();
-
-    reranked.resolve(searchResponse({ entries: [entry('RERANKED-1')] }));
-    await pending;
-
-    expect(statusText()).toBe('Order improved — best matches first');
-  });
-
-  test('an empty fast ranking still gets its Simple status line', async () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    const fast = deferred();
-    const reranked = deferred();
-    searchMock
-      .mockImplementationOnce(() => fast.promise)
-      .mockImplementationOnce(() => reranked.promise);
-
-    const pending = search.performSearch('nothing matches this');
-    fast.resolve(searchResponse({ entries: [] }));
-    await flush();
-
-    expect(results().textContent).toContain('No entries found');
-    expect(statusText()).toBe('Showing quick results — improving the order now…');
-
-    reranked.resolve(searchResponse({ entries: [entry('RERANKED-1')] }));
-    await pending;
-  });
-
-  test('a UI-mode flip repaints the phase the search finished on, not a stale one', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    searchMock.mockResolvedValue(searchResponse({ entries: [entry('E1')] }));
-
-    await search.performSearch('quench');
-    expect(statusText()).toBe('Results updated after reranking');
-
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    search.onUiModeChange();
-
-    expect(statusText(), 'the finished phase, in Simple words').toBe(
-      'Order improved — best matches first'
-    );
-    expect(results().textContent, 'no resurrected "still reranking"').not.toContain(
-      'improving the order now'
-    );
-  });
-
-  test('a flip mid-flight keeps saying reranking, because it still is', async () => {
-    const { search, searchMock } = await loadModules(hybridCapabilities(true));
-    const fast = deferred();
-    const reranked = deferred();
-    searchMock
-      .mockImplementationOnce(() => fast.promise)
-      .mockImplementationOnce(() => reranked.promise);
-
-    const pending = search.performSearch('quench');
-    fast.resolve(searchResponse({ entries: [entry('FAST-1')] }));
-    await flush();
-    expect(statusText()).toBe('Search complete — reranking with LLM…');
-
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    search.onUiModeChange();
-    expect(statusText()).toBe('Showing quick results — improving the order now…');
-
-    reranked.resolve(searchResponse({ entries: [entry('RERANKED-1')] }));
-    await pending;
-    expect(statusText()).toBe('Order improved — best matches first');
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Simple chat's context meter (chat-context.js), driven
+ * Unit tests for the chat chat's context meter (chat-context.js), driven
  * through the renderer as the chat drives it:
  *   npx vitest run tests/interfaces/web_terminal/chat-context.test.mjs
  *

@@ -1,19 +1,19 @@
 // @ts-check
 /**
- * Unit tests for the session picker in the Simple view (sessions.js):
- *   npx vitest run tests/interfaces/web_terminal/sessions-simple.test.mjs
+ * Unit tests for the session picker in the chat (sessions.js):
+ *   npx vitest run tests/interfaces/web_terminal/sessions-menu.test.mjs
  *
- * In the Simple view the chat is the surface that runs the session, and no
+ * In chat the console is the surface that runs the session, and no
  * terminal socket is open. Picking a session there must move the session
  * pointer, which the chat subscribes to and replays, and must not start a
  * terminal, because a second surface on the session's agent would take the
- * conversation away from the chat. The Expert view keeps the terminal resume.
+ * conversation away from the chat. The terminal surface keeps its resume.
  *
  * The keyboard tests cover the picker's focus: the list sits at the end of the
  * body, so focus must move into it on open, and Escape must return it.
  *
  * The busy tests cover the chat's `busy` event: while a turn streams, a pick
- * would cut it off, so the picker is withheld in the Simple view only.
+ * would cut it off, so the picker is withheld in the chat only.
  *
  * terminal.js is xterm glue, so it is replaced with doubles; the pointer is the
  * real session-pointer.js, which is what the chat and the picker share.
@@ -41,20 +41,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   notifySessionChange: (/** @type {any} */ id) => terminal.notifySessionChange(id),
   switchSession: (/** @type {any} */ id) => terminal.switchSession(id),
   setSessionLabel: (/** @type {any} */ id) => terminal.setSessionLabel(id),
-}));
-
-/**
- * The mode listeners the picker registers, so a test can flip the view. The
- * real receive side keys its "did the mode change" verdict on a per-module
- * map, and this file re-imports the modules per test, so a window message
- * would be judged by the stale instances first and never reach the fresh one.
- * @type {Array<(mode: 'expert' | 'simple') => void>}
- */
-const modeListeners = [];
-
-vi.mock('/design-system/js/frame-params.js', async (importOriginal) => ({
-  .../** @type {object} */ (await importOriginal()),
-  onModeChange: (/** @type {(mode: 'expert' | 'simple') => void} */ cb) => modeListeners.push(cb),
 }));
 
 const FIRST = 'aaaaaaaa-1111-2222-3333-444444444444';
@@ -88,9 +74,11 @@ function stubSessions(body) {
   );
 }
 
-/** @param {'simple' | 'expert'} mode */
-function setMode(mode) {
-  document.documentElement.setAttribute('data-ui-mode', mode);
+/** @param {'chat' | 'terminal'} surface */
+function setSurface(surface) {
+  if (surface === 'terminal')
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+  else document.documentElement.removeAttribute('data-agent-surface');
 }
 
 async function openPicker() {
@@ -107,6 +95,9 @@ function pickSession(sessionId) {
   item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 }
 
+/** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js')} */
+let surface;
+
 beforeEach(async () => {
   vi.resetModules();
   localStorage.clear();
@@ -116,18 +107,19 @@ beforeEach(async () => {
   sessions = await import(`${JS}/sessions.js`);
   pointer = await import(`${JS}/session-pointer.js`);
   bus = await import(`${JS}/chat-events.js`);
+  surface = await import(`${JS}/agent-surface.js`);
   sessions.initSessionSelector('session-selector');
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
 });
 
-describe('Simple view: picking a session moves the pointer', () => {
+describe('in chat, picking a session moves the pointer', () => {
   test('the chosen session becomes the tab pointer, and no terminal is started', async () => {
-    setMode('simple');
+    setSurface('chat');
     stubSessions({ sessions: RECORDS });
     await openPicker();
 
@@ -139,7 +131,7 @@ describe('Simple view: picking a session moves the pointer', () => {
   });
 
   test('pointer subscribers hear the pick, which is how the chat rebinds and replays it', async () => {
-    setMode('simple');
+    setSurface('chat');
     stubSessions({ sessions: RECORDS });
     /** @type {Array<string | null>} */
     const heard = [];
@@ -152,9 +144,9 @@ describe('Simple view: picking a session moves the pointer', () => {
   });
 });
 
-describe('Expert view: picking a session still resumes it in the terminal', () => {
+describe('on the terminal surface, picking a session still resumes it there', () => {
   test('the terminal is resumed on the chosen session', async () => {
-    setMode('expert');
+    setSurface('terminal');
     stubSessions({ sessions: RECORDS });
     await openPicker();
     vi.useFakeTimers();
@@ -169,7 +161,7 @@ describe('Expert view: picking a session still resumes it in the terminal', () =
 
 describe('keyboard: the picker list takes focus and Escape returns it', () => {
   test('opening the picker focuses the current session, or the first one', async () => {
-    setMode('simple');
+    setSurface('chat');
     terminal.getCurrentSessionId.mockReturnValue(SECOND);
     stubSessions({ sessions: RECORDS });
     await openPicker();
@@ -178,7 +170,7 @@ describe('keyboard: the picker list takes focus and Escape returns it', () => {
   });
 
   test('with no current session, the first listed session takes focus', async () => {
-    setMode('simple');
+    setSurface('chat');
     stubSessions({ sessions: RECORDS });
     await openPicker();
 
@@ -186,7 +178,7 @@ describe('keyboard: the picker list takes focus and Escape returns it', () => {
   });
 
   test('Escape closes the picker and returns focus to its button', async () => {
-    setMode('simple');
+    setSurface('chat');
     stubSessions({ sessions: RECORDS });
     await openPicker();
 
@@ -201,14 +193,8 @@ describe('the picker is withheld while the chat is busy', () => {
   const pickerButton = () =>
     /** @type {HTMLButtonElement} */ (document.getElementById('session-picker-btn'));
 
-  /** Flip the view as frame-params' receive side does: stamp <html>, then tell the listeners. @param {'expert' | 'simple'} mode */
-  function flipTo(mode) {
-    setMode(mode);
-    for (const listener of modeListeners) listener(mode);
-  }
-
   test('a turn that starts with the list open closes it and disables the button until the turn ends', async () => {
-    setMode('simple');
+    setSurface('chat');
     stubSessions({ sessions: RECORDS });
     await openPicker();
     expect(document.getElementById('session-dropdown')).not.toBeNull();
@@ -224,36 +210,36 @@ describe('the picker is withheld while the chat is busy', () => {
     expect(pickerButton().disabled).toBe(false);
   });
 
-  test('the Expert view keeps its picker: the busy console is hidden there', () => {
-    setMode('expert');
+  test('the terminal keeps its picker: the busy console is hidden there', () => {
+    setSurface('terminal');
     bus.emitChat('busy', { busy: true });
     expect(pickerButton().disabled).toBe(false);
   });
 
-  test('a flip to the Expert view frees the picker a busy console had withheld', () => {
-    setMode('simple');
+  test('opening the terminal frees the picker a busy console had withheld', () => {
+    setSurface('chat');
     bus.emitChat('busy', { busy: true });
     expect(pickerButton().disabled).toBe(true);
 
-    flipTo('expert');
+    surface.showTerminalSurface();
 
     expect(pickerButton().disabled).toBe(false);
   });
 
   test('a picker built after the chat went busy starts withheld', async () => {
-    setMode('simple');
+    setSurface('chat');
     bus.emitChat('busy', { busy: true });
     sessions.initSessionSelector('session-selector');
     expect(pickerButton().disabled).toBe(true);
   });
 });
 
-describe("Simple view: the Agent bar's Earlier conversations menu", () => {
+describe("the Agent bar's Earlier conversations menu", () => {
   /** @type {HTMLButtonElement} */
   let opener;
 
   beforeEach(() => {
-    setMode('simple');
+    setSurface('chat');
     opener = document.createElement('button');
     opener.className = 'op-session-more';
     document.body.append(opener);
@@ -336,5 +322,70 @@ describe("Simple view: the Agent bar's Earlier conversations menu", () => {
     bus.emitChat('busy', { busy: true });
     await flush();
     expect(menu().hidden).toBe(true);
+  });
+});
+
+describe("the ⋯ menu's way between surfaces", () => {
+  /** @type {HTMLButtonElement} */
+  let opener;
+
+  const row = () =>
+    /** @type {HTMLButtonElement | null} */ (document.querySelector('.op-surface-row'));
+
+  /** Open the menu and wait for it to render. */
+  async function open() {
+    stubSessions({ sessions: RECORDS });
+    opener.click();
+    await vi.waitFor(() =>
+      expect(document.getElementById('agent-conversations-menu')?.hidden).toBe(false)
+    );
+  }
+
+  beforeEach(() => {
+    opener = document.createElement('button');
+    document.body.append(opener);
+    sessions.attachConversationMenu(opener);
+  });
+
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-terminal');
+    document.getElementById('agent-conversations-menu')?.remove();
+  });
+
+  test('in chat it is the last row, quiet and under a separator, reading "Open terminal"', async () => {
+    await open();
+    const menu = /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
+    expect(menu.lastElementChild).toBe(row());
+    expect(row()?.textContent).toBe('Open terminal');
+    expect(row()?.previousElementSibling?.getAttribute('role')).toBe('separator');
+  });
+
+  test('picking it opens the terminal and closes the menu', async () => {
+    await open();
+    row()?.click();
+    expect(document.documentElement.getAttribute('data-agent-surface')).toBe('terminal');
+    expect(document.getElementById('agent-conversations-menu')?.hidden).toBe(true);
+  });
+
+  test('on the terminal it reads "Back to chat", alone, and picking it goes back', async () => {
+    setSurface('terminal');
+    const header = document.createElement('button');
+    document.body.append(header);
+    sessions.attachConversationMenu(header);
+    header.click();
+    await vi.waitFor(() => expect(row()?.textContent).toBe('Back to chat'));
+    const menu = /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
+    expect(menu.children).toHaveLength(1);
+
+    row()?.click();
+
+    expect(document.documentElement.hasAttribute('data-agent-surface')).toBe(false);
+  });
+
+  test('it is absent under web.terminal: false', async () => {
+    document.documentElement.setAttribute('data-terminal', 'off');
+    await open();
+    expect(row()).toBeNull();
+    expect(document.querySelector('[role="separator"]')).toBeNull();
   });
 });

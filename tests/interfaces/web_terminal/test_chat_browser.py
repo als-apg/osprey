@@ -1,4 +1,4 @@
-"""Browser tests: Simple-mode operator chat, SSE → live DOM.
+"""Browser tests: chat operator chat, SSE → live DOM.
 
 Proves the operator chat console behaviors that the FastAPI TestClient cannot
 reach because none of them exist until a real browser runs the vendored
@@ -9,17 +9,17 @@ markdown/sanitiser globals and the SSE transport against a live event stream:
   3. the activity line (the tool's operator phrase) shows during a tool_use and
      clears on text;
   4. Stop mid-stream re-enables the input and the next prompt runs cleanly;
-  5. the Expert/Simple toggle swaps the chat card ↔ xterm live, no reload;
+  5. the Agent tile's ⋯ entry swaps the chat card ↔ xterm live, no reload;
   6. hostile model markdown renders inert in the live DOM (no script executes);
   7. a re-created chat with nothing to resume shows the "session reset" divider
      on the next turn — no divider when it resumes, none on a first turn;
-  8. flipping the view hands ONE session between the two surfaces: the Simple
-     view replays the Expert transcript and the Expert view resumes it again,
+  8. changing the surface hands ONE session between the two: the chat
+     replays the terminal transcript and the terminal resumes it again,
      the pointer unchanged and the page never reloaded;
-  9. a flip with no transcript to resume starts the chat under the session key;
- 10. the view taking the session over shows the transitional state while the
+  9. a change with no transcript to resume starts the chat under the session key;
+ 10. the surface taking the session over shows the transitional state while the
      outgoing agent finishes: ended by "Stop and switch now" on either side,
-     and by the turn's own idle edge on the Simple side;
+     and by the turn's own idle edge on the chat side;
  11. a second tab holding the session gets the refusal in words;
  12. a panel citation in a streamed answer opens the KNOWLEDGE tile on the
      cited concept — the one companion panel this module serves for real, the
@@ -37,11 +37,11 @@ routes give each scenario a server-loop control channel (release a held turn,
 force an eviction, read turn-guard state and what each SDK client was launched
 with) without cross-thread event juggling.
 
-The Expert half is real: a genuine PTY runs a long-lived child, and the command
+The terminal half is real: a genuine PTY runs a long-lived child, and the command
 the hand-off door built for it is recorded at the registry seam, so ``--resume
 <transcript>`` versus ``--session-id <key>`` is asserted on the argv the spawn
 actually used. What no fake can produce is the transcript a real Claude child
-writes, so the conversation the Expert view "had" is seeded as a JSONL file in
+writes, so the conversation the terminal "had" is seeded as a JSONL file in
 the discovery directory — the same file the resume, the replay and the idle
 judgement all read. The project directory, the Claude config root and the
 agent-data root are all under ``tmp_path``, so a run reads no developer state.
@@ -71,6 +71,7 @@ from tests.interfaces.web_terminal._chat_server import (
     seed_record_from,
     seed_transcript,
 )
+from tests.interfaces.web_terminal._surface import arm_terminal_tab, back_to_chat, open_terminal
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -103,7 +104,7 @@ _OP = "#operator-container"
 # it stands — a poll would not. Its callback runs at the microtask checkpoint,
 # after the synchronous block that wrote the copy.
 #
-# The load counter answers "did the page reload?". A flip is a live swap of two
+# The load counter answers "did the page reload?". A surface change is a live swap of two
 # surfaces that are both already in the document; a reload would restart every
 # script, drop the xterm and re-run the boot ladder, and is exactly the
 # implementation this feature must not have. sessionStorage survives a reload,
@@ -123,7 +124,7 @@ _PROBE_INIT_SCRIPT = """
     ['#operator-container .op-handoff', '#terminal-handoff'].forEach(function (selector) {
       var el = document.querySelector(selector);
       // `hidden` is how the console toggles its card; offsetParent catches the
-      // CSS side (the terminal overlay is display:none in the Simple view), so
+      // CSS side (the terminal overlay is display:none in the chat), so
       // the log records only copy that was actually on screen.
       if (!el || el.hidden || el.offsetParent === null) return;
       var text = (el.textContent || '').trim();
@@ -156,27 +157,15 @@ def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     return page
 
 
-def _open_expert_page(opener, base_url: str, query: str = "") -> Page:
-    """Open a fresh page in the Expert view and wait for its terminal to connect."""
+def _open_terminal_page(opener, base_url: str, query: str = "") -> Page:
+    """Open a fresh tab already on the terminal and wait for it to connect."""
     page: Page = opener.new_page()
+    arm_terminal_tab(page)
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
     wait_for_dock_settled(page)
     return page
-
-
-def _click_segment(page: Page, mode: str) -> None:
-    """Pick *mode* in the sidebar's More menu, then make sure the menu is closed."""
-    menu = page.locator("#more-menu")
-    page.locator("#more-btn").click()
-    expect(menu).to_be_visible()
-    page.locator(f'#more-menu [role="menuitemradio"][data-view="{mode}"]').click()
-    # Close the menu if the pick left it open, so the surface under it is the
-    # one the next step interacts with.
-    if menu.is_visible():
-        page.keyboard.press("Escape")
-    expect(menu).to_be_hidden()
 
 
 def _pointer(page: Page) -> str | None:
@@ -262,7 +251,7 @@ def _report_turn(base_url: str, key: str, state: str) -> None:
             "session_id": key,
             "pool_key": key,
             "state": state,
-            "surface": "expert",
+            "surface": "terminal",
             "ts": time.time(),
             "source": "UserPromptSubmit" if state == "busy" else "Stop",
         },
@@ -281,7 +270,7 @@ def _pty_is_live(base_url: str, key: str) -> bool:
 def _wait_for_attached_session(page: Page, timeout: float = 20.0) -> str:
     """The key the terminal is attached to, once the server has confirmed it.
 
-    An Expert page writes the pointer twice on boot. The console mints a key
+    A terminal page writes the pointer twice on boot. The console mints a key
     for a tab that has none, and the terminal then stores the id the server
     confirms on the socket -- a different one, and a third when a page-load
     resume's child exits early and the terminal falls back to a fresh session.
@@ -547,34 +536,32 @@ def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromi
 
 
 # ---------------------------------------------------------------------------
-# 5. Mode flip swaps chat card ↔ xterm live, both directions, no reload
+# 5. The surface change swaps chat card ↔ xterm live, both directions, no reload
 # ---------------------------------------------------------------------------
 
 
-def test_mode_flip_swaps_chat_and_terminal_live(tmp_path, chromium_browser):
-    """The header toggle swaps console ↔ xterm via CSS; both stay in the DOM."""
-    with live_chat_server(tmp_path, ui_mode="simple") as (base_url, _app):
+def test_surface_change_swaps_chat_and_terminal_live(tmp_path, chromium_browser):
+    """The ⋯ entry swaps console ↔ xterm via CSS; both stay in the DOM."""
+    with live_chat_server(tmp_path) as (base_url, _app):
         page = _open_chat_page(chromium_browser, base_url)
         html = page.locator("html")
         console = page.locator(_OP)
         term = page.locator("#terminal-container")
 
-        # Simple: console visible, xterm hidden.
-        expect(html).to_have_attribute("data-ui-mode", "simple")
+        # Chat: console visible, xterm hidden.
+        expect(html).not_to_have_attribute("data-agent-surface", "terminal")
         expect(console).to_be_visible()
         expect(term).to_be_hidden()
 
-        # → Expert: xterm visible, console hidden — no reload, both attached.
-        _click_segment(page, "expert")
-        expect(html).to_have_attribute("data-ui-mode", "expert")
+        # → Terminal: xterm visible, console hidden — no reload, both attached.
+        open_terminal(page)
         expect(term).to_be_visible()
         expect(console).to_be_hidden()
         expect(console).to_be_attached()
         expect(term).to_be_attached()
 
-        # → Simple again: the swap is reversible with no teardown.
-        _click_segment(page, "simple")
-        expect(html).to_have_attribute("data-ui-mode", "simple")
+        # → Chat again: the swap is reversible with no teardown.
+        back_to_chat(page)
         expect(console).to_be_visible()
         expect(term).to_be_hidden()
         expect(console).to_be_attached()
@@ -708,26 +695,26 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
 
 
 # ---------------------------------------------------------------------------
-# 8. A flip hands ONE session over: Simple replays it, Expert resumes it back
+# 8. A surface change hands ONE session over: chat replays it, terminal resumes it
 # ---------------------------------------------------------------------------
 
 
-def test_handoff_expert_to_simple_and_back_keeps_one_session(
+def test_handoff_terminal_to_chat_and_back_keeps_one_session(
     tmp_path, chromium_browser, monkeypatch
 ):
-    """Both views are windows onto one session key and one conversation.
+    """Both surfaces are windows onto one session key and one conversation.
 
-    The Expert view starts a child under the key; the flip to Simple shows the
+    The terminal starts a child under the key; going back to chat shows the
     transitional state, replays that key's transcript into the console and
     hands back a usable input, with the chat resuming the transcript rather
-    than opening a second conversation; the flip back spawns a terminal child
-    that resumes the same transcript. Through both flips the browser's pointer
+    than opening a second conversation; opening it again spawns a terminal child
+    that resumes the same transcript. Through both changes the browser's pointer
     is the same string and the page never reloads — the surfaces are swapped
     live, which is the whole point of the mechanic.
     """
-    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path) as (base_url, _app):
         PLANS["and then"] = [("text", "the newer answer"), ("result",)]
-        page = _open_expert_page(chromium_browser, base_url)
+        page = _open_terminal_page(chromium_browser, base_url)
         key = _wait_for_attached_session(page)
 
         # Nothing to resume yet, so the terminal child was started under the key.
@@ -741,12 +728,12 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(
             key,
             [("user", "what is the beam current"), ("assistant", "the earlier answer")],
         )
-        # The Simple view replays the conversation from the agent record, so the
+        # The chat replays the conversation from the agent record, so the
         # record is seeded too: it serves the nodes its own transcript parser and
         # timeline builder make of that file, as the ingested record would.
         seed_record_from(monkeypatch, transcript)
 
-        _click_segment(page, "simple")
+        back_to_chat(page)
 
         # The transcript is replayed into the console...
         expect(page.locator(f"{_OP} .op-entry.operator")).to_contain_text(
@@ -758,7 +745,7 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(
         # ...and the restart was on screen while it happened. The terminal was
         # idle, so what the operator watched was the agent moving, not a turn
         # finishing.
-        assert any("Restarting the agent in this view" in line for line in _handoff_log(page)), (
+        assert any("Restarting the agent in this surface" in line for line in _handoff_log(page)), (
             f"the transitional state was never shown: {_handoff_log(page)}"
         )
 
@@ -774,39 +761,39 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(
             "the newer answer", timeout=10_000
         )
 
-        _click_segment(page, "expert")
+        open_terminal(page)
 
         expect(page.locator("#terminal-container")).to_be_visible()
         second = _wait_for_pty_spawns(base_url, 2)[1]
         assert _identity_of(second) == ("--resume", key)
 
-        assert _pointer(page) == key, "the flip moved the tab to another session"
-        assert _page_loads(page) == 1, "the flip reloaded the page"
+        assert _pointer(page) == key, "the change moved the tab to another session"
+        assert _page_loads(page) == 1, "the change reloaded the page"
 
         page.close()
 
 
 # ---------------------------------------------------------------------------
-# 9. A flip with nothing to resume starts the chat under the session key
+# 9. A change with nothing to resume starts the chat under the session key
 # ---------------------------------------------------------------------------
 
 
 def test_handoff_before_any_prompt_starts_the_chat_under_the_key(tmp_path, chromium_browser):
-    """With no transcript on disk the Simple view opens the key's first conversation.
+    """With no transcript on disk the chat opens the key's first conversation.
 
-    The counterpart of the resume above: the same flip, made before anything
+    The counterpart of the resume above: the same change, made before anything
     has been said, must not ask the SDK to continue a transcript that does not
     exist. It starts one under the session key instead — so the id the child
-    writes its transcript under is the key both views are already on — and the
-    pointer is untouched by the flip.
+    writes its transcript under is the key both surfaces are already on — and the
+    pointer is untouched by the change.
     """
-    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
-        page = _open_expert_page(chromium_browser, base_url)
+    with live_chat_server(tmp_path) as (base_url, _app):
+        page = _open_terminal_page(chromium_browser, base_url)
         key = _wait_for_attached_session(page)
         first = _wait_for_pty_spawns(base_url, 1)[0]
         assert _identity_of(first) == ("--session-id", key)
 
-        _click_segment(page, "simple")
+        back_to_chat(page)
 
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled(timeout=20_000)
         options = _wait_for_chat_options(base_url)
@@ -820,21 +807,21 @@ def test_handoff_before_any_prompt_starts_the_chat_under_the_key(tmp_path, chrom
 
 
 # ---------------------------------------------------------------------------
-# 10. The Expert side of a flip: the wait, and the way out of it
+# 10. The terminal side of a change: the wait, and the way out of it
 # ---------------------------------------------------------------------------
 
 
 def test_handoff_pending_shows_the_wait_and_stop_switches_now(tmp_path, chromium_browser):
-    """A flip to Expert waits out the chat's turn, and one button ends that wait.
+    """Opening the terminal waits out the chat's turn, and one button ends that wait.
 
     Only one surface may run the session's agent, and the outgoing one is never
-    cut off on a clock — so a flip made mid-turn parks on the terminal card
+    cut off on a clock — so a change made mid-turn parks on the terminal card
     behind a live elapsed counter. "Stop and switch now" is the operator's way
     out: it asks for the same session again with the interrupt flag, which ends
     the running turn instead of waiting for it, and the terminal comes up on
     the key.
     """
-    with live_chat_server(tmp_path, ui_mode="simple") as (base_url, _app):
+    with live_chat_server(tmp_path) as (base_url, _app):
         # The turn never finishes on its own: the gate is deliberately never
         # released, so the wait the operator sees is real.
         PLANS["hold the line"] = [("text", "working"), ("gate",), ("result",)]
@@ -846,12 +833,12 @@ def test_handoff_pending_shows_the_wait_and_stop_switches_now(tmp_path, chromium
             "working", timeout=10_000
         )
 
-        _click_segment(page, "expert")
+        open_terminal(page)
 
         overlay = page.locator("#terminal-handoff")
         expect(overlay).to_be_visible(timeout=10_000)
         expect(overlay.locator(".terminal-handoff-message")).to_contain_text(
-            "Finishing in the other view", timeout=10_000
+            "Finishing in the other surface", timeout=10_000
         )
         # The counter is the honest thing to show for a wait with no bound.
         expect(overlay.locator(".terminal-handoff-elapsed")).to_have_text(
@@ -875,12 +862,12 @@ def test_handoff_pending_shows_the_wait_and_stop_switches_now(tmp_path, chromium
 
 
 def _flip_into_a_busy_terminal(base_url: str, chromium_browser) -> tuple[Page, str]:
-    """Open Expert, mark the key mid-turn, flip to Simple, and return at the wait.
+    """Open the terminal, mark the key mid-turn, go back to chat, and return at the wait.
 
     Shared by the two cases below because the setup is the whole scenario up to
     the fork: what the operator does about the wait is what differs.
     """
-    page = _open_expert_page(chromium_browser, base_url)
+    page = _open_terminal_page(chromium_browser, base_url)
     key = _wait_for_attached_session(page)
     _wait_for_pty_spawns(base_url, 1)
     assert _pty_is_live(base_url, key)
@@ -888,7 +875,7 @@ def _flip_into_a_busy_terminal(base_url: str, chromium_browser) -> tuple[Page, s
     # The terminal's own child reports a prompt going in — the hook's busy edge.
     _report_turn(base_url, key, "busy")
 
-    _click_segment(page, "simple")
+    back_to_chat(page)
 
     overlay = page.locator(f"{_OP} .op-handoff")
     expect(overlay).to_be_visible(timeout=10_000)
@@ -896,17 +883,17 @@ def _flip_into_a_busy_terminal(base_url: str, chromium_browser) -> tuple[Page, s
     # mid-turn, so it shows the restart first and the wait once the restart
     # budget is spent — the copy below arrives a few seconds in.
     expect(overlay.locator(".op-handoff-message")).to_contain_text(
-        "Finishing in the other view", timeout=15_000
+        "Finishing in the other surface", timeout=15_000
     )
     expect(overlay.locator(".op-handoff-elapsed")).to_have_text(re.compile(r"^\d+:\d{2}$"))
-    # The input stays out of reach: the session is not this view's yet.
+    # The input stays out of reach: the session is not this surface's yet.
     expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_disabled()
     expect(overlay.locator(".op-handoff-action")).to_have_text("Stop and switch now")
     return page, key
 
 
-def test_handoff_busy_expert_to_simple_waits_for_the_turn(tmp_path, chromium_browser):
-    """A flip made while the terminal is mid-turn waits, then completes on the idle edge.
+def test_handoff_busy_terminal_to_chat_waits_for_the_turn(tmp_path, chromium_browser):
+    """A change made while the terminal is mid-turn waits, then completes on the idle edge.
 
     The mirror of the case above, on the surface whose turns are reported by a
     hook rather than read off an SDK client. The outgoing agent is never ended
@@ -915,7 +902,7 @@ def test_handoff_busy_expert_to_simple_waits_for_the_turn(tmp_path, chromium_bro
     what releases it. The terminal's process is torn down and the console comes
     up on the same key.
     """
-    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path) as (base_url, _app):
         page, key = _flip_into_a_busy_terminal(base_url, chromium_browser)
 
         # The turn ends: the hook's idle edge is the only thing that says so.
@@ -932,14 +919,14 @@ def test_handoff_busy_expert_to_simple_waits_for_the_turn(tmp_path, chromium_bro
         page.close()
 
 
-def test_handoff_busy_expert_to_simple_waits_then_stops(tmp_path, chromium_browser):
+def test_handoff_busy_terminal_to_chat_waits_then_stops(tmp_path, chromium_browser):
     """ "Stop and switch now" must end a wait the operator no longer wants.
 
     The wait on a hooked terminal is unbounded by design, so this button is the
     only way out of it: it asks for the same session again, this time cutting
     the running turn short. It must leave the console usable on the key.
     """
-    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path) as (base_url, _app):
         page, key = _flip_into_a_busy_terminal(base_url, chromium_browser)
 
         page.locator(f"{_OP} .op-handoff-action").click()
@@ -966,17 +953,17 @@ def test_handoff_refused_while_another_tab_holds_the_session(tmp_path, chromium_
     the refusal rather than a silent second conversation, and the copy names
     the situation the operator is actually in.
     """
-    with live_chat_server(tmp_path, ui_mode="expert") as (base_url, _app):
+    with live_chat_server(tmp_path) as (base_url, _app):
         context = chromium_browser.new_context()
 
-        holder = _open_expert_page(context, base_url)
+        holder = _open_terminal_page(context, base_url)
         _wait_for_pty_spawns(base_url, 1)
         # The key the second tab will adopt, which is the attached one rather
         # than whatever the console minted on its way to it.
         key = _wait_for_attached_session(holder)
 
-        # A second tab, opened in the Simple view on the same pointer.
-        second = _open_chat_page(context, base_url, "/?mode=simple")
+        # A second tab, opened in the chat on the same pointer.
+        second = _open_chat_page(context, base_url)
         assert _pointer(second) == key
 
         _send(second, "are you there")
@@ -984,9 +971,9 @@ def test_handoff_refused_while_another_tab_holds_the_session(tmp_path, chromium_
         overlay = second.locator(f"{_OP} .op-handoff")
         expect(overlay).to_be_visible(timeout=20_000)
         expect(overlay.locator(".op-handoff-message")).to_have_text(
-            "This session is in use in another tab or view."
+            "This session is in use in another tab."
         )
-        # Nothing this view can do about it, so it is offered nothing.
+        # Nothing this surface can do about it, so it is offered nothing.
         expect(overlay.locator(".op-handoff-action")).to_be_hidden()
         # The prompt never ran, so the text is back where it was typed.
         expect(second.locator(f"{_OP} .op-input-area textarea")).to_have_value("are you there")
@@ -1011,7 +998,7 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
     renders it through the vendored marked and DOMPurify, the hub classifies the
     click and navigates the okf panel's iframe to the linked URL, fragment
     included, and the panel — served here from its fixture bundle — follows the
-    fragment to the concept. The Simple view boots chat-only on an empty
+    fragment to the concept. The chat boots chat-only on an empty
     workspace, so the click is also what reveals the dock.
     """
     from osprey.interfaces.okf_panel.app import create_app as create_okf_app
@@ -1087,7 +1074,7 @@ def test_live_turn_shows_a_collapsed_thinking_summary(tmp_path, chromium_browser
 
 
 def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser, monkeypatch):
-    """Simple view opened on a session replays each turn's thinking from the record, folded.
+    """The chat opened on a session replays each turn's thinking from the record, folded.
 
     The record serves the turns the session's transcript holds. The first agent
     turn reasoned and shows its summary; the second's block was ``omitted``

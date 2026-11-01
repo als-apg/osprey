@@ -200,7 +200,7 @@ def build_operator_child_env(
     :func:`osprey_connectors.workspace.resolve_agent_data_root` reads to scope
     a child's execution root to ``sessions/<key>`` — where the python and
     sandbox executors put their run directories. One key, one root: a
-    conversation is one session whichever view is showing it, so the chat
+    conversation is one session whichever surface is showing it, so the chat
     child and the PTY child spawned under the same key work out of the same
     directory rather than each in a room of its own. Its PTY counterpart
     stamps the same name from the pool key
@@ -341,7 +341,7 @@ _ASYNC_LAUNCH_MARK = "Async agent launched"
 #: draws a fenced ``svg`` block (the terminal would show its source), so the
 #: guide rides on this session's system prompt, not on the shared rules.
 _SVG_CALLOUT_GUIDE = (
-    "Your replies are shown in the web terminal's Simple view, which renders markdown "
+    "Your replies are shown in the web terminal's operator chat, which renders markdown "
     "and draws a fenced `svg` code block as a picture in a box. Use a drawing only as a "
     "quick look at a result you saved as an artifact: the top few values, a handful of "
     "key numbers, or a small schematic of where something is. Make at most one drawing "
@@ -1084,11 +1084,11 @@ class OperatorSession:
         if session_env is not None:
             session_env["OSPREY_TELEMETRY_SESSION_ID"] = self._session_key
             session_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
-            # Mark the web surface this session serves: the operator chat IS the
-            # simple UX. The panels-context SessionStart hook reads this to tell
+            # Mark the web surface this session serves. The panels-context
+            # SessionStart hook reads this to tell
             # the agent which UI the operator is looking at (the PTY terminal
-            # sets "expert" — see routes/websocket.py's _build_extra_env).
-            session_env["OSPREY_WEB_UX"] = "simple"
+            # sets "terminal" — see routes/websocket.py's _build_extra_env).
+            session_env["OSPREY_WEB_UX"] = "chat"
 
         # The launch names exactly one identity keyword, or none: the two are
         # mutually exclusive, and the runner refuses both together.
@@ -1887,8 +1887,8 @@ class OperatorSession:
     def pid(self) -> int | None:
         """The pid of this session's child process, or ``None`` when none is running.
 
-        The chat child is what holds a session on the Simple surface, the way
-        a PTY holds one on the Expert surface, so a caller addressing
+        The chat child is what holds a session on the chat surface, the way
+        a PTY holds one on the terminal surface, so a caller addressing
         something *to* the process behind a session key has to be able to ask
         which process that is. The runner keeps the handle after it closes, so
         a session whose runner has been closed still answers while its child
@@ -1927,11 +1927,11 @@ class OperatorSession:
 
 
 class OperatorRegistry:
-    """Manages operator sessions and composes the Simple-mode chat pool.
+    """Manages operator sessions and composes the operator-chat pool.
 
     * ``_sessions`` — persistent ``/ws/operator`` sessions keyed by a
       connection-derived id. Uncapped, single-writer per key.
-    * ``chats`` — a :class:`ChatSessionPool` of Simple-mode chat sessions
+    * ``chats`` — a :class:`ChatSessionPool` of operator-chat sessions
       (LRU-capped, idle-reaped). The ``*_chat_session`` methods below are a
       thin facade over it for route/app callers.
     """
@@ -1995,7 +1995,7 @@ class OperatorRegistry:
         if session is not None:
             await session.stop()
 
-    # ---- Chat pool facade (Simple-mode; see ChatSessionPool) ---- #
+    # ---- Chat pool facade (see ChatSessionPool) ---- #
 
     async def get_or_create_chat_session(
         self,

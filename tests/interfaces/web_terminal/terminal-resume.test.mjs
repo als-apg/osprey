@@ -41,6 +41,7 @@ let terminal;
 const STORAGE_KEY = 'osprey-pty-session';
 
 beforeEach(async () => {
+  document.documentElement.setAttribute('data-agent-surface', 'terminal');
   vi.resetModules();
   localStorage.clear();
 
@@ -62,7 +63,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-osprey-storage-scope');
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -100,7 +101,7 @@ describe('per-user pointer scope', () => {
 });
 
 describe('the session key outlives the connection', () => {
-  // A view flip tears this terminal's socket down so the other surface can
+  // A surface change tears this terminal's socket down so the other surface can
   // take the session over. Both halves of the pointer have to survive that:
   // the stored key, so a reload still resumes it, and the answer to "which
   // session is this card on?", which the chat asks while nothing is attached.
@@ -363,36 +364,29 @@ describe('transcript missing: a new session, said out loud, never a dead PTY', (
     expect(terminal.getCurrentSessionId()).toBeNull();
   });
 
-  test.each([['expert'], ['simple']])(
-    'a refused switch leaves the live session untouched (%s view)',
-    (mode) => {
-      // The server answers a switch_session to a missing id with the same frame
-      // but keeps the current PTY attached; the operator is still on it, in
-      // either view. The Simple view only reaches a connected terminal through
-      // the flip, so it connects the way the flip does.
-      document.documentElement.setAttribute('data-ui-mode', mode);
-      terminal.initTerminal('terminal-container');
-      if (mode === 'simple') terminal.startExpert();
-      openSocket();
-      receive({ type: 'session_info', session_id: 'live-id' });
-      const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+  test('a refused switch leaves the live session untouched', () => {
+    // The server answers a switch_session to a missing id with the same frame
+    // but keeps the current PTY attached; the operator is still on it.
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'live-id' });
+    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
 
-      receive({ type: 'transcript_missing', session_id: 'other-id' });
+    receive({ type: 'transcript_missing', session_id: 'other-id' });
 
-      expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
-      expect(terminal.getCurrentSessionId()).toBe('live-id');
-      expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
-      expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
-      // Enter is ordinary input here, forwarded to the live PTY.
-      press('\r');
-      expect(socket.sent).toContain('\r');
-    }
-  );
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
+    expect(terminal.getCurrentSessionId()).toBe('live-id');
+    expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
+    expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
+    // Enter is ordinary input here, forwarded to the live PTY.
+    press('\r');
+    expect(socket.sent).toContain('\r');
+  });
 });
 
-describe('a refused own-resume in Simple view', () => {
-  // The block above pins the Expert answer to this same frame: say what
-  // happened and start a new session. Simple view hides the terminal entirely,
+describe('a refused own-resume in chat', () => {
+  // The block above pins the terminal surface's answer to this same frame: say
+  // what happened and start a new session. The chat hides the terminal entirely,
   // so neither half of that answer applies. The note would land in a window
   // nobody can see, and nothing is started: the chat is the surface there, it is
   // bound to the same key, and a hidden terminal spawning the session's agent
@@ -401,16 +395,14 @@ describe('a refused own-resume in Simple view', () => {
   // conversation is gone", which is not what a terminal that never got to
   // attach knows.
   //
-  // The terminal only reaches this state in Simple view by being flipped
-  // mid-connect, so these start it the way the flip does (startExpert), not
-  // through initTerminal — which no longer connects in Simple view at all.
+  // The terminal only reaches this state in chat by the operator going back
+  // mid-connect, so these connect it on the terminal surface and then leave.
 
   test('the shared pointer survives, because the chat is bound to it', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
     openSocket();
+    document.documentElement.removeAttribute('data-agent-surface');
 
     receive({ type: 'transcript_missing', session_id: 'shared-key' });
 
@@ -419,11 +411,10 @@ describe('a refused own-resume in Simple view', () => {
   });
 
   test('nothing is started in the hidden terminal, and nothing is asked of the operator', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
     openSocket();
+    document.documentElement.removeAttribute('data-agent-surface');
     const socketsBefore = FakeWebSocket.created;
 
     receive({ type: 'transcript_missing', session_id: 'shared-key' });
@@ -436,11 +427,10 @@ describe('a refused own-resume in Simple view', () => {
   test('a pointer that has moved on is left alone too', () => {
     // The chat minted a new key while this connect was in flight. The refused
     // id is not the one in storage, so there is nothing here to correct.
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
     localStorage.setItem(STORAGE_KEY, 'old-key');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
     openSocket();
+    document.documentElement.removeAttribute('data-agent-surface');
     localStorage.setItem(STORAGE_KEY, 'newer-key');
 
     receive({ type: 'transcript_missing', session_id: 'old-key' });

@@ -1682,14 +1682,6 @@ class BuildProfile:
         # two spellings of one fact disagreeing.
         errors.extend(panel_selection_errors(self.config, self.web_panels))
 
-        # `web.ui_mode: expert` beside `web.expert_view: false`: the second
-        # rules the Expert view out and the terminal resolves the mode to
-        # `simple`, so a stated `expert` is two spellings of one fact
-        # disagreeing — refused naming both, the rule `enabled` has above.
-        from .build_profile_ui_mode import expert_view_errors
-
-        errors.extend(expert_view_errors(self.config))
-
         # A `web.panels.<id>` the served terminal could never route: the id is
         # one URL path segment and a header value on every proxied hop, and the
         # terminal refuses to start on an id outside that class. The same

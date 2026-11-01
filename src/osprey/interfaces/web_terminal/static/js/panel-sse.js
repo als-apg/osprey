@@ -62,8 +62,6 @@ import { isPoppedOut, focusPopout } from './popout.js';
  * @property {(id: string, url: string) => void} navigate - point a panel's iframe at `url`
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} resetActive - forget the surfaced panel, leaving the rail accent alone
- * @property {() => boolean} isWorkspaceSuppressed - simple-UX chat-only boot still armed
- * @property {() => void} endWorkspaceSuppression - one-way exit from that boot state
  * @property {(message: string) => void} renderEmpty - paint the empty-workspace placeholder
  * @property {(frame: AgentActivityEvent) => void} reportActivity - hand a frame to the strip seam
  */
@@ -160,11 +158,6 @@ export function subscribePanelEvents(sseDeps) {
         const c = ctx();
 
         if (data.type === 'panel_focus' && data.panel) {
-          // A broadcast switch also ends the simple-UX chat-only suppression,
-          // even when the activation still refuses (unhealthy panel): the
-          // intent to surface the workspace is clear, so the next health
-          // settle may fill the slot.
-          c.endWorkspaceSuppression();
           if (data.url) c.navigate(data.panel, data.url);
           // A panel living in its own pop-out window has no tile to focus or
           // open: the window comes to the front instead, and an agent switch
@@ -236,9 +229,7 @@ export function subscribePanelEvents(sseDeps) {
  * Order matters and is pinned by the test suite: membership + rail entry
  * first (the agent glow runs after the add so a just-added entry can flash,
  * and an agent-origin change reports itself on the activity strip);
- * then the simple-UX chat-only reveal (showing a panel while the workspace is
- * suppressed brings the workspace up ON that panel — {auto: true} keeps the
- * health guard); then, on a hide, the dock tile drop (one panel per tile — a
+ * then, on a hide, the dock tile drop (one panel per tile — a
  * closed panel's placeholder would be a ghost tile) under the echo guard
  * (dockview auto-activating a neighbor on removal is a server-applied echo
  * and must not POST focus back), and finally the active-panel fallback so a
@@ -280,11 +271,6 @@ function applyPanelVisibility(panel, visible, source, index) {
       tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
       target: { kind: 'panel', panel },
     });
-
-  if (visible && c.isWorkspaceSuppressed()) {
-    c.endWorkspaceSuppression();
-    if (!c.getActive()) c.activate(panel, { auto: true });
-  }
 
   // A panel the operator can no longer launch must not be stranded on screen.
   // A hide of a panel that was never on the rail changed nothing, so a tile it

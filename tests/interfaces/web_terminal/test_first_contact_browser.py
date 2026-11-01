@@ -1,4 +1,4 @@
-"""Browser test: the Simple view's first-contact block, in a real page.
+"""Browser test: the chat's first-contact block, in a real page.
 
 The empty state is what a newcomer reads before they type anything, so the two
 things it must never get wrong are pinned here rather than in a DOM-double
@@ -12,7 +12,7 @@ The sentence is checked for what it must not claim as much as for what it says:
 this deployment stands on no known machine, so nothing may name one.
 
 Run:
-    uv run pytest tests/interfaces/web_terminal/test_first_contact_simple_browser.py -m browser -v
+    uv run pytest tests/interfaces/web_terminal/test_first_contact_browser.py -m browser -v
 
 Skips cleanly when the chromium headless binary is not installed.
 """
@@ -55,8 +55,8 @@ _ALLOWED_PROMPT = "What are you allowed to do in this session?"
 _CAPABILITY = "run analysis scripts you approve"
 
 
-def _open_simple_hub(browser: Browser, base_url: str) -> tuple[Page, list[str], list[str]]:
-    """Open the hub in Simple view and start watching the page's behaviour.
+def _open_hub(browser: Browser, base_url: str) -> tuple[Page, list[str], list[str]]:
+    """Open the hub in chat and start watching the page's behaviour.
 
     Returns:
         (page, errors, chat_posts) — the page, a running list of uncaught
@@ -98,10 +98,10 @@ def test_empty_state_renders_and_a_chip_only_inserts(tmp_path, chromium_browser)
     removes the block, and the same request recorder sees that POST, which is
     what makes its earlier silence evidence rather than a broken listener.
     """
-    with live_chat_server(tmp_path, ui_mode="simple") as (base_url, app):
+    with live_chat_server(tmp_path) as (base_url, app):
         app.state.tour_capabilities = [_CAPABILITY]
         PLANS[_ALLOWED_PROMPT] = [("text", "hi back"), ("result",)]
-        page, errors, chat_posts = _open_simple_hub(chromium_browser, base_url)
+        page, errors, chat_posts = _open_hub(chromium_browser, base_url)
 
         block = page.locator(_EMPTY)
         expect(block).to_be_visible(timeout=10_000)

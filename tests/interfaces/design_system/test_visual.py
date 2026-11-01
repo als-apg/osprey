@@ -213,11 +213,6 @@ class VisualTarget:
     # AND the auto-docked artifacts overlay iframe, before the screenshot;
     # otherwise the baseline can capture a half-built (empty) grid.
     dock_shell: bool = False
-    # UI-mode axis. Mode-aware surfaces capture the full theme x mode matrix
-    # (baseline ``{name}_{theme}_{mode}.png``); ``(None,)`` keeps a surface on
-    # the theme-only pair with the original ``{name}_{theme}.png`` names (the
-    # hub's static session/safety pages have no mode-dependent layout).
-    modes: tuple[str | None, ...] = (None,)
 
 
 def _artifacts_server(tmp_path: Path):
@@ -320,9 +315,6 @@ def _web_terminal_static_page_server(tmp_path: Path):
     return _web_terminal_hub_server(tmp_path)
 
 
-# The full expert/simple pair every mode-aware surface captures.
-MODES: tuple[str, ...] = ("expert", "simple")
-
 TARGETS: list[VisualTarget] = [
     VisualTarget(
         "web_terminal_hub",
@@ -333,15 +325,14 @@ TARGETS: list[VisualTarget] = [
         # selector is ambiguous.
         wait_selector='button.panel-rail-button[data-panel-id="artifacts"]',
         dock_shell=True,
-        modes=MODES,
     ),
     VisualTarget(
         "web_terminal_session",
         _web_terminal_static_page_server,
         path="/static/session.html",
     ),
-    VisualTarget("artifacts_gallery", _artifacts_server, path="/", modes=MODES),
-    VisualTarget("ariel", _ariel_server, path="/", modes=MODES),
+    VisualTarget("artifacts_gallery", _artifacts_server, path="/"),
+    VisualTarget("ariel", _ariel_server, path="/"),
     # Embedded mode drops the panel's own header entirely (the hub tile bar is
     # the one header, see ``body.embedded .header`` in ariel's layout.css) and
     # opens on Browse rather than Search, since embedded users search the
@@ -352,9 +343,8 @@ TARGETS: list[VisualTarget] = [
         _ariel_server,
         path="/?embedded=true",
         wait_selector="#view-browse.active",
-        modes=MODES,
     ),
-    VisualTarget("channel_finder", _channel_finder_server, path="/", modes=MODES),
+    VisualTarget("channel_finder", _channel_finder_server, path="/"),
     # D14/D15 regression guard: embedded mode must hide the standalone logo +
     # theme switcher (component self-hides via body.embedded) while keeping
     # the pipeline switcher + nav usable — see channel-finder-narrowing.
@@ -362,12 +352,11 @@ TARGETS: list[VisualTarget] = [
         "channel_finder_embedded",
         _channel_finder_server,
         path="/?embedded=true",
-        modes=MODES,
     ),
     # The graph paradigm's Explore view: a search-first faceted finder, where the
     # file-backed pipelines browse a channel tree. Path stays "/" — the router
     # (``routeFromHash`` in app.js) already defaults an empty hash to ``explore``,
-    # and a literal "/#explore" would push this suite's ``?theme=``/``&mode=``
+    # and a literal "/#explore" would push this suite's ``?theme=``
     # query into the fragment, where neither the theme nor the mode hook reads
     # it. The wait selector is the finder's first result row, so the screenshot
     # is taken after the search has resolved and rendered, not over the spinner —
@@ -378,19 +367,17 @@ TARGETS: list[VisualTarget] = [
         _channel_finder_graph_server,
         path="/",
         wait_selector="#graph-finder-table .result-table tbody tr[data-pv]:first-child",
-        modes=MODES,
     ),
-    VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/", modes=MODES),
+    VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/"),
     VisualTarget(
         "okf_panel",
         _okf_panel_server,
         path="/",
         wait_selector="#tree",
-        modes=MODES,
     ),
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.
-    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/", modes=MODES),
+    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
     # The scan panel: one bundle at /bluesky, with /plan and /results kept as
     # deprecated aliases for one release (see ``_PANEL_MOUNTS`` in
     # ``osprey.interfaces.bluesky_web.app``). The wait_selector is a static
@@ -402,7 +389,6 @@ TARGETS: list[VisualTarget] = [
         _bluesky_web_server,
         path="/bluesky/",
         wait_selector="#plan-tree",
-        modes=MODES,
     ),
 ]
 
@@ -475,75 +461,50 @@ def _assert_matches_baseline(name: str, png_bytes: bytes, regen: bool) -> None:
 
 @pytest.mark.parametrize("target", TARGETS, ids=[t.name for t in TARGETS])
 def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytestconfig) -> None:
-    """Capture `target` in every theme (x mode, when mode-aware) and diff each."""
+    """Capture `target` in every theme and diff each."""
     regen = bool(pytestconfig.getoption("--regen-baselines"))
 
     with target.server_factory(tmp_path) as base_url:
         for theme in THEMES:
-            for mode in target.modes:
-                page = chromium_browser.new_page(viewport=VIEWPORT)
-                try:
-                    # target.path may already carry its own query string (e.g.
-                    # channel_finder_embedded's "/?embedded=true"), so `theme`
-                    # must be appended with "&" rather than blindly with "?".
-                    separator = "&" if "?" in target.path else "?"
-                    url = f"{base_url}{target.path}{separator}theme={theme}"
-                    if mode is not None:
-                        url += f"&mode={mode}"
-                    page.goto(url, wait_until="domcontentloaded", timeout=15_000)
-                    if target.wait_selector:
-                        expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
-                    if target.dock_shell:
-                        # The dock latches ``bootLayoutSettled()`` once the boot
-                        # layout is the final arrangement, so the baseline
-                        # captures the built layout rather than a mid-restore
-                        # grid the restore may still replace.
-                        wait_for_dock_settled(page)
-                        # The auto-docked service overlay is expert-only. Simple
-                        # mode over an empty agent workspace boots chat-only by
-                        # design (panel-manager.js's `workspaceSuppressed`: simple
-                        # + /api/panels workspace_has_artifacts false => no
-                        # placeholder is ever created), and these fixtures always
-                        # build a fresh, empty workspace. Waiting for the overlay
-                        # in that mode waits for something that correctly never
-                        # arrives; the chat-only shell IS the state to capture.
-                        if mode != "simple":
-                            expect(
-                                page.locator(
-                                    '.dock-iframe-overlay iframe[data-panel-id="artifacts"]'
-                                )
-                            ).to_be_visible(timeout=10_000)
-                    if target.dock_shell and mode == "simple":
-                        # The Simple empty state renders at the settled moment
-                        # (server facts, session id, chip), a beat after the
-                        # grid. A capture before it lands would pin the wrong
-                        # state and flake against a frame that includes it.
-                        expect(page.locator(".op-messages .op-empty")).to_be_visible(timeout=10_000)
-                    # The layout is known by here; this is the paint budget
-                    # on top of it — font swaps, panel health polling and the
-                    # first render of whatever they change.
-                    page.wait_for_timeout(600)
+            page = chromium_browser.new_page(viewport=VIEWPORT)
+            try:
+                # target.path may already carry its own query string (e.g.
+                # channel_finder_embedded's "/?embedded=true"), so `theme`
+                # must be appended with "&" rather than blindly with "?".
+                separator = "&" if "?" in target.path else "?"
+                url = f"{base_url}{target.path}{separator}theme={theme}"
+                page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+                if target.wait_selector:
+                    expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
+                if target.dock_shell:
+                    # The dock latches ``bootLayoutSettled()`` once the boot
+                    # layout is the final arrangement, so the baseline
+                    # captures the built layout rather than a mid-restore
+                    # grid the restore may still replace.
+                    wait_for_dock_settled(page)
+                    expect(
+                        page.locator('.dock-iframe-overlay iframe[data-panel-id="artifacts"]')
+                    ).to_be_visible(timeout=10_000)
+                    # The chat's empty state renders at the settled moment
+                    # (server facts, session id, chip), a beat after the
+                    # grid. A capture before it lands would pin the wrong
+                    # state and flake against a frame that includes it.
+                    expect(page.locator(".op-messages .op-empty")).to_be_visible(timeout=10_000)
+                # The layout is known by here; this is the paint budget
+                # on top of it — font swaps, panel health polling and the
+                # first render of whatever they change.
+                page.wait_for_timeout(600)
 
-                    applied_theme = page.evaluate(
-                        "document.documentElement.getAttribute('data-theme')"
-                    )
-                    assert applied_theme == theme, (
-                        f"{target.name}: expected data-theme={theme!r}, got {applied_theme!r}"
-                    )
-                    if mode is not None:
-                        applied_mode = page.evaluate(
-                            "document.documentElement.getAttribute('data-ui-mode')"
-                        )
-                        assert applied_mode == mode, (
-                            f"{target.name}: expected data-ui-mode={mode!r}, got {applied_mode!r}"
-                        )
+                applied_theme = page.evaluate("document.documentElement.getAttribute('data-theme')")
+                assert applied_theme == theme, (
+                    f"{target.name}: expected data-theme={theme!r}, got {applied_theme!r}"
+                )
 
-                    png_bytes = page.screenshot()
-                finally:
-                    page.close()
+                png_bytes = page.screenshot()
+            finally:
+                page.close()
 
-                suffix = f"_{theme}" if mode is None else f"_{theme}_{mode}"
-                _assert_matches_baseline(f"{target.name}{suffix}", png_bytes, regen)
+            _assert_matches_baseline(f"{target.name}_{theme}", png_bytes, regen)
 
 
 @pytest.mark.parametrize("theme", THEMES)

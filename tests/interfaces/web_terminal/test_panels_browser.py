@@ -26,13 +26,9 @@ What is proven here, grouped:
     position, and a drop that would stack (onto another tile's tab bar) is
     vetoed — asserted with getBoundingClientRect geometry, and the overlay
     iframe re-following the dragged panel's new rectangle.
-  * Layout persistence keyed by project_key: an expert arrangement survives a
+  * Layout persistence keyed by project_key: an arrangement survives a
     reload, two project cwds keep distinct layouts on one origin, reset restores
     the default, and a corrupt stored value falls back cleanly.
-  * Simple mode is a simpler default, not a locked layout: the dock is not
-    locked, every tile keeps its close control, and a drag rearranges; an SSE
-    register during simple mode is folded in with no dead tabs once the
-    operator flips back to expert.
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
     hidden panel INTO A NEW TILE beside the active one, register from URL, and
     inline register errors.
@@ -82,6 +78,7 @@ from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -171,7 +168,6 @@ def _live_server(
     artifact_url: str | None | Unserved = UNSERVED,
     artifact_config_delay: float = 0.0,
     project_cwd: str | None = None,
-    ui_mode: str | None = None,
 ):
     """Launch a real web terminal server on a free port in a background thread.
 
@@ -194,8 +190,7 @@ def _live_server(
     ``project_cwd`` seeds ``app.state.project_cwd`` before startup so the
     ``/api/panels`` ``project_key`` (the ``osprey-dock-layout-<key>`` localStorage
     suffix) is deterministic — persistence tests set it to control which stored
-    layout a page load resolves to.  ``ui_mode`` seeds the server-rendered
-    ``<html data-ui-mode>`` for the simple-mode tests.
+    layout a page load resolves to.
 
     Yields:
         (base_url: str, app: FastAPI) — live server address and the FastAPI app
@@ -219,14 +214,11 @@ def _live_server(
         # done), so app.state is safe to mutate here; and it joins the server
         # thread while the patches above are still live, avoiding timing races.
         with run_app_server(app) as base_url:
-            # These are set AFTER the server is up: lifespan startup assigns both
-            # project_cwd and web_ui_mode from config, so a pre-startup value would
-            # be clobbered. root() re-reads them per request, so setting them here
-            # (before any page load) is authoritative.
+            # Set AFTER the server is up: lifespan startup assigns project_cwd from
+            # config, so a pre-startup value would be clobbered. It is re-read per
+            # request, so setting it here (before any page load) is authoritative.
             if project_cwd is not None:
                 app.state.project_cwd = project_cwd
-            if ui_mode is not None:
-                app.state.web_ui_mode = ui_mode
             if allow_runtime:
                 app.state.allow_runtime_panels = True
                 app.state.runtime_panel_allowlist = None  # any non-loopback host allowed
@@ -244,9 +236,9 @@ def _live_server(
 # into the bar's aria-label and kept current through onDidTitleChange — the
 # aria-label is the stable handle these tests address tabs by.
 # The terminal tab is the one exception: it renders no aria-label — it adopts
-# a live bar that names it (the .terminal-header in Expert, the chat console's
-# .op-session-bar in Simple) — so it is identified by the .tile-tab-terminal
-# class dock-tab.js stamps on it in both views, and given the synthetic "Agent"
+# a live bar that names it (the chat console's .op-session-bar, the
+# .terminal-header on the terminal surface) — so it is identified by the .tile-tab-terminal
+# class dock-tab.js stamps on it in both surfaces, and given the synthetic "Agent"
 # label below, the stable handle for it in these tests.
 
 # Extract every dockview group with its tab labels and pixel rectangle. Used by
@@ -352,7 +344,7 @@ _STRIP_HEIGHT_JS = r"""(terminal) => {
 def _strip_height(page: Page, *, terminal: bool) -> int:
     """Rendered height of a tile's header strip, in px.
 
-    Every tile carries the same fixed-height bar in both ui modes
+    Every tile carries the same fixed-height bar
     (dockview-overrides.css). Returns -1 when no such tile is docked.
     """
     return page.evaluate(_STRIP_HEIGHT_JS, terminal)
@@ -947,7 +939,7 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     entry.dispatchEvent(new DragEvent('dragstart',
         { bubbles: true, cancelable: true, dataTransfer: dt }));
     const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
-        g.querySelector('.terminal-header'));
+        g.querySelector('.tile-tab-terminal'));
     const content = term.querySelector('.dv-content-container');
     const r = content.getBoundingClientRect();
     // Just inside the grid's bottom edge band → dockview resolves
@@ -1297,7 +1289,7 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const src = tabOf(source);
     const dst = tabOf(target);
     const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
-        g.querySelector('.terminal-header'));
+        g.querySelector('.tile-tab-terminal'));
     if (!src || !dst || !term) return { error: 'missing tab or terminal group' };
     const dt = new DataTransfer();
     src.dispatchEvent(new DragEvent('dragstart',
@@ -1428,7 +1420,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         )
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => g.querySelector('.terminal-header'));
+                const term = gs.find(g => g.querySelector('.tile-tab-terminal'));
                 return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -1482,7 +1474,7 @@ def _reset_layout_from_palette(page: Page) -> None:
 
 def _reset_layout_from_terminal_menu(page: Page) -> None:
     """Run "Reset layout" from the terminal tile header's right-click menu."""
-    page.locator(".tile-tab-terminal .terminal-label").click(button="right")
+    page.locator(".tile-tab-terminal .op-session-label").click(button="right")
     expect(_context_menu(page)).to_have_count(1, timeout=5_000)
     _menu_row(page, "Reset layout").click()
     expect(_context_menu(page)).to_have_count(0, timeout=5_000)
@@ -1525,7 +1517,7 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
         # prove nothing.
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => g.querySelector('.terminal-header'));
+                const term = gs.find(g => g.querySelector('.tile-tab-terminal'));
                 return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -1535,7 +1527,7 @@ def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
         reset(page)
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => g.querySelector('.terminal-header'));
+                const term = gs.find(g => g.querySelector('.tile-tab-terminal'));
                 return gs.length === 2 && term && Math.max(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -1613,174 +1605,8 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
 
 
 # ===========================================================================
-# Group 5 — Simple mode's editable default and mode↔dock transitions
+# Group 5 — Agent menu rows
 # ===========================================================================
-
-
-def test_simple_mode_starts_simple_and_stays_editable(tmp_path, chromium_browser):
-    """Simple mode is a simpler starting point, not a locked layout.
-
-    It boots into one service tile beside the console, but the dock is not
-    locked: every tile keeps its header strip and close control, and a
-    Playwright drag of the terminal tab rearranges the grid exactly as it does
-    in Expert.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-    # Non-empty workspace: an empty one makes a Simple hub boot chat-only
-    # (workspace suppressed) — this test's subject is the docked default.
-    (workspace / "seed_artifact.txt").write_text("seed\n")
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
-        ui_mode="simple",
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
-        page.wait_for_timeout(1_000)
-
-        # The simplified DEFAULT: one service tile left, the console right.
-        groups = _dock_groups(page)
-        assert len(groups) == 2, groups
-        term = next(g for g in groups if g["tabs"] == ["Agent"])
-        assert term["x"] == max(g["x"] for g in groups), groups
-
-        # Not locked, and every tile keeps a live header strip with its close.
-        assert _dock_locked(page) is False
-        assert _strip_height(page, terminal=False) > 0
-        assert _strip_height(page, terminal=True) > 0
-        expect(page.locator(".dv-tab .tile-tab-close:visible").first).to_be_visible()
-
-        # A drag rearranges: drop the terminal on the service tile's left edge
-        # and it becomes the leftmost group.
-        first_group = page.locator(".dv-groupview").first
-        fb = first_group.bounding_box()
-        _drag_with_dock_shield(
-            page,
-            _terminal_tab(page),
-            first_group,
-            target_position={"x": 8, "y": fb["height"] / 2},
-        )
-        page.wait_for_timeout(700)
-        groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == ["Agent"])
-        assert term["x"] == min(g["x"] for g in groups), groups
-
-        page.close()
-
-
-def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
-    tmp_path, chromium_browser
-):
-    """expert→simple→expert restores expert; a register during simple folds in clean.
-
-    In simple mode a panel registered over SSE appears on the rail. Flipping back
-    to expert restores the expert arrangement with no dead or duplicate tabs; the
-    newly-registered panel then docks as a single clean tab when focused.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-    # Non-empty workspace — see test_simple_mode_starts_simple_and_stays_editable.
-    (workspace / "seed_artifact.txt").write_text("seed\n")
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
-        allow_runtime=True,
-        ui_mode="simple",
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
-        page.wait_for_timeout(1_000)
-
-        # Register a panel while simple mode is active → rail entry appears.
-        with patch(
-            "osprey.interfaces.web_terminal.routes.panels._validate_panel_url",
-            new=AsyncMock(return_value=None),
-        ):
-            r = requests.post(
-                f"{base_url}/api/panels/register",
-                json={
-                    "id": "monitor",
-                    "label": "MONITOR",
-                    "url": "http://grafana.internal:3000",
-                    "path": "/",
-                },
-            )
-        assert r.status_code == 200, r.text
-        expect(page.locator('button.panel-rail-button[data-panel-id="monitor"]')).to_be_visible(
-            timeout=5_000
-        )
-
-        # Flip to expert — the expert layout is restored.
-        # (The View rows live in the sidebar's More menu — open it first, and
-        # close it after the pick so the rail is clickable again.)
-        more_menu = page.locator("#more-menu")
-        page.locator("#more-btn").click()
-        expect(more_menu).to_be_visible()
-        page.locator('#more-menu [role="menuitemradio"][data-view="expert"]').click()
-        if more_menu.is_visible():
-            page.keyboard.press("Escape")
-        expect(more_menu).to_be_hidden()
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
-        page.wait_for_timeout(1_200)
-        assert _dock_locked(page) is False
-
-        # No dead tabs: every dock tab is a known panel; monitor is not docked yet.
-        groups = _dock_groups(page)
-        all_tabs = [t for g in groups for t in g["tabs"]]
-        assert all(t in ("Agent", "Artifacts") for t in all_tabs), (
-            f"unexpected/dead dock tab after restore: {groups}"
-        )
-        assert all_tabs.count(_title_case("MONITOR")) == 0, groups
-
-        # Focusing the panel registered during simple mode docks one clean tab.
-        _focus_service_panel(page, "monitor", "MONITOR")
-        groups = _dock_groups(page)
-        monitor_tabs = [t for g in groups for t in g["tabs"] if t == _title_case("MONITOR")]
-        assert len(monitor_tabs) == 1, f"expected exactly one MONITOR tab: {groups}"
-
-        page.close()
-
-
-def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path, chromium_browser):
-    """Simple UX first boot with an EMPTY workspace is chat-only; the rail add reveals.
-
-    With no artifact in the agent workspace the hub docks only the chat/terminal
-    card — no Artifacts tab, a single dock group. An agent ``add_panel_to_rail`` (the
-    panel-visibility POST the MCP tool issues, tagged ``source: agent``) then
-    brings the workspace up live on the shown panel.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()  # deliberately empty — the chat-only precondition
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        ui_mode="simple",
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
-        page.wait_for_timeout(1_000)
-
-        # Chat-only boot: the dock holds only the terminal/chat card.
-        expect(_service_tab(page, "Artifacts")).to_have_count(0)
-        groups = _dock_groups(page)
-        assert [g["tabs"] for g in groups] == [["Agent"]], groups
-
-        # Agent reveal: add_panel_to_rail('artifacts') docks + activates the workspace.
-        r = requests.post(
-            f"{base_url}/api/panel-visibility",
-            json={"panel": "artifacts", "visible": True, "source": "agent"},
-        )
-        assert r.status_code == 200
-        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
-        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
-
-        page.close()
 
 
 # ===========================================================================
@@ -2269,10 +2095,10 @@ def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_bro
 
 # JS: the tab strip of the group holding the terminal tile, with its current
 # pixel height — the fixed-height assertions poll this. The terminal group is
-# found by its adopted .terminal-header (its tab carries no accessible name).
+# found by its .tile-tab-terminal (its tab carries no accessible name).
 _TERMINAL_STRIP_H_JS = """() => {
     const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
-        g.querySelector('.terminal-header'));
+        g.querySelector('.tile-tab-terminal'));
     const bar = term && term.querySelector('.dv-tabs-and-actions-container');
     return bar ? bar.getBoundingClientRect().height : null;
 }"""
@@ -2298,8 +2124,8 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
         expect(_terminal_tab(page)).to_have_count(1, timeout=10_000)
 
         # Exactly one terminal header row, and it lives in the tab, not the card.
-        expect(page.locator(".terminal-header")).to_have_count(1)
-        expect(page.locator(".dv-tab .terminal-header")).to_have_count(1)
+        expect(page.locator(".op-session-bar")).to_have_count(1)
+        expect(page.locator(".dv-tab .op-session-bar")).to_have_count(1)
 
         h_rest = page.evaluate(_TERMINAL_STRIP_H_JS)
         assert h_rest is not None and h_rest >= 30, f"bar height at rest: {h_rest}"
@@ -3128,28 +2954,16 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
         page.close()
 
 
-def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
-    tmp_path, chromium_browser
-):
-    """Simple mode: the service rows are Expert's, the terminal keeps only Close.
-
-    The workspace is as editable there as in Expert, so the open-beside verb
-    stays; the xterm card is replaced by the operator console, so the two PTY
-    verbs would act on a surface the operator cannot see and are withheld — the
-    same reason the palette drops those actions in simple mode.
-    """
+def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser):
+    """In chat the two PTY verbs would act on a surface the operator cannot see."""
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    # Non-empty workspace — see test_simple_mode_starts_simple_and_stays_editable.
-    (workspace / "seed_artifact.txt").write_text("seed\n")
 
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        ui_mode="simple",
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
 
         _open_rail_menu(page, "artifacts")
         assert _menu_labels(page) == [
@@ -3186,7 +3000,9 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         workspace,
         enabled_panels={"artifacts"},
     ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
+        page = chromium_browser.new_page()
+        arm_terminal_tab(page)
+        page.goto(base_url, wait_until="domcontentloaded")
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
 
         _open_rail_menu(page, "terminal")
@@ -3534,7 +3350,7 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
     needed ARIEL's standalone URL to have resolved through /api/ariel-server),
     while ``getVisiblePanels`` - the new-tile source - excludes it, because
     opening a panel beside itself is a no-op. The second query proves the
-    new-tile verb is present in this (expert) mode at all, so ARIEL's missing
+    new-tile verb is present at all, so ARIEL's missing
     row is the active-panel exclusion rather than a whole verb going absent.
     """
     workspace = tmp_path / "_agent_data"

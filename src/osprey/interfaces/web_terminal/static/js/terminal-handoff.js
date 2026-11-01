@@ -30,10 +30,10 @@ import { WS_CLOSE_OUTGOING_RUNNING } from './api.js';
 const OVERLAY_ID = 'terminal-handoff';
 
 /** Copy shown while the outgoing view finishes the turn it is on. */
-export const HANDOFF_PENDING_MESSAGE = 'Finishing in the other view · ';
+export const HANDOFF_PENDING_MESSAGE = 'Finishing the running turn · ';
 
 /** Copy shown while an idle agent is stopped in the other view and started here. */
-export const HANDOFF_RESTARTING_MESSAGE = 'Restarting the agent in this view…';
+export const HANDOFF_RESTARTING_MESSAGE = 'Restarting the agent…';
 
 /** The way out of the wait: cut the other view's turn and take the session. */
 export const HANDOFF_INTERRUPT_LABEL = 'Stop and switch now';
@@ -41,8 +41,8 @@ export const HANDOFF_INTERRUPT_LABEL = 'Stop and switch now';
 /** The action on a refusal that retrying can change. */
 export const HANDOFF_RETRY_LABEL = 'Retry';
 
-/** A refusal retrying does not change: another tab or view holds the session. */
-export const HANDOFF_HELD_ELSEWHERE_MESSAGE = 'This session is in use in another tab or view.';
+/** A refusal retrying does not change: another tab holds the session. */
+export const HANDOFF_HELD_ELSEWHERE_MESSAGE = 'This session is in use in another tab.';
 
 /** The refusal a retry is for: the outgoing agent had not finished exiting. */
 export const HANDOFF_OUTGOING_RUNNING_MESSAGE = 'The previous agent is still shutting down.';
@@ -161,7 +161,7 @@ function actionButton() {
  *   disables itself before this runs, and a later `handoff_pending` re-enables
  *   it, so one press cannot become two.
  * @param {{ busy?: boolean }} [state] - What the server said about the other
- *   view's agent. Omitted, it is taken to be idle.
+ *   surface's agent. Omitted, it is taken to be idle.
  */
 export function showHandoffPending(onInterrupt, state = {}) {
   const overlay = ensureOverlay();

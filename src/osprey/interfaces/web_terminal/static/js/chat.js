@@ -1,29 +1,29 @@
 // @ts-check
-/* OSPREY Web Terminal — Simple-mode operator chat controller.
+/* OSPREY Web Terminal — The operator chat controller.
  *
  * Thin glue between the SSE transport (chat-client.js) and the message-list
  * renderer (chat-render.js). It mounts the console that chat-console.js builds
  * inside #operator-container, binds it to the tab's session pointer, and owns
- * the streaming/idle UI state, turning user intent (submit, stop, switch view)
+ * the streaming/idle UI state, turning user intent (submit, stop, switch surface)
  * into transport calls. All rendering and sanitisation live in the renderer;
  * all networking and SSE parsing live in the client; what the live feed's
  * frames mean for the log lives in chat-follow.js, and the copy for refusals
  * and failures lives in chat-notices.js. This file holds no innerHTML and no
  * parsing, so the interesting logic stays in the unit-tested modules.
  *
- * The console does not mint a conversation of its own. Both views are windows
- * onto one session key, held in the browser by session-pointer.js, and this
- * console addresses whatever key the pointer names: it replays that key's
- * transcript when it binds, and a change of pointer rebinds it. Only one view
- * may run the agent at a time, so arriving from the Expert view is a
- * negotiation rather than a connect — see {@link enterFromExpert}.
+ * The console does not mint a conversation of its own. The chat and the
+ * terminal are windows onto one session key, held in the browser by
+ * session-pointer.js, and this console addresses whatever key the pointer names:
+ * it replays that key's transcript when it binds, and a change of pointer
+ * rebinds it. Only one surface may run the agent at a time, so arriving from the
+ * terminal is a negotiation rather than a connect — see
+ * {@link enterFromTerminal}.
  *
- * Mode visibility is pure CSS: #operator-container is display-gated off
- * html[data-ui-mode] (operator.css), so the console is built once at boot and
- * simply hidden in expert mode — never torn down or toggled from here.
+ * Visibility is pure CSS: #operator-container is display-gated off
+ * html[data-agent-surface] (operator.css), so the console is built once at boot
+ * and simply hidden while the terminal shows — never torn down from here.
  */
 
-import { pickUiMode } from '/design-system/js/frame-params.js';
 import { uuid4 } from '/design-system/js/uuid.js';
 
 import {
@@ -37,6 +37,7 @@ import {
 } from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildConsole } from './chat-console.js';
+import { isTerminalSurface, showTerminalSurface } from './agent-surface.js';
 import { emitChat } from './chat-events.js';
 import { createTurnFollower } from './chat-follow.js';
 import { initChatFeatures } from './chat-features.js';
@@ -68,16 +69,16 @@ const STICK_THRESHOLD = 40;
 
 /**
  * The console's hand-off entry point, bound by {@link initChat}. Module-level
- * because the flip that calls it (app.js) has no handle on the console.
+ * because the surface change that calls it (app.js) has no handle on the console.
  * @type {((options?: { interrupt?: boolean }) => Promise<void>) | null}
  */
-let enterFromExpertBinding = null;
+let enterFromTerminalBinding = null;
 
 /**
- * Take the session over from the Expert view and show it here.
+ * Take the session over from the terminal and show it here.
  *
  * Shows the transitional state, asks the server to hand the key's transcript
- * to the Simple view, and replays it once the outgoing agent is dead. `interrupt`
+ * to the chat, and replays it once the outgoing agent is dead. `interrupt`
  * says the operator chose to cut a turn that was still running rather than wait
  * for it. Resolves when the console is usable, when the refusal is on screen,
  * or when the server abandoned the request and left the wait as it was; a
@@ -85,12 +86,12 @@ let enterFromExpertBinding = null;
  * @param {{ interrupt?: boolean }} [options]
  * @returns {Promise<void>}
  */
-export function enterFromExpert(options = {}) {
-  return enterFromExpertBinding ? enterFromExpertBinding(options) : Promise.resolve();
+export function enterFromTerminal(options = {}) {
+  return enterFromTerminalBinding ? enterFromTerminalBinding(options) : Promise.resolve();
 }
 
 /**
- * Mount the Simple-mode operator chat into #operator-container. Called once in
+ * Mount the operator chat into #operator-container. Called once in
  * the boot sequence; binds one console to the tab's session pointer. A missing
  * container is a no-op so the rest of the page still boots.
  * @param {string} [containerId]
@@ -177,15 +178,18 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * The session key this console is showing. Adopted from the pointer at boot,
-   * or minted for a tab that has none — the Expert view resumes the same slot,
-   * so a second key here would be a second conversation. A minted key is not
-   * written to the pointer here: the pointer names the session the tab is on,
-   * and in the Expert view that is the id the terminal's server confirms. The
-   * console claims the pointer only where it is the surface running the
-   * session — the Simple-mode branch at the end of this function.
+   * or minted for a tab that has none — the terminal resumes the same slot, so a
+   * second key here would be a second conversation. A minted key is not written
+   * to the pointer here: the pointer names the session the tab is on, and on the
+   * terminal surface that is the id the terminal's server confirms. The console
+   * claims the pointer only where it is the surface running the session — the
+   * chat branch at the end of this function.
    * @type {string}
    */
   let boundKey = adopted ?? uuid4();
+
+  /** Whether the hand-off on screen began with the operator leaving the terminal. */
+  let cameFromTerminal = false;
 
   /** Which hand-off attempt is current; a retry supersedes the one before it. */
   let handoffGeneration = 0;
@@ -204,8 +208,6 @@ export function initChat(containerId = 'operator-container') {
 
   /** Whether the wait is on screen; it never steps back to a restart. */
   let waiting = false;
-
-  const isSimpleMode = () => document.documentElement.getAttribute('data-ui-mode') === 'simple';
 
   const isPinned = () =>
     messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
@@ -264,9 +266,9 @@ export function initChat(containerId = 'operator-container') {
     container.classList.toggle('streaming', on);
     applyControls();
     // Return focus to the input when a turn ends, but only while the console is
-    // the visible view and reachable — focusing a hidden or disabled textarea
+    // the visible surface and reachable — focusing a hidden or disabled textarea
     // is pointless.
-    if (!on && !transitioning && isSimpleMode()) textarea.focus();
+    if (!on && !transitioning && !isTerminalSurface()) textarea.focus();
   }
 
   /**
@@ -277,7 +279,7 @@ export function initChat(containerId = 'operator-container') {
   function setTransitioning(on) {
     transitioning = on;
     applyControls();
-    if (!on && !streaming && isSimpleMode()) textarea.focus();
+    if (!on && !streaming && !isTerminalSurface()) textarea.focus();
   }
 
   /** @param {string} message */
@@ -351,7 +353,7 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Show the transitional state. The hand-off route answers only once the
    * session is this view's, so nothing here says up front whether the other
-   * view's agent is mid-turn: the restart is shown first — the agent is being
+   * surface's agent is mid-turn: the restart is shown first — the agent is being
    * stopped there and started here — and the wait, with its clock and its way
    * out, once the restart outlasts its budget. A hand-off that cuts a running
    * turn short is a wait from the start.
@@ -396,7 +398,7 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Show why the server would not hand the session over, and what remains to
    * be done about it. The input stays out of reach: the session is not this
-   * view's, and a refusal with no action is final for this view.
+   * surface's, and a refusal with no action is final for this view.
    * @param {{ message: string, action: 'interrupt'|'retry'|null }} refusal
    */
   function showHandoffRefused(refusal) {
@@ -425,18 +427,23 @@ export function initChat(containerId = 'operator-container') {
   }
 
   /**
-   * Abandon the hand-off and give the session back to the Expert view.
+   * Abandon the hand-off. Nothing was ended: the agent and the commands it
+   * started keep running where they are.
    *
-   * Nothing was ended: the agent and the commands it started keep running
-   * there. The console stays transitioning, because the session is not this
-   * view's.
+   * An operator who came from the terminal goes back to it, which resumes the
+   * session there. Otherwise the terminal was never theirs to return to (the
+   * holder is another tab), so the refusal and its action stay on screen; the
+   * console stays transitioning either way, because the session is not this
+   * surface's.
    */
   function cancelHandoff() {
     ++handoffGeneration;
     handoffAbort?.abort();
     handoffAbort = null;
+    if (!cameFromTerminal) return;
+    cameFromTerminal = false;
     hideOverlay();
-    pickUiMode('expert');
+    showTerminalSurface();
   }
 
   /** Clear the log and everything the old conversation left behind. */
@@ -451,7 +458,7 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * Point the console at *key*: clear the log, then replay what the session
-   * has already said so the Simple view opens on the conversation rather than
+   * has already said so the chat opens on the conversation rather than
    * on an empty console. A turn the transcript shows still running is left
    * open; the feed's snapshot then says whether it goes on.
    * @param {string} key
@@ -460,7 +467,7 @@ export function initChat(containerId = 'operator-container') {
   async function bindTo(key) {
     boundKey = key;
     resetLog();
-    if (isSimpleMode()) notifySessionChange(key);
+    if (!isTerminalSurface()) notifySessionChange(key);
 
     /** @type {import('./chat-client.js').ChatTurn[]} */
     let turns = [];
@@ -573,6 +580,7 @@ export function initChat(containerId = 'operator-container') {
     // never answered would be a claim the server did not make.
     if (!handed) return;
     handoffAbort = null;
+    cameFromTerminal = false;
     hideOverlay();
     await bindTo(key);
     // The replay is awaited, so a retry can start and put its own wait on
@@ -659,7 +667,7 @@ export function initChat(containerId = 'operator-container') {
 
   /**
    * Start a conversation on a new session key. The pointer is the shared slot,
-   * so writing it here is what moves both views; the old key's transcript is
+   * so writing it here is what moves both surfaces; the old key's transcript is
    * left alone — it is a session the operator can still resume.
    */
   function newConversation() {
@@ -670,7 +678,7 @@ export function initChat(containerId = 'operator-container') {
     setPointer(key);
     resetLog();
     inviteIfEmpty();
-    if (isSimpleMode()) {
+    if (!isTerminalSurface()) {
       notifySessionChange(key);
       follow(key);
     }
@@ -692,16 +700,18 @@ export function initChat(containerId = 'operator-container') {
   newBtn.addEventListener('click', newConversation);
 
   // The pointer is the tab's session, not this console's: a key chosen
-  // anywhere else (the session picker, another view) moves the log here too. A
-  // cleared pointer means the key is dead for both views and the page is on
+  // anywhere else (the session picker, the terminal) moves the log here too. A
+  // cleared pointer means the key is dead for both surfaces and the page is on
   // its way out — there is no conversation to move to.
   subscribeToPointer((key) => {
     if (!key || key === boundKey) return;
     void bindTo(key);
   });
 
-  enterFromExpertBinding = ({ interrupt: cutRunningTurn = false } = {}) =>
-    runHandoff(cutRunningTurn);
+  enterFromTerminalBinding = ({ interrupt: cutRunningTurn = false } = {}) => {
+    cameFromTerminal = true;
+    return runHandoff(cutRunningTurn);
+  };
 
   initChatFeatures({
     ...handles,
@@ -714,12 +724,12 @@ export function initChat(containerId = 'operator-container') {
   bar.append(moreBtn);
   attachConversationMenu(moreBtn);
 
-  // A page that opens in Simple mode never went through a flip: the terminal
-  // does not connect here, so this console is the surface running the
+  // A page that opens on the chat never went through a surface change: the
+  // terminal does not connect here, so this console is the surface running the
   // session. That makes it the one to name the session the tab is on — it
   // claims the pointer for a key it minted, replays a key it adopted, and
   // either way is what tells the panels which session they are on.
-  if (isSimpleMode()) {
+  if (!isTerminalSurface()) {
     if (adopted) void bindTo(adopted);
     else {
       setPointer(boundKey);
@@ -732,8 +742,8 @@ export function initChat(containerId = 'operator-container') {
 /**
  * Put a visible failure where the operator console would have been.
  *
- * A console that threw during init leaves an EMPTY container, and in Simple
- * view an empty container is indistinguishable from an agent with nothing to
+ * A console that threw during init leaves an EMPTY container, and an empty
+ * container is indistinguishable from an agent with nothing to
  * say — the operator waits at a page that is never going to answer. A console
  * log line is not a user-facing surface; this is.
  *
@@ -744,7 +754,6 @@ export function renderChatBootFailure(containerId) {
   if (!container) return;
   const notice = document.createElement('p');
   notice.className = 'chat-boot-failure';
-  notice.textContent =
-    'The agent console failed to start. Reload the page, or switch to the Expert view.';
+  notice.textContent = 'The agent console failed to start. Reload the page.';
   container.replaceChildren(notice);
 }

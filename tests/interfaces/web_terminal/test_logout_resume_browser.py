@@ -45,6 +45,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from osprey.interfaces._serving import authorize_browser_context
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
@@ -85,6 +86,7 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         ) as base_url,
     ):
         page = chromium_browser.new_page()
+        arm_terminal_tab(page, scope=user)
 
         # --- First load: multi-user chrome renders, fresh (new) session opens ---
         with page.expect_websocket() as first_ws:

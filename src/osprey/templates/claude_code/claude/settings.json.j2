@@ -72,7 +72,7 @@
 {%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/data/**)"') -%}
 {%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/plots/**)"') -%}
 {%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/results/**)"') -%}
-{#- The files operators attach in the Simple view are stored under the agent-data
+{#- The files operators attach in the chat are stored under the agent-data
     root, outside the render the agent runs in, and named to it by absolute path.
     A rule opening with `//` names an absolute path (a single `/` would be read
     against the working directory). Read only, and exactly that directory. -#}

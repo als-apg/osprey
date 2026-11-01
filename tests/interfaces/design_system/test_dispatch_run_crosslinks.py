@@ -146,15 +146,9 @@ def _open_run(page: Page, base_url: str, run_id: str) -> None:
 
     The state poll has no dispatcher behind it here, so ``state`` is assigned
     directly and the router is driven the same way a click does it -- through
-    ``navigate()``, which is what repaints the screen. Expert mode is forced:
-    the actions row is ``.expert-only``, so asserting in Simple mode would find
-    nothing regardless of whether the links were built.
+    ``navigate()``, which is what repaints the screen.
     """
-    page.goto(f"{base_url}/?mode=expert", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "() => document.documentElement.getAttribute('data-ui-mode') === 'expert'",
-        timeout=10_000,
-    )
+    page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {

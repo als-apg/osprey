@@ -1,5 +1,5 @@
 /**
- * Unit tests for chat-format.js -- how a tool's input and result read in the Simple chat.
+ * Unit tests for chat-format.js -- how a tool's input and result read in the chat chat.
  *
  * A tool's input is drawn as key and value rows, for the call's row and for its approval
  * card. Its result is written as text, for the row's RESULT. Both follow one set of rules

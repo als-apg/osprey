@@ -960,7 +960,7 @@ class TestOperatorSessionResumeOptions:
         assert options.session_id is None
         # Everything else about the launch is unchanged by the resume.
         assert options.setting_sources == ["project"]
-        assert options.env["OSPREY_WEB_UX"] == "simple"
+        assert options.env["OSPREY_WEB_UX"] == "chat"
 
     @pytest.mark.asyncio
     async def test_without_a_resume_the_child_opens_one_under_the_session_key(self):
@@ -1916,7 +1916,7 @@ class TestProcessExited:
 async def test_the_pid_names_the_running_child_and_nothing_else():
     """``pid`` is the chat child's pid while it runs, and ``None`` when it is not.
 
-    The Simple view holds a session in this child, so anything addressed to
+    The chat holds a session in this child, so anything addressed to
     the process behind a session key — a controls-server record, a
     diagnostic — has to be able to ask which process that is. A session that
     never started has no handle, and a handle carrying a return code names a
@@ -2430,7 +2430,7 @@ class TestOperatorChatLaunchParity:
         assert options.env["PATH"] == "/usr/bin"
         assert options.env["OSPREY_TELEMETRY_SESSION_ID"] == key
         assert options.env["OSPREY_TELEMETRY_SESSION_START"]
-        assert options.env["OSPREY_WEB_UX"] == "simple"
+        assert options.env["OSPREY_WEB_UX"] == "chat"
         await session.stop()
 
     @pytest.mark.asyncio

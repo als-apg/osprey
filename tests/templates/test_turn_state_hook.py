@@ -277,7 +277,7 @@ def turn_server():
         server.server_close()
 
 
-def run_hook(monkeypatch, payload, *, port, surface="expert", key=POOL_KEY, token=None):
+def run_hook(monkeypatch, payload, *, port, surface="terminal", key=POOL_KEY, token=None):
     """Drive the hook's ``main`` over *payload*, returning its exit status."""
     if port is not None:
         monkeypatch.setenv(PORT_ENV, str(port))
@@ -333,7 +333,7 @@ def test_reports_the_two_identities_and_the_surface(monkeypatch, turn_server):
     body = received[0]["body"]
     assert body["pool_key"] == POOL_KEY
     assert body["session_id"] == TRANSCRIPT_ID
-    assert body["surface"] == "expert"
+    assert body["surface"] == "terminal"
     assert body["state"] == "idle"
     assert body["source"] == "Stop"
     assert isinstance(body["ts"], float)
@@ -436,7 +436,7 @@ def test_a_session_outside_the_web_terminal_reports_nothing(monkeypatch, absent,
     assert capsys.readouterr().out == ""
 
 
-def test_the_simple_surface_still_reports(monkeypatch, turn_server):
+def test_the_chat_surface_still_reports(monkeypatch, turn_server):
     """The hook does not decide which surface counts — the server drops the rest.
 
     Keeping one code path here means a surface the server later starts caring
@@ -444,9 +444,9 @@ def test_the_simple_surface_still_reports(monkeypatch, turn_server):
     """
     port, received = turn_server
 
-    assert run_hook(monkeypatch, payload_for("Stop"), port=port, surface="simple") == 0
+    assert run_hook(monkeypatch, payload_for("Stop"), port=port, surface="chat") == 0
 
-    assert received[0]["body"]["surface"] == "simple"
+    assert received[0]["body"]["surface"] == "chat"
 
 
 def test_a_missing_surface_variable_reports_an_empty_surface(monkeypatch, turn_server):
@@ -457,13 +457,13 @@ def test_a_missing_surface_variable_reports_an_empty_surface(monkeypatch, turn_s
     assert received[0]["body"]["surface"] == ""
 
 
-@pytest.mark.parametrize(("value", "reported"), [("  expert\n", "expert"), ("   ", "")])
+@pytest.mark.parametrize(("value", "reported"), [("  terminal\n", "terminal"), ("   ", "")])
 def test_the_surface_variable_is_read_stripped(monkeypatch, turn_server, value, reported):
     """The same rule the other env reads apply: padding is not part of the value.
 
     An uninterpolated compose variable arrives blank and a hand-edited one can
     arrive padded; the server compares the surface for equality, so a padded
-    ``expert`` would be dropped as an unrecognised surface.
+    ``terminal`` would be dropped as an unrecognised surface.
     """
     port, received = turn_server
 

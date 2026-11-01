@@ -1749,98 +1749,6 @@ textarea.form-input {
   }
 }
 
-/* ================================================================
-   UI Mode: Simple
-   Third presentation axis (independent of theme + embedded). Every
-   delta gates on html[data-ui-mode="simple"]; Expert (the default) is
-   left untouched, so it stays pixel-identical to today. The plain
-   result cards (.cf-simple-*) are only emitted into the DOM by the
-   in-context renderer under Simple mode, so they need no mode guard.
-   ================================================================ */
-
-/* Chrome: drop the Explore/Feedback tabs and the whole corpus strip (stats
-   badges + pipeline switcher) — Simple keeps only the wordmark + theme
-   toggle. With the strip gone, .app-main no longer needs to clear it. */
-html[data-ui-mode="simple"] .header-nav,
-html[data-ui-mode="simple"] .corpus-strip {
-  display: none;
-}
-
-html[data-ui-mode="simple"] .app-main {
-  padding-bottom: 0;
-}
-
-/* Section header: keep the title (centred over the search), drop the
-   descriptive subtitle, db-source badge, description toggle and schema
-   diagram — all dense/pipeline chrome. */
-html[data-ui-mode="simple"] .section-header {
-  justify-content: center;
-  text-align: center;
-}
-
-html[data-ui-mode="simple"] .section-subtitle,
-html[data-ui-mode="simple"] .db-source-badge,
-html[data-ui-mode="simple"] .miller-toggle,
-html[data-ui-mode="simple"] .db-schema-section {
-  display: none;
-}
-
-/* Search box front and centre: the filter bar becomes a single large
-   input. Hide the "Filter:" / "N of M" labels (Simple prints its own
-   friendly count above the cards). */
-html[data-ui-mode="simple"] .filter-bar {
-  max-width: 720px;
-  margin: 0 auto var(--space-4);
-  padding: var(--space-2) var(--space-3);
-}
-
-html[data-ui-mode="simple"] .filter-bar .filter-label {
-  display: none;
-}
-
-html[data-ui-mode="simple"] .filter-input {
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  padding: var(--space-2) var(--space-3);
-}
-
-/* Plain result cards: address prominent, plain-language description below. */
-.cf-simple-count {
-  max-width: 720px;
-  margin: 0 auto var(--space-3);
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-}
-
-.cf-simple-card-list {
-  max-width: 720px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.cf-simple-card {
-  background: var(--cf-surface-card);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: 5px; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
-  padding: var(--space-3) var(--space-4);
-}
-
-.cf-simple-card-name {
-  font-family: var(--cf-font-pv);
-  color: var(--color-accent-secondary-light);
-  font-size: var(--text-md);
-  letter-spacing: 0.02em;
-}
-
-.cf-simple-card-desc {
-  margin-top: var(--space-1);
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-  line-height: var(--leading-normal);
-}
-
 /* Static explore pane: the box the unknown-pipeline notice and the graph
    paradigm's notice share.  The base is the error posture, because the only
    pane that is bare `.explore-unknown` is the one reporting a configuration
@@ -1898,8 +1806,8 @@ html[data-ui-mode="simple"] .filter-input {
      override of its own.
    - The frame fills the viewport between the page chrome and the
      corpus strip; each pane scrolls on its own. --cf-graph-chrome is
-     everything above and below it, and the embedded and Simple
-     variants change only that.
+     everything above and below it, and the embedded variant changes
+     only that.
    - Class-tree depth arrives as `data-depth` on the facet item,
      mapped below to a `--depth` integer that drives the indent. The
      renderer sets no inline style, so the indent geometry lives here.
@@ -1921,14 +1829,6 @@ html[data-ui-mode="simple"] .filter-input {
 
 body.embedded .graph-explorer {
   --cf-graph-chrome: calc(var(--cf-strip-h) + 2 * var(--space-4));
-}
-
-html[data-ui-mode="simple"] .graph-explorer {
-  --cf-graph-chrome: calc(48px + 2 * var(--space-4));
-}
-
-html[data-ui-mode="simple"] body.embedded .graph-explorer {
-  --cf-graph-chrome: calc(2 * var(--space-4));
 }
 
 /* The frame replaces the view's fade-in target, so the panes do not
@@ -1955,8 +1855,7 @@ html[data-ui-mode="simple"] body.embedded .graph-explorer {
 }
 
 /* Embedded, the hub's tile bar carries the search box and the ⋯ menu
-   (header contribution) in Expert and Simple alike, so the in-body
-   toolbar steps aside. Standalone keeps it. */
+   (header contribution), so the in-body toolbar steps aside. Standalone keeps it. */
 body.embedded .cf-toolbar {
   display: none;
 }

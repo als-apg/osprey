@@ -1451,8 +1451,8 @@ jobs:
           tests/interfaces/web_terminal/test_feedback_modal_browser.py \
           tests/interfaces/web_terminal/test_posture_toggle_browser.py \
           tests/interfaces/web_terminal/test_control_context_browser.py \
-          tests/interfaces/web_terminal/test_ui_mode_browser.py \
-          tests/interfaces/web_terminal/test_first_contact_simple_browser.py \
+          tests/interfaces/web_terminal/test_agent_surface_browser.py \
+          tests/interfaces/web_terminal/test_first_contact_browser.py \
           tests/interfaces/web_terminal/test_chat_browser.py \
           tests/interfaces/web_terminal/test_session_persistence_browser.py \
           tests/interfaces/web_terminal/test_osprey_drawer.py \

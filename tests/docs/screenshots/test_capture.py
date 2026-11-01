@@ -282,7 +282,7 @@ def test_hermetic_hub_recipe_captures_each_theme_in_its_mode(tmp_path, monkeypat
         name="hub_probe",
         environment="hermetic_hub",
         kind="static",
-        hub_mode="expert",
+        hub_agent="terminal",
         stage="probe",
         themes=("light", "dark"),
     )
@@ -290,8 +290,8 @@ def test_hermetic_hub_recipe_captures_each_theme_in_its_mode(tmp_path, monkeypat
 
     by_theme = {theme: (mode, stage, dest) for theme, mode, stage, dest in calls}
     assert len(calls) == len(recipe.themes) == 2
-    assert by_theme["light"] == ("expert", "probe", tmp_path / "hub_probe_light.png")
-    assert by_theme["dark"] == ("expert", "probe", tmp_path / "hub_probe_dark.png")
+    assert by_theme["light"] == ("terminal", "probe", tmp_path / "hub_probe_light.png")
+    assert by_theme["dark"] == ("terminal", "probe", tmp_path / "hub_probe_dark.png")
     assert sorted(paths) == sorted(dest for *_, dest in calls)
 
 

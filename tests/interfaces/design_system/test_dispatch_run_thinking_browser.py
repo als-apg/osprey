@@ -256,12 +256,8 @@ def signed_in() -> Iterator[type[_SignedIn]]:
 
 
 def _open_run(page: Page, base_url: str) -> None:
-    """Load the dashboard in Expert mode, install the state, route to the run's detail."""
-    page.goto(f"{base_url}/?mode=expert", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "() => document.documentElement.getAttribute('data-ui-mode') === 'expert'",
-        timeout=10_000,
-    )
+    """Load the dashboard, install the state, route to the run's detail."""
+    page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {

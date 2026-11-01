@@ -8,7 +8,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import { runVerification, createNetClient } from './net.js';
 import {
@@ -142,18 +142,6 @@ document.addEventListener('DOMContentLoaded', () => {
   ui.initSidebarTabs();
   ui.restorePanelOrder();
   ui.setupDragAndDrop();
-
-  // Live Expert<->Simple switch broadcast by the hub (same-origin
-  // postMessage). The pre-paint rung (mode-boot.js) already set the initial
-  // data-ui-mode; this is the runtime flip, and frame-params.js's shared
-  // receive side stamps <html> and calls back only on an actual change. The
-  // simple layout promotes the optics figure to fill the canvas, so the
-  // visible Plotly figures must be told to resize — CSS container resizes
-  // don't fire Plotly's responsive handler on their own.
-  onModeChange(() => {
-    // Let the CSS grid/visibility change settle before relaying out.
-    setTimeout(ui.reflowFigures, 60);
-  });
 
   // Load initial state and the models to choose from
   net.fetchState();

@@ -111,7 +111,7 @@ Color and state
 Layout shell
 ------------
 
-The web terminal uses one shell in the Simple view and in the Expert view:
+The web terminal uses one shell:
 
 - A sidebar on the canvas at the left. It is ``--wt-sidebar-width`` (232 px)
   with labels, 180–400 px by the handle on its right edge, or

@@ -1,4 +1,4 @@
-"""One turn through the Simple view's own launch, for the scripted chat proofs.
+"""One turn through the chat's own launch, for the scripted chat proofs.
 
 The approval-gates, plan-mode and attachment-read proofs each put a scripted model
 behind the real chat child (:class:`~osprey.interfaces.web_terminal.operator_session.OperatorSession`)

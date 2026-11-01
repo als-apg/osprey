@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the activity line's phrases.
+ * OSPREY Web Terminal — operator chat: the activity line's phrases.
  *
  * The operator phrase for each tool the agent is likely to use, and the label
  * the activity line shows for a `tool_use` event. A mapped tool reads as a
@@ -18,8 +18,7 @@
  * Operator phrases for the tools a turn is likely to use, keyed by normalised
  * tool name (see {@link normaliseToolName}).
  *
- * In Simple mode the chat is the whole interface, so this line is the only
- * account an operator gets of what the agent is doing. Phrases say it in
+ * In the chat this line is the only account an operator gets of what the agent is doing. Phrases say it in
  * control-room terms and share the activity strip's vocabulary (open/close/
  * focus/arrange for panels, "wrote" for channels).
  *

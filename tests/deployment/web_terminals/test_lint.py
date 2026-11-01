@@ -4777,7 +4777,7 @@ def test_lint_render_that_says_nothing_about_write_posture_is_not_a_write_hole(
     # Arrange
     config = _write_posture_config(
         tmp_path,
-        {"web.ui_mode": "simple"},
+        {"web.theme": "main"},
         **{
             "control_system.writes_enabled": False,
             "control_system.connector.epics.writes_enabled": True,

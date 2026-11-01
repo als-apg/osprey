@@ -2,19 +2,14 @@
 /* OSPREY Web Terminal — Service Panel Iframe Factory
  *
  * Builds a service panel's <iframe>, hands it to the dock adapter for
- * mounting/geometry, and wires its load-time theme/mode/session sync plus the
+ * mounting/geometry, and wires its load-time theme/session sync plus the
  * host-resize forwarding. Extracted from panel-manager.js (which keeps the
  * panel state machine and remains the only caller) to keep that module under
  * the max-lines cap; the split boundary is "how an iframe element is built"
  * vs "when one is needed".
  */
 
-import {
-  sendThemeToIframe,
-  sendSessionToIframe,
-  sendModeToIframe,
-  buildEmbedSrc,
-} from './panel-iframe-sync.js';
+import { sendThemeToIframe, sendSessionToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
 import { adoptIframe, setPanelReachable } from './dock-iframe.js';
 import { clockTime } from './panel-rail.js';
 import { withPrefix } from './api.js';
@@ -230,17 +225,16 @@ export function createPanelIframe(panel, panelId, state, contentEl) {
       setPanelReachable(panelId, true);
     }
     iframe.classList.add('loaded');
-    // Sync theme + mode + session immediately so there's no flash of the wrong
-    // theme/mode and the embedded app scopes to the active session.
+    // Sync theme + session immediately so there's no flash of the wrong theme
+    // and the embedded app scopes to the active session.
     sendThemeToIframe(iframe);
-    sendModeToIframe(iframe);
     sendSessionToIframe(iframe);
   });
 
   // Hand the element to the dock adapter, which mounts it in the overlay layer
   // (dockview shell present) or in #panel-content (fallback). The adapter owns
   // the iframe's geometry from here; panel-manager keeps owning its src, sandbox,
-  // health and the theme/mode/session postMessage protocol above.
+  // health and the theme/session postMessage protocol above.
   state.iframe = iframe;
   adoptIframe(panelId, iframe, { title: panel?.label || panelId });
 

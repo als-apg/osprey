@@ -94,10 +94,8 @@ class DocShot:
     holding several diagrams."""
 
     # hermetic_hub
-    hub_mode: Literal["expert", "simple"] = "expert"
-    """The UI mode a ``hermetic_hub`` capture loads in, passed as ``&mode=`` so
-    the page is in that mode before its first paint (``mode-boot.js`` reads the
-    parameter)."""
+    hub_agent: Literal["chat", "terminal"] = "chat"
+    """The Agent tile's surface a ``hermetic_hub`` capture boots on."""
     stage: str | None = None
     """A key of :data:`docs.screenshots.contact_sheet.STAGES`: the UI state the
     page is driven into before the shot (``hermetic_hub`` environment only)."""

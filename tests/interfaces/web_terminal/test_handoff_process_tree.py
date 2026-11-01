@@ -1,6 +1,6 @@
 """What the hand-off promises the operator about the commands the outgoing terminal agent started.
 
-Taking a session key from the Expert view ends the terminal agent, and ending
+Taking a session key from the terminal ends the terminal agent, and ending
 it ends every process it started. A command the agent started in a process
 group of its own (a scan script, a polling loop) is therefore ended by the
 hand-off, so the door asks before it acts: it refuses with the list until the
@@ -98,7 +98,7 @@ async def test_stop_and_switch_asks_before_a_started_command_is_ended(tmp_path):
         grandchild = pids[0]
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
         # The refusal lists each started command.
@@ -126,7 +126,7 @@ async def test_stop_both_ends_the_agent_and_its_commands(tmp_path):
         await acquire(
             app,
             KEY,
-            "simple",
+            "chat",
             object(),
             interrupt=True,
             spawn=chat_spawner(app),
@@ -153,7 +153,7 @@ async def test_a_plain_flip_that_finds_the_agent_idle_asks_too(tmp_path):
         pids = wait_for_pids(session, pid_file, 2)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
         assert registry(app).get_session(KEY) is session
@@ -173,7 +173,7 @@ async def test_with_nothing_started_the_stop_goes_straight_through(tmp_path):
     try:
         pids = wait_for_pids(session, pid_file, 1)
 
-        await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+        await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert not session.is_alive
         await wait_gone([pids[0]])
@@ -222,7 +222,7 @@ async def test_a_failed_process_table_read_is_looked_at_again_before_the_door_ac
         reads = _fail_first_read(monkeypatch)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert reads[0] is False
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
@@ -248,7 +248,7 @@ async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_co
         _fail_reads(monkeypatch)
 
         with pytest.raises(HandoffRefused) as refused:
-            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+            await acquire(app, KEY, "chat", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
         assert refused.value.extra == {"commands": [], "unread": True}
@@ -277,7 +277,7 @@ async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_p
         await acquire(
             app,
             KEY,
-            "simple",
+            "chat",
             object(),
             interrupt=True,
             spawn=chat_spawner(app),

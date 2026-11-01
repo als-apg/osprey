@@ -6,10 +6,10 @@
  *     above the search form: blocking `#config-invalid-banner` (search controls
  *     disabled) on `configuration_invalid`, non-blocking `#config-warning-banner`
  *     on `configuration_warning`, nothing at all otherwise;
- *   - the Expert-mode query-expansion strip: ONE `.expansion-pair` per
+ *   - the query-expansion strip: ONE `.expansion-pair` per
  *     `expanded_terms` group, with a group's several canonicals comma-joined
  *     inside that single pair (`ts → troubleshoot, timing system`) — never one
- *     pair per canonical — absent in Simple mode and when nothing expanded, and
+ *     pair per canonical — absent when nothing expanded, and
  *     escaped like every other render sink.
  *
  *   npx vitest run tests/interfaces/ariel/vocabulary-banner.test.mjs
@@ -19,7 +19,7 @@
  * sinks are exercised end-to-end.
  */
 
-import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, vi } from 'vitest';
 
 vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOriginal) => {
   const actual = /** @type {any} */ (await importOriginal());
@@ -96,10 +96,6 @@ function searchResponse(expandedTerms) {
 beforeEach(() => {
   mountFixture();
   vi.clearAllMocks();
-});
-
-afterEach(() => {
-  document.documentElement.removeAttribute('data-ui-mode');
 });
 
 describe('degraded-configuration banner (initSearch)', () => {
@@ -200,7 +196,7 @@ describe('degraded-configuration banner (initSearch)', () => {
   });
 });
 
-describe('query-expansion strip (Expert results header)', () => {
+describe('query-expansion strip (results header)', () => {
   test('a group with several canonicals renders ONE comma-joined pair', async () => {
     vi.mocked(searchApi.search).mockResolvedValueOnce(
       searchResponse([{ original: 'ts', alternatives: ['troubleshoot', 'timing system'] }])
@@ -209,7 +205,7 @@ describe('query-expansion strip (Expert results header)', () => {
     await performSearch('ts fault');
 
     const banner = results().querySelector('[data-testid="expansion-banner"]');
-    expect(banner, 'expansion banner rendered in Expert mode').not.toBeNull();
+    expect(banner, 'expansion banner rendered').not.toBeNull();
     const pairs = results().querySelectorAll('.expansion-pair');
     expect(pairs.length, 'one pair per expanded_terms group').toBe(1);
     expect(text(pairs[0])).toBe('ts → troubleshoot, timing system');
@@ -243,18 +239,6 @@ describe('query-expansion strip (Expert results header)', () => {
     vi.mocked(searchApi.search).mockResolvedValueOnce(response);
     await performSearch('older backend');
     expect(results().querySelector('[data-testid="expansion-banner"]')).toBeNull();
-  });
-
-  test('no banner in Simple mode', async () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    vi.mocked(searchApi.search).mockResolvedValueOnce(
-      searchResponse([{ original: 'ts', alternatives: ['troubleshoot', 'timing system'] }])
-    );
-
-    await performSearch('ts fault');
-
-    expect(results().querySelector('[data-testid="expansion-banner"]')).toBeNull();
-    expect(results().querySelector('.expansion-pair')).toBeNull();
   });
 
   test('hostile expansion terms are escaped, not parsed', async () => {

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: message-list renderer.
+ * OSPREY Web Terminal — operator chat: message-list renderer.
  *
  * View-model for the operator chat log (the `op-*` console styled in
  * operator.css). A {@link createChatRenderer} instance owns the message-list
