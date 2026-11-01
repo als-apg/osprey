@@ -528,9 +528,11 @@ def _copy_local_framework_for_override(out_dir):
 # (osprey.apps.rules.deployment_packages) — are built to wheels by `osprey build`
 # into one directory of the render, which every image context carries. The
 # build venv installs each wheel by path; the recorded dependency list and the
-# rendered Dockerfile name each by its distribution, which the image's deps layer
-# finds in that directory. Both install on the framework's own resolve, so the
-# framework's `==` requirements bind what a package may pull in.
+# rendered Dockerfile name each by its distribution, bound to its wheel (the record
+# through a relative `[tool.uv.sources]` path, the image's deps layer through a
+# direct reference into that directory), so no index can serve the name. All
+# install on the framework's own resolve, so the framework's `==` requirements
+# bind what a package may pull in.
 
 #: The directory, in the render and at the root of every image context, holding
 #: the built wheels and their manifest. A subdirectory, never loose wheels at the
