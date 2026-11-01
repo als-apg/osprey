@@ -1,0 +1,30 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from OpenRouter's documented response and error examples; not a recorded reply.",
+  "route": "openrouter",
+  "status": 200,
+  "headers": {},
+  "body": {
+    "id": "gen-dec-synthetic-0001",
+    "model": "typesafe/jev-1.13",
+    "answers": {
+      "q_noul": {
+        "type": "noul",
+        "noul": 0.66
+      },
+      "q_choice": {
+        "type": "choice",
+        "choice": "o2",
+        "probabilities": {
+          "o1": 0.3,
+          "o2": 0.7
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 388,
+      "output_tokens": 10,
+      "cost": 1.63e-05
+    }
+  }
+}
