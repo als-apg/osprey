@@ -184,14 +184,14 @@ health dot to see the health of the services.
 
 The first part names the machine this deployment stands on, by what it **is**:
 
-- **Real machine** --- the facility's own. Writes move hardware.
+- **Live** --- the facility's own. Writes move hardware.
 - **Rehearsal** --- a copy of the real machine's controls, same channel names,
   no hardware behind it. Nothing moves.
 - **Simulator** --- the virtual accelerator: a physics model with beam in it,
   served from its container or in process. Nothing moves.
 
 A deployment can put its own names on its machines (*Example Research
-Facility storage ring* rather than *Real machine*); what the machine is stays
+Facility storage ring* rather than *Live*); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server's own technical label.
 
@@ -257,10 +257,10 @@ be recorded you are told plainly that it did not take effect; the chip never
 shows an off that was not recorded.
 
 **Widening** asks first. The confirmation names the machine and says whether
-writes will still prompt. Tick *Don't ask again for this machine* to skip it
-for a move to *asked* (Shift-click brings it back). A move to *allowed*, and
-the real machine, always ask. If a stop lands while you are confirming, the
-move does not take effect: the chip re-reads and you click again.
+writes will still prompt. Tick *Don't ask again on any machine* to skip it for
+every move to *asked* or *allowed*, the live machine included; Shift-click or
+*Ask again* in the popover brings it back. If a stop lands while you are
+confirming, the move does not take effect: the chip re-reads and you click again.
 
 **Nothing is restarted.** Every gate reads the switch at the moment of the
 write. A narrowing reaches every next write, runs already going included: the
@@ -307,8 +307,8 @@ Switch the deployment to another machine
 **Switch to** on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
 your switch's position there --- the switch is per machine, and it does not
-travel with you. This dialog too can be skipped with *Don't ask again
-for this machine*. The page that holds the control context runs the same
+travel with you. This dialog too can be skipped with its own *Don't ask
+again on any machine*. The page that holds the control context runs the same
 checks the agent's own switch runs --- that the move is allowed, and that
 nothing is mid-flight on the machine you are leaving --- and records the
 outcome; the deployment's control-system servers then move themselves onto it

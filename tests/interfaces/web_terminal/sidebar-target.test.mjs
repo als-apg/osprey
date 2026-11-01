@@ -209,10 +209,10 @@ describe('with the chip mounted', () => {
     expect(chipEl().dataset.tipDetail).toBe('Control system: Simulator, writes on');
 
     // A chip render reaches the tooltip through the chip's subscribers.
-    chip.reading = { name: 'Real machine', state: 'switching…', kind: 'real', word: 'on' };
+    chip.reading = { name: 'Live', state: 'switching…', kind: 'real', word: 'on' };
     for (const fn of chip.listeners) fn();
-    expect(chipEl().dataset.tip).toBe('Real machine');
-    expect(chipEl().dataset.tipDetail).toBe('Control system: Real machine, switching…');
+    expect(chipEl().dataset.tip).toBe('Live');
+    expect(chipEl().dataset.tipDetail).toBe('Control system: Live, switching…');
 
     // Nothing read yet: no tooltip rather than a half one.
     chip.reading = null;

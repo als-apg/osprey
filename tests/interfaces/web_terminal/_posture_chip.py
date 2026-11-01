@@ -132,7 +132,7 @@ LABELS = {target: KIND_BANNERS[kind] for target, kind in KINDS.items()}
 #: confirm's waiver) follows :data:`KINDS`. The confirm titles quote these —
 #: never the labels above.
 NAMES = {
-    "live": "Real machine",
+    "live": "Live",
     "va": "Simulator",
     "standin": "Rehearsal",
 }

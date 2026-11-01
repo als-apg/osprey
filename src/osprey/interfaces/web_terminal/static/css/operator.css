@@ -1296,10 +1296,9 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-secondary);
 }
 
-/* The machine the write lands on, keyed on the same `data-target-kind` the
-   chip sets: the real machine reads red, the rehearsal amber ("Rehearsal —
-   nothing moves"), the simulator green. A call that writes nothing has no
-   line at all. */
+/* The machine the write lands on. A prompt only exists at asked, so it is
+   yellow, except that the live machine's hardware line is always red. A call
+   that writes nothing has no line at all. */
 .op-card-target {
   display: flex;
   flex-wrap: wrap;
@@ -1329,16 +1328,10 @@ html[data-ui-mode="simple"] #operator-container {
   border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
 }
 
-.op-card-target[data-target-kind="rehearsal"] {
+.op-card-target:is([data-target-kind="rehearsal"], [data-target-kind="simulator"]) {
   color: var(--color-warning);
   background: color-mix(in srgb, var(--color-warning) 15%, transparent);
   border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
-}
-
-.op-card-target[data-target-kind="simulator"] {
-  color: var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
 }
 
 .op-card-summary {

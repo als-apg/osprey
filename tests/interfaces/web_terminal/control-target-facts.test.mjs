@@ -21,8 +21,6 @@ import {
   STOP_NOT_TAKEN_SENTENCE,
   TURN_ON_SENTENCE,
   bannerNote,
-  confirmSkipKeyBase,
-  confirmSkippable,
   contextHolderWords,
   contextRefusalCode,
   contextRefusalPhrase,
@@ -64,12 +62,12 @@ describe('kind words', () => {
 
   test('the names and banners are the owner’s words', () => {
     expect(KIND_WORDS).toEqual({
-      real: 'Real machine',
+      real: 'Live',
       rehearsal: 'Rehearsal',
       simulator: 'Simulator',
     });
     expect(KIND_BANNERS).toEqual({
-      real: 'Real machine — writes move hardware',
+      real: 'Live — writes move hardware',
       rehearsal: 'Rehearsal — nothing moves',
       simulator: 'Simulator — nothing moves',
     });
@@ -97,7 +95,7 @@ describe('kind words', () => {
 
   test('a non-live standin reads as the real machine, never "Rehearsal"', () => {
     const row = { target: 'standin', machine_kind: 'real', label: 'Rehearsal — nothing moves' };
-    expect(displayName(row, machineKind(row))).toBe('Real machine');
+    expect(displayName(row, machineKind(row))).toBe('Live');
   });
 
   test('only the real machine’s descriptor is a hazard', () => {
@@ -144,9 +142,9 @@ const ARMED = /** @type {const} */ (['asked', 'allowed']);
 /** The banner each kind's confirm carries. */
 /** @type {Record<string, string|null>} */
 const CONFIRM_BANNERS = {
-  real: 'Real machine — writes move hardware',
+  real: 'Live — writes move hardware',
   rehearsal: 'Rehearsal — nothing moves',
-  simulator: null,
+  simulator: 'Simulator — nothing moves',
 };
 
 describe('turnOnConfirm', () => {
@@ -161,6 +159,7 @@ describe('turnOnConfirm', () => {
       expect(textOf(spec.body)).toContain(`Writes to ${name} will still prompt before each one`);
       expect(textOf(spec.body)).not.toContain('no prompt');
       expect(spec.confirmLabel).toBe('Set writes to asked');
+      expect(spec.to).toBe('asked');
       expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
       expect(spec.targetKind).toBe(kind);
     });
@@ -171,6 +170,7 @@ describe('turnOnConfirm', () => {
       expect(textOf(spec.body)).toContain(`Writes to ${name} will run with no prompt.`);
       expect(textOf(spec.body)).not.toContain('still prompt');
       expect(spec.confirmLabel).toBe('Set writes to allowed');
+      expect(spec.to).toBe('allowed');
       expect(spec.live).toBe(CONFIRM_BANNERS[kind]);
       expect(spec.targetKind).toBe(kind);
     });
@@ -215,10 +215,10 @@ describe('switchConfirm', () => {
     for (const word of ARMED) {
       const spec = switchConfirm(row, 'real', word);
       expect(textOf(spec.body)).toContain('All control reads and writes go to gw:5064.');
-      expect(spec.live).toBe('Real machine — writes move hardware');
+      expect(spec.live).toBe('Live — writes move hardware');
     }
     expect(switchConfirm(row, 'rehearsal', 'allowed').live).toBe('Rehearsal — nothing moves');
-    expect(switchConfirm(row, 'simulator', 'allowed').live).toBeNull();
+    expect(switchConfirm(row, 'simulator', 'allowed').live).toBe('Simulator — nothing moves');
   });
 
   test('promises reads alone, with no banner, on a word that cannot write', () => {
@@ -230,53 +230,6 @@ describe('switchConfirm', () => {
     // The retired word arrives nowhere: it reads as the word that promises nothing.
     expect(textOf(switchConfirm(row, 'real', /** @type {any} */ ('on')).body)).toContain(
       'Writes are locked there.'
-    );
-  });
-});
-
-describe('confirmSkippable', () => {
-  test('a move to allowed is never waivable, on any machine', () => {
-    for (const kind of [...KINDS, 'live', '']) {
-      expect(confirmSkippable('writes-allowed', kind)).toBe(false);
-    }
-  });
-
-  test('no real-machine move to asked is ever waivable', () => {
-    expect(confirmSkippable('writes-asked', 'real')).toBe(false);
-    // Any kind this module does not know is the real machine — including
-    // every word of the retired vocabulary.
-    for (const kind of ['live', 'standin', 'va', '', 'something-new']) {
-      expect(confirmSkippable('writes-asked', kind)).toBe(false);
-    }
-  });
-
-  test('a move to asked on the rehearsal or the simulator keeps the waiver', () => {
-    expect(confirmSkippable('writes-asked', 'rehearsal')).toBe(true);
-    expect(confirmSkippable('writes-asked', 'simulator')).toBe(true);
-  });
-
-  test('a gesture this module does not know is not waivable', () => {
-    for (const kind of KINDS) {
-      for (const gesture of ['writes-on', '']) {
-        expect(confirmSkippable(/** @type {any} */ (gesture), kind)).toBe(false);
-      }
-    }
-  });
-
-  test('a target switch may be waived on any machine', () => {
-    for (const kind of KINDS) expect(confirmSkippable('switch', kind)).toBe(true);
-  });
-
-  test('a move-to-asked waiver is remembered per kind, so a demoted stand-in asks again', () => {
-    const rehearsal = confirmSkipKeyBase('writes-asked', {
-      target: 'standin',
-      machine_kind: 'rehearsal',
-    });
-    const real = confirmSkipKeyBase('writes-asked', { target: 'standin', machine_kind: 'real' });
-    expect(rehearsal).toBe('osprey-ctc-skip-confirm:writes-asked:standin:rehearsal');
-    expect(real).toBe('osprey-ctc-skip-confirm:writes-asked:standin:real');
-    expect(confirmSkipKeyBase('switch', { target: 'standin', machine_kind: 'real' })).toBe(
-      'osprey-ctc-skip-confirm:switch:standin'
     );
   });
 });
@@ -735,9 +688,8 @@ describe('contextWritable', () => {
 });
 
 describe('REASON_PHRASES', () => {
-  test('the two refusals the route sends with no phrase have one', () => {
+  test('the refusal the route sends with no phrase has one', () => {
     expect(REASON_PHRASES.tier_caps).toBe('your tier caps writes at asked');
-    expect(REASON_PHRASES.waiver_not_allowed).toBe('this move always confirms');
   });
 });
 

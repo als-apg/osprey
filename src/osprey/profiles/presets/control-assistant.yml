@@ -250,8 +250,8 @@ config:
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
   # Operator-facing names for the control targets on the web terminal's
-  # control-target chip. Defaults: "Real machine", "Rehearsal", "Simulator".
-  # control_system.target_display_names.live: Real machine
+  # control-target chip. Defaults: "Live", "Rehearsal", "Simulator".
+  # control_system.target_display_names.live: Live
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
   # Limits are optional. `enabled: false` = no limits at all. `mode:

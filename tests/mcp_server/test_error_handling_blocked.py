@@ -108,7 +108,7 @@ async def test_the_standin_reads_as_the_rehearsal_in_a_tool_error(on_target):
 
     message = await _timeout_message()
     assert REHEARSAL_LABEL in message
-    assert "Real machine" not in message
+    assert "Live — writes move hardware" not in message
 
 
 @pytest.mark.parametrize(
@@ -125,7 +125,7 @@ async def test_a_standin_elsewhere_reads_as_the_real_machine(on_target, config_k
     on_target(standin_config(**config_kwargs))
 
     message = await _timeout_message()
-    assert "(active target: Real machine — writes move hardware" in message
+    assert "(active target: Live — writes move hardware" in message
     assert "nothing moves" not in message.lower()
     assert "Rehearsal" not in message
 
@@ -134,7 +134,7 @@ async def test_the_facility_machine_is_never_the_rehearsal_in_a_tool_error(on_ta
     on_target(standin_config(), target="live")
 
     message = await _timeout_message()
-    assert "(active target: Real machine — writes move hardware" in message
+    assert "(active target: Live — writes move hardware" in message
     assert "nothing moves" not in message.lower()
 
 

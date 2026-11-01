@@ -534,7 +534,7 @@ html:not([data-control-target="off"]) .sidebar-target {
 }
 
 .sidebar-target .control-target-chip {
-  --target-tone: var(--text-muted);
+  --target-tone: var(--state-tone, var(--text-muted));
   flex: 1;
   min-width: 0;
   height: auto;
@@ -560,23 +560,25 @@ html:not([data-control-target="off"]) .sidebar-target {
   display: none;
 }
 
-.sidebar-target .control-target-chip[data-target-kind="real"]:is([data-state="asked"], [data-state="allowed"]) {
-  --target-tone: var(--color-error);
+/* The outline is the machine: a solid bar on the live machine, dashed on the
+   rehearsal, dotted on the simulator. */
+.sidebar-target .control-target-chip[data-target-kind="rehearsal"] {
+  border-style: dashed;
 }
 
-.sidebar-target .control-target-chip[data-target-kind="rehearsal"]:is([data-state="asked"], [data-state="allowed"]) {
-  --target-tone: var(--color-warning);
+.sidebar-target .control-target-chip[data-target-kind="simulator"] {
+  border-style: dotted;
 }
 
-.sidebar-target .control-target-chip[data-target-kind="simulator"]:is([data-state="asked"], [data-state="allowed"]) {
-  --target-tone: var(--color-success);
+.sidebar-target .control-target-chip[data-target-kind="real"] {
+  box-shadow: inset 3px 0 0 var(--text-primary);
 }
 
-/* Allowed on the real machine is the loudest state: nobody is asked before
-   hardware moves, so the block takes the full error edge and a heavier wash. */
+/* Allowed on the live machine is the loudest state: nobody is asked before
+   hardware moves, and it alone fills the block. */
 .sidebar-target .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
   border-color: var(--color-error);
-  background: var(--error-tint-15);
+  background: var(--error-tint-25);
 }
 
 .sidebar-target .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) .ctc-state {
@@ -594,10 +596,14 @@ html:not([data-control-target="off"]) .sidebar-target {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--target-tone) 18%, transparent);
 }
 
+.sidebar-target .control-target-chip[data-target-kind="real"][aria-expanded="true"] {
+  box-shadow: inset 3px 0 0 var(--text-primary),
+    0 0 0 3px color-mix(in srgb, var(--target-tone) 18%, transparent);
+}
+
 .sidebar-target-glyph {
   grid-area: glyph;
   justify-self: center;
-  color: var(--target-tone);
 }
 
 /* The chip's own state dot rides the glyph's corner. */
@@ -638,8 +644,10 @@ html:not([data-control-target="off"]) .sidebar-target {
   background: color-mix(in srgb, var(--target-tone) 14%, transparent);
 }
 
+/* The block's pill is short; the words stay for the chip's text and label. */
 .sidebar-target .ctc-sep,
-.sidebar-target .ctc-caret {
+.sidebar-target .ctc-caret,
+.sidebar-target .ctc-state-lead {
   display: none;
 }
 
@@ -959,23 +967,30 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   background: var(--bg-elevated);
 }
 
-/* The facility's own machine is the only one whose chip border ever tints,
-   and it tints in two steps. At `asked` every write still stops at a prompt,
-   so the border carries a quiet error tint. At `allowed` writes land with
-   nobody asked — the one loud cell in the whole matrix — so the border is the
-   full error tone over an error wash at rest, not only on hover. Nothing else
-   tints the border: the real machine with writes off is a safe state and must
-   not shout, or the one state that should stops being distinguishable. */
-.control-target-chip[data-target-kind="real"][data-state="asked"] {
-  border-color: var(--error-tint-40);
+/* Colour is the position, the same on every machine: off green, asked yellow,
+   allowed red. Locked is muted: no write lands, so there is nothing to colour. */
+:is(.control-target-chip, .ctc-switchwrap)[data-state="off"] {
+  --state-tone: var(--color-success);
 }
 
-.control-target-chip[data-target-kind="real"][data-state="asked"]:hover,
-.control-target-chip[data-target-kind="real"][data-state="asked"][aria-expanded="true"] {
-  border-color: var(--color-error);
-  background: var(--error-tint-08);
+:is(.control-target-chip, .ctc-switchwrap)[data-state="asked"] {
+  --state-tone: var(--color-warning);
 }
 
+:is(.control-target-chip, .ctc-switchwrap)[data-state="allowed"] {
+  --state-tone: var(--color-error);
+}
+
+:is(.control-target-chip, .ctc-switchwrap)[data-state="locked"] {
+  --state-tone: var(--text-muted);
+}
+
+.control-target-chip:is([data-state="asked"], [data-state="allowed"]) {
+  border-color: color-mix(in srgb, var(--state-tone) 40%, transparent);
+}
+
+/* Allowed on the live machine: nobody is asked before hardware moves. The one
+   loud cell in the matrix, at rest as well as on hover. */
 .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
   color: var(--text-primary);
   border-color: var(--color-error);
@@ -999,7 +1014,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   opacity: 0.72;
 }
 
-/* The machine's name — the kind's own word (Real machine, Rehearsal,
+/* The machine's name — the kind's own word (Live, Rehearsal,
    Simulator) or the deployment's configured display name. A configured
    name is free text, so the chip caps it with an ellipsis rather than letting
    one long name push the header's other actions off screen; the full name
@@ -1021,25 +1036,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   color: var(--text-secondary);
 }
 
-/* The state word takes the kind's colour while writes are armed — asked or
-   allowed — red on the real machine, amber on the rehearsal, green on the
-   simulator: the same colour as the dot and the popover's switch, all keyed
-   on the one `data-target-kind` the module sets. Off is the resting position
-   and stays in the plain secondary tone; locked drops to muted. */
-.control-target-chip[data-target-kind="real"]:is([data-state="asked"], [data-state="allowed"]):not([data-pending="true"]) .ctc-state {
-  color: var(--color-error);
-}
-
-.control-target-chip[data-target-kind="rehearsal"]:is([data-state="asked"], [data-state="allowed"]):not([data-pending="true"]) .ctc-state {
-  color: var(--color-warning);
-}
-
-.control-target-chip[data-target-kind="simulator"]:is([data-state="asked"], [data-state="allowed"]):not([data-pending="true"]) .ctc-state {
-  color: var(--color-success);
-}
-
-.control-target-chip[data-state="locked"] .ctc-state {
-  color: var(--text-muted);
+.control-target-chip .ctc-state {
+  color: var(--state-tone, var(--text-secondary));
 }
 
 .control-target-chip[data-pending="true"] .ctc-state {
@@ -1057,8 +1055,8 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 /* ---- The dot ----
 
-   Two channels, read together: colour is the consequence of a write landing
-   here, shape is who is holding writes back. Filled = asked: the agent can
+   Two channels, read together: colour is the position, shape is who is
+   holding writes back. Filled = asked: the agent can
    write, and a prompt stops each write first. Filled with a halo = allowed:
    nobody is asked. Half = the switch is off, and one click in the popover
    turns it on. Hollow = locked: the switch is armed and still refused (or
@@ -1067,7 +1065,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
    The words beside the dot say the same thing, so colour is a second channel
    rather than the only one. */
 .ctc-dot {
-  --dot: var(--text-muted);
+  --dot: var(--state-tone, var(--text-muted));
   width: 8px;
   height: 8px;
   flex-shrink: 0;
@@ -1088,29 +1086,10 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   background: transparent;
 }
 
-/* Allowed: the halo is the shape for "nobody is asked". It takes the dot's own
-   colour, so it stays the kind's consequence colour. */
+/* Allowed: the halo is the shape for "nobody is asked", in the dot's own colour. */
 [data-state="allowed"] > .ctc-dot,
 .ctc-dot[data-state="allowed"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 35%, transparent);
-}
-
-/* Colour (C-WORDS) is the kind, whatever the switch says: the real machine
-   red, the rehearsal amber — nothing moves there, but it is driven the way
-   the real one is — and the simulator green. Shape alone carries off, asked
-   and allowed, so a real machine with writes off is a red half-dot, never
-   amber. Locked
-   stays muted: no write lands, so there is no consequence to colour. */
-[data-target-kind="real"]:not([data-state="locked"]) > .ctc-dot {
-  --dot: var(--color-error);
-}
-
-[data-target-kind="rehearsal"]:not([data-state="locked"]) > .ctc-dot {
-  --dot: var(--color-warning);
-}
-
-[data-target-kind="simulator"]:not([data-state="locked"]) > .ctc-dot {
-  --dot: var(--color-success);
 }
 
 /* A switch request is out: the dot breathes until the answer lands. Motion is
@@ -1146,7 +1125,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  width: 420px;
+  width: 440px;
   max-height: none;
   overflow: visible;
   font-family: var(--font-display);
@@ -1319,6 +1298,36 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   font-weight: var(--weight-regular);
 }
 
+/* ---- The machine glyph ----
+
+   The machine in a mark, never a colour: a crosshair on the live machine, the
+   same with a broken circle on the rehearsal, a wave on the simulator. A mask per
+   kind, so the page and the Lab bar share it with no icon module. */
+[data-target-kind="real"] {
+  --machine-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M22 12h-4M6 12H2M12 6V2M12 22v-4'/%3E%3C/svg%3E"); /* hygiene-allow-color: mask alpha only, never painted */
+}
+
+[data-target-kind="rehearsal"] {
+  --machine-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10' stroke-dasharray='3.2 3'/%3E%3Cpath d='M22 12h-4M6 12H2M12 6V2M12 22v-4'/%3E%3C/svg%3E"); /* hygiene-allow-color: mask alpha only, never painted */
+}
+
+[data-target-kind="simulator"] {
+  --machine-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12c2.5-7 5-7 7.5 0s5 7 7.5 0 3.5-5 5-3'/%3E%3C/svg%3E"); /* hygiene-allow-color: mask alpha only, never painted */
+}
+
+.ctc-machine-glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-secondary);
+  background: currentColor;
+  mask: var(--machine-glyph) center / contain no-repeat;
+}
+
+[data-target-kind="real"] > .ctc-machine-glyph {
+  color: var(--text-primary);
+}
+
 /* ---- The writes switch ----
 
    One three-option control instead of a pill + verb: `Writes`, then off |
@@ -1326,13 +1335,9 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
    The checked option is the stored position; the word says what the next
    write meets (a stored allowed the tier holds at asked reads `asked`).
 
-   A checked option takes the colour of what a write there would mean, read
-   from the card's or row's `data-target-kind` — the error tone on the real
-   machine, amber on the rehearsal, success on the simulator. Off is the
-   neutral resting position (an off must read as resting, not as a warning).
-   Asked is a light kind-coloured wash with a kind-coloured edge; allowed is a
-   heavy wash — the loudest, and on the real machine it also bolds the state
-   word. While a widening confirm is up the option it would land on shows a
+   A checked option takes its own position's colour, the same on every machine:
+   a light wash with an edge for off and asked, a heavy wash for allowed, which
+   on the live machine also bolds the state word. While a widening confirm is up the option it would land on shows a
    dashed outline (`data-pending`): nothing has been applied yet. A disabled
    option is held by a lock and says why on hover. */
 .ctc-switchwrap {
@@ -1358,26 +1363,16 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   min-width: 7.5ch;
 }
 
-[data-target-kind="real"] .ctc-switchwrap:is([data-state="asked"], [data-state="allowed"]) .ctc-switch-state {
-  color: var(--color-error);
-}
-
-[data-target-kind="rehearsal"] .ctc-switchwrap:is([data-state="asked"], [data-state="allowed"]) .ctc-switch-state {
-  color: var(--color-warning);
-}
-
-[data-target-kind="simulator"] .ctc-switchwrap:is([data-state="asked"], [data-state="allowed"]) .ctc-switch-state {
-  color: var(--color-success);
+.ctc-switchwrap .ctc-switch-state {
+  color: var(--state-tone, var(--text-muted));
 }
 
 [data-target-kind="real"] .ctc-switchwrap[data-state="allowed"] .ctc-switch-state {
   font-weight: var(--weight-medium);
 }
 
-/* The segmented control: one bordered track, three equal options. The kind
-   sets the tone a checked asked or allowed option wears. */
+/* The segmented control: one bordered track, three equal options. */
 .ctc-positions {
-  --pos-tone: var(--text-secondary);
   display: inline-flex;
   flex-shrink: 0;
   padding: 1px;
@@ -1385,18 +1380,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   background: var(--neutral-tint-06);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-}
-
-[data-target-kind="real"] .ctc-positions {
-  --pos-tone: var(--color-error);
-}
-
-[data-target-kind="rehearsal"] .ctc-positions {
-  --pos-tone: var(--color-warning);
-}
-
-[data-target-kind="simulator"] .ctc-positions {
-  --pos-tone: var(--color-success);
 }
 
 .ctc-position {
@@ -1425,22 +1408,28 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   outline-offset: 1px;
 }
 
-/* Selected. Off rests in the neutral tone whatever the kind. */
-.ctc-position[aria-checked="true"] {
-  color: var(--text-primary);
-  background: var(--neutral-tint-20);
-  font-weight: var(--weight-medium);
+.ctc-position[data-position="off"] {
+  --pos-tone: var(--color-success);
 }
 
-.ctc-position[data-position="asked"][aria-checked="true"] {
+.ctc-position[data-position="asked"] {
+  --pos-tone: var(--color-warning);
+}
+
+.ctc-position[data-position="allowed"] {
+  --pos-tone: var(--color-error);
+}
+
+.ctc-position[aria-checked="true"] {
   color: var(--pos-tone);
-  background: color-mix(in srgb, var(--pos-tone) 12%, transparent);
-  border-color: color-mix(in srgb, var(--pos-tone) 50%, transparent);
+  background: color-mix(in srgb, var(--pos-tone) 16%, transparent);
+  border-color: color-mix(in srgb, var(--pos-tone) 55%, transparent);
+  font-weight: var(--weight-medium);
 }
 
 .ctc-position[data-position="allowed"][aria-checked="true"] {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--pos-tone) 40%, transparent);
+  background: color-mix(in srgb, var(--pos-tone) 45%, transparent);
   border-color: var(--pos-tone);
 }
 
@@ -1493,7 +1482,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   justify-content: flex-end;
 }
 
-/* Switch to is the design system's primary button. Switching onto a real
+/* Switch to is the design system's primary button. Switching onto the live
    machine hovers to the error tone: the confirm that follows is the safety
    gesture, and the button that opens it should already look like the one
    that does. */
@@ -1534,6 +1523,27 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   font-size: var(--text-sm);
   color: var(--text-muted);
   text-align: right;
+}
+
+/* Said only while a "don't ask again" is recorded, with the way back beside it. */
+.ctc-ask-again {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.ctc-ask-again-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ctc-ask-again-link:hover {
+  color: var(--text-primary);
 }
 
 /* ---- Rail / tile-header context menu ---- */
@@ -2072,9 +2082,9 @@ html[data-ui-mode="simple"] #terminal-container {
   margin-bottom: var(--space-3);
 }
 
-/* The machine banner a confirm carries (C-WORDS): "Real machine — writes move
-   hardware" in red, "Rehearsal — nothing moves" in amber, keyed on the
-   dialog's `data-target-kind`. Same box as the error notice above — it is the
+/* The machine banner a confirm carries (C-WORDS): the colour of where the move
+   lands (`data-to`), except that the live machine's hardware line is always red.
+   Same box as the error notice above — it is the
    same kind of thing to read before clicking — but it sits under the body
    rather than above it, because it qualifies what the operator is about to do
    rather than reporting what already failed. */
@@ -2090,16 +2100,32 @@ html[data-ui-mode="simple"] #terminal-container {
   margin: 10px 0 0;
 }
 
-.posture-modal[data-target-kind="rehearsal"] .posture-modal-live {
-  color: var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
-  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+.posture-modal[data-to="off"] {
+  --modal-tone: var(--color-success);
+}
+
+.posture-modal[data-to="asked"] {
+  --modal-tone: var(--color-warning);
+}
+
+.posture-modal[data-to="allowed"] {
+  --modal-tone: var(--color-error);
+}
+
+.posture-modal[data-to] .posture-modal-live {
+  color: var(--modal-tone);
+  background: color-mix(in srgb, var(--modal-tone) 15%, transparent);
+  border-color: color-mix(in srgb, var(--modal-tone) 40%, transparent);
+}
+
+.posture-modal[data-to][data-target-kind="real"] .posture-modal-live {
+  color: var(--color-error);
+  background: var(--error-tint-15);
+  border-color: var(--error-tint-40);
 }
 
 /* The "don't ask again" waiver. Quiet on purpose — secondary text, no box or
-   tint: it is a convenience beside the decision, never part of it. Absent
-   entirely from the one dialog that must keep asking (writes on, real
-   machine). */
+   tint: it is a convenience beside the decision, never part of it. */
 .posture-modal-skip {
   display: flex;
   align-items: center;
@@ -2158,28 +2184,15 @@ html[data-ui-mode="simple"] #terminal-container {
   border-color: var(--color-accent);
 }
 
-/* The confirm button takes the error tone only when the thing being confirmed
-   reaches the real machine — the same single-loud-cell rule the chip follows,
-   so red still means one thing across the whole feature — and the rehearsal's
-   amber when it reaches the rehearsal. */
-.posture-modal[data-target-kind="real"] .posture-modal-confirm[data-live="true"] {
-  background: var(--error-tint-15);
-  border-color: var(--error-tint-40);
+/* The confirm button takes the colour of where the move lands. */
+.posture-modal[data-to] .posture-modal-confirm {
+  background: color-mix(in srgb, var(--modal-tone) 15%, transparent);
+  border-color: color-mix(in srgb, var(--modal-tone) 40%, transparent);
 }
 
-.posture-modal[data-target-kind="real"] .posture-modal-confirm[data-live="true"]:hover:not(:disabled) {
-  background: var(--error-tint-25);
-  border-color: var(--color-error);
-}
-
-.posture-modal[data-target-kind="rehearsal"] .posture-modal-confirm[data-live="true"] {
-  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
-  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
-}
-
-.posture-modal[data-target-kind="rehearsal"] .posture-modal-confirm[data-live="true"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-warning) 25%, transparent);
-  border-color: var(--color-warning);
+.posture-modal[data-to] .posture-modal-confirm:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--modal-tone) 25%, transparent);
+  border-color: var(--modal-tone);
 }
 
 .posture-modal-cancel:disabled,

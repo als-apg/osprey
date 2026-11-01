@@ -4,7 +4,7 @@
  * The block under the OSPREY mark that answers, at one place in every view,
  * "where does a write land, would it be refused, and is anything wrong": the
  * control-target chip (control-target-chip.js, mounted into
- * `#sidebar-target`), dressed as one row — a crosshair glyph carrying the
+ * `#sidebar-target`), dressed as one row — the machine's glyph carrying the
  * chip's state dot, the chip's own name and writes pill, the facility's
  * service health dot and a ⇕ caret.
  *
@@ -120,8 +120,9 @@ function buildHealthDot() {
  * @param {HTMLElement} dot
  */
 function decorateChip(chip, dot) {
-  const glyph = icon('crosshair');
-  glyph.classList.add('sidebar-target-glyph');
+  const glyph = document.createElement('span');
+  glyph.className = 'ctc-machine-glyph sidebar-target-glyph';
+  glyph.setAttribute('aria-hidden', 'true');
   const caret = icon('chevrons-ud');
   caret.classList.add('sidebar-target-caret');
   chip.prepend(glyph);

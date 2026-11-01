@@ -572,7 +572,7 @@ def test_the_stand_in_is_described_in_the_owner_facing_machine_words():
     content = _render_switch_section()
 
     assert "**Rehearsal — nothing moves** only while this deployment has actually stood" in content
-    assert "shows as **Real machine — writes move hardware**" in content
+    assert "shows as **Live — writes move hardware**" in content
 
 
 def test_the_stand_in_is_no_longer_called_a_live_machine():
