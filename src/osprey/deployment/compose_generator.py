@@ -45,6 +45,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.image_facts import stated_image_platform
 from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS, resolve_bind_address
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
@@ -1851,6 +1852,26 @@ def resolve_image_axes(config):
     registry = _image_axis("OSPREY_IMAGE_REGISTRY", "images.registry", images.get("registry"), "")
     tag = _image_axis("OSPREY_IMAGE_TAG", "images.tag", images.get("tag"), DEFAULT_IMAGE_TAG)
     return (f"{registry.rstrip('/')}/" if registry else ""), tag
+
+
+def resolve_image_platform(config):
+    """The platform ``images.platform`` states for every image OSPREY builds.
+
+    The one reader of the key in a resolved config: the ``--platform`` flag of
+    the managed builds and the ``platform:`` the compose override stamps on a
+    built service both read it here. No environment override: the build that
+    judged the wheels and rendered the ``FROM`` read the profile, so one shell
+    could otherwise build for a platform the render does not name.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: The stated platform, or None to build natively.
+    :rtype: str | None
+    :raises ValueError: If ``images`` is not a block, or the value is not an
+        accepted image platform.
+    """
+    images = _image_axis_block(config)
+    return stated_image_platform(images.get("platform"))
 
 
 def resolve_image_defaults(config):
