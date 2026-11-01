@@ -24,6 +24,8 @@ import requests
 
 from osprey.port_layout import default_port
 from tests._container_support import (
+    CONTAINER_START_ATTEMPTS,
+    CONTAINER_START_BACKOFF_S,
     CONTAINER_STATE_TIMEOUT,
     is_docker_available,
     is_image_present,
@@ -185,6 +187,37 @@ SIDECAR_ROUND_S = (
     max(SIDECAR_PROBE_TIMEOUT, _indexed_probe_bound())
     + SIDECAR_POLL_INTERVAL
     + 2 * CONTAINER_STATE_TIMEOUT
+)
+
+
+def _postgres_start_bound() -> float:
+    """Seconds the lane's Postgres start may take before it fails.
+
+    :func:`~tests._container_support.start_or_fail` retries the start, and each
+    attempt runs testcontainers' own readiness wait, bounded by its configured
+    timeout, with a pause between attempts.
+    """
+    from testcontainers.core.config import testcontainers_config
+
+    return (
+        CONTAINER_START_ATTEMPTS * testcontainers_config.timeout
+        + (CONTAINER_START_ATTEMPTS - 1) * CONTAINER_START_BACKOFF_S
+    )
+
+
+#: Seconds each test of the ARIEL sidecar module may take, setup included. The
+#: first test to request the shared sidecar world pays for the longest chain of
+#: waits one test can hit: the Postgres start, the sidecar's ``/health`` wait
+#: (:data:`SIDECAR_HEALTH_CEILING`), the world's own re-index wait and one more
+#: in the test body (:data:`SIDECAR_REINDEX_CEILING` each). Each of the three
+#: ``wait_until_ready`` waits may run one :data:`SIDECAR_ROUND_S` past its
+#: ceiling, so the wait's own failure, with the container's log, lands before
+#: this mark kills the test.
+SIDECAR_ARIEL_TEST_TIMEOUT = (
+    _postgres_start_bound()
+    + SIDECAR_HEALTH_CEILING
+    + 2 * SIDECAR_REINDEX_CEILING
+    + 3 * SIDECAR_ROUND_S
 )
 
 #: The entrypoint's log line for the update a marker touch causes.

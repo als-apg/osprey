@@ -239,13 +239,16 @@ def start_or_skip(
 #: into a vacuous green.
 CONTAINER_START_ATTEMPTS = 4
 
+#: Seconds between the attempts of :func:`start_or_fail`.
+CONTAINER_START_BACKOFF_S = 2.0
+
 
 def start_or_fail(
     factory: Callable[[], ContainerT],
     label: str,
     port: int,
     *,
-    backoff: float = 2.0,
+    backoff: float = CONTAINER_START_BACKOFF_S,
 ) -> tuple[ContainerT, int]:
     """Start a container built by ``factory`` and read its published port.
 
