@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -393,3 +394,50 @@ def test_no_retired_key(stack: Path, config: dict, served: dict[str, roster.Serv
     )
     for where, document in documents.items():
         assert RETIRED_KEYS.isdisjoint(_keys(document)), where
+
+
+# --- the bundled example application ----------------------------------------------------------
+
+APP = "knob-example"
+WRITE_TOOL = f"mcp__{APP}__set_corrector"
+
+
+def test_the_example_runs_on_the_bridge_against_the_simulator(stack: Path, config: dict) -> None:
+    assert config["control_system"]["type"] == "virtual_accelerator"
+    service = _load(stack / "build" / "services" / APP / "docker-compose.yml")["services"][APP]
+    environment = service["environment"]
+
+    assert "network_mode" not in service
+    assert environment["EPICS_CA_NAME_SERVERS"].startswith("virtual-accelerator:")
+    assert environment["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
+    assert "writes_enabled" not in environment
+
+
+def test_the_example_judges_a_write_by_the_staged_login_map(stack: Path, config: dict) -> None:
+    staged = _load(stack / "build" / "services" / APP / "config.yml")["control_system"]
+    users = config["modules"]["web_terminals"]["users"]
+    assert {user["name"] for user in users} <= set(staged["login_tiers"])
+
+
+def test_the_example_is_shown_by_every_tier_and_armed_by_the_writing_ones(
+    stack: Path, served: dict[str, roster.ServedRender]
+) -> None:
+    denies = {}
+    for name in ("readonly", "readwrite", "admin"):
+        render = served[name]
+        panel = _render_config(stack, render)["web"]["panels"][APP]
+        methods = {route["method"] for route in panel["agent_routes"]}
+        assert ("POST" in methods) is (name != "readonly"), name
+        assert ("launch_token_env" in panel) is (name != "readonly"), name
+        settings = json.loads((stack / render.project_path / ".claude/settings.json").read_text())
+        denies[name] = WRITE_TOOL in settings["permissions"]["deny"]
+    assert denies == {"readonly": True, "readwrite": False, "admin": False}
+
+
+@pytest.mark.parametrize("login", ["logbook", "knowledge", "channel-finder"])
+def test_a_shared_login_does_not_show_the_example(
+    stack: Path, served: dict[str, roster.ServedRender], login: str
+) -> None:
+    render = _render_config(stack, served[login])
+    assert APP not in render["web"].get("panels", {})
+    assert APP not in render.get("apps", {})

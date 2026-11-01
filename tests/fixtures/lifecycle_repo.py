@@ -1378,6 +1378,12 @@ services:
   archive:
     template: osprey.archive
 
+# ── Applications ─────────────────────────────────────────────────────────────
+# Each entry runs the application in apps/<name>/. Knob is the bundled example:
+# one panel, one read tool, one write tool. Delete the entry to turn it off.
+apps:
+  knob-example: {}
+
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
 # ship need no control system, so a single `curl` after `osprey up` exercises
@@ -1531,24 +1537,6 @@ panel_presets: {}
 # teams_bridge:
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
-
-# --- Applications ------------------------------------------------------------
-# The applications this deployment runs, one entry per apps/<name>/ directory
-# holding its app.yml. Listing one turns it on; to turn it off, remove the
-# entry. Its tool server is added by the build, so no tool-server key goes here,
-# and its writes follow each login's control_system.writes tier.
-#
-# apps:
-#   knob-example:
-#     config:                    # free-form; handed to the application as a file
-#       step: 0.5
-#     services:
-#       knob-example:            # a container key from its app.yml
-#         network: host          # bridge | host
-#         env: [HTTP_PROXY]      # host variables passed through
-#
-# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
-# {shown: false}}`, and `lists: own` to show only what it names.
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the
@@ -3129,6 +3117,33 @@ def seeded_facility_rule(profile_text: str) -> str:
         return (root / "rules" / "facility.md").read_text(encoding="utf-8")
 
 
+def packaged_application_files() -> dict[str, str]:
+    """The applications the preset lists, as ``osprey init`` copies them, sidecar included.
+
+    Read rather than frozen, for the reason the data README is: the package owns
+    these files, and what the comparison downstream is for is that init copies
+    them through unchanged.
+    """
+    from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
+    from osprey.cli.build_profile_merge import compute_preset_hash
+    from osprey.profiles import presets
+
+    app_dir = Path(presets.__file__).parent / "apps" / "knob-example"
+    files = {
+        f"apps/knob-example/{path.relative_to(app_dir).as_posix()}": path.read_text(
+            encoding="utf-8"
+        )
+        for path in sorted(app_dir.rglob("*"))
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix not in {".pyc", ".pyo"}
+    }
+    files[f"apps/knob-example/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
+        app_dir, "control-assistant", compute_preset_hash("control-assistant")
+    )
+    return files
+
+
 def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     """The exemplar's source zone as repo-relative posix path -> final text.
 
@@ -3161,6 +3176,8 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     # The facility description `osprey init` seeds for a profile selecting the
     # facility rule, rendered from the package for the same reason.
     files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
+    # The application the profile lists, read from the package as the README is.
+    files.update(packaged_application_files())
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return {path: expand_sentinels(text) for path, text in files.items()}
