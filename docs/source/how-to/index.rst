@@ -81,7 +81,7 @@ Operate
       :link-type: doc
 
       Have facility-written checks judge each operator prompt, hold the agent's
-      writes on a flag, and ask the operator to stop or continue.
+      writes when one flags it, and ask the operator to stop or continue.
 
 Facility services
 -----------------
