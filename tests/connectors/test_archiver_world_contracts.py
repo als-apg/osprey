@@ -221,8 +221,8 @@ def mongo():
     """A MongoDB started the way the deployment's compose template starts it.
 
     The compressor flag is the template's, verbatim. The sweeper is off at
-    startup through the recipe's default; see the module docstring for why it
-    has to be off here and on only where a test asks for it.
+    startup: the recipe always starts it off; see the module docstring for why
+    it has to be off here and on only where a test asks for it.
     """
     if not is_docker_available():
         pytest.skip("Docker not available — needed to seed and read a real store.")
@@ -642,6 +642,12 @@ class TestRetention:
 
         assert f"block_compressor={COMPRESSION}" in creation
         assert recorded == COMPRESSION
+
+    def test_the_store_starts_with_the_sweeper_off(self, mongo_client):
+        """The store starts with the sweeper off; only ``ttl_sweeper`` turns it on."""
+        reply = mongo_client.admin.command("getParameter", 1, ttlMonitorEnabled=1)
+
+        assert reply["ttlMonitorEnabled"] is False
 
 
 def _aged_rf_thermal(at_offset: float) -> dict:
