@@ -6,10 +6,9 @@ single :class:`~osprey_connectors.errors.BuildProfileError` is raised whose mess
 ``"Build profile validation failed:\\n  - "`` followed by every failure joined
 by ``"\\n  - "``. A profile with four unrelated faults therefore reports all
 four in one raise, so a build author fixes them in one pass instead of one
-rebuild per typo. The structural checks that ``continue`` (a service with a
-bundled ``osprey.``-prefixed template, a ``panel_presets`` entry that is not a
-list, a ``categories`` entry that is not a mapping) skip only their own
-remaining sub-checks — they never short-circuit the rest of the validator.
+rebuild per typo. The structural checks that ``continue`` (a ``panel_presets``
+entry that is not a list, a ``categories`` entry that is not a mapping) skip
+only their own remaining sub-checks — they never short-circuit the rest of the validator.
 
 Complements the block-scoped suites (``test_profile_schema.py`` for
 ``dispatch:``, ``test_build_profile.py`` for ``bluesky_web:``) by covering
@@ -247,6 +246,19 @@ def test_service_template_dir_not_found_is_rejected(tmp_path: Path) -> None:
     profile = _profile(name="x", services={"svc": ServiceDef(template="services/svc")})
     (error,) = _errors(profile, tmp_path)
     assert error == f"Service 'svc' template dir not found: {tmp_path / 'services/svc'}"
+
+
+def test_unknown_bundled_template_is_refused(tmp_path: Path) -> None:
+    """A bundled name OSPREY does not ship fails, naming the service and the value."""
+    profile = _profile(name="x", services={"nope": ServiceDef(template="osprey.no_such_service")})
+    assert _errors(profile, tmp_path) == [
+        "Service 'nope' template 'osprey.no_such_service' names no template OSPREY ships"
+    ]
+
+
+def test_shipped_bundled_template_is_accepted(tmp_path: Path) -> None:
+    """A bundled name OSPREY ships produces no failure."""
+    _profile(name="x", services={"db": ServiceDef(template="osprey.mongodb")}).validate(tmp_path)
 
 
 def test_service_template_dir_without_compose_is_rejected(tmp_path: Path) -> None:

@@ -163,11 +163,13 @@ class ServiceTemplateSource:
     """The directory a service ``template:`` value resolves to.
 
     Attributes:
+        template: The ``template:`` value this source was resolved from.
         path: The template directory on disk.
         bundled: True when the value names a template the framework ships
             rather than a directory beside the profile.
     """
 
+    template: str
     path: Path
     bundled: bool
 
@@ -175,6 +177,16 @@ class ServiceTemplateSource:
     def exists(self) -> bool:
         """Whether ``path`` is a service template: a directory holding its compose template."""
         return self.path.is_dir() and (self.path / _SERVICE_TEMPLATE_FILE).is_file()
+
+    def refusal(self, service: str) -> str | None:
+        """The sentence refusing *service* for this source, or ``None`` when it exists."""
+        if self.exists:
+            return None
+        if self.bundled:
+            return f"Service '{service}' template '{self.template}' names no template OSPREY ships"
+        if not self.path.is_dir():
+            return f"Service '{service}' template dir not found: {self.path}"
+        return f"Service '{service}' template dir missing {_SERVICE_TEMPLATE_FILE}"
 
 
 def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplateSource:
@@ -194,8 +206,10 @@ def resolve_service_template(profile_dir: Path, template: str) -> ServiceTemplat
     """
     bundled = bundled_service_template(template)
     if bundled is not None:
-        return ServiceTemplateSource(path=bundled_services_dir() / bundled, bundled=True)
-    return ServiceTemplateSource(path=profile_dir / template, bundled=False)
+        return ServiceTemplateSource(
+            template=template, path=bundled_services_dir() / bundled, bundled=True
+        )
+    return ServiceTemplateSource(template=template, path=profile_dir / template, bundled=False)
 
 
 def _preset_exists(name: str) -> Path | None:
