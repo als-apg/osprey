@@ -148,7 +148,7 @@ VIDEOS: tuple[DocVideo, ...] = (
         name="code-review",
         stem="code-review",
         storyboard=CODE_REVIEW,
-        layout=Layout(view="simple", active="artifacts", tiles=("artifacts",)),
+        layout=Layout(surface="chat", active="channel-finder", tiles=("channel-finder",)),
         pages=("how-to/control-systems/code-review.rst",),
         poster_step="verdict",
         window_s=(30.0, 70.0),

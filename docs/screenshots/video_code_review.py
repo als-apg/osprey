@@ -33,8 +33,6 @@ HOOKS = [*_PROFILE["hooks"], "code-review"]
 # No Bluesky on this stack: with it, a scan is a plan, which the reviewer does not read.
 SKILLS = [skill for skill in _PROFILE["skills"] if "bluesky" not in skill]
 INIT_SETS = (
-    # The deployment offers the Simple view only: Expert is not on this stack at all.
-    "config.web.expert_view=false",
     "config.code_review.enabled=true",
     "config.code_review.level=block",
     "config.claude_code.servers.bluesky.enabled=false",
@@ -74,10 +72,10 @@ async (sessionId) => {
 """
 
 
-def _simple_view(take: Take) -> None:
-    """Fail the take unless the page is the Simple view with its composer on screen."""
+def _chat_on_screen(take: Take) -> None:
+    """Fail the take unless the operator chat has its composer on screen."""
     if not video_chat.mounted(take.page):
-        raise ProbeFailed("simple-view", "the take left the Simple view")
+        raise ProbeFailed("chat", "the take left the operator chat")
 
 
 #: When each take armed, the start of the hook records it reads.
@@ -85,7 +83,7 @@ _MARKS: dict[int, datetime] = {}
 
 
 def _arm(take: Take) -> None:
-    _simple_view(take)
+    _chat_on_screen(take)
     _MARKS[id(take)] = datetime.now(UTC)
     answer = take.page.evaluate(ARM_JS, video_chat.session_id(take.page))
     if answer.get("status") != 200:
@@ -98,7 +96,7 @@ def _blocked_first(take: Take) -> None:
     The agent words what it was told its own way, so the screen is no witness: the hook logs
     ``refused`` for a call the review blocked ahead of the prompt.
     """
-    _simple_view(take)
+    _chat_on_screen(take)
     records = take.hook_log(_MARKS[id(take)])
     refused = [r for r in records if r.get("hook") == "approval" and r.get("status") == "refused"]
     if not refused:
