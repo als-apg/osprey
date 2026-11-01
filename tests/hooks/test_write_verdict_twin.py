@@ -24,14 +24,21 @@ from __future__ import annotations
 import ast
 import json
 import os
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey_connectors import control_context, posture_store, refusals, types
-from osprey_connectors_tests._harness import write_payload
+from osprey_connectors import control_context, posture_store, refusals, session_hold, types
+from osprey_connectors_tests import _paths
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    reset_verdict_state,
+    write_payload,
+)
 from osprey_connectors_tests._harness._write_verdict_cases import (
     Case,
     case_environment,
@@ -479,6 +486,13 @@ def test_restated_store_names_match_the_package():
     assert reader.LAUNCH_POSTURE_ENV_VAR == posture_store.LAUNCH_POSTURE_ENV_VAR
     assert reader.LAUNCH_POSTURE_ALL_TARGETS == posture_store.LAUNCH_POSTURE_ALL_TARGETS
     assert reader.RECORD_READ_LIMIT == posture_store._RECORD_READ_LIMIT
+    assert reader.HOLD_DIR_ENV_VAR == session_hold.HOLD_DIR_ENV_VAR
+    assert reader.HOLD_RECORD_NAME == session_hold.RECORD_NAME
+    assert reader.HOLD_SCHEMA_VERSION == session_hold.SCHEMA_VERSION
+    assert reader.HOLD_RECORD_READ_LIMIT == session_hold._RECORD_READ_LIMIT
+    assert reader.HOLD_SESSION_ENV_VAR == posture_store._SESSION_KEY_ENV_VAR
+    assert reader._HOLD_SAFE_KEY == session_hold._SAFE_KEY.pattern
+    assert reader._HOLD_STR_FIELDS == session_hold._STR_FIELDS
 
 
 def test_tier_words_match_the_package():
@@ -509,6 +523,8 @@ def test_new_names_are_exported():
         "TIER_ASKED",
         "WriteVerdict",
         "current_owner",
+        "execution_verdict",
+        "is_held",
         "launch_pin_term",
         "machine_kind",
         "owner_tier_term",
@@ -526,6 +542,230 @@ def test_new_names_are_exported():
 def test_the_retired_switch_constant_is_gone():
     assert "SWITCH_ON" not in reader.__all__
     assert not hasattr(reader, "SWITCH_ON")
+
+
+# -- the session's hold ------------------------------------------------------
+
+HOLD_FIXTURES = Path(_paths.__file__).parent / "fixtures" / "session_hold"
+HOLD_CASES = json.loads((HOLD_FIXTURES / "cases.json").read_text(encoding="utf-8"))["cases"]
+HOLD_KEY = "3f2b8c1e-6a0d-4c55-9a1e-0b7f2d4e9c11"  # gitleaks:allow - a test session id
+_SECTION = {"type": "epics", "writes": "allowed"}
+
+
+@pytest.fixture
+def no_hold(monkeypatch, tmp_path):
+    """No stamped run state and no hold store; the host record under scratch."""
+    isolate_verdict_environment(monkeypatch, tmp_path / "data")
+    monkeypatch.delenv(reader.HOLD_SESSION_ENV_VAR, raising=False)
+    monkeypatch.delenv(reader.HOLD_DIR_ENV_VAR, raising=False)
+    yield
+    reset_verdict_state()
+
+
+@pytest.fixture
+def store(no_hold, monkeypatch, tmp_path) -> Path:  # noqa: ARG001 - ordered after its isolation
+    """This session's record present under a stamped store, nothing open."""
+    root = tmp_path / "session_holds"
+    monkeypatch.setenv(reader.HOLD_DIR_ENV_VAR, str(root))
+    monkeypatch.setenv(reader.HOLD_SESSION_ENV_VAR, HOLD_KEY)
+    session_hold.ensure_session(HOLD_KEY)
+    return root
+
+
+def _open_flag() -> None:
+    session_hold.open_flag(
+        HOLD_KEY,
+        flag_id="f1",
+        source="watchdog:scope",
+        reason="off the plan",
+        prompt_ref="record:f1",
+        prompt_excerpt="move the corrector",
+    )
+
+
+def _agree(section: object, target: object) -> tuple:
+    """Both sides' whole answer, asserted equal; returned for a test to read."""
+    twin = reader.execution_verdict(section, target)
+    package = posture_store.execution_verdict(section, target)
+    assert (twin.allowed, twin.reason, twin.target, twin.kind) == (
+        package.allowed,
+        package.reason,
+        package.target,
+        package.kind,
+    )
+    return twin.allowed, twin.reason
+
+
+@pytest.mark.usefixtures("no_hold")
+@pytest.mark.parametrize("case", sorted(HOLD_CASES))
+def test_twin_and_package_agree_over_every_shared_fixture(case, tmp_path, monkeypatch):
+    spec = HOLD_CASES[case]
+    root = tmp_path / "root"
+    shutil.copytree(HOLD_FIXTURES / case / "root", root)
+    monkeypatch.setenv(reader.HOLD_DIR_ENV_VAR, str(root))
+    monkeypatch.setenv(reader.HOLD_SESSION_ENV_VAR, spec["session_key"])
+
+    assert reader.is_held(spec["session_key"]) is spec["held"]
+    assert session_hold.is_held(spec["session_key"]) is spec["held"]
+    assert (_agree(_SECTION, "live")[1] == "session_held") is spec["held"]
+
+
+def _flags_with(**overrides) -> list[dict]:
+    flag = {
+        "flag_id": "f1",
+        "source": "s",
+        "reason": "r",
+        "prompt_ref": "p",
+        "prompt_excerpt": "",
+        "opened_at": "t",
+        "state": "closed",
+        "stop_unconfirmed": False,
+        "started": [],
+    }
+    return [{**flag, **overrides}]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"flags": _flags_with()},
+        {"flags": _flags_with(state="open")},
+        {"flags": _flags_with(state="shut")},
+        {"flags": _flags_with(source=3)},
+        {"flags": _flags_with(stop_unconfirmed="no")},
+        {"flags": _flags_with(started=[1])},
+        {"flags": "none"},
+        {"flags": []},
+        {"schema": 2, "flags": []},
+        {"session_key": "another-session", "flags": []},
+    ],
+    ids=[
+        "closed",
+        "open",
+        "bad-state",
+        "bad-source",
+        "bad-stop",
+        "bad-started",
+        "flags-not-a-list",
+        "empty",
+        "other-schema",
+        "other-session",
+    ],
+)
+def test_twin_and_package_read_every_record_alike(store, payload):
+    record = {"schema": 1, "session_key": HOLD_KEY, **payload}
+    (store / HOLD_KEY / reader.HOLD_RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+    assert reader.is_held(HOLD_KEY) is session_hold.is_held(HOLD_KEY)
+    _agree(_SECTION, "live")
+
+
+@pytest.mark.parametrize(
+    "padding, held",
+    [(reader.RECORD_READ_LIMIT + 1024, False), (reader.HOLD_RECORD_READ_LIMIT + 1, True)],
+    ids=["past-the-posture-limit", "past-the-hold-limit"],
+)
+def test_the_hold_reader_has_its_own_limit(store, padding, held):
+    record = {"schema": 1, "session_key": HOLD_KEY, "flags": [], "pad": "x" * padding}
+    (store / HOLD_KEY / reader.HOLD_RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+    assert reader.is_held(HOLD_KEY) is held
+    assert session_hold.is_held(HOLD_KEY) is held
+
+
+def test_a_link_at_the_record_or_the_directory_is_held_on_both_sides(store, tmp_path):
+    record = store / HOLD_KEY / reader.HOLD_RECORD_NAME
+    real = tmp_path / "real.json"
+    real.write_text(record.read_text(encoding="utf-8"), encoding="utf-8")
+    record.unlink()
+    record.symlink_to(real)
+    assert reader.is_held(HOLD_KEY) is True
+    assert session_hold.is_held(HOLD_KEY) is True
+
+    record.unlink()
+    record.write_text(real.read_text(encoding="utf-8"), encoding="utf-8")
+    moved = tmp_path / "moved"
+    (store / HOLD_KEY).rename(moved)
+    (store / HOLD_KEY).symlink_to(moved)
+    assert reader.is_held(HOLD_KEY) is True
+    assert session_hold.is_held(HOLD_KEY) is True
+
+
+@pytest.mark.parametrize("key", [" ", "../up", ".hidden", "a/b", "x" * 129, "a\n"])
+@pytest.mark.usefixtures("store")
+def test_an_unsafe_key_is_held_on_both_sides_and_only_under_a_store(monkeypatch, key):
+    monkeypatch.setenv(reader.HOLD_SESSION_ENV_VAR, key)
+    assert reader.is_held(key) is session_hold.is_held(key) is True
+    assert _agree(_SECTION, "live")[1] == "session_held"
+
+    monkeypatch.delenv(reader.HOLD_DIR_ENV_VAR)
+    assert reader.is_held(key) is session_hold.is_held(key) is False
+
+
+@pytest.mark.usefixtures("store")
+def test_held_refuses_session_held_and_a_release_lifts_it():
+    assert _agree(_SECTION, "live") == (False, "switch_off")
+    _open_flag()
+    assert _agree(_SECTION, "live") == (False, "session_held")
+    session_hold.answer_flags(HOLD_KEY, ["f1"], answer="continue", operator="op")
+    assert _agree(_SECTION, "live") == (False, "switch_off")
+
+
+@pytest.mark.usefixtures("store")
+def test_the_hold_follows_the_read_only_run_and_the_tier(monkeypatch):
+    _open_flag()
+    assert _agree({"writes": "never"}, "live") == (False, "tier_never")
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    assert _agree(_SECTION, "live") == (False, "readonly_run")
+
+
+@pytest.mark.usefixtures("store")
+def test_the_hold_precedes_the_target_and_keeps_its_name():
+    _open_flag()
+    assert _agree(_SECTION, "no-such-machine") == (False, "session_held")
+    assert reader.execution_verdict(_SECTION, "live").target == "live"
+
+
+@pytest.mark.usefixtures("store")
+def test_a_process_with_no_session_is_never_held(monkeypatch):
+    _open_flag()
+    monkeypatch.setenv(reader.HOLD_SESSION_ENV_VAR, "")
+    assert _agree(_SECTION, "live") == (False, "switch_off")
+    monkeypatch.delenv(reader.HOLD_SESSION_ENV_VAR)
+    assert _agree(_SECTION, "live") == (False, "switch_off")
+
+
+@pytest.mark.usefixtures("store")
+def test_a_reader_that_raises_is_held(monkeypatch):
+    def _boom(*_args):
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr(reader, "_read_hold_flags", _boom)
+    assert reader.is_held(HOLD_KEY) is True
+    assert reader.execution_verdict(_SECTION, "live").reason == "session_held"
+
+
+@pytest.mark.usefixtures("case_environment")
+@pytest.mark.parametrize("case", TWIN_CASES, ids=[case.id for case in TWIN_CASES])
+def test_twin_and_package_agree_on_every_row_while_held(case: Case, monkeypatch, tmp_path):
+    stage(case, monkeypatch, tmp_path)
+    monkeypatch.setenv(reader.HOLD_DIR_ENV_VAR, str(tmp_path / "session_holds"))
+    monkeypatch.setenv(reader.HOLD_SESSION_ENV_VAR, HOLD_KEY)
+    session_hold.ensure_session(HOLD_KEY)
+    _open_flag()
+    kwargs = {"ignore_launch_pin": case.ignore_launch_pin}
+
+    twin = reader.execution_verdict(
+        case.section, case.target, **kwargs, **owner_argument(case, no_owner=reader.NO_OWNER)
+    )
+    package = posture_store.execution_verdict(
+        case.section, case.target, **kwargs, **owner_argument(case)
+    )
+
+    assert (twin.allowed, twin.reason, twin.target, twin.kind) == (
+        package.allowed,
+        package.reason,
+        package.target,
+        package.kind,
+    )
 
 
 # -- the forwarded environment ----------------------------------------------
@@ -583,6 +823,9 @@ def test_the_module_imports_and_decides_without_site_packages(tmp_path):
         "verdict = osprey_target_state.write_verdict(\n"
         "    {'type': 'epics', 'writes': 'allowed'}, 'live', owner='alice'\n"
         ")\n"
+        "assert osprey_target_state.execution_verdict(\n"
+        "    {'type': 'epics', 'writes': 'allowed'}, 'live', owner='alice'\n"
+        ").reason == 'session_held'\n"
         "print(json.dumps([foreign, verdict.reason]))\n"
     )
     env = {
@@ -590,6 +833,9 @@ def test_the_module_imports_and_decides_without_site_packages(tmp_path):
         "OSPREY_AGENT_DATA_ROOT": str(tmp_path),
         # The host's own login, so the owner is not refused as foreign.
         "OSPREY_AUDIT_IDENTITY": "alice",
+        # A store with no record for the session: held, decided by the stdlib alone.
+        "OSPREY_SESSION_HOLD_DIR": str(tmp_path / "session_holds"),
+        "OSPREY_SESSION_ID": "s1",
     }
     result = subprocess.run(
         [sys.executable, "-I", "-S", "-c", probe],

@@ -430,9 +430,10 @@ def _verdict_refusal(
     The operator's words are :func:`~osprey_connectors.refusals.refusal_text`
     for the verdict's reason and machine kind — the same phrase the hooks
     speak, ending with the ``[osprey-refusal: <reason>]`` trailer — after the
-    channel it concerns. A read-only run's refusal also
-    carries :data:`_READONLY_MARKER`, and in a script the executor ran for one
-    readonly submission :data:`_READONLY_SCRIPT_REMEDY` as well. A verdict that
+    channel it concerns, with the verdict's own detail after the phrase. A
+    read-only run's refusal also carries :data:`_READONLY_MARKER`, and in a script
+    the executor ran for one readonly submission :data:`_READONLY_SCRIPT_REMEDY`
+    as well. A verdict that
     allowed (an overriding subclass refused on its own) names no contract reason.
     """
     from osprey_connectors.refusals import refusal_text
@@ -449,7 +450,7 @@ def _verdict_refusal(
         spoken = _OVERRIDE_REFUSAL
     else:
         try:
-            spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy)
+            spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy or verdict.detail)
         except ValueError:
             spoken = _OVERRIDE_REFUSAL
     return ChannelWriteResult(
@@ -652,7 +653,12 @@ class ControlSystemConnector(ABC):
         This fires before limits validation (intentional: fast-reject when
         writes are disabled, avoiding unnecessary validation work).
 
-        Past that check the original method runs inside
+        Past that check the wrapper asks
+        :func:`~osprey_connectors.posture_store.session_hold_refusal`, kept out of
+        ``_writes_enabled`` because that property also chooses the gateway: a held
+        session's write is refused here while its connection stays as it is.
+
+        Past both checks the original method runs inside
         :func:`~osprey_connectors.control_system.write_door.open_door`, so the
         raw-client guard attributes its put to a connector. A connector whose
         writes are disabled never opens the door.
@@ -668,6 +674,9 @@ class ControlSystemConnector(ABC):
                 if not self._writes_enabled:
                     verdict = self._last_verdict or _monitor_verdict(self._control_target)
                     return _verdict_refusal(channel_address, value, verdict)
+                held = posture_store.session_hold_refusal()
+                if held is not None:
+                    return _verdict_refusal(channel_address, value, held)
                 with open_door():
                     return await original_write(self, channel_address, value, *args, **kwargs)
 
@@ -685,6 +694,9 @@ class ControlSystemConnector(ABC):
                     # must tell the same story about why.
                     verdict = self._last_verdict or _monitor_verdict(self._control_target)
                     return [_verdict_refusal(addr, val, verdict) for addr, val in operations]
+                held = posture_store.session_hold_refusal()
+                if held is not None:
+                    return [_verdict_refusal(addr, val, held) for addr, val in operations]
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 
