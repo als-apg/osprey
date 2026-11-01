@@ -22,11 +22,15 @@ handed. Two kinds of test here read that declaration and nothing else:
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey.apps.manifest import launch_token_env, parse_manifest
+from osprey.apps.projection import project_deployment, project_login
+from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     LANE_ONE,
@@ -40,6 +44,8 @@ from osprey.deployment.reach import (
     dotted_get,
     live_consumers,
     project_attached_overrides,
+    reach_contracts,
+    reach_dials,
     reach_errors,
 )
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
@@ -103,8 +109,14 @@ def _injected_services() -> set[str]:
     return set(SECOND_LANE_KEYS.values()) | {"live_standin"}
 
 
-def _deployable_services() -> set[str]:
-    return _preset_services() | _service_template_dirs() | _injected_services()
+def _deployable_services(config: dict | None = None) -> set[str]:
+    """Every shipped service, plus the ones *config*'s applications project."""
+    projected = {
+        str(name)
+        for name, row in ((config or {}).get("services") or {}).items()
+        if isinstance(row, dict) and row.get("app")
+    }
+    return _preset_services() | _service_template_dirs() | _injected_services() | projected
 
 
 def test_every_deployable_service_has_a_contract():
@@ -141,6 +153,108 @@ def test_every_contract_names_a_deployable_service():
     deployable = _deployable_services()
     stale = sorted(set(REACH_CONTRACTS) - deployable)
     assert stale == [], f"contracts for services no template deploys: {stale}"
+
+
+# ---------------------------------------------------------------------------
+# A projected service's contract, derived from the render
+# ---------------------------------------------------------------------------
+
+_KNOB = {
+    "name": "knob-demo",
+    "containers": {
+        "knob-demo": {"runtime": "osprey", "command": ["python", "-m", "knob_demo.server"]},
+        "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
+    },
+    "panel": {"label": "Knob", "container": "knob-demo", "launch_token": True},
+}
+
+
+def _projected_render(tier: str = "allowed") -> dict:
+    """A deploying render holding one application, from the real projections."""
+    manifest = parse_manifest(copy.deepcopy(_KNOB), app="knob-demo")
+    projected = project_deployment(
+        [manifest], {"apps": {"knob-demo": {}}}, claimed_ports=frozenset()
+    )
+    services = {key: entry["config"] for key, entry in projected["services"].items()}
+    login = project_login(
+        [manifest],
+        {"services": services},
+        LoginSelection(
+            audience="person",
+            apps={"knob-demo": AppSelection(shown=True)},
+            tier=tier,  # type: ignore[arg-type]
+            shared_cards=(),
+        ),
+    )
+    return {"deployed_services": sorted(services), "services": services, "web": login["web"]}
+
+
+def test_every_projected_service_has_a_derived_contract():
+    config = _projected_render()
+    deployable = _deployable_services(config)
+    contracts = reach_contracts(config)
+
+    assert {"knob-demo", "knob-cache"} <= deployable
+    assert sorted(deployable - set(contracts)) == []
+    assert sorted(set(contracts) - deployable) == []
+    assert "knob-demo" not in REACH_CONTRACTS
+
+
+def test_a_render_with_no_application_has_the_static_contracts_only():
+    assert reach_contracts({}) == REACH_CONTRACTS
+
+
+def test_a_panels_container_is_reached_through_the_panel():
+    config = _projected_render()
+    contract = reach_contracts(config)["knob-demo"]
+
+    assert contract.note
+    assert contract.derived_by and not contract.projected
+    assert [consumer.switch_key for consumer in contract.consumers] == ["web.panels.knob-demo"]
+    port = config["services"]["knob-demo"]["port"]
+    assert [
+        dial for held, _consumer, dial in reach_dials(config) if held.service == "knob-demo"
+    ] == [("127.0.0.1", port)]
+    assert reach_errors(config) == []
+
+
+def test_a_container_serving_no_panel_says_nothing_dials_it():
+    contract = reach_contracts(_projected_render())["knob-cache"]
+
+    assert contract.no_client_reach is True
+    assert contract.note
+    assert not contract.consumers
+
+
+def test_the_launch_token_grant_follows_the_render():
+    armed = _projected_render("allowed")
+    (grant,) = reach_contracts(armed)["knob-demo"].credentials
+
+    assert grant.env == launch_token_env("knob-demo")
+    assert grant.gate(armed)
+
+    unarmed = _projected_render("never")
+    assert grant.gate(unarmed) is False
+    assert reach_contracts(unarmed)["knob-demo"].credentials == ()
+
+
+def test_a_deploying_render_not_running_the_panels_service_refuses():
+    config = _projected_render()
+    config["deployed_services"] = ["knob-cache"]
+
+    (error,) = reach_errors(config)
+
+    assert "web.panels.knob-demo" in error
+    assert "`knob-demo`" in error
+
+
+def test_an_attached_render_keys_the_panel_on_its_application():
+    """Told the panel and not the service block, it dials the host's published port."""
+    config = _projected_render()
+    attached = {"web": config["web"]}
+
+    assert list(set(reach_contracts(attached)) - set(REACH_CONTRACTS)) == ["knob-demo"]
+    assert reach_errors(attached) == []
 
 
 def test_every_contract_says_how_it_is_reached():
