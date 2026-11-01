@@ -917,6 +917,95 @@ keys:
   web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
   web.panels.bluesky.label: {covered-by: web.panels.events.label, default: BLUESKY}
 
+  # ── Projected from a deployment's applications (notes.application_families) ──
+  services.<app-container>:
+    evidence: 'def _project_container\('
+    note: >-
+      A container of an application: the build projects the whole block from its
+      `app.yml` and the profile's `apps.<name>.services.<key>` axes, one family for
+      every application (`notes.application_families`).
+    default: no-fallback
+    default_note: only a deployment naming an application has one
+  services.<app-container>.app: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.audit_identity: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.bind_env: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.command: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.config_file: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.control_identity: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.drives_target: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.env: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.health: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.image: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.launch_token_env: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.network: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.path: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.port: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.roster_grant: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.roster_grant.panel_id: {covered-by: services.<app-container>.roster_grant, default: n/a}
+  services.<app-container>.roster_grant.single_user_alias: {covered-by: services.<app-container>.roster_grant, default: n/a}
+  services.<app-container>.state: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.url: {covered-by: services.<app-container>, default: n/a}
+  web.panels.<app-panel>:
+    evidence: 'f"web\.panels\.\{pid\}": block'
+    note: >-
+      An application's panel: one family for every application
+      (`notes.application_families`).
+    default: no-fallback
+    default_note: only a login showing an application with a panel has one
+  web.panels.<app-panel>.agent_routes: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.health_endpoint: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.read_timeout_s: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.url: {covered-by: web.panels.<app-panel>, default: n/a}
+  dispatch:
+    evidence: '_deployed_config\(\)\.get\("dispatch"\)'
+    default: no-fallback
+    default_note: without the block `dispatch.denied_app_tools` is absent, and its row says what a job then runs with
+  dispatch.denied_app_tools:
+    evidence: '(?s)\A(?=.*^SHELL_TOOLS: tuple\[str, \.\.\.\])(?=.*^def facility_write_tools)(?=.*^def dispatch_denied_tools)'
+    multiline: true
+    note: >-
+      The full names of the application tools no dispatch job may call, written by
+      the build whenever a deployment has applications. It sits beside the shell
+      set and the facility write-tool producer, which decide everything a job's
+      denylist holds that no application declares; `tool_names.dispatch_denied_tools`
+      reads it.
+    default: no-fallback
+    default_note: a job with no readable list runs with every non-framework server it names denied whole
+  apps:
+    evidence: 'f"apps\.\{name\}": block'
+    note: >-
+      What a login's render carries of its applications, projected from their
+      `app.yml`; one family for every application (`notes.application_families`).
+      The profile's own `apps:` block is not rendered: its `config` becomes the
+      file a container reads, its `services` axes land on `services.<key>`.
+    default: {}
+  apps.<app>: {covered-by: apps, default: n/a}
+  apps.<app>.tools: {covered-by: apps.<app>, default: n/a}
+  apps.<app>.tools.read: {covered-by: apps.<app>.tools, default: n/a}
+  apps.<app>.tools.errors: {covered-by: apps.<app>.tools, default: n/a}
+  apps.<app>.tools.errors.unreachable: {covered-by: apps.<app>.tools.errors, default: n/a}
+  apps.<app>.tools.errors.refused: {covered-by: apps.<app>.tools.errors, default: n/a}
+  apps.<app>.approval: {covered-by: apps.<app>, default: n/a}
+  apps.<app>.approval.<tool>: {covered-by: apps.<app>.approval, default: n/a}
+  apps.<app>.approval.<tool>.prompt: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.panel_id: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.state_path: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.display_lines_key: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.bind: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.require: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.errors: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.bind.state_fields: {covered-by: apps.<app>.approval.<tool>.bind, default: n/a}
+  apps.<app>.approval.<tool>.bind.input_digests: {covered-by: apps.<app>.approval.<tool>.bind, default: n/a}
+  apps.<app>.approval.<tool>.require.all_of: {covered-by: apps.<app>.approval.<tool>.require, default: n/a}
+  apps.<app>.approval.<tool>.require.one_of: {covered-by: apps.<app>.approval.<tool>.require, default: n/a}
+  apps.<app>.approval.<tool>.errors.unreachable: {covered-by: apps.<app>.approval.<tool>.errors, default: n/a}
+  apps.<app>.approval.<tool>.errors.refused: {covered-by: apps.<app>.approval.<tool>.errors, default: n/a}
+
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
     all-templates: true
@@ -1943,13 +2032,25 @@ keys:
     default: {}
   claude_code.servers.<server>.writes:
     evidence: 'spec\["writes"\] = list\(server\.writes\)'
-    rendered: false
     note: >-
-      Persisted by the build from the profile's `mcp_servers.<server>.writes`,
-      never authored in `config:`. Written whenever the profile declares a
-      list, an empty one included.
+      Persisted by the build from the profile's `mcp_servers.<server>.writes`
+      or an application's approval tools, never authored in `config:`. Written
+      whenever a list is declared, an empty one included.
     default: no-fallback
     default_note: an absent list means the server declares no write tools, which is not an empty declaration; the registry keeps its whole-server rule
+  claude_code.servers.<server>:
+    covered-by: claude_code.servers
+    note: >-
+      An application's tool server, projected from its `tools:`; one family for
+      every application (`notes.application_families`).
+    default: n/a
+  claude_code.servers.<server>.command: {covered-by: claude_code.servers.<server>, default: n/a}
+  claude_code.servers.<server>.args: {covered-by: claude_code.servers.<server>, default: n/a}
+  claude_code.servers.<server>.env: {data-map: true, default: n/a}
+  claude_code.servers.<server>.permissions: {covered-by: claude_code.servers.<server>, default: n/a}
+  claude_code.servers.<server>.permissions.allow: {covered-by: claude_code.servers.<server>.permissions, default: n/a}
+  claude_code.servers.<server>.condition: {covered-by: claude_code.servers.<server>, default: n/a}
+  claude_code.servers.<server>.app: {covered-by: claude_code.servers.<server>, default: n/a}
   mcp_servers.<server>.hooks:
     evidence: 'sdef\.get\("hooks"\)'
     rendered: false
@@ -3984,7 +4085,18 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 362
+  # The render that makes what the build projects from applications visible: a
+  # fixture deployment, spelled in the union by family (notes.application_families).
+  # `families` maps a parent path to the word for its children, read in order.
+  application_deployment:
+    root: tests/config/application_deployment
+    families:
+      services: <app-container>
+      web.panels: <app-panel>
+      claude_code.servers: <server>
+      apps: <app>
+      apps.<app>.approval: <tool>
+  expected_union_size: 426
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -4206,6 +4318,17 @@ notes:
       Deliberately holds every retired key so the loader's tolerance stays
       tested. If the guard is ever pointed at tests/, this file MUST be
       allowlisted or every `deleted` entry will fire on it.
+  application_families:
+    rule: >-
+      What the build projects from a deployment's applications is described once
+      per family, never once per application: `services.<app-container>.*`,
+      `web.panels.<app-panel>.*`, `claude_code.servers.<server>.*` and
+      `apps.<app>.*`, plus the plain `dispatch.denied_app_tools`. The guard renders
+      the fixture deployment `render_contexts.application_deployment` names through
+      the build's own steps and enters every path it adds in family spelling, so a
+      leaf the projection gains is `unmapped-key` and one it loses is `phantom-key`.
+      `apps.<name>.config` and `apps.<name>.services.<key>.*` are profile-block
+      keys, not rendered ones, and carry no row.
   service_instance_families:
     rule: >-
       A service key rendered off another bundled service's template is

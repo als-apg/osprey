@@ -1129,6 +1129,84 @@ def test_a_missing_union_size_goes_red():
     assert str(len(guard.union())) in details(guard)
 
 
+# ── the keys a deployment's applications project ─────────────────────────
+
+APPLICATION_ROOT = "tests/config/application_deployment"
+
+
+def test_a_projected_key_with_no_row_goes_red():
+    def drop_the_row(manifest):
+        del manifest["keys"]["apps.<app>.tools.read"]
+
+    guard = make_guard(drop_the_row)
+    guard.check_unmapped_keys()
+
+    assert modes(guard) == ["unmapped-key"]
+    assert "apps.<app>.tools.read" in details(guard)
+    assert guard_module.APPLICATION_SOURCE in details(guard)
+
+
+def test_a_family_row_nothing_projects_goes_red():
+    def invent_a_leaf(manifest):
+        manifest["keys"]["services.<app-container>.invented"] = {
+            "covered-by": "services.<app-container>",
+            "default": "n/a",
+        }
+
+    guard = make_guard(invent_a_leaf)
+    guard.check_phantom_keys()
+    assert modes(guard) == ["phantom-key"]
+    assert "services.<app-container>.invented" in details(guard)
+
+
+def test_a_projected_row_still_flagged_unrendered_goes_red():
+    def flag_it(manifest):
+        manifest["keys"]["claude_code.servers.<server>.writes"]["rendered"] = False
+
+    guard = make_guard(flag_it)
+    guard.check_phantom_keys()
+    assert modes(guard) == ["phantom-key"]
+    assert "marked rendered: false" in details(guard)
+
+
+def test_a_doctored_app_yml_is_a_different_render(tmp_path):
+    """The render's input is the deployment's files, not only the render it starts from."""
+    make_guard().union()  # the fixture's own render is now held for the process
+
+    copied = tmp_path / "deployment"
+    shutil.copytree(REPO_ROOT / APPLICATION_ROOT, copied)
+    app_yml = copied / "apps" / "gauge" / "app.yml"
+    app = yaml.safe_load(app_yml.read_text())
+    del app["tools"]["approval"]
+    app_yml.write_text(yaml.safe_dump(app))
+
+    def point_at_the_copy(manifest):
+        manifest["render_contexts"]["application_deployment"]["root"] = str(copied)
+
+    guard = make_guard(point_at_the_copy)
+    guard.check_phantom_keys()
+    assert "phantom-key" in modes(guard)
+    assert "apps.<app>.approval.<tool>.prompt" in details(guard)
+
+
+def test_the_family_spelling_replaces_instance_names_only():
+    families = MANIFEST["render_contexts"]["application_deployment"]["families"]
+    spell = guard_module.family_spelling
+
+    assert spell("apps.gauge.approval.gauge_set.bind.state_fields", families) == (
+        "apps.<app>.approval.<tool>.bind.state_fields"
+    )
+    assert spell("services.gauge.roster_grant.panel_id", families) == (
+        "services.<app-container>.roster_grant.panel_id"
+    )
+    assert spell("web.panels.gauge.url", families) == "web.panels.<app-panel>.url"
+    assert spell("claude_code.servers.gauge.writes", families) == (
+        "claude_code.servers.<server>.writes"
+    )
+    assert spell("web.panels", families) == "web.panels"
+    assert spell("dispatch.denied_app_tools", families) == "dispatch.denied_app_tools"
+
+
 def _render_one_provider(guard: Any, block: dict[str, Any]) -> None:
     guard._rendered = {"framework": [{"api": {"providers": {"gw": block}}}]}
 

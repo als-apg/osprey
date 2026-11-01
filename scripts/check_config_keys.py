@@ -13,7 +13,10 @@ third kind of document: its ``config:`` is composed over a host root preset
 exactly as a build composes a shared login's render, so a key only a shared
 login states has its writer in the union. The manifest also records the keys this
 branch deleted, the code sites that went with them, and the assets whose
-continued existence is load-bearing.
+continued existence is load-bearing. A deployment's applications are a fourth:
+the keys the build projects from them are rendered through a fixture deployment
+(``render_contexts.application_deployment``) and described once per family
+(``services.<app-container>.*`` and its peers), never once per application.
 
 This tool re-derives all of that against the working tree on every run.
 
@@ -70,6 +73,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import re
 import subprocess
 import sys
@@ -117,6 +121,10 @@ FRAMEWORK_SOURCE = "framework"
 #: The suffix naming a preset's deploying render — its config after every
 #: service injector ran — as a union source of its own.
 INJECTED_SUFFIX = "+injectors"
+
+#: The source naming the fixture deployment's render, past what its own profile
+#: states, which is what the build projects from its applications.
+APPLICATION_SOURCE = "application-deployment+projection"
 
 #: A root preset carries one ``# osprey:panel-port <name>`` stanza per
 #: panel-port entry, and the rule is a NAME correspondence with the
@@ -230,8 +238,9 @@ _TEXT_CACHE: dict[tuple[str, str], list[tuple[str, str]]] = {}
 #: the preset names the resolved profile, and ``repr`` of the render spells
 #: the ``config.yml`` laid out for them — so a doctored render is a different
 #: key, never a stale hit. Callers get a deep copy, so no guard's edits reach
-#: another's.
-_INJECTED_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+#: another's. The application deployment's render also reads that deployment's
+#: files, so its key adds their digest (:func:`deployment_digest`).
+_INJECTED_CACHE: dict[tuple[str, ...], dict[str, Any]] = {}
 
 
 @dataclass
@@ -301,6 +310,30 @@ def deep_merge(base: dict[str, Any], over: Any) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def deployment_digest(root: Path) -> str:
+    """The digest of every file a deployment holds, each with its relative path."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def family_spelling(path: str, families: dict[str, str]) -> str:
+    """*path* with each instance name replaced by its family's word.
+
+    ``families`` maps a parent path to the word for its children, parents of an
+    earlier entry's word allowed, so ``apps.gauge.approval.gauge_set.prompt``
+    reads ``apps.<app>.approval.<tool>.prompt``.
+    """
+    parts = path.split(".")
+    for parent, word in families.items():
+        head = parent.split(".")
+        if parts[: len(head)] == head and len(parts) > len(head):
+            parts[len(head)] = word
+    return ".".join(parts)
 
 
 class ConfigKeyGuard:
@@ -507,21 +540,27 @@ class ConfigKeyGuard:
         """
         if self._presets is not None:
             return self._presets
-        from osprey.cli.build_profile_archiver import _expand_dotted
-        from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
-        from osprey.port_layout import DEFAULT_PORT_BASE
 
         out: dict[str, tuple[Any, dict[str, Any]]] = {}
         for rel in self.preset_rels:
             name = preset_id(rel)
             profile, _preset_dir = resolve_build_profile(None, name)
-            overlay = dict(profile.config)
-            for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
-                overlay.setdefault(key, port)
-            out[name] = (profile, _expand_dotted(overlay))
+            out[name] = (profile, self._port_filled_config(profile))
         self._presets = out
         return out
+
+    @staticmethod
+    def _port_filled_config(profile: Any) -> dict[str, Any]:
+        """A profile's ``config:`` as a nested mapping, its layout ports filled."""
+        from osprey.cli.build_profile_archiver import _expand_dotted
+        from osprey.cli.build_profile_ports import layout_port_fill
+        from osprey.port_layout import DEFAULT_PORT_BASE
+
+        overlay = dict(profile.config)
+        for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
+            overlay.setdefault(key, port)
+        return _expand_dotted(overlay)
 
     def stated_presets(self) -> dict[str, dict[str, Any]]:
         """preset id -> its ``config:`` as the operator wrote it, as a nested mapping.
@@ -566,10 +605,7 @@ class ConfigKeyGuard:
             return self._apps
         import shutil
 
-        from osprey.cli.build_profile_archiver import _expand_dotted
-        from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
-        from osprey.port_layout import DEFAULT_PORT_BASE
         from osprey.utils.workspace import TIERS_DIRNAME
 
         host = preset_id(self.app_host)
@@ -600,10 +636,7 @@ class ConfigKeyGuard:
                 target = repo / TIERS_DIRNAME / Path(rel).name
                 shutil.copyfile(self.root / rel, target)
                 profile, _root = resolve_build_profile(target, None)
-                overlay = dict(profile.config)
-                for key, port in layout_port_fill(overlay, DEFAULT_PORT_BASE).items():
-                    overlay.setdefault(key, port)
-                out[name] = (profile, _expand_dotted(overlay))
+                out[name] = (profile, self._port_filled_config(profile))
         self._apps = out
         return out
 
@@ -675,6 +708,71 @@ class ConfigKeyGuard:
         before = set(walk_paths(self.render_one(name)))
         return set(walk_paths(self.injected_render(name))) - before
 
+    def application_render(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The fixture deployment's config before and after its applications project.
+
+        The build's own steps in the build's own order: the services half through
+        :func:`~osprey.cli.build_cmd._inject_services`, then the root login's half
+        through ``project_app_login``, its servers persisted and its panels told
+        they show. Kept for the process under the render handed in and the
+        deployment's files, since the injectors read ``app.yml`` as well as the
+        render (see :data:`_INJECTED_CACHE`).
+        """
+        from dataclasses import replace
+
+        from osprey.apps.loader import ROOT_LOGIN, check_deployment
+        from osprey.cli.build_cmd import (
+            _inject_services,
+            _persist_mcp_servers,
+            project_app_login,
+        )
+        from osprey.cli.build_profile_panels import apply_panel_selection, panel_selection_overrides
+        from osprey.cli.build_profile_resolve import resolve_build_profile
+
+        root = self.root / self.manifest["render_contexts"]["application_deployment"]["root"]
+        profile, _root = resolve_build_profile(root / ROOT_LOGIN, None)
+        own = deep_merge(self._framework_render(profile), self._port_filled_config(profile))
+        cache_key = (APPLICATION_SOURCE, repr(own), deployment_digest(root))
+        if cache_key not in _INJECTED_CACHE:
+            applications = check_deployment(root)
+
+            def read(config: Path) -> dict[str, Any]:
+                return yaml.safe_load(config.read_text()) or {}
+
+            with tempfile.TemporaryDirectory() as scratch:
+                project = Path(scratch)
+                config = project / "config.yml"
+                config.write_text(yaml.safe_dump(own))
+                _inject_services(
+                    replace(profile, deploy_services=True),
+                    root,
+                    project,
+                    app_manifests=applications.manifests,
+                )
+                panels, servers = project_app_login(
+                    project, applications.manifests, read(config), applications.logins[ROOT_LOGIN]
+                )
+                _persist_mcp_servers(project, servers)
+                apply_panel_selection(
+                    config,
+                    panel_selection_overrides([*(profile.web_panels or ()), *panels], read(config)),
+                )
+                _INJECTED_CACHE[cache_key] = read(config)
+        return own, copy.deepcopy(_INJECTED_CACHE[cache_key])
+
+    def application_paths(self) -> set[str]:
+        """The paths the fixture deployment's applications add, in family spelling.
+
+        Spelled by family in the union itself, so one row describes a key of every
+        application, and that row is rendered or not like any other.
+        """
+        families = self.manifest["render_contexts"]["application_deployment"]["families"]
+        own, render = self.application_render()
+        return {
+            family_spelling(path, families)
+            for path in set(walk_paths(render)) - set(walk_paths(own))
+        }
+
     def union(self) -> dict[str, set[str]]:
         """Every rendered dotted path -> the sources that carry it."""
         if self._union is not None:
@@ -687,6 +785,8 @@ class ConfigKeyGuard:
         for name in self.resolved_presets():
             for path in self.injected_paths(name):
                 merged.setdefault(path, set()).add(f"{name}{INJECTED_SUFFIX}")
+        for path in self.application_paths():
+            merged.setdefault(path, set()).add(APPLICATION_SOURCE)
         self._union = merged
         return merged
 
@@ -708,6 +808,11 @@ class ConfigKeyGuard:
         ctx["selected_web_panels"] = list(profile.web_panels or [])
         ctx["ariel_server_on"] = _ariel_server_enabled(profile)
         return ctx
+
+    def _framework_render(self, profile: Any) -> dict[str, Any]:
+        """The framework template rendered from *profile*'s fields."""
+        template = self._jinja_env().get_template(self.framework_template)
+        return yaml.safe_load(template.render(**self._preset_context(profile))) or {}
 
     def render_one(self, name: str) -> dict[str, Any]:
         """One source's config, in the shape a build of it writes.
@@ -734,14 +839,7 @@ class ConfigKeyGuard:
         if name not in resolved:
             raise KeyError(f"no preset or app named {name!r} in the manifest")
         profile, config = resolved[name]
-        env = self._jinja_env()
-        rendered = (
-            yaml.safe_load(
-                env.get_template(self.framework_template).render(**self._preset_context(profile))
-            )
-            or {}
-        )
-        return deep_merge(rendered, config)
+        return deep_merge(self._framework_render(profile), config)
 
     # ── failure mode 1: unmapped rendered key ───────────────────────────
 
