@@ -18,12 +18,13 @@ there you chat with the agent, watch files and plots appear the moment they are
 created, and switch between companion tools without ever leaving the page.
 
 .. figure:: /_static/screenshots/web_terminal_hero_light.png
-   :alt: The OSPREY Web Terminal — a live agent session on the left, the workspace with a beam-current plot on the right
+   :alt: The OSPREY Web Terminal — the sidebar on the left, a beam-current plot in the middle, the agent chat on the right
    :align: center
    :width: 100%
 
-   A live agent session on the left; the workspace and its artifacts on the
-   right. Captured with OSPREY |captured_web_terminal_hero|.
+   The sidebar and its artifacts on the left, the plot the agent made in the
+   middle, and the chat with the agent on the right. Captured with OSPREY
+   |captured_web_terminal_hero|.
 
 .. grid:: 1 1 3 3
    :gutter: 3

@@ -1,18 +1,18 @@
 {
   "ariel": {
-    "captured_utc": "2026-08-19T17:49:55.618858+00:00",
+    "captured_utc": "2026-11-01T21:21:39.605490+00:00",
     "kind": "static",
-    "osprey_version": "2026.6.2.post1352+geab911034.d20260819"
+    "osprey_version": "2026.9.0b3.post4857+gf69670843.d20261101"
   },
   "control_target_popover": {
-    "captured_utc": "2026-08-31T16:14:17.525321+00:00",
+    "captured_utc": "2026-11-01T21:26:48.254324+00:00",
     "kind": "static",
-    "osprey_version": "2026.6.2.post2090+g23b198224.d20260831"
+    "osprey_version": "2026.9.0b3.post4857+gf69670843.d20261101"
   },
   "display_menu": {
-    "captured_utc": "2026-11-01T19:44:43.222514+00:00",
+    "captured_utc": "2026-11-01T20:26:28.711350+00:00",
     "kind": "static",
-    "osprey_version": "2026.9.0b3.post4832+g4ed338063.d20261101"
+    "osprey_version": "2026.9.0b3.post4857+gf69670843.d20261101"
   },
   "install_flow": {
     "captured_utc": "2026-09-06T19:18:11.962704+00:00",
@@ -30,8 +30,8 @@
     "osprey_version": "2026.6.2.post1376+gded1de181.d20260819"
   },
   "web_terminal_hero": {
-    "captured_utc": "2026-07-13T02:09:20.559452+00:00",
+    "captured_utc": "2026-11-01T21:25:26.138997+00:00",
     "kind": "agentic",
-    "osprey_version": "2026.6.3"
+    "osprey_version": "2026.9.0b3.post4857+gf69670843.d20261101"
   }
 }

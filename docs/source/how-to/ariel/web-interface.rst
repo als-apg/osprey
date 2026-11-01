@@ -24,7 +24,7 @@ The interface has four views, accessible via the navigation bar. All views are r
          :align: center
          :width: 90%
 
-         Search view with Keyword mode selected.
+         Search view with Hybrid mode selected.
 
    .. tab-item:: Browse
 
