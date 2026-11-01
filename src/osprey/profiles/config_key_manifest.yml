@@ -241,6 +241,19 @@ keys:
       builds on the host — so a deployment that sets neither key renders
       byte-for-byte what it rendered before the axes existed.
     default: local
+  images.platform:
+    rendered: false
+    evidence: 'images\.get\("platform"\)'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. The platform every image OSPREY builds is built for
+      (`image_facts.IMAGE_PLATFORMS`: linux/amd64 or linux/arm64): the wheel fit
+      check judges against it, `site_image_build_args` passes it as
+      `--platform`, the labels override stamps it on every service compose
+      builds, and the project Dockerfile's FROM names it. Set in profile.yml
+      only: no environment override, because `osprey build` and `osprey up`
+      both read it, and a login naming it is refused. Unset builds natively.
+    default: ''
   images.site_ca:
     rendered: false
     evidence: '"OSPREY_SITE_CA": "site_ca"'
