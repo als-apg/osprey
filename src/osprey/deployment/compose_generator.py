@@ -2399,7 +2399,24 @@ def _drives_target_ca_env(config, key, block):
         return None
     name_servers = _ca_name_servers(config)
     if name_servers is None:
-        role = ROLE_WRITE_ACCESS if tier_allows(config.get("control_system")) else ROLE_READ_ONLY
+        section = config.get("control_system")
+        role = ROLE_WRITE_ACCESS if tier_allows(section) else ROLE_READ_ONLY
+        app = block.get("app")
+        if app:
+            # A projected container: ``services.<key>`` is the projection's, so the
+            # remedy names the keys profile.yml spells.
+            kind = (section or {}).get("type") or "<type>"
+            remedy = (
+                f"Name the gateway in control_system.connector.{kind}.gateways.{role}.address, "
+                f"set apps.{app}.services.{key}.network: host in profile.yml, or delete "
+                f"apps.{app} from profile.yml to run without the application."
+            )
+        else:
+            remedy = (
+                f"Name the gateway in control_system.connector.<type>.gateways.{role}"
+                ".address, deploy the machine it targets with its port, or set network: host "
+                f"on {key}."
+            )
         raise DeploymentPreconditionError(
             reason=(
                 f"services.{key} drives the target from the compose bridge network, and the "
@@ -2407,11 +2424,7 @@ def _drives_target_ca_env(config, key, block):
                 "simulator or stand-in it names is not deployed, the stand-in has no port, or "
                 "its gateway has no address."
             ),
-            remedy=(
-                f"Name the gateway in control_system.connector.<type>.gateways.{role}"
-                ".address, deploy the machine it targets with its port, or set network: host "
-                f"on {key}."
-            ),
+            remedy=remedy,
         )
     return {"EPICS_CA_NAME_SERVERS": name_servers, "EPICS_CA_AUTO_ADDR_LIST": "NO"}
 
@@ -5824,7 +5837,9 @@ def service_render_context(
     return {
         **config,
         "service_key": key,
-        "service": as_dict(as_dict(config.get("services")).get(key)),
+        # Injected, because the render's per-service facts (`state_mounts`) are part of
+        # what the service's template reads.
+        "service": as_dict(as_dict(_inject_project_metadata(config).get("services")).get(key)),
         "panel_grant": panel_grant,
         "dev_mode": dev_mode,
         "site_image_build_args": site_image_build_args or {},
