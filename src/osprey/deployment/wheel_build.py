@@ -556,6 +556,35 @@ FRAMEWORK_DISTRIBUTION = "osprey-framework"
 #: has to install on.
 IMAGE_PYTHON = (3, 12)
 
+#: What a wheel build is handed of this process's environment. An allowlist: a
+#: deploy credential is whatever a deployment calls it. Installer settings stay
+#: (a site's index and proxy reach the build backend's own requirements).
+_WHEEL_BUILD_ENV_NAMES = frozenset(
+    {
+        "HOME",
+        "LANG",
+        "LOGNAME",
+        "PATH",
+        "SOURCE_DATE_EPOCH",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USER",
+        "VIRTUAL_ENV",
+        "all_proxy",
+        "ALL_PROXY",
+        "http_proxy",
+        "HTTP_PROXY",
+        "https_proxy",
+        "HTTPS_PROXY",
+        "no_proxy",
+        "NO_PROXY",
+    }
+)
+_WHEEL_BUILD_ENV_PREFIXES = ("LC_", "PIP_", "UV_", "XDG_")
+
 # A wheel build that fails exits nonzero; this cap bounds only one that hangs.
 _WHEEL_BUILD_TIMEOUT_S = 600
 
@@ -566,8 +595,10 @@ class DeploymentPackage:
 
     Attributes:
         name: The distribution's canonical name.
-        version: Its version, as the built wheel spells it.
-        wheel: The built wheel.
+        version: Its version, as the built wheel spells it; read from the package's
+            ``pyproject.toml`` when no wheel was built, and empty if that leaves it
+            to the build backend (``dynamic``).
+        wheel: The built wheel; ``None`` under ``--skip-deps``, which builds none.
         replaces: The profile ``dependencies`` entries this wheel stands for, every
             spelling of its path; empty for an application package no entry names.
         source: Where the package lives, as a refusal names it.
@@ -575,7 +606,7 @@ class DeploymentPackage:
 
     name: str
     version: str
-    wheel: Path
+    wheel: Path | None
     replaces: tuple[str, ...] = ()
     source: str = ""
 
@@ -587,16 +618,28 @@ class DeploymentPackage:
     @property
     def requirement(self) -> str:
         """The spelling the recorded list and the Dockerfile carry: name and version."""
-        return f"{self.name}=={self.version}"
+        return f"{self.name}=={self.version}" if self.version else self.name
+
+    @property
+    def wheel_name(self) -> str:
+        """The file the name is bound to: the wheel, or with none built what it would be.
+
+        The binding outlives the build, so a resolve fails at the missing file and
+        never reaches an index for the name.
+        """
+        if self.wheel is not None:
+            return self.wheel.name
+        return f"{self.name.replace('-', '_')}-{self.version or '0'}-py3-none-any.whl"
 
     @property
     def install_requirement(self) -> str:
         """The spelling the build venv installs: the name, bound to the wheel."""
+        assert self.wheel is not None  # only `--skip-deps` leaves one unbuilt: it makes no venv
         return f"{self.name} @ {self.wheel.resolve().as_uri()}"
 
 
 def build_deployment_packages(
-    root: Path, dependencies: Sequence[str], dest: Path
+    root: Path, dependencies: Sequence[str], dest: Path, *, build: bool = True
 ) -> tuple[DeploymentPackage, ...]:
     """Build every deployment package of *root* into *dest*, with its manifest.
 
@@ -605,13 +648,17 @@ def build_deployment_packages(
         dependencies: The profile's ``dependencies`` entries.
         dest: The deployment-packages directory; replaced whole, and not created
             when the deployment has no package.
+        build: Run each package's build backend. False (``--skip-deps``) runs nothing:
+            each package's name and version are read from its ``pyproject.toml``,
+            it has no wheel, and *dest* is not created.
 
     Returns:
         The packages, in :func:`osprey.apps.rules.deployment_packages` order.
 
     Raises:
-        BuildProfileError: A local-path entry holds no package to build, or a
-            package's wheel build failed.
+        BuildProfileError: A local-path entry holds no package to build, a package's
+            wheel build failed, its wheel does not fit the project image or holds a
+            ``.env``, or with no build its ``pyproject.toml`` names no package.
     """
     from osprey.apps.rules import deployment_packages, local_path
     from osprey_connectors.errors import BuildProfileError
@@ -644,6 +691,11 @@ def build_deployment_packages(
         shutil.rmtree(dest)
     if not sources:
         return ()
+    if not build:
+        return tuple(
+            _declared_package(pyproject, tuple(replaced.get(pyproject, ())))
+            for pyproject in sources
+        )
     dest.mkdir(parents=True)
 
     from packaging.utils import parse_wheel_filename
@@ -668,12 +720,54 @@ def build_deployment_packages(
     return tuple(packages)
 
 
+def _declared_package(pyproject: Path, replaces: tuple[str, ...]) -> DeploymentPackage:
+    """The package a ``pyproject.toml`` declares, read without running anything."""
+    import tomllib
+
+    from packaging.utils import canonicalize_name
+
+    from osprey_connectors.errors import BuildProfileError
+
+    source = _shown(pyproject.parent)
+    try:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
+    except tomllib.TOMLDecodeError as e:
+        raise BuildProfileError(
+            f"the deployment package {source}: its pyproject.toml does not parse: {e}"
+        ) from e
+    name = project.get("name")
+    if not name:
+        raise BuildProfileError(
+            f"the deployment package {source}: its pyproject.toml has no [project] name, "
+            "which a build with --skip-deps reads instead of running the package's build "
+            "backend."
+        )
+    return DeploymentPackage(
+        name=str(canonicalize_name(name)),
+        version=str(project.get("version", "")),
+        wheel=None,
+        replaces=replaces,
+        source=source,
+    )
+
+
+def _wheel_build_env() -> dict[str, str]:
+    """This process's environment, cut down to what fetching and building a wheel need."""
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name in _WHEEL_BUILD_ENV_NAMES or name.startswith(_WHEEL_BUILD_ENV_PREFIXES)
+    }
+
+
 def _build_wheel(source: Path, out_dir: Path) -> Path:
     """Build *source*'s wheel into *out_dir*; return it.
 
     uv when it is on hand (as the build venv's installer is), else pip. The build
     sets ``SOURCE_DATE_EPOCH`` unless the operator has, so an unchanged source gives
-    a byte-identical wheel and leaves the image's COPY and deps layers cached.
+    a byte-identical wheel and leaves the image's COPY and deps layers cached. A build
+    backend is the package's own code, so its environment is an allowlist
+    (:func:`_wheel_build_env`).
     """
     import sys
     import tempfile
@@ -681,7 +775,7 @@ def _build_wheel(source: Path, out_dir: Path) -> Path:
     from osprey_connectors.errors import BuildProfileError
 
     uv = os.environ.get("UV") or shutil.which("uv")
-    env = dict(os.environ)
+    env = _wheel_build_env()
     env.setdefault("SOURCE_DATE_EPOCH", "315532800")  # 1980-01-01, the earliest zip time
     with tempfile.TemporaryDirectory() as scratch:
         if uv:
@@ -785,7 +879,7 @@ def _write_deployment_packages_manifest(packages: Sequence[DeploymentPackage], d
 
     manifest = {
         "packages": [
-            {"name": p.name, "version": p.version, "wheel": p.wheel.name} for p in packages
+            {"name": p.name, "version": p.version, "wheel": p.wheel_name} for p in packages
         ]
     }
     (dest / DEPLOYMENT_PACKAGES_MANIFEST).write_text(
@@ -825,11 +919,11 @@ def refuse_named_twice(packages: Sequence[DeploymentPackage], requirements: Iter
         if raw in substituted:
             continue
         try:
-            package = by_name.get(canonicalize_name(Requirement(raw).name))
+            named = by_name.get(canonicalize_name(Requirement(raw).name))
         except InvalidRequirement:
             continue
-        if package is not None:
-            pairs.append(f"{package.declared_as!r} and {raw!r}")
+        if named is not None:
+            pairs.append(f"{named.declared_as!r} and {raw!r}")
     if pairs:
         raise BuildProfileError(
             f"the profile names one distribution twice: {'; '.join(pairs)}.\n"

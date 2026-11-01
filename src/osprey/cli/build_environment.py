@@ -472,7 +472,7 @@ def _write_project_pyproject(
             "[tool.uv.sources]",
             *(
                 f"{p.name} = {{ path = "
-                f"{json.dumps(f'{DEPLOYMENT_PACKAGES_DIRNAME}/{p.wheel.name}')} }}"
+                f"{json.dumps(f'{DEPLOYMENT_PACKAGES_DIRNAME}/{p.wheel_name}')} }}"
                 for p in deployment_packages
             ),
             "",
