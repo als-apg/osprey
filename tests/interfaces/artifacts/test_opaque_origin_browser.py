@@ -416,7 +416,7 @@ def _assert_control_flips(page: Page, base_url: str) -> None:
 def _probe(frame: Frame | Page) -> dict:
     """Wait for the attack script to report, and return what it saw."""
     frame.wait_for_function(
-        "() => document.documentElement.hasAttribute('data-probe')", timeout=TIMEOUT
+        "() => document.documentElement?.hasAttribute('data-probe') === true", timeout=TIMEOUT
     )
     return json.loads(frame.evaluate("() => document.documentElement.getAttribute('data-probe')"))
 
@@ -501,7 +501,7 @@ def _print_popup(page: Page) -> Page:
 
 def _wait_printed(target: Page | Frame) -> None:
     target.wait_for_function(
-        "() => document.documentElement.getAttribute('data-printed') === '1'", timeout=TIMEOUT
+        "() => document.documentElement?.getAttribute('data-printed') === '1'", timeout=TIMEOUT
     )
 
 
@@ -625,7 +625,7 @@ def test_markdown_math_renders_opaque_in_new_tab_and_prints(hub, chromium_browse
         timeout=TIMEOUT,
     )
     tab.wait_for_function(
-        "() => document.documentElement.getAttribute('data-theme') === 'light'", timeout=TIMEOUT
+        "() => document.documentElement?.getAttribute('data-theme') === 'light'", timeout=TIMEOUT
     )
     tab.wait_for_timeout(500)
     assert tab.evaluate("() => document.documentElement.getAttribute('data-md-pwned')") is None
