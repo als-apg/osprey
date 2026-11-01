@@ -57,7 +57,7 @@ from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_secret
 from osprey.port_layout import default_port
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from docs.screenshots.recipes import DocShot
     from playwright.sync_api import Browser
@@ -485,7 +485,7 @@ def _opus_model_id(project_dir: Path) -> str:
 
 
 @contextmanager
-def tutorial_stack() -> Iterator[Path]:
+def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
@@ -495,7 +495,8 @@ def tutorial_stack() -> Iterator[Path]:
     deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
-    frozen to :data:`recipes.ANCHOR`. Yields the deployment repo directory
+    frozen to :data:`recipes.ANCHOR`. *sets* adds ``--set KEY=VALUE`` values to
+    the init, after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
     down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
     built images carrying this repo's identity, so the next run's fresh
@@ -528,6 +529,9 @@ def tutorial_stack() -> Iterator[Path]:
         provider = os.environ.get(PROVIDER_ENV)
         if provider:
             init_cmd += ["--set", f"provider={provider}"]
+        # A docs video's own deployment settings (videos.DocVideo.init_sets).
+        for pair in sets:
+            init_cmd += ["--set", pair]
         _run_stack_step(
             init_cmd,
             cwd=None,
@@ -578,7 +582,9 @@ def tutorial_stack() -> Iterator[Path]:
             # here would replace whatever brought us into it. But it is not
             # swallowed either — a leaked container stack outlives the run and
             # the next one inherits it.
-            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}")
+            output = getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or b""
+            tail = output.decode("utf-8", "replace")[-500:]
+            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}\n{tail}")
         shutil.rmtree(build_root, ignore_errors=True)
 
 
@@ -743,10 +749,15 @@ def _isolated_claude_config(project_dir: Path) -> Path:
     settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}
     settings.setdefault("permissions", {})["defaultMode"] = "auto"
     settings["skipAutoPermissionPrompt"] = True
+    settings.setdefault("env", {})["DISABLE_AUTOUPDATER"] = "1"
     settings_path.write_text(json.dumps(settings, indent=2))
     state_path = config_dir / ".claude.json"
     state = json.loads(state_path.read_text()) if state_path.is_file() else {}
     state["autoModeClassifierBillingNoticeAcknowledgedAt"] = _now_ms()
+    # One Claude Code version everywhere: a session under this config must
+    # never update the host's install (it would also put an update notice on
+    # camera).
+    state["autoUpdates"] = False
     state_path.write_text(json.dumps(state, indent=2))
     return config_dir
 
@@ -840,6 +851,11 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
         WEB_TOUR_ENV: "never",
         "CLAUDE_CONFIG_DIR": str(config_dir),
         "OSPREY_OFFLINE": "1",
+        # The session must never update the host's Claude Code.
+        "DISABLE_AUTOUPDATER": "1",
+        # The server keeps its panels in a set, so its sidebar order follows
+        # the per-process string hash; a fixed seed makes every take alike.
+        "PYTHONHASHSEED": "0",
     }
     try:
         proc = subprocess.Popen(

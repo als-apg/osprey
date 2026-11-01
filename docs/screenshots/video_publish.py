@@ -1,17 +1,19 @@
-"""Publish the demo videos to their GitHub release, and fetch them for the docs build.
+"""Publish the docs videos to their GitHub release, and fetch them for the docs build.
 
 Each OSPREY version has its own release, ``docs-media-vYYYY.M.P``, so every
-docs version plays the video recorded for it. :func:`upload` creates that
-release with both MP4s in one command (a release never exists without its
-assets), or, for a retake of the same version, replaces that release's MP4s;
-it never touches another version's release. It then names the release in the
-manifest, which is committed with the posters.
+docs version plays the videos recorded for it. :func:`upload` publishes the
+videos whose current takes are not uploaded yet (or the ones named): it
+creates that version's release with their MP4s in one command (a release never
+exists without its assets), or adds them to it, replacing a retake's MP4s; it
+never touches another version's release. It then names the release in each
+uploaded video's manifest entry, which is committed with the posters.
 
-:func:`fetch` runs in the docs build. It downloads exactly the release the
-committed manifest names and checks each MP4 against its SHA-256. A release or
-asset that does not exist costs the page its video, never the build: the page
-shows the poster. A hash mismatch or any other ``gh`` failure fails a strict
-run (a deploy) and is a notice otherwise (a pull-request preview).
+:func:`fetch` runs in the docs build. It downloads every video's MP4s from the
+release its manifest entry names and checks each against its SHA-256. A
+release or asset that does not exist costs the page its video, never the
+build: the page shows the poster. A hash mismatch or any other ``gh`` failure
+fails a strict run (a deploy) and is a notice otherwise (a pull-request
+preview).
 
 Every ``gh`` call goes through ``run`` (``subprocess.run`` by default).
 """
@@ -20,7 +22,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -37,12 +39,30 @@ def _gh(run: Run, *args: str) -> subprocess.CompletedProcess:
     return run(["gh", *args], capture_output=True, text=True, check=False)
 
 
-def _videos(manifest: dict[str, Any]) -> list[dict[str, str]]:
-    return [manifest["themes"][t]["mp4"] for t in THEMES if t in manifest["themes"]]
+def _videos(entry: dict[str, Any]) -> list[dict[str, str]]:
+    return [entry["themes"][t]["mp4"] for t in THEMES if t in entry["themes"]]
 
 
-def upload(version: str, out_dir: Path, static_dir: Path, run: Run = subprocess.run) -> int:
-    """Upload both MP4s in *out_dir* to the release for *version*; name it in the manifest."""
+def pending(manifest: dict[str, Any]) -> list[str]:
+    """The videos with takes whose release is not named yet, in manifest order."""
+    return [
+        name
+        for name, entry in manifest["videos"].items()
+        if entry["themes"] and not entry.get("release")
+    ]
+
+
+def upload(
+    version: str,
+    out_dir: Path,
+    static_dir: Path,
+    names: Sequence[str] | None = None,
+    run: Run = subprocess.run,
+) -> int:
+    """Upload the MP4s in *out_dir* to the release for *version*; name it in the manifest.
+
+    *names* defaults to every video not uploaded yet.
+    """
     try:
         release = video_manifest.release_name(version)
     except ValueError as exc:
@@ -52,7 +72,16 @@ def upload(version: str, out_dir: Path, static_dir: Path, run: Run = subprocess.
         )
         return 2
     manifest_path = Path(static_dir) / video_manifest.MANIFEST_PATH.name
-    videos = [str(Path(out_dir) / v["name"]) for v in _videos(video_manifest.load(manifest_path))]
+    manifest = video_manifest.load(manifest_path)
+    names = list(pending(manifest) if names is None else names)
+    if not names:
+        print("nothing to upload: every video's takes are already uploaded")
+        return 0
+    videos = [
+        str(Path(out_dir) / v["name"])
+        for name in names
+        for v in _videos(video_manifest.video(manifest, name))
+    ]
 
     view = _gh(run, "release", "view", release)
     if view.returncode == 0:
@@ -68,15 +97,16 @@ def upload(version: str, out_dir: Path, static_dir: Path, run: Run = subprocess.
             "--title",
             f"Docs media v{version}",
             "--notes",
-            f"The landing-page demo videos for the OSPREY {version} documentation.",
+            f"The documentation videos for the OSPREY {version} documentation.",
         )
     else:
         done = view
     if done.returncode != 0:
         print(f"error: gh failed for {release}: {(done.stderr or '').strip()}", file=sys.stderr)
         return 1
-    video_manifest.set_release(manifest_path, release)
-    print(f"uploaded to {release}; commit {manifest_path} with the posters")
+    for name in names:
+        video_manifest.set_release(manifest_path, name, release)
+    print(f"uploaded {', '.join(names)} to {release}; commit {manifest_path} with the posters")
     return 0
 
 
@@ -85,13 +115,11 @@ def _drop_videos(static_dir: Path, videos: list[dict[str, str]]) -> None:
         (Path(static_dir) / video["name"]).unlink(missing_ok=True)
 
 
-def fetch(static_dir: Path, strict: bool, run: Run = subprocess.run) -> int:
-    """Download the manifest's release into *static_dir* and verify each MP4."""
-    manifest = video_manifest.load(Path(static_dir) / video_manifest.MANIFEST_PATH.name)
-    release = manifest.get("release")
-    videos = _videos(manifest)
+def _fetch_one(name: str, entry: dict[str, Any], static_dir: Path, strict: bool, run: Run) -> int:
+    release = entry.get("release")
+    videos = _videos(entry)
     if not release or not videos:
-        print("::notice::no demo-video release named in the manifest; the page shows the poster.")
+        print(f"::notice::no release named for the {name} video; the page shows the poster.")
         return 0
 
     def give_up(message: str, fail: bool) -> int:
@@ -125,5 +153,17 @@ def fetch(static_dir: Path, strict: bool, run: Run = subprocess.run) -> int:
             return give_up(
                 f"{release} {video['name']} does not match its sha256 in the manifest", True
             )
-    print(f"fetched {len(videos)} demo video(s) from {release}")
+    print(f"fetched {len(videos)} {name} video(s) from {release}")
     return 0
+
+
+def fetch(static_dir: Path, strict: bool, run: Run = subprocess.run) -> int:
+    """Download every video's MP4s from its release into *static_dir* and verify them."""
+    manifest = video_manifest.load(Path(static_dir) / video_manifest.MANIFEST_PATH.name)
+    if not manifest["videos"]:
+        print("::notice::no docs videos in the manifest; the pages show their posters.")
+        return 0
+    status = 0
+    for name, entry in manifest["videos"].items():
+        status = max(status, _fetch_one(name, entry, static_dir, strict, run))
+    return status
