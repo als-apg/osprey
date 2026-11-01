@@ -133,6 +133,31 @@ class TestBump:
             assert run(root, "bump", "--today", "2026-09-14") == 0
         assert versions(root) == ["2026.9.3", "2026.9.3"]
 
+    def test_bump_base_on_a_branch_behind_the_base_mints_past_the_tip(self, repo, capsys):
+        on_work(repo, {SKILL: "changed\n"})
+        git(repo, "checkout", "-q", "main")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        commit(repo, "main mints 2026.9.1")
+        git(repo, "checkout", "-q", "work")
+        capsys.readouterr()
+        assert run(repo, "bump", "--base", "main", "--today", "2026-09-15") == 0
+        assert versions(repo) == ["2026.9.2", "2026.9.2"]
+        assert capsys.readouterr().out == "2026.9.0 -> 2026.9.2\n"
+        commit(repo, "bump")
+        assert check(repo, capsys) == (0, "plugin version 2026.9.1 -> 2026.9.2\n", "")
+
+    def test_bump_base_and_set_together_are_refused(self, repo, capsys):
+        with pytest.raises(SystemExit) as exit_info:
+            run(repo, "bump", "--base", "main", "--set", "2026.9.4")
+        assert exit_info.value.code == 2
+        assert "not allowed with" in capsys.readouterr().err
+        assert versions(repo) == ["2026.9.0", "2026.9.0"]
+
+    def test_bump_base_that_does_not_resolve_is_exit_two(self, repo, capsys):
+        assert run(repo, "bump", "--base", "no-such-branch", "--today", "2026-09-15") == 2
+        assert capsys.readouterr().err == pv.base_not_found("no-such-branch") + "\n"
+        assert versions(repo) == ["2026.9.0", "2026.9.0"]
+
 
 class TestSet:
     def test_it_writes_the_given_version_to_both_manifests(self, root, capsys):

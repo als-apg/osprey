@@ -262,8 +262,12 @@ def main(argv: list[str] | None = None) -> int:
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("show", help="print the shared version")
     bump = subcommands.add_parser("bump", help="advance the version in both manifests")
-    bump.add_argument(
+    source = bump.add_mutually_exclusive_group()
+    source.add_argument(
         "--set", dest="explicit", metavar="YYYY.M.N", help="write this version instead"
+    )
+    source.add_argument(
+        "--base", metavar="REF", help="advance from the newer of this version and REF's"
     )
     bump.add_argument("--today", type=date.fromisoformat, help=argparse.SUPPRESS)
     check_parser = subcommands.add_parser(
@@ -299,7 +303,23 @@ def main(argv: list[str] | None = None) -> int:
     if explicit is None and not VERSION.match(distinct[0]):
         print(f"{distinct[0]} is not CalVer; write one with: bump --set", file=sys.stderr)
         return 1
-    new = explicit or next_version(distinct[0], args.today or date.today())
+    current = distinct[0]
+    if args.base is not None:
+        run = git_runner(args.root)
+        base_sha = resolve_base(args.base, run)
+        if base_sha is None:
+            print(base_not_found(args.base), file=sys.stderr)
+            return 2
+        base_versions = read_base_versions(base_sha, args.base, run)
+        if isinstance(base_versions, str):
+            print(base_versions, file=sys.stderr)
+            return 1
+        for version in sorted(base_versions):
+            if parse_version(version) is None:
+                print(not_calver(version, args.base), file=sys.stderr)
+                return 1
+        current = max([current, *base_versions], key=parse_version)
+    new = explicit or next_version(current, args.today or date.today())
     write_version(args.root, new)
     print(f"{' and '.join(distinct)} -> {new}")
     return 0
