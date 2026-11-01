@@ -645,7 +645,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
             *selection,
             *SWEEP_MARKER,
             *CI_UNIT_EXEC_FLAGS,
-            *("--dist", "loadgroup"),
+            *fw.UNIT_SELECTION.dist,
             *pytest_report("pytest"),
         ]
     (pty,) = run("pytest-pty", "--", "-v", "--tb=short")
@@ -2004,7 +2004,8 @@ def test_run_passes_execution_flags_to_the_pytest_checks_only(recorder: Recorder
     assert check.main(["run", "ruff", "pytest", "--", *flags]) == 0
     ruff, sweep = recorder.calls
     assert ruff == ["uv", "run", "ruff", "check", "."]
-    assert sweep[:-3][-len(flags) - 2 :] == [*flags, "--dist", "loadgroup"]
+    dist = fw.UNIT_SELECTION.dist
+    assert sweep[:-3][-len(flags) - len(dist) :] == [*flags, *dist]
     assert sweep[-3].endswith("/pytest/junit.xml") and sweep[-2:] == ["-o", "junit_family=xunit1"]
     assert check.main(["run", "ruff", "--", "-v"]) == 2
 
@@ -2539,3 +2540,17 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["quick"], ["full"], ["run", "pytest", "--", "-n", "4"]],
+    ids=["quick", "full", "run"],
+)
+def test_every_sweep_ends_when_a_worker_dies(recorder: Recorder, argv: list[str]) -> None:
+    assert check.main(argv) == 0
+    markers = {fw.UNIT_SELECTION.marker, fw.UNIT_SELECTION.quick_marker}
+    sweeps = [call for call in recorder.calls if markers.intersection(call)]
+    assert sweeps, recorder.calls
+    for sweep in sweeps:
+        assert "--max-worker-restart=0" in sweep, sweep
