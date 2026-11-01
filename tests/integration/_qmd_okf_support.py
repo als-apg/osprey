@@ -21,7 +21,13 @@ import pytest
 
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
 from tests.integration._qmd_ariel_support import SIDECAR_CONTAINER_PORT as _SIDECAR_PORT
-from tests.integration._qmd_ariel_support import require_sidecar_image, wait_for_health
+from tests.integration._qmd_ariel_support import (
+    SIDECAR_HEALTH_CEILING,
+    SIDECAR_REINDEX_CEILING,
+    SIDECAR_ROUND_S,
+    require_sidecar_image,
+    wait_for_health,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,14 @@ QMD_SIDECAR_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-vali
 #: on (``okf.bundle.OKF_COLLECTION``); a test asserts the two agree rather than
 #: restating the literal.
 SIDECAR_BUNDLE_TARGET = "/corpus/okf"
+
+#: Seconds each test of the OKF sidecar module may take, setup included. The
+#: longest chain one test can hit is one sidecar boot, whose ``/health`` wait is
+#: bounded by :data:`SIDECAR_HEALTH_CEILING`, then the drafting test's re-index
+#: wait, bounded by :data:`SIDECAR_REINDEX_CEILING`; each may run one
+#: :data:`SIDECAR_ROUND_S` past its ceiling, so the wait's own failure lands
+#: before this mark kills the test.
+SIDECAR_OKF_TEST_TIMEOUT = SIDECAR_HEALTH_CEILING + SIDECAR_REINDEX_CEILING + 2 * SIDECAR_ROUND_S
 
 #: Marker poll interval the lane runs the sidecar with. Far below the shipped
 #: default, because every freshness assertion here waits on it — the *mechanism*
