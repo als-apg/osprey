@@ -161,14 +161,6 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     """
     from types import SimpleNamespace
 
-    # Arrange — a repo whose RENDER declares one subagent. ``.claude/`` is build
-    # output, so it sits in the render beside the rendered config, never at the
-    # repo root.
-    agents_dir = tmp_path / "build" / ".claude" / "agents"
-    agents_dir.mkdir(parents=True)
-    (agents_dir / "channel-finder.md").write_text(
-        "---\nname: channel-finder\ntools: mcp__channel-finder__search\n---\n"
-    )
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
@@ -186,6 +178,7 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
         ["mcp__controls__channel_read"],
         event_queue=asyncio.Queue(),
         denied_tools=["Bash", "WebFetch", "mcp__plugin_playwright_playwright__*"],
+        agent_surfaces={"channel-finder": frozenset({"mcp__channel-finder__search"})},
     )
     kw = captured["kw"]
 
@@ -283,24 +276,11 @@ async def test_worker_trusts_the_config_file_its_service_sets(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_subagent_surfaces_are_discovered_from_the_render(tmp_path, monkeypatch):
-    """Declared subagents are read from the render's ``.claude/agents/``.
-
-    SAFETY surface. The allowlist is enforced per-context: a subagent is held to
-    its own declared tools, and delegation to an agent the parser never saw is
-    denied outright. Reading the repo root instead of the render finds no agent
-    files at all — which stays fail-closed (every delegation denied) but costs
-    dispatch its subagents silently, so pin the discovery path itself.
-    """
+async def test_run_dispatch_holds_subagents_to_the_surfaces_it_is_handed(tmp_path, monkeypatch):
+    """The run reads no agent file: a conflicting one in the render has no effect."""
     agents_dir = tmp_path / "build" / ".claude" / "agents"
     agents_dir.mkdir(parents=True)
-    (agents_dir / "channel-finder.md").write_text(
-        "---\nname: channel-finder\ntools: mcp__channel-finder__search\n---\n"
-    )
-    # A decoy at the repo root: the parser must NOT pick this up.
-    root_agents = tmp_path / ".claude" / "agents"
-    root_agents.mkdir(parents=True)
-    (root_agents / "impostor.md").write_text("---\nname: impostor\ntools: Bash\n---\n")
+    (agents_dir / "impostor.md").write_text("---\nname: impostor\ntools: Bash\n---\n")
 
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
@@ -312,19 +292,23 @@ async def test_subagent_surfaces_are_discovered_from_the_render(tmp_path, monkey
         yield result_event(total_cost_usd=0.1, num_turns=1)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
-    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+    await sdk_runner.run_dispatch(
+        "do it",
+        ["Read"],
+        event_queue=asyncio.Queue(),
+        agent_surfaces={"channel-finder": frozenset({"mcp__channel-finder__search"})},
+    )
 
     (hook,) = captured["kw"]["pre_tool_use_hooks"]
     delegate = {"tool_name": "Task", "tool_input": {"subagent_type": "channel-finder"}}
     assert await hook(delegate, "t", None) == {}
-    # The repo-root file is not the agent surface — delegating to it is denied.
     impostor = {"tool_name": "Task", "tool_input": {"subagent_type": "impostor"}}
     assert (await hook(impostor, "t", None))["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 @pytest.mark.asyncio
 async def test_no_discoverable_agents_denies_every_delegation(tmp_path, monkeypatch):
-    """A worker that finds NO agent files stays fail-closed.
+    """A run handed no surfaces stays fail-closed.
 
     An empty surface map must never mean "anything goes": both delegation and
     any tool call arriving in a subagent context are denied.
