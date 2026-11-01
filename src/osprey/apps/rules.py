@@ -5,7 +5,8 @@ the manifests against each other, and against the names the resolved profile
 and OSPREY already use. :func:`check_pins` refuses an application package that
 would move a version the framework pins, before the joint resolve would fail
 without naming who asked; :func:`deployment_packages` lists the packages it
-reads. Each collects every violation and raises one
+reads; :func:`refuse_shadowed_packages` refuses a requirement an unlisted
+directory seems to satisfy. Each collects every violation and raises one
 :class:`~osprey.apps.errors.AppManifestError`, so ``osprey app check`` and
 ``osprey build`` report the same list.
 """
@@ -24,6 +25,7 @@ from urllib.parse import unquote, urlparse
 from osprey.apps.errors import AppManifestError, Violation
 from osprey.apps.manifest import AppManifest, launch_token_env
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS, QUEUE_TOOLS
+from osprey.utils.workspace import PROFILE_FILENAME
 
 __all__ = [
     "HOOK_DISPATCHED_TOOLS",
@@ -36,6 +38,7 @@ __all__ = [
     "deployment_packages",
     "fixed_names",
     "framework_pins",
+    "refuse_shadowed_packages",
     "validate",
 ]
 
@@ -524,7 +527,9 @@ def deployment_packages(
     local-path entry of the profile's ``dependencies`` (``./x``, ``~/x``, ``/x``,
     ``-e`` forms, or ``name @ file://...``) that holds one, in order, once each.
     ``apps/`` holds applications only: a directory the profile does not list is
-    switched off, and a package that is no application is a ``dependencies`` entry.
+    neither built nor installed, its ``[project]`` name is all that is read of it
+    (:func:`refuse_shadowed_packages`), and a package that is no application is a
+    ``dependencies`` entry.
 
     Args:
         root: The deployment root.
@@ -544,6 +549,93 @@ def deployment_packages(
         if candidate.is_file() and candidate not in found:
             found.append(candidate)
     return found
+
+
+def refuse_shadowed_packages(
+    root: Path, dependencies: Sequence[str], *, apps: Iterable[str]
+) -> None:
+    """Refuse a requirement that names a package only an unlisted directory holds.
+
+    The directory is not built, so the requirement would install whatever an index
+    serves under that name instead of the source beside the profile. Only the
+    ``[project]`` name of each unlisted ``apps/<dir>/pyproject.toml`` is read; one
+    that is broken or nameless names nothing, so it never refuses.
+
+    Args:
+        root: The deployment root.
+        dependencies: The profile's ``dependencies`` entries.
+        apps: The applications the profile's ``apps:`` block lists.
+
+    Raises:
+        AppManifestError: Naming, for each such requirement, where it is written
+            and the local-path entry that builds the directory.
+    """
+    built = deployment_packages(root, dependencies, apps=apps)
+    shadowing: dict[str, str] = {}
+    for path in sorted((root / "apps").glob("*/pyproject.toml")):
+        name = _project_name(path)
+        if name and path.resolve() not in built and not path.parent.name.startswith("."):
+            shadowing.setdefault(name, path.parent.name)
+    for path in built:
+        shadowing.pop(_project_name(path) or "", None)
+    if not shadowing:
+        return
+
+    def refused(raw: str, app: str, field: str, source: str) -> Violation | None:
+        directory = None if local_path(raw, root) else shadowing.get(_requirement_name(raw) or "")
+        if directory is None:
+            return None
+        return Violation(
+            app or directory,
+            field,
+            "shadowed_package",
+            f"{raw!r} names the package apps/{directory}/ declares, and the apps: block does "
+            "not list that directory, so it is not what would be installed; add a local-path "
+            f"entry such as ./apps/{directory} to dependencies",
+            source=source,
+        )
+
+    found = [
+        refused(raw, "", f"dependencies.{index}", PROFILE_FILENAME)
+        for index, raw in enumerate(dependencies)
+    ]
+    for path in built:
+        requirements = _project_table(path).get("dependencies")
+        found += [
+            refused(str(raw), path.parent.name, f"project.dependencies.{index}", str(path))
+            for index, raw in enumerate(requirements if isinstance(requirements, list) else ())
+        ]
+    violations = [violation for violation in found if violation is not None]
+    if violations:
+        raise AppManifestError.from_violations(violations)
+
+
+def _project_table(pyproject: Path) -> dict[str, object]:
+    """The ``[project]`` table of a ``pyproject.toml``, empty when it cannot be read."""
+    try:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project")
+    except (OSError, ValueError):
+        return {}
+    return project if isinstance(project, dict) else {}
+
+
+def _project_name(pyproject: Path) -> str | None:
+    """The canonical ``[project]`` name of a ``pyproject.toml``, ``None`` without a usable one."""
+    from packaging.utils import canonicalize_name
+
+    name = _project_table(pyproject).get("name")
+    return canonicalize_name(name) if isinstance(name, str) and name else None
+
+
+def _requirement_name(raw: str) -> str | None:
+    """The canonical distribution a requirement names, ``None`` for an unparsable one."""
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.utils import canonicalize_name
+
+    try:
+        return canonicalize_name(Requirement(raw).name)
+    except InvalidRequirement:
+        return None
 
 
 def local_path(raw: str, root: Path) -> Path | None:

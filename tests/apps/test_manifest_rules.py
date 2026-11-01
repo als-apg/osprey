@@ -23,6 +23,7 @@ from osprey.apps.rules import (
     deployment_packages,
     fixed_names,
     framework_pins,
+    refuse_shadowed_packages,
     validate,
 )
 
@@ -518,6 +519,99 @@ def test_deployment_packages_enumerates_apps_and_local_dependencies(tmp_path: Pa
 
 def test_deployment_packages_without_apps_or_dependencies_is_empty(tmp_path: Path) -> None:
     assert deployment_packages(tmp_path, [], apps=[]) == []
+
+
+def _shadow_refused(root: Path, dependencies: list[str], apps: list[str]) -> AppManifestError:
+    with pytest.raises(AppManifestError) as info:
+        refuse_shadowed_packages(root, dependencies, apps=apps)
+    return info.value
+
+
+def test_a_dependency_an_unlisted_directory_declares_is_refused(tmp_path: Path) -> None:
+    _pyproject(tmp_path / "apps" / "tools", name="Lab_Helper")
+
+    err = _shadow_refused(tmp_path, ["numpy>=1", "lab-helper>=1"], [])
+
+    assert _rules(err) == ["shadowed_package"]
+    assert err.app == "tools"
+    assert err.field == "dependencies.1"
+    assert "./apps/tools" in err.message
+
+
+def test_a_built_packages_requirement_an_unlisted_directory_declares_is_refused(
+    tmp_path: Path,
+) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    _pyproject(tmp_path / "apps" / "knob", "numpy", "helper==1.0")
+
+    err = _shadow_refused(tmp_path, [], ["knob"])
+
+    assert _rules(err) == ["shadowed_package"]
+    assert err.app == "knob"
+    assert err.field == "project.dependencies.1"
+    assert "./apps/helper" in err.message
+
+
+def test_every_shadowed_requirement_is_listed(tmp_path: Path) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    _pyproject(tmp_path / "apps" / "other")
+    _pyproject(tmp_path / "apps" / "knob", "other")
+
+    err = _shadow_refused(tmp_path, ["helper"], ["knob"])
+
+    assert [v.field for v in err.violations] == ["dependencies.0", "project.dependencies.0"]
+
+
+def test_an_unrelated_unlisted_package_passes(tmp_path: Path) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    _pyproject(tmp_path / "apps" / "knob", "numpy")
+
+    refuse_shadowed_packages(tmp_path, ["scipy"], apps=["knob"])
+
+
+def test_a_listed_directory_never_shadows(tmp_path: Path) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    _pyproject(tmp_path / "apps" / "knob", "helper")
+
+    refuse_shadowed_packages(tmp_path, [], apps=["knob", "helper"])
+
+
+@pytest.mark.parametrize(
+    "form", ["./apps/helper", "-e ./apps/helper", "helper @ {root}/apps/helper"]
+)
+def test_the_local_path_form_passes(tmp_path: Path, form: str) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    _pyproject(tmp_path / "apps" / "knob", "helper")
+    entry = form.format(root=tmp_path.as_uri())
+
+    refuse_shadowed_packages(tmp_path, [entry], apps=["knob"])
+
+
+def test_a_package_built_from_elsewhere_under_the_name_passes(tmp_path: Path) -> None:
+    _pyproject(tmp_path / "apps" / "helper")
+    _pyproject(tmp_path / "libs" / "helper")
+    _pyproject(tmp_path / "apps" / "knob", "helper")
+
+    refuse_shadowed_packages(tmp_path, ["./libs/helper"], apps=["knob"])
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["[project\n", "[project]\nversion = '1'\n", "[project]\nname = 3\n", "project = 1\n"],
+    ids=["broken", "nameless", "not a name", "not a table"],
+)
+def test_a_broken_or_nameless_unlisted_pyproject_never_refuses(
+    tmp_path: Path, content: str
+) -> None:
+    path = tmp_path / "apps" / "helper" / "pyproject.toml"
+    path.parent.mkdir(parents=True)
+    path.write_text(content)
+
+    refuse_shadowed_packages(tmp_path, ["helper"], apps=[])
+
+
+def test_no_apps_directory_has_nothing_to_shadow(tmp_path: Path) -> None:
+    refuse_shadowed_packages(tmp_path, ["helper"], apps=[])
 
 
 # --- audit identity ------------------------------------------------------------------

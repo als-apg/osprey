@@ -19,6 +19,7 @@ from osprey.apps.rules import (
     deployment_packages,
     fixed_names,
     framework_pins,
+    refuse_shadowed_packages,
     validate,
 )
 from osprey.utils.workspace import PROFILE_FILENAME
@@ -43,7 +44,7 @@ class DeploymentApps:
         logins: Each render's selection: :data:`ROOT_LOGIN` for the root, the
             file's stem for a login.
         unnamed: The ``apps/<name>/`` directories the block does not name: reported,
-            and nothing of them is read, built or installed.
+            neither built nor installed, and read only for a package's name.
     """
 
     manifests: tuple[AppManifest, ...] = ()
@@ -115,9 +116,10 @@ def check_deployment(root: Path) -> DeploymentApps:
     """Run every check a deployment's applications face before anything is written.
 
     Loads the applications the profile names, leaving every other ``apps/<name>/``
-    unread, then validates them against each render's selection and the names the profile already uses, refuses a
-    hand-written key inside a namespace the projection owns, a projected port
-    that collides, and a package that would move a pinned version. ``osprey
+    unread but for a package's name, then validates them against each render's selection
+    and the names the profile already uses, refuses a hand-written key inside a namespace
+    the projection owns, a projected port that collides, a package that would move a
+    pinned version, and a requirement only an unlisted directory holds. ``osprey
     build`` and ``osprey app check`` both run this, so they report identically.
     The profile is read as the build reads it, this host's variant included.
 
@@ -154,10 +156,9 @@ def check_deployment(root: Path) -> DeploymentApps:
     _refuse_projected_keys(manifests, profiles)
     if manifests:
         _refuse_unbuildable_services(root, manifests, host)
-    check_pins(
-        deployment_packages(root, list(host.dependencies or []), apps=host.apps),
-        framework_pins(),
-    )
+    dependencies = list(host.dependencies or [])
+    check_pins(deployment_packages(root, dependencies, apps=host.apps), framework_pins())
+    refuse_shadowed_packages(root, dependencies, apps=host.apps)
     return DeploymentApps(
         manifests=manifests,
         logins=logins,
