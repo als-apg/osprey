@@ -29,6 +29,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.cli.templates.scaffolding import _default_image_facts
+from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH
@@ -108,6 +110,11 @@ class TestDockerfileContent:
         assert f"EXPOSE {default_port('web', base=DEFAULT_PORT_BASE)}" in text
         assert "/app/hello-docker/" in text
         assert "WORKDIR /app/hello-docker" in text
+
+    def test_the_base_python_is_the_one_the_wheels_are_judged_against(self, hello_project):
+        """One constant: the FROM and the deployment-wheel fit check cannot disagree."""
+        text = (hello_project / "Dockerfile").read_text()
+        assert f"\nFROM python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n" in text
 
     def test_arg_contract(self, hello_project):
         """Exactly the contract ARGs, with the documented defaults."""
@@ -922,6 +929,7 @@ def _render_template(**context) -> str:
     # TemplateManager._project_context.
     context.setdefault("port_base", DEFAULT_PORT_BASE)
     context.setdefault("osprey_ports", layout_ports(DEFAULT_PORT_BASE))
+    _default_image_facts(context)
     template = TemplateManager().jinja_env.get_template("project/Dockerfile.j2")
     return template.render(**context)
 
@@ -1494,3 +1502,57 @@ class TestCliCrossCheck:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestImagePlatform:
+    """``images.platform`` is one fact every reader of it names alike."""
+
+    def test_a_stated_platform_is_named_on_the_from_line(self, platform_project):
+        text = (platform_project / "Dockerfile").read_text()
+        assert (
+            f"\nFROM --platform=linux/amd64 python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n"
+        ) in text
+
+    def test_the_fit_check_the_argv_the_override_and_the_from_agree(
+        self, platform_project, tmp_path
+    ):
+        """With ``linux/amd64`` stated, every consumer builds for it."""
+        import yaml
+        from packaging.utils import parse_wheel_filename
+
+        from osprey.cli.build_profile_load import config_image_platform
+        from osprey.deployment.compose_generator import write_labels_override
+        from osprey.deployment.container_lifecycle import site_image_build_args
+        from osprey.deployment.wheel_build import _refuse_unfit_wheel
+
+        repo = platform_project.parent
+        profile = yaml.safe_load((repo / "profile.yml").read_text())
+        config = yaml.safe_load((platform_project / "config.yml").read_text())
+        stated = config_image_platform(profile["config"])
+        wheel = "knob-0.1.0-cp312-cp312-manylinux_2_17_x86_64.whl"
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text("services:\n  built:\n    build: .\n", encoding="utf-8")
+        config["project_root"] = str(tmp_path)
+        override = write_labels_override(tmp_path, [compose], config)
+        argv = site_image_build_args(config, tmp_path)
+        from_line = next(
+            line
+            for line in (platform_project / "Dockerfile").read_text().splitlines()
+            if line.startswith("FROM ")
+        )
+
+        _refuse_unfit_wheel(pathlib.Path(wheel), parse_wheel_filename(wheel)[3], repo, stated)
+        assert stated == "linux/amd64"
+        assert argv[argv.index("--platform") + 1] == stated
+        assert yaml.safe_load(override.read_text())["services"]["built"]["platform"] == stated
+        assert f"--platform={stated} " in from_line
+
+
+@pytest.fixture(scope="module")
+def platform_project(tmp_path_factory):
+    """A deployment whose profile states ``images.platform``."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-platform") / "platform-docker",
+        "hello-world",
+        "config.images.platform=linux/amd64",
+    )

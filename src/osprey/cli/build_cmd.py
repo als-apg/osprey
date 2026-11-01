@@ -208,9 +208,11 @@ _NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(
 #: render its honest answer is this machine's — a path no container has, which
 #: leaves every server and every hook in the image unable to start. Its value is
 #: the interpreter of ``templates/project/Dockerfile.j2``'s
-#: ``FROM python:3.12-slim`` base, which the official python images install at
-#: ``/usr/local/bin/python``. The coupling to that base image is pinned by a
-#: test, so a base change cannot silently invalidate this constant.
+#: ``FROM python:<IMAGE_PYTHON>-slim`` base, which the official python images
+#: install at ``/usr/local/bin/python``; the version is
+#: :data:`osprey.deployment.image_facts.IMAGE_PYTHON`. The coupling to that base
+#: image is pinned by a test, so a base change cannot silently invalidate this
+#: constant.
 _CONTAINER_INTERPRETER = "/usr/local/bin/python"
 
 #: The two directories the swap renames through, in the STATE zone. They live
@@ -1458,6 +1460,14 @@ class _SharedRenderInputs(NamedTuple):
     each view.
     """
 
+    image_platform: str | None = None
+    """The platform the root profile's ``images.platform`` states, or ``None``.
+
+    Read once from the deployment's profile, never per render: every image of
+    the deployment is built for one platform, and every rendered ``FROM`` names
+    the one its wheels were judged against.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2100,6 +2110,7 @@ def _render_project(
         skip_deps=shared.skip_deps,
         runtime_interpreter=shared.runtime_interpreter,
         deployment_packages=shared.deployment_packages,
+        image_platform=shared.image_platform,
     )
     # `api.providers`, rendered verbatim from the catalog beside `profile.yml`.
     # It is a file rather than a profile field because it is a list of
@@ -3635,12 +3646,16 @@ def _build_repo(
         # image context carries the directory (`_render_container_project`). The
         # wheel build is a dependency step: `--skip-deps` builds none, the packages
         # are only read, and the render's image fails its install at the missing wheel.
+        from .build_profile_load import config_image_platform
+
+        image_platform = config_image_platform(build_profile.config)
         deployment_packages = build_deployment_packages(
             repo_root,
             list(build_profile.dependencies or []),
             zones.stage / DEPLOYMENT_PACKAGES_DIRNAME,
             apps=[manifest.name for manifest in applications.manifests],
             build=not skip_deps,
+            image_platform=image_platform,
         )
         if not skip_deps:
             # Judged before the phase opens: a plan that refuses the build
@@ -3696,6 +3711,7 @@ def _build_repo(
             profile_overlays=profile_overlays,
             applications=applications,
             deployment_packages=deployment_packages,
+            image_platform=image_platform,
         )
 
         # One reported phase over every render pass this build makes — the
@@ -4241,6 +4257,7 @@ def _repo_render_context(
     skip_deps: bool,
     runtime_interpreter: str | None = None,
     deployment_packages: Sequence[DeploymentPackage] = (),
+    image_platform: str | None = None,
 ) -> dict[str, Any]:
     """The template context for a four-zone render.
 
@@ -4310,6 +4327,10 @@ def _repo_render_context(
         # monorepo pyproject.toml to read the workspace from.
         "workspace_members": list(WORKSPACE_MEMBERS),
     }
+    if image_platform:
+        # The rendered FROM names the platform the deployment's wheels were judged
+        # against and `osprey up` builds for; unset, it stays bare.
+        context["image_platform"] = image_platform
     if build_profile.provider:
         context["default_provider"] = build_profile.provider
     if build_profile.model:

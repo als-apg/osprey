@@ -296,9 +296,16 @@ def test_a_wheel_refused_for_the_stated_platform_names_it_and_the_key(
 def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
     from importlib import resources
 
+    from osprey.cli.templates.scaffolding import _default_image_facts
+
     source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
+    from_line = next(
+        line for line in source.read_text(encoding="utf-8").splitlines() if line.startswith("FROM ")
+    )
+    context: dict[str, Any] = {}
+    _default_image_facts(context)
     major, minor = image_facts.IMAGE_PYTHON
-    assert f"\nFROM python:{major}.{minor}-slim\n" in source.read_text(encoding="utf-8")
+    assert Template(from_line).render(context) == f"FROM python:{major}.{minor}-slim"
 
 
 def _build_with_members(
@@ -703,6 +710,7 @@ def _dockerfile(
 
     source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
     return Template(source.read_text(encoding="utf-8")).render(
+        image_python="{}.{}".format(*image_facts.IMAGE_PYTHON),
         project_name="fixture",
         claude_code_cli_version="1.2.3",
         port_base=DEFAULT_PORT_BASE,
