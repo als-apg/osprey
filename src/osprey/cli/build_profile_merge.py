@@ -491,8 +491,8 @@ def _resolve_extends(
     if preset_path is not None:
         # A bundled preset reached as a base is consumed exactly as one reached
         # by name is (:func:`~.build_profile_presets._load_preset_raw`), so an
-        # inherited ``app_template:`` or ``facility:`` never becomes part of
-        # what the child resolves to. Confined to the preset branch: the same
+        # inherited ``app_template:``, ``facility:`` or ``apps:`` never becomes part
+        # of what the child resolves to. Confined to the preset branch: the same
         # key in a hand-written parent profile is a profile key, and is refused
         # as one.
         for key in PRESET_ONLY_KEYS:

@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
-from osprey.cli.build_profile_presets import list_tiers
+from osprey.cli.build_profile_presets import list_tiers, preset_apps
 from osprey.cli.templates.artifact_library import validate_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -372,11 +372,7 @@ def _flatten(node: object, prefix: str = "") -> list[tuple[str, object]]:
 def test_every_listed_application_ships_beside_the_preset() -> None:
     """A preset's ``apps:`` block names only applications the package carries."""
     apps_dir = PRESETS_DIR / "apps"
-    listed = {
-        name
-        for preset in _all_presets()
-        for name in (_load_preset_raw(preset)[0].get("apps") or {})
-    }
+    listed = {name for preset in _all_presets() for name in preset_apps(preset)}
     assert listed == {"knob-example"}
     assert {path.name for path in apps_dir.iterdir()} == listed
     for name in listed:
