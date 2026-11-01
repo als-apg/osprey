@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, Undefined, UndefinedError
 
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.agent_runner.claude_state import (
@@ -45,7 +45,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
+from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS, resolve_bind_address
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
     ComposeProvider,
@@ -2834,6 +2834,139 @@ def _inject_project_metadata(config):
     return config_with_labels
 
 
+_PANEL_GRANT_NAMES: Mapping[str, str] = {
+    "panel_grant.secret_env_vars": "the roster variables the panel's gate accepts, roster order",
+    "panel_grant.roster_owners": "`<SUFFIX>=<username>` pairs: whose each of those secrets is",
+    "panel_grant.secret_aliases": (
+        "a variable the panel's gate accepts, mapped to the deploy variable it reads; "
+        "`{}` on every render but the panel's service"
+    ),
+}
+
+#: The names an application's ``image:`` fragment may read: name -> what it holds.
+#: :func:`render_template` renders such a fragment from exactly these, strictly,
+#: so an unlisted name fails the render. A dotted name is that leaf and no other
+#: key of its parent. The grant's shape is
+#: :class:`osprey.deployment.web_terminals.roster.PanelGrant`. No guarded-run,
+#: limits or identity name is here: such a fragment may not mount them
+#: (:func:`_refuse_fragment_document`).
+FRAGMENT_CONTEXT: Mapping[str, str] = {
+    "_network_axis.j2": "the service network axis macros, imported",
+    "_env_axis.j2": "the service env passthrough axis macro, imported",
+    "osprey_env_chain": "the deployment's env files, in `env_file:` order",
+    "osprey_labels": "the project's container label values, `project_name` among them",
+    "deployed_services": "the deployment's service keys",
+    "deployment.bind_address": "the deployment's interface, loopback when unset",
+    "dev_mode": "whether a dev wheel landed in this build context",
+    "site_image_build_args": "the site's build args for this build context",
+    "service_key": "the `services/<k>` directory basename and config-block key `<k>`",
+    "service": (
+        "the `services.<k>` block: `app`, the owning application; `image`; `port`; "
+        "`config_file`, the rendered `apps.<name>.config` (build-relative; a fragment "
+        "binds it as `./build/…`); the `network` and `env` axes"
+    ),
+    **_PANEL_GRANT_NAMES,
+    "system.timezone": "the deployment's timezone",
+    "control_system.connector.epics.gateways.read_only.address": "the read gateway's address",
+    "control_system.connector.epics.gateways.read_only.port": "the read gateway's port",
+}
+
+#: The names only the bundled ``app_runtime`` template reads, under the lenient
+#: bundled context: name -> what it holds.
+APP_RUNTIME_CONTEXT: Mapping[str, str] = {
+    "_network_axis.j2": "the service network axis macros, imported",
+    "_env_axis.j2": "the service env passthrough axis macro, imported",
+    "service_key": "the `services/<k>` directory basename and config-block key `<k>`",
+    "service": (
+        "the `services.<k>` block: `app`, `command`, `image`, `config_file`, "
+        "`audit_identity`, `port`, `health`, `launch_token_env`, `network`, `env`"
+    ),
+    **_PANEL_GRANT_NAMES,
+    "osprey_images.worker": "the project image",
+    "osprey_labels.project_name": "the project name",
+    "osprey_container_spool_dir": "the spool zone inside the container",
+    "osprey_spool_mount_source": "the spool zone's host bind source",
+    "system.timezone": "the deployment's timezone",
+    "control_identity_staged": "whether the control-identity directory landed in this context",
+    "osprey_control_tree_mount_source": "the control tree's host bind source",
+    "osprey_container_control_tree_dir": "the control tree inside the container",
+    "osprey_guarded_run_mount": "the guarded-run directory's `{source, target}`",
+    "limits_mount": "the limits file's finished bind mount, when the tier arms",
+    "services.<k>.state_mounts": "the declared state directories, `[{source, target}]`",
+    "services.<k>.writes_enabled": "the render's `control_system.writes` tier is `allowed`",
+    "services.<k>.stop_grace_period": "the grace compose gives the container to stop",
+    "services.<k>.ca_env": "the Channel Access addressing block",
+}
+
+
+def _is_projected_fragment(config):
+    """Whether *config* renders an application's ``image:`` fragment.
+
+    The projection sets ``app`` on every block it writes and ``image`` only for
+    an ``image:`` container; the bundled ``app_runtime`` render has no ``image``.
+
+    :param config: The render context
+    :type config: dict
+    :rtype: bool
+    """
+    service = config.get("service")
+    return isinstance(service, Mapping) and bool(service.get("app") and service.get("image"))
+
+
+def _fragment_context(config):
+    """The context of a projected fragment: :data:`FRAGMENT_CONTEXT`, read off *config*.
+
+    Every parent of a dotted name exists, so a missing leaf is one undefined
+    name a fragment can default rather than a broken chain.
+
+    :param config: The full render context
+    :type config: dict
+    :return: Only the listed names
+    :rtype: dict
+    """
+    context = {}
+    for name in FRAGMENT_CONTEXT:
+        if name.endswith(".j2"):
+            continue
+        *parents, leaf = name.split(".")
+        target, source = context, config
+        for parent in parents:
+            target = target.setdefault(parent, {})
+            source = source.get(parent) if isinstance(source, Mapping) else None
+        if isinstance(source, Mapping) and leaf in source:
+            target[leaf] = source[leaf]
+    context["deployment"]["bind_address"] = resolve_bind_address(config)
+    return context
+
+
+def _render_fragment(template, template_path, config):
+    """Render a projected fragment from :data:`FRAGMENT_CONTEXT`, refusing any other name.
+
+    :param template: The template, from a strict environment
+    :type template: jinja2.Template
+    :param template_path: Its path, for the refusal
+    :type template_path: str
+    :param config: The full render context
+    :type config: dict
+    :return: The rendered text
+    :rtype: str
+    :raises DeploymentPreconditionError: The fragment read an unlisted name
+    """
+    try:
+        return template.render(_fragment_context(config))
+    except UndefinedError as e:
+        raise DeploymentPreconditionError(
+            reason=(
+                f"The application fragment of service {config['service_key']} "
+                f"({template_path}) read a name outside the fragment context: {e}"
+            ),
+            remedy=(
+                "Read only the names osprey.deployment.compose_generator.FRAGMENT_CONTEXT "
+                "lists, or set the value through the service's env axis in the profile."
+            ),
+        ) from e
+
+
 def render_template(template_path, config, out_dir):
     """Render Jinja2 template with configuration context to output directory.
 
@@ -2847,7 +2980,9 @@ def render_template(template_path, config, out_dir):
     variables, service settings, and application-specific parameters. Environment
     variables can be referenced directly in templates using ${VAR_NAME} syntax
     for deployment-specific configurations like proxy settings. The output
-    directory is created automatically if it doesn't exist.
+    directory is created automatically if it doesn't exist. An application's
+    ``image:`` fragment is the exception: it renders from exactly
+    :data:`FRAGMENT_CONTEXT`.
 
     :param template_path: Path to the Jinja2 template file to render
     :type template_path: str
@@ -2872,13 +3007,21 @@ def render_template(template_path, config, out_dir):
     .. seealso::
        :func:`setup_build_dir` : Uses this function for service template processing
     """
+    fragment = _is_projected_fragment(config)
     # A rendered file is POSIX text: it keeps the newline its template ends with.
-    env = Environment(loader=FileSystemLoader("."), keep_trailing_newline=True)
+    env = Environment(
+        loader=FileSystemLoader("."),
+        keep_trailing_newline=True,
+        undefined=StrictUndefined if fragment else Undefined,
+    )
     template = env.get_template(template_path)
 
     # Inject project metadata for container labels
     config_dict = _inject_project_metadata(config)
-    rendered_content = template.render(config_dict)
+    if fragment:
+        rendered_content = _render_fragment(template, template_path, config_dict)
+    else:
+        rendered_content = template.render(config_dict)
 
     # Determine output filename based on template type
     if template_path.endswith("docker-compose.yml.j2"):

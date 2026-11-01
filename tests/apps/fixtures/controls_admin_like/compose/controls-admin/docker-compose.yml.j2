@@ -1,0 +1,52 @@
+{#- The worked example of an application fragment: it reads every name of
+    osprey.deployment.compose_generator.FRAGMENT_CONTEXT and nothing else. -#}
+{%- import "services/_network_axis.j2" as net -%}
+{%- import "services/_env_axis.j2" as hostenv -%}
+services:
+  {{ service_key }}:
+    image: {{ service.image }}
+    container_name: {{ osprey_labels.project_name }}-{{ service_key }}
+    build:
+      context: ./build/services/{{ service_key }}
+      args:
+        OSPREY_DEV: "{{ '1' if dev_mode else '' }}"
+{%- for name, value in site_image_build_args.items() %}
+        {{ name }}: {{ value | tojson }}
+{%- endfor %}
+{%- if osprey_env_chain %}
+    env_file:
+{%- for name in osprey_env_chain %}
+      - {{ name }}
+{%- endfor %}
+{%- endif %}
+    environment:
+      OSPREY_APP_NAME: "{{ service.app }}"
+      CONTROLS_ADMIN_PORT: "{{ service.port }}"
+      CONTROLS_ADMIN_PUBLIC_ADDRESS: "{{ deployment.bind_address }}"
+      CONTROLS_ADMIN_HAS_ARCHIVER: "{{ 'archiver_recorder' in deployed_services }}"
+      TZ: {{ system.timezone }}
+      EPICS_CA_ADDR_LIST: "{{ control_system.connector.epics.gateways.read_only.address }}"
+      EPICS_CA_SERVER_PORT: "{{ control_system.connector.epics.gateways.read_only.port }}"
+{%- if panel_grant.secret_env_vars or panel_grant.secret_aliases %}
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
+{%- for var in panel_grant.secret_env_vars %}
+      {{ var }}: ${{ "{" }}{{ var }}:-}
+{%- endfor %}
+{%- for var, source in panel_grant.secret_aliases.items() %}
+      {{ var }}: ${{ "{" }}{{ source }}}
+{%- endfor %}
+      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ panel_grant.roster_owners }}"
+{%- endif %}
+{{- hostenv.passthrough(service) }}
+{{- net.ports(service, ['127.0.0.1:' ~ service.port ~ ':' ~ service.port]) }}
+    # `service.config_file` is build-relative; bind sources resolve against the
+    # deployment repo root.
+    volumes:
+      - ./build/{{ service.config_file[2:] }}:/etc/controls-admin/config.yml:ro
+      - /facility/controls/admin:/facility/admin:ro
+      - {{ service_key }}-data:/var/lib/controls-admin
+{{- net.network(service) }}
+
+volumes:
+  {{ service_key }}-data:
+{{ net.network_declaration(service) }}
