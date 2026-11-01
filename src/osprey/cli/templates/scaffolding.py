@@ -158,7 +158,7 @@ def provider_base_url_entries() -> list[dict[str, str]]:
 
 
 # Human-readable blurbs for the deploy-minted variables, keyed by var name.
-# Prose only: the *list* of variables comes from ``_SERVICE_TOKEN_VARS``, so a
+# Prose only: the *list* of variables comes from ``service_token_vars``, so a
 # newly minted var still reaches ``.env.example`` (named by the services that
 # declare it) even with no entry here. Nothing silently drops out.
 _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
@@ -197,21 +197,23 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
 
 
 def service_token_var_entries() -> list[dict[str, str]]:
-    """Every variable ``osprey up`` mints, for env-file templates.
+    """Every variable ``osprey up`` mints whatever the deployment, for env-file templates.
 
-    Derived from :data:`osprey.deployment.container_lifecycle._SERVICE_TOKEN_VARS`
+    Derived from :func:`osprey.deployment.container_lifecycle.service_token_vars`
     — the map the deploy path actually mints from — so the documented set
     cannot fall behind the minted set. A variable declared by more than one
-    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both.
+    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both. An
+    application's launch token is not here: the scaffold is rendered before any
+    application exists.
 
     Returns:
         Ordered list of ``{"var": <ENV_VAR>, "services": "<a, b>", "note":
         <blurb or "">}`` dicts, in declaration order.
     """
-    from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+    from osprey.deployment.container_lifecycle import service_token_vars
 
     services_by_var: dict[str, list[str]] = {}
-    for service, token_vars in _SERVICE_TOKEN_VARS.items():
+    for service, token_vars in service_token_vars({}).items():
         for var in token_vars:
             services_by_var.setdefault(var, []).append(service)
 
