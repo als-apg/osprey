@@ -643,6 +643,12 @@ class TestRetention:
         assert f"block_compressor={COMPRESSION}" in creation
         assert recorded == COMPRESSION
 
+    def test_the_store_starts_with_the_sweeper_off(self, mongo_client):
+        """The store starts with the sweeper off; only ``ttl_sweeper`` turns it on."""
+        reply = mongo_client.admin.command("getParameter", 1, ttlMonitorEnabled=1)
+
+        assert reply["ttlMonitorEnabled"] is False
+
 
 def _aged_rf_thermal(at_offset: float) -> dict:
     """The excursion, repositioned into a stretch that has already expired."""
