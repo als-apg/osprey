@@ -2301,21 +2301,22 @@ def _ca_name_servers(config):
 
     A simulator or stand-in baseline is a container this deployment runs, named
     by its compose service on the port its block states; only the first instance,
-    the simulator, has a default port. A live baseline is the
-    facility's gateway, from its connector block: the ``write_access`` gateway,
-    else the ``read_only`` one.
+    the simulator, has a default port. A live baseline is the gateway the render's
+    tier selects (:func:`~osprey_connectors.ipc.derive_endpoints`): ``write_access``
+    on an armed render, else ``read_only``, falling back to ``write_access`` only
+    when no read-only gateway is configured.
 
     :param config: The render's config.
     :type config: dict
     :return: The address, or ``None`` when none can be derived
     :rtype: str or None
     """
+    from osprey_connectors.ipc import derive_endpoints
     from osprey_connectors.types import (
         DEFAULT_VA_PORT,
         TARGET_STANDIN,
         TARGET_VA,
         baseline_target,
-        resolve_control_system_type,
     )
 
     section = config.get("control_system")
@@ -2328,14 +2329,10 @@ def _ca_name_servers(config):
         if port is None and target == TARGET_VA:
             port = DEFAULT_VA_PORT
         return f"{instance.replace('_', '-')}:{port}" if port else None
-    gateways = _connector_block(section, resolve_control_system_type(section)).get("gateways")
-    for role in ("write_access", "read_only"):
-        gateway = gateways.get(role) if isinstance(gateways, Mapping) else None
-        address = gateway.get("address") if isinstance(gateway, Mapping) else None
-        if address:
-            port = gateway.get("port")
-            return f"{address}:{port}" if port else str(address)
-    return None
+    gateway = derive_endpoints(config, target, readonly_run=False).selected_endpoint()
+    if gateway is None or not gateway.host:
+        return None
+    return f"{gateway.host}:{gateway.port}" if gateway.port else str(gateway.host)
 
 
 def _drives_target_ca_env(config, key, block):
@@ -2356,12 +2353,14 @@ def _drives_target_ca_env(config, key, block):
     :raises DeploymentPreconditionError: The container is on the bridge against
         a Channel Access target and no name server can be derived
     """
-    from osprey_connectors.types import speaks_channel_access
+    from osprey_connectors.ipc import ROLE_READ_ONLY, ROLE_WRITE_ACCESS
+    from osprey_connectors.types import speaks_channel_access, tier_allows
 
     if block.get("network") == "host" or not speaks_channel_access(config.get("control_system")):
         return None
     name_servers = _ca_name_servers(config)
     if name_servers is None:
+        role = ROLE_WRITE_ACCESS if tier_allows(config.get("control_system")) else ROLE_READ_ONLY
         raise DeploymentPreconditionError(
             reason=(
                 f"services.{key} drives the target from the compose bridge network, and the "
@@ -2370,7 +2369,7 @@ def _drives_target_ca_env(config, key, block):
                 "its gateway has no address."
             ),
             remedy=(
-                "Name the gateway in control_system.connector.<type>.gateways.write_access"
+                f"Name the gateway in control_system.connector.<type>.gateways.{role}"
                 ".address, deploy the machine it targets with its port, or set network: host "
                 f"on {key}."
             ),

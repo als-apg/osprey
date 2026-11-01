@@ -261,6 +261,65 @@ def test_channel_access_on_the_bridge_names_a_live_gateway(repo: Path) -> None:
     assert svc["environment"]["EPICS_CA_NAME_SERVERS"] == "gw.example.org:5084"
 
 
+READ_GATEWAY = {"address": "gw-read.example.org", "port": 5064}
+WRITE_GATEWAY = {"address": "gw-write.example.org", "port": 5084}
+
+
+@pytest.mark.parametrize(
+    ("writes", "gateways", "expected"),
+    [
+        ("never", {"read_only": READ_GATEWAY, "write_access": WRITE_GATEWAY}, READ_GATEWAY),
+        ("allowed", {"read_only": READ_GATEWAY, "write_access": WRITE_GATEWAY}, WRITE_GATEWAY),
+        ("asked", {"read_only": READ_GATEWAY, "write_access": WRITE_GATEWAY}, WRITE_GATEWAY),
+        ("never", {"write_access": WRITE_GATEWAY}, WRITE_GATEWAY),
+    ],
+    ids=["never-both", "allowed-both", "asked-both", "never-write-only"],
+)
+def test_channel_access_on_the_bridge_follows_the_gateway_the_tier_selects(
+    repo: Path, writes: str, gateways: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    config = _config(
+        {"type": "epics", "writes": writes, "connector": {"epics": {"gateways": gateways}}}
+    )
+
+    svc, _ = _render(repo, config)
+
+    assert svc["environment"]["EPICS_CA_NAME_SERVERS"] == (
+        f"{expected['address']}:{expected['port']}"
+    )
+
+
+def test_channel_access_on_the_bridge_names_a_gateway_with_no_port_by_its_address(
+    repo: Path,
+) -> None:
+    gateways = {"read_only": {"address": "gw-read.example.org", "port": None}}
+    config = _config(
+        {"type": "epics", "writes": "never", "connector": {"epics": {"gateways": gateways}}}
+    )
+
+    svc, _ = _render(repo, config)
+
+    assert svc["environment"]["EPICS_CA_NAME_SERVERS"] == "gw-read.example.org"
+
+
+@pytest.mark.parametrize(
+    ("writes", "named"),
+    [("never", "gateways.read_only"), ("allowed", "gateways.write_access")],
+)
+def test_a_selected_gateway_with_no_address_names_the_role_the_tier_selects(
+    writes: str, named: str
+) -> None:
+    gateways = {"read_only": {"port": 5064}, "write_access": {"port": 5084}}
+    config = _config(
+        {"type": "epics", "writes": writes, "connector": {"epics": {"gateways": gateways}}}
+    )
+
+    with pytest.raises(DeploymentPreconditionError, match=KEY) as refusal:
+        _inject_project_metadata(config)
+
+    assert named in refusal.value.remedy
+
+
 def test_a_live_gateway_with_no_address_refuses_naming_the_service() -> None:
     config = _config({"type": "epics", "writes": "allowed"})
 
