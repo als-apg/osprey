@@ -3611,8 +3611,9 @@ def _build_repo(
         applications = check_deployment(repo_root)
         for unnamed in applications.unnamed:
             output.note(
-                f"⚠ apps/{unnamed}/ is not built: the apps: block of {PROFILE_FILENAME} "
-                "does not name it."
+                f"⚠ apps/{unnamed}/ is not built or installed: the apps: block of "
+                f"{PROFILE_FILENAME} does not name it. A package there that is no application "
+                f"is a dependencies entry, ./apps/{unnamed}."
             )
         try:
             fetch_app_vendor(

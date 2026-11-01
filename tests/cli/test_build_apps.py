@@ -561,7 +561,7 @@ def _broken_manifest(directory: Path) -> None:
 
 @pytest.mark.parametrize("listing", [False, True], ids=["nothing listed", "another listed"])
 @pytest.mark.parametrize("unlisted", [_no_manifest, _broken_manifest])
-def test_an_unlisted_directory_is_reported_and_nothing_of_it_is_read_built_or_installed(
+def test_an_unlisted_directory_is_reported_and_nothing_of_it_is_built_or_installed(
     lifecycle_repo: Path,
     built_packages: list[str],
     caplog: pytest.LogCaptureFixture,
@@ -577,6 +577,36 @@ def test_an_unlisted_directory_is_reported_and_nothing_of_it_is_read_built_or_in
     assert result.exit_code == 0, result.output + caplog.text
     assert "apps/helper/" in result.output
     assert built_packages == []
+
+
+def _with_dependency(repo: Path, entry: str) -> None:
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["dependencies"] = [*(profile.get("dependencies") or []), entry]
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+
+def test_a_dependency_an_unlisted_directory_declares_is_refused(
+    lifecycle_repo: Path, no_artifact
+) -> None:
+    _package(lifecycle_repo / "apps" / "helper", "lab-helper")
+    _with_dependency(lifecycle_repo, "lab-helper>=1")
+
+    output = no_artifact(lifecycle_repo)
+
+    assert "lab-helper" in output
+    assert "./apps/helper" in output
+
+
+def test_the_local_path_form_builds_what_the_unlisted_directory_declares(
+    lifecycle_repo: Path, built_packages: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    _package(lifecycle_repo / "apps" / "helper", "lab-helper")
+    _with_dependency(lifecycle_repo, "./apps/helper")
+
+    result = invoke_build(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output + caplog.text
+    assert built_packages == ["lab-helper"]
 
 
 def test_a_package_that_is_no_application_builds_as_a_local_dependency(
