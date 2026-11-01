@@ -48,8 +48,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ConfigBuilder",
-    "SHELL_ONLY_ENV_PREFIXES",
-    "SHELL_ONLY_ENV_VARS",
     "apply_env_chain",
     "config_anchored_at",
     "config_flag",
@@ -61,7 +59,6 @@ __all__ = [
     "get_configurable",
     "get_facility_timezone",
     "get_full_configuration",
-    "is_shell_only_env_var",
     "is_unresolved_placeholder",
     "load_config",
     "load_project_config",
@@ -352,8 +349,8 @@ def dotenv_shell_overrides() -> dict[str, str]:
 #: name that chooses which program runs, what code a runtime loads at start, or
 #: what code an installer fetches, so it comes from the operator's shell, never
 #: from a repo file. Names compare case-insensitively; the entries here and in
-#: :data:`SHELL_ONLY_ENV_PREFIXES` are upper-case.
-SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
+#: :data:`_SHELL_ONLY_ENV_PREFIXES` are upper-case.
+_SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
     {
         "PATH",
         "HOME",
@@ -437,8 +434,8 @@ SHELL_ONLY_ENV_VARS: frozenset[str] = frozenset(
 
 #: Name prefixes of the dynamic loader's variables, bash's exported functions
 #: and the variables git, npm, uv, pip and compose read, shell-only for the same reason
-#: as :data:`SHELL_ONLY_ENV_VARS`.
-SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = (
+#: as :data:`_SHELL_ONLY_ENV_VARS`.
+_SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = (
     "LD_",
     "DYLD_",
     "BASH_FUNC_",
@@ -454,10 +451,10 @@ SHELL_ONLY_ENV_PREFIXES: tuple[str, ...] = (
 _shell_only_reported: set[tuple[str, str]] = set()
 
 
-def is_shell_only_env_var(name: str) -> bool:
+def _is_shell_only_env_var(name: str) -> bool:
     """Whether ``name`` is a launch variable the env chain never applies, in any case."""
     upper = name.upper()
-    return upper in SHELL_ONLY_ENV_VARS or upper.startswith(SHELL_ONLY_ENV_PREFIXES)
+    return upper in _SHELL_ONLY_ENV_VARS or upper.startswith(_SHELL_ONLY_ENV_PREFIXES)
 
 
 def apply_env_chain(
@@ -472,7 +469,7 @@ def apply_env_chain(
     path that is not a file is skipped. Each file is read with python-dotenv's
     ``dotenv_values`` and written into ``environ`` in turn, so a later file
     wins on a key both set. Every key is applied except those
-    :func:`is_shell_only_env_var` names: for those ``environ`` keeps exactly
+    :func:`_is_shell_only_env_var` names: for those ``environ`` keeps exactly
     what it held (set, or absent), and one warning per file names the ignored
     keys — never their values.
 
@@ -495,7 +492,7 @@ def apply_env_chain(
         for name, value in dotenv_values(path).items():
             if value is None:
                 continue
-            if is_shell_only_env_var(name):
+            if _is_shell_only_env_var(name):
                 ignored.append(name)
                 continue
             if name in preset:
@@ -531,7 +528,7 @@ def load_project_dotenv() -> None:
     a stale shell export. Every key in the files is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
     error. The one exception is the shell-only launch variables
-    (:func:`is_shell_only_env_var`): :func:`apply_env_chain` leaves them as the
+    (:func:`_is_shell_only_env_var`): :func:`apply_env_chain` leaves them as the
     shell set them and warns.
 
     The chain is ``.env.shared`` then ``.env``
@@ -583,7 +580,7 @@ def load_project_dotenv() -> None:
         pinned = merge_chain(repo_root)
         for name, value in pinned.items():
             if (
-                not is_shell_only_env_var(name)
+                not _is_shell_only_env_var(name)
                 and name in os.environ
                 and os.environ[name] != value
                 and name not in _dotenv_shell_overrides

@@ -2,8 +2,8 @@
 
 ``docs/source/how-to/deploy-project/env-chain.rst`` tells a deployer which
 variables the ``.env`` chain never applies. The refusal itself lives in
-:data:`osprey_connectors.config.SHELL_ONLY_ENV_VARS` and
-:data:`osprey_connectors.config.SHELL_ONLY_ENV_PREFIXES`. The paragraph names
+:data:`osprey_connectors.config._SHELL_ONLY_ENV_VARS` and
+:data:`osprey_connectors.config._SHELL_ONLY_ENV_PREFIXES`. The paragraph names
 most entries literally and covers the rest with a phrase for a whole group, so
 each direction is checked here: every refused name or prefix is on the page,
 and every name the page lists is refused.
@@ -18,9 +18,9 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors.config import (
-    SHELL_ONLY_ENV_PREFIXES,
-    SHELL_ONLY_ENV_VARS,
-    is_shell_only_env_var,
+    _SHELL_ONLY_ENV_PREFIXES,
+    _SHELL_ONLY_ENV_VARS,
+    _is_shell_only_env_var,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -108,12 +108,12 @@ def _collapsed() -> str:
     return " ".join(_paragraph().split())
 
 
-@pytest.mark.parametrize("prefix", sorted(SHELL_ONLY_ENV_PREFIXES))
+@pytest.mark.parametrize("prefix", sorted(_SHELL_ONLY_ENV_PREFIXES))
 def test_every_shell_only_prefix_is_on_the_page(prefix: str) -> None:
     assert prefix in _literals(), f"{_PAGE} does not name the refused prefix ``{prefix}``"
 
 
-@pytest.mark.parametrize("name", sorted(SHELL_ONLY_ENV_VARS))
+@pytest.mark.parametrize("name", sorted(_SHELL_ONLY_ENV_VARS))
 def test_every_shell_only_name_is_on_the_page(name: str) -> None:
     if name in _literals():
         return
@@ -127,5 +127,5 @@ def test_every_shell_only_name_is_on_the_page(name: str) -> None:
 def test_every_name_the_paragraph_lists_is_refused() -> None:
     listed = sorted(n for n in _literals() if _UPPER_NAME_PATTERN.match(n))
     assert listed, f"{_PAGE} launch-variable paragraph lists no names"
-    not_refused = [n for n in listed if not is_shell_only_env_var(n)]
+    not_refused = [n for n in listed if not _is_shell_only_env_var(n)]
     assert not not_refused, f"{_PAGE} lists names the env chain does not refuse: {not_refused}"
