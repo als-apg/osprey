@@ -27,6 +27,15 @@ failed test used once every worker is down. A worker the controller does not
 hear down from cleanly leaves what it used unknown, and every shared tree is
 kept.
 
+A run takes a temporary root of its own when it starts: on the controller or
+a serial run, with no ``PYTEST_DEBUG_TEMPROOT`` set by the caller, a fresh
+directory under the system temp directory is exported in that variable, so
+the run's base temp, every xdist worker's and every pytest it starts sit in it
+and no other pytest process on the host prunes or removes what it holds. At
+the end of the session the root goes when nothing below its
+``pytest-of-<user>`` is a directory; otherwise it stays and its path is
+printed. A variable the caller set is kept and nothing is made.
+
 Registered as a plugin for the reason
 ``packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_env_scope_guard.py``
 gives:
@@ -44,6 +53,15 @@ from pathlib import Path
 import pytest
 
 PLUGIN_NAME = "osprey-scoped-temp"
+
+#: The variable pytest reads its temporary root from.
+TEMPROOT_VAR = "PYTEST_DEBUG_TEMPROOT"
+
+#: The temporary root this run made for itself and exported in ``TEMPROOT_VAR``.
+_RUN_ROOT = pytest.StashKey[Path]()
+
+#: Set when the run's root outlives the session because something is kept in it.
+_ROOT_KEPT = pytest.StashKey[Path]()
 
 #: Directories each live fixture's setup made, by fixture definition.
 _MADE: dict[pytest.FixtureDef, list[Path]] = {}
@@ -92,8 +110,12 @@ def shared_dir(tmp_path_factory: pytest.TempPathFactory, name: str) -> Path:
     return path
 
 
-def pytest_configure():
+def pytest_configure(config):
     global _UNWRAPPED_MKTEMP
+    if not hasattr(config, "workerinput") and TEMPROOT_VAR not in os.environ:
+        root = Path(tempfile.mkdtemp(prefix="osprey-pytest-", dir=tempfile.gettempdir())).resolve()
+        os.environ[TEMPROOT_VAR] = str(root)
+        config.stash[_RUN_ROOT] = root
     # A pytest run inside this one finds mktemp already wrapped and leaves it be.
     if pytest.TempPathFactory.mktemp is _recording_mktemp:
         return
@@ -101,8 +123,11 @@ def pytest_configure():
     pytest.TempPathFactory.mktemp = _recording_mktemp
 
 
-def pytest_unconfigure():
+def pytest_unconfigure(config):
     global _UNWRAPPED_MKTEMP
+    if config.stash.get(_RUN_ROOT, None) is not None:
+        del config.stash[_RUN_ROOT]
+        os.environ.pop(TEMPROOT_VAR, None)
     if _UNWRAPPED_MKTEMP is not None:
         pytest.TempPathFactory.mktemp = _UNWRAPPED_MKTEMP
         _UNWRAPPED_MKTEMP = None
@@ -176,8 +201,13 @@ def pytest_testnodedown(node, error):
     _NODES_DOWN[node.gateway.id] = report
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session):
-    """Report the shared trees to the controller, or remove them on it."""
+    """Report the shared trees to the controller, or remove them on it, then settle the root.
+
+    Runs after pytest's own ``tmpdir`` plugin, which has removed a green run's
+    base temp by then.
+    """
     config = session.config
     if hasattr(config, "workeroutput"):
         config.workeroutput[PLUGIN_NAME] = {
@@ -185,7 +215,14 @@ def pytest_sessionfinish(session):
             "kept": sorted(set().union(*_CONSUMED_BY_FAILED.values())),
         }
         return
-    if hasattr(config, "workerinput") or not _NODES_READY:
+    if hasattr(config, "workerinput"):
+        return
+    _remove_shared_trees(config)
+    _settle_run_root(config)
+
+
+def _remove_shared_trees(config: pytest.Config) -> None:
+    if not _NODES_READY:
         return
     reports = [_NODES_DOWN.get(node) for node in sorted(_NODES_READY)]
     policy = config.getini("tmp_path_retention_policy")
@@ -196,3 +233,24 @@ def pytest_sessionfinish(session):
         for argname, path in report["made"]:
             if argname not in kept:
                 shutil.rmtree(path, ignore_errors=True)
+
+
+def _settle_run_root(config: pytest.Config) -> None:
+    """Remove the run's root when it keeps nothing, or print where it is."""
+    root = config.stash.get(_RUN_ROOT, None)
+    if root is None or not root.is_dir():
+        return
+    # The shared build's record and lock files sit beside the base temps; only
+    # a directory is something a test left to read.
+    kept = any(entry.is_dir() for top in root.iterdir() if top.is_dir() for entry in top.iterdir())
+    if kept:
+        config.stash[_ROOT_KEPT] = root
+    else:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    """Name the run's root when it outlives the session."""
+    root = config.stash.get(_ROOT_KEPT, None)
+    if root is not None:
+        terminalreporter.write_line(f"temporary trees kept under {root}")
