@@ -30,7 +30,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.build_profile import list_presets, resolve_build_profile
-from osprey.cli.build_profile_presets import _presets_dir
+from osprey.cli.build_profile_presets import _presets_dir, resolve_service_template
 from osprey.cli.init_cmd import init
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
@@ -313,9 +313,9 @@ def test_preset_drift_guard() -> None:
 
     A service template path resolves relative to profile_dir,
     which for presets is the wheel-installed package directory. Any preset
-    adding these will silently fail at install time. Catch it here. A service
-    that names a bundled template (``template: osprey.<name>``) carries no path
-    and is resolved from the framework's own templates.
+    adding these will silently fail at install time. Catch it here. Every
+    preset service is checked against the rule the build applies: its
+    template resolves to a bundled template OSPREY ships.
     """
     import importlib.resources
 
@@ -327,9 +327,10 @@ def test_preset_drift_guard() -> None:
         raw = yaml.safe_load(yml.read_text(encoding="utf-8")) or {}
         for name, service in (raw.get("services") or {}).items():
             template = (service or {}).get("template", "")
-            assert str(template).startswith("osprey."), (
-                f"{yml.name}: service {name!r} must name a bundled template "
-                f"(a template path would break in the wheel)"
+            source = resolve_service_template(presets_dir, str(template))
+            assert source.bundled and source.exists, (
+                f"{yml.name}: service {name!r} template {template!r} must name a "
+                f"bundled template OSPREY ships (a template path would break in the wheel)"
             )
 
 
