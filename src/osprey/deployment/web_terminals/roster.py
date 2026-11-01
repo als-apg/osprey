@@ -1646,7 +1646,10 @@ _ACCESS_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklm
 
 # Quoted in every refusal below, so an operator who trips one learns the whole
 # vocabulary rather than only which member was wrong.
-_ACCESS_MEMBERS = "'self', 'roster', 'user:<id>' or 'domain:<domain>'"
+_ACCESS_MEMBERS = "'self', 'roster', 'user:<id>', 'domain:<domain>' or 'tier:<tier>'"
+
+#: The prefix of a principal naming every roster login of one tier.
+TIER_PRINCIPAL_PREFIX = "tier:"
 
 #: The resolved set every owner-only spelling comes to — `access: own`, an
 #: unwritten key, an `access:` with nothing after it, and the explicit
@@ -1682,6 +1685,8 @@ def _access_entry_label(entry: Mapping[str, Any]) -> str:
         way so the message stands on its own.
     """
     name = entry.get("name")
+    if isinstance(name, str) and name and entry.get("kind") == APP_ENTRY_KIND:
+        return f"modules.web_terminals.shared app {name!r}"
     if isinstance(name, str) and name:
         return f"modules.web_terminals.users entry {name!r}"
     index = entry.get("index")
@@ -1731,7 +1736,7 @@ def _access_principal(member: Any, entry_label: str) -> str:
             "people individually with 'user:<id>', or admit their whole domain with "
             "'domain:<domain>'"
         )
-    if prefix in ("user", "domain") and "$" in member:
+    if prefix in ("user", "domain", "tier") and "$" in member:
         # Both prefixes at once, because the reason is the transport and not
         # the kind: the resolved member is written into the deployment's
         # compose file, and compose interpolates `$NAME`/`${NAME}` in a value
@@ -1781,6 +1786,14 @@ def _access_principal(member: Any, entry_label: str) -> str:
                 "would match nobody. Write the punycode spelling of the domain"
             )
         return f"domain:{value.translate(_ACCESS_ASCII_LOWER)}"
+    if prefix == "tier":
+        if not value or any(character.isspace() or character == ":" for character in value):
+            raise ValueError(
+                f"{entry_label} has an access member "
+                f"{member!r} naming no tier. Write the name of a tier the roster uses, "
+                "e.g. 'tier:admin'"
+            )
+        return member
     unknown = f"{prefix}:"
     raise ValueError(
         f"{entry_label} has an access member {member!r} "
@@ -1955,7 +1968,13 @@ def entry_is_shared(entry: dict[str, Any]) -> bool:
             The predicate refuses rather than answering: a value no consumer
             understands must not be read as an owner-only card here while
             another surface reads it as admitting somebody.
+
+    A shared app card is shared whatever its ``access`` says: it belongs to no
+    user of its own, so answering it never needs to parse the value, and a
+    malformed one is lint's to report rather than every reader's to raise on.
     """
+    if is_app_entry(entry):
+        return True
     return resolve_access_principals(entry) != _OWNER_ONLY
 
 
@@ -2128,17 +2147,22 @@ def roster_entries(
     """Every card a ``modules.web_terminals`` subtree runs: people, then shared logins.
 
     The people are :func:`roster_people`, byte for byte. After them comes one
-    derived entry per name in ``shared:``::
+    derived entry per item in ``shared:``::
 
         {"kind": "app", "name": <login>, "app": <login>,
          "index": INDEX_MAX - <position in shared>,
-         "display_name": <the login's title>, "access": "any"}
+         "display_name": <the login's title>, "access": <the item's access>}
+
+    An item is a login name, which opens the card to the whole roster
+    (``access: any``), or a mapping ``{name: <login>, access: <principals>}``
+    whose ``access`` is authored exactly as a person's is (see
+    :func:`resolve_access_principals`) and carried through verbatim.
 
     The derived slots count down from the top of the family band, so adding
     people never moves an app and adding an app never moves a person.
     Reordering or removing an app may move the later apps' slots; nothing on a
     card is keyed by its port. A ``shared:`` item that is not a non-empty
-    string derives nothing but keeps its position, so the apps after it keep
+    string or such a mapping derives nothing but keeps its position, so the apps after it keep
     their slots; lint reports the item. Duplicates and names that collide with
     a person are derived as written and are lint's to report, not this
     reader's to hide.
@@ -2164,8 +2188,9 @@ def roster_entries(
     entries = roster_people(subtree, strict=strict)
     shared = subtree.get("shared")
     titles = shared_titles or {}
-    for position, name in enumerate(shared if isinstance(shared, list) else []):
-        if not isinstance(name, str) or not name:
+    for position, item in enumerate(shared if isinstance(shared, list) else []):
+        name = shared_app_name(item)
+        if name is None:
             continue
         title = titles.get(name)
         entries.append(
@@ -2175,10 +2200,59 @@ def roster_entries(
                 "app": name,
                 "index": INDEX_MAX - position,
                 "display_name": title if isinstance(title, str) and title else name,
-                "access": "any",
+                "access": item.get("access", "any") if isinstance(item, Mapping) else "any",
             }
         )
     return entries
+
+
+def shared_app_name(item: Any) -> str | None:
+    """The app a ``shared:`` item names, or ``None`` when it names none.
+
+    An item is either the app's name or a mapping carrying it under ``name``;
+    anything else derives no card, and lint reports it.
+    """
+    if isinstance(item, Mapping):
+        item = item.get("name")
+    return item if isinstance(item, str) and item else None
+
+
+def expand_tier_principals(
+    principals: frozenset[str], cards: Iterable[Mapping[str, Any]]
+) -> frozenset[str]:
+    """Replace each ``tier:<name>`` principal with that tier's people.
+
+    The login service compares identities and knows no tiers, so a ``tier:``
+    member is spelled out at render as one ``user:<oidc_subject>`` per roster
+    person whose resolved render is that tier. A person with no ``oidc_subject``
+    has no identity to admit and contributes nothing; lint reports a tier that
+    contributes nobody at all. Every other principal passes through.
+
+    Args:
+        principals: A resolved principal set.
+        cards: :func:`resolve_cards`' output (``name``, ``render``,
+            ``oidc_subject``, ``kind``).
+
+    Returns:
+        The set with every ``tier:`` member replaced.
+    """
+    tiers = {
+        member[len(TIER_PRINCIPAL_PREFIX) :]
+        for member in principals
+        if member.startswith(TIER_PRINCIPAL_PREFIX)
+    }
+    if not tiers:
+        return principals
+    members = {
+        f"user:{card['oidc_subject']}"
+        for card in cards
+        if not is_app_entry(card)
+        and card.get("render") in tiers
+        and isinstance(card.get("oidc_subject"), str)
+        and card["oidc_subject"]
+    }
+    kept = {member for member in principals if not member.startswith(TIER_PRINCIPAL_PREFIX)}
+    return frozenset(kept | members)
 
 
 def app_card_refusal(name: str) -> str:

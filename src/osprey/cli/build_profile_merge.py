@@ -1001,20 +1001,20 @@ def shared_login_names(host: dict[str, Any]) -> frozenset[str]:
 
     Every roster login opens these, so each one is sealed read-only
     (:func:`seal_shared_render`). Read from the host's resolved ``config:`` in
-    any spelling; an item that is not a non-empty string names nothing.
+    any spelling; an item that names no login (:func:`shared_app_name`) names
+    nothing.
 
     Args:
         host: The host's resolved root profile.
     """
+    from osprey.deployment.web_terminals.roster import shared_app_name
+
     from .build_profile_emit import effective_web_terminals
 
     config = host.get("config")
     shared = effective_web_terminals(config if isinstance(config, dict) else {}).get("shared")
-    return frozenset(
-        name
-        for name in (shared if isinstance(shared, list) else [])
-        if isinstance(name, str) and name
-    )
+    names = (shared_app_name(item) for item in (shared if isinstance(shared, list) else []))
+    return frozenset(name for name in names if name is not None)
 
 
 def is_shared_login(host: dict[str, Any], layer_rel: str) -> bool:

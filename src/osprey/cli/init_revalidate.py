@@ -1132,8 +1132,11 @@ def _move_users_to_shared(
             preset.shared_lead,
         )
     else:
+        from osprey.deployment.web_terminals.roster import shared_app_name
+
         seq = container[shared_key]
-        fresh = [name for name in order if name not in seq]
+        present = {shared_app_name(item) for item in seq}
+        fresh = [name for name in order if name not in present]
         for offset, name in enumerate(fresh):
             seq.insert(offset, name)
         order = fresh

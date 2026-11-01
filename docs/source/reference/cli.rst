@@ -607,6 +607,11 @@ these verbs act on that roster, which lives in the profile. Every verb takes
      - Change one user's login password (password authentication only).
        Prompts without echoing, and ends that user's sessions.
      - —
+   * - ``list [USER]``
+     - Show every card, what it runs and who may open it, with a grid of
+       logins against shared cards. Name a login for what it may open, or a
+       card for who may open it. Reads only.
+     - ``--json``, ``--live``
    * - ``login-url USER``
      - Print the URL that opens that user's terminal under ``auth.method:
        token``. Only the URL goes to stdout, so it can be piped or copied.
@@ -625,6 +630,16 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``-y, --yes`` -- Assume yes to confirmation prompts.
 
 ``--dry-run`` -- Show what would happen without making changes.
+
+``osprey users list`` joins the rendered roster, shared logins and each
+render's ``control_system.writes`` by the rules the render and the login service
+apply.
+``--live`` adds container state and last sign-in from the running stack; off the
+host, or with the stack down, those read as a dash. Sign-ins come from the agent
+record, in UTC, so a dash there means the record holds none, not that the person
+never signed in. The grid appears only under
+``password`` and ``oidc``, the two methods that enforce ``access``; under
+``none`` and ``token`` the command says what opens a card instead.
 
 ``osprey users login-url`` builds the URL from that user's operator secret in
 the repository's ``.env``, which ``osprey up`` mints for every roster user in
@@ -660,6 +675,7 @@ secrets go to the job log.
 
    osprey users remove alice --archive
    osprey users prune --dry-run
+   osprey users list
    osprey users seed alice
    osprey users passwd alice
    osprey users login-url alice

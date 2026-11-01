@@ -244,74 +244,94 @@ describe('auto-resume failover window', () => {
   });
 });
 
-describe('transcript missing: an explicit state, never a dead PTY', () => {
-  // routes/websocket.py refuses to resume an id whose transcript is gone and
-  // says so with a `transcript_missing` frame (before spawning, or after a
-  // `--resume` child reports `No conversation found` and exits). The client
-  // must render that state, drop the stale pointer, and hand the operator a
-  // way to start fresh — deliberately, not by silently respawning.
+describe('transcript missing: a new session, said out loud, never a dead PTY', () => {
+  // routes/websocket.py refuses to resume an id with no live PTY, no chat and no
+  // transcript, and says so with a `transcript_missing` frame (before spawning,
+  // or after a `--resume` child reports `No conversation found` and exits). The
+  // usual cause is a terminal opened and never prompted, since the CLI writes
+  // the transcript on the first prompt, whose PTY did not survive a restart:
+  // nothing was lost. So the client drops the stale pointer, says what happened
+  // and starts a session; there is nothing for the operator to decide.
 
-  test('auto-resume: the stale pointer is dropped and the socket is not reconnected', () => {
+  test('auto-resume: a new session starts with no key press', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
     terminal.initTerminal('terminal-container');
     openSocket();
     const socketsBefore = FakeWebSocket.created;
-    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+    const refused = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
 
     receive({ type: 'transcript_missing', session_id: 'gone-id' });
 
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
-    expect(terminal.getCurrentSessionId()).toBeNull();
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
-  });
-
-  test('the state is written to the terminal with the way forward', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-
-    const written = /** @type {FakeTerminal} */ (FakeTerminal.last).written;
-    expect(written).toContain('gone-id');
-    expect(written).toMatch(/transcript/i);
-    expect(written).toMatch(/Enter/);
-    expect(written).not.toContain('[Process exited');
-  });
-
-  test('Enter starts a fresh session; other keys do not', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    const socketsBefore = FakeWebSocket.created;
-
-    press('x');
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-
-    press('\r');
+    expect(refused.readyState).toBe(FakeWebSocket.CLOSED);
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
     const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
     expect(url).not.toContain('session_id=');
     expect(url).not.toContain('mode=resume');
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  test('Enter is one-shot: keystrokes after the fresh start reach the new socket', () => {
+  test('the state is said in the terminal, and asks nothing', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    openSocket();
+
+    const written = /** @type {FakeTerminal} */ (FakeTerminal.last).written;
+    expect(written).toContain('gone-id');
+    expect(written).toMatch(/transcript/i);
+    expect(written).not.toMatch(/Enter/);
+    expect(written).not.toContain('[Process exited');
+  });
+
+  test('the note outlives the reset the new connection opens with', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
     terminal.initTerminal('terminal-container');
     openSocket();
     receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    press('\r');
+    const fake = /** @type {FakeTerminal} */ (FakeTerminal.last);
+    const reset = vi.spyOn(fake, 'reset').mockImplementation(() => {
+      fake.written = '';
+    });
+
     openSocket();
+
+    expect(reset).toHaveBeenCalled();
+    expect(fake.written).toContain('gone-id');
+  });
+
+  test('the note is said once, not on every later connection', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    openSocket();
+    const fake = /** @type {FakeTerminal} */ (FakeTerminal.last);
+    fake.written = '';
+
+    terminal.stopTerminal();
+    terminal.startTerminal();
+    openSocket();
+
+    expect(fake.written).not.toContain('gone-id');
+  });
+
+  test('keystrokes reach the new session, and Enter starts nothing else', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
 
     press('ls\r');
 
-    const sent = /** @type {FakeWebSocket} */ (FakeWebSocket.last).sent;
-    expect(sent).toContain('ls\r');
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('ls\r');
   });
 
-  test('an explicit resume (sessions.js resumeSession) gets the same state', () => {
+  test('an explicit resume (sessions.js resumeSession) gets the same answer', () => {
     terminal.initTerminal('terminal-container');
     openSocket();
     receive({ type: 'session_info', session_id: 'first-id' });
@@ -323,10 +343,24 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
     receive({ type: 'transcript_missing', session_id: 'gone-explicit-id' });
 
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
-    expect(terminal.getCurrentSessionId()).toBeNull();
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    press('\r');
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).url).not.toContain('session_id=');
+  });
+
+  test('a reconnect refused after a restart gets the same answer', () => {
+    // A terminal left open across a restart reconnects to its own session URL.
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'never-prompted' });
+    terminal.stopTerminal();
+    terminal.startTerminal('never-prompted', 'resume');
+    openSocket();
+    const socketsBefore = FakeWebSocket.created;
+
+    receive({ type: 'transcript_missing', session_id: 'never-prompted' });
+
+    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    expect(terminal.getCurrentSessionId()).toBeNull();
   });
 
   test.each([['expert'], ['simple']])(
@@ -354,29 +388,13 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
       expect(socket.sent).toContain('\r');
     }
   );
-
-  test('a fresh start from elsewhere disarms Enter', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-
-    // The picker's "New session" (sessions.js) ends in startTerminal().
-    terminal.startTerminal();
-    openSocket();
-    const socketsBefore = FakeWebSocket.created;
-    press('\r');
-
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('\r');
-  });
 });
 
 describe('a refused own-resume in Simple view', () => {
   // The block above pins the Expert answer to this same frame: say what
-  // happened, then wait for Enter. Simple view hides the terminal entirely, so
-  // both halves of that answer would land in a window nobody can see or reach.
-  // Nor is anything started in its place: the chat is the surface there, it is
+  // happened and start a new session. Simple view hides the terminal entirely,
+  // so neither half of that answer applies. The note would land in a window
+  // nobody can see, and nothing is started: the chat is the surface there, it is
   // bound to the same key, and a hidden terminal spawning the session's agent
   // would take the conversation away from it. The pointer is that shared key,
   // so it survives too — clearing it is how this client says "this

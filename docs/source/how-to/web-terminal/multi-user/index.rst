@@ -103,10 +103,11 @@ the simulator, and an *admin* tier, separated by whether it may change the
 deployment it runs in. :doc:`Privilege Tiers <tiers>` lays out what each one
 carries and what makes the boundary hold.
 
-**A shared login is opened by everyone on the roster.** A file in ``tiers/``
-that ``shared:`` names renders like any other login, sealed read-only on the
-machine. The preset's three say ``lists: own``, so each is a complete agent of
-its own on the deployment's services:
+**A shared login is opened by everyone on the roster,** or only by the
+principals its ``shared:`` entry names. A file in ``tiers/`` that ``shared:``
+names renders like any other login, sealed read-only on the machine. The
+preset's three say ``lists: own``, so each is a complete agent of its own on
+the deployment's services:
 ``logbook`` searches and synthesises the logbook from the same PostgreSQL the
 operators write to; ``knowledge`` answers how the machine is built from the
 facility knowledge graph, the channel finder and the knowledge bundle;

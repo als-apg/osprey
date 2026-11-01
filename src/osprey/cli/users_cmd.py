@@ -23,9 +23,11 @@ lands in the zone it belongs in — see :func:`_users_session` for the list.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -543,13 +545,126 @@ def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Rep
         os.chdir(previous_cwd)
 
 
+def _table(rows: Sequence[Sequence[str]], *, indent: str = "  ") -> None:
+    """Print rows as aligned columns, the first row bold."""
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    for number, row in enumerate(rows):
+        line = indent + "  ".join(
+            cell.ljust(width) for cell, width in zip(row, widths, strict=True)
+        )
+        report(line.rstrip(), style=Styles.BOLD if number == 0 else None)
+
+
+def _card_row(card: dict[str, Any], *, live: bool) -> list[str]:
+    """One card's cells for the people and apps tables."""
+    who = card["identity"] or card["display_name"] or "—"
+    opened_by = card["opened_by"]
+    if card["control_identity"]:
+        opened_by += f"  (control id: {card['control_identity']})"
+    row = [
+        card["name"],
+        who,
+        card["render"] or "—",
+        card["writes"] or "—",
+        str(card["port"] or "—"),
+    ]
+    if live:
+        row += [card["state"] or "—", _sign_in_cell(card["last_sign_in"])]
+    return [*row, opened_by]
+
+
+def _sign_in_cell(when: str | None) -> str:
+    """A record timestamp in UTC to the minute, or a dash when the record has none."""
+    if not when:
+        return "—"
+    moment = datetime.fromisoformat(when).astimezone(UTC)
+    return moment.strftime("%Y-%m-%d %H:%M")
+
+
+def _print_roster(document: dict[str, Any]) -> None:
+    """The cards tables, the access grid and the footer."""
+    auth = document["auth"]
+    live = "live" in document
+    sign_in = auth["method"] + (f" (claim {auth['claim']})" if auth["claim"] else "")
+    report(
+        f"{document['deployment']} · sign-in: {sign_in} · default tier: {document['default_tier']}"
+    )
+    columns = ["render", "writes", "port"]
+    if live:
+        columns += ["state", "last sign-in (UTC)"]
+    columns.append("opened by")
+    for title, kind, label in (("PEOPLE", "user", "identity"), ("SHARED APPS", "app", "title")):
+        cards = [card for card in document["cards"] if card["kind"] == kind]
+        if cards:
+            report("")
+            report(title)
+            _table([["card", label, *columns], *(_card_row(card, live=live) for card in cards)])
+
+    if not auth["enforced"]:
+        report("")
+        report(
+            f"ACCESS is not enforced under auth.method {auth['method']}: "
+            + (
+                "anyone who reaches the front door opens every card."
+                if auth["method"] == "none"
+                else "a card opens to whoever holds its URL."
+            )
+        )
+    elif document["people"]:
+        shared = [card["name"] for card in document["cards"] if card["shared"]]
+        rows = [["WHO CAN OPEN WHAT", "render", "own", *shared]]
+        for person in document["people"]:
+            opens = person["opens"]
+            cells = ["●" if name in opens else "·" for name in [person["name"], *shared]]
+            rows.append([person["name"], person["render"] or "—", *cells])
+        report("")
+        _table(rows, indent="")
+        off_roster = document["off_roster"]
+        if off_roster:
+            for name, members in off_roster.items():
+                report(f"off the roster: {name} also opens to {', '.join(members)}")
+        else:
+            report("not on the roster: nothing")
+    if document["unused_tiers"]:
+        names = ", ".join(document["unused_tiers"])
+        report("")
+        report(f"unused tiers: {names} (renders, no login runs it)")
+    if live and not document["live"]["sign_ins_available"]:
+        report("")
+        report("last sign-in: unavailable (no running agent record answered)")
+
+
+def _print_one(document: dict[str, Any], name: str) -> None:
+    """One login's reach, or who may open one card."""
+    person = next((p for p in document["people"] if p["name"] == name), None)
+    card = next(c for c in document["cards"] if c["name"] == name)
+    live = "live" in document
+    report(f"{name} · render: {card['render'] or '—'} · writes: {card['writes'] or '—'}")
+    if card["identity"]:
+        report(f"identity: {card['identity']}")
+    if card["control_identity"]:
+        report(f"control id: {card['control_identity']}")
+    if live:
+        report(f"state: {card['state'] or '—'}")
+        report(f"last sign-in (UTC): {_sign_in_cell(card['last_sign_in'])}")
+    if not document["auth"]["enforced"]:
+        report(f"access is not enforced under auth.method {document['auth']['method']}")
+        return
+    if person is not None:
+        report(f"opens: {', '.join(person['opens'])}")
+    else:
+        openers = [p["name"] for p in document["people"] if name in p["opens"]]
+        report(f"opened by: {card['opened_by']}")
+        report(f"logins: {', '.join(openers) or 'none'}")
+
+
 @click.group()
 def users() -> None:
     """Manage this repo's web-terminal users.
 
     A multi-user deployment gives each person on the roster their own web
     terminal, container and workspace volumes. These verbs act on that roster:
-    remove one person, clear out the ones who already left, re-seed workspaces,
+    list who can open what, remove one person, clear out the ones who already left, re-seed workspaces,
     rotate a login password, hand one person the URL that opens their terminal,
     and render the env file the terminals run with.
 
@@ -559,6 +674,7 @@ def users() -> None:
     Examples:
 
     \b
+      $ osprey users list
       $ osprey users remove alice --archive
       $ osprey users prune --dry-run
       $ osprey users prune --purge --yes
@@ -816,6 +932,68 @@ def seed(user: str | None, repo: Path | None) -> None:
         # never prepared for a terminal that has no way to be reached.
         _mint_terminal_secrets(session)
         seed_web_terminals(session.config, user)
+
+
+@users.command("list")
+@click.argument("user", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Print one JSON document on stdout.")
+@click.option(
+    "--live",
+    is_flag=True,
+    help="Add each card's container state and last sign-in, read from the running stack.",
+)
+@repo_option
+def list_users(user: str | None, as_json: bool, live: bool, repo: Path | None) -> None:
+    """Show who is on the roster and who can open which card.
+
+    Prints every card (the people's and the shared apps'), what each runs, and a
+    grid of who may open what, joined from the rendered config by the same rules
+    the render and the login service apply. Reads only; changes nothing.
+
+    Name USER to answer for one login or card: the cards a login may open, or
+    the logins that may open a card.
+
+    Examples:
+
+    \b
+      $ osprey users list
+      $ osprey users list alice
+      $ osprey users list --live
+      $ osprey users list --json
+    """
+    with (
+        machine_mode() if as_json else nullcontext(),
+        _users_session(repo, announce=False) as session,
+    ):
+        from osprey.deployment.compose_generator import resolve_project_name
+        from osprey.deployment.web_terminals.roster import login_titles_in
+        from osprey.deployment.web_terminals.roster_report import (
+            attach_live,
+            build_roster_report,
+        )
+        from osprey.utils.workspace import TIERS_DIRNAME
+        from osprey_connectors.config import load_project_config
+
+        config = load_project_config(session.config)
+        document = build_roster_report(
+            config,
+            session.root,
+            project_name=resolve_project_name(config),
+            shared_titles=login_titles_in(session.root / TIERS_DIRNAME),
+        )
+        if live:
+            attach_live(document, config, session.root)
+        if user is not None and not any(c["name"] == user for c in document["cards"]):
+            fail(f"No card named {user!r}", "Run `osprey users list` for the roster.")
+            raise click.Abort()
+        if as_json:
+            if user is not None:
+                document["selected"] = user
+            click.echo(json.dumps(document, indent=2))
+        elif user is not None:
+            _print_one(document, user)
+        else:
+            _print_roster(document)
 
 
 @users.command("login-url")

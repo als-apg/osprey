@@ -21,7 +21,7 @@ let currentSessionId = null;
 // routes/websocket.py carrying the id ACTUALLY attached. A resume of an id
 // with no live PTY and no transcript on disk gets 'transcript_missing'
 // instead, and nothing is spawned for it — see that branch in onMessage
-// below, which renders the state and arms Enter to start fresh. The
+// below, which says so and starts a new session. The
 // 'session_info' branch treats the confirmation as ground truth: a mismatch
 // clears the stored id (the isStaleResumeMismatch check there) instead of
 // leaving a dead id in localStorage. The two timers in startTerminal() and
@@ -51,11 +51,11 @@ const RESUME_FAILOVER_WINDOW_MS = 10000;
 /** @type {string|null} */
 let autoResumeFailoverId = null;
 
-// Set by the 'transcript_missing' branch in onMessage once this connection's
-// own resume has been refused and the socket dropped: the terminal shows the
-// state and the next Enter starts a fresh session. Every startTerminal()
-// disarms it, so a fresh start from the picker or the palette wins too.
-let freshStartArmed = false;
+// Set by the 'transcript_missing' branch in onMessage, written by the new
+// socket's onOpen after its term.reset() (which would erase it), then cleared
+// so it is said exactly once.
+/** @type {string|null} */
+let pendingNote = null;
 
 /**
  * Read the tab's session pointer. Returns null if none is stored.
@@ -234,14 +234,8 @@ export function initTerminal(containerId) {
   requestAnimationFrame(() => fitAddon.fit());
   document.fonts.ready.then(() => fitAddon.fit());
 
-  // Forward keystrokes to WebSocket — unless the terminal is showing a
-  // refused resume, where Enter is the operator's deliberate fresh start and
-  // there is no PTY for anything else to reach.
+  // Forward keystrokes to WebSocket
   term.onData((/** @type {string} */ data) => {
-    if (freshStartArmed) {
-      if (data.includes('\r')) startTerminal();
-      return;
-    }
     if (wsConnection) wsConnection.send(data);
   });
 
@@ -325,7 +319,6 @@ export function startTerminal(
   // refuses the PTY socket, so no caller — a session pick, a settings apply,
   // a restart — opens one.
   if (!expertViewOffered()) return Promise.resolve();
-  freshStartArmed = false;
 
   // Resolved by whichever answer arrives first. Resolving is idempotent, so
   // every settling point below can call it without checking the others.
@@ -369,6 +362,10 @@ export function startTerminal(
         term.reset();
       }
       hasConnectedBefore = true;
+      if (pendingNote) {
+        term.write(pendingNote);
+        pendingNote = null;
+      }
 
       setConnectionIndicator(true);
 
@@ -467,10 +464,11 @@ export function startTerminal(
           } else if (msg.type === 'transcript_missing') {
             // The server refused to resume msg.session_id: no live PTY and no
             // transcript on disk, so nothing was spawned (or a --resume child
-            // reported the same and quit). Not a silent fresh session — the
-            // operator picked this chat, and starting another under them
-            // would hide that it is gone. Say so, and make the next move
-            // theirs.
+            // reported the same and quit). The usual cause is a terminal
+            // opened and never prompted whose PTY did not survive a restart:
+            // the CLI writes the transcript on the first prompt. Nothing is
+            // lost and there is nothing for the operator to decide, so the
+            // terminal says what happened and starts a session.
             autoResumeFailoverId = null;
             if (msg.session_id === currentSessionId) {
               // This connection's own resume. The pointer is the session key
@@ -486,19 +484,16 @@ export function startTerminal(
               currentSessionId = null;
               stopTerminal();
               setSessionLabel(null);
-              // Expert view can show what happened, so it does, and arms Enter
-              // to make the next move the operator's. Simple view hides the
-              // terminal, so both halves of that answer would land in a window
-              // nobody can see or reach — and nothing is started in its place
-              // either: the chat is the surface there, and a hidden terminal
-              // spawning the session's agent would take the conversation away
-              // from it.
+              // Expert view says what happened and starts a new session. Simple
+              // view hides the terminal, so a note would land in a window
+              // nobody can see — and nothing is started in its place either:
+              // the chat is the surface there, and a hidden terminal spawning
+              // the session's agent would take the conversation away from it.
+              // The note waits for onOpen: the new socket's term.reset() would
+              // erase it now.
               if (!isSimpleView()) {
-                term.write(
-                  `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed.\x1b[0m\r\n` +
-                    'Press Enter to start a new session.\r\n'
-                );
-                freshStartArmed = true;
+                pendingNote = `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed. Started a new session.\x1b[0m\r\n`;
+                startTerminal();
               }
             } else {
               // A refused switch_session: the server kept the current PTY
