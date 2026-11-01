@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 INDEX = REPO / "docs" / "source" / "index.rst"
 CSS = REPO / "docs" / "source" / "_static" / "custom.css"
 PLAYER = REPO / "docs" / "source" / "_static" / "js" / "doc-video.js"
+WATCHDOG_PAGE = REPO / "docs" / "source" / "how-to" / "safety-watchdogs.rst"
 
 
 def _block(page: Path = INDEX, marker: str = 'id="osprey-demo"') -> str:
@@ -261,3 +262,15 @@ def test_a_nested_block_follows_the_dark_theme(tmp_path: Path) -> None:
         browser.close()
         p.stop()
     assert poster == "../_static/demo/osprey-second-dark-poster.jpg"
+
+
+# --- the watchdog how-to carries the block ---------------------------------------
+
+
+def test_the_watchdog_block_names_its_light_take_and_the_shared_player() -> None:
+    html = _block(WATCHDOG_PAGE, 'id="osprey-watchdog"')
+    assert 'poster="../_static/demo/osprey-watchdog-light-poster.jpg"' in _video_tag(html)
+    assert '<source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">' in html
+    assert '<script src="../_static/js/doc-video.js"></script>' in html
+    assert "autoplay" not in _video_tag(html)
+    assert " hidden" in re.search(r'<div class="osprey-demo-speed"[^>]*>', html).group(0)
