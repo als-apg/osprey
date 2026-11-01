@@ -39,13 +39,16 @@ from typing import TYPE_CHECKING, Any
 
 from docs.screenshots import (
     capture,
+    video_chat,
     video_check_approval,
     video_check_stall,
     video_check_turn,
+    video_layout,
     video_overlay,
     video_probes,
 )
 from docs.screenshots.video_frames import FrameSink
+from docs.screenshots.video_layout import Layout
 from docs.screenshots.video_overlay import OVERLAY_JS
 from docs.screenshots.video_probes import ProbeFailed
 from docs.screenshots.video_timeline import Step, Timeline, step
@@ -156,6 +159,9 @@ class TakeContext:
     page: Any
     frames_dir: Path
     sink: FrameSink
+    # The layout the take was set up on; its view decides the console the
+    # beats drive (the terminal REPL or the operator chat).
+    layout: Layout | None = None
     session_id: str | None = None
     before_ids: set[str] = field(default_factory=set)
     cdp: Any = None
@@ -260,18 +266,33 @@ def _start_screencast(take: TakeContext) -> None:
     take.screencasting = True
 
 
-def start_take(browser: Browser | Any, stack: VideoStack, theme: str) -> TakeContext:
-    """Bootstrap one take in ``theme`` and return it with the screencast running.
+def _settle_chat(page: Any) -> None:
+    if not poll(page, lambda: video_chat.mounted(page), MOUNT_BUDGET_MS):
+        raise ProbeFailed("layout", "the Simple view's chat composer never mounted")
+    if not page.evaluate(DOCK_SETTLED_JS, SETTLE_BUDGET_MS):
+        raise ProbeFailed("layout", f"dock boot layout did not settle in {SETTLE_BUDGET_MS} ms")
 
-    The new take becomes ``stack.current`` as soon as its context exists, so a
-    take that fails part-way is still closed by the next call. Raises
-    :class:`ProbeFailed` naming the step that gave up.
+
+def start_take(
+    browser: Browser | Any, stack: VideoStack, theme: str, layout: Layout
+) -> TakeContext:
+    """Bootstrap one take in ``theme`` on *layout* and return it with the screencast running.
+
+    The expert view starts a fresh Claude Code terminal session and waits for
+    its REPL; the simple view gets a fresh chat session from the fresh browser
+    context (a new tab has no session pointer) and waits for the composer.
+    Either way the layout's sidebar entry and tiles are applied before the
+    console takes focus. The new take becomes ``stack.current`` as soon as its
+    context exists, so a take that fails part-way is still closed by the next
+    call. Raises :class:`ProbeFailed` naming the step that gave up.
     """
     if stack.current is not None:
         stack.current.close()
         stack.current = None
 
-    restart_terminal(stack)
+    expert = layout.view == "expert"
+    if expert:
+        restart_terminal(stack)
 
     frames_dir = stack.work_dir / theme / "frames"
     context = browser.new_context(viewport=dict(VIEWPORT))
@@ -284,9 +305,11 @@ def start_take(browser: Browser | Any, stack: VideoStack, theme: str) -> TakeCon
         page=page,
         frames_dir=frames_dir,
         sink=FrameSink(frames_dir),
+        layout=layout,
     )
     stack.current = take
-    page.on("websocket", _watch_session_info(take))
+    if expert:
+        page.on("websocket", _watch_session_info(take))
 
     token = urllib.parse.quote(stack.operator_secret, safe="")
     page.goto(
@@ -295,16 +318,22 @@ def start_take(browser: Browser | Any, stack: VideoStack, theme: str) -> TakeCon
         timeout=GOTO_TIMEOUT_MS,
     )
 
-    if not poll(page, lambda: take.session_id is not None, SESSION_INFO_BUDGET_MS):
-        raise ProbeFailed(
-            "session-info",
-            f"no session_info frame on {TERMINAL_WS_PATH} within {SESSION_INFO_BUDGET_MS} ms",
-        )
-
-    _settle_and_widen(page)
-
-    page.locator("#terminal-container").click(timeout=CLICK_TIMEOUT_MS)
-    video_probes.await_repl_ready(page)
+    if expert:
+        if not poll(page, lambda: take.session_id is not None, SESSION_INFO_BUDGET_MS):
+            raise ProbeFailed(
+                "session-info",
+                f"no session_info frame on {TERMINAL_WS_PATH} within {SESSION_INFO_BUDGET_MS} ms",
+            )
+        _settle_and_widen(page)
+        video_layout.apply(page, layout)
+        page.locator("#terminal-container").click(timeout=CLICK_TIMEOUT_MS)
+        video_probes.await_repl_ready(page)
+    else:
+        _settle_chat(page)
+        video_layout.apply(page, layout)
+        page.locator(video_chat.COMPOSER).click(timeout=CLICK_TIMEOUT_MS)
+        if not poll(page, lambda: video_chat.ready(page), MOUNT_BUDGET_MS):
+            raise ProbeFailed("layout", "the chat composer never became ready")
 
     take.before_ids = capture.artifact_ids(stack.artifact_port, stack.operator_secret)
     _start_screencast(take)
@@ -345,7 +374,9 @@ class Take:
 
     It holds what every video's beats share: the step plumbing that shows a
     beat's caption and stamps its span, the agent's turn state, the stall and
-    dialog watch, and the cursor, focus and typing actions. ``memo`` is where a
+    dialog watch, and the cursor, focus and typing actions. Each probe and
+    action reads the console of the take's view: the terminal's REPL in the
+    expert view, the operator chat in the simple view. ``memo`` is where a
     video's own beats keep what a later beat needs.
     """
 
@@ -357,6 +388,8 @@ class Take:
         self.transcript: Path | None = None
         self.submitted_at = 0.0
         self.memo: dict[str, Any] = {}
+        layout = ctx.layout
+        self.chat = layout is not None and layout.view == "simple"
 
     # -- step plumbing -----------------------------------------------------
 
@@ -380,7 +413,26 @@ class Take:
 
     # -- probes ------------------------------------------------------------
 
+    def screen(self) -> str:
+        """The console's text: the terminal screen, or the chat as shown."""
+        return video_chat.text(self.page) if self.chat else video_probes.xterm_text(self.page)
+
+    def tail(self) -> str:
+        """The console's last lines, for a failure message."""
+        if not self.chat:
+            return video_probes.terminal_tail(self.page)
+        try:
+            return video_probes.last_lines(self.screen(), DUMP_LINES)
+        except Exception as exc:
+            return f"(chat unreadable: {exc})"
+
     def turn(self) -> str:
+        if self.chat:
+            if video_chat.errored(self.page):
+                return "errored"
+            if self.ctx.session_id is None:
+                # The chat names its session once the first prompt is sent.
+                self.ctx.session_id = video_chat.session_id(self.page)
         if self.transcript is None and self.ctx.session_id:
             self.transcript = video_check_turn.transcript_path(
                 self.ctx.stack.build_dir,
@@ -407,7 +459,7 @@ class Take:
 
         def check() -> None:
             try:
-                screen = video_probes.xterm_text(self.page)
+                screen = self.screen()
             except Exception:
                 screen = ""
             dump = video_probes.last_lines(screen, DUMP_LINES)
@@ -437,7 +489,10 @@ class Take:
         locator.click(timeout=CLICK_TIMEOUT_MS)
 
     def require_focus(self, step_name: str) -> None:
-        if not video_probes.terminal_focused(self.page):
+        if self.chat:
+            if not video_chat.focused(self.page):
+                raise ProbeFailed(step_name, "keyboard focus is not on the chat composer")
+        elif not video_probes.terminal_focused(self.page):
             raise ProbeFailed(step_name, "keyboard focus is not on the terminal")
 
     def press_enter(self, step_name: str) -> None:
@@ -452,7 +507,9 @@ class Take:
         self.page.keyboard.press("Enter")
 
     def focus_terminal(self) -> None:
-        self.click(self.page.locator("#terminal-container").first)
+        """Click the console: the terminal, or the chat's composer."""
+        console = video_chat.COMPOSER if self.chat else "#terminal-container"
+        self.click(self.page.locator(console).first)
 
 
 def record_take(ctx: TakeContext, timeline: Timeline, storyboard: Storyboard) -> None:
@@ -482,9 +539,10 @@ def record_theme(
     stack: VideoStack,
     theme: str,
     storyboard: Storyboard,
+    layout: Layout,
     clock: Callable[[], float] | None = None,
 ) -> tuple[TakeContext, Timeline]:
-    """Record one take of *storyboard* in ``theme`` on ``stack``.
+    """Record one take of *storyboard* in ``theme`` on ``stack``, set up on *layout*.
 
     Returns the take, with its screencast stopped and every frame on disk, and
     its timeline. A failed check raises :class:`ProbeFailed` naming the beat,
@@ -496,7 +554,7 @@ def record_theme(
 
     timeline = Timeline(theme=theme) if clock is None else Timeline(theme=theme, clock=clock)
     try:
-        take = start_take(stack.browser, stack, theme)
+        take = start_take(stack.browser, stack, theme, layout)
         record_take(take, timeline, storyboard)
     except (ProbeFailed, PlaywrightError) as exc:
         if stack.current is not None:

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from docs.screenshots.video_beats import hold
+from docs.screenshots.video_layout import Layout
 from docs.screenshots.videos import DocVideo
 
 SECOND = DocVideo(
     name="second",
     stem="osprey-second",
     storyboard=(hold("close", None, 1),),
+    layout=Layout(view="simple", active="okf", tiles=("okf",)),
     pages=("how-to/second.rst",),
     poster_step="close",
     window_s=(15.0, 60.0),

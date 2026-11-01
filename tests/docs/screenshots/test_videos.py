@@ -15,6 +15,7 @@ from docs.screenshots import __main__ as cli
 from docs.screenshots import capture, video_manifest, video_take
 from docs.screenshots.__main__ import main
 from docs.screenshots.video_beats import hold
+from docs.screenshots.video_layout import Layout
 from docs.screenshots.video_timeline import Timeline
 from docs.screenshots.videos import VIDEOS, validate_videos, video_named
 
@@ -60,6 +61,9 @@ def test_video_named_finds_a_video_and_names_the_known_ones_otherwise() -> None:
         ({"storyboard": ()}, "empty storyboard"),
         ({"poster_step": "nope"}, "poster_step"),
         ({"init_sets": ("x.enabled",)}, "KEY=VALUE"),
+        ({"layout": None}, "has no layout"),
+        ({"layout": Layout(view="tui", active="okf", tiles=())}, "layout view"),
+        ({"layout": Layout(view="simple", active="", tiles=())}, "no active sidebar entry"),
     ],
 )
 def test_validate_videos_rejects_a_malformed_entry(change, message) -> None:
@@ -221,3 +225,14 @@ def test_an_unset_needs_env_skips_only_that_video(recorder, monkeypatch, capsys)
     assert [(n, t) for n, t, _ in recorder.records] == [("landing", "dark"), ("landing", "light")]
     err = capsys.readouterr().err
     assert err.splitlines() == ["skipped video: second needs DOCS_VIDEO_TEST_KEY"]
+
+
+def test_an_entry_cannot_be_declared_without_a_layout() -> None:
+    fields = {f.name: getattr(SECOND, f.name) for f in dataclasses.fields(SECOND)}
+    del fields["layout"]
+    with pytest.raises(TypeError, match="layout"):
+        type(SECOND)(**fields)
+
+
+def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
+    assert LANDING.layout == Layout(view="expert", active="artifacts", tiles=("artifacts",))

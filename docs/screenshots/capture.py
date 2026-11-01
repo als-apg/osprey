@@ -747,10 +747,15 @@ def _isolated_claude_config(project_dir: Path) -> Path:
     settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}
     settings.setdefault("permissions", {})["defaultMode"] = "auto"
     settings["skipAutoPermissionPrompt"] = True
+    settings.setdefault("env", {})["DISABLE_AUTOUPDATER"] = "1"
     settings_path.write_text(json.dumps(settings, indent=2))
     state_path = config_dir / ".claude.json"
     state = json.loads(state_path.read_text()) if state_path.is_file() else {}
     state["autoModeClassifierBillingNoticeAcknowledgedAt"] = _now_ms()
+    # One Claude Code version everywhere: a session under this config must
+    # never update the host's install (it would also put an update notice on
+    # camera).
+    state["autoUpdates"] = False
     state_path.write_text(json.dumps(state, indent=2))
     return config_dir
 
@@ -844,6 +849,8 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
         WEB_TOUR_ENV: "never",
         "CLAUDE_CONFIG_DIR": str(config_dir),
         "OSPREY_OFFLINE": "1",
+        # The session must never update the host's Claude Code.
+        "DISABLE_AUTOUPDATER": "1",
     }
     try:
         proc = subprocess.Popen(

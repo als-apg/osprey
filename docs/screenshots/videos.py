@@ -2,7 +2,8 @@
 
 ``VIDEOS`` lists every video the docs embed, as :mod:`docs.screenshots.recipes`
 lists the screenshots. A :class:`DocVideo` names the file stem, the pages that
-embed it, the deployment it is recorded on (``osprey init --set`` values on the
+embed it, the screen it starts on (its :class:`~docs.screenshots.video_layout.
+Layout`: view, active sidebar entry, open tiles), the deployment it is recorded on (``osprey init --set`` values on the
 control-assistant tutorial stack, and the environment variables that must
 reach it) and its storyboard: beats from :mod:`docs.screenshots.video_beats`,
 plus custom beats where a probe is specific to one video.
@@ -18,8 +19,10 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from docs.screenshots import video_layout
 from docs.screenshots.video_beats import Beat
 from docs.screenshots.video_landing import LANDING
+from docs.screenshots.video_layout import Layout
 
 if TYPE_CHECKING:
     from docs.screenshots.video_take import Take
@@ -39,6 +42,13 @@ class DocVideo:
 
     storyboard: Sequence[Callable[[Take], None]]
     """The beats, played in order on one take."""
+
+    layout: Layout
+    """The view, active sidebar entry and open tiles the take starts on.
+
+    It records what was agreed for the video before its storyboard was
+    written; the take's setup applies it and no beat changes it implicitly.
+    """
 
     pages: tuple[str, ...]
     """The pages under ``docs/source/`` that embed the video."""
@@ -63,6 +73,9 @@ VIDEOS: tuple[DocVideo, ...] = (
         name="landing",
         stem="osprey-demo",
         storyboard=LANDING,
+        # What the landing take has always shown: the Claude Code terminal
+        # beside the Artifacts tile, with the preset's example plot.
+        layout=Layout(view="expert", active="artifacts", tiles=("artifacts",)),
         pages=("index.rst",),
         poster_step="rotate",
         window_s=(50.0, 80.0),
@@ -82,7 +95,8 @@ def validate_videos(videos: Sequence[DocVideo] = VIDEOS) -> None:
     """Raise ``ValueError`` when an entry is malformed or two entries collide.
 
     Names and stems are unique; themes are a non-empty subset of dark/light;
-    the storyboard is not empty and names its poster beat; every
+    the storyboard is not empty and names its poster beat; the layout is a
+    :class:`~docs.screenshots.video_layout.Layout` with a known view; every
     ``init_sets`` value is ``KEY=VALUE``.
     """
     names: set[str] = set()
@@ -98,6 +112,9 @@ def validate_videos(videos: Sequence[DocVideo] = VIDEOS) -> None:
             raise ValueError(f"video {video.name!r}: themes must be a subset of dark/light")
         if not video.storyboard:
             raise ValueError(f"video {video.name!r}: empty storyboard")
+        problem = video_layout.validate(getattr(video, "layout", None))
+        if problem:
+            raise ValueError(f"video {video.name!r} {problem}")
         beats = {b.name for b in video.storyboard if isinstance(b, Beat)}
         if video.poster_step not in beats:
             raise ValueError(

@@ -411,7 +411,9 @@ def _video(videos: list[DocVideo], themes: list[str], out_dir: Path) -> int:
                 with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
                     try:
                         with _video_stack(Path(tmp), video) as stack:
-                            take, timeline = video_take.record_theme(stack, theme, video.storyboard)
+                            take, timeline = video_take.record_theme(
+                                stack, theme, video.storyboard, layout=video.layout
+                            )
                     except video_take.ProbeFailed as exc:
                         last = exc
                         print(

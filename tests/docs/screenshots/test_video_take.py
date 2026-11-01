@@ -18,8 +18,16 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from docs.screenshots import capture, video_landing, video_probes, video_take
+from docs.screenshots import (
+    capture,
+    video_chat,
+    video_landing,
+    video_layout,
+    video_probes,
+    video_take,
+)
 from docs.screenshots.video_landing import LANDING
+from docs.screenshots.video_layout import Layout
 from docs.screenshots.video_overlay import OVERLAY_JS
 from docs.screenshots.video_probes import ProbeFailed
 from docs.screenshots.video_take import (
@@ -32,8 +40,11 @@ from docs.screenshots.video_take import (
     start_take,
 )
 from docs.screenshots.video_timeline import Timeline
+from docs.screenshots.videos import video_named
 
 SECRET = "s3cret/+=token"
+LANDING_LAYOUT = video_named("landing").layout
+SIMPLE_LAYOUT = Layout(view="simple", active="okf", tiles=("okf",))
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -156,6 +167,15 @@ class FakePage:
         if script == video_probes._FOCUS_JS:
             self.log.append(("focused?",))
             return self.world.focus if self.world is not None else True
+        if script == video_layout.APPLY_JS:
+            self.log.append(("layout", arg))
+            return self.scenario.get("layout", {"ok": True})
+        if script == video_chat.MOUNTED_JS:
+            self.log.append(("chat-mounted?",))
+            return True
+        if script == video_chat.READY_JS:
+            self.log.append(("chat-ready?",))
+            return True
         if script == "(t) => window.__demoCaption(t)":
             self.log.append(("caption", arg))
             return None
@@ -279,7 +299,7 @@ def _index(log: list, name: str) -> int:
 
 def test_bootstrap_runs_the_fr2_sequence_in_order(env) -> None:
     browser = FakeBrowser(env.log)
-    start_take(browser, env.stack, "dark")
+    start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     order = [
         "restart",
         "new_context",
@@ -298,7 +318,7 @@ def test_bootstrap_runs_the_fr2_sequence_in_order(env) -> None:
 
 
 def test_bootstrap_restart_posts_with_secret_header(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark")
+    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
     (request,) = env.requests
     assert request.full_url == "http://127.0.0.1:9999/api/terminal/restart"
     assert request.get_method() == "POST"
@@ -315,14 +335,14 @@ def test_bootstrap_restart_failure_names_the_step(env, monkeypatch) -> None:
     monkeypatch.setattr(video_take.urllib.request, "urlopen", boom)
     browser = FakeBrowser(env.log)
     with pytest.raises(ProbeFailed) as exc:
-        start_take(browser, env.stack, "dark")
+        start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     assert exc.value.step == "restart"
     assert browser.contexts == []
 
 
 def test_bootstrap_fresh_1920x1080_context_with_overlay(env) -> None:
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "light")
+    take = start_take(browser, env.stack, "light", LANDING_LAYOUT)
     (ctx,) = browser.contexts
     assert ctx.viewport == {"width": 1920, "height": 1080}
     assert ctx.init_scripts == [OVERLAY_JS]
@@ -332,8 +352,8 @@ def test_bootstrap_fresh_1920x1080_context_with_overlay(env) -> None:
 
 def test_bootstrap_closes_the_previous_context(env) -> None:
     browser = FakeBrowser(env.log)
-    first = start_take(browser, env.stack, "dark")
-    second = start_take(browser, env.stack, "dark")
+    first = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
+    second = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     assert browser.contexts[0].closed
     assert not browser.contexts[1].closed
     assert first.closed and env.stack.current is second
@@ -347,7 +367,7 @@ def test_bootstrap_closes_the_previous_context(env) -> None:
 
 def test_bootstrap_loads_once_with_token_theme_and_the_default_rail(env) -> None:
     # The preset's own layout, with its vertical left rail.
-    start_take(FakeBrowser(env.log), env.stack, "light")
+    start_take(FakeBrowser(env.log), env.stack, "light", LANDING_LAYOUT)
     gotos = [e for e in env.log if e[0] == "goto"]
     assert len(gotos) == 1
     assert not [e for e in env.log if e[0] == "reload"]
@@ -360,14 +380,14 @@ def test_bootstrap_loads_once_with_token_theme_and_the_default_rail(env) -> None
 
 
 def test_bootstrap_records_the_terminal_session_id(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark")
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
     assert take.session_id == "sess-123"
 
 
 def test_bootstrap_missing_session_info_fails_the_take(env) -> None:
     browser = FakeBrowser(env.log, {"session_info": False})
     with pytest.raises(ProbeFailed) as exc:
-        start_take(browser, env.stack, "dark")
+        start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     assert exc.value.step == "session-info"
     # The half-built take stays current so the next start_take closes it.
     assert env.stack.current is not None
@@ -377,7 +397,7 @@ def test_bootstrap_missing_session_info_fails_the_take(env) -> None:
 
 
 def test_bootstrap_waits_for_settled_layout_then_widens(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark")
+    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
     settle = next(e for e in env.log if e[0] == "settle")
     widen = next(e for e in env.log if e[0] == "widen")
     assert settle[1] > 0
@@ -391,7 +411,7 @@ def test_bootstrap_waits_for_settled_layout_then_widens(env) -> None:
 @pytest.mark.parametrize("scenario", [{"settled": False}, {"widened": False}])
 def test_bootstrap_layout_failure_names_the_step(env, scenario) -> None:
     with pytest.raises(ProbeFailed) as exc:
-        start_take(FakeBrowser(env.log, scenario), env.stack, "dark")
+        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", LANDING_LAYOUT)
     assert exc.value.step == "layout"
     assert not [e for e in env.log if e[0] == "click"]
 
@@ -400,7 +420,7 @@ def test_bootstrap_clicks_terminal_then_awaits_repl(env) -> None:
     browser = FakeBrowser(env.log, {"xterm": "Quick safety check\nYes, I trust this folder"})
     with pytest.raises(ProbeFailed) as exc:
         # The fake never reaches the REPL marker, so the probe runs out its budget.
-        start_take(browser, env.stack, "dark")
+        start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     assert exc.value.step == "repl-ready"
     assert ("click", "#terminal-container") in env.log
     assert [e for e in env.log if e[0] == "press"] == [("press", "Enter")]
@@ -408,7 +428,7 @@ def test_bootstrap_clicks_terminal_then_awaits_repl(env) -> None:
 
 
 def test_bootstrap_snapshots_artifacts_before_the_screencast(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark")
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
     assert take.before_ids == {"a1", "a2"}
     assert ("artifact_ids", 4242, SECRET) in env.log
     start = next(e for e in env.log if e[:2] == ("cdp", "Page.startScreencast"))
@@ -424,7 +444,7 @@ def test_a_frame_after_the_screencast_stopped_is_dropped(env) -> None:
     from playwright.sync_api import Error as PlaywrightError
 
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "dark")
+    take = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     take.close()
     cdp = browser.contexts[0].cdp
 
@@ -445,7 +465,7 @@ def test_a_frame_after_the_screencast_stopped_is_dropped(env) -> None:
 
 def test_bootstrap_screencast_frames_reach_the_sink_and_are_acked(env) -> None:
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "dark")
+    take = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     cdp = browser.contexts[0].cdp
     cdp.emit(
         "Page.screencastFrame",
@@ -465,7 +485,7 @@ def test_bootstrap_screencast_frames_reach_the_sink_and_are_acked(env) -> None:
 
 def test_bootstrap_close_stops_screencast_and_is_idempotent(env) -> None:
     browser = FakeBrowser(env.log)
-    take = start_take(browser, env.stack, "dark")
+    take = start_take(browser, env.stack, "dark", LANDING_LAYOUT)
     take.close()
     take.close()
     stops = [e for e in env.log if e[:2] == ("cdp", "Page.stopScreencast")]
@@ -522,6 +542,7 @@ def test_bootstrap_web_terminal_exposes_secret_and_disables_tour(monkeypatch, tm
     child_env = kwargs["env"]
     assert child_env[capture.OPERATOR_SECRET_ENV] == SECRET
     assert child_env["OSPREY_WEB_TOUR"] == "never"
+    assert child_env["DISABLE_AUTOUPDATER"] == "1"
     (stop_args,), _ = run.call_args
     assert stop_args == ["osprey", "web", "stop", "--repo", str(tmp_path)]
     popen.return_value.terminate.assert_called_once()
@@ -1022,7 +1043,7 @@ def world_env(env, monkeypatch, tmp_path):
 
 def _run_take(env, world: World, theme: str = "dark"):
     browser = FakeBrowser(env.log, {"world": world})
-    take = start_take(browser, env.stack, theme)
+    take = start_take(browser, env.stack, theme, LANDING_LAYOUT)
     timeline = Timeline(theme=theme, clock=world.clock, version="x")
     env.log.clear()
     return take, timeline
@@ -1081,7 +1102,7 @@ def test_record_take_authenticates_to_the_artifact_server(world_env) -> None:
 
 
 def test_bootstrap_snapshots_artifacts_with_the_operator_secret(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark")
+    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
     assert ("artifact_ids", 4242, SECRET) in env.log
 
 
@@ -1362,7 +1383,7 @@ def test_record_theme_turns_a_browser_error_into_a_failed_step(world_env, capsys
     world = world_env.make_world({"browser_error": True})
     world_env.stack.browser = FakeBrowser(world_env.log, {"world": world})
     with pytest.raises(ProbeFailed) as exc:
-        record_theme(world_env.stack, "dark", LANDING, clock=world.clock)
+        record_theme(world_env.stack, "dark", LANDING, LANDING_LAYOUT, clock=world.clock)
     assert exc.value.step == "open-plot" and "browser error" in exc.value.detail
     assert world_env.stack.current is None
     assert all(c.closed for c in world_env.stack.browser.contexts)
@@ -1533,7 +1554,9 @@ def test_record_take_no_retry_enter_when_unsafe(world_env, plan) -> None:
 def test_record_theme_records_one_take(world_env) -> None:
     world = world_env.make_world({})
     world_env.stack.browser = FakeBrowser(world_env.log, {"world": world})
-    take, timeline = record_theme(world_env.stack, "dark", LANDING, clock=world.clock)
+    take, timeline = record_theme(
+        world_env.stack, "dark", LANDING, LANDING_LAYOUT, clock=world.clock
+    )
     (context,) = world_env.stack.browser.contexts
     assert take.context is context
     assert [(s.name, s.fast_forward) for s in timeline.steps] == BEATS
@@ -1547,7 +1570,7 @@ def test_record_theme_a_failed_take_raises_and_is_closed(world_env, capsys) -> N
     world = world_env.make_world({"plot": "2d"})
     world_env.stack.browser = FakeBrowser(world_env.log, {"world": world})
     with pytest.raises(ProbeFailed) as exc:
-        record_theme(world_env.stack, "light", LANDING, clock=world.clock)
+        record_theme(world_env.stack, "light", LANDING, LANDING_LAYOUT, clock=world.clock)
     assert exc.value.step == "plot"
     assert all(c.closed for c in world_env.stack.browser.contexts)
     assert world_env.stack.current is None
@@ -1617,6 +1640,23 @@ def test_the_demo_session_starts_in_auto_mode(monkeypatch, tmp_path) -> None:
     assert settings["model"] == "seeded"
 
 
+def test_a_take_never_updates_claude_code(monkeypatch, tmp_path) -> None:
+    # One Claude Code version everywhere: a session under the take's config
+    # must not update the host's install or show an update notice on camera.
+    from osprey.agent_runner import claude_state
+
+    monkeypatch.setattr(claude_state, "seed_claude_state", lambda _build_dir, env: None)
+    monkeypatch.setattr(capture.tempfile, "mkdtemp", lambda prefix: str(tmp_path / "cfg"))
+    (tmp_path / "cfg").mkdir()
+
+    config_dir = capture._isolated_claude_config(tmp_path / "repo")
+
+    state = json.loads((config_dir / ".claude.json").read_text())
+    settings = json.loads((config_dir / "settings.json").read_text())
+    assert state["autoUpdates"] is False
+    assert settings["env"]["DISABLE_AUTOUPDATER"] == "1"
+
+
 def test_the_gateway_billing_notice_is_already_acknowledged(monkeypatch, tmp_path) -> None:
     # Auto mode behind a gateway opens a one-time notice that waits for Enter
     # and blocks the tool call it interrupted; a scripted take cannot answer it.
@@ -1657,3 +1697,60 @@ def test_missing_local_bundles_skip_with_the_fetch_command(monkeypatch, tmp_path
         with capture.web_terminal(tmp_path):
             pytest.fail("body must not run")
     popen.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# The layout and the Simple view's bootstrap
+# ---------------------------------------------------------------------------
+
+
+def test_bootstrap_applies_the_layout_before_the_console_takes_focus(env) -> None:
+    start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT)
+    layout = _index(env.log, "layout")
+    applied = env.log[layout]
+    assert applied[1]["active"] == "artifacts" and applied[1]["tiles"] == ["artifacts"]
+    assert _index(env.log, "widen") < layout < _index(env.log, "click")
+
+
+def test_bootstrap_a_layout_the_page_will_not_take_fails_the_take(env) -> None:
+    scenario = {"layout": {"ok": False, "detail": {"active": ["artifacts"], "tiles": []}}}
+    with pytest.raises(ProbeFailed) as exc:
+        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", SIMPLE_LAYOUT)
+    assert exc.value.step == "layout" and "'okf'" in exc.value.detail
+
+
+def test_bootstrap_simple_view_drives_the_chat_not_the_terminal(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+    kinds = [entry[0] for entry in env.log]
+    # No terminal restart, no session_info wait, no REPL, no widening.
+    assert "restart" not in kinds and "xterm_text" not in kinds and "widen" not in kinds
+    assert ("click", video_chat.COMPOSER) in env.log
+    assert _index(env.log, "chat-mounted?") < _index(env.log, "layout")
+    assert _index(env.log, "layout") < _index(env.log, "chat-ready?")
+    assert take.layout is SIMPLE_LAYOUT and take.session_id is None
+
+
+def test_a_simple_take_reads_the_chat_and_names_its_session_from_the_pointer(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+    calls = []
+
+    def evaluate(script, _arg=None):
+        calls.append(script)
+        return {
+            video_chat.ERRORED_JS: False,
+            video_chat.POINTER_JS: "chat-uuid",
+            video_chat.TEXT_JS: "one\ntwo",
+        }[script]
+
+    take.page.evaluate = evaluate
+    runner = video_take.Take(take, Timeline(theme="dark", version="1", recorded_at=0.0))
+    runner.turn()
+    assert take.session_id == "chat-uuid"
+    assert runner.screen() == "one\ntwo"
+
+
+def test_a_simple_take_reports_an_error_turn_from_the_chat(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+    take.page.evaluate = lambda script, arg=None: script == video_chat.ERRORED_JS
+    runner = video_take.Take(take, Timeline(theme="dark", version="1", recorded_at=0.0))
+    assert runner.turn() == "errored"

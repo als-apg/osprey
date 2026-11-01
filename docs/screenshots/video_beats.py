@@ -109,7 +109,7 @@ def _wait(
             return
         raise ProbeFailed(
             name,
-            f"{what} within {budget_ms} ms; last lines:\n{video_probes.terminal_tail(take.page)}",
+            f"{what} within {budget_ms} ms; last lines:\n{take.tail()}",
         )
 
     return Beat(name, caption, run, fast_forward)

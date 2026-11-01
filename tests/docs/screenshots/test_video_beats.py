@@ -66,6 +66,10 @@ class FakeTake:
     def turn(self):
         return self.state
 
+    def tail(self):
+        # The engine's Take reads the console of its view; this fake's is the terminal.
+        return video_probes.terminal_tail(self.page)
+
     def submit(self, name, text):
         self.log.append(("submit", name, text))
 
