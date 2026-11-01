@@ -344,7 +344,7 @@ tagged. A beta is a release here too.
 Each take builds a fresh control-assistant stack and runs a live agent, so it
 needs a container runtime, the provider keys the run uses (the
 `OSPREY_DOCSHOTS_PROVIDER` override when the default provider's key is over
-budget), any key a video names (the watchdog video needs `TYPESAFE_API_KEY`),
+budget), any key a video names in `needs_env`,
 and only one stack on the host at a time. It spends real budget: minutes per
 take.
 
