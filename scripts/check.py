@@ -63,16 +63,20 @@ the runners on their whole selection, so ``full --base BASE`` judges the whole
 tree and the range in one verdict. ``--changed`` and ``--base`` may not name
 different bases.
 
-Exit status: 0 clean, 1 a check failed, 2 refused. A refusal means the command
-could not judge: a missing toolchain, a base that does not resolve, an unknown
-check, a flag that is not an execution flag. Every check of the run is attempted
-even after an earlier one failed, and the last line is the verdict. A failed
-test check names its failing tests, read from the report its runner writes for
-the command. A refusal names every check it cannot judge and what to install.
+Exit status: 0 clean, 1 a check failed, 2 refused, 3 this machine cannot judge.
+A refusal means the command could not judge: a missing toolchain, a base that
+does not resolve, an unknown check, a flag that is not an execution flag. Every
+check of the run is attempted even after an earlier one failed, and the last
+line is the verdict. A failed test check names its failing tests, read from the
+report its runner writes for the command. A refusal names every check it cannot
+judge and what to install.
+An environment fault stops the run before any check starts and prints one last
+line, ``check: environment: <probe>: <fact>``: too little free space, an install
+a re-sync could not make current, Docker storage that does not work.
 
 Before any check runs, the needs put the tree's pins in place: the pinned
-Claude Code first on PATH, and node_modules reinstalled when it differs from
-package-lock.json.
+Claude Code first on PATH, node_modules reinstalled when it differs from
+package-lock.json, and a stale editable install re-synced.
 
 What cannot run here is named, never counted as passed: a check bound to a venue
 this machine is not, a check whose install is absent, a check that needs a base
@@ -126,6 +130,7 @@ kit = sys.modules.get("check_kit") or _load(
 ROOT = kit.ROOT
 TIERS, KINDS = kit.TIERS, kit.KINDS
 CLEAN, FAILED_EXIT, REFUSED_EXIT = kit.CLEAN, kit.FAILED_EXIT, kit.REFUSED_EXIT
+ENVIRONMENT_EXIT, EnvironmentFault = kit.ENVIRONMENT_EXIT, kit.EnvironmentFault
 BOTH, FULL = kit.BOTH, kit.FULL
 WHOLE, PATHS, NOT_TOUCHED = kit.WHOLE, kit.PATHS, kit.NOT_TOUCHED
 ABSENT_EXIT = kit.ABSENT_EXIT
@@ -613,12 +618,16 @@ class Outcome:
             raise ValueError(f"{self.id}: {'; '.join(problems)}")
 
 
-def unmet_needs(checks: Iterable[Check]) -> list[tuple[str, str]]:
-    """Each check of *checks* with an unmet need and its refusal, probing each need once."""
+def unmet_needs(
+    running: Iterable[tuple[Check, Selection]], context: Context
+) -> list[tuple[str, str]]:
+    """Each check of *running* with an unmet need and its refusal, probing each need
+    once. A probe that raises ``EnvironmentFault`` ends the run there."""
     answers: dict[str, str | None] = {}
     unmet: list[tuple[str, str]] = []
-    for check in checks:
-        for need in check.needs:
+    for check, selection in running:
+        selected = check.selected_needs(selection, context) if check.selected_needs else ()
+        for need in (*check.needs, *selected):
             if need == "base":
                 continue
             if need not in answers:
@@ -735,7 +744,11 @@ def execute(
     the rest are probed. When one is unmet, nothing runs and every check with an
     unmet need is refused.
     """
-    with tempfile.TemporaryDirectory(prefix="check-reports-") as reports:
+    try:
+        directory = tempfile.TemporaryDirectory(prefix="check-reports-")
+    except OSError as error:
+        raise EnvironmentFault("free space", str(error)) from error
+    with directory as reports:
         return _execute(planned, dataclasses.replace(context, reports=reports), fix)
 
 
@@ -750,7 +763,7 @@ def _execute(
             outcomes[check.id] = skipped
         else:
             running.append((check, selection))
-    refused = dict(unmet_needs(check for check, _selection in running))
+    refused = dict(unmet_needs(running, context))
     installed: dict[str, Install] = {}
     for check, _selection in running:
         install = check.install
@@ -1070,6 +1083,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Refused as refusal:
         print(f"check: refused: {refusal}", file=sys.stderr, flush=True)
         return REFUSED_EXIT
+    except EnvironmentFault as fault:
+        print(f"check: environment: {fault}", file=sys.stderr, flush=True)
+        return ENVIRONMENT_EXIT
     return report(outcomes, request.lanes, request.scoped)
 
 
