@@ -300,8 +300,8 @@ LANE_LEAVING_MARKERS = (
         "pty",
         (SerialHost("test", "Run real-terminal pty suite serially", "tests/pty/", "-m pty"),),
     ),
-    # Absolute wall-clock budgets: a budget timed beside loaded workers
-    # measures the workers.
+    # Tests that read a wall clock (a latency budget or a readiness window):
+    # a clock read beside loaded workers measures the workers.
     LaneLeavingMarker(
         "wallclock",
         (
@@ -1581,9 +1581,10 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
 
 # Some tests read the machine as much as the code. ``tests/pty/`` runs osprey's
 # own verbs on a real terminal and asserts that a spinner ADVANCED between two
-# frames; a ``wallclock`` test asserts an absolute time budget. Beside three
-# loaded xdist workers both measure the workers, so each marker is handed out
-# of the four-worker lane and given a serial step of its own.
+# frames; a ``wallclock`` test reads a wall clock, for a latency budget or a
+# readiness window. Beside three loaded xdist workers both measure the workers,
+# so each marker is handed out of the four-worker lane and given a serial step
+# of its own.
 #
 # Both halves of that handover are silently droppable, in opposite directions,
 # which is why each is pinned here for every row of LANE_LEAVING_MARKERS. Lose

@@ -591,16 +591,15 @@ Checklist for a new test area:
       can fix. Both carry a comment saying exactly that. If you cannot write
       that comment for your test, you have a leak, not a flake.
 - [ ] **Assert stdout on `result.stdout`**, never on click's `result.output`.
-- [ ] **No bare second in a parallel lane.** A time budget is either
-      `@pytest.mark.wallclock`, timed alone in the serial step that selects the
-      marker, or a ratio against a baseline measured in the same process seconds
-      earlier (`tests/services/channel_finder/graph_index/test_scale.py`); an
-      absolute bound asserted beside xdist workers measures the workers.
+- [ ] **No bare second in a parallel lane.** A time budget, absolute or a
+      ratio of two timings, is `@pytest.mark.wallclock`, timed alone in the
+      serial step that selects the marker; a budget asserted beside xdist
+      workers measures the workers.
       The JS lane follows the same rule: vitest's `testTimeout` and
       `hookTimeout` in `vitest.config.js` are one hang bound sized like
       pytest's `--timeout`, never a speed budget, and no test or invocation
       lowers it (pinned by `tests/deployment/test_vitest_hang_bound.py`); a JS
-      time budget takes one of the two shapes above.
+      time budget takes the same shape.
 - [ ] **Both gates pass**: serially, and under `-n 4 --dist loadgroup`. Passing
       one is not evidence for the other.
 
