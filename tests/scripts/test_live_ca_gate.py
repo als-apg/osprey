@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from tests._by_path import load_module
+from tests._live import wait_until
 from tests._processes import pid_alive
 
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
@@ -42,23 +44,16 @@ _KILL_LIMIT_S = 5
 _REPORT_S = 20
 
 
-def _wait_gone(pid: int, within_s: float = 10.0) -> bool:
-    deadline = time.monotonic() + within_s
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        time.sleep(0.02)
-    return not pid_alive(pid)
+def _written_pid(pid_file: Path) -> int | None:
+    """The pid in *pid_file* once its line is complete, else ``None``."""
+    text = pid_file.read_text() if pid_file.exists() else ""
+    return int(text) if text.endswith("\n") else None
 
 
-def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
-    deadline = time.monotonic() + within_s
-    while time.monotonic() < deadline:
-        text = pid_file.read_text() if pid_file.exists() else ""
-        if text.endswith("\n"):
-            return int(text)
-        time.sleep(0.02)
-    raise AssertionError(f"{pid_file} was never written")
+def _read_pid(pid_file: Path) -> int:
+    return wait_until(
+        lambda: _written_pid(pid_file), timeout=_REPORT_S, what=f"a pid line in {pid_file}"
+    )
 
 
 def _kill(pid: int) -> None:
@@ -105,7 +100,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         stdout, _stderr, returncode, timed_out = gate._run_child(cmd, _PROMPT_S)
         elapsed = time.monotonic() - started
 
-        orphan = _wait_for_pid(pid_file)
+        orphan = _read_pid(pid_file)
         assert timed_out is False
         assert returncode == 0
         assert "child-done" in stdout
@@ -114,24 +109,59 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         assert pid_alive(orphan)
     finally:
         if pid_file.exists():
-            _kill(_wait_for_pid(pid_file))
+            _kill(_read_pid(pid_file))
 
 
-def test_a_grandchild_in_the_module_session_dies_with_the_module_on_timeout(
+def test_a_session_stop_takes_the_grandchild_in_the_module_session_with_it(
     tmp_path: Path,
 ) -> None:
     pid_file = tmp_path / "grandchild.pid"
     cmd = _spawning_child(pid_file, new_session=False, then=f"time.sleep({_HANG_S})")
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, start_new_session=True)
 
     try:
-        _stdout, _stderr, _returncode, timed_out = gate._run_child(cmd, 2)
-
-        grandchild = _wait_for_pid(pid_file)
-        assert timed_out is True
-        assert _wait_gone(grandchild), f"grandchild {grandchild} survived its module's timeout"
+        # The child is ready once its grandchild's pid is on disk.
+        grandchild = _read_pid(pid_file)
+        gate._kill_session(proc)
+        wait_until(
+            lambda: not pid_alive(grandchild),
+            timeout=_REPORT_S,
+            what=f"the end of grandchild {grandchild} after its session was stopped",
+        )
     finally:
-        if pid_file.exists():
-            _kill(_wait_for_pid(pid_file))
+        if proc.poll() is None:
+            gate._kill_session(proc)
+        if (grandchild_pid := _written_pid(pid_file)) is not None:
+            _kill(grandchild_pid)
+
+
+def test_a_child_past_its_limit_has_its_session_stopped_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stopped: list[subprocess.Popen[bytes]] = []
+    real_kill_session = gate._kill_session
+
+    def _recording_kill_session(proc: subprocess.Popen[bytes]) -> None:
+        stopped.append(proc)
+        real_kill_session(proc)
+
+    spawned: list[subprocess.Popen[bytes]] = []
+    real_popen = subprocess.Popen
+
+    def _recording_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        proc = real_popen(*args, **kwargs)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(gate, "_kill_session", _recording_kill_session)
+    monkeypatch.setattr(gate.subprocess, "Popen", _recording_popen)
+    cmd = [sys.executable, "-c", f"import time; time.sleep({_HANG_S})"]
+
+    _stdout, _stderr, _returncode, timed_out = gate._run_child(cmd, _KILL_LIMIT_S)
+
+    assert timed_out is True
+    assert stopped == spawned
+    assert len(stopped) == 1
 
 
 def test_a_hung_module_is_reported_as_one_error_with_a_timed_out_line(
