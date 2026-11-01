@@ -130,3 +130,23 @@ export function buildConsole() {
     stopBtn,
   };
 }
+
+/**
+ * Put a visible failure where the operator console would have been.
+ *
+ * A console that threw during init leaves an EMPTY container, and in Simple
+ * view an empty container is indistinguishable from an agent with nothing to
+ * say — the operator waits at a page that is never going to answer. A console
+ * log line is not a user-facing surface; this is.
+ *
+ * @param {string} containerId
+ */
+export function renderChatBootFailure(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const notice = document.createElement('p');
+  notice.className = 'chat-boot-failure';
+  notice.textContent =
+    'The agent console failed to start. Reload the page, or switch to the Expert view.';
+  container.replaceChildren(notice);
+}

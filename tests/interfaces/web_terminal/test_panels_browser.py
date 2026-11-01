@@ -3131,12 +3131,14 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
     tmp_path, chromium_browser
 ):
-    """Simple mode: the service rows are Expert's, the terminal keeps only Close.
+    """Simple mode: the service rows are Expert's; the terminal drops the PTY verbs and adds Pop out.
 
     The workspace is as editable there as in Expert, so the open-beside verb
     stays; the xterm card is replaced by the operator console, so the two PTY
     verbs would act on a surface the operator cannot see and are withheld — the
-    same reason the palette drops those actions in simple mode.
+    same reason the palette drops those actions in simple mode. The console
+    can move into its own window there (agent-popout.js), so the Agent row
+    offers Pop out, as a service row does.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3165,7 +3167,9 @@ def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == ["Reset layout", "Close Agent pane"], _menu_labels(page)
+        assert _menu_labels(page) == ["Pop out", "Reset layout", "Close Agent pane"], _menu_labels(
+            page
+        )
 
         page.close()
 

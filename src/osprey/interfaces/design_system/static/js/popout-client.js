@@ -14,6 +14,8 @@
  *
  *   on load      `osprey-popout-hello {panelId}` to the opener
  *   on pagehide  `osprey-popout-bye {panelId}` to the opener
+ *   any time     whatever the page itself reports through {@link postToOpener}
+ *                (the Agent window's session, attention and navigation)
  *   roll-call    the hub posts `osprey-popout-roll-call` on the BroadcastChannel
  *                after a reload (its own state is gone, the opener link is
  *                not); the answer is another hello
@@ -66,30 +68,40 @@ function hub() {
 }
 
 /**
+ * Post one message to the hub, addressed to this page's own origin, with this
+ * window's panel id stamped on it: the id is how the hub matches a message to
+ * the window it holds, so a message without it is dropped there. Nothing is
+ * sent from a page that is not a pop-out, or whose opener is gone.
+ * @param {Record<string, unknown>} message - the `type` and the payload
+ * @returns {boolean} whether a hub was there to post to
+ */
+export function postToOpener(message) {
+  const panelId = popoutPanelId();
+  const target = hub();
+  if (panelId === null || !target) return false;
+  try {
+    target.postMessage({ ...message, panelId }, window.location.origin);
+    return true;
+  } catch {
+    /* the opener navigated out of reach — there is no hub to report to */
+    return false;
+  }
+}
+
+/**
  * Report to the hub: hello now, bye on `pagehide`, hello again on every
- * roll-call. Called by frame-params.js's applyEmbedded() on a pop-out page.
+ * roll-call. Called by frame-params.js's applyEmbedded() on a pop-out page,
+ * and by the Agent window's own boot (web_terminal's agent-popout.js).
  * @returns {boolean} whether this page reports to a hub
  */
 export function initPopoutClient() {
-  const panelId = popoutPanelId();
-  if (panelId === null || hub() === null) return false;
+  if (popoutPanelId() === null || hub() === null) return false;
 
-  /** @param {string} type */
-  const post = (type) => {
-    const target = hub();
-    if (!target) return;
-    try {
-      target.postMessage({ type, panelId }, window.location.origin);
-    } catch {
-      /* the opener navigated out of reach — there is no hub to report to */
-    }
-  };
-
-  post(HELLO);
-  window.addEventListener('pagehide', () => post(BYE));
+  postToOpener({ type: HELLO });
+  window.addEventListener('pagehide', () => postToOpener({ type: BYE }));
   const channel = new BroadcastChannel(scopedStorageKey(CHANNEL));
   channel.addEventListener('message', (event) => {
-    if (event.data && event.data.type === ROLL_CALL) post(HELLO);
+    if (event.data && event.data.type === ROLL_CALL) postToOpener({ type: HELLO });
   });
   return true;
 }

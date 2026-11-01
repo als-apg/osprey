@@ -508,7 +508,8 @@ Pop a pane out
 ~~~~~~~~~~~~~~
 
 You can move a panel out of the workspace into its own browser window. This
-works for each service panel, Artifacts included. The agent pane stays in the
+works for each service panel, Artifacts included. In the Simple view, the
+Agent pane can move out too. In the Expert view, the Agent pane stays in the
 workspace.
 
 To pop a panel out, do one of these:
@@ -535,6 +536,36 @@ row menu. The tile returns next to the active tile.
 When you reload the terminal, the open windows stay open and connect to the
 reloaded page again. When you close the terminal tab, the windows stay open
 as normal pages, and they no longer follow the terminal.
+
+.. _web-terminal-pop-out-agent:
+
+Pop the Agent pane out
+~~~~~~~~~~~~~~~~~~~~~~
+
+In the Simple view, the Agent pane pops out the same way: from the **Pop
+out** button in its tile bar, from **Pop out** in the row menu of the
+**Agent** row, or from **Pop out Agent** in the command palette. The window
+shows the chat alone, with its bar: the status dot, **New conversation**, the
+notifications bell, **Export** and the earlier conversations.
+
+While the Agent pane is popped out:
+
+- The conversation continues in the window. The chat in the terminal page is
+  asleep: it does not follow the agent and it does not send.
+- The **Agent** row shows the window glyph, and a click on it brings the
+  window to the front. The badge on the row counts the approvals and
+  questions that wait for you in the window.
+- A new conversation, or an earlier conversation that you pick in the window,
+  is the session of the terminal too. The panels in the terminal follow it.
+- Addresses that you send from the Channel Finder go to the composer in the
+  window.
+- A link in an answer that opens a panel opens that panel in the terminal.
+- A layout reset in the terminal does not open a tile for the Agent pane.
+
+To bring the Agent pane back, close the window, or pick **Bring back** from
+the row menu of the **Agent** row. The pane returns to the workspace, and the
+chat in it shows the conversation again. A switch to the Expert view brings
+the pane back first; the Expert view has no pop-out for it.
 
 .. note::
 

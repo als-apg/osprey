@@ -136,6 +136,56 @@ describe('initIframePasteBridge: Simple view', () => {
   });
 });
 
+describe('initIframePasteBridge: the Agent pane in its own window', () => {
+  test('forwards the text to the window, where the composer is, and types nothing here', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    const input = mountSimpleInput();
+    // The pop-out protocol, as the hub boots it: the Agent registered on it,
+    // and its window opened by the operator.
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        postMessage() {}
+        close() {}
+      }
+    );
+    const popout = await import('../../../src/osprey/interfaces/web_terminal/static/js/popout.js');
+    const agent =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-popout.js');
+    popout.initPopouts({
+      popoutUrl: () => null,
+      conceal: () => {},
+      redock: () => {},
+      sync: () => {},
+    });
+    agent.initAgentPopout({ navigate: () => {} });
+    const popup = {
+      closed: false,
+      opener: window,
+      name: 'osprey-popout-terminal',
+      close: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    expect(popout.popOutPanel('terminal')).toBe(true);
+
+    post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
+
+    expect(popup.postMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: 'osprey-paste-to-terminal', text: ADDRESSES },
+      window.location.origin
+    );
+    expect(input.value).toBe('');
+    expect(term.paste).not.toHaveBeenCalled();
+
+    // Back in the hub, the text lands here again.
+    agent.recallAgentPopout();
+    post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
+    expect(input.value).toBe(ADDRESSES);
+    expect(popup.postMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('initIframePasteBridge: what it refuses', () => {
   test('ignores an empty text, so a stray post cannot blank the input', () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');

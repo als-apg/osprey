@@ -522,18 +522,21 @@ The JS modules (ES modules unless noted; each has a `.test.mjs` in
 | `tooltip.js` | `initTooltips(root = document.body, {mode})` → disposer, `hideTooltip()`, `readTitle(el)`, `writeTitle(el, text)` | One tip layer for a whole page. For the nearest element in `root` with `data-tip` (short label), a native `title` (read as the label when there is no `data-tip`) or `data-tip-detail` (one sentence saying what the control does), it shows a label line over a detail line. `mode(el)` returns `'label+detail'` (default) or `'detail'`; use `'detail'` where the control already shows its label, such as an expanded sidebar row. A mode with no text for the element shows no tip and leaves its `title` alone. The tip appears 450 ms after the pointer enters or keyboard focus arrives, and a tip that shows within 300 ms of the last hide skips the wait. `data-tip-place` is `right` (default), `below` or `above`; the tip sits 10 px away, flips to the opposite side at a window edge and stays 8 px inside the window. It hides on pointer leave, focus out, any press, Escape and when the element's `aria-controls` popover opens; after a press or Escape the element stays quiet until it is left. While shown, the element's `aria-describedby` names the layer. The native `title` is parked in `data-tip-title` while the tip shows; change a title through `writeTitle`. |
 | `collapsible.js` | `initCollapsible({attribute, storageKey, toggle, controls, shortcut})` → `{isCollapsed, toggle, set}` | State on `<html>[attribute]` (`collapsed` or `expanded`; absent = expanded). The toggle button carries `aria-expanded` (true while the labels show) and `aria-controls` (`controls`, default `sidebar`) with a label that flips between Hide and Show. The button, Cmd+\ (macOS) or Ctrl+\ and `set()` change the state; it is stored under `scopedStorageKey(storageKey)` and announced as `osprey-collapsible-change` `{attribute, state}` on `document`. |
 | `sidebar-boot.js` | none (non-module pre-paint script) | Stamps `data-sidebar="collapsed"` on `<html>` from the scoped `osprey-sidebar` key, and `--sidebar-user-width` from the scoped `osprey-sidebar-width` key (the web terminal's resize handle), so the sidebar never flashes the other width. Same inline scope rule as `mode-boot.js`; no fallback to the bare key on a scoped page. |
-| `popout-client.js` | `initPopoutClient()` → boolean, `popoutPanelId()` | The popup side of the pop-out protocol below. `applyEmbedded()` starts it on a `?popout=true` page. |
+| `popout-client.js` | `initPopoutClient()` → boolean, `popoutPanelId()`, `postToOpener(message)` → boolean | The popup side of the pop-out protocol below. `applyEmbedded()` starts it on a `?popout=true` page; the web terminal's Agent window starts it itself. `postToOpener` posts a message of the page's own to the hub, with the window's panel id stamped on it, and says whether a hub was there. |
 
 ## 10. Embedding and pop-out: how a panel page follows the hub
 
 A panel page runs in one of three places. The web terminal (the hub) frames
 it as a tile, pops it out into its own window, or the operator opens it at
-its own address. The address says which, and `frame-params.js` reads it:
+its own address. The address says which, and `frame-params.js` reads it. The
+hub's own page has a fourth place: opened as the Agent pane alone, it is the
+chat in a pop-out window.
 
 | Where | Address | What the page does |
 |---|---|---|
 | Tile | `?embedded=true&theme=<id>&mode=<view>` | `applyEmbedded()` adds `body.embedded`; the page hides its own chrome and contributes its header controls to the tile bar (`header-contrib.js`). `initTheme({role: 'follower'})`. |
 | Pop-out window | `?popout=true&theme=<id>&mode=<view>` | `applyEmbedded()` stamps `html[data-popout="true"]`, subscribes to the hub's view-mode messages and starts `popout-client.js`. The page keeps its own chrome. `initTheme` runs as a follower whatever role the page asks for. |
+| Agent window | `/?pane=agent&popout=true&theme=<id>&mode=simple` (the hub page) | The web terminal boots the chat alone (`app.js`, `agent-popout.js`): index.html stamps `html[data-pane="agent"]` pre-paint and `terminal.css` takes the sidebar and the dock out of the layout. The page starts `popout-client.js` itself under the reserved id `terminal`, follows the hub's view mode, and reports its session, its attention count and its answer links to the hub. Offered in the Simple view only. |
 | Own address | neither | A standalone page: `initTheme({role: 'hub'})`, its own preferences. |
 
 Never add `token` or a capability to either address: a framed or popped-out
@@ -549,8 +552,8 @@ window; the iframe `load`, for a tile) and on every change:
 | `osprey-mode-change` | `{mode}` | `onModeChange()` in `frame-params.js`; stamps `data-ui-mode` on `<html>`; takes a message from its own origin |
 | `osprey-session-change` | `{session_id}` | The page's own receiver, where it scopes to a session (the artifacts gallery, the session page); takes a message from its own origin |
 
-The pop-out protocol adds three messages of its own. The hub keeps a handle
-on every window it opens; the window reports to the hub so the hub can retire
+The pop-out protocol adds messages of its own. The hub keeps a handle on
+every window it opens; the window reports to the hub so the hub can retire
 the panel's tile while the window is open and put it back when the window
 goes away:
 
@@ -559,6 +562,17 @@ goes away:
 | `osprey-popout-hello {panelId}` | popup → hub | `window.opener.postMessage`, on load and in answer to a roll-call | The hub takes it from its own origin, from a window whose `opener` is the hub and whose `name` is `osprey-popout-<panelId>` (the name the hub opened it under). A hello is how a window is adopted, so nothing else may claim a panel. |
 | `osprey-popout-bye {panelId}` | popup → hub | `window.opener.postMessage`, on `pagehide` | The hub takes it from its own origin and only from the window it holds for that panel. A bye fires on close, reload and navigation alike, so the hub waits 1.5 s for a hello (a reload) before it treats the window as gone; a closed window is noticed by a 500 ms poll either way. |
 | `osprey-popout-roll-call` | hub → every popup | `BroadcastChannel`, named by `scopedStorageKey('osprey-popout')`, once per hub page load | The channel is origin-scoped and carries no source. The popup answers only its own `window.opener`, only while that opener is alive. A popup whose opener is gone, or whose address was pasted into a fresh tab, is a plain standalone page and reports to nobody. |
+| `osprey-popout-session {panelId, session_id}` | Agent window → hub | `postToOpener`, on the console's first bind and on every key it moves to | Taken from the hub's own origin and only from the window the hub holds for `terminal`. The hub tells its panels and its other windows (`notifySessionChange`); the pointer itself is shared storage. |
+| `osprey-popout-attention {panelId, waiting}` | Agent window → hub | `postToOpener`, on every change of the approval count | The same check. The hub puts the count on its chat bus, so the Agent row's badge shows it while the pane is away; a bad count reads as none. |
+| `osprey-popout-navigate {panelId, panel, url}` | Agent window → hub | `postToOpener`, on a panel link in an answer | The same check, and `url` must be empty or root-relative and not protocol-relative — the rule the hub's own `osprey:navigate` applies, because the address reaches an iframe `src`. The hub opens the panel as it opens its own answer links. |
+| `osprey-paste-to-terminal {text}` | hub → Agent window | `postToPopout`, when a panel posts the paste to the hub while the pane is away | The window takes it from its own origin and only from `window.opener`, and appends the text to its composer. |
+
+While the Agent window is open the hub's Agent tile is closed and the hub's
+console is dormant (`chat.js` `sleepChat`): no feed, no send, no rebind on a
+pointer change. The hub hosts an Agent window in the Simple view only: a flip
+to Expert takes the window back before the flip's own steps (`recallPanel`,
+which closes the window and re-docks at once), and a hub that adopts the
+window while in Expert takes it back as soon as it has adopted it.
 
 The popup learns its panel id from `window.name`: the hub opens it as
 `osprey-popout-<panelId>`, and a window keeps its name across every

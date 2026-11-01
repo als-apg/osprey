@@ -51,6 +51,11 @@
   <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/mode-boot.js') }}"></script>
 
+  <!-- FOUC prevention: the Agent pane's own window (`?pane=agent`, app.js's
+       agent-only boot, agent-popout.js) lays out as the chat alone from the
+       first paint; terminal.css keys on the attribute. -->
+  <script>if (new URLSearchParams(location.search).get('pane') === 'agent') document.documentElement.setAttribute('data-pane', 'agent');</script>
+
   <!-- FOUC prevention: applies data-sidebar="collapsed" before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/sidebar-boot.js') }}"></script>
 

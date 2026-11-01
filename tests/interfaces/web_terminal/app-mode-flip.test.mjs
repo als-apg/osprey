@@ -57,6 +57,13 @@ const surfaces = vi.hoisted(() => ({
     calls.push('enterFromExpert');
     return Promise.resolve();
   }),
+  /** The console's sleep and wake while the Agent pane is in its own window. */
+  sleepChat: vi.fn(() => {
+    calls.push('sleepChat');
+  }),
+  wakeChat: vi.fn(() => {
+    calls.push('wakeChat');
+  }),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
@@ -80,6 +87,8 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
   initChat: vi.fn(),
   enterFromExpert: surfaces.enterFromExpert,
+  sleepChat: surfaces.sleepChat,
+  wakeChat: surfaces.wakeChat,
   transportNotice: vi.fn(() => ''),
 }));
 
@@ -161,6 +170,12 @@ beforeEach(() => {
     calls.push('enterFromExpert');
     return Promise.resolve();
   });
+  surfaces.sleepChat.mockImplementation(() => {
+    calls.push('sleepChat');
+  });
+  surfaces.wakeChat.mockImplementation(() => {
+    calls.push('wakeChat');
+  });
   document.documentElement.setAttribute('data-ui-mode', 'expert');
 });
 
@@ -200,6 +215,46 @@ describe('flip to Expert', () => {
     expect(surfaces.startExpert).toHaveBeenCalledWith();
     expect(surfaces.stopTerminal).not.toHaveBeenCalled();
     expect(surfaces.enterFromExpert).not.toHaveBeenCalled();
+  });
+
+  test('takes a popped-out Agent pane back first, then runs the flip as it always has', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    // The pop-out protocol, as the hub boots it: the Agent registered on it,
+    // and its window opened by the operator.
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        postMessage() {}
+        close() {}
+      }
+    );
+    const popout = await import('../../../src/osprey/interfaces/web_terminal/static/js/popout.js');
+    const agent =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-popout.js');
+    popout.initPopouts({
+      popoutUrl: () => null,
+      conceal: () => {},
+      redock: () => {},
+      sync: () => {},
+    });
+    agent.initAgentPopout({ navigate: () => {} });
+    const popup = { closed: false, opener: window, name: 'osprey-popout-terminal', close: vi.fn() };
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    expect(popout.popOutPanel('terminal')).toBe(true);
+    calls.length = 0;
+
+    flipTo('expert');
+    await settle();
+
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    expect(popout.isPoppedOut('terminal')).toBe(false);
+    expect(calls).toEqual([
+      'wakeChat',
+      'broadcastMode',
+      'applyDockMode',
+      'handleUiModeFlip',
+      'startExpert',
+    ]);
   });
 });
 

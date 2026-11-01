@@ -173,9 +173,14 @@ export function railOptions() {
 /**
  * The Agent row's click: open the Agent pane when it is closed, or bring the
  * open one forward, then put the caret where the operator types — the chat
- * composer in Simple, the terminal in Expert.
+ * composer in Simple, the terminal in Expert. While the pane runs in its own
+ * window the click brings that window to the front, as a service row's does.
  */
 function showAgentPane() {
+  if (isPoppedOut(TERMINAL_RAIL_ID)) {
+    focusPopout(TERMINAL_RAIL_ID);
+    return;
+  }
   openTerminalPanel();
   if (!isTerminalPanelOpen()) return;
   if (isSimpleMode()) {
@@ -464,14 +469,39 @@ function moveToNewGroup(id) {
  * reason). The layout rows are the same in both views: "Reset layout" puts
  * back the CURRENT view's default arrangement, and the pane is as closable
  * there as in Expert.
+ *
+ * Simple also offers "Pop out", as a service panel's menu does: the chat
+ * moves into its own window (agent-popout.js). While it is there the row
+ * offers "Bring back" in its place and no close, because there is no pane to
+ * close. Expert keeps its terminal docked and offers neither.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
-  const layout = [
-    { label: 'Reset layout', run: () => resetDockLayout() },
-    { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
-  ];
-  if (isSimpleMode()) return layout;
+  const reset = { label: 'Reset layout', run: () => resetDockLayout() };
+  const close = {
+    label: 'Close Agent pane',
+    glyph: '×',
+    danger: true,
+    run: () => closeTerminalTile(),
+  };
+  if (isSimpleMode()) {
+    if (isPoppedOut(TERMINAL_RAIL_ID)) {
+      return [
+        { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(TERMINAL_RAIL_ID) },
+        reset,
+      ];
+    }
+    return [
+      {
+        label: 'Pop out',
+        glyph: '↗',
+        disabled: !canPopOut(TERMINAL_RAIL_ID),
+        run: () => popOutPanel(TERMINAL_RAIL_ID),
+      },
+      reset,
+      close,
+    ];
+  }
   return [
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
@@ -490,6 +520,7 @@ export function buildTerminalMenuItems() {
       },
     },
     { divider: true },
-    ...layout,
+    reset,
+    close,
   ];
 }

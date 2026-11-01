@@ -21,6 +21,12 @@
  * Mode visibility is pure CSS: #operator-container is display-gated off
  * html[data-ui-mode] (operator.css), so the console is built once at boot and
  * simply hidden in expert mode — never torn down or toggled from here.
+ *
+ * While the Agent pane is popped out into its own window (agent-popout.js)
+ * that window's console runs the session and this one is DORMANT
+ * ({@link sleepChat}): no feed, no send, no rebind on a pointer change. It
+ * wakes when the window goes away ({@link wakeChat}), re-reading the pointer
+ * the window may have moved and replaying the transcript it missed.
  */
 
 import { pickUiMode } from '/design-system/js/frame-params.js';
@@ -87,6 +93,30 @@ let enterFromExpertBinding = null;
  */
 export function enterFromExpert(options = {}) {
   return enterFromExpertBinding ? enterFromExpertBinding(options) : Promise.resolve();
+}
+
+/**
+ * The console's sleep and wake, bound by {@link initChat} like the hand-off
+ * entry point above.
+ * @type {{ sleep: () => void, wake: () => void } | null}
+ */
+let dormancyBinding = null;
+
+/**
+ * Put the console to sleep: close the feed, abort a turn or hand-off of its
+ * own, clear the log and disable the composer. Another window's console is
+ * running the session; a dormant console takes no pointer change either.
+ */
+export function sleepChat() {
+  dormancyBinding?.sleep();
+}
+
+/**
+ * Wake the console: bind to the key the pointer names now, which replays the
+ * transcript and follows the agent again.
+ */
+export function wakeChat() {
+  dormancyBinding?.wake();
 }
 
 /**
@@ -205,6 +235,9 @@ export function initChat(containerId = 'operator-container') {
   /** Whether the wait is on screen; it never steps back to a restart. */
   let waiting = false;
 
+  /** Whether the console is asleep while another window's console runs the session. */
+  let dormant = false;
+
   const isSimpleMode = () => document.documentElement.getAttribute('data-ui-mode') === 'simple';
 
   const isPinned = () =>
@@ -241,7 +274,7 @@ export function initChat(containerId = 'operator-container') {
 
   /** Apply the current streaming/transition state to every control. */
   function applyControls() {
-    const blocked = streaming || transitioning;
+    const blocked = streaming || transitioning || dormant;
     textarea.disabled = blocked;
     cmdBtn.disabled = blocked;
     sendBtn.disabled = blocked;
@@ -484,6 +517,7 @@ export function initChat(containerId = 'operator-container') {
    * @param {string} key
    */
   function follow(key) {
+    if (dormant) return;
     feed?.close();
     follower.restart();
     const mine = followChat(key, {
@@ -532,6 +566,7 @@ export function initChat(containerId = 'operator-container') {
    * @returns {Promise<void>}
    */
   async function runHandoff(cutRunningTurn, endStarted = false) {
+    if (dormant) return;
     const generation = ++handoffGeneration;
     // The server frees a key whose requester disconnects, so abandoning the
     // wait in flight is what makes room for this one — two live requests for
@@ -584,7 +619,7 @@ export function initChat(containerId = 'operator-container') {
 
   /** Submit the current input as a new turn, unless one is already streaming. */
   function submit() {
-    if (streaming || transitioning) return;
+    if (streaming || transitioning || dormant) return;
     const prompt = textarea.value.trim();
     if (!prompt) return;
 
@@ -696,12 +731,30 @@ export function initChat(containerId = 'operator-container') {
   // cleared pointer means the key is dead for both views and the page is on
   // its way out — there is no conversation to move to.
   subscribeToPointer((key) => {
-    if (!key || key === boundKey) return;
+    if (dormant || !key || key === boundKey) return;
     void bindTo(key);
   });
 
   enterFromExpertBinding = ({ interrupt: cutRunningTurn = false } = {}) =>
     runHandoff(cutRunningTurn);
+  dormancyBinding = {
+    sleep: () => {
+      dormant = true;
+      // Abandon a hand-off in flight: the server frees a key whose requester
+      // disconnects, which is what lets the other window's console take it.
+      ++handoffGeneration;
+      handoffAbort?.abort();
+      handoffAbort = null;
+      hideOverlay();
+      resetLog();
+      pauseFeed();
+      setTransitioning(false);
+    },
+    wake: () => {
+      dormant = false;
+      void bindTo(getPointer() ?? boundKey);
+    },
+  };
 
   initChatFeatures({
     ...handles,
@@ -727,24 +780,4 @@ export function initChat(containerId = 'operator-container') {
       follow(boundKey);
     }
   }
-}
-
-/**
- * Put a visible failure where the operator console would have been.
- *
- * A console that threw during init leaves an EMPTY container, and in Simple
- * view an empty container is indistinguishable from an agent with nothing to
- * say — the operator waits at a page that is never going to answer. A console
- * log line is not a user-facing surface; this is.
- *
- * @param {string} containerId
- */
-export function renderChatBootFailure(containerId) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  const notice = document.createElement('p');
-  notice.className = 'chat-boot-failure';
-  notice.textContent =
-    'The agent console failed to start. Reload the page, or switch to the Expert view.';
-  container.replaceChildren(notice);
 }

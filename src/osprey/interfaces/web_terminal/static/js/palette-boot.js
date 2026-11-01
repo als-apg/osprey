@@ -30,7 +30,8 @@ import {
   activateTab,
   applyMenuPreset,
 } from './panel-manager.js';
-import { popOutPanel } from './popout.js';
+import { canPopOut, isPoppedOut, popOutPanel } from './popout.js';
+import { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
@@ -173,8 +174,15 @@ function buildPaletteDeps() {
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
     // getPopoutPanels is already narrowed to rail members whose standalone URL
     // resolved and whose window is not already open — the context menu's
-    // "Pop out" row reads the same way.
-    getPopoutPanels,
+    // "Pop out" row reads the same way. The Agent pane pops out in Simple
+    // (agent-popout.js), so its row comes first there under the same gate.
+    getPopoutPanels: () => {
+      const agent =
+        simple && !isPoppedOut(TERMINAL_RAIL_ID) && canPopOut(TERMINAL_RAIL_ID)
+          ? [{ id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL }]
+          : [];
+      return [...agent, ...getPopoutPanels()];
+    },
     popoutPanel: popOutPanel,
     actions,
   };

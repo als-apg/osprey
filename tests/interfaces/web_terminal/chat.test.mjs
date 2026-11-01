@@ -304,6 +304,122 @@ describe('initChat binding', () => {
   });
 });
 
+describe('sleepChat and wakeChat (the Agent pane in its own window)', () => {
+  /** The feed handles followChat handed out, each with a close spy. */
+  function closableFeeds() {
+    /** @type {{ close: import('vitest').Mock }[]} */
+    const feeds = [];
+    transport.followChat.mockImplementation(() => {
+      const feed = { close: vi.fn() };
+      feeds.push(feed);
+      return feed;
+    });
+    return feeds;
+  }
+
+  test('asleep: the feed closes, the composer is out of reach, and nothing is sent', async () => {
+    const feeds = closableFeeds();
+    transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K1' }]);
+    await mountChat({ pointer: 'K1' });
+    expect(feeds).toHaveLength(1);
+
+    chat.sleepChat();
+
+    expect(feeds[0].close).toHaveBeenCalled();
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    expect(textarea.disabled).toBe(true);
+    // The log is cleared: the other window's console shows the conversation.
+    expect(logEntries()).toEqual([]);
+    textarea.disabled = false;
+    textarea.value = 'ping';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  test('asleep: a turn of its own is aborted, so the other window can take the key', async () => {
+    const abort = vi.fn();
+    transport.sendPrompt.mockReturnValue({ abort, aborted: false });
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'ping';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+
+    chat.sleepChat();
+
+    expect(abort).toHaveBeenCalled();
+    // The turn's late close touches nothing: the console is not streaming.
+    transport.sendPrompt.mock.calls[0][2].onClose();
+    expect(transport.followChat).toHaveBeenCalledTimes(1);
+  });
+
+  test('asleep: a pointer change is left to the other window — no rebind, no replay', async () => {
+    await mountChat({ pointer: 'K1' });
+    chat.sleepChat();
+    transport.fetchHistory.mockClear();
+    notifySessionChange.mockClear();
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+
+    pointer.setPointer('K2');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(transport.fetchHistory).not.toHaveBeenCalled();
+    expect(notifySessionChange).not.toHaveBeenCalled();
+    expect(transport.followChat).toHaveBeenCalledTimes(1);
+  });
+
+  test('asleep: a hand-off in flight is abandoned and its overlay taken down', async () => {
+    vi.useFakeTimers();
+    await mountChat({ mode: 'expert', pointer: 'K1' });
+    transport.requestHandoff.mockReturnValue(new Promise(() => {}));
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    void chat.enterFromExpert();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(false);
+
+    chat.sleepChat();
+
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+    expect(transport.requestHandoff.mock.calls[0][1].signal.aborted).toBe(true);
+    // The restart's escalation timer is disarmed with the overlay.
+    await vi.advanceTimersByTimeAsync(HANDOFF_RESTART_BUDGET_MS + 1000);
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+  });
+
+  test('awake again: binds to the key the pointer names now, replays it and follows', async () => {
+    transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K1' }]);
+    await mountChat({ pointer: 'K1' });
+    chat.sleepChat();
+    // The other window moved the pointer while this console slept.
+    localStorage.setItem(STORAGE_KEY, 'K2');
+    transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K2' }]);
+    notifySessionChange.mockClear();
+
+    chat.wakeChat();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(transport.fetchHistory).toHaveBeenLastCalledWith('K2');
+    expect(logEntries()).toEqual(['from K2']);
+    expect(notifySessionChange).toHaveBeenLastCalledWith('K2');
+    expect(transport.followChat).toHaveBeenLastCalledWith('K2', expect.anything());
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    expect(textarea.disabled).toBe(false);
+    textarea.value = 'ping';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    expect(transport.sendPrompt).toHaveBeenCalledWith('K2', 'ping', expect.anything());
+  });
+
+  test('before a console is mounted, sleeping and waking are no-ops', async () => {
+    vi.resetModules();
+    const fresh = await import(CHAT_JS);
+    expect(() => {
+      fresh.sleepChat();
+      fresh.wakeChat();
+    }).not.toThrow();
+  });
+});
+
 /** The bus module of the console mounted last: imported after its resetModules. */
 async function busModule() {
   return /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js')} */ (
@@ -1267,21 +1383,6 @@ describe('minting a session key without crypto.randomUUID', () => {
     const second = localStorage.getItem(STORAGE_KEY);
     expect(second).not.toBe(first);
     expect(second).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-  });
-});
-
-describe('renderChatBootFailure', () => {
-  test('a console that never mounted says so where it would have been', async () => {
-    const { renderChatBootFailure } = await import(CHAT_JS);
-    const host = document.createElement('div');
-    host.id = 'operator-container';
-    host.textContent = 'stale';
-    document.body.append(host);
-
-    renderChatBootFailure('operator-container');
-
-    expect(host.textContent).toContain('The agent console failed to start');
-    expect(host.textContent).not.toContain('stale');
   });
 });
 
