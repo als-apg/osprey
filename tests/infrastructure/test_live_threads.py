@@ -15,6 +15,7 @@ import gc
 import io
 import multiprocessing
 import os
+import queue
 import subprocess
 import sys
 import textwrap
@@ -22,6 +23,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import FrameType
 
 import pytest
 
@@ -160,19 +162,71 @@ def _wait_until_idle(name: str) -> None:
     wait_until(idle, timeout=30.0, interval=0.01, what=f"executor worker {name!r} going idle")
 
 
-def test_an_idle_executor_worker_is_not_counted():
+def _only_this_worker_is_idle(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Keep the host process's other idle executors, which later tests still use, out of it."""
+    real = _live_threads._idle_worker
+
+    def only_named(thread: threading.Thread, frames: dict[int, FrameType]):
+        return real(thread, frames) if thread.name == name else None
+
+    monkeypatch.setattr(_live_threads, "_idle_worker", only_named)
+
+
+def test_an_idle_executor_worker_is_shut_down_and_not_counted(request, monkeypatch):
+    _only_this_worker_is_idle(monkeypatch, "idle-by-test_0")
     executor = ThreadPoolExecutor(1, thread_name_prefix="idle-by-test")
+    created_at = sys._getframe().f_lineno - 1
     before = _already_running()
     try:
         assert executor.submit(int, "1").result(10) == 1
         _wait_until_idle("idle-by-test_0")
+        worker = next(t for t in threading.enumerate() if t.name == "idle-by-test_0")
         buf = io.StringIO()
-        assert report_live_threads(buf, grace=0.0) == before
+        assert report_live_threads(buf, grace=0.0, shut_down_idle=True) == before
         trailing = buf.getvalue().splitlines()[-1]
-        assert "idle executor worker(s) not counted" in trailing
-        assert "idle-by-test_0" in trailing
+        assert "1 idle executor worker(s) shut down, not counted: idle-by-test_0" in trailing
+        assert f"(created at {__file__}:{created_at} during {request.node.nodeid})" in trailing
+        worker.join(10)
+        assert not worker.is_alive()
     finally:
         executor.shutdown(wait=True)
+
+
+def test_a_report_during_a_run_leaves_an_idle_executor_working():
+    executor = ThreadPoolExecutor(1, thread_name_prefix="kept-by-test")
+    try:
+        assert executor.submit(int, "1").result(10) == 1
+        _wait_until_idle("kept-by-test_0")
+        buf = io.StringIO()
+        report_live_threads(buf, grace=0.0)
+        assert "idle executor worker(s) not counted" in buf.getvalue()
+        assert "kept-by-test_0 (created at" in buf.getvalue()
+        assert executor.submit(int, "2").result(10) == 2
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_an_idle_worker_of_an_unrecorded_executor_says_so(monkeypatch):
+    _only_this_worker_is_idle(monkeypatch, "unrecorded-by-test_0")
+    executor = ThreadPoolExecutor(1, thread_name_prefix="unrecorded-by-test")
+    try:
+        assert executor.submit(int, "1").result(10) == 1
+        _wait_until_idle("unrecorded-by-test_0")
+        del _live_threads._executor_origins[executor]
+        buf = io.StringIO()
+        report_live_threads(buf, grace=0.0)
+        trailing = buf.getvalue().splitlines()[-1]
+        assert "unrecorded-by-test_0 (created before the record started)" in trailing
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_an_idle_worker_whose_executor_is_gone_is_released_through_its_queue():
+    work_queue: queue.SimpleQueue[None] = queue.SimpleQueue()
+    orphan = _live_threads._IdleWorker(threading.current_thread(), None, work_queue)
+    _live_threads._shut_down(orphan)
+    assert work_queue.qsize() == 1
+    assert work_queue.get_nowait() is None
 
 
 def test_a_busy_executor_worker_is_a_holder():
@@ -455,4 +509,42 @@ def test_a_worker_idle_while_its_sibling_finishes_is_not_reported(tmp_path):
     result = _run_inner_pytest(tmp_path, module_file, ["-n", "2"])
     assert result.returncode == 0, result.stdout + result.stderr
     assert "2 passed" in result.stdout
+    assert "still exiting" not in result.stderr, result.stderr
+
+
+_ABANDONED_EXECUTOR_MODULE = textwrap.dedent(
+    """
+    import sys
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from osprey_connectors_tests._harness._live_threads import _idle_executor_worker
+
+    _abandoned = []
+
+
+    def test_abandon():
+        _abandoned.append(ThreadPoolExecutor(1, thread_name_prefix="abandoned-by-test"))
+        assert _abandoned[0].submit(int, "1").result(10) == 1
+        while not any(
+            _idle_executor_worker(thread, sys._current_frames())
+            for thread in threading.enumerate()
+        ):
+            time.sleep(0.01)
+    """
+)
+
+
+def test_an_executor_never_shut_down_is_named_and_lets_the_process_exit(tmp_path):
+    module_file = tmp_path / "test_abandoned.py"
+    module_file.write_text(_ABANDONED_EXECUTOR_MODULE)
+    result = _run_inner_pytest(tmp_path, module_file, [])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 passed" in result.stdout
+    line = next(line for line in result.stderr.splitlines() if "idle executor worker" in line)
+    assert "1 idle executor worker(s) shut down, not counted: abandoned-by-test_0" in line
+    assert f"(created at {module_file}:" in line
+    assert "during test_abandoned.py::test_abandon)" in line
+    assert "pytest has finished" not in result.stderr
     assert "still exiting" not in result.stderr, result.stderr
