@@ -549,10 +549,18 @@ class Stage(NamedTuple):
     run: Callable[[Page], None]
 
 
+def _open_more_menu(page: Page) -> None:
+    """Open the sidebar's ☰ More menu and wait for it to show."""
+    page.locator("#more-btn").click(timeout=_NAV_TIMEOUT_MS)
+    page.locator("#more-menu").wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
+
+
 #: A named UI state a capture drives the page into after boot and before the
 #: shot. The doc-screenshot registry (``docs/screenshots/recipes.py``) names
 #: these keys.
-STAGES: dict[str, Stage] = {}
+STAGES: dict[str, Stage] = {
+    "more_menu": Stage("the sidebar's More menu open", _open_more_menu),
+}
 
 
 class CapturedVariant(NamedTuple):
@@ -1008,6 +1016,7 @@ def capture_hub_view(
     *,
     accent: str | None = None,
     stage: str | None = None,
+    element: str | None = None,
 ) -> None:
     """Drive the hermetic hub to one theme/agent view and write its PNG to *dest*.
 
@@ -1020,6 +1029,8 @@ def capture_hub_view(
         dest: Where the viewport PNG is written.
         accent: An accent candidate to recolour the chrome with, or ``None``.
         stage: A :data:`STAGES` key the page is driven into before the shot.
+        element: A selector to crop the shot to, at 2x like every element crop;
+            ``None`` shoots the viewport.
 
     The view is shot only with its plot drawn; a plot that never draws raises
     :class:`RuntimeError` instead of writing *dest*. A resumed session that never
@@ -1044,7 +1055,8 @@ def capture_hub_view(
         )
         if value is not None
     )
-    page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
+    scale = {"device_scale_factor": 2} if element else {}
+    page = browser.new_page(viewport=_TERMINAL_VIEWPORT, **scale)
     try:
         from osprey.interfaces._serving import authorize_browser_context
 
@@ -1124,7 +1136,7 @@ def capture_hub_view(
         # plot is checked again where the shot is taken.
         _wait_for_plot_drawn(page, variant=variant, moment="before the shot")
 
-        png = page.screenshot()
+        png = page.locator(element).screenshot() if element else page.screenshot()
         dest.write_bytes(png)
     finally:
         page.close()

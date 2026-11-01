@@ -270,8 +270,9 @@ def test_hermetic_hub_recipe_captures_each_theme_in_its_mode(tmp_path, monkeypat
     def _stub_hub():
         yield hub
 
-    def _record(_browser, got_hub, theme, mode, dest, *, stage=None, **_kw):
+    def _record(_browser, got_hub, theme, mode, dest, *, stage=None, element=None, **_kw):
         assert got_hub is hub
+        assert element == "#crop"
         calls.append((theme, mode, stage, dest))
 
     monkeypatch.setattr(contact_sheet, "hermetic_hub", _stub_hub)
@@ -284,6 +285,8 @@ def test_hermetic_hub_recipe_captures_each_theme_in_its_mode(tmp_path, monkeypat
         kind="static",
         hub_agent="terminal",
         stage="probe",
+        capture_mode="element",
+        element_selector="#crop",
         themes=("light", "dark"),
     )
     paths = capture._capture_hermetic_hub(object(), recipe)
@@ -377,3 +380,88 @@ def test_an_unreachable_artifact_server_is_an_empty_list(monkeypatch) -> None:
 
     monkeypatch.setattr(capture.urllib.request, "urlopen", urlopen)
     assert capture.fetch_artifacts(4242, "s3cret") == []
+
+
+# ---------------------------------------------------------------------------
+# Error-state rejection: a page in an error state never becomes a doc image
+# ---------------------------------------------------------------------------
+
+
+class _FakeErrorFrame:
+    def __init__(self, text: str | None) -> None:
+        self.text = text
+
+    def locator(self, _selector: str) -> _FakeErrorFrame:
+        return self
+
+    def inner_text(self, timeout: int = 0) -> str:  # noqa: ARG002
+        if self.text is None:
+            raise RuntimeError("frame detached")
+        return self.text
+
+
+class _FakeErrorElement:
+    def __init__(self, visible: bool) -> None:
+        self.first = self
+        self.visible = visible
+
+    def is_visible(self) -> bool:
+        return self.visible
+
+
+class _FakeErrorPage:
+    def __init__(self, texts: list[str | None], visible: tuple[str, ...] = ()) -> None:
+        self.frames = [_FakeErrorFrame(t) for t in texts]
+        self.visible = visible
+
+    def locator(self, selector: str) -> _FakeErrorElement:
+        return _FakeErrorElement(selector in self.visible)
+
+
+@pytest.mark.parametrize(
+    ("texts", "visible", "expected"),
+    [
+        (["Browse Entries", "Failed to Load Entries"], (), "'Failed to Load'"),
+        (["Database unavailable — search, browse"], (), "'Database unavailable'"),
+        (["Agent"], (".op-error-block",), ".op-error-block"),
+        (["Writes"], (".ctc-banner",), ".ctc-banner"),
+    ],
+)
+def test_error_states_are_found(texts, visible, expected) -> None:
+    problem = capture.find_error_state(_FakeErrorPage(texts, visible))
+    assert problem is not None and expected in problem
+
+
+def test_a_clean_page_and_a_detached_frame_pass() -> None:
+    assert capture.find_error_state(_FakeErrorPage(["Search the Logbook", None])) is None
+
+
+def test_reject_error_state_raises_capture_rejected() -> None:
+    with pytest.raises(capture.CaptureRejected, match="ariel_browse.*Failed to Load"):
+        capture.reject_error_state(_FakeErrorPage(["Failed to Load Entries"]), "ariel_browse")
+
+
+def test_run_fails_a_rejected_recipe_and_keeps_going(monkeypatch, tmp_path) -> None:
+    """A rejected recipe writes no manifest entry, the others still run, run() is False."""
+    from contextlib import contextmanager
+
+    stamped: list[str] = []
+
+    @contextmanager
+    def _browser():
+        yield object()
+
+    def _standalone(_browser, shot):
+        if shot.name == "bad":
+            raise capture.CaptureRejected("bad: the page shows 'Failed to Load'")
+        return [tmp_path / f"{shot.name}.png"]
+
+    monkeypatch.setattr(capture, "chromium_context", _browser)
+    monkeypatch.setattr(capture, "_capture_standalone", _standalone)
+    monkeypatch.setattr(capture, "stamp_manifest", lambda name, kind: stamped.append(name))
+    shots = [
+        DocShot(name=n, environment="standalone_interface", kind="static", app_factory="m:f")
+        for n in ("bad", "good")
+    ]
+    assert capture.run(shots) is False
+    assert stamped == ["good"]
