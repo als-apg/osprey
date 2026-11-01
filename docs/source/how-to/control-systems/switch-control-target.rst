@@ -105,10 +105,10 @@ asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
 would be. See `From the Web Terminal`_.
 
-Whether writes are *allowed* follows it too. Your write switch is per machine
+Whether writes may run follows it too. Your write switch is per machine
 and starts off on each, so a setpoint the simulator took is refused on the real
-machine until you turn that machine on from the chip
-(:ref:`write-safety-config`). Moving the deployment never turns a switch on. Ask
+machine until you arm that machine from the chip
+(:ref:`write-safety-config`). Moving the deployment never arms a switch. Ask
 ``control_target`` if you want to know before you move: every row carries its
 own ``writes_permitted``.
 
@@ -266,9 +266,9 @@ The popover on the tutorial deployment, whose baseline is the stand-in: the
 Each machine carries:
 
 - **A writes switch** — your login's switch for that machine, and the control
-  that changes it, in one widget. Turning writes off applies as you click and
-  nothing refuses it; turning them on asks first. A switch that is off and
-  cannot be turned on is disabled, with the reason on hover.
+  that changes it, in one widget: *off*, *asked* or *allowed*. Narrowing
+  applies as you click and nothing refuses it; widening asks first. A position
+  your tier or a lock forbids is disabled, with the reason on hover.
 - **A small ⓘ** after the name — what writing to this machine means (*Writes
   move hardware*, or one of the *nothing moves* lines), the endpoint, and the
   controls server's own technical label, shown on hover or keyboard focus.
@@ -289,8 +289,8 @@ is one login's: two logins on one machine never change each other's writes.
 chip cannot lift and who can.
 
 One process holds the deployment's control context at a time, and only that
-one moves the deployment. A second web terminal of the same login turns
-switches on and off as the first does, but its **Switch to** buttons give way
+one moves the deployment. A second web terminal of the same login moves
+switches as the first does, but its **Switch to** buttons give way
 to a phrase naming the holder.
 
 What a deployment needs first
@@ -408,7 +408,7 @@ has actually measured it — whether its gateway answered.
      - Whether writes are permitted on **this target**, whether this target is
        the real machine, and the channel a switch would prove it with. Two rows
        of the same deployment can disagree about the first one: the switch is
-       per machine, so the simulator may be on beside a real machine that is off.
+       per machine, so the simulator may be armed beside a real machine that is off.
    * - ``limits_strict``
      - Whether **this target** runs exclusive limits — limits checking on and
        ``mode: exclusive``, so only channels in the limits file can be written.
@@ -568,7 +568,7 @@ The switch would be a hazard if it were quiet. It is not:
   work happens, and on the :ref:`control-target chip
   <web-terminal-session-posture>` in the header, which names the machine the
   deployment stands on and the write state on *that* machine ---
-  ``● Simulator · writes on``, ``● Real machine · writes locked``. The write
+  ``● Simulator · writes allowed``, ``● Real machine · writes locked``. The write
   state is per machine, so a deployment can arm its simulator and leave the
   live machine read-only; the chip is where that shows. The terminal tells the
   chip when the record moves, so it repaints as soon as a switch lands, whoever

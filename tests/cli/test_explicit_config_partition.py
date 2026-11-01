@@ -47,6 +47,9 @@ The fixtures are frozen by ``freeze.py`` from the live tree, with
 ``api.providers`` masked to a sorted name list and ``project_root`` /
 ``execution.environment`` stripped (see ``meta.json``); both masked keys are
 members of ``D``, so the partition is unaffected.
+Each frozen render is read with its declared
+:data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS` applied, so the
+partition is checked on the render the live tree builds.
 """
 
 from __future__ import annotations
@@ -79,6 +82,7 @@ from osprey.deployment.web_terminals.render_naming import (
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
+from tests.cli.test_explicit_config_equivalence import ABSENT, CELL_DELTAS
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 
@@ -137,7 +141,27 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 
 
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    return dict(_leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text())))
+    """The live render the frozen *document* stands for, as dotted leaves.
+
+    The fixtures stay frozen at the baseline; the leaves a change moves are
+    declared in :data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS`,
+    which the equivalence test proves exact against a live build. Applying them
+    here partitions the render the tree now builds, not the one it used to.
+    A pending delta is a prediction, not yet the render, so it is not applied.
+    """
+    leaves = dict(
+        _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
+    )
+    for delta in CELL_DELTAS.get(directory, ()):
+        if delta.document != document or delta.pending is not None:
+            continue
+        if delta.added is not None:
+            leaves[delta.path] = sorted([*leaves[delta.path], *delta.added])
+        elif delta.live is ABSENT:
+            leaves.pop(delta.path, None)
+        else:
+            leaves[delta.path] = delta.live
+    return leaves
 
 
 def _preset_document(preset: str) -> dict[str, Any]:

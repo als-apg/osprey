@@ -7,18 +7,19 @@
 # never carries a deployment fact (services, data, ports); those stay the
 # deployment's, and every tier's render dials the deployment's services.
 #
-# This tier allows writes: `control_system.writes: allowed` lets a session
-# write to every machine the deployment configures. Whether the next write
-# goes through is each login's own write switch for that machine, set from the
-# web terminal's control-target chip, so the build arms nothing by itself.
+# `control_system.writes` is this tier's write ceiling, one of `never`, `asked`
+# and `allowed`; it ships at `asked`, so each write prompts. A session may write
+# to every machine the deployment configures; whether the next write goes
+# through is each login's own write switch, so the build arms nothing by itself.
 #
-# Armed does NOT mean unguarded: every channel write still passes the
-# writes-check hook, per-channel min/max limits, and the mandatory human
-# approval prompt before the connector executes it. The tier difference is
-# whether the write path exists at all, not whether it is supervised.
+# Armed does NOT mean unguarded: every channel write under this ceiling passes
+# the writes-check hook, per-channel min/max limits, and the human approval
+# prompt before the connector executes it. A tier's ceiling decides whether the
+# write path exists and how high a login's switch may reach.
 #
-# The read-only counterpart is the `readonly` tier. The `admin` tier carries
-# this same posture plus deployment editing.
+# The read-only counterpart is the `readonly` tier. The `admin` tier's ceiling
+# is `allowed`, which also offers the position that does not prompt, plus
+# deployment editing.
 
 name: Control Assistant (Read-Write)
 
@@ -37,7 +38,7 @@ web_panels:
 config:
   # The tier boundary, pinned rather than left to the deployment's root, so
   # a root that says `never` does not take this tier's writes away.
-  control_system.writes: allowed
+  control_system.writes: asked
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason control_system.writes is.

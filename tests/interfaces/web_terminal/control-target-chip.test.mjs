@@ -96,14 +96,23 @@ const KINDS = {
 };
 
 /**
- * The three states as C-GET's columns express them. `off` and `locked` are
+ * The four states as C-GET's columns express them. `off` and `locked` are
  * both "no", and which "no" it is decides whether a toggle can undo it.
  * Each carries a legacy `posture` that DISAGREES with it, so a derivation
  * that still read `posture` would fail here.
  */
 const STATES = {
-  on: {
-    switch: 'on',
+  asked: {
+    switch: 'asked',
+    prompt: true,
+    write_allowed: true,
+    write_reason: null,
+    write_phrase: null,
+    posture: 'sandbox',
+  },
+  allowed: {
+    switch: 'allowed',
+    prompt: false,
     write_allowed: true,
     write_reason: null,
     write_phrase: null,
@@ -111,6 +120,7 @@ const STATES = {
   },
   off: {
     switch: 'off',
+    prompt: true,
     write_allowed: false,
     write_reason: 'switch_off',
     write_phrase: 'Writes are off; turn it on from the chip in the web terminal.',
@@ -118,7 +128,8 @@ const STATES = {
     effective: true,
   },
   locked: {
-    switch: 'on',
+    switch: 'asked',
+    prompt: true,
     write_allowed: false,
     write_reason: 'readonly_run',
     write_phrase:
@@ -131,7 +142,7 @@ const STATES = {
 /** @param {object} [o] */
 const rowOf = (o = {}) => ({
   ...KINDS.standin,
-  ...STATES.on,
+  ...STATES.asked,
   active: false,
   is_baseline: false,
   available_now: true,
@@ -176,7 +187,7 @@ const viewOf = (o = {}) => ({
   store_available: true,
   readonly_run: false,
   switch_epoch: '1',
-  any_on: true,
+  any_armed: true,
   locks: { readonly_run: false, tier: 'allowed' },
   execution_in_flight: [],
   last_switch: null,
@@ -446,7 +457,12 @@ describe('state matrix', () => {
   /** @type {Record<string, string>} */
   const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator' };
   /** @type {Record<string, string>} */
-  const PHRASES = { on: 'writes on', off: 'writes off', locked: 'writes locked' };
+  const PHRASES = {
+    asked: 'writes asked',
+    allowed: 'writes allowed',
+    off: 'writes off',
+    locked: 'writes locked',
+  };
 
   for (const [kindName, kind] of Object.entries(KINDS)) {
     for (const [stateName, state] of Object.entries(STATES)) {
@@ -468,6 +484,19 @@ describe('state matrix', () => {
       });
     }
   }
+
+  test('a stored allowed capped at asked reads writes asked', async () => {
+    // The route answers `prompt: true` from the effective position: the word
+    // says what the next write meets, and the stored position stays `allowed`.
+    await boot(
+      viewOf({
+        locks: { readonly_run: false, tier: 'asked' },
+        targets: [rowOf({ ...STATES.allowed, prompt: true, active: true })],
+      })
+    );
+    expect(chipEl()?.dataset.state).toBe('asked');
+    expect(stateText()).toBe('writes asked');
+  });
 
   test('a standin GET calls the real machine reads as the real machine', async () => {
     // C-KIND: a stand-in no live server vouched for is `real`. Neither the
@@ -501,7 +530,8 @@ describe('state matrix', () => {
       viewOf({
         targets: [
           rowOf({
-            switch: 'on',
+            switch: 'allowed',
+            prompt: false,
             write_allowed: false,
             posture: 'writes',
             effective: true,
@@ -527,13 +557,24 @@ describe('state matrix', () => {
     expect(stateText()).toBe('writes locked');
   });
 
-  test('stateWord answers on | off | locked and never "sandbox"', () => {
+  test('stateWord answers off | asked | allowed | locked and never "sandbox"', () => {
     /** @param {object} o */
     const wordOf = (o) => chipModule.stateWord(/** @type {any} */ (rowOf(o)));
-    expect(wordOf(STATES.on)).toBe('on');
+    expect(wordOf(STATES.asked)).toBe('asked');
+    expect(wordOf(STATES.allowed)).toBe('allowed');
     expect(wordOf(STATES.off)).toBe('off');
     expect(wordOf(STATES.locked)).toBe('locked');
     expect(wordOf({ switch: null, write_allowed: false })).toBe('locked');
+    // The capped row: stored allowed, effective asked.
+    expect(wordOf({ ...STATES.allowed, prompt: true })).toBe('asked');
+    // An armed switch the verdict refuses is locked at either position.
+    expect(wordOf({ ...STATES.allowed, write_allowed: false })).toBe('locked');
+    // A switch word this module does not know, the retired `on` included, is
+    // an unreadable switch, even with a verdict that would pass.
+    expect(wordOf({ ...STATES.asked, switch: 'on' })).toBe('locked');
+    expect(wordOf({ ...STATES.asked, switch: undefined })).toBe('locked');
+    // A row that does not publish `prompt` reads the louder word.
+    expect(wordOf({ ...STATES.asked, prompt: undefined })).toBe('allowed');
     // Not even a row whose legacy mirror still says sandbox.
     for (const o of [
       { posture: 'sandbox', effective: false },
@@ -706,7 +747,7 @@ describe('polling', () => {
     expect(stateText()).toBe('switching…');
     // `data-state` still describes the machine the deployment is ON — the switch
     // has not landed, and the dot must not go quiet before it does.
-    expect(chipEl()?.dataset.state).toBe('on');
+    expect(chipEl()?.dataset.state).toBe('asked');
 
     const before = getCount();
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS * 3);
@@ -727,7 +768,7 @@ describe('polling', () => {
 
     expect(chipModule.isPending()).toBe(false);
     expect(chipEl()?.dataset.pending).toBeUndefined();
-    expect(stateText()).toBe('writes on');
+    expect(stateText()).toBe('writes asked');
     expect(shortText()).toBe('Real machine');
 
     const settled = getCount();
@@ -819,7 +860,7 @@ describe('polling', () => {
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS);
     await flush();
     expect(chipModule.isPending()).toBe(false);
-    expect(stateText()).toBe('writes on');
+    expect(stateText()).toBe('writes asked');
     expect(shortText()).toBe('Real machine');
   });
 
@@ -1163,20 +1204,27 @@ describe('popover API', () => {
     /** @param {number} status @param {any} detail */
     const refused = (status, detail) => new TargetRequestError('x', status, detail);
     // The route's phrase wins, and leaves the confirm up.
-    expect(switchRefusal(refused(403, { reason: 'tier_never', phrase: 'P.' }), 'on')).toEqual({
+    expect(switchRefusal(refused(403, { reason: 'tier_never', phrase: 'P.' }), 'asked')).toEqual({
       message: 'P.',
       close: false,
     });
     // A stop that overtook the gesture closes the dialog it asked from.
-    expect(switchRefusal(refused(409, { reason: 'stopped_since', epoch: '3' }), 'on')).toEqual({
+    expect(switchRefusal(refused(409, { reason: 'stopped_since', epoch: '3' }), 'asked')).toEqual({
       message: STOPPED_SINCE_SENTENCE,
       close: true,
     });
     // A stop that was not taken is the stop sentence even with no phrase.
     expect(switchRefusal(refused(503, null), 'off').message).toMatch(/writes are still on/);
     // A bare code reads as its phrase; anything else as the message.
-    expect(switchRefusal(refused(400, { reason: 'bulk_on_refused' }), 'on').message).toBe(
+    expect(switchRefusal(refused(400, { reason: 'bulk_on_refused' }), 'asked').message).toBe(
       'bulk_on_refused'
+    );
+    // The two refusals the route sends no phrase with read as the table's.
+    expect(
+      switchRefusal(refused(403, { reason: 'tier_caps', ceiling: 'asked' }), 'allowed').message
+    ).toBe('your tier caps writes at asked');
+    expect(switchRefusal(refused(400, { reason: 'waiver_not_allowed' }), 'allowed').message).toBe(
+      'this move always confirms'
     );
     expect(switchRefusal(new Error('network down'), 'off').message).toBe('network down');
   });
@@ -1200,7 +1248,7 @@ describe('popover API', () => {
 
 /* ---- the switch epoch on the wire ------------------------------------- */
 
-describe('postSwitch epoch', () => {
+describe('postSwitch', () => {
   /**
    * A nanosecond epoch with non-zero low digits: above 2**53, so as a JSON
    * number it would come back rounded (…148000 or …148128), and the route
@@ -1224,8 +1272,10 @@ describe('postSwitch epoch', () => {
   }
 
   test('posts back the exact string it read', async () => {
-    const sent = stubPosts([[200, `{"target":"live","state":"on","switch_epoch":"${NS_EPOCH}"}`]]);
-    const answer = await chipModule.postSwitch(null, 'live', 'on', NS_EPOCH);
+    const sent = stubPosts([
+      [200, `{"target":"live","state":"asked","switch_epoch":"${NS_EPOCH}"}`],
+    ]);
+    const answer = await chipModule.postSwitch(null, 'live', 'asked', NS_EPOCH);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain(`"epoch":"${NS_EPOCH}"`);
     expect(answer.switch_epoch).toBe(NS_EPOCH);
@@ -1234,12 +1284,48 @@ describe('postSwitch epoch', () => {
   test('a stamped 409 is retried with the exact string it carried', async () => {
     const sent = stubPosts([
       [409, `{"detail":{"reason":"stopped_since","epoch":"${STAMPED_EPOCH}","stamped":true}}`],
-      [200, `{"target":"live","state":"on","switch_epoch":"${STAMPED_EPOCH}"}`],
+      [200, `{"target":"live","state":"allowed","switch_epoch":"${STAMPED_EPOCH}"}`],
     ]);
-    await chipModule.postSwitch(null, 'live', 'on', null);
+    await chipModule.postSwitch(null, 'live', 'allowed', null);
     expect(sent).toHaveLength(2);
     expect(JSON.parse(sent[0]).epoch).toBeNull();
     expect(sent[1]).toContain(`"epoch":"${STAMPED_EPOCH}"`);
+  });
+
+  test('sends the position and the waiver the route reads', async () => {
+    const sent = stubPosts([
+      [200, '{}'],
+      [200, '{}'],
+    ]);
+    await chipModule.postSwitch('s-1', 'standin', 'asked', '7', true);
+    expect(JSON.parse(sent[0])).toEqual({
+      session_id: 's-1',
+      target: 'standin',
+      state: 'asked',
+      epoch: '7',
+      waived: true,
+    });
+    // No waiver named is `false`: the route's field is a strict boolean.
+    await chipModule.postSwitch('s-1', 'standin', 'allowed', '7');
+    expect(JSON.parse(sent[1]).state).toBe('allowed');
+    expect(JSON.parse(sent[1]).waived).toBe(false);
+  });
+
+  test('the stamped retry keeps the waiver', async () => {
+    const sent = stubPosts([
+      [409, `{"detail":{"reason":"stopped_since","epoch":"${STAMPED_EPOCH}","stamped":true}}`],
+      [200, '{}'],
+    ]);
+    await chipModule.postSwitch(null, 'standin', 'asked', null, true);
+    expect(sent.map((body) => JSON.parse(body).waived)).toEqual([true, true]);
+    expect(JSON.parse(sent[1]).state).toBe('asked');
+  });
+
+  test('a 409 that stamped nothing is thrown, never retried', async () => {
+    const sent = stubPosts([[409, '{"detail":{"reason":"stopped_since","epoch":"3"}}']]);
+    const err = await chipModule.postSwitch(null, 'live', 'asked', '1').catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(sent).toHaveLength(1);
   });
 });
 

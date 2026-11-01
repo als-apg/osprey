@@ -21,8 +21,8 @@ from tests.e2e.sdk_helpers import (
     init_project,
     is_claude_code_available,
     render_dir,
+    set_switch_in_record,
     set_writes_tier,
-    switch_on_in_record,
 )
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -205,7 +205,7 @@ def safety_project_mixed_render(tmp_path_factory):
 
     The preset's tier is ``allowed``, and the switch of the login this process
     acts as is turned on for ``va`` alone (the record fixture,
-    :func:`switch_on_in_record`), so the live target stays off. The render is made
+    :func:`set_switch_in_record`), so the live target stays off. The render is made
     switch-capable the way the switch lifecycle tests do it:
     ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,
@@ -250,7 +250,7 @@ def safety_project_mixed_render(tmp_path_factory):
     _point_at_safety_limits_db(repo)
     _rerender_claude_artifacts(repo)
     # After the edit, so the record's baseline is the ``live`` the edit made.
-    switch_on_in_record(repo, owner=acting_identity(), targets=["va"])
+    set_switch_in_record(repo, owner=acting_identity(), targets=["va"])
     return repo
 
 

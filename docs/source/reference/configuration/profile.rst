@@ -209,9 +209,9 @@ the framework reads and what it falls back to when no line spells it.
      # Control system: which backend the deployment talks to. Required — see
      # the posture floor below.
      control_system.type: virtual_accelerator
-     # The tier key: may this render write at all. `allowed` or `never`
-     # (silence is `never`); each login still turns a machine on from the chip.
-     control_system.writes: allowed
+     # The tier key: how far a login's switch may go. `never`, `asked` or
+     # `allowed` (silence is `never`); each login still arms a machine from the chip.
+     control_system.writes: asked
      # Limits checking. This pair is the deployment's, and every type
      # inherits it: `exclusive` = only channels in the limits file can be
      # written, `optional` = channels in the file are held to their limits and
@@ -233,7 +233,7 @@ the framework reads and what it falls back to when no line spells it.
      # just a display label.
      system.timezone: America/Los_Angeles
 
-     # Approval policy
+     # Approval policy for the tools the write switch does not govern
      approval.enabled: true
      approval.default_policy: always
 
@@ -413,10 +413,10 @@ injector wrote, or a tier inherited counts as stated.
        archiver factory picks the history the deployment reports
    * - ``approval.enabled``
      - the ``approval`` hook is in the profile's ``hooks:`` list; this key is
-       whether it prompts at all
+       whether it prompts for a tool the write switch does not govern
    * - ``approval.default_policy``
      - the ``approval`` hook is in the profile's ``hooks:`` list; this key is
-       what it does with a tool nothing named
+       what it does with an ungoverned tool nothing named
    * - ``hooks.debug``
      - always
 
@@ -662,11 +662,11 @@ writes-check hook instead.) A ``never`` profile that also writes
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.
 
-An ``allowed`` tier renders differently. The login's switch decides each write
+An armed tier renders differently. The login's switch decides each write
 at run time, so nothing is denied up front. A write tool whose rule carries
 both the writes-check hook and an approval hook leaves ``ask``: with the switch
 off, writes-check refuses it before any operator is offered an approval for a
-write the switch forbids; with it on, the approval hook asks. A tool missing
+write the switch forbids; at *asked*, the approval hook asks. A tool missing
 either hook keeps its static ``ask``. The boundary is carried per call by the
 safety hook and by the connector behind it (:ref:`write-safety-config`). The
 static deny is the stronger of the two, so reach for a ``never`` tier whenever

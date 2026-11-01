@@ -6,7 +6,8 @@ pairs (``agent_routes``, backend-root-relative) the terminal admits on the
 panel token, composed as ``/panel/<id><path>``.
 
 The application is armed for writes by the login's ``control_system.writes``
-tier: only ``allowed`` arms it. On any other tier — ``never``, ``unknown`` (the
+tier: ``asked`` and ``allowed`` arm it, and the owner's switch position then
+decides each write downstream. On any other tier — ``never``, ``unknown`` (the
 login's rung cannot be read), or no readable render at all — the panel hop forwards only safe methods and
 refuses every other method and every websocket upgrade, naming the login and
 the application, before anything leaves the terminal. A disabled block never
@@ -98,22 +99,22 @@ def _boot(workspace_dir, config_path):
 
 @pytest.fixture
 def unarmed(workspace_dir):
-    """An app with no readable render: the login's tier is not ``allowed``."""
+    """An app with no readable render: the login's tier arms nothing."""
     yield from _boot(workspace_dir, None)
 
 
 @pytest.fixture
 def unreadable(workspace_dir, tmp_path):
-    """An app whose render exists but does not parse: an unreadable tier is not ``allowed``."""
+    """An app whose render exists but does not parse: an unreadable tier arms nothing."""
     path = tmp_path / "config.yml"
     path.write_text("control_system: {writes: allowed\n", encoding="utf-8")
     yield from _boot(workspace_dir, path)
 
 
-@pytest.fixture
-def armed(workspace_dir, tmp_path):
-    """An app on a login whose tier is ``allowed``."""
-    yield from _boot(workspace_dir, _render(tmp_path, {"writes": "allowed"}))
+@pytest.fixture(params=["asked", "allowed"])
+def armed(request, workspace_dir, tmp_path):
+    """An app on a login whose tier arms: ``asked`` or ``allowed``."""
+    yield from _boot(workspace_dir, _render(tmp_path, {"writes": request.param}))
 
 
 @pytest.fixture

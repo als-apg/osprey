@@ -111,6 +111,7 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/chat-tool-vocab.js",
     "src/osprey/interfaces/web_terminal/static/js/config-renderers.js",
     "src/osprey/interfaces/web_terminal/static/js/confirm-skip.js",
+    "src/osprey/interfaces/web_terminal/static/js/control-target-popover-switch.js",
     "src/osprey/interfaces/web_terminal/static/js/diff-utils.js",
     "src/osprey/interfaces/web_terminal/static/js/dock-tab.js",
     "src/osprey/interfaces/web_terminal/static/js/dock-workspace.js",

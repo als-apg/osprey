@@ -77,6 +77,7 @@ def _hook_config(entry=ENTRY, *, gated=True, tool=TOOL, **extra) -> dict[str, An
         "approval_prefixes": ["mcp__knob__", "mcp__controls__"],
         "write_tools": [tool, "mcp__controls__channel_write"],
         "facility_write_tools": [tool] if gated else [],
+        "governed_tools": [tool] if gated else [],
         "app_approvals": {tool: entry},
         **extra,
     }
@@ -199,6 +200,7 @@ def test_the_ask_shows_the_header_the_template_and_the_display_lines(
     assert "Target: " in reason
     assert any(phrase in reason for phrase in words)
     assert "This call writes." in reason
+    assert "Write switch: asked" in reason
     assert "Set 3" in reason
     assert "knob A: 1.0 -&gt; 3.0" in reason
     assert panel.authorizations == [f"Bearer {TOKEN}"]
@@ -216,7 +218,56 @@ def test_the_ask_binds_the_target_and_the_declared_fields(hook_runner, deploymen
     (stamp,) = deployment.stamps()
     assert stamp["tool"] == TOOL
     assert stamp["approver"] == "human"
+    assert stamp["position"] == "asked"
     assert {k: v for k, v in stamp.items() if k.startswith("approved_")} == bound
+
+
+# --- the switch at allowed ------------------------------------------------------
+
+
+@pytest.fixture
+def allowed(deployment):
+    """The same session with ``va`` at ``allowed`` under an ``allowed`` tier."""
+    write_control_context(deployment.record_root, target="va", switch={"va": "allowed"})
+    return deployment
+
+
+def test_at_allowed_the_call_runs_bound_and_stamped_by_the_switch(hook_runner, allowed, panel):
+    result = _run(hook_runner, allowed, {"value": 3})
+
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "allow"
+    bound = {
+        "approved_target": "va",
+        "approved_readback": 1.0,
+        "approved_digest": _digest({"value": 3}, ["value"]),
+    }
+    assert output["updatedInput"] == {"value": 3, **bound}
+    assert panel.authorizations == [f"Bearer {TOKEN}"]
+    (stamp,) = allowed.stamps()
+    assert stamp["approver"] == "write_switch"
+    assert stamp["position"] == "allowed"
+    assert stamp["answered_at"] == stamp["asked_at"]
+    assert {k: v for k, v in stamp.items() if k.startswith("approved_")} == bound
+
+
+def test_an_asked_tier_caps_the_switch_at_asked(hook_runner, allowed, make_config):
+    config = make_config({"approval": APPROVAL, "control_system": {"writes": "asked"}})
+
+    result = _run(hook_runner, allowed, {"value": 3}, config=config)
+
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    (stamp,) = allowed.stamps()
+    assert stamp["position"] == "asked"
+
+
+def test_a_refusal_holds_at_allowed(hook_runner, allowed, panel):
+    panel.state = {"lines": []}
+
+    reason = _deny_reason(_run(hook_runner, allowed, {"value": 3}))
+
+    assert "approved_readback must be bound" in reason
+    assert allowed.stamps() == []
 
 
 def test_agent_sent_approved_fields_are_stripped(hook_runner, deployment):
@@ -378,10 +429,10 @@ def test_a_tool_outside_the_facility_write_set_is_refused_unasked(
 
 def test_missing_prompt_helpers_are_refused_as_unreachable(approval, monkeypatch, capsys):
     monkeypatch.setattr(approval, "_prompt_render", None)
-    monkeypatch.setattr(approval, "load_hook_config", _hook_config)
+    monkeypatch.setattr(approval, "is_governed", lambda _name: True)
 
     with pytest.raises(SystemExit):
-        approval._app_approval({"tool_name": TOOL}, TOOL, {"value": 3}, {}, {}, ENTRY)
+        approval._app_approval({"tool_name": TOOL}, TOOL, "apply", {"value": 3}, {}, ENTRY)
 
     assert UNREACHABLE in _deny_reason(json.loads(capsys.readouterr().out))
 
@@ -389,24 +440,18 @@ def test_missing_prompt_helpers_are_refused_as_unreachable(approval, monkeypatch
 # --- policy -------------------------------------------------------------------
 
 
-def test_approval_off_allows_before_the_branch(hook_runner, deployment, panel):
-    result = _run(
-        hook_runner, deployment, {"value": 3}, config=deployment.config({"enabled": False})
-    )
+@pytest.mark.parametrize(
+    "approval",
+    [{"enabled": False}, {**APPROVAL, "tools": {TOOL: "skip"}}],
+    ids=["enabled-false", "skip-by-full-name"],
+)
+def test_the_policy_is_not_read_for_an_application_tool(hook_runner, deployment, approval):
+    """The switch decides a governed tool; `approval.*` has no say over it."""
+    result = _run(hook_runner, deployment, {"value": 3}, config=deployment.config(approval))
 
-    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
-    assert panel.authorizations == []
-    assert deployment.stamps() == []
-
-
-def test_a_skip_policy_keyed_by_full_name_allows_with_no_stamp(hook_runner, deployment, panel):
-    config = deployment.config({**APPROVAL, "tools": {TOOL: "skip"}})
-
-    result = _run(hook_runner, deployment, {"value": 3}, config=config)
-
-    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
-    assert panel.authorizations == []
-    assert deployment.stamps() == []
+    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    (stamp,) = deployment.stamps()
+    assert stamp["position"] == "asked"
 
 
 def test_an_invalid_approval_section_denies(hook_runner, deployment):
@@ -485,13 +530,20 @@ def test_a_job_asks_with_the_dispatch_policy_as_approver(hook_runner, job):
 
 
 def test_a_job_never_emits_an_allow(hook_runner, job):
-    config = job.config({**APPROVAL, "tools": {TOOL: "skip"}}, dispatch={"denied_app_tools": []})
+    """At `allowed` a job is still sent an ask: only that carries the binding."""
+    write_control_context(job.record_root, target="va", switch={"va": "allowed"})
+    config = job.config(dispatch={"denied_app_tools": []})
 
     result = _run(
         hook_runner, job, {"step": 1}, config=config, hook_config=_hook_config(STEP_ENTRY)
     )
 
-    assert not result or "hookSpecificOutput" not in result
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    assert "Application: knob" in ask_reason(result)
+    (stamp,) = job.stamps()
+    assert stamp["approver"] == "dispatch_policy"
+    assert stamp["position"] == "allowed"
 
 
 # --- other tools --------------------------------------------------------------

@@ -22,6 +22,7 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
     resolve_target,
+    tier_allows,
     tier_writes,
 )
 
@@ -1024,12 +1025,12 @@ def is_shared_login(host: dict[str, Any], layer_rel: str) -> bool:
 def _judge_shared_posture(
     login_config: dict[str, Any], login_rel: str, login_path: Path | None
 ) -> None:
-    """Refuse a shared login that spells ``control_system.writes: allowed``; warn about one that armed.
+    """Refuse a shared login that spells an arming tier word; warn about one that armed.
 
     A login named by ``shared:`` is always ``never``. The tier key spelled
-    ``allowed`` in the file is refused, naming the login and ``shared:``. One
-    the parse point rewrote out of retired ``writes_enabled`` leaves (the
-    origin :func:`~osprey.cli.build_profile_document.retired_write_origin`
+    ``asked`` or ``allowed`` in the file is refused, naming the login and
+    ``shared:``. One the parse point rewrote out of retired ``writes_enabled``
+    leaves (the origin :func:`~osprey.cli.build_profile_document.retired_write_origin`
     recorded for the file) is warned about once and pinned ``never``: the
     retired keys arm nothing on a shared login. A document handed in unparsed
     is judged on its retired leaves the same way.
@@ -1040,15 +1041,18 @@ def _judge_shared_posture(
 
     stem = PurePosixPath(login_rel).stem
     rewritten = login_path is not None and retired_write_origin(login_path) is not None
-    spells_allowed = any(value == "allowed" for value in _document._tier_key_values(login_config))
-    if spells_allowed and not rewritten:
+    arming = next(
+        (v for v in _document._tier_key_values(login_config) if v in _document._ARMING_WORDS),
+        None,
+    )
+    if arming is not None and not rewritten:
         raise BuildProfileError(
             f"{login_rel}: a login named by modules.web_terminals.shared cannot spell "
-            f"`{WRITES_KEY}: allowed` — everyone on the roster opens {stem!r}, so it is "
+            f"`{WRITES_KEY}: {arming}` — everyone on the roster opens {stem!r}, so it is "
             f"always `{WRITES_KEY}: {_SHARED_WRITES}`. Give write access through a "
             f"person's login, or remove {stem!r} from shared:."
         )
-    if spells_allowed or retired_write_answer(login_config) == "allowed":
+    if arming is not None or retired_write_answer(login_config) == _document._ALLOWED:
         _warn_once(
             login_rel,
             "shared-arms",
@@ -1400,9 +1404,12 @@ def judge_retired_posture(
       previous-release tier spells an unarmed ``epics`` leaf on deployments
       that configure no EPICS machine, and those keep building for the
       release window).
-    * A difference warns "was <today>, now <tier>".
-    * An unchanged ``allowed`` whose configured machines today's reading only
-      partly armed warns, naming the machines that become armable.
+    * A difference warns "was <today>, now <tier>". Today's reading has two
+      words, so an arming tier word agrees with today's ``allowed``: the
+      question is whether the render arms, not how it spells that.
+    * A tier word that arms (``asked`` or ``allowed``) over a today that armed,
+      but only partly armed its configured machines, warns, naming the tier
+      word and the machines that become armable.
 
     Each warning is logged once per *dedupe* key, and never with *warn* off.
 
@@ -1452,7 +1459,8 @@ def judge_retired_posture(
         target for target, on in _document._retired_session_posture(today_section).items() if on
     ]
     today = _ALLOWED if armed else _NEVER
-    if today != tier:
+    arms = tier_allows(section)
+    if bool(armed) != arms:
         _warn_once(
             dedupe,
             _POSTURE_CHANGE,
@@ -1463,13 +1471,13 @@ def judge_retired_posture(
             f"`{_CONTROL_SYSTEM_SECTION}.writes` explicitly",
         )
         return
-    if tier == _ALLOWED:
+    if arms:
         armable = [t for t in configured_now if t not in armed]
         if armable:
             _warn_once(
                 dedupe,
                 _WIDENING,
-                f"{label}: `{_CONTROL_SYSTEM_SECTION}.writes: {_ALLOWED}` lets a session write to "
+                f"{label}: `{_CONTROL_SYSTEM_SECTION}.writes: {tier}` lets a session write to "
                 f"every configured machine; today only "
                 f"{', '.join(_machine(today_section, t) for t in armed)} was armed, so "
                 f"{', '.join(_machine(today_section, t) for t in armable)} become armable",

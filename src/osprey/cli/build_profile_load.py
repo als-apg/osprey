@@ -212,6 +212,14 @@ RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.11.0"
 #: the window test until every such warning becomes its refusal.
 RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
 
+#: The release from which ``approval.tools.<tool>`` for a tool the write switch
+#: governs is refused rather than dropped with a warning
+#: (:func:`~osprey.cli.build_profile_document.normalize_retired_approval_policies`).
+#: Its own window, one minor after the write-posture sunset, because the
+#: policies retire in the release that refuses the write keys. A test tripwire
+#: like the others, not a runtime version compare.
+RETIRED_APPROVAL_POLICY_REFUSED_FROM = "2026.12.0"
+
 
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
 # a typo of one of these (e.g. mcp_server vs mcp_servers).

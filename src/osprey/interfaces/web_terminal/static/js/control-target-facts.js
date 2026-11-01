@@ -18,10 +18,11 @@
  * server's own label stays on tooltips, where the implementation vocabulary
  * belongs.
  *
- * **No process claims.** Nothing here says whether a write will ask for
- * approval, what limits apply, or who is prompted — all of that is deployment
- * configuration this module cannot see. What it may state is consequence:
- * writes move hardware, or nothing moves.
+ * **One process claim.** The switch's position decides whether a write prompts
+ * first, and the row publishes it, so that is the one thing about process this
+ * module says. What limits apply and who approves are deployment configuration
+ * it cannot see. Beyond that it states consequence: writes move hardware, or
+ * nothing moves.
  */
 
 /** The refusal word for a row whose Switch is missing because the store is. */
@@ -69,6 +70,21 @@ export const REPORT_FAILED = 'failed';
 
 /** The refusal word a switch the fleet never applied is rendered under. */
 export const REASON_SWITCH_FAILED = 'switch_failed';
+
+/**
+ * The three switch positions, narrowest first: a move to a later one widens.
+ * @type {readonly ('off'|'asked'|'allowed')[]}
+ */
+export const POSITIONS = ['off', 'asked', 'allowed'];
+
+/**
+ * Whether *value* is one of the {@link POSITIONS}: exactly, no folding.
+ * @param {unknown} value
+ * @returns {value is 'off'|'asked'|'allowed'}
+ */
+export function isPosition(value) {
+  return POSITIONS.includes(/** @type {any} */ (value));
+}
 
 /**
  * The machine kinds, as GET publishes them in each row's `machine_kind`
@@ -124,9 +140,9 @@ export const KIND_BANNERS = {
 };
 
 /**
- * The sentence every turn-on carries (C-WORDS): in its confirm, or — when the
- * confirm was waived — once in the popover's status line after the turn-on
- * lands. Never beside the off control: off reaches running sandboxes.
+ * The sentence every widening carries (C-WORDS): in its confirm, or — when the
+ * confirm was waived — once in the popover's status line after the move lands.
+ * Never beside the off control: off reaches running sandboxes.
  */
 export const TURN_ON_SENTENCE =
   'Runs already going — a sandbox run or a notebook cell — keep the state they started with; the next one follows.';
@@ -137,6 +153,14 @@ export const TURN_ON_SENTENCE =
  */
 export const STOP_NOT_TAKEN_SENTENCE =
   'The stop did not take effect — writes are still on. Retry; if it fails again, ask the deployment admin.';
+
+/**
+ * What stands in for a position above the login's tier: as the row's reason
+ * ({@link lockReason}) and as the phrase of the route's `tier_caps` refusal.
+ * `asked` is the one ceiling that caps a position: `allowed` is the top one, and
+ * `never` is a lock on every armed position with a sentence of its own.
+ */
+const TIER_CAPS_SENTENCE = 'your tier caps writes at asked';
 
 /**
  * The "read" capability phrase first contact and the tour put in front of an
@@ -221,17 +245,16 @@ export function descriptorTone(row, kind) {
 }
 
 /**
- * The display phrase for a state word ({@link module:control-target-chip.stateWord},
- * C-GET's `on` / `off` / `locked`): off is the state you put it in and one
- * click undoes, locked is a switch that is on and still refused (or a switch
- * that cannot be read), and its row says why. Anything unrecognised reads as
- * locked — the direction that promises nothing.
- * @param {'on'|'off'|'locked'|string} word
+ * The display phrase for a state word ({@link module:control-target-chip.stateWord}):
+ * asked writes prompt first, allowed writes do not, off is the state you put it
+ * in and one click undoes, and locked is an armed switch still refused (or a
+ * switch that cannot be read), whose row says why. Anything unrecognised reads
+ * as locked — the direction that promises nothing.
+ * @param {'off'|'asked'|'allowed'|'locked'|string} word
  * @returns {string}
  */
 export function statePhrase(word) {
-  if (word === 'on') return 'writes on';
-  if (word === 'off') return 'writes off';
+  if (isPosition(word)) return `writes ${word}`;
   return 'writes locked';
 }
 
@@ -272,6 +295,8 @@ export const REASON_PHRASES = {
   [REASON_SWITCH_FAILED]: 'not applied',
   // Minted by the chip for a request nothing answered before its deadline.
   request_expired: 'no answer',
+  tier_caps: TIER_CAPS_SENTENCE,
+  waiver_not_allowed: 'this move always confirms',
 };
 
 /**
@@ -390,8 +415,8 @@ export function contextRefusalPhrase(state) {
 export const LIFTED_BY_TURN_ON = new Set(['switch_off', 'stopped_since']);
 
 /**
- * Why this row's writes cannot be turned on, or `null` when they can — read
- * from C-GET alone (`switch`, `write_reason`, `write_phrase`, `locks`).
+ * Why this row's writes cannot be moved to *position*, or `null` when they can
+ * — read from C-GET alone (`switch`, `write_reason`, `write_phrase`, `locks`).
  *
  * Turning off is never locked by what this answers: off is refused for no
  * tier, run or follower (C-POST), and a locked row keeps its off control.
@@ -402,22 +427,25 @@ export const LIFTED_BY_TURN_ON = new Set(['switch_off', 'stopped_since']);
  * Ordered widest first: no record to write, then a record nobody can read,
  * then the verdict's own phrase for a lock no click here lifts, then the two
  * published locks (a readonly run, a login whose tier never writes) for a row
- * whose verdict named the switch first.
+ * whose verdict named the switch first, and last the tier's ceiling, which
+ * locks `allowed` alone: a capped login still arms at `asked`.
  * @param {any} row
  * @param {any} state
+ * @param {'asked'|'allowed'} [position]  the armed position asked about
  * @returns {string|null}
  */
-export function lockReason(row, state) {
+export function lockReason(row, state, position = 'asked') {
   if (state?.store_available === false) return 'changes cannot be recorded right now';
   const reason = typeof row?.write_reason === 'string' ? row.write_reason : '';
   const phrase = typeof row?.write_phrase === 'string' ? row.write_phrase : '';
-  if (row?.switch !== 'on' && row?.switch !== 'off') {
+  if (!isPosition(row?.switch)) {
     return phrase || 'the write switch cannot be read';
   }
   if (reason && !LIFTED_BY_TURN_ON.has(reason)) return phrase || reason;
   const locks = state?.locks && typeof state.locks === 'object' ? state.locks : {};
   if (locks.readonly_run || state?.readonly_run) return 'the whole deployment is running read-only';
   if (locks.tier === 'never') return "this login's write tier does not allow writes";
+  if (locks.tier === 'asked' && position === 'allowed') return TIER_CAPS_SENTENCE;
   return null;
 }
 
@@ -482,10 +510,10 @@ export function reachException(reachability) {
 /**
  * The banner a confirm carries ({@link KIND_BANNERS}): the real machine's
  * "writes move hardware", the rehearsal's "nothing moves", nothing for the
- * simulator. Deliberately the whole of what the confirms say about safety —
- * whether a write prompts for approval, and what limits apply, are deployment
- * configuration this module cannot see, so it makes no claim about them. The
- * dialog's `data-target-kind` decides its tone (red, amber).
+ * simulator. It says what a write does to the machine; whether the write
+ * prompts first is the confirm's body, from the position. What limits apply is
+ * deployment configuration this module cannot see, so it makes no claim about
+ * them. The dialog's `data-target-kind` decides its tone (red, amber).
  * @param {string} kind
  * @returns {string|null}
  */
@@ -511,87 +539,105 @@ export function identTitle(row) {
 }
 
 /**
- * Everything the turn-writes-on confirm says. Only this direction asks —
- * turning off removes reach and is undone by a click; turning on is the
- * gesture after which a write the agent makes can land. The body names no
- * endpoint: the one the roster carries is where reads go, not where the write
- * this dialog allows would land.
+ * Everything a widening's confirm says, for a move to *to*. Only a widening
+ * asks — a narrowing removes reach and is undone by a click; a widening is the
+ * gesture after which a write the agent makes can land, or land unprompted.
+ * The body names no endpoint: the one the roster carries is where reads go, not
+ * where the write this dialog allows would land.
  *
  * The scope line is the first thing it says, because a switch is one login's:
- * turning it on here turns it on for every session, notebook and agent run of
- * the signed-in login — and for nobody else's. The turn-on sentence follows
- * (C-WORDS): runs already going keep the state they started with.
+ * moving it here moves it for every session, notebook and agent run of the
+ * signed-in login — and for nobody else's. Then whether writes to this machine
+ * will still prompt, the one thing the two positions differ on, then the
+ * turn-on sentence (C-WORDS): runs already going keep the state they started
+ * with. The move's start adds nothing: off→allowed and asked→allowed arrive at
+ * the same place.
  * @param {any} row
  * @param {string} kind
+ * @param {'asked'|'allowed'} [to]  the position the move arrives at
  * @returns {{title: string, body: ConfirmRun[][], live: string|null,
  *            confirmLabel: string, targetKind: string}}
  */
-export function turnOnConfirm(row, kind) {
+export function turnOnConfirm(row, kind, to = 'asked') {
+  const name = displayName(row, kind);
+  const allowed = to === 'allowed';
+  const position = allowed ? 'allowed' : 'asked';
   return {
-    title: `Turn writes on for ${displayName(row, kind)}?`,
+    title: `Set writes to ${position} on ${name}?`,
     body: [
       ['For ', { em: 'your login' }, ' — every session, notebook and agent run you start.'],
+      allowed
+        ? ['Writes to ', { em: name }, ' will run with ', { em: 'no prompt' }, '.']
+        : ['Writes to ', { em: name }, ' will ', { em: 'still prompt' }, ' before each one runs.'],
       [TURN_ON_SENTENCE],
     ],
     live: hardwareNote(kind),
-    confirmLabel: 'Turn writes on',
+    confirmLabel: `Set writes to ${position}`,
     targetKind: kind,
   };
 }
 
 /**
+ * The clause that follows `Writes are <word>` in the switch confirm's arrival
+ * line, per word stateWord can answer; a word not listed ends the sentence.
+ * @type {Record<string, string>}
+ */
+const ARRIVAL_ENDINGS = {
+  asked: ' there — each one prompts first.',
+  allowed: ' there — they run with no prompt.',
+  off: ' there — nothing moves until you turn them on.',
+};
+
+/**
  * Everything the switch confirm says. The first line states the consequence —
  * where control goes next, naming writes only when the deployment arrives able
- * to make them. The second names the write state it will ARRIVE in, because
- * writes on/off is per machine and does not travel; the word is stateWord's
- * own, so the dialog and the chip a moment later can never disagree. Neither
- * line claims a scope: the switch moves the whole deployment, and saying so
- * twice per dialog is filler.
+ * to make them. The second names the write state it will ARRIVE in, because a
+ * position is per machine and does not travel; the word is stateWord's own, so
+ * the dialog and the chip a moment later can never disagree. Neither line
+ * claims a scope: the switch moves the whole deployment, and saying so twice
+ * per dialog is filler.
  * @param {any} row
  * @param {string} kind
- * @param {'on'|'off'|'locked'} word  stateWord's answer for the row
+ * @param {'off'|'asked'|'allowed'|'locked'} word  stateWord's answer for the row
  * @returns {{title: string, body: ConfirmRun[][], live: string|null,
  *            confirmLabel: string, targetKind: string}}
  */
 export function switchConfirm(row, kind, word) {
-  const arrival =
-    word === 'on'
-      ? ['Writes are ', { em: 'on' }, ' there.']
-      : word === 'off'
-        ? ['Writes are ', { em: 'off' }, ' there — nothing moves until you turn them on.']
-        : ['Writes are ', { em: 'locked' }, ' there.'];
+  const armed = word === 'asked' || word === 'allowed';
+  const known = armed || word === 'off';
   return {
     title: `Switch to ${displayName(row, kind)}?`,
     body: [
       [
-        word === 'on' ? 'All control reads and writes go to ' : 'All control reads go to ',
+        armed ? 'All control reads and writes go to ' : 'All control reads go to ',
         { em: String(row.endpoint || row.target) },
         '.',
       ],
-      arrival,
+      ['Writes are ', { em: known ? word : 'locked' }, known ? ARRIVAL_ENDINGS[word] : ' there.'],
     ],
-    live: word === 'on' ? hardwareNote(kind) : null,
+    live: armed ? hardwareNote(kind) : null,
     confirmLabel: 'Switch',
     targetKind: kind,
   };
 }
 
 /**
- * Whether one confirm may offer "don't ask again". Per gesture and per
- * machine kind, because the two dialogs guard different things: a switch is
- * recoverable (switch back, and the write state does not travel), so its
- * ceremony may be waived anywhere; turning writes on is the gesture after
- * which a write can land, and on the real machine that write moves hardware —
- * that one dialog keeps asking, always. The rehearsal and the simulator keep
- * the waiver; any kind this module does not know is treated as the real
- * machine, the direction this must fail in.
- * @param {'switch'|'writes-on'} gesture
+ * Whether one confirm may offer "don't ask again". Per gesture and per machine
+ * kind, because the dialogs guard different things: a target switch is
+ * recoverable (switch back, and the position does not travel), so its ceremony
+ * may be waived anywhere; a move to `writes-allowed` removes the prompt, and
+ * that dialog keeps asking on every machine; a move to `writes-asked` is the
+ * gesture after which a write can land, and on the real machine that write
+ * moves hardware, so only the rehearsal and the simulator keep its waiver. Any
+ * kind or gesture this module does not know is treated as the real machine,
+ * the direction this must fail in. The route refuses the same waivers.
+ * @param {'switch'|'writes-asked'|'writes-allowed'} gesture
  * @param {string} kind  kindAttr's answer for the row
  * @returns {boolean}
  */
 export function confirmSkippable(gesture, kind) {
   if (gesture === 'switch') return true;
-  return kind === KIND_REHEARSAL || kind === KIND_SIMULATOR;
+  return gesture === 'writes-asked' && (kind === KIND_REHEARSAL || kind === KIND_SIMULATOR);
 }
 
 /* ---- has the switch this browser asked for landed? ---------------------- */
@@ -749,14 +795,14 @@ export function switchFailureNote(pid, detail = null) {
  * (storage-scope.js): on a multi-user mount one operator's waiver must not
  * silence the dialog for everyone else.
  *
- * A turn-on's slot also names the machine's kind: a waiver given while
+ * A move to asked's slot also names the machine's kind: a waiver given while
  * `standin` was the rehearsal must not answer for it once it reads as the
- * real machine (C-KIND), whose turn-on is never waived.
- * @param {'switch'|'writes-on'} gesture
+ * real machine (C-KIND), whose moves are never waived.
+ * @param {'switch'|'writes-asked'} gesture
  * @param {any} row
  * @returns {string}
  */
 export function confirmSkipKeyBase(gesture, row) {
   const base = `osprey-ctc-skip-confirm:${gesture}:${row.target}`;
-  return gesture === 'writes-on' ? `${base}:${machineKind(row)}` : base;
+  return gesture === 'writes-asked' ? `${base}:${machineKind(row)}` : base;
 }

@@ -97,7 +97,9 @@ refusal never share one.
 ``hook_approval`` has three words of its own, all on the same
 ``tool_use_id``: ``ask`` when the hook put the call in front of an approver,
 then ``approved`` when the harness reported that the call ran, or ``denied``
-when the turn ended without it --- declined or interrupted.
+when the turn ended without it --- declined or interrupted. A write the
+switch's *allowed* position let run has no ``ask``: its ``approved`` names
+``approver=write_switch`` in ``detail``.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves ``http_mutation``
@@ -166,7 +168,7 @@ JSON object:
        the same way the refusal message names it; on the web surfaces, the
        login the request came from --- see :ref:`audit-trail-identity-keys`.
        An MCP server's own record adds ``approval=approved approver=<who>``
-       when an approval prompt let the call through, and a control-target
+       when an approval (a person's or the switch's) let the call through, and a control-target
        switch adds ``from_target=`` and ``to_target=``. A control-system write
        adds the account and host the control system sees it from, and the
        person behind a dispatched run or a queued plan; see
@@ -429,8 +431,9 @@ the default record shape:
    * - ``server``, ``subject``
      - The MCP server's tool prefix, and the ``mcp__<prefix>__<tool>`` name
    * - ``approval``
-     - ``{"outcome": "approved", "approver", "permission_mode"}`` when an
-       approval prompt let the call through, else ``null``
+     - ``{"outcome": "approved", "approver", "permission_mode", "position"}``
+       when an approval let the call through, else ``null``; ``position`` is
+       the switch position a governed call ran under, else ``null``
    * - ``target``, ``generation``
      - The control target and its generation when the call started
    * - ``facts``

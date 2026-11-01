@@ -21,9 +21,10 @@ devices), so they carry ``_APPROVAL`` only — same as ``stop_run`` — and must
 never be denied or removed-from-ask by the kill switch.
 
 The kill switch reads the tier, ``control_system.writes``, alone: ``never``
-is the hard deny above, ``allowed`` denies nothing and pulls from ``ask`` only
-the tools whose rule carries both writes-check and an approval hook (the arming
-pair's preflight approval included). Only the literal ``allowed`` arms, and the
+is the hard deny above, ``asked`` and ``allowed`` render alike: they deny nothing
+and pull from ``ask`` only the tools whose rule carries both writes-check and an
+approval hook (the arming pair's preflight approval included). Only those two
+literal words arm, and the
 retired per-connector ``writes_enabled`` leaves no longer move the render once
 the tier is spelled — on a two-target deployment, on a one-target deployment,
 and on one carrying an armed block for a machine it never reaches. The tier is
@@ -42,6 +43,9 @@ from osprey import bluesky_tool_names as bsky
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from tests._preset_data import create_project_as_built
+
+#: The tier words that arm writes; the render does not tell them apart.
+ARMING = ("asked", "allowed")
 
 #: The project every ``_build_ctx`` call reads, built once per module.
 _BASE_PROJECT: Path | None = None
@@ -128,15 +132,16 @@ def test_bluesky_arming_tools_denied_when_writes_off():
         )
 
 
-def test_bluesky_arming_tools_not_denied_when_writes_on():
-    """On ``allowed`` the arming pair is not denied, and leaves ``ask``.
+@pytest.mark.parametrize("word", ARMING)
+def test_bluesky_arming_tools_not_denied_when_writes_on(word):
+    """On an arming tier the arming pair is not denied, and leaves ``ask``.
 
     Its rule carries writes-check and the preflight approval variant: the
-    approval hook raises the prompt when the switch is on, and writes-check
-    refuses the call before any prompt when it is off.
+    approval hook decides the prompt from the switch's position, and writes-check
+    refuses the call before any prompt when the switch is off.
     """
     ctx = _build_ctx(
-        writes="allowed",
+        writes=word,
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
     perms = ctx["facility_permissions"]
@@ -179,7 +184,7 @@ def test_bluesky_stop_tools_never_denied_or_removed():
     the deny test above: it proves the kill switch is selecting on the arming
     hook, not blanket-denying the whole server.
     """
-    for writes in ("allowed", "never"):
+    for writes in ("asked", "allowed", "never"):
         ctx = _build_ctx(
             writes=writes,
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
@@ -219,7 +224,7 @@ def test_bluesky_authoring_tools_never_denied_or_removed():
     """write_plan/validate_plan carry approval only (no
     _WRITES_CHECK) — like stop_run, the kill switch must never block them,
     on either tier, since neither reaches hardware."""
-    for writes in ("allowed", "never"):
+    for writes in ("asked", "allowed", "never"):
         ctx = _build_ctx(
             writes=writes,
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
@@ -273,8 +278,9 @@ def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(
     assert "mcp__python__execute" not in _ks_deny(ctx)
 
 
-def test_nothing_denied_when_writes_allowed():
-    ctx = _build_ctx(writes="allowed")
+@pytest.mark.parametrize("word", ARMING)
+def test_nothing_denied_on_an_arming_tier(word):
+    ctx = _build_ctx(writes=word)
     assert _ks_deny(ctx) == []
     # execute carries writes-check and approval, so it leaves `ask` and the
     # agent that requires it keeps it through `allow`.
@@ -284,17 +290,18 @@ def test_nothing_denied_when_writes_allowed():
     assert "mcp__controls__channel_write" not in perms["allow"]
 
 
-def test_allowed_never_puts_a_pure_write_tool_in_allow():
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_never_puts_a_pure_write_tool_in_allow(word):
     """The rescue may re-grant read/write-mixed tools only, never pure writes.
 
-    On an ``allowed`` render every matcher carrying writes-check and approval
+    On an arming render every matcher carrying writes-check and approval
     is pulled from ``ask``, so a rescue keyed on ``remove_ask`` would be free to
     promote ``channel_write`` or the arming pair to ``allow`` — an
     auto-approved control-system write with no prompt in front of it. The
     rescue is keyed on the read/write-mixed set instead.
     """
     ctx = _build_ctx(
-        writes="allowed",
+        writes=word,
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
     allow = ctx["facility_permissions"].get("allow", [])
@@ -303,22 +310,23 @@ def test_allowed_never_puts_a_pure_write_tool_in_allow():
         assert f"mcp__bluesky__{tool}" not in allow
 
 
-def test_allowed_regrants_python_execute_only_for_a_requiring_agent():
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_regrants_python_execute_only_for_a_requiring_agent(word):
     """python's execute reaches ``allow`` through the required-tool rescue alone.
 
     With ``pyat-specialist`` enabled the tool is re-granted, exactly as on a
     ``never`` render: it is the agent's only compute path, and an agent
     declaring a tool that is in none of the permission lists fails build
-    validation. With that agent off, the ``allowed`` render leaves ``execute``
+    validation. With that agent off, an arming render leaves ``execute``
     in no list at all and the two runtime hooks decide it per call.
     """
-    with_agent = _build_ctx(writes="allowed")
+    with_agent = _build_ctx(writes=word)
     assert any(a["name"] == "pyat-specialist" and a["enabled"] for a in with_agent["agents"])
     assert "mcp__python__execute" in with_agent["facility_permissions"]["allow"]
     assert "mcp__python__execute" not in _ks_deny(with_agent)
 
     without_agent = _build_ctx(
-        writes="allowed",
+        writes=word,
         claude_code_overrides={"agents": {"pyat-specialist": {"enabled": False}}},
     )
     perms = without_agent["facility_permissions"]
@@ -398,10 +406,11 @@ def test_never_denies_with_every_connector_leaf_disarmed():
     assert "mcp__python__execute" in ctx["facility_permissions"]["remove_ask"]
 
 
-def test_allowed_denies_nothing_with_every_connector_leaf_disarmed():
+@pytest.mark.parametrize("word", ARMING)
+def test_an_arming_tier_denies_nothing_with_every_connector_leaf_disarmed(word):
     """The per-call decision is the runtime switch's, not a retired leaf's."""
     ctx = _switchable(
-        writes="allowed",
+        writes=word,
         connector_writes={_LIVE_CONNECTOR: False, _VA_CONNECTOR: False},
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
@@ -411,7 +420,7 @@ def test_allowed_denies_nothing_with_every_connector_leaf_disarmed():
 def test_disagreeing_connector_leaves_render_exactly_like_their_tier():
     """No three-way render: disagreeing leaves change nothing the tier decides."""
     servers = {"servers": {"bluesky": {"enabled": True}}}
-    for writes in ("allowed", "never"):
+    for writes in ("asked", "allowed", "never"):
         plain = _switchable(writes=writes, claude_code_overrides=servers)
         split = _switchable(
             writes=writes,
@@ -480,17 +489,17 @@ def test_a_single_target_deployment_renders_exactly_its_tier():
 
 
 # ---------------------------------------------------------------------------
-# Only the literal `allowed` arms writes
+# Only the literal `asked` and `allowed` arm writes
 # ---------------------------------------------------------------------------
 
 
-def test_a_value_other_than_allowed_renders_the_kill_switch():
-    """``'Allowed'``, ``'true'``, ``True`` and ``1`` are not ``allowed``.
+def test_a_value_other_than_an_arming_word_renders_the_kill_switch():
+    """``'Allowed'``, ``'Asked'``, ``'on'``, ``'true'``, ``True`` and ``1`` arm nothing.
 
     A value nobody can be sure of lands on the side that costs an operator a
     config edit rather than a machine.
     """
-    for value in ("Allowed", "true", True, 1):
+    for value in ("Allowed", "Asked", "on", "true", True, 1):
         ctx = _build_ctx(
             writes=value,
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},

@@ -43,7 +43,7 @@ from osprey_connectors_tests._harness import (
 )
 
 #: Every machine the record can switch on.
-ALL_ON = {"live": "on", "va": "on", "standin": "on"}
+ALL_ON = {"live": "asked", "va": "asked", "standin": "allowed"}
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +434,24 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     assert reader.read_record({})["posture"] == {}
 
 
+def test_a_stored_on_reads_as_asked_on_both_sides(stamped_root):
+    """The retired spelling a file may still hold: asked, never allowed, on either side."""
+    path = write_control_context(stamped_root, switch={"live": "asked"})
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["switch"] = {"live": "on", "va": "allowed", "standin": "ON"}
+    write_payload(path, payload)
+    posture_store.invalidate_cache()
+
+    record, status = reader.read_record_status({})
+    assert status == "ok"
+    canonical = control_context.read_record()
+    assert record["switch"] == canonical.switch == {"live": "asked", "va": "allowed"}
+    for target in ("live", "va", "standin"):
+        assert reader.switch_position(record, target) == control_context.switch_position(
+            canonical, target
+        )
+
+
 # ---------------------------------------------------------------------------
 # every write-path verdict names its machine
 # ---------------------------------------------------------------------------
@@ -637,12 +655,12 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     reset_config_cache()
 
     try:
-        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "on"})
+        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "asked"})
 
         assert reader.posture_unknown({}) is False
         record, status = reader.read_record_status({})
         assert status == "ok"
-        assert record["switch"] == {"va": "on"}
+        assert record["switch"] == {"va": "asked"}
     finally:
         reset_config_cache()
         posture_store.invalidate_cache()

@@ -107,7 +107,7 @@ class BoundState:
             field, by field name. The application compares them with the state
             it is about to act on.
         input_digests: Every bound ``bind.input_digests`` field, by field name.
-        approver: Who approved: ``human`` or ``dispatch_policy``.
+        approver: Who approved: ``human``, ``dispatch_policy`` or ``write_switch``.
     """
 
     bound: bool

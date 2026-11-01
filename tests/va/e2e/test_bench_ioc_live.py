@@ -399,7 +399,7 @@ def raw_config(
         "control_system": {
             "type": "virtual_accelerator",
             # The login tier. It arms nothing alone: the session's switch must
-            # also be on for the machine (see ``state_root``).
+            # also be armed for the machine (see ``state_root``).
             "writes": "allowed",
             "limits_checking": {
                 "enabled": True,
@@ -429,9 +429,9 @@ def state_root(tmp_path, monkeypatch):
     ``OSPREY_AGENT_DATA_ROOT`` stamp. Stamping one and not the other leaves this
     process reading whatever record the developer's machine was last left on.
 
-    The session's switch is on for both machines before any child spawns: a
-    write needs the login tier (``control_system.writes: allowed``) AND the
-    switch on for its target, and a connector chooses its write-capable gateway
+    The session's switch is at ``asked`` for both machines before any child
+    spawns: a write needs the login tier (``control_system.writes: allowed``)
+    AND the switch armed for its target, and a connector chooses its write-capable gateway
     from that verdict when it connects. The record is ownerless at generation
     0 on the deployment's baseline, which is what a controls server's claim
     would start, so a claim merges it rather than replacing it.
@@ -442,7 +442,7 @@ def state_root(tmp_path, monkeypatch):
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     control_context.invalidate_cache()
     write_control_context(
-        root, target="va", generation=0, owned_by=None, switch={"live": "on", "va": "on"}
+        root, target="va", generation=0, owned_by=None, switch={"live": "asked", "va": "asked"}
     )
     yield root
     control_context.invalidate_cache()

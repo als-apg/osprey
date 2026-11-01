@@ -32,12 +32,12 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
     "control-assistant": (
-        "sha256:9b8ee13e44b0a54b28cd071fac21fea2056fac71cc3da18cb714ad331b3f3555"
+        "sha256:388fb8a53b4cd5f9cebf9404c90a5755e6fd40b559dcbad1a5480bf9c207313a"
     ),
-    "hello-world": ("sha256:3634eced947779b5da33c87273b7db9fe8e92d62449efa86ed329df354ca6ac4"),
+    "hello-world": ("sha256:64e800d50fa5250991e06c374a10282f0728f3daa77dfb6db748bf8306dc576f"),
     "tiers/admin": ("sha256:b3c44a1abcfd7f1e0a2172b1bc3ef91017d581c04441ce37b8ca50bea4322fec"),
     "tiers/readonly": ("sha256:2de7e2480b79ffafde8a2fd34b37c4195c31f12fdce5ff376e92c048c44af47f"),
-    "tiers/readwrite": ("sha256:2691f6cdd043bc06eba77aefe140bc86140009465677757c3f0fd5f95e3d5c36"),
+    "tiers/readwrite": ("sha256:c6915b1f77c865a131df33ad4de1ec9464f9d8e27e434838cb7c9c4c17a80adf"),
     "tiers/channel-finder": (
         "sha256:54cf3c8e918e7c8edb22001f8fa8bfd4510ff402d1dafe7bd71526e573d7436c"
     ),

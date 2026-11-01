@@ -21,8 +21,9 @@ Four properties shape every test below.
 * **The write columns are the verdict's (C-GET).** ``switch`` is what the login
   recorded; ``write_allowed`` / ``write_reason`` / ``write_phrase`` are the
   write verdict a fresh call would get, and ``machine_kind`` is that verdict's
-  kind. A recorded ``on`` the verdict refuses is shown as both — recorded, and
-  inert.
+  kind. A recorded position the verdict refuses is shown as both — recorded,
+  and inert. ``prompt`` is whether the next write prompts: the effective
+  position, so it follows the ceiling where ``switch`` does not.
 * **The fleet is published, not collapsed.** A switch has landed when every live
   server reports the generation it was asked for, so the rows say which server
   is where instead of offering one verdict that could not name a stuck pid.
@@ -62,6 +63,7 @@ from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
     write_control_context,
+    write_payload,
     write_server_report,
 )
 from tests.interfaces.web_terminal._control_context import only_alive
@@ -121,6 +123,7 @@ ROW_FIELDS = {
     "reason",
     "reason_detail",
     "switch",
+    "prompt",
     "write_allowed",
     "write_reason",
     "write_phrase",
@@ -153,7 +156,7 @@ TOP_LEVEL_FIELDS = {
     "store_available",
     "readonly_run",
     "switch_epoch",
-    "any_on",
+    "any_armed",
     "locks",
     "owner",
     "servers",
@@ -437,11 +440,11 @@ class TestTheFieldSet:
     def test_the_session_id_is_echoed_and_nothing_else_reads_it(self, client, agent_data_root):
         """A recorded switch reads the same with and without a key: it is the login's."""
         write_control_context(
-            agent_data_root, target="live", generation=4, switch={"standin": "on"}
+            agent_data_root, target="live", generation=4, switch={"standin": "asked"}
         )
         with_id = get_posture(client, SESSION_A)
         without = get_posture(client)
-        assert row_for(without, "standin")["switch"] == "on"
+        assert row_for(without, "standin")["switch"] == "asked"
         assert with_id["session_id"] == SESSION_A
         assert without["session_id"] is None
         assert {k: v for k, v in with_id.items() if k != "session_id"} == {
@@ -1132,7 +1135,7 @@ def fresh_verdict(config_path, target):
 
 def switch_on(agent_data_root, *targets):
     write_control_context(
-        agent_data_root, target="live", generation=4, switch=dict.fromkeys(targets, "on")
+        agent_data_root, target="live", generation=4, switch=dict.fromkeys(targets, "asked")
     )
 
 
@@ -1204,7 +1207,7 @@ class TestTheWriteColumns:
             payload = get_posture(client)
         assert {row["target"]: row["switch"] for row in payload["targets"]} == {
             "live": "off",
-            "va": "on",
+            "va": "asked",
             "standin": "off",
         }
 
@@ -1213,7 +1216,7 @@ class TestTheWriteColumns:
             payload = get_posture(client)
         assert all(row["switch"] == "off" for row in payload["targets"])
         assert payload["switch_epoch"] is None
-        assert payload["any_on"] is False
+        assert payload["any_armed"] is False
 
     def test_an_unreadable_record_is_a_null_switch_and_record_unavailable(
         self, make_client, tmp_path, agent_data_root
@@ -1227,43 +1230,71 @@ class TestTheWriteColumns:
             assert row["write_allowed"] is False, row["target"]
             assert row["write_reason"] == "record_unavailable", row["target"]
             assert row["write_phrase"] == refusal_phrase("record_unavailable", row["machine_kind"])
-        assert payload["any_on"] is False
+        assert payload["any_armed"] is False
         assert payload["switch_epoch"] is None
 
-    def test_any_on_counts_a_machine_this_render_no_longer_configures(
+    def test_any_armed_counts_a_machine_this_render_no_longer_configures(
         self, make_client, tmp_path, agent_data_root
     ):
         """What enables "Turn all off": a dropped machine is still on in the record."""
         with make_client(armed(tmp_path)) as client:
             write_control_context(
-                agent_data_root, target="live", generation=4, switch={"gone": "on"}
+                agent_data_root, target="live", generation=4, switch={"gone": "asked"}
             )
             payload = get_posture(client)
-        assert payload["any_on"] is True
+        assert payload["any_armed"] is True
         assert "gone" not in {row["target"] for row in payload["targets"]}
         assert all(row["switch"] == "off" for row in payload["targets"])
 
-    @pytest.mark.parametrize(("word", "on"), [("asked", True), ("allowed", True), ("bogus", False)])
-    def test_a_stored_switch_word_reads_on_only_when_it_arms(
-        self, make_client, tmp_path, agent_data_root, monkeypatch, word, on
-    ):
-        """The upcoming connectors release stores its word as it is; ``asked`` and ``allowed`` are on."""
-        monkeypatch.setattr(
-            control_context,
-            "_parse_switch",
-            lambda value: {k: v for k, v in value.items() if isinstance(v, str)},
-        )
+    def test_any_armed_is_false_with_everything_off(self, make_client, tmp_path):
         with make_client(armed(tmp_path)) as client:
-            write_control_context(agent_data_root, target="live", generation=4, switch={"va": word})
-            control_context.invalidate_cache()
-            posture_store.invalidate_cache()
-            payload = get_posture(client)
-        assert row_for(payload, "va")["switch"] == ("on" if on else "off")
-        assert payload["any_on"] is on
+            assert get_posture(client)["any_armed"] is False
 
-    def test_any_on_is_false_with_everything_off(self, make_client, tmp_path):
+    @pytest.mark.parametrize(
+        ("writes", "stored", "prompt"),
+        [
+            ("allowed", "asked", True),
+            ("allowed", "allowed", False),
+            ("asked", "asked", True),
+            # Capped: the stored position stays, and the next write prompts.
+            ("asked", "allowed", True),
+        ],
+    )
+    def test_prompt_is_the_effective_position_and_switch_the_stored_one(
+        self, make_client, tmp_path, agent_data_root, writes, stored, prompt
+    ):
+        with make_client(render(tmp_path=tmp_path, extra={"writes": writes})) as client:
+            write_control_context(
+                agent_data_root, target="live", generation=4, switch={"va": stored}
+            )
+            payload = get_posture(client)
+        va = row_for(payload, "va")
+        assert va["switch"] == stored
+        assert va["write_allowed"] is True
+        assert va["prompt"] is prompt
+        assert payload["any_armed"] is True
+        assert "ceiling" not in va
+
+    def test_prompt_is_false_on_every_refused_row(self, make_client, tmp_path, agent_data_root):
         with make_client(armed(tmp_path)) as client:
-            assert get_posture(client)["any_on"] is False
+            switch_on(agent_data_root, "va")
+            off = row_for(get_posture(client), "standin")
+            make_unreadable()
+            unreadable = row_for(get_posture(client), "va")
+        assert (off["switch"], off["prompt"]) == ("off", False)
+        assert (unreadable["switch"], unreadable["prompt"]) == (None, False)
+
+    def test_a_legacy_on_reads_back_as_asked(self, make_client, tmp_path):
+        with make_client(armed(tmp_path)) as client:
+            path = control_context.record_path()
+            assert path is not None
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            write_payload(path, {**payload, "switch": {"va": "on"}})
+            control_context.invalidate_cache()
+            posture = get_posture(client)
+        assert row_for(posture, "va")["switch"] == "asked"
+        assert row_for(posture, "va")["prompt"] is True
+        assert posture["any_armed"] is True
 
     def test_the_switch_epoch_is_the_records(self, make_client, tmp_path, agent_data_root):
         """As a decimal string: integer nanoseconds exceed a browser's exact range."""
@@ -1277,17 +1308,17 @@ class TestTheWriteColumns:
     def test_a_demoted_logins_on_stays_recorded_and_inert(
         self, make_client, tmp_path, agent_data_root
     ):
-        """O-3: the tier comes before the record, so the ``on`` stays on disk and refuses."""
+        """O-3: the tier comes before the record, so the position stays on disk and refuses."""
         config = armed(tmp_path, extra={"login_tiers": {acting_identity(): "never"}})
         with make_client(config) as client:
             switch_on(agent_data_root, "va")
             payload = get_posture(client)
         va = row_for(payload, "va")
-        assert va["switch"] == "on"
+        assert va["switch"] == "asked"
         assert va["write_allowed"] is False
         assert va["write_reason"] == "tier_never"
         assert va["write_phrase"] == refusal_phrase("tier_never", "simulator")
-        assert payload["any_on"] is True
+        assert payload["any_armed"] is True
         assert payload["locks"] == {"readonly_run": False, "tier": "never"}
 
     def test_a_read_only_run_refuses_every_row(
@@ -1300,13 +1331,25 @@ class TestTheWriteColumns:
         assert payload["readonly_run"] is True
         assert payload["locks"]["readonly_run"] is True
         for row in payload["targets"]:
-            assert row["switch"] == "on", row["target"]
+            assert row["switch"] == "asked", row["target"]
             assert row["write_allowed"] is False, row["target"]
             assert row["write_reason"] == "readonly_run", row["target"]
 
     def test_the_tier_lock_is_allowed_on_an_armed_render(self, make_client, tmp_path):
         with make_client(armed(tmp_path)) as client:
             assert get_posture(client)["locks"] == {"readonly_run": False, "tier": "allowed"}
+
+    def test_the_tier_lock_is_the_three_word_ceiling(self, make_client, tmp_path):
+        with make_client(render(tmp_path=tmp_path, extra={"writes": "asked"})) as client:
+            assert get_posture(client)["locks"] == {"readonly_run": False, "tier": "asked"}
+
+    def test_on_a_host_the_tier_lock_is_the_verdicts_ceiling_not_the_rung(
+        self, make_client, tmp_path
+    ):
+        """``write_ceiling``: a host caps by its tier; a passing rung does not lower it."""
+        config = armed(tmp_path, extra={"login_tiers": {acting_identity(): "asked"}})
+        with make_client(config) as client:
+            assert get_posture(client)["locks"]["tier"] == "allowed"
 
     def test_the_tier_lock_is_never_on_a_render_that_allows_no_writes(self, client):
         payload = get_posture(client)
@@ -1358,7 +1401,7 @@ class TestAWriteGatewayOnlyMachine:
     the toggle as ``selected_role_missing``.
     """
 
-    def test_it_accepts_on_and_off_and_its_reads_continue_while_off(
+    def test_it_accepts_the_positions_and_its_reads_continue_while_off(
         self, make_client, tmp_path, agent_data_root
     ):
         config = armed(tmp_path, standin_roles=("write_access",))
@@ -1369,11 +1412,11 @@ class TestAWriteGatewayOnlyMachine:
                 reachability=sweep(standin={"write_access": probed("reached")}),
             )
             with only_alive(SERVER_A):
-                post_switch(client, "standin", "on")
+                post_switch(client, "standin", "asked")
                 on = row_for(get_posture(client), "standin")
                 post_switch(client, "standin", "off")
                 off = row_for(get_posture(client), "standin")
-        assert on["switch"] == "on"
+        assert on["switch"] == "asked"
         assert on["write_allowed"] is True
         assert off["switch"] == "off"
         assert off["write_allowed"] is False

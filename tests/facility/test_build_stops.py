@@ -2539,10 +2539,9 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "profile_invalid__approval_hook_not_selected": (
         _plain(),
         (
-            "facility: profile-invalid: path approval.enabled — guarded tool `execute` is put "
-            "to a human under `approval.tools.execute` but the profile does not select the "
-            "`approval` hook, so nothing would ask; fix: add `approval` to `hooks:` in "
-            "profile.yml, or set `config: approval.enabled: false`"
+            "facility: profile-invalid: path approval.enabled — governed tool `execute` is put "
+            "to a human by the write switch but the profile does not select the `approval` "
+            "hook, so nothing would ask; fix: add `approval` to `hooks:` in profile.yml"
         ),
     ),
 }
@@ -2841,7 +2840,7 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     "edits",
     [
         pytest.param((), id="hook-selected"),
-        pytest.param((_drop_approval_hook, _disable_approval), id="approval-disabled"),
+        pytest.param((_disable_approval,), id="approval-disabled"),
     ],
 )
 def test_an_asking_profile_builds_with_the_hook_or_approval_off(
@@ -2857,6 +2856,25 @@ def test_an_asking_profile_builds_with_the_hook_or_approval_off(
     result = run_build(repo)
 
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.slow
+def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
+    initialised: Path, tmp_path: Path
+) -> None:
+    """``approval.enabled: false`` has no say over a governed tool: the write
+    switch still puts it to a human, so the build stops without the hook."""
+    repo = tmp_path / PROJECT
+    shutil.copytree(initialised, repo, symlinks=True)
+    _clear_facility_records(repo / "data" / "facility")
+    write_tree(repo / "data" / "facility", plain_tree())
+    _drop_approval_hook(repo)
+    _disable_approval(repo)
+
+    result = run_build(repo)
+
+    assert result.exit_code == 1, result.output
+    assert result.stderr.splitlines()[-1] == CASES["profile_invalid__approval_hook_not_selected"][1]
 
 
 @pytest.mark.slow

@@ -30,8 +30,8 @@ from tests.cli.test_init_revalidate import (
     _previous_release_repo,
     _repo_files,
     _revalidate,
+    revalidated_exemplar,
 )
-from tests.fixtures.lifecycle_repo import exemplar_source_files
 
 _FLAT = "  control_system.writes_enabled: true\n"
 
@@ -64,7 +64,7 @@ def test_the_previous_release_repo_revalidates_to_the_exemplar_and_then_rests(
     first = _revalidate(root)
 
     assert first.exit_code == 0, first.output
-    assert _repo_files(root) == exemplar_source_files()
+    assert _repo_files(root) == revalidated_exemplar()
     assert "Left for you to do by hand" not in first.output
     profile = (root / "profile.yml").read_text(encoding="utf-8")
     assert "writes_enabled:" not in profile
@@ -77,7 +77,7 @@ def test_the_previous_release_repo_revalidates_to_the_exemplar_and_then_rests(
 
     assert second.exit_code == 0
     assert "nothing to rewrite" in second.output
-    assert _repo_files(root) == exemplar_source_files()
+    assert _repo_files(root) == revalidated_exemplar()
 
 
 def test_logbook_and_knowledge_become_shared_logins(tmp_path: Path) -> None:
@@ -93,27 +93,31 @@ def test_logbook_and_knowledge_become_shared_logins(tmp_path: Path) -> None:
     assert not (root / RETIRED_LAYER_DIRNAME).exists()
 
 
+#: Each retired layer: its successor's kind, the tier key it read, the one its
+#: successor reads. An unedited layer is re-emitted from today's preset, so the
+#: readwrite tier moves to the shipped `asked` (FR4); every other value holds.
 _SUCCESSORS = {
-    "readonly": ("tiers", "never"),
-    "readwrite": ("tiers", "allowed"),
-    "admin": ("tiers", "allowed"),
-    "logbook": ("tiers", "never"),
-    "knowledge": ("tiers", "never"),
+    "readonly": ("tiers", "never", "never"),
+    "readwrite": ("tiers", "allowed", "asked"),
+    "admin": ("tiers", "allowed", "allowed"),
+    "logbook": ("tiers", "never", "never"),
+    "knowledge": ("tiers", "never", "never"),
 }
 
 
 @pytest.mark.parametrize("name", sorted(_SUCCESSORS))
 def test_each_old_tier_and_its_successor_resolve_alike(tmp_path: Path, name: str) -> None:
-    """Same tier key and same configured targets before and after the rewrite."""
+    """The shipped tier key and the same configured targets after the rewrite."""
     root = _previous_release_repo(tmp_path / "als-exemplar")
     old = _render_section(root / RETIRED_LAYER_DIRNAME / f"{name}.yml", tmp_path)
 
     assert _revalidate(root).exit_code == 0
-    kind, expected = _SUCCESSORS[name]
+    kind, before, after = _SUCCESSORS[name]
     new = _render_section(root / kind / f"{name}.yml", tmp_path)
 
-    assert tier_writes(old) == tier_writes(new) == expected
-    assert new.get("writes") == expected
+    assert tier_writes(old) == before
+    assert tier_writes(new) == after
+    assert new.get("writes") == after
     assert configured_targets(old) == configured_targets(new)
     assert configured_targets(new)
 
@@ -296,3 +300,84 @@ def test_every_frozen_stanza_has_its_successor_in_the_bundled_preset() -> None:
         assert current is not None, stanza
         assert len(current) == stanza.new_lines
         assert not any("writes_enabled" in line for line in current), stanza
+
+
+# ── The retired per-tool policies of the governed tools ─────────────────────
+
+
+def test_revalidate_drops_the_governed_policies_and_reports_them(tmp_path: Path) -> None:
+    from osprey.cli import build_profile_document as doc
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.init_revalidate import revalidate_repo
+
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    before = (root / "profile.yml").read_text(encoding="utf-8")
+    assert "approval.tools.channel_write: always\n" in before
+    assert "approval.tools.execute: selective\n" in before
+
+    result = revalidate_repo(root)
+
+    text = (root / "profile.yml").read_text(encoding="utf-8")
+    assert "approval.tools.channel_write" not in text
+    assert "approval.tools.execute:" not in text
+    assert "approval.tools.entry_create: always\n" in text
+    assert "approval.tools.setup_patch: always\n" in text
+    assert len(result.retired_policies) == 1
+    report = result.retired_policies[0]
+    assert report.startswith("profile.yml: ")
+    assert "`approval.tools.channel_write`" in report
+    assert "`approval.tools.execute`" in report
+    assert "slider" in report
+    assert not any("approval.tools" in step for step in result.manual_steps)
+
+    # The rewritten profile parses silently: nothing is left to drop.
+    doc._WARNED_RETIRED_KEYS.clear()
+    raw = _read_profile_document(root / "profile.yml", "rewritten.yml")
+    assert not any(
+        source == "rewritten.yml" and key == "approval.tools"
+        for source, key in doc._WARNED_RETIRED_KEYS
+    )
+    assert raw["config"]["approval.tools.entry_create"] == "always"
+
+    again = revalidate_repo(root)
+    assert again.retired_policies == []
+    assert not again.changed
+
+
+def test_a_stated_tier_word_unlike_the_presets_is_listed_as_skipped(tmp_path: Path) -> None:
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    said = " ".join(result.output.split())
+    assert "Left for you: control_system.writes: this profile states `allowed`" in said
+    assert "preset `control-assistant` ships `asked`" in said
+    assert "preset-drift NOTE, not a refusal" in said
+    assert "`# DEVIATION:`" in said
+    assert "control_system.writes: allowed\n" in (root / "profile.yml").read_text(encoding="utf-8")
+
+
+def test_a_kept_tier_file_loses_its_governed_policy_too(tmp_path: Path) -> None:
+    from osprey.cli.init_revalidate import revalidate_repo
+
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    assert revalidate_repo(root).changed
+    tier = root / "tiers" / "readwrite.yml"
+    text = tier.read_text(encoding="utf-8")
+    assert text.count("\nconfig:\n") == 1
+    tier.write_text(
+        text.replace(
+            "\nconfig:\n",
+            "\nconfig:\n  approval.tools.queue_add: skip\n  approval.tools.entry_create: skip\n",
+        ),
+        encoding="utf-8",
+    )
+
+    result = revalidate_repo(root)
+
+    rewritten = tier.read_text(encoding="utf-8")
+    assert "approval.tools.queue_add" not in rewritten
+    assert "  approval.tools.entry_create: skip\n" in rewritten
+    assert [line.split(":", 1)[0] for line in result.retired_policies] == ["tiers/readwrite.yml"]
+    assert "`approval.tools.queue_add`" in result.retired_policies[0]

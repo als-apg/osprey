@@ -64,6 +64,12 @@ def _resolve(path: Path):
     return resolve_profile_document(raw, path, warn=False)
 
 
+def _root_writing(word: str) -> dict:
+    """The root document with the tier key in place of its retired leaf."""
+    config = {k: v for k, v in _ROOT["config"].items() if k != "control_system.writes_enabled"}
+    return {**_ROOT, "config": {**config, "control_system.writes": word}}
+
+
 # ── the tier merge ───────────────────────────────────────────────────────────
 
 
@@ -158,6 +164,20 @@ def test_attachment_of_a_shared_login_over_a_bare_root(tmp_path: Path) -> None:
         "web.config_panel.enabled": False,
         "web.scaffold_gallery.write_enabled": False,
     }
+
+
+@pytest.mark.parametrize(("tier", "root"), [("asked", "allowed"), ("allowed", "asked")])
+def test_a_tier_word_wins_over_the_root(tmp_path: Path, tier: str, root: str) -> None:
+    document = {"name": "Ops", "config": {"control_system.writes": tier}}
+    path = _repo(tmp_path, "tiers/ops.yml", document, root=_root_writing(root))
+    assert _resolve(path).raw["config"]["control_system.writes"] == tier
+
+
+def test_a_shared_login_over_an_asked_root_is_pinned_never(tmp_path: Path) -> None:
+    root = _root_writing("asked")
+    root["config"] = {**root["config"], "modules.web_terminals.shared": ["logbook"]}
+    path = _repo(tmp_path, "tiers/logbook.yml", {"name": "Logbook", "lists": "own"}, root=root)
+    assert _resolve(path).raw["config"]["control_system.writes"] == "never"
 
 
 @pytest.mark.parametrize("layer", ["tiers/readonly.yml"])

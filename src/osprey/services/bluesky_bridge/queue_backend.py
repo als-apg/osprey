@@ -401,11 +401,11 @@ def lane_tier_allows(section: Any) -> bool:
 
     The startup half of the write verdict, the half that does not move while
     the process runs: :func:`osprey_connectors.posture_store.backstop_verdict`
-    allows (not a read-only run, and a login tier that allows writes, in that
-    verdict's own order), and the lane is not degraded. The tier is target-blind —
-    a deployment that allows writes allows them for every machine, and the
-    person's switch picks which one — so it is the tier, not any one
-    connector block, that decides.
+    allows (not a read-only run, and a login tier of ``asked`` or ``allowed``, in
+    that verdict's own order), and the lane is not degraded. The tier is
+    target-blind — a tier that arms writes arms them for every machine, and the
+    person's switch picks which one — so it is the tier, not any one connector
+    block, that decides.
 
     A degraded lane (rung 3 of :func:`resolve_lane_connector_type`) is never
     allowed: it addresses a machine this deployment cannot resolve, so the

@@ -3,8 +3,9 @@
 A shared container (the Bluesky queue, a dispatch worker) runs one render for
 every login whose job it carries, so the render's own tier cannot say whose
 write a job is. The build therefore stages, beside that render, the tier each
-login's OWN render sets: ``{login: "allowed" | "never"}``. This module is the
-one producer of that map; nothing at runtime writes it.
+login's OWN render sets: ``{login: "never" | "asked" | "allowed"}``, the word
+verbatim. This module is the one producer of that map; nothing at runtime
+writes it.
 
 What is in it:
 
@@ -25,7 +26,7 @@ left out. Absent is never filled in with the root tier: that would be a guess.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from osprey.deployment.web_terminals.roster import (
     UnresolvedRoleError,
@@ -37,12 +38,12 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
     sign_in_decides_tier,
 )
+from osprey_connectors.types import TierWord
 
 #: Where the map is rendered in a shared container's config.
 LOGIN_TIERS_KEY = "login_tiers"
 
-#: A package before the three-valued tier yields only the outer two.
-Tier = Literal["never", "asked", "allowed"]
+Tier = TierWord
 
 
 def _entry_login(entry: Any) -> tuple[str | None, dict[str, Any]]:
@@ -82,7 +83,8 @@ def build_login_tiers(config: Any, repo_root: Any, *, layer_root: Any) -> dict[s
             ``None`` for the published build zone.
 
     Returns:
-        ``{login: "allowed" | "never"}``, keys exactly as the roster names them.
+        ``{login: "never" | "asked" | "allowed"}``, each login's tier word
+        verbatim, keys exactly as the roster names them.
     """
     from osprey.deployment.compose_generator import _control_tree_build_account
     from osprey_connectors.identity import UNKNOWN_IDENTITY

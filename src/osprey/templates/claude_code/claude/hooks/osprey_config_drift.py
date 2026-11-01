@@ -47,10 +47,11 @@ project's ``control_system.write_tools`` are dropped: neither is denied
 outright, so neither says anything about the posture. An empty set abstains.
 
 The posture check (b) reads is the tier, ``control_system.writes``, exactly as
-the kill switch does (``tier_writes``): only the literal ``allowed`` arms. The
-key is looked up as a direct child of the top-level ``control_system`` section,
-never section-blind, because a facility server's ``writes:`` list lives under
-``claude_code.servers`` and says nothing about the tier. A retired
+the kill switch does (``tier_writes``): only the literals ``asked`` and
+``allowed`` arm. The key is looked up as a direct child of the top-level
+``control_system`` section, never section-blind, because a facility server's
+``writes:`` list lives under ``claude_code.servers`` and says nothing about the
+tier. A retired
 ``writes_enabled`` leaf, flat or in a connector block, is never read: the kill
 switch does not read it either. Anything the regex cannot read for certain — no
 tier key at all, a duplicated key, a value that is not a plain scalar —
@@ -80,7 +81,7 @@ from pathlib import Path
 #: The section the tier lives in, and its keys (the kill switch's `tier_writes`).
 _SECTION = "control_system"
 _WRITES_LEAF = "writes"
-_TIER_ALLOWED = "allowed"
+_TIER_ARMING = ("asked", "allowed")
 
 #: One block-mapping line, `<indent><key>: <rest>`. A key is a plain YAML word;
 #: quoted or complex keys are not posture keys and are passed over.
@@ -154,7 +155,7 @@ def _plain_scalar(raw: str) -> str | None:
 
     An empty value (a nested block), a flow collection, an alias, anchor or tag,
     a block scalar and an unexpanded ``${VAR}`` all abstain. Matching quotes
-    are stripped: ``"allowed"`` is the same string as ``allowed``.
+    are stripped: ``"asked"`` is the same string as ``asked``.
     """
     if not raw or raw[0] in "[{*&!|>" or "${" in raw:
         return None
@@ -170,9 +171,10 @@ def _tier_in_config(config_path: Path) -> tuple[bool, str] | None:
 
     Returns ``(allows_writes, "<dotted key>: <value>")``, or None when the
     answer is undeterminable. Mirrors the kill switch's ``tier_writes``:
-    ``control_system.writes`` decides when present, and only the literal
-    ``allowed`` arms. A retired ``writes_enabled`` leaf is never read. No tier
-    key, a duplicated key, or a value the regex cannot read abstains: for a
+    ``control_system.writes`` decides when present, and only the literals
+    ``asked`` and ``allowed`` arm: this is the raw scalar, so ``on`` and ``true``
+    stay on the never side. A retired ``writes_enabled`` leaf is never read. No
+    tier key, a duplicated key, or a value the regex cannot read abstains: for a
     warn-only signal a wrong warning is worse than none.
     """
     try:
@@ -187,7 +189,7 @@ def _tier_in_config(config_path: Path) -> tuple[bool, str] | None:
     value = _plain_scalar(tier[0])
     if value is None:
         return None
-    return value == _TIER_ALLOWED, f"{_SECTION}.{_WRITES_LEAF}: {value}"
+    return value in _TIER_ARMING, f"{_SECTION}.{_WRITES_LEAF}: {value}"
 
 
 def _kill_switch_tools(hook_config_path: Path) -> tuple[str, ...]:

@@ -101,6 +101,9 @@ from .build_profile_document import (
     _scan_writes,
     _tier_key_values,
     _WriteSpellings,
+    governed_policy_spellings,
+    governed_policy_tools,
+    retired_approval_policy_message,
     retired_write_answer,
 )
 from .build_profile_emit import _drop_key_and_pre_comment
@@ -232,6 +235,8 @@ class RevalidateResult:
     app_drift: list[str] = field(default_factory=list)
     """Each copied application whose files differ from what ``osprey init`` copied,
     unclaimed, and each whose preset has moved on since. Reported, never rewritten."""
+    retired_policies: list[str] = field(default_factory=list)
+    """One line per file that lost ``approval.tools.<tool>`` for a governed tool, naming them."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -553,9 +558,11 @@ class WriteStanza(NamedTuple):
 
     The stanza is the ``old_lines`` lines right above the ``anchor`` line, in
     the file AFTER the keys are rewritten; it is replaced by the
-    ``new_lines`` lines right above the same anchor in the bundled ``preset``
-    today. Lines are compared without their indentation, and the replacement
-    takes the anchor's indentation in the file it lands in.
+    ``new_lines`` lines right above that line in the bundled ``preset`` today,
+    or above ``preset_anchor`` where the preset's line has since moved on from
+    the one an operator's file still holds. Lines are compared without their
+    indentation, and the replacement takes the anchor's indentation in the file
+    it lands in.
     """
 
     preset: str
@@ -568,6 +575,8 @@ class WriteStanza(NamedTuple):
     new_lines: int
     new_hash: str
     """:func:`_stanza_hash` of the preset's stanza today, which locates it there."""
+    preset_anchor: str | None = None
+    """The line below the stanza in the bundled preset, stripped, when it is not ``anchor``."""
 
 
 #: The stanzas the previous release shipped, by frozen hash: the old text
@@ -581,7 +590,8 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         7,
         "sha256:ac361105ab01d4cd2a662d5f42d71ee2fa27841d59519084cb1313f05c12e940",
         6,
-        "sha256:cd08381facbe2d0ec707b3d15b22e76424749dd04bf67092b0c9b7403e00078a",
+        "sha256:cc7a570eed0b6ebf581c8f97ed5ff6ac4526148138141ce38a46aa8082fee24e",
+        "control_system.writes: asked",
     ),
     WriteStanza(
         "control-assistant",
@@ -642,6 +652,24 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         3,
         "sha256:24247dd971887136c2a7e38327cc656e7a5c6d9ee9b6bcaa6bb5fed6e8c0b477",
     ),
+    # The approval block's words, which now say the slider decides for the
+    # tools the write switch governs.
+    WriteStanza(
+        "control-assistant",
+        "approval.enabled: true",
+        3,
+        "sha256:f559167d66c10f91eb024fd3f8cd27ff24e77ae987ec7e6c96464710acadfdaf",
+        4,
+        "sha256:cdcc4f753da2040b7472a81ef99f4c8ce6c0db5f8a99f1d329927456cb2b828c",
+    ),
+    WriteStanza(
+        "control-assistant",
+        "approval.tools.channel_read: skip",
+        3,
+        "sha256:fcde28785b5bed12ec45b719243409fcb553a64337e45424854b6380f7bd1c43",
+        6,
+        "sha256:b5b4f69cc82513f1dbe833a6bb79f28a3ceaae681c69ac712c1aacc6c0392abc",
+    ),
     WriteStanza(
         "hello-world",
         "# write is refused before the limits check or the approval prompt is even",
@@ -656,7 +684,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         1,
         "sha256:88194b282cd242f33511a448710834fec5058da5c5925ba1d331d998f33bcfcb",
         1,
-        "sha256:5e17e001d64e7e41ebfb856f2e5bcb30ef17d389c777da36448a446d91b63a18",
+        "sha256:0d878f39d94a995eb416fd0ff186946e2619cb5347f9deef398c7a3a1febfe5b",
     ),
     WriteStanza(
         "tiers/readonly",
@@ -672,7 +700,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         6,
         "sha256:6e8ec4d3d2c95777f8c7e9233505b1d3b700599c74998cbe972141ed9e484ed7",
         3,
-        "sha256:82e67cda3b2f935543a1a8ccb791b5ac0504321f25efd3fd1c99022319b64361",
+        "sha256:4560e9dbfe539a16a4d4776cb1eaa868e0fe95154859b489c59799534ab51466",
     ),
     WriteStanza(
         "tiers/readonly",
@@ -688,7 +716,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         6,
         "sha256:b27562646623c3588a64e7185477ae24ef4b3cad9757733725209f53f60bcf86",
         4,
-        "sha256:164599a2833156b9a036bfb19384a9ec5f7c4145e70f3e4bb7bffc481f2c933a",
+        "sha256:389c501b048b278a8c50d9a86457a73edbb07952510527fe9d504465e8c1bd31",
     ),
     WriteStanza(
         "tiers/readwrite",
@@ -697,6 +725,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:f570e2a1d6767f477cb13bf517f0012496dc1fc8604a710519ac91bddca0f2dc",
         2,
         "sha256:5bad65a1da7fdf15488a9490dbd180e08ca051f1b0f4b0ebff6e6bed261d4434",
+        "control_system.writes: asked",
     ),
     WriteStanza(
         "tiers/readwrite",
@@ -712,7 +741,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         5,
         "sha256:10020b2115f76dd4b0400534961374c024fcc9795a1c579f4dea2635433abf30",
         2,
-        "sha256:6fdf4ff685e405e1b6b69e269b0384c00368057d5588de99a850de77661367dc",
+        "sha256:e83a36e54cb84e7195fe19a4ee5bfe3e5b1ed0a87d7c0d3855a0314569cc6cf1",
     ),
     WriteStanza(
         "tiers/logbook",
@@ -793,8 +822,9 @@ def _preset_stanza(stanza: WriteStanza) -> list[str] | None:
         lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
     except OSError:
         return None
+    anchor = stanza.preset_anchor or stanza.anchor
     for index, line in enumerate(lines):
-        if line.strip() != stanza.anchor or index < stanza.new_lines:
+        if line.strip() != anchor or index < stanza.new_lines:
             continue
         region = lines[index - stanza.new_lines : index]
         if _stanza_hash(region) == stanza.new_hash:
@@ -877,6 +907,45 @@ def _rewrite_write_keys(document: Any, rel: str, steps: list[str], *, shared: bo
         if isinstance(token, CommentToken) and not token.value.startswith("\n"):
             column = max(0, token.column + len(answer) - len(old_text))
             entry[2] = CommentToken(token.value, CommentMark(column))
+    return True
+
+
+def _drop_governed_policies(document: Any, rel: str, report: list[str]) -> bool:
+    """Remove ``approval.tools.<tool>`` for every governed tool of one document, in place.
+
+    The same set and spellings the parse point drops
+    (:func:`~osprey.cli.build_profile_document.governed_policy_tools`), removed
+    with the comment-keeping helpers; an ``approval.tools`` or ``approval``
+    mapping the removal empties goes too. Each document that lost a line is
+    reported in *report* (:attr:`RevalidateResult.retired_policies`) with the
+    consequences the build's warning names: nothing is left to do by hand.
+
+    Returns:
+        Whether anything was removed.
+    """
+    config = document.get("config") if isinstance(document, dict) else None
+    if not isinstance(config, dict):
+        return False
+    hits = governed_policy_spellings(config, governed_policy_tools(document))
+    if not hits:
+        return False
+    for container, key, _tool, parents in hits:
+        if key not in container:
+            continue
+        _drop_node(container, key, _predecessor(container, key), _key_column(container, key, 0))
+        node = container
+        for parent, parent_key in reversed(parents):
+            if len(node) or parent.get(parent_key) is not node:
+                break
+            _drop_node(
+                parent,
+                parent_key,
+                _predecessor(parent, parent_key),
+                _key_column(parent, parent_key, 0),
+            )
+            node = parent
+    tools = sorted({tool for _c, _k, tool, _p in hits})
+    report.append(f"{rel}: {retired_approval_policy_message(tools)}")
     return True
 
 
@@ -1930,6 +1999,24 @@ class _Fill(NamedTuple):
     skipped: dict[str, str]
 
 
+def _stated_tier_word(config: Any) -> Any:
+    """The ``control_system.writes`` value *config* states, in any spelling; ``None`` when silent."""
+    if not hasattr(config, "items"):
+        return None
+    return _leaf_values(config).get(_TIER_KEY)
+
+
+def _tier_drift_note(stated: Any, preset: str, preset_word: Any) -> str:
+    """Why the fill leaves a stated tier word alone, and what ``osprey validate`` says of it."""
+    shipped = f"`{preset_word}`" if preset_word is not None else "no value"
+    return (
+        f"this profile states `{stated}` and preset `{preset}` ships {shipped}; a preset "
+        "never decides whether this deployment allows writes, so it is kept. `osprey "
+        "validate` reports the difference as a preset-drift NOTE, not a refusal; a "
+        "`# DEVIATION:` comment above the line, or spelling the preset's word, silences it."
+    )
+
+
 def _fill_lacking_keys(document: CommentedMap, repo_root: Path, preset: str) -> _Fill:
     """Write every ``config:`` leaf *preset* documents and *document* lacks.
 
@@ -1970,6 +2057,10 @@ def _fill_lacking_keys(document: CommentedMap, repo_root: Path, preset: str) -> 
     # Keys whose absence is correct rather than accidental. Removed before the
     # backing check below, because a key that is never written needs no value.
     skipped = _skipped_keys(document, lacking)
+    stated = _stated_tier_word(document.get("config"))
+    preset_word = values.get(_TIER_KEY)
+    if _TIER_KEY not in skipped and stated is not None and stated != preset_word:
+        skipped[_TIER_KEY] = _tier_drift_note(stated, preset, preset_word)
     lacking = [key for key in lacking if key not in skipped]
 
     unbacked = [key for key in lacking if key not in values]
@@ -2777,6 +2868,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # its text as the previous release wrote it) and before the fill, which
     # must see the tier key where the retired one stood rather than add it.
     for rel, doc in list(documents.items()):
+        _drop_governed_policies(doc, rel, result.retired_policies)
         rewrote = _rewrite_write_keys(doc, rel, steps)
         dumped = _dump_text(doc)
         text = _rewrite_write_prose(dumped, rel, steps, rewrote=rewrote)
@@ -2807,9 +2899,10 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
                     f"`{_TIER_KEY}: never` by hand"
                 )
             continue
+        dropped = _drop_governed_policies(layer_doc, rel, result.retired_policies)
         rewrote = _rewrite_write_keys(layer_doc, rel, steps, shared=rel in shared_files)
         rewritten = _rewrite_write_prose(
-            _dump_text(layer_doc) if rewrote else text, rel, steps, rewrote=rewrote
+            _dump_text(layer_doc) if rewrote or dropped else text, rel, steps, rewrote=rewrote
         )
         if rewritten != text:
             writes[rel] = rewritten

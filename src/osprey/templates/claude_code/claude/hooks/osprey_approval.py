@@ -28,6 +28,11 @@ stdin ──► Parse JSON
          Load config.yml
               │
               ▼
+  (application tools and the other governed tools leave
+   this flow after the denies: see "The write switch's
+   position" below)
+              │
+              ▼
   Is this call a write, and is the deployment
   NOT armed for the target it would act on?
      │                    │
@@ -48,15 +53,16 @@ stdin ──► Parse JSON
     NO
      │
      ▼
+  application tool (app_approvals)?  ──YES──► its declaration describes,
+     │                                        the switch's position decides:
+    NO                                        DENY with its guidance, or
+     │                                        asked ──► ASK bound to what it showed
+     │                                        allowed ──► EXIT (allow), bound and stamped
+     ▼
   enabled: false?  ──YES──► EXIT (allow)
      │
     NO
      │
-     ▼
-  application tool (app_approvals)?  ──YES──► its declaration decides:
-     │                                        DENY with its guidance, or
-    NO                                        skip ──► EXIT (allow), or
-     │                                        ASK bound to what it showed
      ▼
   Look up policy for tool
   (fallback: default_policy)
@@ -94,15 +100,37 @@ like any other refusal; silence never means a prompt.
 
 ## Application tools
 
-A tool keyed in `hook_config.json`'s `app_approvals` (by full name) is put to
-the approver as its application declared: an OSPREY header (application, tool,
-target, machine words, "this call writes"), the rendered template and display
-lines over the call's input and the state read from
-`/panel/<panel_id><state_path>`. The call is bound to `approved_target` and the
-declared `bind` fields, and refused, never asked, when its `require` is unmet,
-when the state cannot be read within the pre-flight budget, or when the render
-does not gate the tool as a write. A dispatch job runs no tool that binds
-fetched state or that `dispatch.denied_app_tools` names.
+A tool keyed in `hook_config.json`'s `app_approvals` (by full name) is governed
+by construction — its server declares it in `writes:` — so the switch's position
+decides it as below, and its declaration describes the call: an OSPREY header
+(application, tool, target, machine words, "this call writes", the position),
+the rendered template and display lines over the call's input and the state
+read from `/panel/<panel_id><state_path>`. The call is bound to
+`approved_target` and the declared `bind` fields; at `asked` it is put to a
+person bound to what the prompt showed, at `allowed` it runs bound and stamped
+the same way. It is refused, never asked, when its `require` is unmet, when the
+state cannot be read within the pre-flight budget, or when the render does not
+hand the tool to the switch. A dispatch job runs no tool that binds fetched
+state or that `dispatch.denied_app_tools` names.
+
+## The write switch's position
+
+For a governed tool (`governed_tools` in hook_config.json) the switch decides, and
+`approval.enabled`, `approval.default_policy` and `approval.tools.*` are not read:
+
+- a read-only call runs unprompted in every position, unless its code names the
+  posture store;
+- a write the verdict refuses defers, as above;
+- at `asked` the call is put to a person, and its stamp says `position: "asked"`;
+- at `allowed` the call is bound and stamped as an ask would be, and filed on the
+  agent record as `approved`/`switch`. Outside a dispatch run it is allowed; in a dispatch
+  run it is sent as an ask, because the ask is what carries `updatedInput` past the
+  worker's backstop;
+- code naming the posture store is put to a person in every position, and denied
+  in a dispatch run, where nobody can be asked.
+
+A governed write this hook cannot place keeps its prompt. Every other tool takes
+the policy flow above.
 
 ## Write-approval stamps
 
@@ -164,6 +192,7 @@ from osprey_hook_log import (
     emit_audit,
     get_hook_input,
     get_project_dir,
+    is_governed,
     is_write_call,
     is_write_tool,
     load_hook_config,
@@ -333,6 +362,11 @@ def build_approval_output(
     record = (read_record or _record_reader(hook_input))()
     _stamp_write_approval(hook_input, record)
     _record_ask(hook_input)
+    return _ask_envelope(reason_detail, hook_input, record, updated_input)
+
+
+def _ask_envelope(reason_detail, hook_input, record, updated_input=None) -> dict:
+    """The ask envelope alone: no stamp, no audit entry."""
     specific: dict = {
         "hookEventName": "PreToolUse",
         "permissionDecision": "ask",
@@ -352,7 +386,7 @@ def build_approval_output(
 APPROVED_FIELD_PREFIX = "approved_"
 
 
-def _emit_ask(output, hook_input, approved=None, review_id=None) -> None:
+def _emit_ask(output, hook_input, approved=None, review_id=None, position=None) -> None:
     """Send the ask envelope, then leave its stamp.
 
     The stamp is written only after the envelope is flushed to the harness, so
@@ -362,10 +396,11 @@ def _emit_ask(output, hook_input, approved=None, review_id=None) -> None:
     the stamp.
 
     *review_id* is the review notebook's artifact id, when the ask has one.
+    *position* is the switch position a governed ask was put under.
     """
     json.dump(output, sys.stdout)
     sys.stdout.flush()
-    _stamp_ask(hook_input, approved=approved, review_id=review_id)
+    _stamp_ask(hook_input, approved=approved, review_id=review_id, position=position)
 
 
 def _record_ask(hook_input):
@@ -727,6 +762,13 @@ WRITE_APPROVAL_TTL_S = 3600.0
 APPROVAL_ASK_PREFIX = "approval_ask_"
 APPROVAL_ASK_SUFFIX = ".json"
 
+#: The approver a stamp names when the switch's position approved the call.
+APPROVER_WRITE_SWITCH = "write_switch"
+
+#: The position word that lets a governed call run with nobody asked.
+_POSITION_ASKED = "asked"
+_POSITION_ALLOWED = "allowed"
+
 #: How long an unanswered ask stamp stays on disk. A turn that is interrupted
 #: fires no ``Stop``, so its stamps are closed at the next ``Stop`` of the same
 #: conversation; a conversation that never stops again leaves its ask record
@@ -983,7 +1025,14 @@ def _approval_state_dir(hook_input):
         return None
 
 
-def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
+def _stamp_approver(position) -> str:
+    """Who answers a call: the dispatch policy in a dispatch run, else the position or a human."""
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        return "dispatch_policy"
+    return APPROVER_WRITE_SWITCH if position == _POSITION_ALLOWED else "human"
+
+
+def _stamp_ask(hook_input, approved=None, review_id=None, position=None) -> None:
     """Leave the stamp that lets this ask's answer be recorded. Never raises.
 
     Keyed by the call's tool-use id, so the ``PostToolUse`` for that call finds
@@ -997,6 +1046,10 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
     one the stamp does not hold.
 
     *review_id* names the review notebook the call's outcome settles.
+
+    *position* is the switch position of a governed call, absent on any other
+    ask. At ``allowed`` the answer is already known, so the stamp also carries
+    ``answered_at``.
     """
     try:
         if not isinstance(hook_input, dict):
@@ -1013,12 +1066,14 @@ def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
             "tool_use_id": tool_use_id,
             "tool": str(hook_input.get("tool_name") or ""),
             "session_id": hook_input.get("session_id"),
-            "approver": (
-                "dispatch_policy" if os.environ.get("OSPREY_DISPATCH_RUN") == "1" else "human"
-            ),
+            "approver": _stamp_approver(position),
             "permission_mode": hook_input.get("permission_mode"),
             "asked_at": time.time(),
         }
+        if position is not None:
+            payload["position"] = position
+        if position == _POSITION_ALLOWED:
+            payload["answered_at"] = payload["asked_at"]
         payload.update(
             (key, value)
             for key, value in (approved or {}).items()
@@ -1056,6 +1111,10 @@ APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt bef
 #: other mode the hook cannot tell that a person answered, so the note is
 #: withheld: it must never claim an approval that did not happen.
 _PROMPTED_PERMISSION_MODES = frozenset({"default"})
+
+
+#: The audit ``detail`` of a call the switch approved.
+_SWITCH_APPROVED_DETAIL = f"approver={APPROVER_WRITE_SWITCH} position={_POSITION_ALLOWED}"
 
 
 def _approved_call_note(stamp) -> str | None:
@@ -1142,13 +1201,16 @@ def _close_unanswered_asks(hook_input) -> None:
             stamp = _read_stamp(path)
             if stamp is None or stamp.get("session_id") != session_id:
                 continue
+            # Nobody declined a call the switch approved: it was approved and
+            # did not run.
+            by_switch = stamp.get("approver") == APPROVER_WRITE_SWITCH
             emit_audit(
                 "approval",
                 hook_input,
-                decision=AUDIT_DECISION_DENIED,
+                decision=AUDIT_DECISION_APPROVED if by_switch else AUDIT_DECISION_DENIED,
                 subject=stamp.get("tool") or "",
                 reason="not_executed",
-                detail=_outcome_detail(stamp),
+                detail=_SWITCH_APPROVED_DETAIL if by_switch else _outcome_detail(stamp),
                 tool_use_id=stamp.get("tool_use_id"),
             )
             _settle_review(stamp, "not_run")
@@ -2913,6 +2975,28 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
         return _unanswerable_posture(short_name)
 
 
+def _governed_position(config, tool_name, short_name, tool_input, hook_input):
+    """The switch position deciding a governed write, or ``None``. Never raises.
+
+    ``"asked"`` or ``"allowed"`` for a write the verdict allows. Places
+    ``queue_add`` as :func:`~osprey_target_state.hook_write_target` does, unlike
+    :func:`_call_write_posture`, which leaves it out because it must never defer.
+    ``None`` for a write that cannot be placed or is refused without a defer, and
+    for any failure: ``main`` puts those to a person.
+    """
+    try:
+        if _target_state is None or not is_write_call(tool_name, tool_input, short_name):
+            return None
+        placed = _target_state.hook_write_target(config, tool_name, short_name, hook_input)
+        if placed is None or placed is _target_state.UNRESOLVED:
+            return None
+        section = config.get("control_system") if isinstance(config, dict) else None
+        verdict = _target_state.write_verdict(section, placed, hook_input=hook_input)
+        return verdict.position if verdict.allowed else None
+    except Exception:
+        return None
+
+
 #: Spellings of a direct client-library write that no reading makes innocent,
 #: as ``(label, pattern)``. The executor's runtime block refuses every one of
 #: them in a readwrite run anyway, so asking a human to approve code that is
@@ -3343,20 +3427,6 @@ def _app_guidance(entry, kind) -> str:
     return text if isinstance(text, str) and text.strip() else _APP_FALLBACK_GUIDANCE
 
 
-def _app_policy(approval_config, tool_name) -> str:
-    """The approval policy of an application tool, keyed by its full name.
-
-    ``approval.tools.<full name>`` when stated, else ``approval.default_policy``,
-    else ``always``: the rule ``ask_capable`` states. Every policy but ``skip``
-    asks; ``selective`` reads as ``always``.
-    """
-    tools = approval_config.get("tools")
-    policy = tools.get(tool_name) if isinstance(tools, dict) else None
-    if policy is None:
-        policy = approval_config.get("default_policy")
-    return str(policy) if policy is not None else "always"
-
-
 def _app_job_refusal(config, tool_name, entry) -> str | None:
     """Why a dispatch job may not run *tool_name*, or ``None`` when it may.
 
@@ -3507,7 +3577,7 @@ def _app_requirement_unmet(entry, binding) -> str | None:
     return None
 
 
-def _app_prompt(entry, tool_name, tool_input, state, target, hook_input) -> str:
+def _app_prompt(entry, tool_name, tool_input, state, target, hook_input, position) -> str:
     """The prompt detail: the header the declaration cannot suppress, then its text."""
     template = entry.get("prompt")
     if not isinstance(template, str):
@@ -3524,21 +3594,23 @@ def _app_prompt(entry, tool_name, tool_input, state, target, hook_input) -> str:
         f"Tool: {_sanitize_label(tool_name)}",
         _KIND_WORDS[_target_kind(target, hook_input)],
         _APP_WRITES_LINE,
+        f"Write switch: {position}",
     ]
     return "\n".join([*header, "", rendered, *lines])
 
 
-def _app_approval(hook_input, tool_name, tool_input, config, approval_config, entry):
-    """Decide an application tool's call from its declaration. Does not return.
+def _app_approval(hook_input, tool_name, short_name, tool_input, config, entry):
+    """Decide an application tool's call from its declaration and the switch. Does not return.
 
     Reached only after the write verdict allowed the call (``main`` defers a
-    refused write before this) and the approval section is valid and on.
-    Refuses, with the application's guidance, a tool outside the render's
-    facility write set, a declaration it cannot read, and a call whose
-    ``require`` is unmet; allows a ``skip`` policy with no stamp; otherwise
-    asks with the call bound to what the prompt showed. A dispatch job is
-    asked the same way, with the dispatch policy as approver, except for a
-    tool a job may not run.
+    refused write before this) and the approval section is valid; its policy
+    is not read, as for every governed tool. Refuses, with the application's
+    guidance, a tool the render does not hand to the switch, a declaration it
+    cannot read, and a call whose ``require`` is unmet; otherwise the switch's
+    position decides: at ``asked`` the call is put to a person bound to what
+    the prompt showed, at ``allowed`` it runs bound and stamped the same way. A
+    dispatch job is asked either way, with the dispatch policy as approver,
+    except for a tool a job may not run.
     """
     if not isinstance(entry, dict):
         _deny_app_call(
@@ -3547,11 +3619,11 @@ def _app_approval(hook_input, tool_name, tool_input, config, approval_config, en
             f"{tool_name} not run: its approval declaration is malformed. {_APP_FALLBACK_GUIDANCE}",
             "app_declaration_invalid",
         )
-    if not is_write_tool(tool_name, load_hook_config().get("facility_write_tools")):
+    if not is_governed(tool_name):
         _deny_app_call(
             hook_input,
             tool_name,
-            f"{tool_name} not run: the render does not gate it as a write. "
+            f"{tool_name} not run: the render does not hand it to the write switch. "
             f"{_app_guidance(entry, 'refused')}",
             "app_not_gated",
         )
@@ -3565,12 +3637,10 @@ def _app_approval(hook_input, tool_name, tool_input, config, approval_config, en
                 "app_denied_in_jobs",
             )
 
-    policy = _app_policy(approval_config, tool_name)
-    if policy == "skip":
-        log_hook("approval", hook_input, status="allow", detail=f"policy=skip tool={tool_name}")
-        json.dump(build_allow_output(), sys.stdout)
-        sys.exit(0)
-
+    # A write the hook cannot place keeps its prompt, as any governed write does.
+    position = _governed_position(config, tool_name, short_name, tool_input, hook_input)
+    if position != _POSITION_ALLOWED:
+        position = _POSITION_ASKED
     try:
         if _prompt_render is None or _target_state is None:
             raise _AppRefused("unreachable", "the approval prompt's helpers are missing")
@@ -3582,7 +3652,7 @@ def _app_approval(hook_input, tool_name, tool_input, config, approval_config, en
         unmet = _app_requirement_unmet(entry, binding)
         if unmet is not None:
             raise _AppRefused("refused", unmet)
-        reason = _app_prompt(entry, tool_name, kept, state, target, hook_input)
+        reason = _app_prompt(entry, tool_name, kept, state, target, hook_input, position)
     except _AppRefused as refused:
         _deny_app_call(
             hook_input,
@@ -3598,11 +3668,15 @@ def _app_approval(hook_input, tool_name, tool_input, config, approval_config, en
             "app_refused",
         )
 
-    log_hook("approval", hook_input, status="ask", detail=f"policy={policy} tool={tool_name}")
+    bound = _bound_input(kept, binding)
+    if position == _POSITION_ALLOWED:
+        _allow_switch(hook_input, tool_name, short_name, read_record(), bound, binding, reason)
+    log_hook("approval", hook_input, status="ask", detail=f"position=asked tool={tool_name}")
     _emit_ask(
-        build_approval_output(reason, hook_input, read_record, _bound_input(kept, binding)),
+        build_approval_output(reason, hook_input, read_record, bound),
         hook_input,
         binding,
+        position=_POSITION_ASKED,
     )
     sys.exit(0)
 
@@ -3760,6 +3834,169 @@ def _measure_call(hook_input, tool_name, tool_input, read_record):
     return lines, _bound_input(tool_input, binding), binding
 
 
+def _bind_call(hook_input, tool_name, short_name, tool_input, read_record):
+    """What approving this call rewrites, the same whichever position approves it.
+
+    Returns ``(measure lines, updated input, binding)``, the last two ``None`` for
+    a call with nothing to bind, or ``None`` for a measurement the block does not
+    map. A measurement refused here is denied and does not return: a list too long
+    to show is too long to run unseen.
+    """
+    if short_name in ("execute", "execute_file"):
+        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
+        return [], updated_input, binding
+    if short_name == "pyaml_measure":
+        return _measure_call(hook_input, tool_name, tool_input, read_record)
+    return [], None, None
+
+
+def _allow_unmapped_measure(hook_input):
+    """Pass on a measurement the block does not map; the tool refuses it. Does not return."""
+    log_hook("approval", hook_input, status="allow", detail="pyaml_measure_unmapped")
+    json.dump(build_allow_output(), sys.stdout)
+    sys.exit(0)
+
+
+def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_record):
+    """The prompt lines, rewritten input, binding and review id of an ask.
+
+    Whatever a describer learns about the recorded control target comes from
+    *read_record*, so one prompt describes one read.
+    """
+    bound = _bind_call(hook_input, tool_name, short_name, tool_input, read_record)
+    if bound is None:
+        _allow_unmapped_measure(hook_input)
+    lines, updated_input, binding = bound
+    lines = list(lines)
+    review_id = None
+    if short_name == "execute":
+        code = tool_input.get("code")
+        exec_mode = tool_input.get("execution_mode", "")
+        if isinstance(code, str) and code.strip():
+            gallery_link, review_id = _create_pre_execution_notebook(code, exec_mode, config)
+            if gallery_link:
+                lines.append(f"\nReview notebook: {gallery_link}")
+    elif short_name == "channel_write":
+        channel_list = _channel_write_summary(tool_input)
+        if channel_list:
+            lines.append(f"Channels: {channel_list}")
+    else:
+        for describers in (_QUEUE_DESCRIBERS, _TARGET_DESCRIBERS, _CALL_DESCRIBERS):
+            if short_name in describers:
+                with contextlib.suppress(Exception):
+                    lines.extend(
+                        describers[short_name](tool_input, config, hook_input, read_record)
+                    )
+                break
+    return lines, updated_input, binding, review_id
+
+
+def _ask_governed(hook_input, tool_name, short_name, tool_input, config, *, store_naming):
+    """Put a governed call to a person, whatever the approval policy says. Does not return."""
+    read_record = _record_reader(hook_input)
+    reason_parts = [f"Tool: {short_name}", f"Write switch: {_POSITION_ASKED}"]
+    if short_name == "execute":
+        code = tool_input.get("code")
+        reason_parts.append(
+            f"Python execution (mode: {tool_input.get('execution_mode') or 'unspecified'})"
+        )
+        if isinstance(code, str) and has_write_patterns(code, config):
+            reason_parts.append("Code contains control system write patterns.")
+        if store_naming:
+            reason_parts.append("Code names the posture store.")
+    lines, updated_input, binding, review_id = _describe_ask(
+        hook_input, tool_name, short_name, tool_input, config, read_record
+    )
+    reason_parts.extend(lines)
+    log_hook("approval", hook_input, status="ask", detail=f"position=asked tool={short_name}")
+    _emit_ask(
+        build_approval_output("\n".join(reason_parts), hook_input, read_record, updated_input),
+        hook_input,
+        binding,
+        review_id=review_id,
+        position=_POSITION_ASKED,
+    )
+    sys.exit(0)
+
+
+def _allow_governed(hook_input, tool_name, short_name, tool_input):
+    """Run a governed call at ``allowed``, with the records an ask leaves. Does not return.
+
+    The server reads the same stamps either way, so the prelude is the ask's: one
+    read of the record, the binding, the window stamp. A start shows no queue, so
+    it withdraws any token an earlier prompt stamped. In a dispatch run the
+    envelope is an ask, because only that carries ``updatedInput`` past the
+    worker's backstop.
+    """
+    read_record = _record_reader(hook_input)
+    bound = _bind_call(hook_input, tool_name, short_name, tool_input, read_record)
+    if bound is None:
+        _allow_unmapped_measure(hook_input)
+    _lines, updated_input, binding = bound
+    _allow_switch(hook_input, tool_name, short_name, read_record(), updated_input, binding)
+
+
+def _allow_switch(hook_input, tool_name, short_name, record, updated_input, binding, reason=None):
+    """Run a call the switch approved, with the records an ask leaves. Does not return.
+
+    *reason* is the ask envelope's text in a dispatch run; the framework's names
+    the tool and the position, an application's is its prompt.
+    """
+    _stamp_write_approval(hook_input, record)
+    if short_name == _LANE_ADDRESSED_TOOL:
+        _null_queue_start_stamps(hook_input)
+    approver = _stamp_approver(_POSITION_ALLOWED)
+    # the audit trail must never cost the call
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_APPROVED,
+            subject=tool_name,
+            reason="switch",
+            detail=f"approver={approver} position={_POSITION_ALLOWED}",
+        )
+    _stamp_ask(hook_input, approved=binding, position=_POSITION_ALLOWED)
+    log_hook("approval", hook_input, status="allow", detail=f"position=allowed tool={short_name}")
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        if reason is None:
+            reason = f"Tool: {short_name}\nWrite switch: {_POSITION_ALLOWED}"
+        output = _ask_envelope(reason, hook_input, record, updated_input)
+    else:
+        output = build_allow_output()
+        if updated_input is not None:
+            output["hookSpecificOutput"]["updatedInput"] = dict(updated_input)
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+def _governed_main(config, tool_name, short_name, tool_input, hook_input):
+    """Decide a governed call from the switch's position. Does not return.
+
+    A write the verdict refuses has already deferred.
+    """
+    if short_name in _STORE_PATH_TOOLS and _names_store(tool_input.get("code")):
+        if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+            _deny_store_path(hook_input, tool_name)
+        _ask_governed(hook_input, tool_name, short_name, tool_input, config, store_naming=True)
+    if short_name in ("execute", "execute_file"):
+        # `execute_file` carries a path, so it has no code to read here.
+        code = tool_input.get("code")
+        read_only = tool_input.get("execution_mode", "readonly") == "readonly" and not (
+            isinstance(code, str) and has_write_patterns(code, config)
+        )
+    else:
+        read_only = not is_write_call(tool_name, tool_input, short_name)
+    if read_only:
+        log_hook("approval", hook_input, status="allow", detail=f"read_only tool={short_name}")
+        json.dump(build_allow_output(), sys.stdout)
+        sys.exit(0)
+    position = _governed_position(config, tool_name, short_name, tool_input, hook_input)
+    if position == _POSITION_ALLOWED:
+        _allow_governed(hook_input, tool_name, short_name, tool_input)
+    _ask_governed(hook_input, tool_name, short_name, tool_input, config, store_naming=False)
+
+
 def main():
     # What the harness will allow this hook, straight from the rendered
     # command. The render derives the `--budget` value and the harness timeout
@@ -3867,6 +4104,18 @@ def main():
             _APPROVAL_CONFIG_INVALID_REASON.format(value=approval_config["enabled"]),
         )
 
+    # An application tool is governed by construction (its server declares it
+    # in `writes:`) and its declaration describes the call; the switch's
+    # position decides for it and for every other governed tool, and the
+    # policy below is not read for one.
+    app_approvals = load_hook_config().get(APP_APPROVALS_KEY)
+    if isinstance(app_approvals, dict) and tool_name in app_approvals:
+        _app_approval(
+            hook_input, tool_name, short_name, tool_input, config, app_approvals[tool_name]
+        )
+    if is_governed(tool_name):
+        _governed_main(config, tool_name, short_name, tool_input, hook_input)
+
     # Executor code that names the posture store runs only on a person's
     # approval. Placed ahead of the `enabled` and `skip` allows and the
     # selective-readonly allow, so none of them lets it through. A dispatch run
@@ -3891,14 +4140,6 @@ def main():
         log_hook("approval", hook_input, status="allow", detail="enabled=false")
         json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)
-
-    # An application tool is decided by its own declaration, keyed by its full
-    # name; none of the short-name policies and describers below apply to it.
-    app_approvals = load_hook_config().get(APP_APPROVALS_KEY)
-    if isinstance(app_approvals, dict) and tool_name in app_approvals:
-        _app_approval(
-            hook_input, tool_name, tool_input, config, approval_config, app_approvals[tool_name]
-        )
 
     # Per-tool policy dispatch (default_policy applies when `tools` is absent
     # or the specific tool isn't listed; production default is "always").
@@ -3973,46 +4214,10 @@ def main():
     # rendered from the same read. It resolves nothing until something asks, so a
     # prompt with no target-aware describer costs exactly what it always did.
     read_record = _record_reader(hook_input)
-    updated_input = None
-    binding = None
-    review_id = None
-    if short_name == "execute":
-        code = tool_input.get("code", "")
-        exec_mode = tool_input.get("execution_mode", "")
-        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
-        if code.strip():
-            gallery_link, review_id = _create_pre_execution_notebook(code, exec_mode, config)
-            if gallery_link:
-                reason_parts.append(f"\nReview notebook: {gallery_link}")
-    elif short_name == "execute_file":
-        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
-    elif short_name == "pyaml_measure":
-        measured = _measure_call(hook_input, tool_name, tool_input, read_record)
-        if measured is None:
-            log_hook("approval", hook_input, status="allow", detail="pyaml_measure_unmapped")
-            json.dump(build_allow_output(), sys.stdout)
-            sys.exit(0)
-        measure_lines, updated_input, binding = measured
-        reason_parts.extend(measure_lines)
-    elif short_name == "channel_write":
-        channel_list = _channel_write_summary(tool_input)
-        if channel_list:
-            reason_parts.append(f"Channels: {channel_list}")
-    elif short_name in _QUEUE_DESCRIBERS:
-        with contextlib.suppress(Exception):
-            reason_parts.extend(
-                _QUEUE_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
-            )
-    elif short_name in _TARGET_DESCRIBERS:
-        with contextlib.suppress(Exception):
-            reason_parts.extend(
-                _TARGET_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
-            )
-    elif short_name in _CALL_DESCRIBERS:
-        with contextlib.suppress(Exception):
-            reason_parts.extend(
-                _CALL_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
-            )
+    lines, updated_input, binding, review_id = _describe_ask(
+        hook_input, tool_name, short_name, tool_input, config, read_record
+    )
+    reason_parts.extend(lines)
 
     reason = "\n".join(reason_parts)
     log_hook(

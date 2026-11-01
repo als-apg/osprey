@@ -260,7 +260,7 @@ def test_an_app_name_appears_once() -> None:
 def test_hook_dispatched_names_are_the_hooks_own() -> None:
     text = (HOOKS / "osprey_approval.py").read_text(encoding="utf-8")
     for name in HOOK_DISPATCHED_TOOLS:
-        assert f'short_name == "{name}"' in text, name
+        assert re.search(rf'short_name (==|in) [^\n]*"{name}"', text), name
 
 
 def test_the_queue_prefix_is_the_hooks_own() -> None:

@@ -149,7 +149,7 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
         control_context_root,
         target="va",
         generation=7,
-        switch={"live": "on"},
+        switch={"live": "asked"},
         owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID, port=8090),
     )
 

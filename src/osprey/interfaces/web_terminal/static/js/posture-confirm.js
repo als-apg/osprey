@@ -51,7 +51,8 @@ export function isConfirmUp() {
  * Build and show one confirm. The caller's popover stays open beneath it.
  *
  * A spec with a `skipKeyBase` renders the "don't ask again" checkbox above
- * the actions, pre-ticked when the waiver is already recorded (the Shift
+ * the actions (a raiser passes one only for a waivable move, so a dialog with
+ * none offers no way to mute it), pre-ticked when the waiver is already recorded (the Shift
  * re-show is where it can be unticked), and the waiver is written the moment
  * the operator confirms — before the POST, because the checkbox answers "ask
  * me next time?", not "did this request succeed?".
@@ -135,6 +136,17 @@ export function showConfirm(spec) {
   active = { overlay, onDismiss: spec.onDismiss };
   mountOverlay(overlay);
 
+  // A key held on the control that raised this dialog keeps auto-repeating
+  // after focus lands here, and a native button turns a repeated Enter into a
+  // click. Only a fresh press may answer the dialog, so a held key can never
+  // arm the machine it was asked about.
+  dialog.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+    },
+    true
+  );
   cancel.addEventListener('click', () => dismissConfirm());
   confirm.addEventListener('click', () => {
     if (spec.skipKeyBase && skipBox) rememberConfirmSkip(spec.skipKeyBase, skipBox.checked);
@@ -147,7 +159,7 @@ export function showConfirm(spec) {
  * Take the confirm off the screen, if one is up. Idempotent, and the ONE
  * chokepoint: cancel, Escape, a confirmed gesture's done(), the popover
  * closing over it — every path lands here, so the raiser's `onDismiss` (the
- * popover un-parking a switch knob) runs exactly once per dialog.
+ * popover releasing a parked option) runs exactly once per dialog.
  */
 export function dismissConfirm() {
   const current = active;

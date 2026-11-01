@@ -15,9 +15,19 @@ them from :data:`TOOL_REQUIRED_FIELDS`; an application tool, named by its full
 ``apps.<app>.approval.<tool>.require`` (:func:`app_approval_entry`): an
 ``all_of`` list and ``one_of`` groups, each satisfied by exactly one field.
 
+A governed tool (the write switch decides it) is ask-capable whatever
+``approval.enabled`` or its policy says, so its call needs the record in every
+position: the hook files the same stamp at ``asked``, where a person answered,
+and at ``allowed``, where the switch did. No server reads the position.
+
 The answer is a :class:`Refusal` or ``None``; each caller turns a refusal into
 its own result shape. Who approved is not read: a stamp the dispatch policy
-filed (``approver: dispatch_policy``) is a record like a human's.
+filed (``approver: dispatch_policy``) or the write switch's position filed
+(``approver: write_switch``) is a record like a human's. The stamp's
+spellings are restated below (:data:`STAMP_APPROVERS`,
+:data:`STAMP_POSITIONS`, :data:`ANSWERED_AT_KEY`) for the readers that do look,
+such as the executor's posture-store check, which admits only
+:data:`PROMPTED_APPROVERS`.
 """
 
 from __future__ import annotations
@@ -34,7 +44,16 @@ __all__ = [
     "APPROVAL_ASK_SUFFIX",
     "APPROVAL_CONFIG_INVALID",
     "APPROVAL_MISSING",
+    "ANSWERED_AT_KEY",
     "APPROVED_FIELDS",
+    "APPROVER_DISPATCH_POLICY",
+    "APPROVER_HUMAN",
+    "APPROVER_WRITE_SWITCH",
+    "POSITION_ALLOWED",
+    "POSITION_ASKED",
+    "PROMPTED_APPROVERS",
+    "STAMP_APPROVERS",
+    "STAMP_POSITIONS",
     "TOOL_REQUIRED_FIELDS",
     "Refusal",
     "Requirements",
@@ -68,6 +87,31 @@ TOOL_REQUIRED_FIELDS: Mapping[str, tuple[str, ...]] = {
 #: import); ``tests/mcp_server/test_approval_record.py`` pins the spellings equal.
 APPROVAL_ASK_PREFIX = "approval_ask_"
 APPROVAL_ASK_SUFFIX = ".json"
+
+#: The ``approver`` of a stamp a person answered at the approval prompt.
+APPROVER_HUMAN: Final = "human"
+#: The ``approver`` of a stamp the dispatch policy answered in a dispatch run.
+APPROVER_DISPATCH_POLICY: Final = "dispatch_policy"
+#: The ``approver`` of a stamp the write switch's ``allowed`` position answered.
+APPROVER_WRITE_SWITCH: Final = "write_switch"
+#: Every ``approver`` word the hook writes; each is a record for this module.
+STAMP_APPROVERS: tuple[str, ...] = (
+    APPROVER_HUMAN,
+    APPROVER_DISPATCH_POLICY,
+    APPROVER_WRITE_SWITCH,
+)
+#: The approvers that answered a prompt rather than a position: the only ones
+#: that let code naming the posture store run.
+PROMPTED_APPROVERS: frozenset[str] = frozenset({APPROVER_HUMAN, APPROVER_DISPATCH_POLICY})
+
+#: The ``position`` a governed call's stamp records when a person was asked.
+POSITION_ASKED: Final = "asked"
+#: The ``position`` a governed call's stamp records when nobody was asked.
+POSITION_ALLOWED: Final = "allowed"
+#: Every ``position`` word a stamp carries; a stamp off the switch has none.
+STAMP_POSITIONS: tuple[str, ...] = (POSITION_ASKED, POSITION_ALLOWED)
+#: The stamp key holding when the call was answered, filed at once at ``allowed``.
+ANSWERED_AT_KEY: Final = "answered_at"
 
 _NO_RECORD = (
     "not run: this call's approval prompt left no record (approval_missing). "
@@ -236,6 +280,11 @@ def require_approval_record(
     name of its :func:`requirements`, must equal what the stamp recorded; of
     each ``one_of`` group the call carries exactly one name, the stamp records
     it with that value and records none of the group's others.
+
+    A governed tool is ask-capable under ``approval.enabled: false`` and under
+    a ``skip`` policy alike. Neither the stamp's ``approver`` nor its
+    ``position`` is read: a ``write_switch`` stamp filed at ``allowed`` is a
+    record like a human's at ``asked``.
 
     Args:
         tool: A built-in's short name, as ``approval.tools`` keys it, or an

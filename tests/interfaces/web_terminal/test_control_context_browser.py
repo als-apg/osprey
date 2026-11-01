@@ -87,7 +87,7 @@ from tests.interfaces.web_terminal._posture_chip import (
     recorded_switch,
     settled_chip,
     write_verdict_for,
-    writes_toggle,
+    writes_option,
 )
 
 if TYPE_CHECKING:
@@ -492,7 +492,7 @@ def test_a_chip_gesture_sends_no_session_and_audits_on_the_lab_surface(
         page, _session_id = settled_chip(chromium_browser, base_url)
         try:
             open_popover(page)
-            writes_toggle(page, POSTURE_TARGET).click()
+            writes_option(page, POSTURE_TARGET, "off").click()
             expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
                 "data-state", "off", timeout=TIMEOUT
             )

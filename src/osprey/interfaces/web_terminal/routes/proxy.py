@@ -217,15 +217,17 @@ def configured_agent_routes(custom_panels: list[dict]) -> frozenset[tuple[str, s
 
 
 def _login_arms_writes(config_path: Path | None) -> bool:
-    """Whether the acting login's ``control_system.writes`` tier is ``allowed`` here.
+    """Whether the acting login's ``control_system.writes`` tier arms writes here.
 
     The same per-login tier the header chip shows (``_login_tier``): the
-    deployment's tier, then the login's own rung. ``never`` and ``unknown`` do
-    not arm. The owner's per-machine switch is not read here: the write itself
-    meets it downstream. Blocking (it reads the render); call it off the loop.
+    deployment's tier, then the login's own rung. ``asked`` and ``allowed``
+    arm; ``never`` and ``unknown`` do not. The owner's per-machine switch is
+    not read here: the write itself meets it downstream, where the position
+    decides whether a person is asked. Blocking (it reads the render); call it
+    off the loop.
     """
     section = _section_of(_rendered_config(config_path))
-    return _login_tier(section, acting_identity()) == "allowed"
+    return _login_tier(section, acting_identity()) in ("asked", "allowed")
 
 
 async def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str | None:
@@ -233,7 +235,7 @@ async def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str
 
     ``None`` for a panel that names no application — a built-in panel, a
     runtime registration, a config-defined panel of the non-application shape —
-    and for an application panel on a login whose write tier is ``allowed``.
+    and for an application panel on a login whose write tier arms writes.
     A disabled panel block never reaches ``custom_panels``, so its application
     is never armed here.
     """

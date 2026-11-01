@@ -45,12 +45,13 @@ DEPLOY_BLOCK: dict[str, Any] = {
 #: The posture keys a build refuses to guess at. Stated once here because they
 #: are the price of admission to a build, not a subject of any test in this file
 #: — the deploy/lint parity these tests are about is judged past them. The
-#: profiles select no approval hook, so they state that nobody is asked.
+#: profiles select the approval hook, so they state its policy.
 POSTURE_FLOOR: dict[str, Any] = {
     "control_system.type": "virtual_accelerator",
     "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock_archiver",
     "approval.enabled": False,
+    "approval.default_policy": "always",
     "hooks.debug": False,
 }
 
@@ -247,7 +248,9 @@ def _write_profile(
     what gates ``Write`` — a profile that could write with no gate is refused —
     and ``writes-check`` is what refuses the mixed read/write python tools'
     writes per call under the ``never`` write posture, which a build also
-    refuses to render without.
+    refuses to render without; ``approval`` is what puts a governed tool such
+    as ``execute`` to a human, which the write switch does in every render
+    that serves one, so a build refuses to render without it either.
     A caller stating one of them keeps its own value.
 
     Every tier the roster names gets its ``tiers/<name>.yml``, the file a
@@ -260,7 +263,7 @@ def _write_profile(
         "provider": "anthropic",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",
-        "hooks": ["memory-guard", "writes-check"],
+        "hooks": ["memory-guard", "writes-check", "approval"],
         "config": {**POSTURE_FLOOR, **config},
     }
     if deploy is not None:

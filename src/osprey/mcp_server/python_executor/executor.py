@@ -39,7 +39,9 @@ from osprey.audit import posture
 from osprey.mcp_server.approval_record import (
     APPROVAL_CONFIG_INVALID,
     APPROVAL_MISSING,
+    PROMPTED_APPROVERS,
     Refusal,
+    approval_ask_stamp,
     require_approval_record,
 )
 from osprey.mcp_server.sandbox_env import (
@@ -191,8 +193,8 @@ FAILURE_KIND_TIMEOUT = "timeout"
 #: service is healthy) nor a script error (the code is fine).
 FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: :attr:`ExecutionResult.failure_kind` for a guarded call that was never
-#: admitted: its tool's approval policy asks, and the approval hook left no
-#: matching record for this call. Nothing ran.
+#: admitted: its tool needs an approval record (a governed tool always does),
+#: and the approval hook left no matching record for this call. Nothing ran.
 FAILURE_KIND_APPROVAL_MISSING = APPROVAL_MISSING
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run refused because the
 #: rendered ``config.yml`` states an approval switch that is not true or false,
@@ -785,11 +787,14 @@ def _check_approved_call(
 ) -> Refusal | None:
     """Whether the call was approved, decided before it is spawned.
 
-    A readonly run takes no run lock, and a call whose tool's policy does not
-    ask was put to nobody, so neither is checked. A call whose policy asks
-    runs only when the approval hook's ask stamp for this tool call exists,
-    names *tool*, and records every approved field the call carries with the
-    same value; the call must carry the target, ``pyaml_measure`` the view
+    A readonly run takes no run lock, and a tool that is not ask-capable
+    (:func:`~osprey.cli.build_posture_check.ask_capable`) is put to nobody, so
+    neither is checked. A governed tool is ask-capable whatever ``approval.*``
+    says. An ask-capable call runs only when the approval hook's ask stamp for
+    this tool call exists, names *tool*, and records every approved field the
+    call carries with the same value — whichever approver filed it: a
+    ``write_switch`` stamp from the ``allowed`` position is a record like a
+    ``human`` one; the call must carry the target, ``pyaml_measure`` the view
     digest too (:func:`~osprey.mcp_server.approval_record.required_fields`
     for a guarded run), and that target must name the guarded-run directory
     *control_target* does. Nothing of the stamp reaches the sandbox. The
@@ -808,7 +813,7 @@ def _check_approved_call(
     Returns:
         ``None`` when the call may run; else the
         :class:`~osprey.mcp_server.approval_record.Refusal` —
-        ``approval_missing`` when the policy asks and the stamp is missing,
+        ``approval_missing`` when a record is needed and the stamp is missing,
         names another tool, or disagrees with the call, or the call was
         approved for another target than the run's; ``approval_config_invalid``
         when the config states an ``approval.enabled`` that is not true or
@@ -838,8 +843,9 @@ def _check_approved_call(
 #: was given, and the file text ``execute_file`` is about to run.
 STORE_PATH_TOOLS: frozenset[str] = frozenset({"execute", "execute_file"})
 
-#: The refusal for store-naming code no person approved. The approval hook
-#: denies with the same words (``osprey_approval._STORE_PATH_REASON``).
+#: The refusal for store-naming code no person approved — no stamp, or a
+#: ``write_switch`` one. The approval hook denies with the same words
+#: (``osprey_approval._STORE_PATH_REASON``).
 STORE_PATH_REFUSAL = (
     "not run: this code names the posture store, which only a call a person "
     "approves may touch, and no person is asked here (approval_missing). Remove "
@@ -864,11 +870,14 @@ def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) ->
 
     Separate from :func:`_check_approved_call`, which leaves readonly runs
     alone. Code that names the posture store (:func:`names_store`) runs only
-    when the tool's policy asks and the approval hook's ask stamp for this call
-    names *tool*. An approval switch that is not a bool refuses first, as
-    everywhere; then a dispatch run, whose stamp no person filed, is refused
-    before any stamp is read; then a policy that asks nobody. Code that names
-    no store is not checked here.
+    when the tool is ask-capable and the approval hook's ask stamp for this
+    call names *tool* and was answered at a prompt: its ``approver`` is in
+    :data:`~osprey.mcp_server.approval_record.PROMPTED_APPROVERS`. A
+    ``write_switch`` stamp, filed at ``allowed`` with nobody asked, is a record
+    for every other call but never for this one. An approval switch that is
+    not a bool refuses first, as everywhere; then a dispatch run is refused
+    before any stamp is read; then a tool that asks nobody; then a missing or
+    unprompted stamp. Code that names no store is not checked here.
 
     Args:
         code: The code the run would execute (for ``execute_file``, the file's text).
@@ -893,6 +902,11 @@ def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) ->
     if dispatch_run or not ask_capable(osprey_config, tool):
         return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
     if require_approval_record(tool, osprey_config) is not None:
+        return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
+    from osprey.audit.call import current_tool_use_id
+
+    stamp = approval_ask_stamp(current_tool_use_id())
+    if stamp is None or stamp.get("approver") not in PROMPTED_APPROVERS:
         return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
     return None
 

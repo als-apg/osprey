@@ -3,7 +3,7 @@
  *
  * The one-glance answer to "if the agent writes now, where does it land, and
  * will it be refused?". A 28 px chip in the global header reading
- * `● Rehearsal · writes on ▾`: the name of the machine this deployment stands
+ * `● Rehearsal · writes asked ▾`: the name of the machine this deployment stands
  * on, the effective write state on THAT machine, and a dot whose colour says
  * how much a write there matters and whose shape says who is holding writes
  * back. The popover behind it (control-target-popover.js) lists every
@@ -60,6 +60,7 @@ import {
   STOP_NOT_TAKEN_SENTENCE,
   contextWritable,
   displayName,
+  isPosition,
   machineKind,
   reasonPhrase,
   resolvePendingSwitch,
@@ -90,8 +91,10 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  * @property {string|null} reason  the switch tool's own refusal code when not
  * @property {string|null} reason_detail  the eligibility verdict's operator
  *   sentence for that code — the popover's tooltip, never its row text
- * @property {'on'|'off'|null} switch  this login's switch for the machine;
- *   `null` when the record cannot be read
+ * @property {'off'|'asked'|'allowed'|null} switch  this login's stored position
+ *   for the machine; `null` when the record cannot be read
+ * @property {boolean} prompt  whether this login's next write here prompts: the
+ *   effective position, so a stored `allowed` capped at `asked` answers true
  * @property {boolean} write_allowed  the verdict a new write by this login
  *   would meet
  * @property {string|null} write_reason  the verdict's refusal reason, or null
@@ -142,7 +145,7 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *   decimal string kept opaque (nanoseconds exceed a JS number's exact range);
  *   a turn-on carries it back unchanged so a stop that landed since refuses it
  *   (C-POST)
- * @property {boolean} any_on  whether any machine's switch is on for this
+ * @property {boolean} any_armed  whether any machine's switch is armed for this
  *   login — what enables "Turn all writes off"
  * @property {{readonly_run?: boolean, tier?: string}} [locks]  the locks no
  *   chip gesture lifts
@@ -463,27 +466,30 @@ export const STOPPED_SINCE_SENTENCE =
   'Writes were turned off after this turn-on began — nothing was turned on. Click again to turn them on.';
 
 /**
- * POST one switch gesture: `{session_id, target, state, epoch}`, where `epoch`
- * is the `switch_epoch` string the chip read (`null` when it read none), sent
- * back exactly as read: it is never turned into a number.
+ * POST one switch gesture: `{session_id, target, state, epoch, waived}`, where
+ * `epoch` is the `switch_epoch` string the chip read (`null` when it read none),
+ * sent back exactly as read: it is never turned into a number. `waived` says the
+ * confirm was skipped; the route refuses it on a move no confirm may be skipped
+ * for.
  *
  * A 409 that says it just STAMPED the record's first epoch is retried once
- * with that epoch — the route never retries itself. Any other 409 is a stop
- * that landed after the gesture began, and is thrown: a turn-on never
- * silently re-arms after a stop.
+ * with that epoch and the same `waived` — the route never retries itself. Any
+ * other 409 is a stop that landed after the gesture began, and is thrown: a
+ * turn-on never silently re-arms after a stop.
  * @param {string|null} sessionId
  * @param {string} target  a configured target name, or `all` (off only)
- * @param {'on'|'off'} state
+ * @param {'off'|'asked'|'allowed'} position
  * @param {string|null} epoch
+ * @param {boolean} [waived]
  * @returns {Promise<any>} the route's `{target, state, switch_epoch}`
  * @throws {TargetRequestError} the refusal, after at most one retry
  */
-export async function postSwitch(sessionId, target, state, epoch) {
+export async function postSwitch(sessionId, target, position, epoch, waived = false) {
   /** @param {string|null} at */
   const send = (at) =>
     targetRequest('/api/terminal/posture', {
       method: 'POST',
-      json: { session_id: sessionId, target, state, epoch: at },
+      json: { session_id: sessionId, target, state: position, epoch: at, waived },
     });
   try {
     return await send(epoch);
@@ -506,7 +512,7 @@ export async function postSwitch(sessionId, target, state, epoch) {
  * stop is the stop sentence even with no phrase — the one thing the operator
  * must not miss is that writes are still on.
  * @param {unknown} err
- * @param {'on'|'off'} to
+ * @param {'off'|'asked'|'allowed'} to
  * @returns {{message: string, close: boolean}}
  */
 export function switchRefusal(err, to) {
@@ -928,26 +934,28 @@ export function kindAttr(row) {
 }
 
 /**
- * The state word for one row (C-GET): `on`, `off` or `locked`.
+ * The state word for one row: `off`, `asked`, `allowed` or `locked`.
  *
- * Derived from `switch` and `write_allowed` only — never from the legacy
- * `posture` mirror. `on` is a switch that is on and a write that would pass;
- * `off` is a switch that is off, which one click undoes; `locked` is a switch
- * that is on and still refused (its row shows `write_phrase` and keeps the
- * off control), or a switch nobody can read. A single "no" word would leave
- * an operator clicking a toggle that was never going to open.
+ * The EFFECTIVE state, derived from `switch`, `write_allowed` and `prompt` only
+ * — never from the legacy `posture` mirror. `off` is a switch that is off, which
+ * one click undoes; `locked` is an armed switch that is still refused (its row
+ * shows `write_phrase` and keeps the off control), or a switch nobody can read.
+ * A single "no" word would leave an operator clicking a toggle that was never
+ * going to open. Otherwise `prompt` decides, so a stored `allowed` capped at
+ * `asked` reads `asked`: the word says what the next write meets, not what was
+ * stored. A row that does not say reads `allowed`, the louder of the two.
  *
  * Exported for the popover, whose rows and confirms have to name the state in
  * the same words the chip does — the confirm for a switch tells the operator
  * the state they will land in, and it must be the word the chip shows a
  * moment later.
  * @param {TargetRow} row
- * @returns {'on'|'off'|'locked'}
+ * @returns {'off'|'asked'|'allowed'|'locked'}
  */
 export function stateWord(row) {
   if (row?.switch === 'off') return 'off';
-  if (row?.switch === 'on' && row.write_allowed === true) return 'on';
-  return 'locked';
+  if (!isPosition(row?.switch) || row.write_allowed !== true) return 'locked';
+  return row.prompt ? 'asked' : 'allowed';
 }
 
 /**

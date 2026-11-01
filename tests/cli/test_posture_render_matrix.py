@@ -9,23 +9,28 @@ dotted, a retired per-type leaf, and a retired per-type leaf on a custom
 connector type whose name holds a dot (``mypkg.Mod``, one key, never a path).
 
 The oracle is restated here from PR-3's build-time rewrite; it never calls
-the normalizer. Per document: the tier key's value when it spells one; else,
-when it spells any retired leaf, ``allowed`` if any of them (the flat leaf or a
-per-type leaf, each type looked up whole) is a literal ``True`` and ``never``
-otherwise; else the document is silent. A root or tier render takes the
-nearest speaking document — the ``--set`` edit, then the tier, then the root's
-``extends`` chain from child to base — and is ``never`` when all are silent;
-a non-shared ``lists: own`` login answers the same way. A shared login's render
-is ``never`` whatever any document says.
+the normalizer. Per document: the tier key's value when it spells one
+(``never``, ``asked`` or ``allowed``, carried through verbatim); else, when it
+spells any retired leaf, ``allowed`` if any of them (the flat leaf or a per-type
+leaf, each type looked up whole) is a literal ``True`` and ``never`` otherwise,
+so no retired spelling ever answers ``asked``; else the document is silent. A
+root or tier render takes the nearest speaking document — the ``--set`` edit,
+then the tier, then the root's ``extends`` chain from child to base — and is
+``never`` when all are silent; a non-shared ``lists: own`` login answers the
+same way. A shared login's render is ``never`` whatever any document says, and
+a shared login spelling an arming word is refused.
 
 Beside the posture it pins that no retired leaf survives into any render, that
-a document or ``--set`` edit spelling both forms is refused, and that a tier-key
-value other than ``allowed``/``never`` is refused on every layer.
+a document or ``--set`` edit spelling both forms is refused, that a tier-key
+value other than the three words is refused on every layer, and that the
+settings.json an ``asked`` tier renders equals the ``allowed`` one's.
 """
 
 from __future__ import annotations
 
 import itertools
+import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +43,10 @@ from osprey.cli.build_profile_resolve import resolve_build_document, resolve_bui
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import tier_writes
+from tests.cli.test_killswitch_on_tier import _DUMB, _FACILITY, _settings
 
 _ALLOWED = "allowed"
+_ASKED = "asked"
 _NEVER = "never"
 
 
@@ -61,8 +68,10 @@ def _fresh_state():
 SPELLINGS: dict[str, dict[str, Any]] = {
     "absent": {},
     "new-nested-allowed": {"control_system": {"writes": "allowed"}},
+    "new-nested-asked": {"control_system": {"writes": "asked"}},
     "new-nested-never": {"control_system": {"writes": "never"}},
     "new-dotted-allowed": {"control_system.writes": "allowed"},
+    "new-dotted-asked": {"control_system.writes": "asked"},
     "new-dotted-never": {"control_system.writes": "never"},
     "flat-nested-true": {"control_system": {"writes_enabled": True}},
     "flat-nested-false": {"control_system": {"writes_enabled": False}},
@@ -102,6 +111,9 @@ MIXED: dict[str, dict[str, Any]] = {
     "new-nested-with-flat-nested": {
         "control_system": {"writes": "allowed", "writes_enabled": False}
     },
+    "new-nested-asked-with-flat-nested": {
+        "control_system": {"writes": "asked", "writes_enabled": False}
+    },
     "new-nested-with-flat-dotted": {
         "control_system": {"writes": "never"},
         "control_system.writes_enabled": True,
@@ -111,16 +123,23 @@ MIXED: dict[str, dict[str, Any]] = {
         "control_system.connector.epics.timeout_s": 5,
         "control_system.connector.epics.writes_enabled": False,
     },
+    "new-dotted-asked-with-per-type": {
+        "control_system.writes": "asked",
+        "control_system.connector.epics.timeout_s": 5,
+        "control_system.connector.epics.writes_enabled": True,
+    },
     "new-dotted-with-custom-type": {
         "control_system.writes": "never",
         "control_system.connector": {"mypkg.Mod": {"option": 1, "writes_enabled": True}},
     },
 }
 
-#: Tier-key values that are neither word, each refused wherever it sits.
+#: Tier-key values that are none of the three words, each refused wherever it sits.
 INVALID_VALUES: dict[str, Any] = {
     "bool-true": True,
     "capitalized": "Allowed",
+    "capitalized-asked": "Asked",
+    "legacy-switch-word": "on",
     "yes": "yes",
     "null": None,
     "list": ["allowed"],
@@ -130,6 +149,7 @@ INVALID_VALUES: dict[str, Any] = {
 SET_EDITS: dict[str, tuple[str, ...]] = {
     "none": (),
     "new-allowed": ("config.control_system.writes=allowed",),
+    "new-asked": ("config.control_system.writes=asked",),
     "new-never": ("config.control_system.writes=never",),
     "flat-true": ("config.control_system.writes_enabled=true",),
     "flat-false": ("config.control_system.writes_enabled=false",),
@@ -143,6 +163,10 @@ MIXED_SET_EDITS: dict[str, tuple[str, ...]] = {
         "config.control_system.writes=allowed",
         "config.control_system.writes_enabled=false",
     ),
+    "asked-and-flat": (
+        "config.control_system.writes=asked",
+        "config.control_system.writes_enabled=true",
+    ),
     "new-and-per-type": (
         "config.control_system.writes=never",
         "config.control_system.connector.epics.writes_enabled=true",
@@ -154,6 +178,7 @@ INVALID_SET_EDITS: dict[str, tuple[str, ...]] = {
     "yes": ("config.control_system.writes=yes",),
     "bool-true": ("config.control_system.writes=true",),
     "capitalized": ("config.control_system.writes=Allowed",),
+    "capitalized-asked": ("config.control_system.writes=Asked",),
     "null": ("config.control_system.writes=null",),
 }
 
@@ -247,6 +272,17 @@ def test_the_oracle_answers_each_retired_spelling_as_the_build_rewrites_it():
     assert document_answer(SPELLINGS["custom-type-false"]) == _NEVER
     assert document_answer(SPELLINGS["absent"]) is None
     assert render_answer({}, {}, {}) == _NEVER
+
+
+def test_the_oracle_answers_asked_only_for_the_tier_key_spelling_it():
+    """``asked`` is a word only the tier key states; a retired leaf cannot reach it."""
+    assert document_answer(SPELLINGS["new-nested-asked"]) == _ASKED
+    assert document_answer(SPELLINGS["new-dotted-asked"]) == _ASKED
+    assert tier_writes({"writes": _ASKED}) == _ASKED
+    assert render_answer(SPELLINGS["new-dotted-allowed"], SPELLINGS["new-dotted-asked"]) == _ASKED
+    assert render_answer(SPELLINGS["new-dotted-asked"], SPELLINGS["new-dotted-allowed"]) == _ALLOWED
+    retired = [name for name in SPELLINGS if not name.startswith("new-")]
+    assert retired and all(document_answer(SPELLINGS[name]) != _ASKED for name in retired)
 
 
 # ── the deployment and its render ────────────────────────────────────────────
@@ -386,10 +422,10 @@ def test_a_tier_over_an_extended_root_takes_the_nearest_answer(base, tier, tmp_p
 
 
 def _shared_refused(spelling: str) -> bool:
-    """A shared login AUTHORING the tier key ``allowed`` is refused; a retired arming
+    """A shared login AUTHORING an arming tier word is refused; a retired arming
     spelling the parse point rewrote is pinned ``never`` with a warning instead."""
-    return document_answer(SPELLINGS[spelling]) == _ALLOWED and "new" in _posture_leaves(
-        SPELLINGS[spelling]
+    return document_answer(SPELLINGS[spelling]) in (_ASKED, _ALLOWED) and (
+        "new" in _posture_leaves(SPELLINGS[spelling])
     )
 
 
@@ -404,7 +440,9 @@ def test_a_shared_login_is_never_whatever_the_root_or_login_says(root, login, tm
 
 
 @pytest.mark.parametrize("edit", list(SET_EDITS))
-@pytest.mark.parametrize("root", ["absent", "new-dotted-allowed", "flat-nested-true"])
+@pytest.mark.parametrize(
+    "root", ["absent", "new-dotted-allowed", "new-dotted-asked", "flat-nested-true"]
+)
 def test_a_shared_login_stays_never_under_a_set_edit(root, edit, tmp_path):
     path = _deployment(tmp_path, SPELLINGS[root], layer={}, layer_dir="shared")
     _assert_render(_render_section(path, tmp_path, SET_EDITS[edit]), _NEVER)
@@ -420,7 +458,8 @@ def test_a_narrow_login_no_shared_names_answers_like_a_tier(root, login, tmp_pat
 
 # ── the --set edit ───────────────────────────────────────────────────────────
 
-_SET_TIERS = [None, "absent", "new-nested-never", "new-dotted-allowed", "flat-dotted-true"]
+_SET_TIERS = [None, "absent", "new-nested-never", "new-dotted-allowed", "new-nested-asked"]
+_SET_TIERS += ["flat-dotted-true"]
 _SET_TIERS += ["per-type-false", "custom-type-true"]
 
 
@@ -503,6 +542,7 @@ def test_an_invalid_tier_value_is_refused_on_every_layer(where, value, dotted, t
         resolve_build_document(path, None)
     message = str(excinfo.value)
     assert "allowed" in message
+    assert "asked" in message
     assert "never" in message
 
 
@@ -514,3 +554,36 @@ def test_an_invalid_tier_value_in_a_set_edit_is_refused(where, edit, tmp_path):
         resolve_build_document(path, None, (), INVALID_SET_EDITS[edit])
     with pytest.raises(BuildProfileError):
         resolve_build_profile(None, "hello-world", set_pairs=INVALID_SET_EDITS[edit])
+
+
+# ── settings.json: the two arming words render alike ─────────────────────────
+#
+# The tier is a ceiling for the switch; what prompts is decided per write at run
+# time. Nothing in the rendered permissions may differ between the two words, so
+# an `asked` deployment is never one regen away from a different gate set. The
+# whole document is compared, not the render context, whose `writes_tier` differs
+# by design; only the project's own directory, which absolute grants spell, is
+# blanked.
+
+
+def _settings_of(tmp_path: Path, word: str, **kwargs: Any) -> tuple[dict, str]:
+    """The settings.json a *word* tier renders, and the same text with its project blanked."""
+    home = tmp_path / word
+    home.mkdir()
+    settings = _settings(home, writes=word, **kwargs)
+    project = re.escape(str(home)) + r"/killswitch-tier-\d+"
+    return settings, re.sub(project, "<project>", json.dumps(settings, sort_keys=True))
+
+
+@pytest.mark.parametrize(
+    ("servers", "write_tools"),
+    [(None, None), (_FACILITY, None), ({"dumb": _DUMB}, ["mcp__dumb__poke"])],
+    ids=["shipped-servers", "facility-servers", "uncovered-write-tool"],
+)
+def test_settings_json_for_asked_equals_the_allowed_render(servers, write_tools, tmp_path):
+    asked, asked_text = _settings_of(tmp_path, _ASKED, servers=servers, write_tools=write_tools)
+    _, allowed_text = _settings_of(tmp_path, _ALLOWED, servers=servers, write_tools=write_tools)
+    assert asked_text == allowed_text
+    # Not two equally wrong renders: neither carries the `never` deny.
+    assert "mcp__controls__channel_write" not in asked["permissions"]["deny"]
+    assert "mcp__controls__channel_write" not in asked["permissions"]["ask"]

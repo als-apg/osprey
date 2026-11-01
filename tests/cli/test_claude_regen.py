@@ -354,6 +354,7 @@ class TestManifestPresetStamp:
                         "control_system.connector.virtual_accelerator.serving": "in_process",
                         "archiver.type": "mock",
                         "approval.enabled": False,
+                        "approval.default_policy": "always",
                         "hooks.debug": False,
                     },
                 }

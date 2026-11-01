@@ -2324,8 +2324,10 @@ def _render_project(
         # was about to write. The execution backend is read here for the same
         # reason: it is the render, not the profile, that a container loads.
         # The hooks this render selects from the library, a replacing path
-        # counted as the artifact it replaces.
-        selected_hooks = library_selection("hooks", build_profile.hooks)
+        # counted as the artifact it replaces. Read from the selection the
+        # render was made with: a profile that names no artifacts renders with
+        # its bundle's own, hooks included.
+        selected_hooks = library_selection("hooks", (effective_artifacts or {}).get("hooks", []))
         unrunnable = [
             *_resolve_rendered_execution_method(render_dir),
             *reach_errors(_rendered_config(render_dir), repo_root=repo_root),

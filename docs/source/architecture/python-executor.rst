@@ -130,9 +130,9 @@ Ten safety layers are applied in sequence:
    rejection.
 
 5. **Approved-call check** (``_check_approved_call``)---before it spawns a
-   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``,
-   ``pyaml_measure``) whose approval policy asks, the executor reads the
-   record the approval prompt left for this tool call. The call's
+   ``readwrite`` run of a governed tool (``execute``, ``execute_file``,
+   ``pyaml_measure``), the executor reads the record the approval hook left
+   for this tool call, a person's or the switch's. The call's
    ``approved_target`` must equal what the prompt recorded and name the
    run's own control target; for ``pyaml_measure`` the call's ``approved_view_sha256``
    must equal the recorded view digest as well. Without a record,
@@ -142,8 +142,7 @@ Ten safety layers are applied in sequence:
    mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
    Nothing of the record reaches the subprocess, which evaluates no approval
    policy itself. A call that reaches the server without passing the
-   approval hook gets no read-write run on a deployment whose policy asks; such a
-   deployment states ``approval.enabled: false``.
+   approval hook gets no read-write run, whatever ``approval.enabled`` says.
 
 6. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
@@ -318,7 +317,7 @@ constructed; a channel it holds no record for is refused rather than trusted.
 The connector reads PVAccess but does not write it yet, so a raw put is the
 one PVAccess write route a ``readwrite`` run has, and refusing it would take
 PVAccess writes away from every deployment. These keep the posture they had
-before the raw-put block: the approval hook asks for the run, and in an
+before the raw-put block: the approval hook gates the run, and in an
 executor run with the limits database on each put is validated before it
 reaches the network (a ``parsePut`` or a builder callable carries no value to
 check and is refused). A run with limits off lets them through. They move to
@@ -573,8 +572,8 @@ run. A refused run gets the verdict's phrase and its trailer, for example::
 
 A run whose target cannot be identified is refused ``target_unknown`` rather
 than granted the most permissive answer. The agent is told to re-run as
-``readonly`` --- reads are untouched --- or to ask the operator to turn writes
-on from the chip. The phrase names no config key: the deployment's
+``readonly`` --- reads are untouched --- or to ask the operator to move the
+switch from the chip. The phrase names no config key: the deployment's
 ``config.yml`` is not what the operator changes here.
 
 A run that has already started cannot be *widened*: it keeps the launch pin it
@@ -641,9 +640,9 @@ and the operator alert are what is missing.
 
 .. note::
 
-   Write approval is handled by the ``execution_mode`` parameter. The OSPREY agent
-   requests user confirmation before calling ``execute`` with
-   ``execution_mode="readwrite"``---there is no separate approval API.
+   Write approval is handled by the ``execution_mode`` parameter. At *asked*, a
+   call to ``execute`` with ``execution_mode="readwrite"`` prompts the user
+   first---there is no separate approval API.
 
 .. seealso::
 

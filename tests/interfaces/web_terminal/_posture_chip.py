@@ -141,10 +141,23 @@ NAMES = {
 #: stand-in the rehearsal (C-KIND). Planted by ``chip_hub(rehearsal=True)``.
 REHEARSAL_STANDIN = {POSTURE_TARGET: {"machine_kind": "rehearsal"}}
 
-#: Every configured target with this login's switch on. The default record:
-#: every row starts at ``writes on``, so a turn-off asks nothing and is the
-#: first gesture a test can make.
-ALL_ON = dict.fromkeys(KINDS, "on")
+#: The three positions of a machine's write switch, lowest first. The order is
+#: the switch's own: a move up is a widening (it confirms), a move down a
+#: narrowing (it applies at once).
+POSITIONS = ("off", "asked", "allowed")
+
+#: Every configured target with this login's switch at ``asked``. The default
+#: record: every row starts armed at the lowest armed position, so a narrowing
+#: to off asks nothing and is the first gesture a test can make. Written through
+#: the production ``set_switch`` (the epoch is the one it stamps); a legacy
+#: ``"on"`` would be written verbatim and only READ as ``asked``.
+ALL_ASKED = dict.fromkeys(KINDS, "asked")
+
+#: Every configured target at ``allowed``: armed with no prompt.
+ALL_ALLOWED = dict.fromkeys(KINDS, "allowed")
+
+#: The name the sibling suites import for the default record.
+ALL_ON = ALL_ASKED
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +295,9 @@ def chip_hub(
     The keyword arguments are the states the chip criteria are about, all of
     them planted before ``create_app`` so the lifespan's claim merges them:
 
-    * *switch* — this login's write switch, ``{target: "on"}``; ``None`` is
-      :data:`ALL_ON`, and ``{}`` every machine off. Written through the
+    * *switch* — this login's write switch, ``{target: "asked"|"allowed"}``;
+      ``None`` is :data:`ALL_ON` (every machine ``asked``), and ``{}`` every
+      machine off. Written through the
       production ``set_switch``, so the epoch is the one it stamps.
     * *owned_by* — :data:`SELF_OWNER`, or an ``owner(...)`` naming a live
       process that is not this one: a follower terminal, which may still turn
@@ -436,21 +450,33 @@ def write_verdict_for(
 
 
 def verdict_word(app: Any, target: str) -> str:
-    """The state word the server's own facts give *target*: ``on``/``off``/``locked``.
+    """The state word the server's own facts give *target*: off/asked/allowed/locked.
 
     Derived here from the record and the verdict, not from anything the page
-    sent: ``on`` is a switch that is on and a write that would pass, ``off`` a
-    switch that is off, and ``locked`` a switch that is on and still refused —
-    or one nobody can read, which must never be shown as off.
+    sent: ``off`` is a switch at off; ``asked`` / ``allowed`` an armed switch
+    whose write would pass, named by the verdict's EFFECTIVE position (a stored
+    ``allowed`` under an ``asked`` ceiling reads ``asked``); and ``locked`` an
+    armed switch still refused — or one nobody can read, which must never be
+    shown as off.
     """
     control_context.invalidate_cache()
     record, status = control_context.read_record_status()
     if status == "unreadable":
         return "locked"
-    on = control_context.switch_position(record, target) != "off"
-    if not on:
+    if control_context.switch_position(record, target) == "off":
         return "off"
-    return "on" if write_verdict_for(app, target).allowed else "locked"
+    verdict = write_verdict_for(app, target)
+    if not verdict.allowed or verdict.position is None:
+        return "locked"
+    return verdict.position
+
+
+def recorded_position(target: str) -> str:
+    """*target*'s stored position, read the way every write path reads it."""
+    control_context.invalidate_cache()
+    record = read_record()
+    assert record is not None, "the control-context record disappeared"
+    return control_context.switch_position(record, target)
 
 
 def popover_machine(page: Page, target: str) -> Any:
@@ -488,9 +514,43 @@ def popover_row(page: Page, target: str) -> Any:
     return page.locator(f'{POPOVER} .ctc-row[data-target="{target}"]')
 
 
-def writes_toggle(page: Page, target: str) -> Any:
-    """The machine's writes switch, card or row — ``aria-checked`` is the readout."""
-    return popover_machine(page, target).locator(".ctc-toggle")
+def writes_switch(page: Page, target: str) -> Any:
+    """The machine's writes switch, card or row: the three-option radiogroup."""
+    return popover_machine(page, target).locator('.ctc-positions[role="radiogroup"]')
+
+
+#: The name the sibling suites import for the machine's switch control.
+writes_toggle = writes_switch
+
+
+def writes_option(page: Page, target: str, position: str) -> Any:
+    """One option of *target*'s switch — ``aria-checked`` is the STORED position."""
+    assert position in POSITIONS, position
+    return popover_machine(page, target).locator(f'.ctc-position[data-position="{position}"]')
+
+
+def assert_options(
+    page: Page,
+    target: str,
+    *,
+    checked: str | None,
+    disabled: tuple[str, ...] = (),
+) -> None:
+    """*target*'s three options: which one is checked, and which are held.
+
+    *checked* ``None`` is a switch nobody can read: no option is checked.
+    Every option is a ``role="radio"`` whatever its state.
+    """
+    for position in POSITIONS:
+        option = writes_option(page, target, position)
+        expect(option).to_have_attribute("role", "radio", timeout=TIMEOUT)
+        expect(option).to_have_attribute(
+            "aria-checked", str(position == checked).lower(), timeout=TIMEOUT
+        )
+        if position in disabled:
+            expect(option).to_be_disabled(timeout=TIMEOUT)
+        else:
+            expect(option).to_be_enabled(timeout=TIMEOUT)
 
 
 def settled_chip(

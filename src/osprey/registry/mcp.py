@@ -56,10 +56,16 @@ class HookEntry:
 
 @dataclass
 class HookRule:
-    """A matcher + list of hooks for PreToolUse / PostToolUse."""
+    """A matcher + list of hooks for PreToolUse / PostToolUse.
+
+    ``keeps_policy`` takes a rule that carries both write hooks out of the
+    governed set (:func:`governed_write_tools`): its tool follows the switch
+    only as armed or not, and its ``approval.*`` policy still decides the prompt.
+    """
 
     matcher: str
     hooks: list[HookEntry] = field(default_factory=list)
+    keeps_policy: bool = False
 
 
 @dataclass
@@ -305,6 +311,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             HookRule(
                 matcher=f"mcp__{SERVER_TEMPLATE}__{DRIVE_TOOL}",
                 hooks=[_WRITES_CHECK, _APPROVAL],
+                keeps_policy=True,
             ),
         ],
         hooks_post=[_post_error("mcp__phoebus__.*")],
@@ -992,6 +999,39 @@ def facility_write_tools(servers: list[dict]) -> list[str]:
     return tools
 
 
+def governed_write_tools(servers: list[dict]) -> list[str]:
+    """The tools the write switch's position decides for in one render, fully qualified.
+
+    The only producer of the governed set: the rendered hook config, the
+    approval hook, ``ask_capable`` and the posture floor all take it from here.
+    A tool is governed exactly when its rule carries both write hooks
+    (:func:`rule_carries_both_write_hooks`) and is not flagged ``keeps_policy``,
+    so a facility tool's membership follows its server's own rule, and an
+    ``extends`` clone's tools are governed under the clone's name.
+
+    Args:
+        servers: Output of :func:`resolve_servers`. Disabled servers are
+            skipped: a tool nobody can call is decided by nothing.
+
+    Returns:
+        Deduplicated, in resolved-server then hook order, so every render's
+        diff stays quiet. A whole-server rule contributes its ``mcp__<srv>__.*``
+        matcher, which readers honour as a wildcard.
+    """
+    tools: list[str] = []
+    for server in servers:
+        if not server.get("enabled"):
+            continue
+        for rule in server.get("hooks_pre", []):
+            if (
+                rule_carries_both_write_hooks(rule["hooks"])
+                and not rule.get("keeps_policy")
+                and rule["matcher"] not in tools
+            ):
+                tools.append(rule["matcher"])
+    return tools
+
+
 def rule_carries_writes_check(hooks: list[dict]) -> bool:
     """Whether a resolved hook rule's ``hooks`` run the writes-check preset.
 
@@ -1000,6 +1040,19 @@ def rule_carries_writes_check(hooks: list[dict]) -> bool:
     tools from ``ask`` with it, so the two classify alike.
     """
     return any(h.get("command") == _WRITES_CHECK.command for h in hooks)
+
+
+def rule_carries_both_write_hooks(hooks: list[dict]) -> bool:
+    """Whether a resolved hook rule's ``hooks`` run writes-check and an approval hook.
+
+    The one test for "the hooks answer this tool's write": both hooks mean the
+    tool needs no static ``ask``, so the settings render pulls it from there
+    with this test, and :func:`governed_write_tools` builds the governed set on
+    it. The approval entry counts in either budget (:data:`_APPROVAL`,
+    :data:`_APPROVAL_PREFLIGHT`); the commands differ by ``--budget``.
+    """
+    approval = {_APPROVAL.command, _APPROVAL_PREFLIGHT.command}
+    return rule_carries_writes_check(hooks) and any(h.get("command") in approval for h in hooks)
 
 
 # ---------------------------------------------------------------------------
@@ -2114,6 +2167,7 @@ def _hook_rule_to_dict(rule: HookRule) -> dict:
     return {
         "matcher": rule.matcher,
         "hooks": [{"type": h.type, "command": h.command, "timeout": h.timeout} for h in rule.hooks],
+        "keeps_policy": rule.keeps_policy,
     }
 
 
