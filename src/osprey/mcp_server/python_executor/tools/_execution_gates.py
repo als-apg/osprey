@@ -704,6 +704,27 @@ async def _conclude_review(tool: str, outcome: ReviewOutcome, request: ReviewReq
     )
 
 
+def _stamped_review(tool: str, gated: str) -> tuple[bool, str | None]:
+    """Whether the approval prompt reviewed *gated* for this call, and what it told the agent.
+
+    The stamp is the one :func:`~osprey.mcp_server.approval_record.require_approval_record`
+    reads, for the call in scope, and it must name *tool*. Never raises: a stamp that cannot be
+    read is no review, and the review here runs.
+    """
+    try:
+        from osprey.audit.call import current_tool_use_id
+        from osprey.mcp_server.approval_record import approval_ask_stamp
+        from osprey.services.code_review.stamp import stamped_review
+
+        stamp = approval_ask_stamp(current_tool_use_id())
+        if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
+            return False, None
+        return stamped_review(stamp, gated)
+    except Exception:
+        logger.warning("Could not read the prompt's review from the ask stamp", exc_info=True)
+        return False, None
+
+
 async def _review_before_launch(
     *,
     tool: str,
@@ -721,6 +742,12 @@ async def _review_before_launch(
     Nothing is reviewed when the feature is off, when the mode is not one it reviews, or when
     the executor would decline the run anyway: that decline stays ``execute_code``'s to produce.
     A section that cannot be read refuses in every mode, since the set to review is unknown.
+
+    A call the approval prompt already reviewed is not reviewed again: its ask stamp carries the
+    digest of the code the reviewer read and what the agent is told
+    (:mod:`osprey.services.code_review.stamp`), and a digest that is this code's answers for it.
+    That makes this gate the backstop for a run no prompt reviewed: a policy that asks nobody,
+    a read-only run under a selective policy, a hook that could not review.
 
     Args:
         tool: Tool name as the agent knows it.
@@ -775,6 +802,10 @@ async def _review_before_launch(
     }
     if admission_refusal(code, execution_mode, tool, approved):
         return None
+
+    reviewed, stamped_message = _stamped_review(tool, gated)
+    if reviewed:
+        return stamped_message
 
     request = ReviewRequest(
         surface=SURFACE_EXECUTE,

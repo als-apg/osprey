@@ -1736,6 +1736,62 @@ def _servers_with_selected_hooks(ctx: dict) -> list[dict]:
     return wired
 
 
+#: The executor tools whose approval prompt reviews the code ahead of the ask.
+_REVIEWED_EXECUTE_TOOLS: tuple[str, ...] = ("execute", "execute_file")
+
+#: The template the executor server and its ``extends`` clones come from.
+_EXECUTOR_TEMPLATE = "python"
+
+#: The approval hook's ``--budget N`` argument, as the registry spells it.
+_BUDGET_FLAG = re.compile(r"--budget (\d+)")
+
+
+def _with_review_budget(hook: dict, deadline_s: int) -> dict:
+    """*hook* given *deadline_s* more seconds, in its ``timeout`` and its ``--budget`` alike."""
+    timeout = int(hook.get("timeout") or 0) + deadline_s
+    command = str(hook.get("command") or "")
+    if _BUDGET_FLAG.search(command):
+        command = _BUDGET_FLAG.sub(f"--budget {timeout}", command, count=1)
+    else:
+        command = f"{command} --budget {timeout}"
+    return {**hook, "command": command, "timeout": timeout}
+
+
+def _extend_execute_approval_budget(wired_servers: list[dict], deadline_s: int | None) -> None:
+    """Give the approval entry on the reviewed executor tools the review's deadline too.
+
+    The approval hook reviews the code of an ``execute`` or ``execute_file`` ask before it
+    puts the call to the operator, in the time its ``--budget`` leaves after the prompt's own
+    needs. So on those two rules the entry's budget and timeout grow by the deadline the
+    ``code-review`` rule renders, whether or not the review is on, for the reason that rule
+    renders its deadline regardless: a deployment that turns the review on in ``config.yml``
+    reaches its next call with the time it needs, and a hook with the review off spends none
+    of it. ``None`` leaves every rule as the registry wrote it.
+
+    Edits the rule dicts in place: they are the copies :func:`_servers_with_selected_hooks`
+    made, never the resolved servers.
+
+    Args:
+        wired_servers: The servers as :func:`_servers_with_selected_hooks` returns them.
+        deadline_s: The ``code_review_deadline_s`` of the render context.
+    """
+    if deadline_s is None:
+        return
+    for server in wired_servers:
+        if (server.get("extends_of") or server.get("name")) != _EXECUTOR_TEMPLATE:
+            continue
+        reviewed = {f"mcp__{server['name']}__{tool}" for tool in _REVIEWED_EXECUTE_TOOLS}
+        for rule in server.get("hooks_pre") or []:
+            if rule.get("matcher") not in reviewed:
+                continue
+            rule["hooks"] = [
+                _with_review_budget(hook, deadline_s)
+                if _hook_name_of_command(hook.get("command", "")) == "approval"
+                else hook
+                for hook in rule["hooks"]
+            ]
+
+
 def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
     """Refuse a render whose write gates are not installed.
 
@@ -2517,6 +2573,7 @@ def create_claude_code_integration(
     # hook sources: a hook this deployment does not install is wired to nothing.
     ctx["framework_event_hooks"] = _build_framework_event_rules(ctx.get("selected_hooks", []))
     ctx["wired_servers"] = _servers_with_selected_hooks(ctx)
+    _extend_execute_approval_budget(ctx["wired_servers"], ctx.get("code_review_deadline_s"))
     ctx["approval_outcome_hooks"] = _approval_outcome_rules(ctx["wired_servers"])
 
     # Build-time safety lint: refuse to render a profile in which any

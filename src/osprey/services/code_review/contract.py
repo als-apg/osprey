@@ -171,7 +171,7 @@ def parse_verdict(text: str) -> ReviewVerdict | ReviewFailure:
     return ReviewVerdict(verdict, tuple(reasons), revision)
 
 
-def _fenced(content: str) -> str:
+def fenced(content: str) -> str:
     """Fence *content* with a fence longer than any backtick run in it.
 
     The content is the code under review, so it must not be able to close its own block and go on
@@ -203,9 +203,9 @@ def render_request(request: ReviewRequest) -> str:
     if request.script_args:
         sections.append(f"## Script arguments\n\n{json.dumps(list(request.script_args))}")
     if request.notebook:
-        sections.append(f"## Notebook\n\n{_fenced(request.notebook)}")
+        sections.append(f"## Notebook\n\n{fenced(request.notebook)}")
     if request.cell:
         sections.append(f"## Target cell\n\n{request.cell}")
-    sections.append(f"## Code\n\n{_fenced(request.code)}")
+    sections.append(f"## Code\n\n{fenced(request.code)}")
     sections.append(_REPLY_SHAPE)
     return "\n\n".join(sections)

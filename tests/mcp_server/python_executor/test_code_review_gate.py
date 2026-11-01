@@ -773,3 +773,112 @@ async def test_disabling_takes_effect_on_the_next_call(project_root, launch, stu
     await _call("execute", project_root)
     assert len(stub.calls) == 1
     launch.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# A review the approval prompt already made
+# ---------------------------------------------------------------------------
+#
+# The approval hook reviews the code before it asks and leaves the digest of what
+# it read, and what the agent is told, in the ask stamp. The gate reads that stamp
+# for the call in scope and does not read the same code twice; any other stamp
+# leaves this gate as the backstop it is.
+
+
+@pytest.fixture
+def ask_stamps(tmp_path, monkeypatch):
+    """The state directory the executor reads ask stamps from; returns a stamp writer."""
+    from osprey.mcp_server.control_system import target_state
+
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setattr(target_state, "state_dir", lambda: state)
+
+    def write(tool_use_id: str, **fields) -> None:
+        payload = {"tool_use_id": tool_use_id, "approver": "human", **fields}
+        (state / f"approval_ask_{tool_use_id}.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+
+    return write
+
+
+def _stamped(code: str, result: ReviewVerdict, level: str = "block") -> dict[str, Any]:
+    from osprey.services.code_review.stamp import reviewed_fields
+
+    return reviewed_fields(code, decide(result, level))
+
+
+@TOOLS
+async def test_a_review_the_prompt_stamped_for_this_code_is_not_run_again(
+    tool_name, project_root, launch, notices, records, stub, ask_stamps
+):
+    _configure(project_root, {"enabled": True, "level": "block"})
+    ask_stamps("toolu_stamped", tool=f"mcp__python__{tool_name}", **_stamped(CODE, CONCERN))
+
+    with call_scope("toolu_stamped", None):
+        await _call(tool_name, project_root)
+
+    assert stub.calls == [], "the prompt's review answers for this code"
+    launch.assert_awaited_once()
+    assert _result(launch).code_review == agent_message(decide(CONCERN, "block"))
+    assert _review_records(records) == [], "the hook filed the one record"
+    assert _review_notices(notices) == [], "the hook sent the one notice"
+
+
+async def test_a_silent_pass_the_prompt_stamped_has_nothing_to_add(
+    project_root, launch, stub, ask_stamps
+):
+    _configure(project_root, {"enabled": True, "level": "block"})
+    ask_stamps("toolu_pass", tool="mcp__python__execute", **_stamped(CODE, PASS))
+
+    with call_scope("toolu_pass", None):
+        await _call("execute", project_root)
+
+    assert stub.calls == []
+    launch.assert_awaited_once()
+    assert _result(launch).code_review is None
+
+
+async def test_a_stamp_for_other_code_leaves_the_review_in_place(
+    project_root, launch, stub, ask_stamps
+):
+    stub.stage(PASS)
+    _configure(project_root, {"enabled": True, "level": "block"})
+    ask_stamps("toolu_other", tool="mcp__python__execute", **_stamped(CODE + "\n", CONCERN))
+
+    with call_scope("toolu_other", None):
+        await _call("execute", project_root)
+
+    assert len(stub.calls) == 1
+    launch.assert_awaited_once()
+    assert _result(launch).code_review is None
+
+
+async def test_a_stamp_for_another_tool_leaves_the_review_in_place(
+    project_root, launch, stub, ask_stamps
+):
+    stub.stage(PASS)
+    _configure(project_root, {"enabled": True, "level": "block"})
+    ask_stamps("toolu_file", tool="mcp__python__execute_file", **_stamped(CODE, CONCERN))
+
+    with call_scope("toolu_file", None):
+        await _call("execute", project_root)
+
+    assert len(stub.calls) == 1
+    launch.assert_awaited_once()
+
+
+async def test_a_stamp_the_prompt_left_unreviewed_leaves_the_review_in_place(
+    project_root, launch, stub, ask_stamps
+):
+    """A stamp with no review fields is an ask the prompt could not review."""
+    stub.stage(BLOCK)
+    _configure(project_root, {"enabled": True, "level": "block"})
+    ask_stamps("toolu_bare", tool="mcp__python__execute")
+
+    with call_scope("toolu_bare", None), assert_raises_error(error_type="review_blocked"):
+        await _call("execute", project_root)
+
+    assert len(stub.calls) == 1
+    launch.assert_not_awaited()

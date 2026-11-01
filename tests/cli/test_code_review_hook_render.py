@@ -24,6 +24,7 @@ from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.claude_code import (
     _build_framework_hook_rules,
+    _extend_execute_approval_budget,
     _lint_write_tools_are_gated,
     config_derived_context,
 )
@@ -279,3 +280,135 @@ def test_a_build_with_a_time_limit_renders_it_in_the_rule(
 
     assert result.exit_code == 0, result.output
     _assert_rendered(repo, 150)
+
+
+# ---------------------------------------------------------------------------
+# The approval entry on the reviewed executor tools: the deadline on top of its budget
+# ---------------------------------------------------------------------------
+#
+# The approval hook reviews the code of an ``execute`` or ``execute_file`` ask before it
+# puts the call to the operator, in the time its ``--budget`` leaves after the prompt's
+# own needs. So the render gives those two entries the review's deadline on top of the
+# budget the registry wrote, in the timeout and the flag alike, and no other entry.
+
+APPROVAL_SCRIPT = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"'
+WRITES_CHECK_SCRIPT = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"'
+
+
+def _approval(budget: int | None) -> dict:
+    command = APPROVAL_SCRIPT if budget is None else f"{APPROVAL_SCRIPT} --budget {budget}"
+    return {"type": "command", "command": command, "timeout": budget or 5}
+
+
+def _writes_check() -> dict:
+    return {"type": "command", "command": WRITES_CHECK_SCRIPT, "timeout": 5}
+
+
+def _executor_server(name: str = "python", extends_of: str | None = None) -> dict:
+    def rule(tool: str) -> dict:
+        return {"matcher": f"mcp__{name}__{tool}", "hooks": [_writes_check(), _approval(5)]}
+
+    return {
+        "name": name,
+        "extends_of": extends_of,
+        "enabled": True,
+        "hooks_pre": [rule("execute"), rule("execute_file"), rule("pyaml_measure")],
+    }
+
+
+def _hooks(server: dict, tool: str) -> list[dict]:
+    (rule,) = [r for r in server["hooks_pre"] if r["matcher"].endswith(f"__{tool}")]
+    return rule["hooks"]
+
+
+def test_the_reviewed_executor_rules_get_the_deadline_on_top_of_their_budget() -> None:
+    server = _executor_server()
+
+    _extend_execute_approval_budget([server], 90)
+
+    for tool in ("execute", "execute_file"):
+        assert _hooks(server, tool) == [_writes_check(), _approval(95)]
+    assert _hooks(server, "pyaml_measure") == [_writes_check(), _approval(5)]
+
+
+def test_a_longer_time_limit_renders_a_longer_budget() -> None:
+    server = _executor_server()
+
+    _extend_execute_approval_budget([server], 150)
+
+    assert _hooks(server, "execute")[1] == _approval(155)
+
+
+def test_an_extends_clone_is_matched_under_its_own_prefix() -> None:
+    clone = _executor_server("python_b", extends_of="python")
+
+    _extend_execute_approval_budget([clone], 90)
+
+    assert _hooks(clone, "execute")[1] == _approval(95)
+    assert _hooks(clone, "pyaml_measure")[1] == _approval(5)
+
+
+def test_another_servers_tool_of_the_same_name_is_left_alone() -> None:
+    other = _executor_server("facility")
+
+    _extend_execute_approval_budget([other], 90)
+
+    assert _hooks(other, "execute") == [_writes_check(), _approval(5)]
+
+
+def test_no_deadline_leaves_every_rule_as_the_registry_wrote_it() -> None:
+    server = _executor_server()
+
+    _extend_execute_approval_budget([server], None)
+
+    assert server == _executor_server()
+
+
+def test_an_entry_with_no_budget_flag_is_given_one() -> None:
+    server = _executor_server()
+    server["hooks_pre"][0]["hooks"][1] = _approval(None)
+
+    _extend_execute_approval_budget([server], 90)
+
+    assert _hooks(server, "execute")[1] == _approval(95)
+
+
+def _approval_hook_on(repo: Path, matcher: str) -> dict:
+    settings = json.loads((repo / "build" / ".claude" / "settings.json").read_text("utf-8"))
+    found = [
+        hook
+        for rule in settings["hooks"]["PreToolUse"]
+        if rule["matcher"] == matcher
+        for hook in rule["hooks"]
+        if "osprey_approval.py" in hook["command"]
+    ]
+    assert len(found) == 1, found
+    return found[0]
+
+
+@pytest.mark.parametrize(
+    ("section", "budget"),
+    [
+        pytest.param(None, 95, id="no-section"),
+        pytest.param({"enabled": True, "time_limit": 120}, 155, id="time-limit-120"),
+    ],
+)
+def test_a_build_gives_the_executor_approval_rules_the_budget(
+    project: Callable[..., Path], section: dict | None, budget: int
+) -> None:
+    repo = project(section)
+    if section is not None:
+        prompt = repo / DEFAULT_PROMPT
+        prompt.parent.mkdir(parents=True, exist_ok=True)
+        prompt.write_text("Review the code.\n", encoding="utf-8")
+
+    result = invoke_build(repo)
+
+    assert result.exit_code == 0, result.output
+    for tool in ("execute", "execute_file"):
+        hook = _approval_hook_on(repo, f"mcp__python__{tool}")
+        assert hook["timeout"] == budget
+        assert hook["command"].endswith(f'osprey_approval.py" --budget {budget}')
+    measure = _approval_hook_on(repo, "mcp__python__pyaml_measure")
+    assert measure["timeout"] == 5
+    assert measure["command"].endswith('osprey_approval.py" --budget 5')

@@ -6,10 +6,11 @@ and names a channel write that the pattern list cannot see. Each scenario runs t
 every attempt counts, so a reviewer that catches the write two times in three fails here. There
 are no reruns, for the reason ``tests/e2e/README.md`` gives for a benchmark.
 
-``execute`` is driven through its tool function, with the real launch underneath it.
-``NotebookEdit`` is driven through the hook's ``main``, which only decides, so the test applies an
-edit the hook allowed the way Claude Code would. ``main`` calls ``asyncio.run``, so those tests
-are plain functions.
+``execute`` is driven through its tool function, with the real launch underneath it, and once
+more through the approval hook's ``main``, which reviews the code ahead of the prompt.
+``NotebookEdit`` is driven through the notebook hook's ``main``, which only decides, so the test
+applies an edit the hook allowed the way Claude Code would. Each hook's ``main`` calls
+``asyncio.run``, so those tests are plain functions.
 
     OSPREY_E2E_PROVIDER=als-apg uv run pytest tests/e2e/test_code_review_gateway.py -v -rs
 """
@@ -248,6 +249,44 @@ def _cell_source(path: Path) -> str:
     return json.loads(path.read_text(encoding="utf-8"))["cells"][0]["source"]
 
 
+def _ask_for_execute(deployment: Deployment, monkeypatch) -> None:
+    """Point the approval hook at a copy of the render's config under which ``execute`` asks.
+
+    The in-process ``execute`` of the run tests has no hook in front of it, so the render skips
+    its approval; the hook reviews only a call it is about to put to a person. Made after
+    ``_set_level``, so the copy carries the level the test asked for.
+    """
+    config = yaml.safe_load(deployment.config.read_text(encoding="utf-8"))
+    config.setdefault("approval", {}).setdefault("tools", {})["execute"] = "always"
+    path = deployment.render / "config-approval.yml"
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("OSPREY_CONFIG", str(path))
+
+
+def _execute_through_approval_hook(code: str, description: str, monkeypatch, capsys):
+    """Run the approval hook's ``main`` on a readwrite ``execute``, with the render's budget.
+
+    Returns:
+        The hook's ``hookSpecificOutput``, or ``None`` when it printed nothing.
+    """
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__python__execute",
+        "tool_use_id": "toolu_gateway_ask",
+        "session_id": "conv-gateway",
+        "permission_mode": "default",
+        "tool_input": {"code": code, "description": description, "execution_mode": "readwrite"},
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    monkeypatch.setattr(sys, "argv", ["osprey_approval.py", "--budget", "95"])
+    hook = import_hook("osprey_approval")
+    with pytest.raises(SystemExit) as exit_info:
+        hook.main()
+    assert exit_info.value.code == 0
+    stdout = capsys.readouterr().out
+    return json.loads(stdout)["hookSpecificOutput"] if stdout.strip() else None
+
+
 def _assert_readable_pass(verdict, message: str | None) -> None:
     """A pass, and whatever the agent was told about it says so.
 
@@ -349,6 +388,37 @@ async def test_aliased_write_refused_on_a_run(_attempt, surfaces, review_spy, ex
     assert envelope["details"]["reasons"] == list(verdict.reasons)
     _assert_reasons_name_the_write(verdict, envelope["error_message"])
     assert execute_spy.results == []
+
+
+@ATTEMPTS
+def test_benign_run_passes_on_the_prompt(_attempt, surfaces, review_spy, monkeypatch, capsys):
+    """Ahead of the approval prompt, the benign script passes and the prompt says so."""
+    _set_level(surfaces, "block")
+    _ask_for_execute(surfaces, monkeypatch)
+
+    output = _execute_through_approval_hook(BENIGN_SCRIPT, BENIGN_DESCRIPTION, monkeypatch, capsys)
+
+    assert output is not None
+    assert output.get("permissionDecision") == "ask", output
+    assert review_spy.verdict().verdict == "pass"
+    assert "Code review: pass" in output["permissionDecisionReason"]
+
+
+@ATTEMPTS
+def test_aliased_write_refused_on_the_prompt(_attempt, surfaces, review_spy, monkeypatch, capsys):
+    """Ahead of the approval prompt, the aliased write is denied and nobody is asked."""
+    _set_level(surfaces, "block")
+    _ask_for_execute(surfaces, monkeypatch)
+
+    output = _execute_through_approval_hook(
+        ALIASED_SCRIPT, ALIASED_DESCRIPTION, monkeypatch, capsys
+    )
+
+    assert output is not None
+    assert output.get("permissionDecision") == "deny", output
+    verdict = review_spy.verdict()
+    assert verdict.verdict == "block"
+    _assert_reasons_name_the_write(verdict, output["permissionDecisionReason"])
 
 
 @ATTEMPTS
