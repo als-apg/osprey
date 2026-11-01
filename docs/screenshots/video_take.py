@@ -64,7 +64,7 @@ TERMINAL_WS_PATH = "/ws/terminal"
 # prompts and the agent's answer stay legible next to the artifacts panel.
 TERMINAL_WIDTH_FRACTION = 0.45
 
-# In the simple view the page load is the server's first request, which waits
+# On the chat the page load is the server's first request, which waits
 # for its startup to finish.
 GOTO_TIMEOUT_MS = 120_000
 CLICK_TIMEOUT_MS = 30_000
@@ -274,7 +274,7 @@ def _start_screencast(take: TakeContext) -> None:
 
 def _settle_chat(page: Any) -> None:
     if not poll(page, lambda: video_chat.mounted(page), MOUNT_BUDGET_MS):
-        raise ProbeFailed("layout", "the Simple view's chat composer never mounted")
+        raise ProbeFailed("layout", "the chat composer never mounted")
     if not page.evaluate(DOCK_SETTLED_JS, SETTLE_BUDGET_MS):
         raise ProbeFailed("layout", f"dock boot layout did not settle in {SETTLE_BUDGET_MS} ms")
 
@@ -357,12 +357,12 @@ def start_take(
 ) -> TakeContext:
     """Bootstrap one take in ``theme`` on *layout* and return it with the screencast running.
 
-    The expert view starts a fresh Claude Code terminal session and waits for
-    its REPL; the simple view gets a fresh chat session from the fresh browser
+    The terminal starts a fresh Claude Code terminal session and waits for
+    its REPL; the chat gets a fresh chat session from the fresh browser
     context (a new tab has no session pointer) and waits for the composer.
     Either way the layout's sidebar entry and tiles are applied before the
     console takes focus. *write_switch* (target, position) is then set and
-    *history* played off camera, simple view only. The screencast starts last,
+    *history* played off camera, chat only. The screencast starts last,
     once every tile has rendered and a short settle has passed, so the first frame
     already shows the finished screen. The new take becomes ``stack.current`` as soon as its
     context exists, so a take that fails part-way is still closed by the next
@@ -372,15 +372,17 @@ def start_take(
         stack.current.close()
         stack.current = None
 
-    expert = layout.view == "expert"
-    if history and expert:
-        raise ProbeFailed("history", "a history needs the simple view's chat")
-    if expert:
+    terminal = layout.surface == "terminal"
+    if history and terminal:
+        raise ProbeFailed("history", "a history needs the chat")
+    if terminal:
         restart_terminal(stack)
 
     frames_dir = stack.work_dir / theme / "frames"
     context = browser.new_context(viewport=dict(VIEWPORT))
     context.add_init_script(OVERLAY_JS)
+    if terminal:
+        context.add_init_script(capture.TERMINAL_SURFACE_INIT)
     page = context.new_page()
     take = TakeContext(
         stack=stack,
@@ -392,7 +394,7 @@ def start_take(
         layout=layout,
     )
     stack.current = take
-    if expert:
+    if terminal:
         page.on("websocket", _watch_session_info(take))
 
     token = urllib.parse.quote(stack.operator_secret, safe="")
@@ -402,7 +404,7 @@ def start_take(
         timeout=GOTO_TIMEOUT_MS,
     )
 
-    if expert:
+    if terminal:
         if not poll(page, lambda: take.session_id is not None, SESSION_INFO_BUDGET_MS):
             raise ProbeFailed(
                 "session-info",
@@ -468,7 +470,7 @@ class Take:
     beat's caption and stamps its span, the agent's turn state, the stall and
     dialog watch, and the cursor, focus and typing actions. Each probe and
     action reads the console of the take's view: the terminal's REPL in the
-    expert view, the operator chat in the simple view. ``memo`` is where a
+    terminal surface, the operator chat on the chat surface. ``memo`` is where a
     video's own beats keep what a later beat needs.
     """
 
@@ -481,7 +483,7 @@ class Take:
         self.submitted_at = 0.0
         self.memo: dict[str, Any] = {}
         layout = ctx.layout
-        self.chat = layout is not None and layout.view == "simple"
+        self.chat = layout is not None and layout.surface == "chat"
 
     # -- step plumbing -----------------------------------------------------
 

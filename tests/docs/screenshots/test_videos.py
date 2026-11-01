@@ -62,8 +62,8 @@ def test_video_named_finds_a_video_and_names_the_known_ones_otherwise() -> None:
         ({"poster_step": "nope"}, "poster_step"),
         ({"init_sets": ("x.enabled",)}, "KEY=VALUE"),
         ({"layout": None}, "has no layout"),
-        ({"layout": Layout(view="tui", active="okf", tiles=())}, "layout view"),
-        ({"layout": Layout(view="simple", active="", tiles=())}, "no active sidebar entry"),
+        ({"layout": Layout(surface="tui", active="okf", tiles=())}, "layout surface"),
+        ({"layout": Layout(surface="chat", active="", tiles=())}, "no active sidebar entry"),
     ],
 )
 def test_validate_videos_rejects_a_malformed_entry(change, message) -> None:
@@ -235,9 +235,9 @@ def test_an_entry_cannot_be_declared_without_a_layout() -> None:
 
 
 def test_the_landing_layout_is_what_its_take_has_always_shown() -> None:
-    assert LANDING.layout == Layout(view="expert", active="artifacts", tiles=("artifacts",))
+    assert LANDING.layout == Layout(surface="terminal", active="artifacts", tiles=("artifacts",))
 
 
-def test_history_is_refused_on_the_expert_view() -> None:
-    with pytest.raises(ValueError, match="history needs the simple view"):
+def test_history_is_refused_on_the_terminal() -> None:
+    with pytest.raises(ValueError, match="history needs the chat"):
         validate_videos([dataclasses.replace(LANDING, history=("p",))])

@@ -660,7 +660,7 @@ menu on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states
-the retired ``web.expert_view``; write ``web.terminal`` instead.
+``expert_view``, the key this one replaced.
 
 .. _config-file-watch-reconcile:
 

@@ -1,7 +1,7 @@
 """The screen a docs video starts on, declared per video and applied before recording.
 
 Every :class:`~docs.screenshots.videos.DocVideo` names its :class:`Layout`: the
-view (``expert``, the Claude Code terminal; ``simple``, the operator chat), the
+Agent surface (``terminal``, the Claude Code terminal; ``chat``, the operator chat), the
 left-sidebar entry that is active, and the tiles open beside the console. The
 layout is part of what a video is agreed to show, so the take's setup applies
 it (:func:`apply`) and fails the take when the page will not take it; no beat
@@ -9,7 +9,7 @@ ever implies it.
 
 Sidebar entries and tiles are named by their panel id, the ``data-panel-id``
 of the rail row (``artifacts``, ``okf`` for Knowledge, ...). The console's own
-tile is implied by the view and never listed.
+tile is implied by the surface and never listed.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from docs.screenshots.video_probes import POLL_MS, ProbeFailed
 
-VIEWS = ("expert", "simple")
+SURFACES = ("terminal", "chat")
 
 APPLY_BUDGET_MS = 30_000
 TILE_BUDGET_MS = 30_000
@@ -29,9 +29,9 @@ TILE_STABLE_POLLS = 3
 
 @dataclass(frozen=True)
 class Layout:
-    """The view, the active sidebar entry and the open tiles a take starts on."""
+    """The surface, the active sidebar entry and the open tiles a take starts on."""
 
-    view: Literal["expert", "simple"]
+    surface: Literal["terminal", "chat"]
     active: str
     """Panel id of the sidebar entry that is active (``data-panel-id``)."""
 
@@ -136,8 +136,8 @@ def validate(layout: Any) -> str | None:
     """Why *layout* is not a usable :class:`Layout`, or None when it is."""
     if not isinstance(layout, Layout):
         return "has no layout"
-    if layout.view not in VIEWS:
-        return f"layout view {layout.view!r} is not one of {', '.join(VIEWS)}"
+    if layout.surface not in SURFACES:
+        return f"layout surface {layout.surface!r} is not one of {', '.join(SURFACES)}"
     if not layout.active:
         return "layout names no active sidebar entry"
     return None

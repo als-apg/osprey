@@ -44,7 +44,7 @@ from docs.screenshots.videos import video_named
 
 SECRET = "s3cret/+=token"
 LANDING_LAYOUT = video_named("landing").layout
-SIMPLE_LAYOUT = Layout(view="simple", active="okf", tiles=("okf",))
+CHAT_LAYOUT = Layout(surface="chat", active="okf", tiles=("okf",))
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -363,7 +363,7 @@ def test_bootstrap_fresh_1920x1080_context_with_overlay(env) -> None:
     take = start_take(browser, env.stack, "light", LANDING_LAYOUT)
     (ctx,) = browser.contexts
     assert ctx.viewport == {"width": 1920, "height": 1080}
-    assert ctx.init_scripts == [OVERLAY_JS]
+    assert ctx.init_scripts == [OVERLAY_JS, capture.TERMINAL_SURFACE_INIT]
     assert take.context is ctx and take.page is ctx.page
     assert env.stack.current is take
 
@@ -1718,7 +1718,7 @@ def test_missing_local_bundles_skip_with_the_fetch_command(monkeypatch, tmp_path
 
 
 # ---------------------------------------------------------------------------
-# The layout and the Simple view's bootstrap
+# The layout and the chat's bootstrap
 # ---------------------------------------------------------------------------
 
 
@@ -1733,23 +1733,23 @@ def test_bootstrap_applies_the_layout_before_the_console_takes_focus(env) -> Non
 def test_bootstrap_a_layout_the_page_will_not_take_fails_the_take(env) -> None:
     scenario = {"layout": {"ok": False, "detail": {"active": ["artifacts"], "tiles": []}}}
     with pytest.raises(ProbeFailed) as exc:
-        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", SIMPLE_LAYOUT)
+        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", CHAT_LAYOUT)
     assert exc.value.step == "layout" and "'okf'" in exc.value.detail
 
 
-def test_bootstrap_simple_view_drives_the_chat_not_the_terminal(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+def test_bootstrap_on_the_chat_drives_the_chat_not_the_terminal(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT)
     kinds = [entry[0] for entry in env.log]
     # No terminal restart, no session_info wait, no REPL, no widening.
     assert "restart" not in kinds and "xterm_text" not in kinds and "widen" not in kinds
     assert ("click", video_chat.COMPOSER) in env.log
     assert _index(env.log, "chat-mounted?") < _index(env.log, "layout")
     assert _index(env.log, "layout") < _index(env.log, "chat-ready?")
-    assert take.layout is SIMPLE_LAYOUT and take.session_id is None
+    assert take.layout is CHAT_LAYOUT and take.session_id is None
 
 
-def test_a_simple_take_reads_the_chat_and_names_its_session_from_the_pointer(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+def test_a_chat_take_reads_the_chat_and_names_its_session_from_the_pointer(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT)
     calls = []
 
     def evaluate(script, _arg=None):
@@ -1767,8 +1767,8 @@ def test_a_simple_take_reads_the_chat_and_names_its_session_from_the_pointer(env
     assert runner.screen() == "one\ntwo"
 
 
-def test_a_simple_take_reports_an_error_turn_from_the_chat(env) -> None:
-    take = start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+def test_a_chat_take_reports_an_error_turn_from_the_chat(env) -> None:
+    take = start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT)
     take.page.evaluate = lambda script, arg=None: script == video_chat.ERRORED_JS
     runner = video_take.Take(take, Timeline(theme="dark", version="1", recorded_at=0.0))
     assert runner.turn() == "errored"
@@ -1805,7 +1805,7 @@ def test_a_tile_still_changing_is_not_yet_rendered(env, monkeypatch) -> None:
 
 
 def test_history_plays_before_the_screencast_starts(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT, history=("first", "second"))
+    start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT, history=("first", "second"))
     fills = [e[1] for e in env.log if e[0] == "fill"]
     assert fills == ["first", "second"]
     assert env.log.index(("fill", "second")) < env.log.index(("scroll-end",))
@@ -1813,7 +1813,7 @@ def test_history_plays_before_the_screencast_starts(env) -> None:
 
 
 def test_an_empty_history_plays_nothing(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT)
+    start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT)
     assert not [e for e in env.log if e[0] in ("fill", "scroll-end", "turns?")]
 
 
@@ -1823,7 +1823,7 @@ def test_an_empty_history_plays_nothing(env) -> None:
 )
 def test_a_history_failure_names_the_step(env, scenario, detail) -> None:
     with pytest.raises(ProbeFailed) as exc:
-        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", SIMPLE_LAYOUT, history=("p",))
+        start_take(FakeBrowser(env.log, scenario), env.stack, "dark", CHAT_LAYOUT, history=("p",))
     assert exc.value.step == "history" and detail in exc.value.detail
     assert not [e for e in env.log if e[:2] == ("cdp", "Page.startScreencast")]
 
@@ -1840,14 +1840,14 @@ def test_a_history_that_never_ends_stalls_at_the_history_step(env) -> None:
             browser,
             env.stack,
             "dark",
-            SIMPLE_LAYOUT,
+            CHAT_LAYOUT,
             history=("p",),
             clock=lambda: now.__setitem__(0, now[0] + 1.0) or now[0],
         )
     assert exc.value.step == "history" and "no progress" in exc.value.detail
 
 
-def test_the_expert_view_refuses_a_history(env) -> None:
+def test_the_terminal_refuses_a_history(env) -> None:
     with pytest.raises(ProbeFailed) as exc:
         start_take(FakeBrowser(env.log), env.stack, "dark", LANDING_LAYOUT, history=("p",))
     assert exc.value.step == "history"
@@ -1855,7 +1855,7 @@ def test_the_expert_view_refuses_a_history(env) -> None:
 
 
 def test_the_write_switch_moves_before_the_history(env) -> None:
-    start_take(FakeBrowser(env.log), env.stack, "dark", SIMPLE_LAYOUT, write_switch=("va", "asked"))
+    start_take(FakeBrowser(env.log), env.stack, "dark", CHAT_LAYOUT, write_switch=("va", "asked"))
     (request,) = env.requests
     assert request.full_url.endswith("/api/terminal/posture")
     assert json.loads(request.data) == {"target": "va", "state": "asked", "epoch": None}

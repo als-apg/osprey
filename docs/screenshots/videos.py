@@ -69,7 +69,7 @@ class DocVideo:
 
     history: tuple[str, ...] = ()
     """Operator prompts played off camera before recording, each to the end of a
-    real agent turn, so the video opens on that exchange. Simple view only. The
+    real agent turn, so the video opens on that exchange. Chat only. The
     note under the video must say its first exchange predates the recording."""
 
     write_switch: tuple[str, str] | None = None
@@ -83,7 +83,7 @@ VIDEOS: tuple[DocVideo, ...] = (
         storyboard=LANDING,
         # What the landing take has always shown: the Claude Code terminal
         # beside the Artifacts tile, with the preset's example plot.
-        layout=Layout(view="expert", active="artifacts", tiles=("artifacts",)),
+        layout=Layout(surface="terminal", active="artifacts", tiles=("artifacts",)),
         pages=("index.rst",),
         poster_step="rotate",
         window_s=(50.0, 80.0),
@@ -104,7 +104,7 @@ def validate_videos(videos: Sequence[DocVideo] = VIDEOS) -> None:
 
     Names and stems are unique; themes are a non-empty subset of dark/light;
     the storyboard is not empty and names its poster beat; the layout is a
-    :class:`~docs.screenshots.video_layout.Layout` with a known view; every
+    :class:`~docs.screenshots.video_layout.Layout` with a known surface; every
     ``init_sets`` value is ``KEY=VALUE``.
     """
     names: set[str] = set()
@@ -128,8 +128,8 @@ def validate_videos(videos: Sequence[DocVideo] = VIDEOS) -> None:
             raise ValueError(
                 f"video {video.name!r}: poster_step {video.poster_step!r} is not a beat"
             )
-        if video.history and video.layout.view != "simple":
-            raise ValueError(f"video {video.name!r}: history needs the simple view")
+        if video.history and video.layout.surface != "chat":
+            raise ValueError(f"video {video.name!r}: history needs the chat")
         for pair in video.init_sets:
             if "=" not in pair:
                 raise ValueError(f"video {video.name!r}: init_sets value {pair!r} is not KEY=VALUE")
