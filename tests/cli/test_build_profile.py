@@ -105,6 +105,32 @@ def test_bluesky_web_not_a_mapping_raises() -> None:
         _parse_profile({"name": "x", "bluesky_web": "not-a-mapping"})
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"images": {"platform": "linux/riscv64"}},
+        {"images.platform": "linux/riscv64"},
+    ],
+)
+def test_an_image_platform_no_builder_accepts_is_refused_at_parse(config: dict) -> None:
+    """Refused naming the accepted values, not left for a failed pull at ``osprey up``."""
+    with pytest.raises(BuildProfileError) as refused:
+        _parse_profile({"name": "x", "config": config})
+
+    assert "images.platform" in str(refused.value)
+    assert "linux/amd64" in str(refused.value) and "linux/arm64" in str(refused.value)
+
+
+def test_a_stated_image_platform_parses() -> None:
+    from osprey.cli.build_profile_load import config_image_platform
+
+    raw = {"name": "x", "config": {"images.platform": "linux/amd64"}}
+
+    _parse_profile(raw)
+    assert config_image_platform(raw["config"]) == "linux/amd64"
+    assert config_image_platform({}) is None and config_image_platform(None) is None
+
+
 def test_bluesky_web_is_known_key() -> None:
     """'bluesky_web' is a recognized top-level profile key (no unknown-key warning)."""
     assert "bluesky_web" in bp._KNOWN_PROFILE_KEYS
