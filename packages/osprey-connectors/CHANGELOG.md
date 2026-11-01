@@ -20,6 +20,12 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.10.2] - 2026-10-31
+
+### Changed
+
+- The real machine's banner now reads `Live — writes move hardware` and its refusal word is `the live machine`.
+
 ## [2026.10.1] - 2026-10-31
 
 ### Changed
