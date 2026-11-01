@@ -869,11 +869,26 @@ class TestProcessGroupStop:
             kill_group(group.pid)
             group.wait(timeout=30)
 
-    def test_group_is_gone_waits_for_a_group_that_ends_inside_its_deadline(self):
-        group = subprocess.Popen(["sh", "-c", "sleep 0.5"], process_group=0)
+    def test_group_is_gone_waits_for_a_group_that_ends_inside_its_deadline(self, monkeypatch):
+        group = subprocess.Popen(["sh", "-c", "read x"], stdin=subprocess.PIPE, process_group=0)
+        polls: list[float] = []
+
+        def end_the_group_on_the_first_poll(seconds: float) -> None:
+            if not polls:
+                group.stdin.close()
+                group.wait(timeout=30)
+            polls.append(seconds)
+
+        waiting = types.SimpleNamespace(
+            monotonic=time.monotonic, sleep=end_the_group_on_the_first_poll
+        )
+        monkeypatch.setattr(subprocess_capture, "time", waiting)
         try:
             assert group_is_gone(group.pid, within=5.0)
+            assert polls
         finally:
+            monkeypatch.undo()
+            group.stdin.close()
             kill_group(group.pid)
             group.wait(timeout=30)
 
