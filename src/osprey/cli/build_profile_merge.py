@@ -1522,6 +1522,31 @@ def _refuse_unlisted_selection(
         )
 
 
+def _refuse_login_image_platform(layer: dict[str, Any], layer_rel: str) -> None:
+    """Refuse a login naming ``images.platform``.
+
+    The images are the deployment's: every image build reads the facility
+    config, so a login's own platform would render a ``FROM`` its images are
+    not built for.
+    """
+    from .build_profile_emit import effective_config_subtree
+
+    config = layer.get("config")
+    if not isinstance(config, dict):
+        return
+    images_keys = {
+        key: value
+        for key, value in config.items()
+        if key == "images" or (isinstance(key, str) and key.startswith("images."))
+    }
+    if "platform" in effective_config_subtree(images_keys, ("images",)):
+        raise BuildProfileError(
+            f"{layer_rel} names images.platform, which only the deployment's "
+            f"{PROFILE_FILENAME} states: every login runs the images it builds. "
+            f"Move it to {PROFILE_FILENAME} or remove it from {layer_rel}."
+        )
+
+
 def render_document(
     host_resolved: dict[str, Any],
     layer: dict[str, Any],
@@ -1589,6 +1614,7 @@ def render_document(
         )
     else:
         _refuse_unlisted_selection(host_resolved, layer, layer_rel)
+        _refuse_login_image_platform(layer, layer_rel)
         if layer.get(LISTS_KEY) == LISTS_OWN:
             rendered = compose_own_render(host_resolved, layer, shared=shared)
         else:
