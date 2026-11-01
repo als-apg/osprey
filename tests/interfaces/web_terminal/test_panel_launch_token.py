@@ -31,7 +31,7 @@ from osprey.interfaces.web_terminal.app import _load_panel_config
 from osprey.interfaces.web_terminal.panel_cap import PANEL_CAP_SEGMENT, mint_cap
 from osprey.mcp_env import load_dotenv_from_project
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
-from tests.deployment.web_terminals.test_panel_shell_gate import _panel_render, _roster
+from tests.deployment.web_terminals._panel_fixtures import _panel_render, _roster
 from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_connect, panel_app
 
 #: The panel holding a token, the variable naming it and the value it holds.
