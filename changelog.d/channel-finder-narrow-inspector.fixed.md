@@ -1,0 +1,1 @@
+In a narrow Channel Finder tile, an opened device's card now shows at once, docked under the results. Before, the card was drawn below the whole device table and the operator had to scroll the tile to find it. The facets, the results and the card each scroll inside themselves, and the row the card was opened from stays in view.
