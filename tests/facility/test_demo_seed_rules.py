@@ -1555,6 +1555,7 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("LTB:MAG:VCM:05:STATUS:ON", "nominal", "TRUE"),
     ("LTB:MAG:VCM:06:STATUS:ON", "nominal", "TRUE"),
     ("LTB:MAG:VCM:07:STATUS:ON", "nominal", "TRUE"),
+    ("SR:BEAM:USER_MODE", "nominal", "FALSE"),
     ("SR:DIAG:BPM:01:GOLDEN:X", "nominal", 100.0),
     ("SR:DIAG:BPM:01:GOLDEN:Y", "nominal", 100.0),
     ("SR:DIAG:BPM:01:OFFSET:X", "nominal", 100.0),
