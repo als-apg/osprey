@@ -12,16 +12,26 @@ through the deploy ``.env``.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import yaml
 from starlette.websockets import WebSocketDisconnect
 
+import osprey as osprey_package
+from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
+from osprey.deployment.web_terminals.artifacts import (
+    LaunchTokenEntitlement,
+    resolve_render_inputs,
+)
+from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces.web_terminal.app import _load_panel_config
 from osprey.interfaces.web_terminal.panel_cap import PANEL_CAP_SEGMENT, mint_cap
 from osprey.mcp_env import load_dotenv_from_project
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
+from tests.deployment.web_terminals.test_panel_shell_gate import _panel_render, _roster
 from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_connect, panel_app
 
 #: The panel holding a token, the variable naming it and the value it holds.
@@ -323,3 +333,81 @@ def test_a_panel_token_on_a_never_login_opens_no_socket(workspace_dir):
                 with client.websocket_connect(f"/panel/{PANEL_ID}/ws"):
                     pass
     assert fake.kwargs is None
+
+
+# ---------------------------------------------------------------------------
+# The grant: what the shell gate cleared is what compose hands over
+# ---------------------------------------------------------------------------
+
+
+_TEMPLATES = Path(osprey_package.__file__).parent / "templates"
+
+
+def _built_compose(tmp_path, renders: dict) -> dict:
+    config = _roster(tmp_path, renders)
+    artifacts = render_web_terminals(config, **resolve_render_inputs(config, tmp_path))
+    return yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+
+def _user_environment(compose: dict, user: str) -> list[str]:
+    (service,) = [body for name, body in compose["services"].items() if name.endswith(user)]
+    return list(service["environment"])
+
+
+def test_resolve_render_inputs_carries_exactly_what_the_gate_returned(tmp_path):
+    config = _roster(tmp_path, {"rw": (_panel_render("allowed", token=True), False)})
+    entitlement = LaunchTokenEntitlement({}, by_token_env={"OTHER_LAUNCH_TOKEN": {"rw"}})
+
+    with patch(
+        "osprey.deployment.web_terminals.artifacts.check_bash_launch_token_conflict",
+        return_value=entitlement,
+    ):
+        inputs = resolve_render_inputs(config, tmp_path)
+
+    assert inputs["application_token_renders"] == {"OTHER_LAUNCH_TOKEN": {"rw"}}
+
+
+def test_only_a_cleared_render_gets_the_token_in_its_environment(tmp_path):
+    compose = _built_compose(
+        tmp_path,
+        {
+            "ro": (_panel_render("never"), True),
+            "rw": (_panel_render("allowed", token=True), False),
+            "asked": (_panel_render("asked", token=True), False),
+        },
+    )
+    line = f"{TOKEN_ENV}=${{{TOKEN_ENV}:-}}"
+
+    # One user per render, in sorted order.
+    assert line in _user_environment(compose, "user0")  # asked
+    assert line not in _user_environment(compose, "user1")  # ro
+    assert line in _user_environment(compose, "user2")  # rw
+
+
+def test_the_token_is_compose_interpolated_never_written_into_the_artifact(tmp_path):
+    os.environ[TOKEN_ENV] = TOKEN
+    config = _roster(tmp_path, {"rw": (_panel_render("allowed", token=True), False)})
+
+    artifacts = render_web_terminals(config, **resolve_render_inputs(config, tmp_path))
+
+    assert TOKEN not in artifacts["docker-compose.web.yml"]
+
+
+def test_a_render_keeps_its_lane_tokens_beside_an_application_token(tmp_path):
+    config = _roster(tmp_path, {"rw": (_panel_render("allowed", token=True), False)})
+    inputs = resolve_render_inputs(config, tmp_path)
+    inputs["launch_token_renders"] = {LANE_ONE: {"rw"}}
+
+    compose = yaml.safe_load(render_web_terminals(config, **inputs)["docker-compose.web.yml"])
+
+    environment = _user_environment(compose, "user0")
+    lane_token = f"{lane_env_prefix(LANE_ONE)}_LAUNCH_TOKEN"
+    assert f"{lane_token}=${{{lane_token}:-}}" in environment
+    assert f"{TOKEN_ENV}=${{{TOKEN_ENV}:-}}" in environment
+
+
+def test_a_dispatch_worker_render_is_handed_no_launch_token():
+    """It has no proxy to spend one on and no gate cleared it."""
+    template = _TEMPLATES / "services" / "dispatch_worker" / "docker-compose.yml.j2"
+
+    assert "LAUNCH_TOKEN" not in template.read_text(encoding="utf-8")

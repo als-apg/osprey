@@ -1050,7 +1050,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     from osprey.utils.workspace import TIERS_DIRNAME
 
     root = Path(repo_root)
-    launch_token_renders_by_lane = dict(check_bash_launch_token_conflict(config, root))
+    entitlement = check_bash_launch_token_conflict(config, root)
     # The second fail-closed gate, in the same position and for the same reason:
     # an open deployment whose renders can still reach its own terminals must
     # leave no half-written artifacts behind either.
@@ -1062,7 +1062,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # Every lane's slice: the render grants each render one launch token
         # per lane whose target that render is armed for, and the guard above
         # cleared every lane, so no grant reaches the render unchecked.
-        "launch_token_renders": launch_token_renders_by_lane,
+        "launch_token_renders": dict(entitlement),
+        # The same clearance's application tokens, never rebuilt from the configs.
+        "application_token_renders": entitlement.by_token_env,
         "graphdb_renders": renders_needing_graphdb_password(config, root),
         "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),

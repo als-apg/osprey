@@ -787,6 +787,7 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
 def _launch_token_env_vars(
     entry: dict[str, Any],
     launch_token_renders: dict[str, set[str]] | None,
+    application_token_renders: Mapping[str, set[str]] | None = None,
 ) -> list[str]:
     """The launch-token variable names ONE roster entry is handed, in render order.
 
@@ -799,16 +800,24 @@ def _launch_token_env_vars(
     :param entry: One resolved roster entry.
     :param launch_token_renders: ``{lane: renders}`` — see
         :func:`render_web_terminals`.
-    :return: ``<PREFIX>_LAUNCH_TOKEN`` for each lane this entry may arm, empty
-        when it may arm none.
+    :param application_token_renders: ``{token_env: renders}`` — see
+        :func:`render_web_terminals`.
+    :return: ``<PREFIX>_LAUNCH_TOKEN`` for each lane this entry may arm, then each
+        application token it was granted; empty when it may arm none.
     """
     render = entry.get("render")
     entitled_by_lane = launch_token_renders or {}
-    return [
+    lane_tokens = [
         f"{lane_env_prefix(lane)}_LAUNCH_TOKEN"
         for lane in LANE_KEYS
         if render in entitled_by_lane.get(lane, set())
     ]
+    application_tokens = sorted(
+        token_env
+        for token_env, renders in (application_token_renders or {}).items()
+        if render in renders
+    )
+    return [*lane_tokens, *application_tokens]
 
 
 def render_web_terminals(
@@ -817,6 +826,7 @@ def render_web_terminals(
     dispatcher_renders: set[str] | None = None,
     ariel_renders: set[str] | None = None,
     launch_token_renders: dict[str, set[str]] | None = None,
+    application_token_renders: Mapping[str, set[str]] | None = None,
     graphdb_renders: set[str] | None = None,
     facility_bundle_renders: set[str] | None = None,
     facility_bundle_gid: int | None = None,
@@ -894,6 +904,11 @@ def render_web_terminals(
             read-only render holding it would be able to move hardware. A lane
             no render may arm is absent from the map (an empty set grants the
             same nothing). ``None`` emits no line for any user.
+        application_token_renders: ``{token_env: render names}`` — the renders
+            the shell gate cleared to hold each application launch token,
+            :attr:`~osprey.deployment.web_terminals.artifacts.LaunchTokenEntitlement.by_token_env`
+            as it came back, never recomputed. Same per-user placement as
+            ``launch_token_renders``. ``None`` emits no line.
         graphdb_renders: Render names whose project configures a graph store,
             and whose users therefore need the Neo4j password ``osprey up``
             minted into the deploy ``.env`` (see
@@ -1105,7 +1120,9 @@ def render_web_terminals(
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
-        launch_token_env_vars = _launch_token_env_vars(entry, launch_token_renders)
+        launch_token_env_vars = _launch_token_env_vars(
+            entry, launch_token_renders, application_token_renders
+        )
         # Bound once because two keys below are anchored on it — the volume's
         # own mount target and the control-context directory nested inside it.
         # Resolving it twice would let one anchor be changed without the other.
