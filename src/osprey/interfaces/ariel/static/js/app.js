@@ -18,6 +18,7 @@ import {
   openEntry,
   closeEntryModal,
   loadDraft,
+  resetCreateForm,
   showImageLightbox,
 } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
@@ -46,6 +47,13 @@ onModeChange(() => onUiModeChange());
 
 // Current view
 let currentView = 'search';
+
+/**
+ * The view New Entry was opened from, where Cancel goes back to. Before any
+ * navigation it is the initial `currentView`; navigateTo redirects that to
+ * Browse wherever Search is not offered.
+ */
+let viewBeforeCreate = currentView;
 
 /**
  * Whether the app runs embedded in the web terminal iframe.
@@ -192,16 +200,14 @@ function setupNavigation() {
 }
 
 /**
- * Wire the New Entry form's Cancel button: clear the fields and the staged
- * file thumbnails (a native form reset leaves the previews behind, since it
- * fires no change event for handleFilePreview to see).
+ * Wire the New Entry form's Cancel button: discard what the form holds (a
+ * loaded draft included) and go back to the view New Entry was opened from.
  */
 function setupCreateFormReset() {
   const cancelBtn = document.getElementById('create-cancel-btn');
   cancelBtn?.addEventListener('click', () => {
-    /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
-    const preview = document.getElementById('file-preview');
-    if (preview) preview.innerHTML = '';
+    resetCreateForm();
+    navigateTo(viewBeforeCreate);
   });
 }
 
@@ -309,6 +315,7 @@ function navigateTo(hash) {
     if (currentView === 'status') {
       stopAutoRefresh();
     }
+    if (viewName === 'create') viewBeforeCreate = currentView;
   }
 
   // Initialize new view (or reload draft for same-view navigation)
