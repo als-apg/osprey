@@ -272,7 +272,8 @@ UNIT_SELECTION = UnitSelection(
         "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
     },
     trims={"macos": _MACOS_REPEATS_UBUNTU},
-    dist=("--dist", "loadgroup"),
+    # A dead worker ends the sweep with its report instead of being replaced.
+    dist=("--dist", "loadgroup", "--max-worker-restart=0"),
 )
 
 #: The module that owns the JavaScript module-to-test mapping.
