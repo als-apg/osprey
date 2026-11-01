@@ -97,7 +97,9 @@ class _FakeSDKClient:
       ("gate",)         block until POST /__test__/release
       ("hang",)         block until the reader is cancelled (Stop tests)
       ("await_interrupt") block until interrupt() (Stop → clean terminal)
-      ("result",)       a terminal ResultMessage
+      ("result",)       a terminal ResultMessage; ("result", is_error, sid)
+                        names the transcript it reports, as a ``/clear``
+                        turn's result names the conversation the child moved to
 
     The real ``ClaudeAgentOptions`` the client was constructed with are kept as
     ``options``: they are what ``OperatorSession.start`` chose between
@@ -151,7 +153,10 @@ class _FakeSDKClient:
             elif kind == "await_interrupt":
                 await self._interrupted.wait()
             elif kind == "result":
-                yield result_message(is_error=(step[1] if len(step) > 1 else False))
+                yield result_message(
+                    is_error=(step[1] if len(step) > 1 else False),
+                    session_id=(step[2] if len(step) > 2 else "sdk-session"),
+                )
 
 
 # ---------------------------------------------------------------------------

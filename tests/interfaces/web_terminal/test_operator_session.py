@@ -2511,7 +2511,7 @@ class TestOperatorChatStreamParity:
                 ),
                 user_message([ToolResultBlock("tu_1", "42.0", is_error=False)]),
                 system_message("init", {"session_id": "abc"}),
-                result_message(),
+                result_message(session_id="abc"),
             ]
         )
         async with _started_session(client) as session:
@@ -2551,8 +2551,68 @@ class TestOperatorChatStreamParity:
                 "total_cost_usd": 0.01,
                 "duration_ms": 1200,
                 "num_turns": 1,
+                "session_id": "abc",
             },
         ]
+
+
+class _TurnScriptedClient(_ScriptedClient):
+    """A client that answers each prompt with the next of *turns*, in order."""
+
+    def __init__(self, *turns) -> None:
+        super().__init__()
+        self._turns = [list(turn) for turn in turns]
+
+    async def receive_response(self):
+        await self._prompts.get()
+        for message in self._turns.pop(0):
+            yield message
+
+
+class TestTheConversationMoves:
+    """A child that moves to a new transcript (``/clear``) says so, and the session follows.
+
+    The SDK answers such a turn with a result naming a new ``session_id`` and
+    no text. The session keeps the id the child last reported and, when a
+    result names a different one, emits a ``session_reset`` ahead of it so
+    the turn's consumer and every feed see the boundary where the old
+    conversation ends (#1483).
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_init_id_is_kept_and_announces_nothing(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")]
+        )
+        async with _started_session(client) as session:
+            assert session.transcript_id is None
+            frames = await collect_turn(session, "hello")
+            assert session.transcript_id == "t-1"
+        assert [f["type"] for f in frames] == ["turn_start", "system", "result"]
+
+    @pytest.mark.asyncio
+    async def test_a_result_on_a_new_transcript_emits_a_reset_before_it(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")],
+            [result_message(session_id="t-2")],
+        )
+        async with _started_session(client) as session:
+            await collect_turn(session, "hello")
+            cleared = await collect_turn(session, "/clear")
+            assert session.transcript_id == "t-2"
+        assert [f["type"] for f in cleared] == ["turn_start", "session_reset", "result"]
+        assert [unnumbered(f) for f in cleared][1] == {"type": "session_reset"}
+
+    @pytest.mark.asyncio
+    async def test_a_result_on_the_same_transcript_is_not_a_move(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")],
+            [assistant_message([TextBlock("again")]), result_message(session_id="t-1")],
+        )
+        async with _started_session(client) as session:
+            await collect_turn(session, "hello")
+            second = await collect_turn(session, "more")
+        assert "session_reset" not in [f["type"] for f in second]
 
     @pytest.mark.asyncio
     async def test_an_agent_sdk_failure_mid_turn_is_named_for_its_class(self):
