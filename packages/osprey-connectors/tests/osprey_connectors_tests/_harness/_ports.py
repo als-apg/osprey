@@ -38,6 +38,12 @@ from pathlib import Path
 #: inside its own block.
 PORT_FLOOR = 31000
 
+#: The ``deployment.port_base`` blocks the e2e lanes book. A deployment derives a
+#: port from every slot of its block and refuses a pinned port that lands on one,
+#: so a reservation inside a block can fail that lane's build. A lane that books a
+#: new block at or above the floor adds it here.
+BOOKED_BLOCKS = (range(20000, 23100), range(29000, 31000))
+
 #: The one directory every test process on the host locks ports in, shared by
 #: every user of the host.
 LOCK_DIR = Path("/tmp/osprey-test-ports")
@@ -79,9 +85,13 @@ def lock_path(port: int) -> Path:
 
 
 def _candidates(first: int) -> list[int]:
-    """Every port in ``[PORT_FLOOR, first)``, from a random start so concurrent
-    processes do not all try the same port first."""
-    ports = list(range(PORT_FLOOR, first))
+    """Every port in ``[PORT_FLOOR, first)`` outside :data:`BOOKED_BLOCKS`, from a
+    random start so concurrent processes do not all try the same port first."""
+    ports = [
+        port
+        for port in range(PORT_FLOOR, first)
+        if not any(port in block for block in BOOKED_BLOCKS)
+    ]
     if not ports:
         return ports
     start = random.randrange(len(ports))

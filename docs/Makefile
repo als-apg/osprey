@@ -18,10 +18,11 @@ help:
 	@echo "  pre-commit-test     Quick test (assumes deps installed)"
 	@echo "  screenshots         Regenerate default (standalone) doc screenshots"
 	@echo "  screenshots-<name>  Regenerate one recipe by name (e.g. screenshots-display_menu)"
-	@echo "  demo-video          Record and encode the landing-page demo video (VIDEOOPTS=--theme dark)"
-	@echo "  upload-demo-video   Upload both demo videos to the docs-media-vVERSION release (VERSION=YYYY.M.P, or a pre-release like 2026.9.0b4)"
+	@echo "  doc-videos          Record and encode every docs video (VIDEOOPTS=\"--video landing --theme dark\")"
+	@echo "  demo-video          Record and encode the landing-page demo video only"
+	@echo "  upload-doc-videos   Upload the videos not uploaded yet to the docs-media-vVERSION release (VERSION=YYYY.M.P, or a pre-release like 2026.9.0b4)"
 
-.PHONY: help Makefile test-build test-deps pre-commit-test screenshots screenshots-% demo-video upload-demo-video
+.PHONY: help Makefile test-build test-deps pre-commit-test screenshots screenshots-% doc-videos demo-video upload-doc-videos upload-demo-video
 
 html:
 	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
@@ -45,21 +46,27 @@ screenshots:
 screenshots-%:
 	cd .. && $(PYTHON) -m docs.screenshots --only $* $(SCREENSHOTOPTS)
 
-# Record the landing-page demo video into docs/demo-video/, with its posters and
-# manifest in source/_static/demo/ (needs ffmpeg, Playwright chromium,
-# containers and a live Claude session; skips otherwise). VIDEOOPTS=--theme dark
-# records one theme only. upload-demo-video checks both takes against the
-# manifest, publishes them as assets of the docs-media-vVERSION release (one
-# release per OSPREY version) and names that release in the manifest.
+# Record every docs video (docs/screenshots/videos.py) into docs/demo-video/,
+# with posters and manifest in source/_static/demo/ (needs ffmpeg, Playwright
+# chromium, containers and a live Claude session; skips otherwise).
+# VIDEOOPTS="--video NAME --theme dark" narrows it; demo-video is the landing
+# demo alone. upload-doc-videos checks the takes against the manifest,
+# publishes the videos not uploaded yet as assets of the docs-media-vVERSION
+# release (one release per OSPREY version) and names that release in the
+# manifest; upload-demo-video is its old name.
 VIDEOOPTS ?=
+UPLOADOPTS ?=
 VERSION ?=
 
-demo-video:
+doc-videos:
 	cd .. && $(PYTHON) -m docs.screenshots video $(VIDEOOPTS)
 
-upload-demo-video:
-	@test -n "$(VERSION)" || { echo "usage: make upload-demo-video VERSION=YYYY.M.P[aN|bN|rcN]"; exit 2; }
-	cd .. && $(PYTHON) -m docs.screenshots upload --version $(VERSION)
+demo-video:
+	cd .. && $(PYTHON) -m docs.screenshots video --video landing $(VIDEOOPTS)
+
+upload-doc-videos upload-demo-video:
+	@test -n "$(VERSION)" || { echo "usage: make $@ VERSION=YYYY.M.P[aN|bN|rcN]"; exit 2; }
+	cd .. && $(PYTHON) -m docs.screenshots upload --version $(VERSION) $(UPLOADOPTS)
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
