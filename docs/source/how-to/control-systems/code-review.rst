@@ -7,8 +7,7 @@ Review the Agent's Code
 OSPREY's safety checks read the agent's Python by its spelling: known write calls, known
 dangerous patterns. Code review adds a reader that judges what the code would do. A second
 AI agent reads every Python run the OSPREY agent sends to the executor, and every code cell
-it writes into a notebook, following instructions you write, and says whether the code is
-safe to run. You decide whether unsafe code is stopped or only reported. The agent gets the
+it writes into a notebook, and says whether the code keeps the rules you write. You decide whether unsafe code is stopped or only reported. The agent gets the
 reasons; you get a line in the activity log. :ref:`architecture-safety-chain-code-review`
 explains how it fits with the other checks. It is off until you turn it on.
 
@@ -35,14 +34,11 @@ Write your rules
 ================
 
 Every preset puts the reviewer's instructions at ``data/code_review/reviewer.md`` in your
-project. The general part is OSPREY's: how to read control-system code, what to look for in
-a write. The *Facility rules* section at the end is yours, with three placeholders to
-replace:
-
-- channels and subsystems the agent must never write, such as protection and safety
-  systems;
-- operating states or times when writes need extra care, such as during user beam;
-- procedures or limits a write in an area must follow, and where they are documented.
+project. It is deliberately short, and the reviewer judges only by what it says. It ships
+with one worked rule for the demo facility: a script that writes a storage-ring corrector
+must first read ``SR:BEAM:USER_MODE`` and stop if it is true. Replace that rule with your
+own: channels the agent must never write, states when writes need extra care, procedures a
+write must follow. Every rule adds to the tokens of each review.
 
 The reviewer cannot look anything up, so a rule has to say what it needs: the channel name
 as the agent spells it, the limit, the state. The agent cannot edit this file, and a change

@@ -340,8 +340,8 @@ Code review
 Everything above checks code by its spelling: a client library's own put, the name of the
 store that holds the switch, a pattern on a list. None of it can tell whether a write makes
 sense --- whether it belongs to the task the agent was given, whether the step is reasonable
-for the magnet it moves, whether a loop will ever end. Code review closes that gap: a second
-AI agent reads the code and judges what it would do to the machine. (The approval preview is
+for the magnet it moves, whether a loop will ever end. Code review lets a deployment close that
+gap: a second AI agent reads the code and judges it against the deployment's rules. (The approval preview is
 something else: there the operator reads the code at the prompt; here a machine does the
 reading.)
 
@@ -351,18 +351,17 @@ before the operator is asked to approve it, and a code cell the agent writes int
 notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
 pyAML tools carry no code of the agent's, and cells a person writes are the person's own.
 
-The reviewer follows instructions the deployment writes itself, in a Markdown file in the
-project (``data/code_review/reviewer.md``). OSPREY fills in the general part --- find every
-write, however it is spelled; check which channels it reaches, what value it sends, how much
-changes at once, and what the machine is left with if the code stops halfway. The facility
-adds its own rules: which channels must never be written, when writes need extra care, which
-procedures a write has to follow. The reviewer has no tools and takes one turn, and anything
+The reviewer judges by rules the deployment writes itself, in a Markdown file in the project
+(``data/code_review/reviewer.md``): which channels must never be written, when writes need
+extra care, which procedures a write has to follow. OSPREY ships that file with one worked
+rule for the demo facility and nothing more, so a deployment gets the checks it wrote and
+pays only for those. The reviewer has no tools and takes one turn, and anything
 the code says to it is treated as evidence, never as an instruction.
 
 Its answer is *pass*, *concern* or *block*, with the reasons and, where a small change would
 fix it, a corrected version. All of that goes back to the OSPREY agent, which revises its code
-and tries again. A run described as "read the orbit" that also moves a corrector is a block; a
-sweep whose step size comes from a script argument is at least a concern. The deployment
+and tries again. Under the shipped rule, a scan that moves a storage-ring corrector without
+first reading the beam mode is a block, and the same scan with the check passes. The deployment
 chooses what a block does. In blocking mode (``level: block``, the default) the code is
 stopped. In advisory mode (``level: flag``) the code runs and the agent is told what the
 reviewer found. A concern never stops code; it only comes with an explanation.

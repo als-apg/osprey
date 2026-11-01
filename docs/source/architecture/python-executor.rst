@@ -48,7 +48,7 @@ documented in :doc:`/reference/contracts/python-executor`.
 
 A deployment can also turn on code review: a second AI agent reads the code before the
 operator is asked to approve it, following instructions the deployment writes, and can stop
-it. That review is not one of the layers below, which hold whatever it says: see
+it. That review is not one of the layers on this page, which hold whatever it says: see
 :ref:`Code review <architecture-safety-chain-code-review>`.
 
 Where Code Runs

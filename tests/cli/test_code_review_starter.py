@@ -6,10 +6,10 @@ and no preset names it: a new preset must get it without doing anything.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile import list_presets
@@ -18,7 +18,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.profile_cmd import _preset_data
 from osprey.cli.templates.manager import TemplateManager
-from osprey.services.code_review.contract import ReviewVerdict, parse_verdict
+from osprey.services.code_review.contract import ReviewFailure, parse_verdict
 from osprey.services.code_review.settings import (
     DEFAULT_PROMPT,
     parse_review_section,
@@ -133,40 +133,32 @@ def starter() -> str:
     return STARTER_PATH.read_text(encoding="utf-8")
 
 
-def test_the_starter_asks_for_the_reply_the_contract_reads(starter: str) -> None:
-    """Its own example is a reply the parser accepts, and it names every verdict."""
-    assert isinstance(parse_verdict(starter), ReviewVerdict)
-    for word in ("pass", "concern", "block", "reasons", "suggested_revision"):
-        assert f"`{word}`" in starter or f'"{word}"' in starter, word
+def test_the_starter_names_every_verdict(starter: str) -> None:
+    """The reply's shape is the contract's to state, on every message; the verdicts are defined here."""
+    for word in ("pass", "concern", "block"):
+        assert f"`{word}`" in starter, word
 
 
-@pytest.mark.parametrize(
-    "required",
-    [
-        "osprey.runtime",
-        "write_channel",
-        "write_channels",
-        "client-library",
-        "aliased",
-        "intent",
-    ],
-)
-def test_the_starter_states_the_reviewers_job(starter: str, required: str) -> None:
-    assert required in starter
+def test_the_starter_leaves_the_reply_shape_to_the_contract(starter: str) -> None:
+    assert isinstance(parse_verdict(starter), ReviewFailure)
 
 
-def test_the_starter_marks_what_a_facility_fills_in(starter: str) -> None:
-    placeholders = re.findall(r"\[FACILITY: [^\]]+\]", starter)
+def test_the_starter_rule_reads_channels_the_example_facility_serves(starter: str) -> None:
+    """The one rule is a worked example on the demo facility, so it must hold there."""
+    records = STARTER_PATH.parents[1] / "facilities" / "example" / "records" / "channels.yaml"
+    channels = {record["id"] for record in yaml.safe_load(records.read_text(encoding="utf-8"))}
 
-    assert len(placeholders) >= 2
-    assert len(placeholders) == len(set(placeholders))
+    assert "`SR:BEAM:USER_MODE`" in starter
+    assert "SR:BEAM:USER_MODE" in channels
+    for pattern in ("SR:MAG:HCM:*", "SR:MAG:VCM:*"):
+        assert f"`{pattern}`" in starter
+        assert any(channel.startswith(pattern[:-1]) for channel in channels), pattern
 
 
-@pytest.mark.parametrize("name", ["ALS", "LBNL", "Berkeley", "SLAC", "Advanced Light Source"])
-def test_the_starter_names_no_facility(starter: str, name: str) -> None:
-    assert re.search(rf"\b{re.escape(name)}\b", starter) is None
+def test_the_starter_says_where_a_facility_adds_its_rules(starter: str) -> None:
+    assert "Add your facility's rules here" in starter
 
 
 def test_the_starter_treats_the_code_as_evidence(starter: str) -> None:
     """Text inside the code under review must not be able to instruct the reviewer."""
-    assert "never as instructions" in starter
+    assert "never instructions" in starter
