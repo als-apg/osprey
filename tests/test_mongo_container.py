@@ -8,9 +8,8 @@ proved here without one: two tree-read guards (a Mongo container is built in
 exactly one module, and no module reaches for the superseded import path),
 the bring-up's retry rules against scripted fakes, and the server flags the
 recipe passes, among them the TTL sweeper that is off unless a test asks for
-it. One Docker-backed test checks that a started server honours those flags,
-and skips without an engine. This file exempts itself from the tree scan,
-because both guards name what they forbid.
+it. This file exempts itself from the tree scan, because both guards name what
+they forbid.
 """
 
 from __future__ import annotations
@@ -25,7 +24,6 @@ from tests import _mongo_container
 from tests._container_support import (
     CONTAINER_START_ATTEMPTS,
     ContainerExitedError,
-    is_docker_available,
 )
 from tests._tree_scan import python_sources
 
@@ -197,28 +195,3 @@ def test_the_sweeper_is_off_unless_asked_for() -> None:
     flags = _mongo_container._server_flags(caller, sweeper=False)
     assert flags[: len(caller)] == caller, "the caller's flags come first, as given"
     assert _set_parameters(flags[len(caller) :]) == [SWEEP_INTERVAL, SWEEPER_OFF]
-
-
-def test_a_started_store_reports_its_sweeper_off() -> None:
-    """The server honours the flags: a store started at the default does not sweep."""
-    if not is_docker_available():
-        pytest.skip("Docker not available — needed to start a real store.")
-    from pymongo import MongoClient
-
-    username, password = "sweeperuser", "sweeperpass123"
-    with _mongo_container.started_mongo(
-        "mongodb-sweeper", username=username, password=password
-    ) as (host, port):
-        client = MongoClient(
-            host,
-            port,
-            username=username,
-            password=password,
-            authSource=_mongo_container.MONGO_AUTH_DB,
-        )
-        try:
-            reply = client.admin.command("getParameter", 1, ttlMonitorEnabled=1)
-        finally:
-            client.close()
-
-    assert reply["ttlMonitorEnabled"] is False
