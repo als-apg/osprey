@@ -57,7 +57,7 @@ from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_secret
 from osprey.port_layout import default_port
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from docs.screenshots.recipes import DocShot
     from playwright.sync_api import Browser
@@ -485,7 +485,7 @@ def _opus_model_id(project_dir: Path) -> str:
 
 
 @contextmanager
-def tutorial_stack() -> Iterator[Path]:
+def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
@@ -495,7 +495,8 @@ def tutorial_stack() -> Iterator[Path]:
     deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
-    frozen to :data:`recipes.ANCHOR`. Yields the deployment repo directory
+    frozen to :data:`recipes.ANCHOR`. *sets* adds ``--set KEY=VALUE`` values to
+    the init, after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
     down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
     built images carrying this repo's identity, so the next run's fresh
@@ -528,6 +529,9 @@ def tutorial_stack() -> Iterator[Path]:
         provider = os.environ.get(PROVIDER_ENV)
         if provider:
             init_cmd += ["--set", f"provider={provider}"]
+        # A docs video's own deployment settings (videos.DocVideo.init_sets).
+        for pair in sets:
+            init_cmd += ["--set", pair]
         _run_stack_step(
             init_cmd,
             cwd=None,

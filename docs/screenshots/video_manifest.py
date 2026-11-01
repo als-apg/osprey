@@ -1,12 +1,15 @@
-"""The demo-video manifest: what each committed poster and published MP4 is.
+"""The docs-video manifest: what each committed poster and published MP4 is.
 
-``docs/source/_static/demo/manifest.json`` is committed together with the two
-posters. Per theme it names the take (OSPREY version, recording time, video
-length, the real session time it covers and the fast-forward factor) and the
-MP4 and poster by name and SHA-256. ``release`` names the GitHub release
-(``docs-media-vYYYY.M.P``) that carries the MP4s, one release per OSPREY
-version, so each docs version plays its own video; it is ``null`` until the
-current takes are uploaded, and a new take resets it.
+``docs/source/_static/demo/manifest.json`` is committed together with the
+posters. ``videos`` maps each registered video's name to its takes: per theme,
+the OSPREY version, recording time, video length, the real session time it
+covers and the fast-forward factor, and the MP4 and poster by name and
+SHA-256. A video's ``release`` names the GitHub release
+(``docs-media-vYYYY.M.P``) that carries its MP4s, one release per OSPREY
+version, so each docs version plays its own videos; it is ``null`` until the
+video's current takes are uploaded, and a new take of that video resets it.
+Each video keeps its own release, so one video can be retaken and uploaded
+without the others.
 
 The docs build downloads exactly the release named here and checks each MP4
 against its hash; ``upload-check`` checks the local files against it before an
@@ -91,14 +94,21 @@ def missing_fields(theme_entry: dict[str, Any]) -> list[str]:
 
 
 def load(path: Path = MANIFEST_PATH) -> dict[str, Any]:
-    """The manifest at *path*; an absent file reads as no takes, not uploaded."""
+    """The manifest at *path*; an absent file reads as no videos."""
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"release": None, "themes": {}}
-    data.setdefault("release", None)
-    data.setdefault("themes", {})
+        return {"videos": {}}
+    data.setdefault("videos", {})
+    for video_entry in data["videos"].values():
+        video_entry.setdefault("release", None)
+        video_entry.setdefault("themes", {})
     return data
+
+
+def video(manifest: dict[str, Any], name: str) -> dict[str, Any]:
+    """Video *name*'s entry in *manifest*; one with no takes when it has none yet."""
+    return manifest["videos"].get(name) or {"release": None, "themes": {}}
 
 
 def save(manifest: dict[str, Any], path: Path = MANIFEST_PATH) -> None:
@@ -107,16 +117,17 @@ def save(manifest: dict[str, Any], path: Path = MANIFEST_PATH) -> None:
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def put_theme(path: Path, theme: str, theme_entry: dict[str, Any]) -> None:
-    """Record *theme*'s new take; it is not uploaded yet, so ``release`` is cleared."""
+def put_theme(path: Path, name: str, theme: str, theme_entry: dict[str, Any]) -> None:
+    """Record video *name*'s new *theme* take; not uploaded yet, so its release is cleared."""
     manifest = load(path)
-    manifest["themes"][theme] = theme_entry
-    manifest["release"] = None
+    entry = manifest["videos"].setdefault(name, {"release": None, "themes": {}})
+    entry["themes"][theme] = theme_entry
+    entry["release"] = None
     save(manifest, path)
 
 
-def set_release(path: Path, release: str) -> None:
-    """Name the release that now carries the takes in the manifest."""
+def set_release(path: Path, name: str, release: str) -> None:
+    """Name the release that now carries video *name*'s takes."""
     manifest = load(path)
-    manifest["release"] = release
+    manifest["videos"][name]["release"] = release
     save(manifest, path)

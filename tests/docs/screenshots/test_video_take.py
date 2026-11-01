@@ -18,7 +18,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from docs.screenshots import capture, video_probes, video_take
+from docs.screenshots import capture, video_landing, video_probes, video_take
+from docs.screenshots.video_landing import LANDING
 from docs.screenshots.video_overlay import OVERLAY_JS
 from docs.screenshots.video_probes import ProbeFailed
 from docs.screenshots.video_take import (
@@ -302,6 +303,9 @@ def test_bootstrap_restart_posts_with_secret_header(env) -> None:
     assert request.full_url == "http://127.0.0.1:9999/api/terminal/restart"
     assert request.get_method() == "POST"
     assert request.get_header("X-osprey-terminal-secret") == SECRET
+    # The web gate refuses a POST whose body is not JSON (HTTP 415).
+    assert request.get_header("Content-type") == "application/json"
+    assert request.data == b"{}"
 
 
 def test_bootstrap_restart_failure_names_the_step(env, monkeypatch) -> None:
@@ -859,7 +863,7 @@ class World:
             fh.write(json.dumps(entry) + "\n")
 
     def on_type(self, text: str) -> None:
-        if text == video_take.PROMPT_CORR:
+        if text == video_landing.PROMPT_CORR:
             self.turn = "running"
             corr = self.plan.get("corr", "ok")
             if corr == "error":
@@ -873,7 +877,7 @@ class World:
             if self.plan.get("card_after_corr"):
                 self.later(4.5, lambda: self._add_card(f"tbl-{self.take}", "markdown"))
             return
-        if text == video_take.PROMPT_PLOT:
+        if text == video_landing.PROMPT_PLOT:
             self.take += 1
             self.pending = []
             self.turn, self.draft, self.asked, self.approval_enters = "running", False, False, 0
@@ -907,7 +911,7 @@ class World:
                 self.later(self.plan["busy_s"], self._add_plot)
                 return
             self.later(5, self._add_plot)
-        elif text == video_take.PROMPT_POST:
+        elif text == video_landing.PROMPT_POST:
             self.turn = "running"
             if self.plan.get("post_error"):
                 self.later(2, self._set(turn="errored"))
@@ -984,7 +988,7 @@ def world_env(env, monkeypatch, tmp_path):
     holder["artifact_secrets"] = set()
     monkeypatch.setattr(capture, "fetch_artifacts", fetch_artifacts)
     monkeypatch.setattr(capture, "artifact_ids", artifact_ids)
-    monkeypatch.setattr(video_take, "_fetch_html", fetch_html)
+    monkeypatch.setattr(video_landing, "_fetch_html", fetch_html)
 
     def transcript_path(build, sid, config_dir=None):
         holder["transcript_lookup"] = (build, sid, config_dir)
@@ -1031,23 +1035,23 @@ def _enters(log: list) -> int:
 def test_record_take_runs_the_fr1_beats_in_order(world_env) -> None:
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert [(s.name, s.fast_forward) for s in timeline.steps] == BEATS
     assert all(s.error is None and s.caption for s in timeline.steps)
     starts = [s.start for s in timeline.steps]
     assert starts == sorted(starts)
     typed = [e for e in world_env.log if e[0] == "type"]
     assert [e[1] for e in typed] == [
-        video_take.PROMPT_PLOT,
-        video_take.PROMPT_CORR,
-        video_take.PROMPT_POST,
+        video_landing.PROMPT_PLOT,
+        video_landing.PROMPT_CORR,
+        video_landing.PROMPT_POST,
     ]
     assert all(e[2] and e[2] > 0 for e in typed)
     # Three prompt submissions plus exactly one approval.
     assert _enters(world_env.log) == 4
     steps = {s.name: s for s in timeline.steps}
-    assert steps["approval-hold"].duration == pytest.approx(video_take.APPROVAL_HOLD_MS / 1000)
-    assert steps["close"].duration == pytest.approx(video_take.CLOSE_HOLD_MS / 1000)
+    assert steps["approval-hold"].duration == pytest.approx(video_landing.APPROVAL_HOLD_MS / 1000)
+    assert steps["close"].duration == pytest.approx(video_landing.CLOSE_HOLD_MS / 1000)
     # The speed-up badge is burned in at encode time; the page is never asked.
     assert not [e for e in world_env.log if e[0] == "badge"]
     # The artifact is opened from its row in the hub sidebar before the drag.
@@ -1061,7 +1065,7 @@ def test_record_take_reads_the_session_transcript_from_its_config_dir(world_env,
     world_env.stack.claude_config_dir = tmp_path / "session-config"
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert world_env.lookups["transcript_lookup"] == (
         world_env.stack.build_dir,
         "sess-123",
@@ -1072,7 +1076,7 @@ def test_record_take_reads_the_session_transcript_from_its_config_dir(world_env,
 def test_record_take_authenticates_to_the_artifact_server(world_env) -> None:
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert world_env.lookups["artifact_secrets"] == {SECRET}
 
 
@@ -1095,7 +1099,7 @@ def _clicked_ids(log: list) -> list[str]:
 def test_record_take_opens_each_new_card_in_arrival_order(world_env) -> None:
     world = world_env.make_world({"arrivals": ARRIVALS})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     # Channel finder, archiver, the plot as it lands, the plot beat; then the
     # correlation plot as it lands, still on screen for its own beat.
     assert _clicked_ids(world_env.log) == ["cf-0", "arch-0", "plot-0", "plot-0", "corr-0"]
@@ -1116,24 +1120,24 @@ def test_record_take_opens_each_new_card_in_arrival_order(world_env) -> None:
     assert [s.caption for s in opens] == ["The agent reads the archiver and plots"] * 3 + [
         "The agent correlates the BPMs with the vacuum"
     ]
-    assert all(s.duration >= video_take.OPEN_HOLD_MS / 1000 for s in opens)
+    assert all(s.duration >= video_landing.OPEN_HOLD_MS / 1000 for s in opens)
     assert timeline.steps[-1].name == "close"
 
 
 def test_record_take_holds_each_preview_only_after_it_renders(world_env) -> None:
     world = world_env.make_world({"arrivals": ARRIVALS[:1]})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     log = world_env.log
     click = next(i for i, e in enumerate(log) if e[0] == "click" and "cf-0" in e[1])
-    assert ("wait", video_take.OPEN_HOLD_MS) in log[click:]
+    assert ("wait", video_landing.OPEN_HOLD_MS) in log[click:]
 
 
 def test_record_take_never_clicks_cards_from_before_the_prompt(world_env) -> None:
     world = world_env.make_world({"arrivals": ARRIVALS})
     world.artifacts.append({"id": "a1", "artifact_type": "markdown", "timestamp": "2026"})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert "a1" not in _clicked_ids(world_env.log)
 
 
@@ -1149,13 +1153,13 @@ def test_record_take_a_card_that_never_opens_fails_fast(world_env, plan, budget_
     world = world_env.make_world(plan)
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "open-artifact"
     assert "title of arch-0" in exc.value.detail
     assert "preview: empty" in exc.value.detail and "? for shortcuts" in exc.value.detail
     last = timeline.steps[-1]
     assert last.name == "open-artifact"
-    assert last.duration <= getattr(video_take, budget_ms) / 1000 + 1
+    assert last.duration <= getattr(video_landing, budget_ms) / 1000 + 1
 
 
 def test_record_take_an_empty_plot_card_fails_the_take_before_it_is_shown(world_env) -> None:
@@ -1164,7 +1168,7 @@ def test_record_take_an_empty_plot_card_fails_the_take_before_it_is_shown(world_
     world = world_env.make_world({"empty_plot_card": True})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "plot"
     assert "empty plot" in exc.value.detail and "scratch probe" in exc.value.detail
     assert "scratch-0" not in _clicked_ids(world_env.log)
@@ -1180,7 +1184,7 @@ def test_record_take_a_dialog_while_a_card_opens_fails_at_once(world_env) -> Non
     )
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "open-artifact"
     assert "dialog" in exc.value.detail
     assert timeline.steps[-1].duration < 3
@@ -1196,12 +1200,12 @@ def _step(timeline, name: str):
 def test_record_take_shows_the_correlation_plot_before_posting(world_env) -> None:
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     typed = [e[1] for e in world_env.log if e[0] == "type"]
-    assert typed.index(video_take.PROMPT_CORR) < typed.index(video_take.PROMPT_POST)
+    assert typed.index(video_landing.PROMPT_CORR) < typed.index(video_landing.PROMPT_POST)
     shown = _step(timeline, "open-correlation")
     assert shown.caption == "A correlation plot"
-    assert shown.duration >= video_take.CORR_HOLD_MS / 1000
+    assert shown.duration >= video_landing.CORR_HOLD_MS / 1000
     waits = [s for s in timeline.steps if s.name == "correlate"]
     assert waits and all(s.fast_forward for s in waits)
     assert {s.caption for s in waits} == {"The agent correlates the BPMs with the vacuum"}
@@ -1212,14 +1216,14 @@ def test_record_take_shows_the_correlation_plot_before_posting(world_env) -> Non
 def test_the_correlation_beat_reclicks_only_when_another_card_took_the_preview(world_env):
     world = world_env.make_world({"card_after_corr": True})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     ids = _clicked_ids(world_env.log)
     assert ids[-3:] == ["corr-0", "tbl-0", "corr-0"]
     assert timeline.steps[-1].name == "close"
 
 
 def test_the_correlation_prompt_names_sector_bpms_and_vacuum() -> None:
-    prompt = video_take.PROMPT_CORR.lower()
+    prompt = video_landing.PROMPT_CORR.lower()
     assert "correlation" in prompt and "first sector" in prompt
     assert "horizontal bpms" in prompt and "vacuum" in prompt
 
@@ -1236,7 +1240,7 @@ def test_record_take_no_correlation_plot_fails_the_correlate_beat(world_env, cor
     world = world_env.make_world({"corr": corr})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "correlate"
     assert detail in exc.value.detail
     assert timeline.steps[-1].duration < 10
@@ -1246,7 +1250,7 @@ def test_record_take_a_silent_correlation_wait_fails_at_the_stall_threshold(worl
     world = world_env.make_world({"corr": "stuck"})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "correlate"
     assert "no progress" in exc.value.detail
     assert timeline.steps[-1].duration < video_take.STALL_S + 2
@@ -1266,7 +1270,7 @@ def test_record_take_the_entry_must_attach_only_the_correlation_plot(world_env, 
     world = world_env.make_world({"attach": attach})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "post"
     assert detail in exc.value.detail
     assert _enters(world_env.log) == 3
@@ -1275,12 +1279,12 @@ def test_record_take_the_entry_must_attach_only_the_correlation_plot(world_env, 
 def test_record_take_the_closing_hold_shows_the_attachment(world_env) -> None:
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     log = world_env.log
     reveal = log.index(("reveal-attachment",))
     close_caption = log.index(("caption", "Draft saved with the plot attached"))
     assert close_caption < reveal
-    assert ("wait", video_take.CLOSE_HOLD_MS) in log[reveal:]
+    assert ("wait", video_landing.CLOSE_HOLD_MS) in log[reveal:]
 
 
 def test_record_take_fails_the_close_when_the_draft_has_no_attachment(world_env) -> None:
@@ -1288,7 +1292,7 @@ def test_record_take_fails_the_close_when_the_draft_has_no_attachment(world_env)
     world = world_env.make_world({"no_attachment": True})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "close" and "attachment" in exc.value.detail
 
 
@@ -1296,7 +1300,7 @@ def test_record_take_announces_each_beat(world_env, capsys) -> None:
     # A live run is followed from its log: each beat is named as it starts.
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     out = capsys.readouterr().out
     assert [line for line in out.splitlines() if line.startswith("dark: ")] == [
         f"dark: {name}" for name, _ in BEATS
@@ -1308,7 +1312,7 @@ def test_record_take_checks_focus_before_typing(world_env) -> None:
     take, timeline = _run_take(world_env, world)
     world.focus = False
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "prompt-1"
     assert not [e for e in world_env.log if e[0] in ("type", "press")]
     assert timeline.steps[-1].name == "prompt-1" and timeline.steps[-1].error
@@ -1317,7 +1321,7 @@ def test_record_take_checks_focus_before_typing(world_env) -> None:
 def test_record_take_rotates_at_least_90_degrees(world_env) -> None:
     world = world_env.make_world({"drag_deg": 50.0})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert sum(1 for e in world_env.log if e[0] == "mouse.up") == 2
 
 
@@ -1326,12 +1330,12 @@ def test_record_take_drags_in_one_glide_then_lets_the_camera_settle(world_env) -
     # drag lengthens the video, so the glide carries no waits of its own.
     world = world_env.make_world({})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     log = world_env.log
     down, up = _index(log, "mouse.down"), _index(log, "mouse.up")
     assert not [e for e in log[down:up] if e[0] == "wait"]
-    assert sum(1 for e in log[down:up] if e[0] == "mouse.move") == video_take.DRAG_STEPS
-    assert log[up + 1] == ("wait", video_take.DRAG_SETTLE_MS)
+    assert sum(1 for e in log[down:up] if e[0] == "mouse.move") == video_landing.DRAG_STEPS
+    assert log[up + 1] == ("wait", video_landing.DRAG_SETTLE_MS)
 
 
 def test_record_take_rotate_survives_a_replaced_plot_preview(world_env) -> None:
@@ -1339,7 +1343,7 @@ def test_record_take_rotate_survives_a_replaced_plot_preview(world_env) -> None:
     # the frame the take held is detached: the take finds the new one.
     world = world_env.make_world({"detach_once": True})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert timeline.steps[-1].name == "close"
     assert not world.detach_pending
 
@@ -1348,7 +1352,7 @@ def test_record_take_rotate_survives_a_replaced_plot_preview(world_env) -> None:
 def test_record_take_a_preview_replaced_mid_swap_is_found_again(world_env, plan) -> None:
     world = world_env.make_world(plan)
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert timeline.steps[-1].name == "close"
 
 
@@ -1358,7 +1362,7 @@ def test_record_theme_turns_a_browser_error_into_a_failed_step(world_env, capsys
     world = world_env.make_world({"browser_error": True})
     world_env.stack.browser = FakeBrowser(world_env.log, {"world": world})
     with pytest.raises(ProbeFailed) as exc:
-        record_theme(world_env.stack, "dark", clock=world.clock)
+        record_theme(world_env.stack, "dark", LANDING, clock=world.clock)
     assert exc.value.step == "open-plot" and "browser error" in exc.value.detail
     assert world_env.stack.current is None
     assert all(c.closed for c in world_env.stack.browser.contexts)
@@ -1371,16 +1375,16 @@ def test_record_take_a_slow_rotation_fails_fast_instead_of_filling_the_video(wor
     world = world_env.make_world({"drag_deg": 50.0, "drag_s": 9.0})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "rotate"
     assert "real-time budget" in exc.value.detail
-    assert timeline.steps[-1].duration <= video_take.ROTATE_BUDGET_S + 10
+    assert timeline.steps[-1].duration <= video_landing.ROTATE_BUDGET_S + 10
 
 
 def test_record_take_logs_each_drag(world_env, capsys) -> None:
     world = world_env.make_world({"drag_deg": 50.0})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     drags = [line for line in capsys.readouterr().out.splitlines() if "rotate drag" in line]
     assert len(drags) == 2 and "deg" in drags[0]
 
@@ -1389,16 +1393,16 @@ def test_record_take_too_small_rotation_fails(world_env) -> None:
     world = world_env.make_world({"drag_deg": 20.0})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "rotate"
-    assert sum(1 for e in world_env.log if e[0] == "mouse.up") == video_take.MAX_DRAGS
+    assert sum(1 for e in world_env.log if e[0] == "mouse.up") == video_landing.MAX_DRAGS
 
 
 def test_record_take_any_ask_while_plotting_fails(world_env) -> None:
     world = world_env.make_world({"ask_during_plot": True})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "plot"
     assert _enters(world_env.log) == 1
 
@@ -1408,7 +1412,7 @@ def test_record_take_ignores_asks_logged_before_prompt_1(world_env) -> None:
     world.write_asks(ENTRY_PUBLISH, UNNAMED)
     world.asked = False
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert timeline.steps[-1].name == "close"
 
 
@@ -1419,7 +1423,7 @@ def test_record_take_errored_turn_fails_at_once(world_env, plan, step_name) -> N
     world = world_env.make_world(plan)
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == step_name
     # Failed within a few seconds of the error, not at the end of the budget.
     assert timeline.steps[-1].duration < 5
@@ -1429,7 +1433,7 @@ def test_record_take_a_silent_agent_fails_at_the_stall_threshold(world_env) -> N
     world = world_env.make_world({"stuck": True})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "plot"
     assert "no progress" in exc.value.detail
     assert "? for shortcuts" in exc.value.detail
@@ -1450,7 +1454,7 @@ def test_record_take_an_unanswerable_dialog_fails_at_once(world_env, plan, step_
     world = world_env.make_world(plan)
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == step_name
     assert "dialog" in exc.value.detail and world.screen.splitlines()[0] in exc.value.detail
     assert timeline.steps[-1].duration < 5
@@ -1461,7 +1465,7 @@ def test_record_take_an_unanswerable_dialog_fails_at_once(world_env, plan, step_
 def test_record_take_a_long_but_busy_turn_is_no_stall(world_env) -> None:
     world = world_env.make_world({"busy_s": 3 * video_take.STALL_S})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert timeline.steps[-1].name == "close"
 
 
@@ -1469,7 +1473,7 @@ def test_record_take_2d_plot_fails_the_plot_step(world_env) -> None:
     world = world_env.make_world({"plot": "2d"})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "plot"
 
 
@@ -1482,7 +1486,7 @@ def test_record_take_foreign_ask_fails_without_keypress(world_env, asks) -> None
     world = world_env.make_world({"asks": asks})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "approve"
     # Only the three prompt submissions: nothing was approved.
     assert _enters(world_env.log) == 3
@@ -1492,18 +1496,18 @@ def test_record_take_foreign_ask_fails_without_keypress(world_env, asks) -> None
 def test_record_take_retries_enter_once_when_first_was_swallowed(world_env) -> None:
     world = world_env.make_world({"draft_after_enters": 2})
     take, timeline = _run_take(world_env, world)
-    record_take(take, timeline)
+    record_take(take, timeline, LANDING)
     assert _enters(world_env.log) == 5
     assert timeline.steps[-1].name == "close"
     draft = next(s for s in timeline.steps if s.name == "draft")
-    assert draft.duration >= video_take.DRAFT_RETRY_AFTER_MS / 1000
+    assert draft.duration >= video_landing.DRAFT_RETRY_AFTER_MS / 1000
 
 
 def test_record_take_never_retries_more_than_once(world_env) -> None:
     world = world_env.make_world({"draft_after_enters": 0})
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "draft"
     assert _enters(world_env.log) == 5
 
@@ -1521,7 +1525,7 @@ def test_record_take_no_retry_enter_when_unsafe(world_env, plan) -> None:
     world = world_env.make_world(plan)
     take, timeline = _run_take(world_env, world)
     with pytest.raises(ProbeFailed) as exc:
-        record_take(take, timeline)
+        record_take(take, timeline, LANDING)
     assert exc.value.step == "draft"
     assert _enters(world_env.log) == 4
 
@@ -1529,7 +1533,7 @@ def test_record_take_no_retry_enter_when_unsafe(world_env, plan) -> None:
 def test_record_theme_records_one_take(world_env) -> None:
     world = world_env.make_world({})
     world_env.stack.browser = FakeBrowser(world_env.log, {"world": world})
-    take, timeline = record_theme(world_env.stack, "dark", clock=world.clock)
+    take, timeline = record_theme(world_env.stack, "dark", LANDING, clock=world.clock)
     (context,) = world_env.stack.browser.contexts
     assert take.context is context
     assert [(s.name, s.fast_forward) for s in timeline.steps] == BEATS
@@ -1543,7 +1547,7 @@ def test_record_theme_a_failed_take_raises_and_is_closed(world_env, capsys) -> N
     world = world_env.make_world({"plot": "2d"})
     world_env.stack.browser = FakeBrowser(world_env.log, {"world": world})
     with pytest.raises(ProbeFailed) as exc:
-        record_theme(world_env.stack, "light", clock=world.clock)
+        record_theme(world_env.stack, "light", LANDING, clock=world.clock)
     assert exc.value.step == "plot"
     assert all(c.closed for c in world_env.stack.browser.contexts)
     assert world_env.stack.current is None

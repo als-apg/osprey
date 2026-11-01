@@ -284,13 +284,13 @@ def encode_to_budget(
 POSTER_STEP = "rotate"
 
 
-def poster_frame(timeline: Timeline) -> int | None:
-    """The output frame index of the poster: the last frame of the rotate beat.
+def poster_frame(timeline: Timeline, poster_step: str = POSTER_STEP) -> int | None:
+    """The output frame index of the poster: the last frame of the *poster_step* beat.
 
     None when the timeline has no such beat; the poster is then the last frame.
     """
     spans = [s for s in timeline.steps if s.start is not None and s.end is not None]
-    step = next((s for s in spans if s.name == POSTER_STEP), None)
+    step = next((s for s in spans if s.name == poster_step), None)
     if step is None:
         return None
     t0 = min(s.start for s in spans)
