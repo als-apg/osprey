@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 1100 390" role="img" aria-labelledby="code-review-title code-review-desc">
   <title id="code-review-title">A second AI agent reads the OSPREY agent's Python before it reaches the machine</title>
-  <desc id="code-review-desc">The OSPREY agent wrote some Python. It reaches the code review in one of two ways: as a Python run, after the operator approved it and before it starts, or as a code cell the agent writes into a notebook, before it is saved. A second AI agent reads the code, following instructions the deployment wrote, and answers pass, concern or block, with reasons. The answer and the reasons go back to the OSPREY agent: in blocking mode the code is stopped, in advisory mode it runs and the agent is told. The operator gets a code review line in the activity log saying what was found and whether the code ran, but not why.</desc>
+  <desc id="code-review-desc">The OSPREY agent wrote some Python. It reaches the code review in one of two ways: as a Python run, before the operator is asked to approve it, or as a code cell the agent writes into a notebook, before it is saved. A second AI agent reads the code, following instructions the deployment wrote, and answers pass, concern or block, with reasons. The answer and the reasons go back to the OSPREY agent: in blocking mode the code is stopped, in advisory mode it runs and the agent is told. The operator gets a code review line in the activity log saying what was found and whether the code ran, but not why.</desc>
   <defs>
     <marker id="code-review-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
@@ -38,7 +38,7 @@
   <rect class="mask" x="350" y="60" width="300" height="64" rx="6"/>
   <rect class="nb" x="350" y="60" width="300" height="64" rx="6"/>
   <text class="tn" x="500" y="88" text-anchor="middle">A Python run</text>
-  <text class="ts" x="500" y="104" text-anchor="middle">after the operator approved it, before it starts</text>
+  <text class="ts" x="500" y="104" text-anchor="middle">before the operator is asked to approve it</text>
 
   <rect class="mask" x="350" y="240" width="300" height="64" rx="6"/>
   <rect class="nb" x="350" y="240" width="300" height="64" rx="6"/>

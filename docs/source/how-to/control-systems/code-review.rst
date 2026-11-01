@@ -77,10 +77,13 @@ review may take ``time_limit`` seconds (60 by default); that is the one key that
 What you see
 ============
 
-Whenever the reviewer found something, a *code review* line appears in the activity log
-(under **⋯ More** in the web terminal): what was reviewed, the answer, whether the code ran,
-and what the run was for. The reasons go to the agent, in its conversation, where it was told
-to revise. Every review, a pass included, leaves an entry in the audit trail with reason
+On a Python run the review comes before the approval prompt: code the reviewer blocks in
+blocking mode never reaches you, and otherwise the answer and the reasons are on the prompt
+and in the approval preview, so you decide knowing what it found. Whenever the reviewer found
+something, a *code review* line also appears in the activity log (under **⋯ More** in the web
+terminal): what was reviewed, the answer, whether the code ran, and what the run was for. The
+reasons go to the agent, in its conversation, where it was told to revise. Every review, a
+pass included, leaves an entry in the audit trail with reason
 ``code_review`` (:ref:`reference-audit-trail`), so the record shows that the code was read
 even when nothing was found.
 

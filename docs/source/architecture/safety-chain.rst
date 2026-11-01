@@ -346,8 +346,8 @@ reading.)
 
 A deployment turns it on in its profile (:doc:`/how-to/control-systems/code-review`). From
 then on the reviewer reads two things: a Python run the OSPREY agent sends to the executor,
-after the operator has approved it and before it starts, and a code cell the agent writes
-into a notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
+before the operator is asked to approve it, and a code cell the agent writes into a
+notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
 pyAML tools carry no code of the agent's, and cells a person writes are the person's own.
 
 The reviewer follows instructions the deployment writes itself, in a Markdown file in the
@@ -366,12 +366,15 @@ chooses what a block does. In blocking mode (``level: block``, the default) the 
 stopped. In advisory mode (``level: flag``) the code runs and the agent is told what the
 reviewer found. A concern never stops code; it only comes with an explanation.
 
-Three things are worth knowing. First, the review happens *after* the operator's approval, so
-code the operator approved can still be stopped; the operator is not asked again, the agent
-comes back with revised code. Second, the operator sees a *code review* line in the activity
-log whenever the reviewer found something --- what was reviewed, the answer, and whether the
-code ran --- but not the reasons, which go to the agent; the audit trail keeps a record that a
-review happened and how it ended (:ref:`reference-audit-trail`). Third, if the reviewer cannot
+Three things are worth knowing. First, the review happens *before* the operator's approval.
+In blocking mode, code the reviewer stops never reaches the operator; otherwise the answer and
+the reasons stand on the approval prompt and in the approval preview, so the operator decides
+knowing what the reviewer found. A run no prompt sees --- a policy that asks nobody, a
+read-only run under a selective policy --- is reviewed by the executor just before it starts.
+Second, the operator sees a *code review* line in the activity log whenever the reviewer found
+something --- what was reviewed, the answer, and whether the code ran; the reasons go to the
+agent, and on a run they are on the prompt too; the audit trail keeps a record that a review
+happened and how it ended (:ref:`reference-audit-trail`). Third, if the reviewer cannot
 answer --- the model is unreachable, or the time limit runs out --- blocking mode stops the
 code and the agent is told to report the problem rather than retry, while advisory mode lets
 the code run unreviewed and says so. The reviewer is never a safety boundary: every gate on

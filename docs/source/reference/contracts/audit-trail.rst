@@ -168,8 +168,10 @@ JSON object:
        ``reserved path in ownership store``; a control-system write the
        write posture refused reads ``posture`` on every surface (the hook,
        the MCP server and the Python executor all spell it the same way);
-       ``code_review`` is a code review's own record, on ``executor`` or
-       ``hook_code_review`` (:ref:`architecture-safety-chain-code-review`). The
+       ``code_review`` is a code review's own record, on ``hook_approval`` (a
+       Python run, ahead of its prompt), ``executor`` (a run no prompt reviewed)
+       or ``hook_code_review`` (a notebook edit)
+       (:ref:`architecture-safety-chain-code-review`). The
        login service has a vocabulary of its own --- see
        :ref:`audit-trail-login-refusals`
    * - ``detail``
