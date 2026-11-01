@@ -38,6 +38,7 @@ from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from tests._live import wait_until
 from tests._processes import pid_alive
 
+# The budget for a sidecar to start, and for a ready sidecar to answer a request.
 READY_TIMEOUT = 90.0
 
 spawns = pytest.mark.slow
@@ -72,13 +73,29 @@ def sidecar(config_env: None, shared_root: Path) -> Iterator[JupyterSidecar]:  #
     yield from _running(shared_root)
 
 
+def _timed_out(exc: BaseException) -> bool:
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, TimeoutError)
+    return isinstance(exc, TimeoutError)
+
+
+def _no_answer(request: urllib.request.Request) -> AssertionError:
+    return AssertionError(
+        f"{request.get_method()} {request.full_url} got no answer within {READY_TIMEOUT:g} s"
+    )
+
+
 def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
     request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=READY_TIMEOUT) as response:
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read()
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if _timed_out(exc):
+            raise _no_answer(request) from exc
+        raise
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -95,10 +112,14 @@ def _get_no_redirect(url: str, headers: dict[str, str] | None = None) -> tuple[i
     """GET *url* without following a redirect; returns status and ``Location``."""
     request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
-        with _no_redirect_opener.open(request, timeout=10) as response:
+        with _no_redirect_opener.open(request, timeout=READY_TIMEOUT) as response:
             return int(response.status), response.headers.get("Location", "")
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.headers.get("Location", "")
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if _timed_out(exc):
+            raise _no_answer(request) from exc
+        raise
 
 
 def _wait_gone(pid: int, timeout: float) -> bool:
@@ -214,7 +235,7 @@ def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
 
     def _wait() -> None:
         try:
-            sidecar.wait_ready(30)
+            sidecar.wait_ready(READY_TIMEOUT)
         except BaseException as exc:  # the test inspects whatever it raised
             failures.append(exc)
 
@@ -277,7 +298,7 @@ def test_an_early_exit_surfaces_the_stderr_tail(
     sidecar.spawn()
     try:
         with pytest.raises(RuntimeError) as failure:
-            sidecar.wait_ready(10)
+            sidecar.wait_ready(READY_TIMEOUT)
     finally:
         sidecar.stop()
 
@@ -464,10 +485,14 @@ def _request(
 ) -> tuple[int, bytes]:
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=READY_TIMEOUT) as response:
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read()
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if _timed_out(exc):
+            raise _no_answer(request) from exc
+        raise
 
 
 @spawns
