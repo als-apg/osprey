@@ -563,12 +563,19 @@ class DeploymentPackage:
         wheel: The built wheel.
         replaces: The profile ``dependencies`` entries this wheel stands for, every
             spelling of its path; empty for an application package no entry names.
+        source: Where the package lives, as a refusal names it.
     """
 
     name: str
     version: str
     wheel: Path
     replaces: tuple[str, ...] = ()
+    source: str = ""
+
+    @property
+    def declared_as(self) -> str:
+        """How the profile names this package: its entry, else its ``apps/<name>``."""
+        return self.replaces[0] if self.replaces else self.source
 
     @property
     def requirement(self) -> str:
@@ -644,6 +651,7 @@ def build_deployment_packages(
                 version=str(version),
                 wheel=wheel,
                 replaces=tuple(replaced.get(pyproject, ())),
+                source=_shown(pyproject.parent),
             )
         )
     _write_deployment_packages_manifest(packages, dest)
@@ -713,6 +721,50 @@ def _write_deployment_packages_manifest(packages: Sequence[DeploymentPackage], d
     (dest / DEPLOYMENT_PACKAGES_MANIFEST).write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
+
+
+def refuse_named_twice(packages: Sequence[DeploymentPackage], requirements: Iterable[str]) -> None:
+    """Refuse a distribution the profile names as a deployment package and again.
+
+    No merge order may decide which of the two the deployment meant, so a package
+    that a requirement also names, or that another package also builds, stops the
+    build, naming both entries.
+
+    Args:
+        packages: The deployment's packages.
+        requirements: The profile's other entries: its ``dependencies`` and its
+            ``environment.packages``. A local-path entry among them is skipped;
+            it stands for one of *packages*.
+
+    Raises:
+        BuildProfileError: Naming every pair.
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.utils import canonicalize_name
+
+    from osprey_connectors.errors import BuildProfileError
+
+    by_name: dict[str, DeploymentPackage] = {}
+    pairs: list[str] = []
+    for package in packages:
+        other = by_name.setdefault(package.name, package)
+        if other is not package:
+            pairs.append(f"{other.declared_as!r} and {package.declared_as!r}")
+    substituted = {entry for package in packages for entry in package.replaces}
+    for raw in requirements:
+        if raw in substituted:
+            continue
+        try:
+            package = by_name.get(canonicalize_name(Requirement(raw).name))
+        except InvalidRequirement:
+            continue
+        if package is not None:
+            pairs.append(f"{package.declared_as!r} and {raw!r}")
+    if pairs:
+        raise BuildProfileError(
+            f"the profile names one distribution twice: {'; '.join(pairs)}.\n"
+            "        Keep one: the local package, or the requirement."
+        )
 
 
 def refuse_unshipped_kinds(requirements: Iterable[str]) -> None:

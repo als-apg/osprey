@@ -26,6 +26,7 @@ from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     FRAMEWORK_DISTRIBUTION,
     DeploymentPackage,
+    refuse_named_twice,
     refuse_unshipped_kinds,
 )
 from osprey_connectors.errors import BuildProfileError
@@ -969,6 +970,7 @@ def _plan_project_venv(
     dependencies = list(profile.dependencies or [])
     environment_packages = list(profile.environment.packages or [])
     packages = tuple(deployment_packages)
+    refuse_named_twice(packages, [*dependencies, *environment_packages])
     extra_deps = _merge_project_requirements(
         frozen_base,
         deployment_dependencies(dependencies, packages),
