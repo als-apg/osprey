@@ -69,9 +69,13 @@ _PRISTINE_LOGGING = {
 # exports FORCE_COLOR otherwise turns CliRunner captures into ANSI-laced text
 # and fails seven CLI tests on pristine main — CI is green only because its
 # runners never export it. `NO_COLOR` is left alone: unset is the same default
-# CI runs under.
+# CI runs under. The host's macOS malloc-debugging settings (`MallocStackLogging`,
+# `MallocNanoZone`, ...) go too, before any child starts: each child that inherits
+# one writes a notice to its terminal that no CI runner produces.
 os.environ.pop("FORCE_COLOR", None)
 os.environ.pop("CLICOLOR_FORCE", None)
+for _key in [key for key in os.environ if key.startswith("Malloc")]:
+    os.environ.pop(_key)
 
 # Rich deliberately clamps ``TERM=dumb`` consoles to 80 columns and suppresses
 # cursor control even when a test explicitly requests ``force_terminal=True``.
