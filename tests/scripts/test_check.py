@@ -409,6 +409,96 @@ def test_a_tree_reader_left_out_of_the_invariant_tests_is_named() -> None:
     assert _tree_readers_outside(tuple(p for p in fw.INVARIANT_TESTS if p != reader)) == [reader]
 
 
+#: The container starters every recipe calls; a helper module that spells one
+#: of them is a container recipe.
+CONTAINER_STARTERS = ("start_or_skip(", "start_or_fail(")
+
+#: The markers that say a test needs a container engine. Their source is
+#: ``[tool.pytest.ini_options].markers`` in ``pyproject.toml``.
+ENGINE_MARKERS = ("dockerbuild", "e2e_services")
+
+
+def _container_recipes() -> frozenset[str]:
+    """The dotted names of the helper modules under ``tests/`` that start a container."""
+    found = set()
+    for path in (REPO_ROOT / "tests").rglob("_*.py"):
+        if "__pycache__" in path.parts or path.name.startswith("__"):
+            continue
+        if any(starter in path.read_text(encoding="utf-8") for starter in CONTAINER_STARTERS):
+            found.add(".".join(path.relative_to(REPO_ROOT).with_suffix("").parts))
+    return frozenset(found)
+
+
+def _is_engine_marker(node: ast.AST) -> bool:
+    """Whether *node* is ``pytest.mark.<engine marker>``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in ENGINE_MARKERS
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+    )
+
+
+def _engine_reaches(source: str, recipes: frozenset[str] | None = None) -> list[str]:
+    """Every place *source* imports a container recipe or applies an engine marker."""
+    recipes = _container_recipes() if recipes is None else recipes
+    reaches = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported = [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
+        elif isinstance(node, ast.Attribute) and _is_engine_marker(node):
+            reaches.append(f"line {node.lineno}: applies pytest.mark.{node.attr}")
+            continue
+        else:
+            continue
+        reaches.extend(
+            f"line {node.lineno}: imports {name}" for name in imported if name in recipes
+        )
+    return sorted(reaches)
+
+
+def test_no_invariant_test_reaches_a_container_engine() -> None:
+    """The invariant-tests check runs on every host, so a file it names imports no
+    container recipe and carries no engine marker."""
+    recipes = _container_recipes()
+    reaching = {
+        path: found
+        for path in fw.INVARIANT_TESTS
+        if (found := _engine_reaches((REPO_ROOT / path).read_text(encoding="utf-8"), recipes))
+    }
+    assert reaching == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import tests._mongo_container\n",
+        "from tests import _graphdb_container\n",
+        "import pytest\n\n@pytest.mark.dockerbuild\ndef test_x():\n    pass\n",
+    ],
+    ids=["imports-a-recipe", "imports-a-recipe-from-its-package", "carries-an-engine-marker"],
+)
+def test_a_source_that_reaches_a_container_engine_is_named(source: str) -> None:
+    assert _engine_reaches(source) != []
+
+
+def test_an_engine_marker_spelled_as_text_reaches_nothing() -> None:
+    assert _engine_reaches('NEEDLE = "pytest.mark.dockerbuild"\n') == []
+
+
+def test_each_engine_marker_is_declared() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = {
+        line.split(":", 1)[0].split("(", 1)[0].strip()
+        for line in pyproject["tool"]["pytest"]["ini_options"]["markers"]
+    }
+    assert set(ENGINE_MARKERS) <= declared
+
+
 def test_the_need_probes_of_the_new_toolchains_name_their_install(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
