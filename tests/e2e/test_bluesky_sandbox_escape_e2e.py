@@ -292,7 +292,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     corrector_devices = [corrector for _, corrector in correctors]
     bpm_devices = [devices[name] for name in params.readbacks]
     step = (2 * params.span) / (params.num - 1)
-    currents = [-params.span + i * step for i in range(params.num)]
+    setpoints = [-params.span + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
@@ -306,8 +306,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     def _sweep():
         for name, corrector in correctors:
             try:
-                for current in currents:
-                    yield from bps.mv(corrector, current)
+                for setpoint in setpoints:
+                    yield from bps.mv(corrector, setpoint)
                     yield from bps.trigger_and_read(all_devices)
             finally:
                 try:
