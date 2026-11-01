@@ -8105,7 +8105,7 @@ def test_the_quick_tier_runs_the_same_gate__mutation_restores_the_grep() -> None
 #
 # One rule, one implementation: the lint step calls the script and states no
 # part of the rule itself. `scripts/plugin_version.py check` decides whether a
-# PR that changes the plugin tree carries a version its base does not; a copy
+# PR that changes the plugin tree carries a version newer than its base's; a copy
 # of that rule written inline beside the call is a second answer to the same
 # question, free to drift from the first.
 

@@ -6,7 +6,8 @@ and ``plugins/osprey/.codex-plugin/plugin.json`` each carry the same ``version``
 This script is the only writer of that string and the one statement of the bump rule:
 ``show`` prints it and refuses to guess when the two files disagree, ``bump`` advances
 ``YYYY.M.N`` in both at once, and ``check --base <ref>`` refuses a branch that changes
-the plugin tree while still carrying a version the branch it merges into already has.
+the plugin tree without a version newer than the one the branch it merges into carries,
+and ``bump --base <ref>`` mints past that version.
 """
 
 from __future__ import annotations
@@ -41,8 +42,9 @@ UNTOUCHED = "plugin tree untouched — no version bump required"
 #: ``check``'s answer when the base carries no manifest: the branch adds the plugin.
 NEW_MANIFEST = "new plugin manifest — no bump required"
 
-#: ``check``'s refusal when the head version is one the base already carries.
-UNCHANGED = "plugin tree changed without a version bump — run python scripts/plugin_version.py bump"
+#: The clause that opens ``check``'s refusal when the head version is not newer than
+#: the base tip's; :func:`not_newer` completes it with both versions and the remedy.
+UNCHANGED = "plugin tree changed without a version bump"
 
 #: A plain ref — letters, digits, ``.``, ``_``, ``-`` and nothing else — is read as a
 #: branch name, the same reading the changelog gate gives its ``--base``.
@@ -57,6 +59,35 @@ def read_versions(root: Path) -> dict[Path, str]:
     return {
         path: json.loads((root / path).read_text(encoding="utf-8"))["version"] for path in MANIFESTS
     }
+
+
+def parse_version(text: str) -> tuple[int, int, int] | None:
+    """Read a CalVer string as ``(year, month, serial)``, or ``None`` when it is not one."""
+    if not VERSION.match(text):
+        return None
+    year, month, serial = (int(part) for part in text.split("."))
+    return year, month, serial
+
+
+def not_calver(version: str, where: str) -> str:
+    """The sentence for a manifest version that does not parse."""
+    return f"{version} at {where} is not CalVer YYYY.M.N"
+
+
+def not_newer(head: str, tip: str, base: str) -> str:
+    """``check``'s refusal: the head version is not newer than the base tip's."""
+    return (
+        f"{UNCHANGED} — {head} is not newer than {tip} at {base}; "
+        f"run python scripts/plugin_version.py bump --base {base}"
+    )
+
+
+def base_not_found(base: str) -> str:
+    """The sentence for a base ref that resolves to no commit."""
+    return (
+        f"base ref {base} not found — git fetch origin <branch>; "
+        f"in CI, actions/checkout needs fetch-depth: 0"
+    )
 
 
 def unreadable(root: Path, error: Exception) -> str:
@@ -90,6 +121,24 @@ def resolve_base(ref: str, run: Runner) -> str | None:
     return None
 
 
+def read_base_versions(base_sha: str, base: str, run: Runner) -> set[str] | str:
+    """The versions the manifests carry at *base_sha*, or the sentence naming why not.
+
+    A manifest absent at that commit is skipped, so an empty set means the base has no
+    plugin yet; one present that does not parse is an error, not a free pass.
+    """
+    found: set[str] = set()
+    for path in MANIFESTS:
+        shown = run(["git", "show", f"{base_sha}:{path.as_posix()}"])
+        if shown.returncode != 0:
+            continue
+        try:
+            found.add(json.loads(shown.stdout)["version"])
+        except (KeyError, TypeError, json.JSONDecodeError) as error:
+            return f"cannot read {path} at {base}: {error}"
+    return found
+
+
 def git_runner(root: Path) -> Runner:
     """The runner ``check`` uses unless given one: every git call runs in *root*."""
 
@@ -100,25 +149,21 @@ def git_runner(root: Path) -> Runner:
 
 
 def check(root: Path, base: str, run: Runner | None = None, worktree: bool = False) -> int:
-    """Refuse a changed plugin tree whose version the base tip already carries.
+    """Refuse a changed plugin tree not newer than every version the base tip carries.
 
     The tree is changed between the merge base and HEAD, or with *worktree*
     between the merge base and the working tree, untracked files included.
 
-    Exit 0 when the tree is untouched, new, or carries a version the base tip does
-    not; exit 1 when the check ran and refuses; exit 2 when git could not answer
-    and the check never ran.
+    Exit 0 when the tree is untouched, new, or carries a version newer than the base
+    tip's; an unparseable version is refused; exit 1 when the check ran and refuses;
+    exit 2 when git could not answer and the check never ran.
     """
     if run is None:
         run = git_runner(root)
     # An unresolved base is never read as an untouched tree.
     base_sha = resolve_base(base, run)
     if base_sha is None:
-        print(
-            f"base ref {base} not found — git fetch origin <branch>; "
-            f"in CI, actions/checkout needs fetch-depth: 0",
-            file=sys.stderr,
-        )
+        print(base_not_found(base), file=sys.stderr)
         return 2
     merge_base = run(["git", "merge-base", base_sha, "HEAD"])
     if merge_base.returncode != 0 or not merge_base.stdout.strip():
@@ -161,25 +206,25 @@ def check(root: Path, base: str, run: Runner | None = None, worktree: bool = Fal
     head = next(iter(head_versions.values()))
 
     # The diff runs against the merge base but the versions are compared against the
-    # base tip, so a base that minted the same version after the branch point is
-    # refused. A manifest absent at the tip is a new plugin; one present that does not
-    # parse is an error, not a free pass.
-    base_versions: set[str] = set()
-    for path in MANIFESTS:
-        shown = run(["git", "show", f"{base_sha}:{path.as_posix()}"])
-        if shown.returncode != 0:
-            continue
-        try:
-            base_versions.add(json.loads(shown.stdout)["version"])
-        except (KeyError, TypeError, json.JSONDecodeError) as error:
-            print(f"cannot read {path} at {base}: {error}", file=sys.stderr)
-            return 1
+    # base tip, so a base that minted a newer version after the branch point is
+    # refused. A manifest absent at the tip is a new plugin.
+    base_versions = read_base_versions(base_sha, base, run)
+    if isinstance(base_versions, str):
+        print(base_versions, file=sys.stderr)
+        return 1
     if not base_versions:
         print(NEW_MANIFEST)
         return 0
-    # Inequality, not ordering: any version the base tip does not carry passes.
-    if head in base_versions:
-        print(UNCHANGED)
+    head_where = "the working tree" if worktree else "HEAD"
+    for version, where in [(head, head_where), *((v, base) for v in sorted(base_versions))]:
+        if parse_version(version) is None:
+            print(not_calver(version, where), file=sys.stderr)
+            return 1
+    # Ordering, not inequality: head must be newer than every version the base tip
+    # carries; a base whose sequence only rises can then never move back.
+    tip = max(base_versions, key=parse_version)
+    if parse_version(head) <= parse_version(tip):
+        print(not_newer(head, tip, base))
         return 1
     print(f"plugin version {' and '.join(sorted(base_versions))} -> {head}")
     return 0
@@ -217,12 +262,16 @@ def main(argv: list[str] | None = None) -> int:
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("show", help="print the shared version")
     bump = subcommands.add_parser("bump", help="advance the version in both manifests")
-    bump.add_argument(
+    source = bump.add_mutually_exclusive_group()
+    source.add_argument(
         "--set", dest="explicit", metavar="YYYY.M.N", help="write this version instead"
+    )
+    source.add_argument(
+        "--base", metavar="REF", help="advance from the newer of this version and REF's"
     )
     bump.add_argument("--today", type=date.fromisoformat, help=argparse.SUPPRESS)
     check_parser = subcommands.add_parser(
-        "check", help="refuse a changed plugin tree that carries the base's version"
+        "check", help="refuse a changed plugin tree not newer than the base's version"
     )
     check_parser.add_argument(
         "--base", required=True, metavar="REF", help="the ref this branch merges into"
@@ -254,7 +303,23 @@ def main(argv: list[str] | None = None) -> int:
     if explicit is None and not VERSION.match(distinct[0]):
         print(f"{distinct[0]} is not CalVer; write one with: bump --set", file=sys.stderr)
         return 1
-    new = explicit or next_version(distinct[0], args.today or date.today())
+    current = distinct[0]
+    if args.base is not None:
+        run = git_runner(args.root)
+        base_sha = resolve_base(args.base, run)
+        if base_sha is None:
+            print(base_not_found(args.base), file=sys.stderr)
+            return 2
+        base_versions = read_base_versions(base_sha, args.base, run)
+        if isinstance(base_versions, str):
+            print(base_versions, file=sys.stderr)
+            return 1
+        for version in sorted(base_versions):
+            if parse_version(version) is None:
+                print(not_calver(version, args.base), file=sys.stderr)
+                return 1
+        current = max([current, *base_versions], key=parse_version)
+    new = explicit or next_version(current, args.today or date.today())
     write_version(args.root, new)
     print(f"{' and '.join(distinct)} -> {new}")
     return 0
