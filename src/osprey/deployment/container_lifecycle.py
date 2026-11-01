@@ -257,6 +257,15 @@ def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]
     return merged
 
 
+def service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Every service's minted variables for *config*, applications' launch tokens included.
+
+    The one producer for a reader outside this module; ``{}`` answers the static
+    map.
+    """
+    return _service_token_vars(config)
+
+
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
 # NEVER minted — distinct from _SERVICE_TOKEN_VARS (which mints an unset var
 # for a deployed service) and from a bare _VAR_VALIDATORS entry alone (which,
@@ -3197,7 +3206,9 @@ def _ci_only_env_names(document: Mapping[str, object]) -> set[str]:
     return names
 
 
-def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> list[tuple[str, str]]:
+def _required_env_problems(
+    repo_root: Path | str, env: Mapping[str, str], config: Mapping[str, Any]
+) -> list[tuple[str, str]]:
     """One finding per ``env.required`` name nothing gives this deploy a value for.
 
     ``env.required`` is the profile's statement that the agent cannot run
@@ -3238,6 +3249,7 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
     :param repo_root: The deployment repo root, holding ``profile.yml`` and the
         env chain.
     :param env: The environment the stack would be started with.
+    :param config: The deploy config, whose applications name minted variables too.
     :return: ``(problem, remedy)`` pairs in the order the profile declares the
         names, so the report reads in the order of the file the operator opens
         to fix it. Empty when the profile declares nothing (or nothing missing).
@@ -3250,7 +3262,7 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
     if not isinstance(declared, list):
         return []
 
-    excluded = _ci_only_env_names(document) | _deploy_written_env_vars()
+    excluded = _ci_only_env_names(document) | _deploy_written_env_vars(config)
     chain = merge_chain(Path(repo_root))
 
     problems: list[tuple[str, str]] = []
@@ -3541,7 +3553,7 @@ def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tup
     return findings
 
 
-def _deploy_written_env_vars() -> set[str]:
+def _deploy_written_env_vars(config: Mapping[str, Any]) -> set[str]:
     """Every variable name a deploy-time writer can put into ``.env``.
 
     The census the pin declaration is checked against, and deliberately the
@@ -3553,27 +3565,29 @@ def _deploy_written_env_vars() -> set[str]:
     Three writers, all of them appending to (or rewriting) the local file on the
     ordinary start path:
 
-    * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
+    * :func:`_service_token_vars` — the minted secrets: the whole static map,
+      whatever this deploy enables, and each projected application's launch token;
     * the RE manager's control-socket keypair
       (:func:`_ensure_bluesky_control_plane_keys`);
     * the credentials ``--reuse-stores`` restores from surviving data volumes
       (:func:`_adopt_original_credentials`, over
       :data:`_VOLUME_INITIALIZED_VARS`).
 
+    :param config: The deploy config.
     :return: The names, as one set.
     """
-    written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
+    written = {var for names in _service_token_vars(config).values() for var in names}
     # Every lane's control-plane pair, not only lane 1's: the census is a
     # census of names this command can write, and a two-lane deploy writes two
     # pairs. Enumerated from the lane keys rather than from this deploy's
-    # config, because the census has none.
+    # config, so the census does not move with the lanes this deploy enables.
     for _lane_key in (_BLUESKY_LANE_ONE, *_BLUESKY_SECOND_LANE_KEYS):
         written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
     return written
 
 
-def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
+def _preflight_pinned_writers(repo_root: Path | str, config: Mapping[str, Any]) -> list[str]:
     """Refuse a pin on a name the deploy itself writes.
 
     ``env.pinned`` says a variable's value comes from this repo's chain and
@@ -3587,18 +3601,19 @@ def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
 
     Checked against the whole writer census (:func:`_deploy_written_env_vars`),
     not the services this deploy enables, so the answer is a property of the
-    profile and does not change with the config. Runs before anything reads or
+    profile and its ``apps:`` block. Runs before anything reads or
     writes the chain, because a profile making an unsatisfiable statement is
     wrong independently of what the files currently hold.
 
     :param repo_root: The deployment repo root, holding the profile.
+    :param config: The deploy config.
     :return: The empty list, when nothing pinned is machine-written.
     :raises RuntimeError: ``env.pinned`` names at least one written variable.
     """
     declared = pinned_env_keys(repo_root)
     if not declared:
         return []
-    offenders = sorted(declared & _deploy_written_env_vars())
+    offenders = sorted(declared & _deploy_written_env_vars(config))
     if not offenders:
         return []
 
@@ -6075,7 +6090,7 @@ def _collect_unmet_preconditions(
     # rather than about one image's build, and the deploy meets it first. Sees
     # the chain as it stands AFTER every mint above, so a token the deploy just
     # provisioned is not reported as missing -- see _required_env_problems.
-    findings.extend(_required_env_problems(repo_root, env))
+    findings.extend(_required_env_problems(repo_root, env, config))
     # The start-blocking rule asked of the config alone: reader names that
     # would share one set of the history page's sign-on settings.
     findings.extend(history_preflight_problems(config))
@@ -6541,7 +6556,7 @@ def _start_stack(
     # declaration that contradicts a provisioner is wrong whatever the chain
     # currently holds, and saying so first keeps the operator from resolving an
     # override on a name that should never have been pinned.
-    _preflight_pinned_writers(repo_root)
+    _preflight_pinned_writers(repo_root, config)
 
     # Refuse a local file that overrides a name the deployment pins. On the
     # PRE-MINT chain, so the refusal is about lines the operator wrote rather
