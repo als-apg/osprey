@@ -16,6 +16,7 @@ because its wrong answer is an empty list rather than an error.
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -2268,6 +2269,115 @@ def _stage_login_tiers(config, source_dir, out_dir, login_tiers, service_key=Non
         )
 
 
+def _drives_target_stop_grace_period(control_system):
+    """How long compose waits for a container that drives the target to stop.
+
+    A call in flight has the connector's whole call bound to finish, plus room
+    to report what it did, so a stop never cuts a write off mid-call.
+
+    :param control_system: The config's ``control_system:`` section.
+    :return: A compose duration, ``<ceil(timeout_s) + 10>s``
+    :rtype: str
+    :raises ValueError: The connector block's ``timeout_s`` is not a duration
+    """
+    from osprey_connectors.call_timeout import call_timeout_s
+    from osprey_connectors.types import resolve_control_system_type
+
+    connector_type = resolve_control_system_type(control_system)
+    timeout_s = call_timeout_s(_connector_block(control_system, connector_type), connector_type)
+    return f"{math.ceil(timeout_s) + 10}s"
+
+
+def _connector_block(control_system, connector_type):
+    """``control_system.connector.<connector_type>``, or ``{}`` when it is not a mapping."""
+    section = control_system if isinstance(control_system, Mapping) else {}
+    connector = section.get("connector")
+    block = connector.get(connector_type) if isinstance(connector, Mapping) else None
+    return block if isinstance(block, Mapping) else {}
+
+
+def _ca_name_servers(config):
+    """The ``<host>:<port>`` a bridge container reaches the baseline target's Channel Access at.
+
+    A simulator or stand-in baseline is a container this deployment runs, named
+    by its compose service on the port its block states; only the first instance,
+    the simulator, has a default port. A live baseline is the
+    facility's gateway, from its connector block: the ``write_access`` gateway,
+    else the ``read_only`` one.
+
+    :param config: The render's config.
+    :type config: dict
+    :return: The address, or ``None`` when none can be derived
+    :rtype: str or None
+    """
+    from osprey_connectors.types import (
+        DEFAULT_VA_PORT,
+        TARGET_STANDIN,
+        TARGET_VA,
+        baseline_target,
+        resolve_control_system_type,
+    )
+
+    section = config.get("control_system")
+    target = baseline_target(section)
+    instance = {TARGET_VA: "virtual_accelerator", TARGET_STANDIN: "live_standin"}.get(target)
+    if instance is not None:
+        if instance not in (config.get("deployed_services") or []):
+            return None
+        port = (config["services"].get(instance) or {}).get("port")
+        if port is None and target == TARGET_VA:
+            port = DEFAULT_VA_PORT
+        return f"{instance.replace('_', '-')}:{port}" if port else None
+    gateways = _connector_block(section, resolve_control_system_type(section)).get("gateways")
+    for role in ("write_access", "read_only"):
+        gateway = gateways.get(role) if isinstance(gateways, Mapping) else None
+        address = gateway.get("address") if isinstance(gateway, Mapping) else None
+        if address:
+            port = gateway.get("port")
+            return f"{address}:{port}" if port else str(address)
+    return None
+
+
+def _drives_target_ca_env(config, key, block):
+    """The Channel Access addressing of the bridge container *key*, or ``None``.
+
+    Name-server TCP transport with broadcast discovery off, as the Bluesky lanes
+    reach their machine: UDP discovery does not cross the container boundary. A
+    container on the host network, or a target that does not speak Channel
+    Access, needs none.
+
+    :param config: The render's config.
+    :type config: dict
+    :param key: The ``services:`` key.
+    :type key: str
+    :param block: ``services.<key>``.
+    :type block: dict
+    :rtype: dict[str, str] or None
+    :raises DeploymentPreconditionError: The container is on the bridge against
+        a Channel Access target and no name server can be derived
+    """
+    from osprey_connectors.types import speaks_channel_access
+
+    if block.get("network") == "host" or not speaks_channel_access(config.get("control_system")):
+        return None
+    name_servers = _ca_name_servers(config)
+    if name_servers is None:
+        raise DeploymentPreconditionError(
+            reason=(
+                f"services.{key} drives the target from the compose bridge network, and the "
+                "target speaks Channel Access, but no name server can be derived for it: the "
+                "simulator or stand-in it names is not deployed, the stand-in has no port, or "
+                "its gateway has no address."
+            ),
+            remedy=(
+                "Name the gateway in control_system.connector.<type>.gateways.write_access"
+                ".address, deploy the machine it targets with its port, or set network: host "
+                f"on {key}."
+            ),
+        )
+    return {"EPICS_CA_NAME_SERVERS": name_servers, "EPICS_CA_AUTO_ADDR_LIST": "NO"}
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -2677,6 +2787,33 @@ def _inject_project_metadata(config):
             for key, armed in posture.items():
                 services[key] = {**services[key], "writes_enabled": armed}
             config_with_labels["services"] = services
+
+    # What the app_runtime template's drives_target section reads beside that
+    # posture, for a deployed service declaring the role on its own block (a
+    # bundled template addresses its own machine and sets its own grace period).
+    if isinstance(services, dict):
+        deployed = [str(name) for name in config_with_labels.get("deployed_services") or []]
+        services = dict(services)
+        for key, block in services.items():
+            if key not in deployed or not isinstance(block, Mapping):
+                continue
+            if block.get(SERVICE_ROLE_DRIVES_TARGET) is not True:
+                continue
+            facts = {
+                "stop_grace_period": _drives_target_stop_grace_period(
+                    config_with_labels.get("control_system")
+                ),
+            }
+            ca_env = _drives_target_ca_env(config_with_labels, key, block)
+            if ca_env is not None:
+                facts["ca_env"] = ca_env
+            services[key] = {**block, **facts}
+        config_with_labels["services"] = services
+
+        # The render's ``service`` is ``services.<service_key>``, so it reads
+        # every per-service fact set above and not the block as it came in.
+        if config_with_labels.get("service_key") in services and "service" in config_with_labels:
+            config_with_labels["service"] = services[config_with_labels["service_key"]]
 
     # The simulated machine's tick period, resolved through the one function the
     # in-process simulator and the build's profile check call, so every surface
