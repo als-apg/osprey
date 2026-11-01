@@ -37,9 +37,9 @@ from .build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
-    bundled_service_template,
     is_bundled_preset_dir,
     list_presets,
+    resolve_service_template,
     resolve_triggers_path,
 )
 from .derived_keys import derived_key_errors
@@ -2071,13 +2071,14 @@ def profile_inputs(
             template = service.get("template") if isinstance(service, dict) else None
             if not isinstance(template, str) or not template:
                 continue
-            if bundled_service_template(template) is not None:
+            template_source = resolve_service_template(root, template)
+            if template_source.bundled:
                 continue
             entries.append(
                 ProfileInput(
                     f"{PurePosixPath(template).as_posix()}/",
                     f"services.{name}.template",
-                    root / template,
+                    template_source.path,
                     ProfileInputRole.MATERIAL,
                 )
             )
