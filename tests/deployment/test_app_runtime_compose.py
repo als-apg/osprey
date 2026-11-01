@@ -64,7 +64,8 @@ def _render(
         **config,
         "service_key": KEY,
         "service": config["services"][KEY],
-        "panel_grant": panel_grant or {"secret_env_vars": [], "roster_owners": ""},
+        "panel_grant": panel_grant
+        or {"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}},
     }
     text = _packaged_compose_template(TEMPLATE).render(**context)
     return text, yaml.safe_load(text)["services"][KEY]
@@ -153,10 +154,43 @@ def test_the_panel_grant_lists_each_roster_secret() -> None:
     assert env["OSPREY_TERMINAL_ROSTER_OWNERS"] == "ALICE=alice"
 
 
-def test_no_grant_renders_no_roster_secret() -> None:
-    _, svc = _render()
+def test_a_roster_less_panel_grant_reads_the_deploy_variable_with_no_default() -> None:
+    """The alias holds the one secret a roster-less deployment has; empty would lock it out."""
+    grant = {
+        "secret_env_vars": [],
+        "roster_owners": "OPERATOR=operator",
+        "secret_aliases": {"OSPREY_TERMINAL_SECRET_OPERATOR": "OSPREY_TERMINAL_SECRET"},
+    }
+    text, svc = _render(panel_grant=grant)
 
-    assert "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS" not in svc["environment"]
+    env = svc["environment"]
+    assert env["OSPREY_TERMINAL_SECRET_OPERATOR"] == "${OSPREY_TERMINAL_SECRET}"
+    assert env["OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS"] == "1"
+    assert env["OSPREY_TERMINAL_ROSTER_OWNERS"] == "OPERATOR=operator"
+    assert text.count("OSPREY_TERMINAL_ROSTER_OWNERS:") == 1
+
+
+def test_a_grant_with_both_shapes_renders_each_by_its_own_rule() -> None:
+    grant = {
+        "secret_env_vars": ["OSPREY_TERMINAL_SECRET_ALICE"],
+        "roster_owners": "ALICE=alice,BOB=bob",
+        "secret_aliases": {"OSPREY_TERMINAL_SECRET_BOB": "OSPREY_TERMINAL_SECRET"},
+    }
+    text, svc = _render(panel_grant=grant)
+
+    env = svc["environment"]
+    assert env["OSPREY_TERMINAL_SECRET_ALICE"] == "${OSPREY_TERMINAL_SECRET_ALICE:-}"
+    assert env["OSPREY_TERMINAL_SECRET_BOB"] == "${OSPREY_TERMINAL_SECRET}"
+    assert text.count("OSPREY_TERMINAL_ROSTER_OWNERS:") == 1
+
+
+def test_an_empty_grant_renders_no_roster_secret() -> None:
+    _, svc = _render(panel_grant={"secret_env_vars": [], "roster_owners": "", "secret_aliases": {}})
+
+    env = svc["environment"]
+    assert "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS" not in env
+    assert "OSPREY_TERMINAL_ROSTER_OWNERS" not in env
+    assert not any(name.startswith("OSPREY_TERMINAL_SECRET") for name in env)
 
 
 def test_the_health_endpoint_is_probed_on_the_containers_port() -> None:
@@ -169,3 +203,53 @@ def test_the_env_chain_is_not_handed_to_application_code() -> None:
     _, svc = _render()
 
     assert "env_file" not in svc
+
+
+def test_it_renders_with_every_key_it_reads_set() -> None:
+    """The closed list of keys the template reads, each present."""
+    row = _row(
+        network="bridge",
+        state="var/knob",
+        launch_token_env="KNOB_EXAMPLE_LAUNCH_TOKEN",
+        roster_grant={"panel_id": "knob-example", "single_user_alias": None},
+    )
+    assert set(row) - {"template", "url"} == {
+        "app",
+        "audit_identity",
+        "command",
+        "config_file",
+        "control_identity",
+        "drives_target",
+        "env",
+        "health",
+        "launch_token_env",
+        "network",
+        "port",
+        "roster_grant",
+        "state",
+    }
+
+    _, svc = _render(row)
+
+    assert svc["environment"]["OSPREY_APP_STATE_DIRS"]
+
+
+def test_it_renders_with_none_of_the_keys_it_reads() -> None:
+    text = _packaged_compose_template(TEMPLATE).render(
+        **_inject_project_metadata(
+            {
+                "project_name": "fixture",
+                "services": {KEY: {}},
+                "deployed_services": [KEY],
+                "deployment": {},
+                "system": {"timezone": "UTC"},
+            }
+        ),
+        service_key=KEY,
+        service={},
+        panel_grant={},
+    )
+
+    svc = yaml.safe_load(text)["services"][KEY]
+    assert set(svc["environment"]) == {"TZ"}
+    assert "ports" not in svc and "volumes" not in svc and "healthcheck" not in svc

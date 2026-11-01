@@ -79,7 +79,7 @@ services:
       # refusing every launch rather than accepting a guessable one.
       {{ svc.launch_token_env }}: ${{ "{" }}{{ svc.launch_token_env }}{{ "}" }}
 {%- endif %}
-{%- if grant.secret_env_vars %}
+{%- if grant.secret_env_vars or grant.secret_aliases %}
       # THE ROSTER GRANT. Every web-terminal user whose login shows this
       # application's panel proxies it here with the operator secret their own
       # container holds. Listing each of those variables lets this container's
@@ -88,6 +88,11 @@ services:
       OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
 {%- for var in grant.secret_env_vars %}
       {{ var }}: ${{ "{" }}{{ var }}:-}
+{%- endfor %}
+      # An alias reads the deploy variable that holds its secret, with no default:
+      # empty, it would lock out the one account a roster-less deployment has.
+{%- for var, source in (grant.secret_aliases | default({}, true)).items() %}
+      {{ var }}: ${{ "{" }}{{ source }}{{ "}" }}
 {%- endfor %}
       # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs.
       OSPREY_TERMINAL_ROSTER_OWNERS: "{{ grant.roster_owners | default('') }}"
