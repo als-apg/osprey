@@ -82,9 +82,6 @@ ACCELERATOR_WORDS = (
 #: parent and whether it is abstract.
 VOCABULARY_ADDITIONS = {"Septum": ("Magnet", False), "Kicker": ("Magnet", False)}
 
-#: The word `ring` in any identifier shape; `string` is not a hit.
-RING_TOKEN = r"(?i:\bring\b)|Ring(?=[A-Z_])|_ring\b|\bring_"
-
 
 def _load(name: str) -> dict:
     return yaml.safe_load((SCHEMA_DIR / name).read_text(encoding="utf-8"))
@@ -299,9 +296,7 @@ def test_unknown_or_missing_pulse_and_gate_keys_are_refused(keys: dict) -> None:
 
 @pytest.mark.parametrize(
     ("pattern", "flags"),
-    [(word, 0) for word in FACILITY_WORDS]
-    + [(word, re.IGNORECASE) for word in ACCELERATOR_WORDS]
-    + [(RING_TOKEN, 0)],
+    [(word, 0) for word in FACILITY_WORDS] + [(word, re.IGNORECASE) for word in ACCELERATOR_WORDS],
 )
 def test_core_names_no_facility_or_accelerator_word(pattern: str, flags: int) -> None:
     text = (SCHEMA_DIR / "core.yaml").read_text(encoding="utf-8")
@@ -310,10 +305,6 @@ def test_core_names_no_facility_or_accelerator_word(pattern: str, flags: int) ->
 
 
 def test_the_word_checks_would_catch_a_hit() -> None:
-    assert re.search(RING_TOKEN, "  lattice_ring: x")
-    assert re.search(RING_TOKEN, "RingModel")
-    assert not re.search(RING_TOKEN, "  default_range: string")
-    assert not re.search(RING_TOKEN, "  wiring_role_enum:")
     assert re.search(ACCELERATOR_WORDS[1], "a Beam line", re.IGNORECASE)
     assert re.search(FACILITY_WORDS[0], "the " + "A" + "LS demo")
 

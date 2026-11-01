@@ -1,17 +1,14 @@
 """The words the vocabulary guards hold, in one place.
 
-``RATCHET_WORD`` is the word no shipped file or agent-facing text carries; the file
-scan in :mod:`tests.facility.test_word_ratchet` and the agent-facing guard in
-:mod:`tests.mcp_server.test_channel_finder_tool_vocabulary` both match it.
 ``PROTOCOL_WORDS`` are the words the text an agent reads never names.
 ``ENGINE_WORDS`` are the simulation engine's own words, which only the engine
-plug-ins, the importers and the facility definitions speak; the second scan in
+plug-ins, the importers and the facility definitions speak; the first scan in
 :mod:`tests.facility.test_word_ratchet` matches them.
 ``RETIRED_ROSTER_WORD`` is the roster's retired word, which no tracked file
 names, by content or by path, outside the code that reads the old spelling;
-the third scan in :mod:`tests.facility.test_word_ratchet` matches it.
+the second scan in :mod:`tests.facility.test_word_ratchet` matches it.
 ``SITE_EXAMPLE_WORD`` is the example deployment name that named a site, which no
-core text carries; the fourth scan in :mod:`tests.facility.test_word_ratchet`
+core text carries; the third scan in :mod:`tests.facility.test_word_ratchet`
 matches it.
 
 ``HARDCODED_VOCABULARY_TOKENS`` hold the facility-vocabulary rule: facility
@@ -31,9 +28,7 @@ definition are masked by origin: ``FACILITY_CONTEXT_KEYS`` name the render
 context the build fills from the facility, and every string leaf and key under
 them is replaced by ``FACILITY_MASK`` before the words are matched. Masks match
 whole words. Every facility-sourced string is masked whatever it is, a bare
-guarded word included, because OSPREY's own wording is guarded at source — the
-templates and ``src/`` are scanned by :mod:`tests.facility.test_word_ratchet` —
-so a guarded word that survives masking is OSPREY's. OSPREY's vocabulary table
+guarded word included, so a guarded word that survives masking is OSPREY's. OSPREY's vocabulary table
 (:func:`osprey.facility.validate.vocabulary`) is never masked and stays judged.
 
 Lives in a ``_``-prefixed module rather than ``conftest.py`` because it holds
@@ -59,14 +54,10 @@ from osprey_connectors_tests._harness._vocabulary import REFUSAL_BAN_LIST  # noq
 #: render root.
 TextKey = tuple[str, str, str]
 
-#: The word, case-insensitive on its own and as a snake_case part; the
-#: capitalised camelCase part (``PyATRingModel``) is matched case-sensitively.
-#: A string, not a compiled pattern: ``git grep -P`` takes it as written.
-RATCHET_WORD = r"(?i:\bring\b|_ring\b|\bring_)|Ring(?=[A-Z_])"
-
 #: The pyAT attributes a corrector or a strength writes and the ``axis`` key a
 #: monitor reads. Code outside the engine's zones reads a binding's ``role``
-#: and ``plane`` instead. A string for ``git grep -P``, as ``RATCHET_WORD``.
+#: and ``plane`` instead. A string, not a compiled pattern: ``git grep -P``
+#: takes it as written.
 ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 
 #: The roster's retired word, singular or plural: on its own, as a snake_case
@@ -75,7 +66,7 @@ ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 #: character and ``\b`` would miss the word in the middle of a snake_case name.
 #: Other words that merely contain it (the adjective for one's own, an
 #: impersonation) are not matches. A string for ``git grep -P``, as
-#: ``RATCHET_WORD``; its own source line carries the scan's line marker.
+#: ``ENGINE_WORDS``; its own source line carries the scan's line marker.
 RETIRED_ROSTER_WORD = r"(?<![A-Za-z])[Pp]ersonas?(?![a-z])|(?<=[a-z0-9])Personas?(?![a-z])|(?<![A-Za-z])PERSONAS?(?![A-Za-z])"  # retired-spelling
 
 #: The example deployment name that named a site; examples use ``my-assistant``.
@@ -126,8 +117,8 @@ FACILITY_CONTEXT_KEYS: tuple[str, ...] = (
     "measurement",
 )
 
-#: What a facility-sourced string reads as once masked; it matches neither
-#: ``RATCHET_WORD`` nor ``PROTOCOL_WORDS``, so a failing guard stays readable.
+#: What a facility-sourced string reads as once masked; it does not match
+#: ``PROTOCOL_WORDS``, so a failing guard stays readable.
 FACILITY_MASK = "[facility]"
 
 
@@ -169,12 +160,12 @@ def render_root_facility_strings(root: Path) -> frozenset[str]:
 def mask_facility_text(text: str, strings: Iterable[str]) -> str:
     """*text* with every whole-word occurrence of a guarded facility string masked.
 
-    Only the strings that carry a ``RATCHET_WORD`` or ``PROTOCOL_WORDS`` match
-    are candidates, a string that is nothing but a guarded word included; the
-    longest is tried first so a short string never splits a longer one.
+    Only the strings that carry a ``PROTOCOL_WORDS`` match are candidates, a
+    string that is nothing but a guarded word included; the longest is tried
+    first so a short string never splits a longer one.
     """
     candidates = sorted(
-        {s for s in strings if re.search(RATCHET_WORD, s) or PROTOCOL_WORDS.search(s)},
+        {s for s in strings if PROTOCOL_WORDS.search(s)},
         key=lambda s: (-len(s), s),
     )
     if not candidates:

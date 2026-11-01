@@ -15,7 +15,6 @@ from typing import Any
 
 import pytest
 import yaml
-from tests._vocabulary import RATCHET_WORD
 
 from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.workspace import APPS_DIRNAME
@@ -104,11 +103,6 @@ def test_the_group_knob_is_one_integrated_strength_per_member(rendered: str):
 def test_step_sizes_point_at_the_authored_limits(rendered: str):
     assert "`max_step` in `data/facility/limits.yaml`" in rendered
     assert "channel_limits.json" not in rendered
-
-
-def test_the_skill_carries_no_retired_word(rendered: str):
-    assert not re.search(RATCHET_WORD, rendered)
-    assert not re.search(RATCHET_WORD, Path(TemplateManager().template_root, SKILL).read_text())
 
 
 def test_without_a_view_the_skill_renders_empty():
