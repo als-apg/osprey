@@ -29,6 +29,8 @@ _PRESET = (
 )
 HOOKS = [*yaml.safe_load(_PRESET.read_text(encoding="utf-8"))["hooks"], "code-review"]
 INIT_SETS = (
+    # The deployment offers the Simple view only: Expert is not on this stack at all.
+    "config.web.expert_view=false",
     "config.code_review.enabled=true",
     "config.code_review.level=block",
     f"hooks={json.dumps(HOOKS, separators=(',', ':'))}",
