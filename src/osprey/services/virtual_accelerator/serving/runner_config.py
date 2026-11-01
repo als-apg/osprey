@@ -9,7 +9,9 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
   Access, an out-of-band write is clamped into its band, and the runner claims
   no control channel of its own;
 * each setpoint's ``value_range``, the band the view's limits records give it;
-* each float channel's display ``precision``, when the view states one;
+* each float channel's display ``precision``: the view's, when it states one,
+  else :data:`FLOAT_PRECISION`, so no float channel is served Channel Access's
+  default of none;
 * each variable's PV ``mode``, stated explicitly: ``rw`` only for a setpoint
   the view marks writable -- the rule the composite itself declares a
   channel settable by -- and ``ro`` for everything else, the status addresses
@@ -42,6 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
 __all__ = [
+    "FLOAT_PRECISION",
     "HEALTH_KEYS",
     "SAFETY_KEYS",
     "apply_safety",
@@ -64,6 +67,11 @@ SAFETY_KEYS: Mapping[str, Any] = {
 #: fail the runner's health record.
 HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 
+#: The display precision a float channel is served when the view states none:
+#: four decimals read a tune to the 1e-4 a tune measurement resolves, and a
+#: corrector kick in mrad below a microradian, where none would show either as 0.
+FLOAT_PRECISION = 4
+
 _SETPOINT = "setpoint"
 _FLOAT = "float"
 _PERIODIC = "periodic"
@@ -82,8 +90,8 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
     Returns:
         A new configuration: ``config`` with :data:`SAFETY_KEYS` set, every
         variable's ``mode`` stated, each setpoint's ``value_range`` set to
-        the view's, and each float channel's ``precision`` set where the view
-        states one.
+        the view's, and each float channel's ``precision`` set: the view's
+        where it states one, else :data:`FLOAT_PRECISION`.
     """
     safe: dict[str, Any] = copy.deepcopy(dict(config))
     safe.update(SAFETY_KEYS)
@@ -100,8 +108,10 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
             entry["value_range"] = (
                 list(channel.value_range) if channel.value_range is not None else None
             )
-        if channel.value_type == _FLOAT and channel.precision is not None:
-            entry["precision"] = channel.precision
+        if channel.value_type == _FLOAT:
+            entry["precision"] = (
+                channel.precision if channel.precision is not None else FLOAT_PRECISION
+            )
     return safe
 
 
