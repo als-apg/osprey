@@ -33,7 +33,7 @@ Themes come in **families**. OSPREY ships four:
   prefer that look.
 
 In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
-light/dark switch, the theme family picker and the Expert/Simple view. Every
+light/dark switch and the theme family picker. Every
 panel opened as its own page (ARIEL, the workspace, Channel Finder, the
 lattice dashboard, the knowledge panel) has a sliders button in its own
 header. It opens the display menu, which has the same display controls, as
@@ -46,7 +46,7 @@ Until you pick Light or Dark, pages follow your operating system's light/dark
 preference.
 
 Panels shown inside the terminal are a separate case. The terminal hands each
-one its theme and view in the page address, and an address outranks the
+one its theme in the page address, and an address outranks the
 remembered preference, so an embedded panel always matches the terminal
 around it. The JUPYTER panel matches the light or dark side only, in
 JupyterLab's own *JupyterLab Dark* and *JupyterLab Light* themes

@@ -650,10 +650,8 @@ the deployment’s value. The key itself is described in <a class="reference int
 looking at a spinner. A search that will be reranked runs in two phases: the
 fast ranking is fetched and drawn first, then the reranked ranking replaces it
 when it arrives. A status line above the results says which of the two you are
-looking at. Expert view names the mechanism — <em>Search complete — reranking
-with LLM…</em>, then <em>Results updated after reranking</em>. Simple view says the same
-thing in one plain line — <em>Showing quick results — improving the order
-now…</em>, then <em>Order improved — best matches first</em>.</p>
+looking at — <em>Search complete — reranking with LLM…</em>, then <em>Results updated
+after reranking</em>.</p>
 <p>The second response is drawn from a larger candidate pool, so entries can appear
 or drop out between the phases: the list is redrawn, not merely reordered.</p>
 <p>If the reranker cannot answer — most often on the first query after the search
@@ -671,11 +669,6 @@ the way in to its settings:</p>
 <dl class="simple">
 <dt><strong>Appearance</strong></dt><dd><p>Light or Dark. It flips the shade without changing which theme you are in.</p>
 </dd>
-<dt><strong>View</strong></dt><dd><p>Expert or Simple. Expert is the full interface. Simple clears away the
-extras — the four-tab strip becomes a single “Browse all entries” link,
-the search mode tabs and advanced options disappear, and results lose their
-relevance scores — leaving a search box and a list of entries.</p>
-</dd>
 <dt><strong>Theme</strong></dt><dd><p>One button per theme family: Main, DESY, High Contrast, and Retro. Picking
 a family keeps whichever appearance you are already in, so a switch from
 Main to High Contrast in dark stays dark.</p>
@@ -684,17 +677,17 @@ Main to High Contrast in dark stays dark.</p>
 configuration block.</p>
 </dd>
 </dl>
-<p>Appearance, View, and Theme take effect straight away and leave the card open,
+<p>Appearance and Theme take effect straight away and leave the card open,
 so you can compare two looks without re-opening the menu. Settings closes it,
 because it takes you to a different surface. Click anywhere outside the card,
 or press <code class="docutils literal notranslate"><span class="pre">Escape</span></code>, to dismiss it.</p>
-<p><strong>Your picks follow you.</strong> The theme and view you choose here are remembered by
+<p><strong>Your picks follow you.</strong> The theme you choose here is remembered by
 your browser and shared with every OSPREY interface served from the same
 address — pick a dark High Contrast look in ARIEL and the OSPREY web terminal
 comes up that way the next time you load it, and the other way round too. There
 is no separate preference to keep in step.</p>
 <p>ARIEL running <em>inside</em> the web terminal, as a panel, behaves differently on
-purpose. The terminal passes its own theme and view to the panel in the page
+purpose. The terminal passes its own theme to the panel in the page
 address, and an address always outranks the remembered preference, so an
 embedded panel matches the terminal it sits in no matter what was set
 elsewhere. The embedded panel has no header of its own either — the

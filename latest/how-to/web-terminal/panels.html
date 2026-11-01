@@ -582,7 +582,7 @@ box. <a class="reference internal" href="lattice-dashboard.html"><span class="do
 </section>
 <section id="where-the-panels-live">
 <h2>Where the panels live<a class="headerlink" href="#where-the-panels-live" title="Link to this heading">#</a></h2>
-<p>Panels have a row in the sidebar on the left of the window, in both views.
+<p>Panels have a row in the sidebar on the left of the window.
 <strong>Artifacts</strong> (and <strong>Events</strong>, when the deployment enables it) is in the
 <strong>Workspace</strong> section, with <strong>Agent</strong>. All other panels are in the <strong>Tools</strong>
 section, followed by <strong>+ Add panel</strong>. See <a class="reference internal" href="operate.html#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p>
@@ -672,15 +672,14 @@ whole of what it is told. Everything below is <strong>version 1</strong> of the 
 (<code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code> in the design system’s <code class="docutils literal notranslate"><span class="pre">frame-params.js</span></code>), so a service
 that follows it keeps working as later versions add to it.</p>
 <p><strong>The theme arrives in the address.</strong> The terminal opens the panel at the URL
-you configured with three parameters added:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>?embedded=true&amp;theme=retro-dark&amp;mode=expert
+you configured with two parameters added:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>?embedded=true&amp;theme=retro-dark
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">theme</span></code> is the theme to paint with. <code class="docutils literal notranslate"><span class="pre">embedded=true</span></code> says the page is
 running inside the terminal rather than on its own, which is the cue to hide
 your own logo and page chrome — the terminal already draws a header around the
-tab, and without this you get two. <code class="docutils literal notranslate"><span class="pre">mode</span></code> is the operator’s Expert or Simple
-preference. Read all three <em>before the page first paints</em>, or the operator sees
+tab, and without this you get two. Read both <em>before the page first paints</em>, or the operator sees
 your default colors flash before yours settle on theirs.</p>
 <p><strong>The theme is one of eight names.</strong> <code class="docutils literal notranslate"><span class="pre">light</span></code> and <code class="docutils literal notranslate"><span class="pre">dark</span></code> for the main
 family, then <code class="docutils literal notranslate"><span class="pre">desy-light</span></code>, <code class="docutils literal notranslate"><span class="pre">desy-dark</span></code>, <code class="docutils literal notranslate"><span class="pre">high-contrast-light</span></code>,
@@ -696,8 +695,7 @@ switches theme, the terminal posts to the panel’s frame:</p>
 </div>
 <p>A panel is always served from the terminal’s own address, so the message is
 same-origin. Check that before acting on it — <code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">(event.origin</span> <span class="pre">!==</span>
-<span class="pre">window.location.origin)</span> <span class="pre">return;</span></code> — and repaint. The Expert/Simple toggle
-broadcasts the same way, as <code class="docutils literal notranslate"><span class="pre">{</span> <span class="pre">type:</span> <span class="pre">'osprey-mode-change',</span> <span class="pre">mode</span> <span class="pre">}</span></code>. A panel
+<span class="pre">window.location.origin)</span> <span class="pre">return;</span></code> — and repaint. A panel
 that runs at an opaque origin (see <a class="reference internal" href="#panels-you-add-run-at-an-opaque-origin">Panels you add run at an opaque origin</a>)
 receives only the theme message, and checks <code class="docutils literal notranslate"><span class="pre">event.source</span> <span class="pre">===</span> <span class="pre">window.parent</span></code>
 instead of the origin.</p>

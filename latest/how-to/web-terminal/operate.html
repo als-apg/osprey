@@ -563,17 +563,17 @@ restart — their sessions live in a store on disk; <code class="docutils litera
 <h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
 <p>The window has a sidebar on the left and two panes:</p>
 <ul class="simple">
-<li><p><strong>Sidebar</strong> (left) — the list of everything you can open, in both views:
+<li><p><strong>Sidebar</strong> (left) — the list of everything you can open:
 the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target block</span></a> (which
 machine this deployment writes to, and whether it may), search, the
 <strong>Workspace</strong> and <strong>Tools</strong> sections, and a footer with <strong>Docs</strong>,
 <strong>Feedback</strong> (see <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>), <strong>Sign out</strong> (multi-user
 deployments only) and <strong>☰ More</strong>. See
 <a class="reference internal" href="#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p></li>
-<li><p><strong>Agent</strong> (right) — a real terminal running the OSPREY agent in Expert view,
-or the operator chat in Simple view. It survives reconnects, and you can
-keep a few background conversations alive and hop between them. Close the
-pane with its <strong>×</strong>; the <strong>Agent</strong> row in the sidebar opens it again.</p></li>
+<li><p><strong>Agent</strong> (right) — the operator chat, or a real terminal running the OSPREY
+agent when you open one from the pane’s <strong>⋯</strong> menu. It survives reconnects,
+and you can keep a few background conversations alive and hop between them.
+Close the pane with its <strong>×</strong>; the <strong>Agent</strong> row in the sidebar opens it again.</p></li>
 <li><p><strong>Work pane</strong> (middle) — the artifacts and panels you open from the sidebar,
 arranged as dockable tiles. New artifacts, plots, and data files appear in
 the sidebar’s <strong>Artifacts</strong> list as the agent creates them, with no refresh.
@@ -598,28 +598,28 @@ plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
 back to an older browser mechanism that Safari may refuse.</p>
 </section>
-<section id="one-session-both-views">
-<span id="web-terminal-one-session"></span><h2>One session, both views<a class="headerlink" href="#one-session-both-views" title="Link to this heading">#</a></h2>
-<p>Expert and Simple are two windows onto the same conversation. Pick the other
-one from <strong>☰ More</strong> in the sidebar and the agent you were talking to comes
-with you: the terminal and the chat share one session, one write state and one
-transcript, and only the view you are looking at runs the agent.</p>
-<p>A deployment can offer the Simple view alone. With <code class="docutils literal notranslate"><span class="pre">web.expert_view:</span> <span class="pre">false</span></code>
-<strong>☰ More</strong> has no View group and every terminal opens in Simple; see
-<a class="reference internal" href="../../reference/configuration/config.html#config-expert-view"><span class="std std-ref">Expert and Simple view</span></a>.</p>
-<p>Handing it over waits for the work in flight. Switch while the agent is
-mid-turn and the view you arrive in reads <em>Finishing in the other view</em> with
+<section id="the-chat-and-the-terminal">
+<span id="web-terminal-one-session"></span><h2>The chat and the terminal<a class="headerlink" href="#the-chat-and-the-terminal" title="Link to this heading">#</a></h2>
+<p>The Agent pane is the operator chat. To reach the agent’s terminal, open the
+Agent bar’s <strong>⋯</strong> menu and pick <strong>Open terminal</strong>; <strong>Back to chat</strong> returns.
+The choice belongs to the browser tab, and a new tab opens on the chat. The
+chat and the terminal are two windows onto one conversation: they share one
+session, one write state and one transcript, and only the one you are looking
+at runs the agent. A deployment can leave the terminal out; see
+<a class="reference internal" href="../../reference/configuration/config.html#config-web-terminal"><span class="std std-ref">Offering the terminal</span></a>.</p>
+<p>Handing the agent over waits for the work in flight. Switch while the agent is
+mid-turn and the side you arrive in reads <em>Finishing the running turn</em> with
 the time you have been waiting, and offers <strong>Stop and switch now</strong>. Let it
 finish and the conversation reappears where it left off, with everything said
 so far already in the log. Nothing is ended on a clock: only the turn
 finishing, closing the page, or that button ends it. The button interrupts the
 agent, and stops it outright if it has not yielded within five seconds.</p>
-<p>Flip views while the other side’s agent is idle and there is nothing to wait
-for: the view you arrive in reads <em>Restarting the agent in this view…</em>, with no
+<p>Switch while the other side’s agent is idle and there is nothing to wait for:
+the side you arrive in reads <em>Restarting the agent…</em>, with no
 clock and no stop button. A restart that runs past about four seconds turns
 into the wait above.</p>
 <p>A refusal can meet you instead of the wait. <em>This session is in use in
-another tab or view.</em> means another browser tab holds it, so close that tab or
+another tab.</em> means another browser tab holds it, so close that tab or
 work there instead. <em>The previous agent is still shutting down.</em> is the one
 worth retrying, and the card offers <strong>Retry</strong>.</p>
 <div class="admonition note">
@@ -629,17 +629,17 @@ worth retrying, and the card offers <strong>Retry</strong>.</p>
 ends, and a deployment scaffolded earlier does not have it: add
 <code class="docutils literal notranslate"><span class="pre">turn-state</span></code> to the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.
 Without it, switching away from a terminal that might be working never
-waits. It says <em>The other view may still be working.</em> and offers only
+waits. It says <em>The agent may still be working.</em> and offers only
 <strong>Stop and switch now</strong>, and a terminal that was idle all along can still
 take the full five seconds to hand over.</p>
 </div>
-<p>The two views run the same Claude Code version, the one
+<p>The chat and the terminal run the same Claude Code version, the one
 <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names. If the chat is refused because that version
 is not installed, the server log says which one to install; see
 <a class="reference internal" href="../../getting-started/installation.html"><span class="doc">Installation</span></a>.</p>
-<p>While a turn runs in the Simple view, the composer is disabled and <strong>Send</strong>
-becomes <strong>Stop</strong>. Send the next prompt when the agent finishes, or select
-<strong>Stop</strong> to end the turn.</p>
+<p>While a turn runs in the chat, the composer is disabled and <strong>Send</strong> becomes
+<strong>Stop</strong>. Send the next prompt when the agent finishes, or select <strong>Stop</strong> to
+end the turn.</p>
 <section id="clearing-a-conversation">
 <h3>Clearing a conversation<a class="headerlink" href="#clearing-a-conversation" title="Link to this heading">#</a></h3>
 <p>Run <code class="docutils literal notranslate"><span class="pre">/clear</span></code> in the terminal to start a new conversation under the same
@@ -894,13 +894,12 @@ chip cannot lift it, and a refusal nobody set — a switch that cannot be read
 — says to retry, then ask the deployment admin.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>The other surfaces.</strong> Simple mode’s chat and the operator websocket run
+<p><strong>The other surfaces.</strong> The operator chat and websocket run
 their agent through the Agent SDK rather than a terminal, and notebook
 kernels run no agent at all. All of them read your login’s switches at
 write time, so a switch you set and a move you make reach every one of
-them — and the full chip works in both views, because what it changes is
-your login’s record rather than anything belonging to the window you are
-looking at.</p>
+them — because what the chip changes is your login’s record rather than
+anything belonging to the window you are looking at.</p>
 <p>A notebook kernel is the one surface where <em>when</em> is worth knowing. Off
 refuses the running cell’s next write; a widening, or a move to another
 machine, reaches the next cell you run. See <a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>.</p>
@@ -915,7 +914,7 @@ chip governs.</p>
 </section>
 <section id="the-sidebar">
 <span id="web-terminal-sidebar"></span><h2>The sidebar<a class="headerlink" href="#the-sidebar" title="Link to this heading">#</a></h2>
-<p>The sidebar is on the left in both views. From top to bottom, it shows:</p>
+<p>The sidebar is on the left. From top to bottom, it shows:</p>
 <ul>
 <li><p>The OSPREY mark and the label toggle.</p></li>
 <li><p>The control-target block. It is one row that shows the machine that this
@@ -988,7 +987,7 @@ artifact list next to the sidebar. To show the labels again, click the toggle
 or press the same keys.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>When the Expert terminal has the focus, Ctrl+\ goes to the terminal, not
+<p>When a terminal has the focus, Ctrl+\ goes to the terminal, not
 to the sidebar. In the terminal, Ctrl+\ sends SIGQUIT to the running
 program. To hide or show the labels in this state, click the toggle.</p>
 </div>
@@ -1031,9 +1030,8 @@ popped out. Its <strong>Pop out</strong> button and row are disabled.</p>
 </section>
 <section id="the-more-menu">
 <h3>The More menu<a class="headerlink" href="#the-more-menu" title="Link to this heading">#</a></h3>
-<p><strong>☰ More</strong> shows your user name and role at the top. It holds the <strong>View</strong>
-(<strong>Simple</strong> or <strong>Expert</strong>), the theme (see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), <strong>Settings</strong> and
-the tour. The same items are in both views.</p>
+<p><strong>☰ More</strong> shows your user name and role at the top. It holds the theme
+(see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), <strong>Settings</strong> and the tour.</p>
 </section>
 <section id="sign-out">
 <span id="web-terminal-sign-out"></span><h3>Sign out<a class="headerlink" href="#sign-out" title="Link to this heading">#</a></h3>
@@ -1052,15 +1050,10 @@ the start page.</p>
 </section>
 <section id="where-your-preferences-live">
 <h3>Where your preferences live<a class="headerlink" href="#where-your-preferences-live" title="Link to this heading">#</a></h3>
-<p>The browser remembers the theme, the view (Expert or Simple), the sidebar
+<p>The browser remembers the theme, the sidebar
 labels, the open lists in the sidebar, the sidebar groups, and the panel
 layout. A different browser or a different machine starts from the defaults
-of the deployment.
-The browser keeps one panel layout for each view: Simple starts from one panel
-next to the console, and Expert starts from the full workspace.</p>
-<p>The view is a preference. The conversation does not change with it. When you
-change between Expert and Simple, the same session moves to the other view.
-See <a class="reference internal" href="#web-terminal-one-session"><span class="std std-ref">One session, both views</span></a>.</p>
+of the deployment.</p>
 <p>Earlier releases had a header and a status bar that you could arrange. The
 terminal does not show them, and it does not read the bar arrangements that
 those releases saved.</p>
@@ -1084,7 +1077,7 @@ is the terminal <strong>process</strong> — which shell to launch, which direct
 watch for live files, how many background conversations to keep alive —
 and command-line flags override those for a single run. <code class="docutils literal notranslate"><span class="pre">web:</span></code> is the
 browser <strong>UI</strong> the process renders, including the deployment name and
-the bounds on the Simple-mode chat pool; those keys are catalogued in
+the bounds on the operator-chat pool; those keys are catalogued in
 <a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a>.</p>
 <p class="sd-card-text">One key sits outside both, in the multi-user <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
 block: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> sets how long a
@@ -1173,7 +1166,7 @@ verbs that read the results back.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-session-both-views">One session, both views</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-chat-and-the-terminal">The chat and the terminal</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#clearing-a-conversation">Clearing a conversation</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#attaching-a-file">Attaching a file</a></li>
 </ul>
