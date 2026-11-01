@@ -20,6 +20,9 @@
  *     selector, "+ New"). The bar is chosen when the tab is built, and a view
  *     flip rebuilds every tab (applyDockMode re-applies the layout through
  *     `fromJSON` or `clear` + `addPanel`), so the choice follows the view.
+ *     In Simple the tile also pops out, like a service tile: the chat moves
+ *     into its own window (agent-popout.js). Expert keeps its terminal
+ *     docked, so its Agent tile has no Pop out.
  *     The close runs dock-workspace's closeTerminalPanel, which keeps
  *     `html[data-agent]` and the `osprey-agent-pane` event in step.
  *
@@ -125,8 +128,12 @@ function wireTerminalBar(el) {
  * @returns {HTMLElement | null}
  */
 function terminalBar() {
-  const simple = document.documentElement.getAttribute('data-ui-mode') === 'simple';
-  return (simple ? terminalConsoleBarEl : null) ?? terminalHeaderEl;
+  return (isSimpleMode() ? terminalConsoleBarEl : null) ?? terminalHeaderEl;
+}
+
+/** Simple mode replaces the xterm card with the operator console. */
+function isSimpleMode() {
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
 }
 
 /** Matches the interactive children of an adopted Agent bar. */
@@ -184,15 +191,16 @@ function wireTileContextMenu(el, id) {
 }
 
 /**
- * A service tile's Pop out button: moves the panel into its own window. It
- * runs the pop-out inside the click, the gesture the browser needs to open a
- * window at all. A panel with no first-party page to open (an opaque-origin
- * panel) gets the button disabled, with the reason as its title. The gate
- * cannot be read when the tile is built: the panel's URL and its frame kind
- * resolve later, and a button disabled then would never receive the click
- * that re-reads it. So the button starts enabled and reads the gate when the
- * pointer or focus arrives and again at click time.
- * @param {string} panelId  service panel id (the placeholder id minus its prefix)
+ * A tile's Pop out button: moves the panel into its own window. It runs the
+ * pop-out inside the click, the gesture the browser needs to open a window
+ * at all. A panel with no first-party page to open (an opaque-origin panel)
+ * gets the button disabled, with the reason as its title. The gate cannot be
+ * read when the tile is built: the panel's URL and its frame kind resolve
+ * later, and a button disabled then would never receive the click that
+ * re-reads it. So the button starts enabled and reads the gate when the
+ * pointer or focus arrives and again at click time. The Simple view's Agent
+ * tile gets the same button for the pane's reserved id.
+ * @param {string} panelId  service panel id (the placeholder id minus its prefix), or the Agent pane's
  * @returns {HTMLButtonElement}
  */
 function buildPopoutButton(panelId) {
@@ -291,7 +299,11 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
-    if (!terminal) actions.appendChild(buildPopoutButton(this._servicePanelId ?? id));
+    // Expert keeps its terminal docked: the Pop out is a service tile's, and
+    // the Simple view's Agent tile's.
+    if (!terminal || isSimpleMode()) {
+      actions.appendChild(buildPopoutButton(this._servicePanelId ?? id));
+    }
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close osprey-icon-btn';

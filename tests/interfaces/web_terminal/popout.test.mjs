@@ -9,7 +9,10 @@
  * roll-call goes out once on the BroadcastChannel; a closed window — or one
  * that said bye and never came back — is released and its tile re-docked.
  * The panel-manager verbs arrive as deps, so this file drives the module
- * alone, with stand-ins for the windows the browser would hand back.
+ * alone, with stand-ins for the windows the browser would hand back. A
+ * surface that is not a service panel (the Agent pane) registers verbs of
+ * its own, rides the same Map, and may take further message types from its
+ * window and post to it.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -406,5 +409,161 @@ describe('broadcastToPopouts', () => {
     mod.broadcastToPopouts(send);
 
     expect(send.mock.calls).toEqual([[ariel]]);
+  });
+});
+
+describe('a registered surface (the Agent pane)', () => {
+  /** The Agent pane's verbs, as agent-popout.js registers them. */
+  function registerAgent(/** @type {any} */ mod, /** @type {HTMLElement | null} */ tile = null) {
+    const surface = {
+      popoutUrl: vi.fn(
+        /** @returns {string | null} */ () => '/?pane=agent&popout=true&theme=dark&mode=simple'
+      ),
+      conceal: vi.fn(),
+      redock: vi.fn(),
+      tile: vi.fn(() => tile),
+    };
+    mod.registerPopoutSurface('terminal', surface);
+    return surface;
+  }
+
+  test('pops out through its own page and tile size; the deps decide nothing for it', async () => {
+    const { mod, deps } = await boot();
+    const pane = document.createElement('div');
+    pane.getBoundingClientRect = () =>
+      /** @type {DOMRect} */ ({
+        width: 640,
+        height: 480,
+        left: 0,
+        top: 0,
+        right: 640,
+        bottom: 480,
+      });
+    const surface = registerAgent(mod, pane);
+    const popup = fakePopup('terminal');
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+
+    expect(mod.canPopOut('terminal')).toBe(true);
+    expect(mod.popOutPanel('terminal')).toBe(true);
+
+    expect(open).toHaveBeenCalledWith(
+      '/?pane=agent&popout=true&theme=dark&mode=simple',
+      'osprey-popout-terminal',
+      'popup=yes,width=640,height=480,left=480,top=210'
+    );
+    expect(surface.conceal).toHaveBeenCalledTimes(1);
+    expect(deps.popoutUrl).not.toHaveBeenCalledWith('terminal');
+    expect(deps.conceal).not.toHaveBeenCalled();
+
+    popup.closed = true;
+    mod.focusPopout('terminal');
+    expect(surface.redock).toHaveBeenCalledTimes(1);
+    expect(deps.redock).not.toHaveBeenCalled();
+  });
+
+  test('cannot pop out while its page is withheld, and opens at the default size with no tile', async () => {
+    const { mod } = await boot();
+    const surface = registerAgent(mod);
+    surface.popoutUrl.mockReturnValue(null);
+    expect(mod.canPopOut('terminal')).toBe(false);
+    expect(mod.popOutPanel('terminal')).toBe(false);
+
+    surface.popoutUrl.mockReturnValue('/?pane=agent&popout=true');
+    const open = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(/** @type {any} */ (fakePopup('terminal')));
+    mod.popOutPanel('terminal');
+    expect(open.mock.calls[0][2]).toBe('popup=yes,width=960,height=720,left=320,top=90');
+  });
+
+  test('a registered message type is taken from the held window alone, with its panel id', async () => {
+    const { mod } = await boot();
+    registerAgent(mod);
+    const popup = fakePopup('terminal');
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    const session = vi.fn();
+    mod.onPopoutMessage('osprey-popout-session', session);
+
+    // Before the window is held: nothing to match the message to.
+    message(
+      { type: 'osprey-popout-session', panelId: 'terminal', session_id: 'K0' },
+      { source: popup }
+    );
+    mod.popOutPanel('terminal');
+    message(
+      { type: 'osprey-popout-session', panelId: 'terminal', session_id: 'K1' },
+      { source: popup }
+    );
+    // A forged source, a foreign origin, and another panel's id are all refused.
+    message(
+      { type: 'osprey-popout-session', panelId: 'terminal', session_id: 'K2' },
+      { source: fakePopup('terminal') }
+    );
+    message(
+      { type: 'osprey-popout-session', panelId: 'terminal', session_id: 'K3' },
+      { origin: 'https://elsewhere.example', source: popup }
+    );
+    message(
+      { type: 'osprey-popout-session', panelId: 'ariel', session_id: 'K4' },
+      { source: popup }
+    );
+    message(
+      { type: 'osprey-popout-session', panelId: 'terminal', session_id: 'K5' },
+      { source: null }
+    );
+
+    expect(session.mock.calls).toEqual([
+      ['terminal', { type: 'osprey-popout-session', panelId: 'terminal', session_id: 'K1' }],
+    ]);
+  });
+
+  test('postToPopout posts to the held window at the hub origin, and to nobody else', async () => {
+    const { mod } = await boot();
+    registerAgent(mod);
+    const popup = fakePopup('terminal');
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+
+    expect(mod.postToPopout('terminal', { type: 'osprey-paste-to-terminal', text: 'x' })).toBe(
+      false
+    );
+    mod.popOutPanel('terminal');
+    expect(mod.postToPopout('terminal', { type: 'osprey-paste-to-terminal', text: 'x' })).toBe(
+      true
+    );
+
+    expect(popup.postMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: 'osprey-paste-to-terminal', text: 'x' },
+      window.location.origin
+    );
+    popup.closed = true;
+    expect(mod.postToPopout('terminal', { type: 'osprey-paste-to-terminal', text: 'y' })).toBe(
+      false
+    );
+  });
+
+  test('recallPanel closes the window and re-docks at once; its late bye is ignored', async () => {
+    vi.useFakeTimers();
+    const { mod } = await boot();
+    const surface = registerAgent(mod);
+    const popup = fakePopup('terminal');
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    const changes = /** @type {[string, boolean][]} */ ([]);
+    mod.onPopoutChange((id, out) => changes.push([id, out]));
+    mod.popOutPanel('terminal');
+
+    expect(mod.recallPanel('terminal')).toBe(true);
+
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    expect(mod.isPoppedOut('terminal')).toBe(false);
+    expect(surface.redock).toHaveBeenCalledTimes(1);
+    expect(changes).toEqual([
+      ['terminal', true],
+      ['terminal', false],
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
+    message({ type: 'osprey-popout-bye', panelId: 'terminal' }, { source: popup });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(surface.redock).toHaveBeenCalledTimes(1);
+    expect(mod.recallPanel('terminal')).toBe(false);
   });
 });

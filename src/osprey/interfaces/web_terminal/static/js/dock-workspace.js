@@ -11,6 +11,7 @@ import {
 } from './dock-tab.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
+import { isPoppedOut } from './popout.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @typedef {import('./dock-reconcile.js').PanelDescriptor} PanelDescriptor */
@@ -349,16 +350,20 @@ function wireStackingVeto(api) {
  * and resetDockLayout(); clears first so a reset restores the default
  * regardless of the current arrangement. Ends by re-docking every visible
  * service placeholder via the dock-iframe hook, so a reset never strands a
- * visible service panel with no placeholder to follow.
+ * visible service panel with no placeholder to follow. While the Agent pane
+ * runs in its own window (popout.js) the card stays out, as a service tile
+ * does while popped out: the window's close is what brings it back.
  * @param {any} api
  */
 function arrangeDefaultLayout(api) {
   api.clear();
-  api.addPanel({
-    id: PANEL_TERMINAL,
-    component: PANEL_TERMINAL,
-    title: TERMINAL_TITLE,
-  });
+  if (!isPoppedOut(PANEL_TERMINAL)) {
+    api.addPanel({
+      id: PANEL_TERMINAL,
+      component: PANEL_TERMINAL,
+      title: TERMINAL_TITLE,
+    });
+  }
   redockServices?.();
   syncAgentPane();
 }
@@ -509,10 +514,13 @@ function syncAgentPane() {
  * (the same mechanism resetDockLayout relies on). A reopened tile docks at
  * the grid's right edge, the pane's home side. The same in both views: in
  * Simple the tile hosts the chat console, and closing and reopening it is as
- * ordinary there.
+ * ordinary there. While the pane runs in its own window (popout.js) nothing
+ * is re-created: the window is the pane's home until it closes, and the row
+ * click that reaches here brings that window to the front instead
+ * (panel-menu-policy.js).
  */
 export function openTerminalPanel() {
-  if (!dockApi) return;
+  if (!dockApi || isPoppedOut(PANEL_TERMINAL)) return;
   const existing = dockApi.getPanel(PANEL_TERMINAL);
   if (existing) {
     existing.api?.setActive?.();
@@ -626,7 +634,14 @@ function applyStoredLayout(api, mode) {
   if (!next) return false;
   try {
     api.fromJSON(next);
-    ensureTerminalPanel(api);
+    // A stored layout carries the terminal card; while the pane runs in its
+    // own window the restore must not bring the card back.
+    if (isPoppedOut(PANEL_TERMINAL)) {
+      const restored = api.getPanel(PANEL_TERMINAL);
+      if (restored) api.removePanel(restored);
+    } else {
+      ensureTerminalPanel(api);
+    }
     normalizeTerminalTitle(api);
     // Let the adapter re-sync: ensure visible service placeholders exist and
     // prune any restored placeholder whose service no longer exists.
@@ -751,7 +766,9 @@ function stashLayout(api, mode) {
  * the service placeholder that was showing (preferring the focused one) — the
  * other panels stay one sidebar click away. The placeholder is re-created by its
  * own id, which is what lets the iframe adapter re-find and re-overlay it (it
- * resolves placeholders by id on every settle).
+ * resolves placeholders by id on every settle). While the Agent pane runs in
+ * its own window (popout.js) the console card stays out and the service tile
+ * takes the grid alone.
  * @param {any} api
  */
 function applySimpleDefault(api) {
@@ -763,14 +780,15 @@ function applySimpleDefault(api) {
   const placeholders = registered.filter((p) => p.id.startsWith(PLACEHOLDER_PREFIX));
   const activeId = api.activePanel?.id;
   const service = placeholders.find((p) => p.id === activeId) ?? placeholders[0] ?? null;
+  const withTerminal = !isPoppedOut(PANEL_TERMINAL);
 
   api.clear();
-  addPanelFromDescriptor(api, { ...terminal, title: TERMINAL_TITLE });
+  if (withTerminal) addPanelFromDescriptor(api, { ...terminal, title: TERMINAL_TITLE });
   if (service) {
     addPanelFromDescriptor(
       api,
       service,
-      { referencePanel: PANEL_TERMINAL, direction: 'left' },
+      withTerminal ? { referencePanel: PANEL_TERMINAL, direction: 'left' } : undefined,
       defaultServiceWidth()
     );
   }
@@ -783,11 +801,12 @@ function applySimpleDefault(api) {
  * panels into the serialized layout — the live api sizes a fresh tile
  * correctly, a JSON-appended node would not — so the restore paths call this
  * right after fromJSON. Keeps the pre-existing behavior that a reload always
- * comes back with the terminal present.
+ * comes back with the terminal present — unless the pane runs in its own
+ * window (popout.js), whose close is what brings the card back.
  * @param {any} api
  */
 function ensureTerminalPanel(api) {
-  if (api.getPanel(PANEL_TERMINAL)) return;
+  if (api.getPanel(PANEL_TERMINAL) || isPoppedOut(PANEL_TERMINAL)) return;
   try {
     api.addPanel({
       id: PANEL_TERMINAL,

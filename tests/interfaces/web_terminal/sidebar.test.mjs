@@ -595,6 +595,80 @@ describe('the Agent row', () => {
     document.dispatchEvent(new CustomEvent('osprey-sidebar-rendered'));
     expect(agentRow().dataset.tip).toBe('Agent · 2 waiting — click to open');
   });
+
+  /**
+   * Pop the pane out through the real protocol (popout.js, the instance the
+   * sidebar imported), which closes the tile as the hub's adoption does; the
+   * returned handle is the window.
+   */
+  async function popOutAgent() {
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        postMessage() {}
+        close() {}
+      }
+    );
+    const popout = await import(`${JS}/popout.js`);
+    popout.initPopouts({
+      popoutUrl: () => null,
+      conceal: () => {},
+      redock: () => {},
+      sync: () => {},
+    });
+    popout.registerPopoutSurface('terminal', {
+      popoutUrl: () => '/?pane=agent&popout=true',
+      conceal: () => agentPane('closed'),
+      redock: () => agentPane('open'),
+      tile: () => null,
+    });
+    const win = {
+      closed: false,
+      opener: window,
+      name: 'osprey-popout-terminal',
+      focus() {},
+      close() {},
+    };
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (win));
+    expect(popout.popOutPanel('terminal')).toBe(true);
+    return { popout, win };
+  }
+
+  test('popped out: the row says where the pane is, and the badge shows what waits there', async () => {
+    await boot();
+    await popOutAgent();
+
+    expect(agentRow().dataset.tip).toBe('Agent');
+    expect(agentRow().getAttribute('aria-description')).toBe(
+      'The Agent pane is in its own window; activate to bring it to the front'
+    );
+    expect(agentBadge().hidden).toBe(true);
+
+    chatEvents.emitChat('attention', { waiting: 2 });
+    expect(agentBadge().hidden).toBe(false);
+    expect(agentBadge().textContent).toBe('2');
+    expect(agentRow().dataset.tip).toBe('Agent · 2 waiting');
+    expect(agentRow().getAttribute('aria-description')).toBe(
+      'The Agent pane is in its own window and 2 cards wait on you; activate to bring it to the front'
+    );
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  test('the window closing paints the open pane again', async () => {
+    await boot();
+    const { popout, win } = await popOutAgent();
+    chatEvents.emitChat('attention', { waiting: 1 });
+
+    win.closed = true;
+    popout.focusPopout('terminal');
+
+    expect(agentRow().dataset.tip).toBe('Agent');
+    expect(agentRow().hasAttribute('aria-description')).toBe(false);
+    expect(agentBadge().hidden).toBe(true);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 });
 
 /* ---- fades --------------------------------------------------------------- */

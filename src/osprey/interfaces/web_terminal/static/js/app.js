@@ -31,7 +31,17 @@ import { initMoreMenu } from './more-menu.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
-import { initChat, enterFromExpert, renderChatBootFailure } from './chat.js';
+import { initChat, enterFromExpert } from './chat.js';
+import { renderChatBootFailure } from './chat-console.js';
+import {
+  initAgentPopout,
+  initAgentPopoutPage,
+  isAgentPopoutPage,
+  isHubPanel,
+  openPanelInHub,
+  recallAgentPopout,
+  forwardPasteToAgent,
+} from './agent-popout.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initControlTargetChip } from './control-target-chip.js';
@@ -45,6 +55,12 @@ import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+  // The Agent pane's own window is this page opened as the chat alone
+  // (agent-popout.js): nothing of the shell boots there.
+  if (isAgentPopoutPage()) {
+    bootAgentPopoutPage();
+    return;
+  }
   initTheme({ role: 'hub' });
   // Guarded: xterm.js loads from a CDN by default (local only in
   // OSPREY_OFFLINE), so a network blip must degrade the terminal card, not
@@ -92,6 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // arrive without a listener.
   initHeaderContrib();
   initPanelManager('right-panel');
+  // The Agent pane pops out on the protocol the panel manager just started.
+  initAgentPopout({ navigate: navigateAndActivatePanel });
   initSessionSelector('session-selector');
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break
@@ -125,6 +143,38 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 });
+
+/**
+ * Boot the Agent pane's own window: the chat, its answer links and the
+ * bridges to the hub that opened it (agent-popout.js), and nothing of the
+ * shell — no sidebar, dock, panel manager, palette or menus, whose markup
+ * terminal.css takes out of the layout on `html[data-pane="agent"]`. The
+ * theme runs as a follower here whatever role is asked for (a `?popout=true`
+ * page), and the view mode is the hub's, resolved pre-paint from the address.
+ */
+function bootAgentPopoutPage() {
+  initTheme({ role: 'hub' });
+  try {
+    initChat('operator-container');
+  } catch (err) {
+    console.error('Failed to init operator chat:', err);
+    renderChatBootFailure('operator-container');
+  }
+  // A link in an answer opens its panel in the hub, which hosts the panels;
+  // the hub's roster says which links are panel links here.
+  try {
+    initAgentLinks({ isHostedPanel: isHubPanel, openPanel: openPanelInHub });
+  } catch (err) {
+    console.error('Failed to init agent answer links:', err);
+  }
+  try {
+    initArtifactLinks({ showArtifacts: () => openPanelInHub(ARTIFACTS_PANEL_ID, '') });
+  } catch (err) {
+    console.error('Failed to init artifact links:', err);
+  }
+  // After the chat, so the first session report carries the key it bound.
+  initAgentPopoutPage();
+}
 
 /* ---- Control-system block ---- */
 
@@ -219,6 +269,10 @@ export function initSignOut() {
  */
 export function initUiModeFollowUps() {
   onModeChange((mode) => {
+    // The Expert view keeps its terminal docked: an Agent window is taken
+    // back first, so the steps below find the pane docked and its console
+    // awake, exactly as they would without the window.
+    if (mode === 'expert') recallAgentPopout();
     // Panels read the current mode off <html>, so broadcast only after the
     // swap (onModeChange stamped it before calling back).
     broadcastMode();
@@ -359,18 +413,25 @@ function initDrawerTriggerHighlight() {
  * Exported so the wiring can be driven directly in tests: the bootstrap above
  * runs on DOMContentLoaded, which has already fired by then.
  *
+ * @param {{ isHostedPanel?: (id: string) => boolean,
+ *   openPanel?: (id: string, url: string) => void }} [deps] - what the Agent
+ *   pane's own window substitutes: it hosts no panel, so it asks the hub's
+ *   roster and hands a panel link to the hub (agent-popout.js)
  * @returns {Promise<void>} settles once the loopback ports are read (or not)
  */
-export function initAgentLinks() {
+export function initAgentLinks({
+  isHostedPanel = (id) => getPanelStandaloneUrl(id) !== null,
+  openPanel = navigateAndActivatePanel,
+} = {}) {
   const operatorRoot = document.getElementById('operator-container');
   if (!operatorRoot) return Promise.resolve();
   /** @type {ReadonlyMap<string, string>} backend port -> panel id */
   let loopbackPorts = new Map();
   wireAgentLinks(operatorRoot, {
     prefix: window.__OSPREY_PREFIX__ || '',
-    isHostedPanel: (id) => getPanelStandaloneUrl(id) !== null,
+    isHostedPanel,
     loopbackPorts: () => loopbackPorts,
-    openPanel: navigateAndActivatePanel,
+    openPanel,
     openWindow: (url, target, features) => {
       window.open(url, target, features);
     },
@@ -403,8 +464,12 @@ const ARTIFACTS_PANEL_ID = 'artifacts';
  *
  * Exported so the wiring can be driven directly in tests: the bootstrap above
  * runs on DOMContentLoaded, which has already fired by then.
+ * @param {{ showArtifacts?: () => void }} [deps] - what the Agent pane's own
+ *   window substitutes: it hands the opening to the hub (agent-popout.js)
  */
-export function initArtifactLinks() {
+export function initArtifactLinks({
+  showArtifacts = () => navigateAndActivatePanel(ARTIFACTS_PANEL_ID, ''),
+} = {}) {
   const operatorRoot = document.getElementById('operator-container');
   if (!operatorRoot) return;
   wireArtifactLinks(operatorRoot, {
@@ -425,7 +490,7 @@ export function initArtifactLinks() {
         if (res.status === 403) return 'refused';
         return 'unreachable';
       }
-      navigateAndActivatePanel(ARTIFACTS_PANEL_ID, '');
+      showArtifacts();
       return 'shown';
     },
   });
@@ -449,9 +514,11 @@ export function initArtifactLinks() {
 export function initIframePasteBridge() {
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
-    // Accept paste-to-terminal messages from embedded iframes
+    // Accept paste-to-terminal messages from embedded iframes. While the
+    // Agent pane is popped out the composer is in its window, so the text
+    // goes there (agent-popout.js).
     if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
-      insertPrompt(e.data.text, { append: true });
+      if (!forwardPasteToAgent(e.data.text)) insertPrompt(e.data.text, { append: true });
     }
     // A panel asking its host to move THIS client to another panel — the
     // sender-local twin of the panel_focus SSE path (the gallery's logbook

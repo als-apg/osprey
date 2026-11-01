@@ -350,7 +350,7 @@ describe('command palette guards on the tab being gone', () => {
     'panel-manager.js': () => ({
       getHiddenPanels: () => [],
       getVisiblePanels: () => [],
-      getPopoutPanels: () => [],
+      getPopoutPanels: () => servicePopouts.slice(),
       getPresets: () => [],
       showPanel: () => {},
       activateTab: () => {},
@@ -362,12 +362,28 @@ describe('command palette guards on the tab being gone', () => {
     'sessions.js': () => ({ startNewSession: () => {} }),
     'feedback-modal.js': () => ({ isFeedbackModalOpen: () => false }),
     'dock-workspace.js': () => ({ resetDockLayout }),
+    // The Agent pane's pop-out gate (agent-popout.js registers the pane on
+    // popout.js); the service panels' rows come from panel-manager above.
+    'popout.js': () => ({
+      canPopOut: (/** @type {string} */ id) => id === 'terminal' && agentPopout.can,
+      isPoppedOut: (/** @type {string} */ id) => id === 'terminal' && agentPopout.popped,
+      popOutPanel: () => true,
+    }),
   };
+
+  /** Whether the Agent pane can pop out, and whether it already has. */
+  const agentPopout = { can: true, popped: false };
+  /** The service panels that can pop out, as panel-manager would list them. */
+  const servicePopouts = /** @type {{ id: string, label: string }[]} */ ([]);
 
   afterEach(() => {
     for (const name of Object.keys(PALETTE_BOOT_MOCKS)) vi.doUnmock(`${JS}/${name}`);
     vi.unstubAllGlobals();
     vi.resetModules();
+    agentPopout.can = true;
+    agentPopout.popped = false;
+    document.documentElement.removeAttribute('data-ui-mode');
+    servicePopouts.length = 0;
   });
 
   /** Open the palette through the sidebar's Search trigger and return the deps it built. */
@@ -421,6 +437,42 @@ describe('command palette guards on the tab being gone', () => {
     expect(deps.actions.map((/** @type {any} */ a) => a.label)).toEqual(
       expect.arrayContaining(['Open Memory gallery', 'Open Prompt gallery'])
     );
+  });
+
+  test('in Simple the Pop out rows start with the Agent pane while it is docked', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    servicePopouts.push({ id: 'ariel', label: 'ARIEL' });
+
+    expect((await openThroughTrigger()).getPopoutPanels()).toEqual([
+      { id: 'terminal', label: 'Agent' },
+      { id: 'ariel', label: 'ARIEL' },
+    ]);
+  });
+
+  test('a pane already in its own window has no Pop out row', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    servicePopouts.push({ id: 'ariel', label: 'ARIEL' });
+    agentPopout.popped = true;
+
+    expect((await openThroughTrigger()).getPopoutPanels()).toEqual([
+      { id: 'ariel', label: 'ARIEL' },
+    ]);
+  });
+
+  test('a pane that cannot pop out has no Pop out row', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    agentPopout.can = false;
+
+    expect((await openThroughTrigger()).getPopoutPanels()).toEqual([]);
+  });
+
+  test('in Expert the Agent pane has no Pop out row', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    servicePopouts.push({ id: 'ariel', label: 'ARIEL' });
+
+    expect((await openThroughTrigger()).getPopoutPanels()).toEqual([
+      { id: 'ariel', label: 'ARIEL' },
+    ]);
   });
 });
 

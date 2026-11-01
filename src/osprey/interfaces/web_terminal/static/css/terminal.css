@@ -368,6 +368,15 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   display: inline;
 }
 
+/* Popped out (popout.js, agent-popout.js): the pane runs in its own window
+   and the row's click brings that window to the front, so the closed pane's
+   own cues — the hollow dot and the Open hint — give way to the window glyph
+   setEntryPoppedOut appends. */
+html[data-agent="closed"] #sidebar-agent-row.popped-out .sidebar-agent-dot,
+html[data-agent="closed"] #sidebar-agent-row.popped-out:is(:hover, :focus-visible) .sidebar-open-hint {
+  display: none;
+}
+
 /* ---- Rows that disclose a list: Artifacts, Script runs ---- */
 
 .sidebar-row {
@@ -1707,6 +1716,28 @@ html[data-sidebar-resizing] {
    iframe host) is hidden inline by dock-workspace.js. */
 .dock-panel-sources {
   display: contents;
+}
+
+/* The Agent pane's own window (agent-popout.js): the hub page opened as the
+   chat alone, `html[data-pane="agent"]` stamped pre-paint by index.html. Only
+   the chat boots there, so the sidebar, the dock grid and the fallback panel
+   host leave the layout and the chat card fills the window edge to edge. */
+html[data-pane="agent"] .shell-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-pane="agent"] :is(.sidebar, .dock-root, #right-panel) {
+  display: none;
+}
+
+html[data-pane="agent"] .main-container,
+html[data-pane="agent"] .terminal-panel {
+  padding: 0;
+}
+
+html[data-pane="agent"] .terminal-card {
+  border: 0;
+  border-radius: 0;
 }
 
 /* Neutral fill host wrapping each adopted subtree so it fills its dockview panel

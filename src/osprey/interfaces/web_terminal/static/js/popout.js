@@ -21,6 +21,9 @@
  *   popup → hub   `osprey-popout-hello {panelId}`  on load, and in answer to
  *                 a roll-call. Adopts `event.source` as the panel's window.
  *   popup → hub   `osprey-popout-bye {panelId}`    on the popup's `pagehide`.
+ *   popup → hub   any further type a surface registers through
+ *                 {@link onPopoutMessage} (the Agent window's session,
+ *                 attention and navigation reports, agent-popout.js).
  *   hub → every   `osprey-popout-roll-call`         once per hub page load, on
  *   popup         the BroadcastChannel named below: the hub's reload loses its
  *                 Map, the popups' `window.opener` survives it, so each popup
@@ -28,14 +31,15 @@
  *   hub → popup   the state messages `osprey-theme-change`, `osprey-mode-change`
  *                 and `osprey-session-change`, exactly as the iframes get them,
  *                 on every hello and on every change (panel-manager wires the
- *                 change fan-outs through {@link broadcastToPopouts}).
+ *                 change fan-outs through {@link broadcastToPopouts}), and
+ *                 whatever a surface posts through {@link postToPopout}.
  *
  * The hub takes a message only from its own origin. A hello is taken from a
  * window this hub opened under the protocol's window name — read off the
  * source, which the same origin allows — because a hello is how a window is
- * ADOPTED and nothing else may claim a panel. A bye is taken only from the
- * window the Map already holds for that panel, so no other same-origin page
- * can re-dock a tile.
+ * ADOPTED and nothing else may claim a panel. A bye, and every registered
+ * type, is taken only from the window the Map already holds for that panel,
+ * so no other same-origin page can re-dock a tile or speak for a window.
  *
  * RETURN
  * ------
@@ -49,9 +53,11 @@
  * a focus report — nobody asked the server for this surfacing.
  *
  * This module imports nothing from the panel stack: panel-manager hands it the
- * three verbs it needs at init ({@link initPopouts}), the same seam pattern
+ * verbs it needs at init ({@link initPopouts}), the same seam pattern
  * panel-menu-policy.js and panel-placement.js use, so the sidebar, the tile
- * bar and the dock adapter can all import it without a cycle.
+ * bar and the dock adapter can all import it without a cycle. A surface that
+ * is not a service panel — the Agent pane — registers verbs of its own for
+ * its id ({@link registerPopoutSurface}) and rides the same Map and protocol.
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
@@ -102,11 +108,29 @@ const BLOCKED_MESSAGE = 'Pop-ups are blocked for this site.';
  *   session to one window
  */
 
+/**
+ * The verbs of a pop-out surface that is not a service panel, registered for
+ * its id by the module that owns it; consulted before the panel-manager deps.
+ * @typedef {object} PopoutSurface
+ * @property {() => string | null} popoutUrl - the page to open, or null while
+ *   the surface cannot pop out (the Agent pane outside the Simple view)
+ * @property {() => void} conceal - retire the surface's tile locally
+ * @property {() => void} redock - put the tile back
+ * @property {() => HTMLElement | null} tile - the element the window is sized
+ *   like, or null while the surface holds no tile
+ */
+
 /** @type {PopoutDeps | null} */
 let deps = null;
 
 /** The open windows, by panel id. @type {Map<string, Window>} */
 const windows = new Map();
+
+/** The surfaces registered for ids that are not service panels. @type {Map<string, PopoutSurface>} */
+const surfaces = new Map();
+
+/** The handlers for the popups' further message types, by type. @type {Map<string, (panelId: string, data: Record<string, unknown>) => void>} */
+const messageHandlers = new Map();
 
 /** When each window said bye, by panel id, while its grace runs. @type {Map<string, number>} */
 const byeAt = new Map();
@@ -143,6 +167,42 @@ export function initPopouts(popoutDeps) {
   channel.close();
 }
 
+/**
+ * Register the verbs of a surface that is not a service panel, so its id can
+ * pop out through every path a service panel does (the tile bar, the row
+ * menu, the palette, {@link popOutPanel}). Called once by the module that
+ * owns the surface, before or after {@link initPopouts}: the deps decide
+ * nothing for a registered id.
+ * @param {string} panelId
+ * @param {PopoutSurface} surface
+ */
+export function registerPopoutSurface(panelId, surface) {
+  surfaces.set(panelId, surface);
+}
+
+/**
+ * Handle one further message type from a popup, on top of hello and bye.
+ * The handler runs only for a message from this hub's own origin whose
+ * source is the window the Map holds for the message's panel id — the same
+ * check a bye passes — and gets that id with the message data. One handler
+ * per type; a later registration replaces the earlier one.
+ * @param {string} type
+ * @param {(panelId: string, data: Record<string, unknown>) => void} handler
+ */
+export function onPopoutMessage(type, handler) {
+  messageHandlers.set(type, handler);
+}
+
+/**
+ * The surface's page to open, or the panel-manager's for a service panel.
+ * @param {string} panelId
+ * @returns {string | null}
+ */
+function popoutUrl(panelId) {
+  const surface = surfaces.get(panelId);
+  return surface ? surface.popoutUrl() : ctx().popoutUrl(panelId);
+}
+
 /** @param {string} panelId @returns {boolean} */
 export function isPoppedOut(panelId) {
   return windows.has(panelId);
@@ -159,7 +219,7 @@ export function isPoppedOut(panelId) {
  * @returns {boolean}
  */
 export function canPopOut(panelId) {
-  return deps !== null && deps.popoutUrl(panelId) !== null;
+  return deps !== null && popoutUrl(panelId) !== null;
 }
 
 /**
@@ -185,7 +245,7 @@ export function onPopoutChange(callback) {
  */
 export function popOutPanel(panelId) {
   if (windows.has(panelId)) return focusPopout(panelId);
-  const url = ctx().popoutUrl(panelId);
+  const url = popoutUrl(panelId);
   if (url === null) return false;
   const win = window.open(url, WINDOW_NAME_PREFIX + panelId, features(panelId));
   if (!win) {
@@ -209,6 +269,46 @@ export function bringBackPanel(panelId) {
   } catch {
     /* the window navigated out of reach — the poll releases it */
   }
+}
+
+/**
+ * Close a panel's window and put its tile back at once, without waiting for
+ * the window's bye or the poll. For a caller whose next step needs the tile
+ * in place: the flip to Expert takes the Agent back before the hand-off.
+ * The window's own bye, if it still arrives, finds no held window and is
+ * ignored.
+ * @param {string} panelId
+ * @returns {boolean} true when a window was open for the panel
+ */
+export function recallPanel(panelId) {
+  const win = windows.get(panelId);
+  if (!win) return false;
+  try {
+    win.close();
+  } catch {
+    /* the window navigated out of reach — it is no longer the panel's either way */
+  }
+  release(panelId);
+  return true;
+}
+
+/**
+ * Post one message to a panel's window, addressed to the hub's own origin:
+ * the targeted twin of {@link broadcastToPopouts}, for what one surface
+ * sends its own window (the Agent window gets a panel's paste).
+ * @param {string} panelId
+ * @param {Record<string, unknown>} message
+ * @returns {boolean} true when the panel has an open window the message went to
+ */
+export function postToPopout(panelId, message) {
+  const win = windows.get(panelId);
+  if (!win || win.closed) return false;
+  try {
+    win.postMessage(message, window.location.origin);
+  } catch {
+    /* the window navigated out of reach — the poll releases it */
+  }
+  return true;
 }
 
 /**
@@ -246,16 +346,20 @@ export function broadcastToPopouts(send) {
 
 /**
  * The `window.open` features for a panel: a popup sized like the panel's
- * tile — its iframe box, or a default when it holds no tile — clamped to the
- * window minimum and the screen, and centred on the hub's screen.
+ * tile — its iframe box, a registered surface's own tile, or a default when
+ * it holds no tile — clamped to the window minimum and the screen, and
+ * centred on the hub's screen.
  * @param {string} panelId
  * @returns {string}
  */
 function features(panelId) {
-  const iframe = [...document.querySelectorAll('.panel-iframe')].find(
-    (el) => el instanceof HTMLElement && el.dataset.panelId === panelId
-  );
-  const box = iframe?.getBoundingClientRect();
+  const surface = surfaces.get(panelId);
+  const tile = surface
+    ? surface.tile()
+    : [...document.querySelectorAll('.panel-iframe')].find(
+        (el) => el instanceof HTMLElement && el.dataset.panelId === panelId
+      );
+  const box = tile?.getBoundingClientRect();
   const wanted = box && box.width > 0 && box.height > 0 ? box : null;
   const { availWidth, availHeight } = window.screen;
   const availLeft = Number(/** @type {any} */ (window.screen).availLeft) || 0;
@@ -289,7 +393,9 @@ function adopt(panelId, win) {
   byeAt.delete(panelId);
   if (windows.get(panelId) === win) return;
   windows.set(panelId, win);
-  ctx().conceal(panelId);
+  const surface = surfaces.get(panelId);
+  if (surface) surface.conceal();
+  else ctx().conceal(panelId);
   notify(panelId, true);
   if (pollHandle === null) pollHandle = setInterval(pollClosed, CLOSED_POLL_MS);
 }
@@ -302,7 +408,9 @@ function release(panelId) {
   if (!windows.delete(panelId)) return;
   byeAt.delete(panelId);
   notify(panelId, false);
-  ctx().redock(panelId);
+  const surface = surfaces.get(panelId);
+  if (surface) surface.redock();
+  else ctx().redock(panelId);
   if (windows.size === 0 && pollHandle !== null) {
     clearInterval(pollHandle);
     pollHandle = null;
@@ -368,5 +476,9 @@ function onMessage(event) {
   } else if (data.type === BYE) {
     if (event.source !== windows.get(panelId)) return;
     byeAt.set(panelId, Date.now());
+  } else {
+    const handler = messageHandlers.get(String(data.type));
+    if (!handler || event.source !== windows.get(panelId)) return;
+    handler(panelId, data);
   }
 }

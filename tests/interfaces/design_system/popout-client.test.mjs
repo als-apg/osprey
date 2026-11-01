@@ -5,11 +5,11 @@
  *
  * A page the hub opened under the protocol's window name reports to its
  * opener — hello on load, bye on pagehide, hello again on the hub's
- * roll-call — addressed to its own origin and only while the opener is
- * alive. A page with no such opener, or without the name, is a plain
- * standalone page and sends nothing. The roll-call is taken from the
- * BroadcastChannel only; a window message that looks like one, whoever posts
- * it, drives nothing.
+ * roll-call, and whatever the page itself posts through postToOpener —
+ * addressed to its own origin and only while the opener is alive. A page
+ * with no such opener, or without the name, is a plain standalone page and
+ * sends nothing. The roll-call is taken from the BroadcastChannel only; a
+ * window message that looks like one, whoever posts it, drives nothing.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -167,6 +167,35 @@ describe('reporting to the hub', () => {
     expect(() => channels[0].receive({ type: 'osprey-popout-roll-call' })).not.toThrow();
 
     expect(hub.postMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('postToOpener', () => {
+  test("posts the page's own message to the opener with the panel id stamped on it", async () => {
+    const hub = fakeHub();
+    vi.stubGlobal('opener', hub);
+    const mod = await load();
+
+    expect(mod.postToOpener({ type: 'osprey-popout-session', session_id: 'K1' })).toBe(true);
+
+    expect(hub.postMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: 'osprey-popout-session', session_id: 'K1', panelId: 'ariel' },
+      window.location.origin
+    );
+  });
+
+  test.each([
+    ['no opener', null, 'osprey-popout-ariel'],
+    ['an opener that is closed', { closed: true, postMessage: vi.fn() }, 'osprey-popout-ariel'],
+    ['a window not named by the hub', fakeHub(), 'my-own-window'],
+  ])('%s: posts nothing and says so', async (_name, opener, windowName) => {
+    vi.stubGlobal('opener', opener);
+    window.name = windowName;
+    const mod = await load();
+
+    expect(mod.postToOpener({ type: 'osprey-popout-session', session_id: 'K1' })).toBe(false);
+
+    if (opener) expect(opener.postMessage).not.toHaveBeenCalled();
   });
 });
 
