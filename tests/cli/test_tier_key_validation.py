@@ -18,7 +18,7 @@ import pytest
 
 from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_document import _parse_profile_document, _read_profile_document
-from osprey.cli.build_profile_merge import _judge_shared_posture
+from osprey.cli.build_profile_merge import _judge_shared_posture, render_document
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
@@ -222,3 +222,31 @@ def test_an_invalid_value_on_the_set_layer_is_refused(value):
 @pytest.mark.parametrize("value", ["allowed", "asked", "never"])
 def test_a_valid_value_on_the_set_layer_is_accepted(value):
     resolve_build_profile(None, "hello-world", set_pairs=(f"config.control_system.writes={value}",))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "config:\n  images:\n    platform: linux/amd64\n",
+        "config:\n  images.platform: linux/amd64\n",
+        "lists: own\nconfig:\n  images.platform: linux/arm64\n",
+    ],
+)
+def test_a_login_naming_the_image_platform_is_refused_naming_the_profile(tmp_path, text):
+    """The images are the deployment's: one platform, stated in its profile."""
+    path = _write(tmp_path, TIERS_DIRNAME, text)
+    layer = _read_profile_document(path, source=f"{TIERS_DIRNAME}/x.yml")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        render_document({"name": "host"}, layer, f"{TIERS_DIRNAME}/x.yml")
+
+    message = str(excinfo.value)
+    assert f"{TIERS_DIRNAME}/x.yml" in message
+    assert "images.platform" in message and "profile.yml" in message
+
+
+def test_a_login_naming_another_image_key_is_not_refused_for_it(tmp_path):
+    path = _write(tmp_path, TIERS_DIRNAME, "config:\n  images.tag: dev\n")
+    layer = _read_profile_document(path, source=f"{TIERS_DIRNAME}/x.yml")
+
+    render_document({"name": "host"}, layer, f"{TIERS_DIRNAME}/x.yml")
