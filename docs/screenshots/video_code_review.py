@@ -9,6 +9,7 @@ the check, and the corrected script reaches the operator with the verdict on its
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -79,19 +80,31 @@ def _simple_view(take: Take) -> None:
         raise ProbeFailed("simple-view", "the take left the Simple view")
 
 
+#: When each take armed, the start of the hook records it reads.
+_MARKS: dict[int, datetime] = {}
+
+
 def _arm(take: Take) -> None:
     _simple_view(take)
+    _MARKS[id(take)] = datetime.now(UTC)
     answer = take.page.evaluate(ARM_JS, video_chat.session_id(take.page))
     if answer.get("status") != 200:
         raise ProbeFailed("arm", f"the write switch did not move: {answer}")
 
 
 def _blocked_first(take: Take) -> None:
-    """The first card must follow a block, or the take shows nothing of the review stopping code."""
+    """The review refused a run before the card, by the approval hook's own record.
+
+    The agent words what it was told its own way, so the screen is no witness: the hook logs
+    ``refused`` for a call the review blocked ahead of the prompt.
+    """
     _simple_view(take)
-    shown = take.screen()
-    if "blocked" not in shown.lower():
-        raise ProbeFailed("blocked", f"no block on screen before the card:\n{take.tail()}")
+    records = take.hook_log(_MARKS[id(take)])
+    refused = [r for r in records if r.get("hook") == "approval" and r.get("status") == "refused"]
+    if not refused:
+        raise ProbeFailed(
+            "blocked", f"the approval hook refused nothing before the card:\n{take.tail()}"
+        )
 
 
 def _corrected_card(take: Take) -> None:
@@ -126,7 +139,9 @@ CODE_REVIEW = (
         text=VERDICT,
         fast_forward=True,
     ),
-    Beat("blocked", "The first script was blocked. The agent added the check.", _blocked_first),
+    Beat(
+        "blocked", "The review blocked the first script. The agent added the check.", _blocked_first
+    ),
     hold("blocked-hold", None, HOLD_MS),
     Beat(
         "verdict", "The operator sees only the corrected script, with the verdict.", _corrected_card
