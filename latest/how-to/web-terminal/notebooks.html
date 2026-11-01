@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 31, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
   </head>
   
   
@@ -592,7 +592,7 @@ channel nothing serves would fail on its first run.</p>
 <h2>Which machine a kernel writes to<a class="headerlink" href="#which-machine-a-kernel-writes-to" title="Link to this heading">#</a></h2>
 <p>A kernel has no control-system identity of its own, and it follows no chat
 session. Cells read and write through the deployment’s current control target
-and write posture — the same one the chip in the header shows and the agent
+and write posture — the same one the control-target block in the sidebar shows and the agent
 uses.</p>
 <p>The kernel re-reads that before <strong>every cell</strong>, so a switch made anywhere, by
 anyone, reaches the next cell you run. A cell can read back what it was routed
@@ -606,10 +606,11 @@ with:</p>
 </div>
 <p><strong>Nothing restarts.</strong> Switch the control target from the chip, or move the
 write switch, and the next cell you run is routed by the new state.</p>
-<p>Inside the web terminal the header chip is the only place to do that; the
-JUPYTER tab carries no chip of its own. A notebook opened in its own window —
-popped out of the terminal, or opened at its own address — has no header above
-it, so that page shows the same chip in its top-right corner. It is the same
+<p>Inside the web terminal the control-target block in the sidebar is the only
+place to do that; the JUPYTER tab carries no chip of its own. A notebook
+opened in its own window — popped out of the terminal, or opened at its own
+address — has no sidebar beside it, so that page shows the same chip in its
+top-right corner. It is the same
 switch either way: a change made from either place lands deployment-wide.</p>
 <p>A cell already running is not re-routed — but taking writes away still
 reaches it. The two directions are not symmetric, and the difference is worth
@@ -700,7 +701,7 @@ last saved. Output from cells that ran since that save is gone.</p>
 <h2>Notebooks the agent also edits<a class="headerlink" href="#notebooks-the-agent-also-edits" title="Link to this heading">#</a></h2>
 <p>The OSPREY agent may edit a notebook under <code class="docutils literal notranslate"><span class="pre">notebooks/</span></code> (and, as before,
 under <code class="docutils literal notranslate"><span class="pre">artifacts/</span></code>); an edit anywhere else is refused by the memory guard.
-When it edits one, the rail’s JUPYTER entry badges and the history row reads
+When it edits one, the JUPYTER row in the sidebar badges and the history row reads
 <em>agent edited &lt;notebook&gt;</em>.</p>
 <p>What you see next depends on what the notebook was doing at the time:</p>
 <ul class="simple">
@@ -743,13 +744,21 @@ keyword.</p>
 </section>
 <section id="how-the-tab-is-themed">
 <span id="notebooks-theming"></span><h2>How the tab is themed<a class="headerlink" href="#how-the-tab-is-themed" title="Link to this heading">#</a></h2>
-<p>JupyterLab starts in the deployment’s pinned theme. A <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> that names
-a dark or a light look (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>) starts the tab in JupyterLab’s matching
-built-in theme; a family name on its own pins nothing.</p>
-<p>Unlike the other panels, this one does not follow the terminal’s Appearance
-toggle. Switching the terminal between light and dark leaves JupyterLab as it
-is. Pick a theme inside the tab from <em>Settings → Theme</em> instead. That pick is
-stored on the durable volume, so it comes back after a sidecar restart.</p>
+<p>The JUPYTER tab follows the light or dark side of the terminal’s theme. A dark
+theme shows <em>JupyterLab Dark</em>, and a light theme shows <em>JupyterLab Light</em>.
+When you change the terminal theme (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), the tab changes too. In
+the tab, the terminal theme replaces a theme that you pick from
+<em>Settings → Theme</em>.</p>
+<p>The tab changes its theme after JupyterLab starts. Until then, JupyterLab
+shows the theme that it stored last. If it has no stored theme, it shows the
+pinned theme of the deployment. A <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> that names a dark or a light
+look pins the JupyterLab theme for that look. A family name on its own pins
+nothing.</p>
+<p>JupyterLab stores each theme change on the durable volume, so the theme comes
+back after a sidecar restart. A JupyterLab page that you open at its own
+address does not follow the terminal. It starts in the theme that the tab used
+last. A theme that you pick there from <em>Settings → Theme</em> stays until the tab
+follows the terminal again.</p>
 </section>
 <section id="when-the-tab-fails-to-start">
 <h2>When the tab fails to start<a class="headerlink" href="#when-the-tab-fails-to-start" title="Link to this heading">#</a></h2>
@@ -779,8 +788,6 @@ otherwise, so it never claims a panel is healthy on evidence it does not have.</
 <li><p>No real-time collaborative editing. Two people in one notebook fall back to
 the save-time dialog above.</p></li>
 <li><p>No health probe of the sidecar; the row reports what the terminal recorded.</p></li>
-<li><p>No live theme following. The tab starts in the pinned theme and stays there
-until you pick another one inside it.</p></li>
 </ul>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>

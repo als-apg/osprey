@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 31, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
   </head>
   
   
@@ -1151,9 +1151,9 @@ string and is always escaped.</p>
 </section>
 <section id="logging-out-and-switching-users">
 <h3>Logging out and switching users<a class="headerlink" href="#logging-out-and-switching-users" title="Link to this heading">#</a></h3>
-<p>Every session’s header carries a chip in the top-left naming the terminal — the
-display name where the roster sets one, the username otherwise. Clicking it
-opens a small menu naming the signed-in user, with <strong>Log out</strong>. That POSTs to the terminal’s logout
+<p>The <strong>☰ More</strong> menu at the bottom of the sidebar names the signed-in user —
+the display name where the roster sets one, the username otherwise — and
+their role, and has <strong>Sign out</strong>. That POSTs to the terminal’s logout
 route, clears the local session pointer, and returns you to the landing page.
 From there, pick another card to open a different user. Logging out ends the
 session for real — the terminal drops its running processes, so the next login

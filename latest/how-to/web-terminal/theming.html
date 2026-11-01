@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 31, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
   </head>
   
   
@@ -552,12 +552,12 @@ light and dark.</p></li>
 <li><p><strong>retro</strong> — a navy-and-teal family, in light and dark, for teams who
 prefer that look.</p></li>
 </ul>
-<p>In the terminal, click the sliders button at the top right to open the
-display menu — it holds the light/dark switch, the Expert/Simple view toggle,
-and the theme family picker, as pictured below. Every panel opened as its own
-page (ARIEL, the workspace, Channel Finder, the lattice dashboard, the
-knowledge panel) has the same button and the same display controls in its
-own header.</p>
+<p>In the terminal, click <strong>☰ More</strong> at the bottom of the sidebar. It holds the
+light/dark switch, the theme family picker and the Expert/Simple view. Every
+panel opened as its own page (ARIEL, the workspace, Channel Finder, the
+lattice dashboard, the knowledge panel) has a sliders button in its own
+header. It opens the display menu, which has the same display controls, as
+pictured below.</p>
 <p>A pick made on any of those pages is remembered by your browser and becomes
 your preference for every OSPREY page served from the same address — set a
 theme in ARIEL and the terminal comes up in it the next time you load it.
@@ -566,8 +566,8 @@ preference.</p>
 <p>Panels shown inside the terminal are a separate case. The terminal hands each
 one its theme and view in the page address, and an address outranks the
 remembered preference, so an embedded panel always matches the terminal
-around it. The JUPYTER panel is the exception: it starts on the deployment’s
-pinned theme and then keeps whatever theme you pick inside JupyterLab
+around it. The JUPYTER panel matches the light or dark side only, in
+JupyterLab’s own <em>JupyterLab Dark</em> and <em>JupyterLab Light</em> themes
 (<a class="reference internal" href="notebooks.html#notebooks-theming"><span class="std std-ref">How the tab is themed</span></a>).</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-2 sd-g-xs-2 sd-g-sm-2 sd-g-md-2 sd-g-lg-2 docutils">
@@ -617,7 +617,8 @@ worked example in <a class="reference internal" href="multi-user/index.html#mult
 </div>
 <p>The value takes the same two forms as <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>: a family, or a specific
 theme to also pin light or dark. It overrides <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> for that user’s
-terminal only, and their own pick in the display menu still wins over it.</p>
+terminal only, and their own pick in the terminal’s <strong>☰ More</strong> menu or a panel’s
+display menu still wins over it.</p>
 <p>The landing page that lists everyone’s terminals uses the deployment-wide
 <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>, and so does the sign-in page a user reaches from it, which also
 shows the facility’s name above the OSPREY wordmark. That name is the one the
@@ -627,15 +628,13 @@ to apply yet.</p>
 </section>
 <section id="a-navy-and-teal-terminal">
 <h2>A navy-and-teal terminal<a class="headerlink" href="#a-navy-and-teal-terminal" title="Link to this heading">#</a></h2>
-<p>Two settings in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> give the terminal a navy-and-teal look with its
-panel buttons along the top:</p>
+<p>One setting in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> gives the terminal a navy-and-teal look:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retro</span><span class="w">            </span><span class="c1"># the navy/teal palette</span>
-<span class="w">  </span><span class="nt">rail_position</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">top</span><span class="w">      </span><span class="c1"># panel buttons along the top</span>
 </pre></div>
 </div>
-<p>Each user can still override both from the interface: the theme from the
-display menu in the header, and the rail position from the panel “+” menu.</p>
+<p>The retro family uses the same sidebar as every other theme. Each user can
+still change the theme from <strong>☰ More</strong> in the sidebar.</p>
 </section>
 <section id="propose-a-theme">
 <h2>Propose a theme<a class="headerlink" href="#propose-a-theme" title="Link to this heading">#</a></h2>

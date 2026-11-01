@@ -61,12 +61,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Git and GitHub Workflow" href="workflow.html" />
+    <link rel="next" title="Design Language" href="design-language.html" />
     <link rel="prev" title="Contributing to Osprey" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 31, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
   </head>
   
   
@@ -384,6 +384,7 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Development Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design-language.html">Design Language</a></li>
 <li class="toctree-l1"><a class="reference internal" href="workflow.html">Git and GitHub Workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="extending-osprey.html">Extending Osprey</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agent-skills.html">Agent Skills</a></li>
@@ -736,6 +737,9 @@ though <code class="docutils literal notranslate"><span class="pre">HTMLInputEle
 <code class="docutils literal notranslate"><span class="pre">/design-system/js/*</span></code> specifier, mapped in both <code class="docutils literal notranslate"><span class="pre">tsconfig.json</span></code> and
 <code class="docutils literal notranslate"><span class="pre">vitest.config.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">resolve.alias</span></code> – the same import path resolves
 under the type-checker, Vitest, and the real browser.</p></li>
+<li><p>Shared visual parts (surface tokens, sidebar rows, popovers, the tooltip
+layer, icons) come from the design system, not from a local copy.
+<a class="reference internal" href="design-language.html"><span class="doc">Design Language</span></a> gives the rules and the list of primitives.</p></li>
 </ul>
 <p><strong>Exemplars</strong> (concrete, complete, worth reading before writing your own):</p>
 <ul class="simple">
@@ -795,11 +799,11 @@ under the type-checker, Vitest, and the real browser.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="workflow.html"
+       href="design-language.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Git and GitHub Workflow</p>
+        <p class="prev-next-title">Design Language</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -460,10 +460,9 @@ The thresholds are not spelled as a ``file_system`` entry under
 
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
-section. The keys below aim the rail's two utility controls, bound the feedback
-store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, choose whether the Expert view is offered, size the
-Simple-mode operator-chat pool, bound how
+section. The keys below aim the sidebar's two utility controls, bound the feedback
+store, name the deployment, decide who is offered the onboarding tour, choose
+whether the Expert view is offered, size the Simple-mode operator-chat pool, bound how
 long a panel's own server gets to start, and set how often the file watchers
 re-read the tree.
 
@@ -481,8 +480,8 @@ Documentation and feedback keys
      - What it does
    * - ``web.docs_url``
      - ``https://als-apg.github.io/osprey``
-     - Where the **Documentation** control — in the rail and in the status bar
-       — points. Set it to your own hosted copy of the docs.
+     - Where the **Documentation** control in the sidebar points. Set it to
+       your own hosted copy of the docs.
    * - ``web.feedback.trackers``
      - unset (no list)
      - Issue trackers the feedback dialog offers, one channel each. A list of
@@ -619,7 +618,7 @@ screen. ``web.tour`` decides who is offered it, and how often:
        This is the shared-screen posture: a wall display nobody owns should
        still greet the next person who walks up to it.
    * - ``never``
-     - No invite. The tour stays reachable from the rail's **⋯ More** menu
+     - No invite. The tour stays reachable from the sidebar's **☰ More** menu
        and the command palette.
 
 An unrecognised value is reported in the log and treated as ``once``: a typo
@@ -631,79 +630,6 @@ container as ``OSPREY_WEB_TOUR``, and the environment variable outranks
 ``web.tour`` for that container, exactly as ``OSPREY_WEB_THEME`` outranks
 ``web.theme``.
 
-.. _config-bar-items:
-
-The header and status bar
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The terminal's header and its status bar are both *item hosts*: each renders
-one ordered list of small items — the wordmark, the control-target chip, a
-clock, the documentation link — drawn from one catalog.
-``web.bar_items`` sets the arrangement this deployment starts from. A user who
-rearranges their own bars overrides it for themselves; everyone else, and every
-new browser, gets what you write here, and it is what the **Default** preset in
-Customize returns a user to.
-
-.. code-block:: yaml
-
-   web:
-     bar_items:
-       header: [logo, identity, space, control-target, search, display]
-       status: [space, system-health, clock]
-       header_visible: true
-       status_visible: true
-
-- ``header`` and ``status`` are the two bars, top to bottom in the browser and
-  left to right in each list. Omit one and it keeps the shipped order, so
-  arranging the header never silently empties the status bar. Write an empty
-  list for a bar you want left bare.
-- ``header_visible`` and ``status_visible`` hide a bar without emptying it. A
-  user can bring it back; the items you listed are still there when they do.
-
-An item this deployment cannot show leaves the arrangement before it is served:
-``system-health`` without the SYSTEM panel in ``web_panels``, ``bluesky-queue``
-without the Bluesky panel, ``identity`` with neither a terminal user nor an
-``app_name``, ``control-target`` where ``web.control_target_picker`` is
-``false``. The server logs each such entry you wrote at start-up, and
-``osprey build`` and ``osprey validate`` name the two that need a panel.
-
-An item that needs an option takes a mapping instead of a bare name, for
-example ``- {type: clock, options: {zone: utc, format: 12h}}`` or
-``- {type: space, options: {width: 120}}`` (a ``space`` at width ``0``, the
-default, takes whatever room is left in the bar). Any item may sit in either
-bar. The ``bluesky-queue`` item, offered where the Bluesky panel is declared,
-takes ``controls`` (``none``, the default: its card only opens the panel;
-``stop``: adds *Stop after current item*; ``full``: Start, Stop and Abort),
-``progress`` (show the running plan's name and points on the chip, default
-``true``) and ``count`` (show how many plans are queued, default ``true``).
-The ``system-health`` item, offered where the SYSTEM panel is enabled, takes
-``text`` (``none``, the default: the dot alone; ``status``: the dot and the
-suite's worst outcome in a word) and ``detail`` (``categories``, the default:
-its card lists one row per check category; ``checks``: every check).
-
-The ``clock`` item takes ``zone`` with these values:
-
-- ``none``, the default: the viewer's time;
-- ``local``: the same, with its zone named in the header;
-- ``facility``: the time in ``system.timezone``;
-- ``utc``;
-- ``both``: the viewer's time beside UTC.
-
-It also takes ``format`` (``24h``, the default, or ``12h``) and ``seconds``
-(default ``false``). Wherever the viewer's clock shows a different time from
-the facility's, a clock showing the viewer's time names that zone in either
-bar. A ``facility`` clock is named in the header, and in the status bar too
-when the viewer is elsewhere.
-
-Nothing here can stop the terminal from booting. An item name the build does
-not know, a second copy of an item that can only appear once (everything but
-``clock``, ``stopwatch``, ``space`` and ``separator``), or a line that is not an
-item at all is reported in the log and skipped; the rest of the bar is
-rendered. An option the item does not take, or a value it does not accept
-(``zone: UTC`` rather than ``utc``, a ``width`` past ``2000``), is reported the
-same way and dropped; the item keeps its default for that option. Twenty items
-per bar is the ceiling, and extras past it are dropped.
-
 .. _config-control-target-picker:
 
 The control-target picker
@@ -714,15 +640,14 @@ The control-target picker
    web:
      control_target_picker: true
 
-The title bar's control-target chip names the machine this terminal stands on
+The control-target block in the sidebar names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
 server and no JUPYTER panel. The bundled ``logbook``, ``knowledge`` and
 ``channel-finder`` apps do.
 
 The setting changes what the page shows, not what the agent may do. With it
-off, the ``control-target`` item is left out of every arrangement this terminal
-serves and is not offered in Customize. A value that is not a boolean is
+off, the sidebar has no control-target block. A value that is not a boolean is
 reported in the log and ``true`` is used.
 
 .. _config-expert-view:
@@ -737,10 +662,10 @@ Expert and Simple view
      expert_view: false   # offer no Expert view at all
 
 ``web.ui_mode`` picks the view a terminal opens in, ``expert`` (the default)
-or ``simple``; anyone can flip to the other one from the display menu or the
+or ``simple``; anyone can flip to the other one from **☰ More** or the
 command palette. ``web.expert_view: false`` takes the Expert view away
 altogether, on every login the render serves. The terminal opens in Simple
-whatever ``web.ui_mode`` says, the display menu has no View row, the command
+whatever ``web.ui_mode`` says, **☰ More** has no View group, the command
 palette offers no switch, and a ``?mode=expert`` link or a remembered pick is
 ignored. The server refuses the Expert view's terminal session too:
 ``/ws/terminal`` answers with an error and closes (code ``4403``) before any

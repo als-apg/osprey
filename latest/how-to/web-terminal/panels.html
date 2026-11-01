@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 31, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
   </head>
   
   
@@ -580,33 +580,32 @@ where it listens. The shipped <code class="docutils literal notranslate"><span c
 the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
 box. <a class="reference internal" href="lattice-dashboard.html"><span class="doc">Lattice Dashboard</span></a> describes the tab.</p>
 </section>
-<section id="where-the-panel-rail-lives">
-<h2>Where the panel rail lives<a class="headerlink" href="#where-the-panel-rail-lives" title="Link to this heading">#</a></h2>
-<p>Open panels line up in the <strong>panel rail</strong>, which sits along the left edge by
-default. If your team prefers the panel buttons along the top, set
-<code class="docutils literal notranslate"><span class="pre">web.rail_position:</span> <span class="pre">top</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or switch from the panel <code class="docutils literal notranslate"><span class="pre">+</span></code>
-menu (or the command palette) at any time. The choice is remembered per
-browser, and each user’s own pick wins over the configured default. (Pair it
-with the retro theme for a navy-and-teal terminal — see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>.)</p>
+<section id="where-the-panels-live">
+<h2>Where the panels live<a class="headerlink" href="#where-the-panels-live" title="Link to this heading">#</a></h2>
+<p>Panels have a row in the sidebar on the left of the window, in both views.
+<strong>Artifacts</strong> (and <strong>Events</strong>, when the deployment enables it) is in the
+<strong>Workspace</strong> section, with <strong>Agent</strong>. All other panels are in the <strong>Tools</strong>
+section, followed by <strong>+ Add panel</strong>. See <a class="reference internal" href="operate.html#web-terminal-sidebar"><span class="std std-ref">The sidebar</span></a>.</p>
 </section>
-<section id="dragging-rail-entries">
-<h2>Dragging rail entries<a class="headerlink" href="#dragging-rail-entries" title="Link to this heading">#</a></h2>
-<p>Drag an entry along the rail to reorder it; SESSION stays at the head. The
-order is shared by everyone on the same terminal and kept across reloads. Drag
-an entry onto the workspace instead to open it as a new tile where you drop it.</p>
+<section id="dragging-sidebar-rows">
+<h2>Dragging sidebar rows<a class="headerlink" href="#dragging-sidebar-rows" title="Link to this heading">#</a></h2>
+<p>Drag a Tools row up or down to change the order. The order is the same for
+everyone on the same terminal, and it stays after a reload. Drag a row onto
+the work pane instead to open the panel as a new tile where you drop it.</p>
 </section>
-<section id="taking-panels-off-the-rail">
-<h2>Taking panels off the rail<a class="headerlink" href="#taking-panels-off-the-rail" title="Link to this heading">#</a></h2>
-<p><strong>Remove from rail</strong> (right-click, or the entry’s <strong>×</strong>) can be undone for a
-few seconds.</p>
-<p>A panel can be open without a rail entry. In the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
+<section id="taking-panels-out-of-the-sidebar">
+<h2>Taking panels out of the sidebar<a class="headerlink" href="#taking-panels-out-of-the-sidebar" title="Link to this heading">#</a></h2>
+<p>To remove a panel row, right-click it or use the <strong>×</strong> of the row. You can
+undo this for a few seconds.</p>
+<p>A panel can be open without a sidebar row. In the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
 SYSTEM starts that way (<code class="docutils literal notranslate"><span class="pre">web.panels.system-health.hidden:</span> <span class="pre">true</span></code>): open it
-from the health dot or <strong>⋯ More</strong>, and right-click its tile to <strong>Pin to rail</strong>.</p>
+from <strong>+ Add panel</strong> or the command palette, and right-click its tile to pin it
+to the sidebar.</p>
 </section>
 <section id="when-a-panel-stops-answering">
 <h2>When a panel stops answering<a class="headerlink" href="#when-a-panel-stops-answering" title="Link to this heading">#</a></h2>
 <p>Panels with a health check are polled every 10 seconds. One that has answered
-and then misses two polls in a row dims its rail entry, which stays clickable
+and then misses two polls in a row dims its sidebar row, which stays clickable
 and reads “not answering since &lt;time&gt;” in its tooltip. Its open tile shows a
 warning strip with the same time across the top and greys the page below it,
 so the out-of-date view is not mistaken for a live one. The page underneath is
@@ -1001,9 +1000,9 @@ shape of it.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-that-need-a-section-as-well-as-a-tick">Panels that need a section as well as a tick</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panel-rail-lives">Where the panel rail lives</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dragging-rail-entries">Dragging rail entries</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-panels-off-the-rail">Taking panels off the rail</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panels-live">Where the panels live</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dragging-sidebar-rows">Dragging sidebar rows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#taking-panels-out-of-the-sidebar">Taking panels out of the sidebar</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-panel-stops-answering">When a panel stops answering</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>

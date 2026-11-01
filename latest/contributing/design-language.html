@@ -1,0 +1,857 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Design Language &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'contributing/design-language';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/contributing/design-language.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Git and GitHub Workflow" href="workflow.html" />
+    <link rel="prev" title="Development Setup" href="development-setup.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="development-setup.html">Development Setup</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Design Language</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflow.html">Git and GitHub Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extending-osprey.html">Extending Osprey</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-skills.html">Agent Skills</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contributing to Osprey</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Design Language</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="design-language">
+<h1>Design Language<a class="headerlink" href="#design-language" title="Link to this heading">#</a></h1>
+<p>This page gives the visual rules of the OSPREY browser interfaces and the
+shared parts that put them into practice. The token contract and the
+enforcement details are in <code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/design_system/DESIGN.md</span></code>.
+Read both before you change a token, a shared primitive, or the web terminal
+shell.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#principles" id="id1">Principles</a></p></li>
+<li><p><a class="reference internal" href="#token-layers" id="id2">Token layers</a></p></li>
+<li><p><a class="reference internal" href="#surfaces" id="id3">Surfaces</a></p></li>
+<li><p><a class="reference internal" href="#type-and-space" id="id4">Type and space</a></p></li>
+<li><p><a class="reference internal" href="#color-and-state" id="id5">Color and state</a></p></li>
+<li><p><a class="reference internal" href="#layout-shell" id="id6">Layout shell</a></p></li>
+<li><p><a class="reference internal" href="#primitives" id="id7">Primitives</a></p></li>
+<li><p><a class="reference internal" href="#keyboard-and-focus" id="id8">Keyboard and focus</a></p></li>
+<li><p><a class="reference internal" href="#external-panels" id="id9">External panels</a></p></li>
+<li><p><a class="reference internal" href="#enforcement" id="id10">Enforcement</a></p></li>
+<li><p><a class="reference internal" href="#change-process" id="id11">Change process</a></p></li>
+</ul>
+</nav>
+<section id="principles">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Principles</a><a class="headerlink" href="#principles" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>The operator comes first. The chrome is quiet, and the content of a pane
+gets the space.</p></li>
+<li><p>Each pane has one header row. A panel never draws a second title row in its
+body.</p></li>
+<li><p>State is never shown by hue only. Add a shape or a word: a bar, an outline, a
+check mark, a label. The high-contrast themes have no hue.</p></li>
+<li><p>Use the shared tokens and the shared primitives. Do not make a local copy
+with other values.</p></li>
+<li><p>Popovers and tooltips sit at body level with fixed position, so a scrolled
+container does not cut them.</p></li>
+</ul>
+</section>
+<section id="token-layers">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Token layers</a><a class="headerlink" href="#token-layers" title="Link to this heading">#</a></h2>
+<p>The tokens have three layers. The generator in
+<code class="docutils literal notranslate"><span class="pre">design_system/generator/</span></code> reads all three and writes <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tokens.js</span></code> and <code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>.</p>
+<ol class="arabic simple">
+<li><p><strong>Core primitives</strong> (<code class="docutils literal notranslate"><span class="pre">tokens/core.json</span></code>): the color ramps and the scales
+for type, weight, leading, space, radius, z-index and duration. Color
+steps are never emitted directly.</p></li>
+<li><p><strong>Themes</strong> (<code class="docutils literal notranslate"><span class="pre">tokens/themes/*.json</span></code>): eight themes, four families in a
+dark and a light mode. Each theme aliases a core color step, one hop away,
+into a semantic name such as <code class="docutils literal notranslate"><span class="pre">bg.primary</span></code> or <code class="docutils literal notranslate"><span class="pre">surface.card</span></code>.</p></li>
+<li><p><strong>Interface extensions</strong> (<code class="docutils literal notranslate"><span class="pre">tokens/interfaces/*.json</span></code>): values that only
+one interface needs, for example the web terminal’s <code class="docutils literal notranslate"><span class="pre">--wt-*</span></code> sizes.</p></li>
+</ol>
+<p>Never edit the generated files. Edit the JSON, then run the build (see
+<a class="reference internal" href="#change-process">Change process</a>).</p>
+</section>
+<section id="surfaces">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Surfaces</a><a class="headerlink" href="#surfaces" title="Link to this heading">#</a></h2>
+<p>There are four surfaces, from the deepest to the highest:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 30.0%" />
+<col style="width: 52.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Surface</p></th>
+<th class="head"><p>Token</p></th>
+<th class="head"><p>Use</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Canvas</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--surface-canvas</span></code></p></td>
+<td><p>The page under the cards. The sidebar sits on the canvas, with no card.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Card</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--surface-card</span></code></p></td>
+<td><p>A pane. Cards have a <code class="docutils literal notranslate"><span class="pre">--surface-hairline</span></code> border and the
+<code class="docutils literal notranslate"><span class="pre">--radius-xl</span></code> radius, with <code class="docutils literal notranslate"><span class="pre">--wt-gutter</span></code> (8 px) between them.</p></td>
+</tr>
+<tr class="row-even"><td><p>Raised</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--bg-elevated</span></code></p></td>
+<td><p>The tooltip and a small badge on a card.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Floating</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--surface-card</span></code> with <code class="docutils literal notranslate"><span class="pre">--shadow-dropdown</span></code></p></td>
+<td><p>Popovers and flyouts.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--surface-well</span></code> is a recessed area in a card, for example the body of the
+artifact viewer. It is between the canvas and the card in every theme.</p>
+<p>The washes mark state on these surfaces: <code class="docutils literal notranslate"><span class="pre">--surface-hover</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--surface-press</span></code> (pressed or open), <code class="docutils literal notranslate"><span class="pre">--surface-selected</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--surface-focus</span></code> (the focus halo). They are alpha values, so they work on
+every surface.</p>
+<p>Use the surface tokens, not a <code class="docutils literal notranslate"><span class="pre">--bg-*</span></code> token, for the shell. The <code class="docutils literal notranslate"><span class="pre">bg.*</span></code>
+steps do not keep the same depth order in all eight themes. The surface group
+does.</p>
+</section>
+<section id="type-and-space">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">Type and space</a><a class="headerlink" href="#type-and-space" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Size text with <code class="docutils literal notranslate"><span class="pre">--text-*</span></code>, weight with <code class="docutils literal notranslate"><span class="pre">--weight-*</span></code> and line height with
+<code class="docutils literal notranslate"><span class="pre">--leading-*</span></code>.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--space-*</span></code> for padding, margin and gap.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--radius-*</span></code> for corners: <code class="docutils literal notranslate"><span class="pre">--radius-lg</span></code> for buttons and rows,
+<code class="docutils literal notranslate"><span class="pre">--radius-xl</span></code> for cards and popovers.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">--duration-*</span></code> for motion, with <code class="docutils literal notranslate"><span class="pre">--wt-ease-out</span></code> for the sidebar and
+for disclosure. <code class="docutils literal notranslate"><span class="pre">--wt-transition-*</span></code> is legacy. Do not use it in new CSS.</p></li>
+<li><p>Buttons use the display font (<code class="docutils literal notranslate"><span class="pre">--font-display</span></code>), never the mono font.</p></li>
+<li><p>Panel titles and sidebar labels use title case, not capital letters only.</p></li>
+</ul>
+</section>
+<section id="color-and-state">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Color and state</a><a class="headerlink" href="#color-and-state" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Use the semantic color tokens: <code class="docutils literal notranslate"><span class="pre">--text-*</span></code>, <code class="docutils literal notranslate"><span class="pre">--color-accent</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--color-success</span></code>, <code class="docutils literal notranslate"><span class="pre">--color-warning</span></code>, <code class="docutils literal notranslate"><span class="pre">--color-error</span></code>.</p></li>
+<li><p>A selected row gets <code class="docutils literal notranslate"><span class="pre">--surface-selected</span></code> and an accent bar at its left
+edge.</p></li>
+<li><p>A status dot (<code class="docutils literal notranslate"><span class="pre">.osprey-dot</span></code>) shows the state by fill and shape. <code class="docutils literal notranslate"><span class="pre">.ok</span></code>
+adds a halo. <code class="docutils literal notranslate"><span class="pre">.hollow</span></code> is an outline with no fill, for a closed pane.</p></li>
+<li><p>The validator applies WCAG contrast gates to the text tokens on
+<code class="docutils literal notranslate"><span class="pre">bg.primary</span></code>. The high-contrast family must pass AAA. Text on a card is
+not gated, so keep it on the same text tokens.</p></li>
+</ul>
+</section>
+<section id="layout-shell">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Layout shell</a><a class="headerlink" href="#layout-shell" title="Link to this heading">#</a></h2>
+<p>The web terminal uses one shell in the Simple view and in the Expert view:</p>
+<ul class="simple">
+<li><p>A sidebar on the canvas at the left. It is <code class="docutils literal notranslate"><span class="pre">--wt-sidebar-width</span></code> (232 px)
+with labels, 180–400 px by the handle on its right edge, or
+<code class="docutils literal notranslate"><span class="pre">--wt-sidebar-collapsed-width</span></code> (56 px) with icons only. The state is
+<code class="docutils literal notranslate"><span class="pre">data-sidebar</span></code> on <code class="docutils literal notranslate"><span class="pre">&lt;html&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">sidebar-boot.js</span></code> sets it, and the
+stored width, before the first paint.</p></li>
+<li><p>From top to bottom, the sidebar holds the OSPREY mark and the collapse
+toggle, the control-system block, search, the <code class="docutils literal notranslate"><span class="pre">Workspace</span></code> and <code class="docutils literal notranslate"><span class="pre">Tools</span></code>
+sections, and a footer with Docs, Feedback and More. Only the
+<code class="docutils literal notranslate"><span class="pre">Workspace</span></code> section gives up height.</p></li>
+<li><p>The panes are cards in the dock. Each pane has one header row,
+<code class="docutils literal notranslate"><span class="pre">--wt-pane-head-height</span></code> (40 px) high.</p></li>
+<li><p>The agent pane can close. Then <code class="docutils literal notranslate"><span class="pre">&lt;html&gt;</span></code> gets <code class="docutils literal notranslate"><span class="pre">data-agent=&quot;closed&quot;</span></code>, and
+the sidebar <code class="docutils literal notranslate"><span class="pre">Agent</span></code> row opens the pane again.</p></li>
+</ul>
+</section>
+<section id="primitives">
+<h2><a class="toc-backref" href="#id7" role="doc-backlink">Primitives</a><a class="headerlink" href="#primitives" title="Link to this heading">#</a></h2>
+<p>The shared primitives are in <code class="docutils literal notranslate"><span class="pre">design_system/static/css/primitives.css</span></code>.
+Load it after <code class="docutils literal notranslate"><span class="pre">base.css</span></code>. Their behaviour is in five modules in
+<code class="docutils literal notranslate"><span class="pre">design_system/static/js/</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 72.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Part</p></th>
+<th class="head"><p>What it gives</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-nav-row</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-section-label</span></code></p></td>
+<td><p>The sidebar row (icon, label, badge, disclosure) and the group heading.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-list-row</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-list-head</span></code></p></td>
+<td><p>The child row of a sidebar list, with a title and a time.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-icon-btn</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-btn</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-mini</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.osprey-mini-seg</span></code></p></td>
+<td><p>Icon button, text button, row action and segmented control.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-card</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-pane-head</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-crumb</span></code></p></td>
+<td><p>The inset card, its header row and the breadcrumb.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-popover</span></code>, <code class="docutils literal notranslate"><span class="pre">popover.js</span></code></p></td>
+<td><p>Menus and flyouts. <code class="docutils literal notranslate"><span class="pre">openPopover()</span></code> places a popover beside the
+sidebar or under its opener.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-tooltip</span></code>, <code class="docutils literal notranslate"><span class="pre">tooltip.js</span></code></p></td>
+<td><p>One tooltip layer for the whole page. It shows a label and a one-line
+explanation (<code class="docutils literal notranslate"><span class="pre">data-tip</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">data-tip-detail</span></code>) 450 ms after
+the pointer arrives. A sidebar row that shows its label gets only the
+explanation.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">collapsible.js</span></code>, <code class="docutils literal notranslate"><span class="pre">sidebar-boot.js</span></code></p></td>
+<td><p>The collapse state, its storage, and the pre-paint stamp.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">icons.js</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">icon(name)</span></code> builds a 16 px Lucide stroke icon (<code class="docutils literal notranslate"><span class="pre">.osprey-ic</span></code>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-dot</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-kbd</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-count</span></code>, <code class="docutils literal notranslate"><span class="pre">.osprey-switch</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.osprey-search</span></code></p></td>
+<td><p>Status dot, keyboard hint, count pill, switch and search field.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">DESIGN.md</span></code> section 9 lists every class and the API of each module. The
+reference page, <code class="docutils literal notranslate"><span class="pre">/design-system/reference.html</span></code>, shows each primitive in all
+eight themes.</p>
+</section>
+<section id="keyboard-and-focus">
+<h2><a class="toc-backref" href="#id8" role="doc-backlink">Keyboard and focus</a><a class="headerlink" href="#keyboard-and-focus" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Every control shows <code class="docutils literal notranslate"><span class="pre">:focus-visible</span></code> with a 2 px accent outline.</p></li>
+<li><p>A popover moves focus to its first item when it opens. Escape closes it and
+moves focus back to the control that opened it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">⌘\</span></code> on macOS, or <code class="docutils literal notranslate"><span class="pre">Ctrl+\</span></code> on other systems, collapses and expands the
+sidebar. <code class="docutils literal notranslate"><span class="pre">⌘K</span></code> or <code class="docutils literal notranslate"><span class="pre">Ctrl+K</span></code> opens search.</p></li>
+<li><p>Get the modifier for a hint from <code class="docutils literal notranslate"><span class="pre">platform.js</span></code> (<code class="docutils literal notranslate"><span class="pre">isMacPlatform()</span></code>). Do
+not write <code class="docutils literal notranslate"><span class="pre">⌘</span></code> for all systems.</p></li>
+<li><p>A collapsed sidebar row has an <code class="docutils literal notranslate"><span class="pre">aria-label</span></code>. The tooltip repeats the
+label but is not the accessible name.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">focus-trap.js</span></code> in a dialog.</p></li>
+</ul>
+</section>
+<section id="external-panels">
+<h2><a class="toc-backref" href="#id9" role="doc-backlink">External panels</a><a class="headerlink" href="#external-panels" title="Link to this heading">#</a></h2>
+<p>A panel that runs in its own process links the shared files by root-absolute
+paths. The terminal proxy serves its own copy:</p>
+<div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/tokens.css&quot;</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/base.css&quot;</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/primitives.css&quot;</span><span class="p">&gt;</span>
+</pre></div>
+</div>
+<p>When the terminal embeds a panel, the panel hides its own top bar and sends
+its controls to the pane header through <code class="docutils literal notranslate"><span class="pre">header-contrib.js</span></code> (header
+contract version 1). <a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a> gives the panel
+contract, and <a class="reference internal" href="../how-to/web-terminal/theming.html"><span class="doc">Theming</span></a> gives the theme families.</p>
+</section>
+<section id="enforcement">
+<h2><a class="toc-backref" href="#id10" role="doc-backlink">Enforcement</a><a class="headerlink" href="#enforcement" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">generator.build</span> <span class="pre">--check</span></code> fails when a generated file differs from the
+token JSON. The validator in <code class="docutils literal notranslate"><span class="pre">generator/validate.py</span></code> checks one-hop
+aliases, the same token set in each theme, the interface groups for each
+theme, and the WCAG gates.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/test_hygiene.py</span></code> fails on a color literal,
+on a <code class="docutils literal notranslate"><span class="pre">var()</span></code> that no token defines, and on a local <code class="docutils literal notranslate"><span class="pre">:root</span></code> copy of a
+token. In <code class="docutils literal notranslate"><span class="pre">web_terminal</span></code>, <code class="docutils literal notranslate"><span class="pre">design_system</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel</span></code> and
+<code class="docutils literal notranslate"><span class="pre">channel_finder</span></code> it also fails on a raw font size, weight, line height,
+radius or duration.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tests/interfaces/test_js_module_tests.py</span></code> fails when a module in
+<code class="docutils literal notranslate"><span class="pre">static/js/</span></code> has no Vitest file with the same name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/test_visual.py</span></code> compares screenshots with
+committed baselines for the dark and light themes.</p></li>
+</ul>
+</section>
+<section id="change-process">
+<h2><a class="toc-backref" href="#id11" role="doc-backlink">Change process</a><a class="headerlink" href="#change-process" title="Link to this heading">#</a></h2>
+<ol class="arabic">
+<li><p>Edit the token JSON in <code class="docutils literal notranslate"><span class="pre">design_system/tokens/</span></code>. Add a new token to all
+eight themes.</p></li>
+<li><p>Run the build from the repository root:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">uv</span> <span class="n">run</span> <span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">osprey</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">design_system</span><span class="o">.</span><span class="n">generator</span><span class="o">.</span><span class="n">build</span>
+</pre></div>
+</div>
+</li>
+<li><p>Run the build again with <code class="docutils literal notranslate"><span class="pre">--check</span></code>. It must exit with code 0.</p></li>
+<li><p>Add a specimen to <code class="docutils literal notranslate"><span class="pre">design_system/static/reference.html</span></code> for a new
+primitive.</p></li>
+<li><p>Update <code class="docutils literal notranslate"><span class="pre">DESIGN.md</span></code>.</p></li>
+<li><p>Add a fragment to <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code>.</p></li>
+</ol>
+<p>Adding a token name is safe. Renaming or removing a token breaks external
+panels that use it, so keep the old name until every panel has moved.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="development-setup.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Development Setup</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="workflow.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Git and GitHub Workflow</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#principles">Principles</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#token-layers">Token layers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#surfaces">Surfaces</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#type-and-space">Type and space</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#color-and-state">Color and state</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#layout-shell">Layout shell</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives">Primitives</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keyboard-and-focus">Keyboard and focus</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#external-panels">External panels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#enforcement">Enforcement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#change-process">Change process</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/contributing/design-language.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
