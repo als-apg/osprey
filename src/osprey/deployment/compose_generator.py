@@ -978,7 +978,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     limits checking on, and either a mode other than ``optional`` or a path
     configured — so that pairing is what makes the file's absence a fault rather than a
     posture. The tier is the same value every Bluesky lane's mount is rendered
-    on (:func:`_bluesky_lane_write_posture`), so the refusal and the mount
+    on (:func:`drives_target_write_posture`), so the refusal and the mount
     cannot disagree: a gate read any other way would let a config refuse
     nothing and then render a lane binding a file that is not on the host,
     which the container runtime creates as an empty directory.
@@ -1879,29 +1879,35 @@ def resolve_image_defaults(config):
     }
 
 
-def _bluesky_lane_write_posture(services, control_system):
-    """Whether writes are armed for each declared Bluesky lane, by lane key.
+def drives_target_write_posture(services, control_system):
+    """Whether writes are armed for each service that drives the target, by key.
 
     The render's login tier decides (:func:`~osprey_connectors.types.tier_allows`
-    over ``control_system.writes``), not the lane's target: the tier is a
+    over ``control_system.writes``), not the service's target: the tier is a
     ceiling, not a selection, so an ``asked`` or ``allowed`` render arms every
-    lane — each lane mounts the limits database and the control-context tree
-    its writes are judged against — and a ``never`` render arms none. Which
+    such service — each one binds the limits database and the control-context
+    tree its writes are judged against — and a ``never`` render arms none. Which
     machine a write actually reaches is the session's switch to decide at
-    runtime, never the render's. The answer is computed here, once, and read off each lane's own
-    ``services.<lane>`` block, because the template makes no posture decision
-    of its own.
+    runtime, never the render's. The answer is computed here, once, and read off
+    each service's own ``services.<key>`` block, because a template makes no
+    posture decision of its own.
 
     :param services: The config's ``services:`` mapping.
     :type services: dict
     :param control_system: The config's ``control_system:`` section.
-    :return: Lane service key to armed flag, for the lanes declared in *services*
+    :return: Service key to armed flag, for the services in *services* holding
+        the ``drives_target`` role (:func:`service_role`)
     :rtype: dict[str, bool]
     """
     from osprey_connectors.types import tier_allows
 
     armed = tier_allows(control_system)
-    return {key: armed for key in LANE_KEYS if isinstance(services.get(key), dict)}
+    config = {"services": services}
+    return {
+        key: armed
+        for key, block in services.items()
+        if isinstance(block, Mapping) and service_role(config, key, SERVICE_ROLE_DRIVES_TARGET)
+    }
 
 
 def project_label_values(config):
@@ -2659,16 +2665,17 @@ def _inject_project_metadata(config):
         services["dispatch_worker"] = worker_cfg
         config_with_labels["services"] = services
 
-    # Each Bluesky lane's write posture, resolved here because the template
-    # cannot (:func:`_bluesky_lane_write_posture`). Same copy-on-write as the
-    # worker image above, so the shared input config is never mutated.
+    # The write posture of every service that drives the target, resolved here
+    # because a template cannot (:func:`drives_target_write_posture`). Same
+    # copy-on-write as the worker image above, so the shared input config is
+    # never mutated.
     services = config_with_labels.get("services")
     if isinstance(services, dict):
-        posture = _bluesky_lane_write_posture(services, config_with_labels.get("control_system"))
+        posture = drives_target_write_posture(services, config_with_labels.get("control_system"))
         if posture:
             services = dict(services)
-            for lane_key, armed in posture.items():
-                services[lane_key] = {**services[lane_key], "writes_enabled": armed}
+            for key, armed in posture.items():
+                services[key] = {**services[key], "writes_enabled": armed}
             config_with_labels["services"] = services
 
     # The simulated machine's tick period, resolved through the one function the

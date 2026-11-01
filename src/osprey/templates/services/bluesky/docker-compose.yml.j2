@@ -497,7 +497,7 @@ services:
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
 {#- `svc.writes_enabled` is the render's login tier, computed host-side
-    (`_bluesky_lane_write_posture`): true for a `control_system.writes: allowed`
+    (`drives_target_write_posture`): true for a `control_system.writes: allowed`
     render, false for a `never` one, the same on every lane.
     The limits mount is gated on the KEY as well as on the writes posture,
     because a channel-limits database is optional. A deployment with no
