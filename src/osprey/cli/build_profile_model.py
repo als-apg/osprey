@@ -46,8 +46,11 @@ from .build_profile_archiver import (
 )
 from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
-from .build_profile_merge import bundled_service_template
-from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
+from .build_profile_presets import (
+    bundled_service_template,
+    is_bundled_preset_dir,
+    resolve_triggers_path,
+)
 from .build_profile_schema import (
     SECOND_LANE_PORT_STRIDE,
     BlueskyConfig,
