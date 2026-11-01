@@ -48,7 +48,9 @@ enforcement reads the same declaration:
   consumer's endpoint from inside any container and knocks on it.
 
 The registry is a mapping keyed by the ``services.<name>`` key, collected
-here like :data:`osprey.registry.mcp.FRAMEWORK_SERVERS`. Predicates are the
+here like :data:`osprey.registry.mcp.FRAMEWORK_SERVERS`; a service an application
+projects is the deployment's to name, so :func:`reach_contracts` derives its
+contract from the render. Predicates are the
 ones the web-terminal render already grants credentials by
 (:mod:`osprey.deployment.web_terminals.roster`), imported rather than
 restated, so the registry and the render cannot disagree about who is
@@ -113,6 +115,7 @@ __all__ = [
     "ReachContract",
     "SharedPath",
     "REACH_CONTRACTS",
+    "reach_contracts",
     "SHARED_PATHS",
     "BLUESKY_PANEL_ID",
     "Dial",
@@ -1153,6 +1156,90 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
 }
 
 
+def _panels_by_container(config: Mapping[str, Any]) -> dict[str, tuple[str, Mapping[str, Any]]]:
+    """Each projected service's panel on this render, as ``{service: (id, block)}``.
+
+    An application's panel is served from one of its containers, and the build
+    addresses the block at that container's URL. A panel whose container this
+    render carries no row for keys on the application's name: an attached render
+    is told the panel and not the service block.
+    """
+    services = as_dict(config.get("services"))
+    panels = as_dict(as_dict(config.get("web")).get("panels"))
+    found: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    for panel_id, block in panels.items():
+        block = as_dict(block)
+        application = block.get("app")
+        if not application:
+            continue
+        key = next(
+            (
+                str(name)
+                for name, row in services.items()
+                if as_dict(row).get("app") == application
+                and as_dict(row).get("url") == block.get("url")
+            ),
+            str(application),
+        )
+        found[key] = (str(panel_id), block)
+    return found
+
+
+def _panel_contract(service: str, panel_id: str, block: Mapping[str, Any]) -> ReachContract:
+    """The contract of a service an application's panel is served from."""
+    token_env = block.get("launch_token_env")
+
+    def _holds_token(config: Mapping[str, Any]) -> bool:
+        return bool(dotted_get(config, f"web.panels.{panel_id}.launch_token_env") == token_env)
+
+    def _on(config: Mapping[str, Any]) -> bool:
+        return config_declares_panel(config, panel_id)
+
+    return ReachContract(
+        service=service,
+        consumers=(
+            Consumer(
+                name=f"The {panel_id} panel",
+                switch_key=f"web.panels.{panel_id}",
+                is_on=_on,
+                resolves=_panel_url_resolves(panel_id),
+                dial=_panel_dial(panel_id),
+            ),
+        ),
+        credentials=(CredentialGrant(str(token_env), _holds_token),) if token_env else (),
+        derived_by="osprey.apps.projection.project_login",
+        note=f"an application's container, reached through the {panel_id} panel's proxy hop",
+    )
+
+
+def _projected_contracts(config: Mapping[str, Any]) -> dict[str, ReachContract]:
+    """A contract for every service an application's manifest projected onto *config*."""
+    panels = _panels_by_container(config)
+    contracts = {
+        service: _panel_contract(service, panel_id, block)
+        for service, (panel_id, block) in panels.items()
+    }
+    for name, row in as_dict(config.get("services")).items():
+        row = as_dict(row)
+        if row.get("app") and str(name) not in contracts:
+            contracts[str(name)] = ReachContract(
+                service=str(name),
+                no_client_reach=True,
+                note=f"a container of the {row['app']} application, serving no panel here",
+            )
+    return contracts
+
+
+def reach_contracts(config: Mapping[str, Any]) -> dict[str, ReachContract]:
+    """:data:`REACH_CONTRACTS` with the contracts *config*'s applications project.
+
+    A projected service has no static entry: its name is the deployment's, so
+    its contract is derived from the rendered ``web.panels`` and ``services``.
+    The static table keeps every key it declares.
+    """
+    return {**_projected_contracts(config), **REACH_CONTRACTS}
+
+
 def _bundle_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
     # Imported here, as :mod:`osprey.deployment.web_terminals.roster` does:
     # compose_generator imports the web-terminal package at module level.
@@ -1254,7 +1341,7 @@ def live_consumers(config: Mapping[str, Any]) -> list[tuple[ReachContract, Consu
     """Every consumer *config* switches on, with its contract."""
     return [
         (contract, consumer)
-        for contract in REACH_CONTRACTS.values()
+        for contract in reach_contracts(config).values()
         for consumer in contract.consumers
         if consumer.is_on(config)
     ]
