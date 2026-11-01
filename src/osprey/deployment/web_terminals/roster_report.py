@@ -181,7 +181,7 @@ def build_roster_report(
                 "identity": entry.get("oidc_subject"),
                 "control_identity": entry.get("control_identity"),
                 "render": render,
-                "writes": _render_writes(repo_root, _as_dict(catalog.get(render))),
+                "writes": _render_writes(repo_root, _as_dict(catalog.get(render or ""))),
                 "port": port,
                 "access": principals,
                 "opened_by": _opened_by(principals),

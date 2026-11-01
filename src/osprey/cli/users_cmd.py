@@ -552,7 +552,7 @@ def _table(rows: Sequence[Sequence[str]], *, indent: str = "  ") -> None:
         line = indent + "  ".join(
             cell.ljust(width) for cell, width in zip(row, widths, strict=True)
         )
-        click.echo(click.style(line.rstrip(), bold=number == 0))
+        report(line.rstrip(), style=Styles.BOLD if number == 0 else None)
 
 
 def _card_row(card: dict[str, Any], *, live: bool) -> list[str]:
@@ -586,7 +586,7 @@ def _print_roster(document: dict[str, Any]) -> None:
     auth = document["auth"]
     live = "live" in document
     sign_in = auth["method"] + (f" (claim {auth['claim']})" if auth["claim"] else "")
-    click.echo(
+    report(
         f"{document['deployment']} · sign-in: {sign_in} · default tier: {document['default_tier']}"
     )
     columns = ["render", "writes", "port"]
@@ -596,12 +596,14 @@ def _print_roster(document: dict[str, Any]) -> None:
     for title, kind, label in (("PEOPLE", "user", "identity"), ("SHARED APPS", "app", "title")):
         cards = [card for card in document["cards"] if card["kind"] == kind]
         if cards:
-            click.echo(f"\n{title}")
+            report("")
+            report(title)
             _table([["card", label, *columns], *(_card_row(card, live=live) for card in cards)])
 
     if not auth["enforced"]:
-        click.echo(
-            f"\nACCESS is not enforced under auth.method {auth['method']}: "
+        report("")
+        report(
+            f"ACCESS is not enforced under auth.method {auth['method']}: "
             + (
                 "anyone who reaches the front door opens every card."
                 if auth["method"] == "none"
@@ -615,19 +617,21 @@ def _print_roster(document: dict[str, Any]) -> None:
             opens = person["opens"]
             cells = ["●" if name in opens else "·" for name in [person["name"], *shared]]
             rows.append([person["name"], person["render"] or "—", *cells])
-        click.echo()
+        report("")
         _table(rows, indent="")
         off_roster = document["off_roster"]
         if off_roster:
             for name, members in off_roster.items():
-                click.echo(f"off the roster: {name} also opens to {', '.join(members)}")
+                report(f"off the roster: {name} also opens to {', '.join(members)}")
         else:
-            click.echo("not on the roster: nothing")
+            report("not on the roster: nothing")
     if document["unused_tiers"]:
         names = ", ".join(document["unused_tiers"])
-        click.echo(f"\nunused tiers: {names} (renders, no login runs it)")
+        report("")
+        report(f"unused tiers: {names} (renders, no login runs it)")
     if live and not document["live"]["sign_ins_available"]:
-        click.echo("\nlast sign-in: unavailable (no running agent record answered)")
+        report("")
+        report("last sign-in: unavailable (no running agent record answered)")
 
 
 def _print_one(document: dict[str, Any], name: str) -> None:
@@ -635,23 +639,23 @@ def _print_one(document: dict[str, Any], name: str) -> None:
     person = next((p for p in document["people"] if p["name"] == name), None)
     card = next(c for c in document["cards"] if c["name"] == name)
     live = "live" in document
-    click.echo(f"{name} · render: {card['render'] or '—'} · writes: {card['writes'] or '—'}")
+    report(f"{name} · render: {card['render'] or '—'} · writes: {card['writes'] or '—'}")
     if card["identity"]:
-        click.echo(f"identity: {card['identity']}")
+        report(f"identity: {card['identity']}")
     if card["control_identity"]:
-        click.echo(f"control id: {card['control_identity']}")
+        report(f"control id: {card['control_identity']}")
     if live:
-        click.echo(f"state: {card['state'] or '—'}")
-        click.echo(f"last sign-in (UTC): {_sign_in_cell(card['last_sign_in'])}")
+        report(f"state: {card['state'] or '—'}")
+        report(f"last sign-in (UTC): {_sign_in_cell(card['last_sign_in'])}")
     if not document["auth"]["enforced"]:
-        click.echo(f"access is not enforced under auth.method {document['auth']['method']}")
+        report(f"access is not enforced under auth.method {document['auth']['method']}")
         return
     if person is not None:
-        click.echo(f"opens: {', '.join(person['opens'])}")
+        report(f"opens: {', '.join(person['opens'])}")
     else:
         openers = [p["name"] for p in document["people"] if name in p["opens"]]
-        click.echo(f"opened by: {card['opened_by']}")
-        click.echo(f"logins: {', '.join(openers) or 'none'}")
+        report(f"opened by: {card['opened_by']}")
+        report(f"logins: {', '.join(openers) or 'none'}")
 
 
 @click.group()
