@@ -43,7 +43,7 @@ from osprey.cli.build_environment import (
     deployment_dependencies,
 )
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
-from osprey.deployment import wheel_build
+from osprey.deployment import image_facts, wheel_build
 from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     DEPLOYMENT_PACKAGES_MANIFEST,
@@ -187,7 +187,11 @@ def test_a_local_path_with_no_package_to_build_is_refused_naming_it(
 
 
 def _build_with_wheel_named(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    filename: str,
+    *,
+    image_platform: str | None = None,
 ) -> tuple[DeploymentPackage, ...]:
     def fake(_source: Path, out_dir: Path) -> Path:
         wheel = out_dir / filename
@@ -197,7 +201,9 @@ def _build_with_wheel_named(
 
     monkeypatch.setattr(wheel_build, "_build_wheel", fake)
     root = _deployment(tmp_path / "repo")
-    return build_deployment_packages(root, [], tmp_path / "stage", apps=APPS)
+    return build_deployment_packages(
+        root, [], tmp_path / "stage", apps=APPS, image_platform=image_platform
+    )
 
 
 @pytest.mark.parametrize(
@@ -215,7 +221,7 @@ def test_a_wheel_that_does_not_fit_the_image_is_refused_naming_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tag: str
 ) -> None:
     """Never left for the image to look the name up in an index instead."""
-    monkeypatch.setattr(wheel_build.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: "x86_64")
     filename = f"knob_app-0.1.0-{tag}.whl"
 
     with pytest.raises(BuildProfileError) as refused:
@@ -240,18 +246,58 @@ def test_a_wheel_that_does_not_fit_the_image_is_refused_naming_it(
 def test_a_wheel_that_fits_the_image_is_kept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, machine: str, tag: str
 ) -> None:
-    monkeypatch.setattr(wheel_build.platform, "machine", lambda: machine)
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: machine)
 
     packages = _build_with_wheel_named(tmp_path, monkeypatch, f"knob_app-0.1.0-{tag}.whl")
 
     assert packages[0].wheel.name.endswith(f"{tag}.whl")
 
 
+@pytest.mark.parametrize(
+    ("machine", "stated", "tag"),
+    [
+        ("arm64", "linux/amd64", "cp312-cp312-manylinux_2_17_x86_64"),
+        ("x86_64", "linux/arm64", "cp312-cp312-manylinux_2_17_aarch64"),
+    ],
+)
+def test_a_wheel_is_judged_against_the_platform_the_profile_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, machine: str, stated: str, tag: str
+) -> None:
+    """Unset, this host decides and the refusal says so; stated, the profile decides."""
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: machine)
+    filename = f"knob_app-0.1.0-{tag}.whl"
+
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_wheel_named(tmp_path / "unset", monkeypatch, filename)
+    packages = _build_with_wheel_named(
+        tmp_path / "stated", monkeypatch, filename, image_platform=stated
+    )
+
+    assert "this host; images.platform names another" in str(refused.value)
+    assert packages[0].wheel.name == filename
+
+
+def test_a_wheel_refused_for_the_stated_platform_names_it_and_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: "x86_64")
+
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_wheel_named(
+            tmp_path,
+            monkeypatch,
+            "knob_app-0.1.0-cp312-cp312-linux_x86_64.whl",
+            image_platform="linux/arm64",
+        )
+
+    assert "linux/arm64 (images.platform)" in str(refused.value)
+
+
 def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
     from importlib import resources
 
     source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
-    major, minor = wheel_build.IMAGE_PYTHON
+    major, minor = image_facts.IMAGE_PYTHON
     assert f"\nFROM python:{major}.{minor}-slim\n" in source.read_text(encoding="utf-8")
 
 

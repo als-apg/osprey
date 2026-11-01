@@ -23,7 +23,6 @@ into the directory every image context carries, with their manifest.
 import atexit
 import contextlib
 import os
-import platform
 import re
 import shutil
 import subprocess
@@ -35,6 +34,7 @@ from typing import Any
 
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
+from osprey.deployment.image_facts import IMAGE_PYTHON, fit_platform, wheel_arch
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey_connectors.logger import get_logger
 
@@ -552,10 +552,6 @@ FACILITY_KINDS_GROUP = "osprey.facility.kinds"
 #: The framework's own distribution name.
 FRAMEWORK_DISTRIBUTION = "osprey-framework"
 
-#: The ``FROM python:<major>.<minor>-slim`` of the project Dockerfile, which a wheel
-#: has to install on.
-IMAGE_PYTHON = (3, 12)
-
 #: What a wheel build is handed of this process's environment. An allowlist: a
 #: deploy credential is whatever a deployment calls it. Installer settings stay
 #: (a site's index and proxy reach the build backend's own requirements).
@@ -639,7 +635,13 @@ class DeploymentPackage:
 
 
 def build_deployment_packages(
-    root: Path, dependencies: Sequence[str], dest: Path, *, apps: Iterable[str], build: bool = True
+    root: Path,
+    dependencies: Sequence[str],
+    dest: Path,
+    *,
+    apps: Iterable[str],
+    build: bool = True,
+    image_platform: str | None = None,
 ) -> tuple[DeploymentPackage, ...]:
     """Build every deployment package of *root* into *dest*, with its manifest.
 
@@ -652,6 +654,8 @@ def build_deployment_packages(
         build: Run each package's build backend. False (``--skip-deps``) runs nothing:
             each package's name and version are read from its ``pyproject.toml``,
             it has no wheel, and *dest* is not created.
+        image_platform: The platform ``images.platform`` states; None judges each
+            wheel against this host.
 
     Returns:
         The packages, in :func:`osprey.apps.rules.deployment_packages` order.
@@ -705,7 +709,7 @@ def build_deployment_packages(
     for pyproject in sources:
         wheel = _build_wheel(pyproject.parent, dest)
         name, version, _build, tags = parse_wheel_filename(wheel.name)
-        _refuse_unfit_wheel(wheel, tags, pyproject.parent)
+        _refuse_unfit_wheel(wheel, tags, pyproject.parent, image_platform)
         _refuse_secrets_in_wheel(wheel, pyproject.parent)
         packages.append(
             DeploymentPackage(
@@ -805,12 +809,12 @@ def _build_wheel(source: Path, out_dir: Path) -> Path:
     return built
 
 
-def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path) -> None:
+def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path, stated: str | None) -> None:
     """Refuse a wheel the project image cannot install.
 
     The image binds the name to this wheel, so an unfit one could only fail there,
-    late, or tempt a fallback to an index; neither is an answer. The architecture
-    is this host's: the image is built here.
+    late, or tempt a fallback to an index; neither is an answer. The image is built
+    for the platform ``images.platform`` states, else for this host's.
     """
     from packaging.tags import compatible_tags, cpython_tags
 
@@ -824,8 +828,8 @@ def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path) -> None:
             *compatible_tags(IMAGE_PYTHON, abi, ["any"]),
         )
     }
-    machine = platform.machine()
-    arch = {"arm64": "aarch64", "amd64": "x86_64"}.get(machine.lower(), machine.lower())
+    image_platform = fit_platform(stated)
+    arch = wheel_arch(image_platform)
     linux = re.compile(rf"(linux|manylinux[0-9_]*)_{re.escape(arch)}")
     if any(
         (tag.interpreter, tag.abi) in runs_on_python
@@ -833,9 +837,11 @@ def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path) -> None:
         for tag in tags
     ):
         return
+    whose = "images.platform" if stated else "this host; images.platform names another"
     raise BuildProfileError(
         f"the wheel {wheel.name} of the deployment package {_shown(source)} does not fit the "
-        f"project image (CPython {IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]} on Linux {arch}).\n"
+        f"project image (CPython {IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]} on "
+        f"{image_platform} ({whose})).\n"
         "        Make the package pure Python, or publish a fitting wheel and name it as an "
         "index requirement."
     )
