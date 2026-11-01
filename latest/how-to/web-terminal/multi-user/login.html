@@ -1029,8 +1029,23 @@ set, spelled shorter.</p></td>
 <td><p>Everyone whose asserted email address is in that domain. Needs
 <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code> and <code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code>.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tier:&lt;tier&gt;</span></code></p></td>
+<td><p>Every roster login whose tier is <code class="docutils literal notranslate"><span class="pre">&lt;tier&gt;</span></code>. The build spells it out as
+each of those logins’ <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>, so it follows the roster and
+needs <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">oidc</span></code>; a tier no login with an <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> runs is
+a build error.</p></td>
+</tr>
 </tbody>
 </table>
+</div>
+<p>A shared app takes the same set. List the app by name to open it to the whole
+roster, or as a mapping to name who may open it. <code class="docutils literal notranslate"><span class="pre">user:</span></code> members need not be
+on the roster: they reach the app and nothing else.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">shared</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span><span class="w">                          </span><span class="c1"># every roster login</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls</span><span class="w">                   </span><span class="c1"># the admins and two named experts</span>
+<span class="w">    </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tier</span><span class="p p-Indicator">:</span><span class="nv">admin</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;user:ada@example.org&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;user:grace@example.org&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
 </div>
 <p>A card whose set is anything but <code class="docutils literal notranslate"><span class="pre">[self]</span></code> is a <strong>shared card</strong>: one
 terminal, one tier, one audit directory, opened by more than one person.
