@@ -2,8 +2,8 @@
 /* OSPREY Web Terminal — Watchdog Alert
  *
  * The operator's answer to a watchdog flag: one overlay listing every open flag
- * of the current session, with one Stop and one Continue. Expert and simple mode
- * use this same module.
+ * of the current session, with one Stop and one Continue. The chat and the
+ * terminal use this same module.
  *
  * ONE truth: `GET /api/watchdog/flags`. A `watchdog_*` frame is a change notice
  * and only that; nothing is rendered from a frame's body except the per-watchdog

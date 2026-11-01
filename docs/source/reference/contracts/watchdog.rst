@@ -157,8 +157,8 @@ session stays held. A flag already closed is ignored. A record that cannot be wr
 
 ``continue`` closes the named flags.
 
-``stop`` ends what is running in that session first, in expert mode by an interrupt and in
-simple mode by cancelling the turn, which also denies pending approvals and stops background
+``stop`` ends what is running in that session first, in the terminal by an interrupt and in
+the chat by cancelling the turn, which also denies pending approvals and stops background
 agents. It never terminates the session. Then it reads what the agent started. A flag closes
 only if the turn has ended and nothing the agent started is still running, and this holds when
 no turn was running too. Otherwise the flag stays open with ``stop_unconfirmed: true`` and

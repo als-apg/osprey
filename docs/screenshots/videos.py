@@ -131,15 +131,12 @@ VIDEOS: tuple[DocVideo, ...] = (
         stem="osprey-watchdog",
         storyboard=WATCHDOG,
         # The operator chat with Knowledge open; no terminal, no example plot.
-        layout=Layout(view="simple", active="okf", tiles=("okf",)),
+        layout=Layout(surface="chat", active="okf", tiles=("okf",)),
         pages=("how-to/safety-watchdogs.rst",),
         poster_step="dialog",
         window_s=(15.0, 60.0),
         init_sets=(
             f"watchdogs.{WATCHDOG_NAME}.enabled=true",
-            # No Expert view on offer: the Simple chat is the only console.
-            "config.web.expert_view=false",
-            "config.web.ui_mode=simple",
             "config.artifact_server.example_artifact=false",
         ),
         needs_env=("TYPESAFE_API_KEY",),

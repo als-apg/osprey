@@ -31,6 +31,7 @@ from tests.interfaces.web_terminal._posture_chip import (
     chip_hub,
     settled_chip,
 )
+from tests.interfaces.web_terminal._surface import back_to_chat
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -75,9 +76,8 @@ def _watchdog_hub(
     monkeypatch: pytest.MonkeyPatch,
     *,
     enabled: bool = True,
-    ui_mode: str = "expert",
 ) -> Iterator[tuple[str, Any, Path]]:
-    with chip_hub(tmp_path, monkeypatch, ui_mode=ui_mode) as (base_url, app, _):
+    with chip_hub(tmp_path, monkeypatch) as (base_url, app, _):
         root = tmp_path / "holds"
         root.mkdir()
         if enabled:
@@ -324,11 +324,12 @@ def test_a_held_refusal_in_the_conversation_rereads_the_flags_at_once(
         expect(page.locator(FLAG)).to_have_count(1, timeout=3_000)
 
 
-def test_simple_mode_raises_the_same_dialog(
+def test_the_chat_raises_the_same_dialog(
     chromium_browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with _watchdog_hub(tmp_path, monkeypatch, ui_mode="simple") as (base_url, _app, root):
+    with _watchdog_hub(tmp_path, monkeypatch) as (base_url, _app, root):
         page, key = _open_page(chromium_browser, base_url)
+        back_to_chat(page)
         _open_flag(root, key, "alpha")
         _send_frame(page, _flag_frame(key, "alpha"))
         expect(page.locator(FLAG)).to_contain_text("prompt seen by alpha", timeout=TIMEOUT)

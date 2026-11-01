@@ -7,9 +7,9 @@ interrupts the turn. Replaced: the model (:mod:`tests.e2e.scripted_model`), the 
 service (a local server behind ``api.jev`` answering with the flag mass a test
 asks for) and the event dispatcher behind the EVENTS panel.
 
-Each prompt is the page's own, typed in the Simple view's composer. The Expert
-view's terminal runs a stand-in shell, so a session reaches it by moving there,
-and a prompt typed in it is the post its trigger hook makes to the intake. A flag
+Each prompt is the page's own, typed in the chat's composer. The terminal runs a
+stand-in shell, so a session reaches it by a reload of a tab that opted into it, and a prompt
+typed in it is the post its trigger hook makes to the intake. A flag
 opens after its prompt, so a scripted turn that must meet the flag waits at the
 model until the record shows both.
 
@@ -71,6 +71,7 @@ from tests.e2e.test_watchdog_hold_scripted import (
     read,
 )
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, BrowserContext, Page
@@ -129,7 +130,6 @@ class Served:
     events: dict[str, Any]
     conductor: Conductor
     jev: FakeJev
-    ui_mode: str = "simple"
     audit: list[dict[str, Any]] = field(default_factory=list)
     keys: set[str] = field(default_factory=set)
     app: Any = None
@@ -155,7 +155,6 @@ class Served:
                 patch.setattr(_serving, "listening_socket", lambda host, _port: bind(host, port))
             self.base_url = running.enter_context(run_app_server(app))
         self.app = app
-        self.app.state.web_ui_mode = self.ui_mode
         self._running = running
 
     def stop(self) -> None:
@@ -424,6 +423,14 @@ def _wait_started_command(served: Served, key: str) -> None:
     raise AssertionError(f"the script never started: {served.conductor.results}")
 
 
+def _wait_terminal_session(served: Served, key: str) -> None:
+    """Block until the terminal runs a child under *key*: only then can its hook post."""
+    deadline = time.monotonic() + TURN_TIMEOUT_MS / 1_000
+    while served.app.state.pty_registry.get_session(key) is None:
+        assert time.monotonic() < deadline, "the terminal never started a session under the key"
+        time.sleep(0.1)
+
+
 def _wait_turn_over(page: Page, served: Served) -> None:
     deadline = time.monotonic() + TURN_TIMEOUT_MS / 1_000
     while not served.conductor.returned:
@@ -435,7 +442,7 @@ def _wait_turn_over(page: Page, served: Served) -> None:
 def test_a_flagged_prompt_raises_one_dialog_for_two_watchdogs_and_continue_releases(
     context: BrowserContext, served: Served
 ) -> None:
-    """Typed in the Simple view: both flags in one dialog, chip held, then not."""
+    """Typed in the chat: both flags in one dialog, chip held, then not."""
     page, key = _open_page(context, served)
     expect(page.locator(CHIP_STATE)).not_to_have_text("held", timeout=TIMEOUT_MS)
 
@@ -453,7 +460,7 @@ def test_a_flagged_prompt_raises_one_dialog_for_two_watchdogs_and_continue_relea
     assert {entry["decision"] for entry in answers} == {"continue"}
 
 
-def test_the_expert_view_shows_the_held_session_and_a_flag_raised_under_its_terminal(
+def test_the_terminal_shows_the_held_session_and_a_flag_raised_under_it(
     context: BrowserContext, served: Served
 ) -> None:
     """The session moves to the terminal still held; its next prompt reaches the intake there."""
@@ -461,11 +468,13 @@ def test_the_expert_view_shows_the_held_session_and_a_flag_raised_under_its_term
     prompt = _flag_in_composer(page, served, key)
     _wait_turn_over(page, served)
 
-    served.ui_mode = "expert"
-    served.app.state.web_ui_mode = "expert"
+    # The dialog takes every click, so the tab reaches the terminal the way one
+    # that already opted into it does: on a reload.
+    arm_terminal_tab(page)
     page.reload(wait_until="domcontentloaded")
     expect(page.locator(TERMINAL)).to_be_visible(timeout=TIMEOUT_MS)
     assert _session_key(page) == key
+    _wait_terminal_session(served, key)
 
     _assert_dialog_names_both_watchdogs(page, prompt)
     _assert_chip_held(page)

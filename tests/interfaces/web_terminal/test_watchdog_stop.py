@@ -1,6 +1,6 @@
-"""The watchdog Stop: each mode against a turn that stops, ignores it, or left a command behind.
+"""The watchdog Stop on both surfaces: a turn that stops, ignores it, or left a command behind.
 
-Simple mode runs a real ``OperatorSession`` over a fake SDK client; expert mode a
+The chat runs a real ``OperatorSession`` over a fake SDK client; the terminal a
 real ``PtyRegistry`` over a fake PTY and a fake clock. The hold record is the real
 one on disk, so every assertion about a hold reads what a child process would read.
 """
@@ -206,10 +206,10 @@ async def test_cancel_reports_abandoned_and_a_second_cancel_does_not_call_it_sto
         client._interrupted.set()
 
 
-# ---- Simple mode ----
+# ---- The chat ----
 
 
-async def test_simple_stop_ends_the_writing_turn_then_releases(root, ledger):
+async def test_chat_stop_ends_the_writing_turn_then_releases(root, ledger):
     _flag(root, "flag-a")
     client = WritingClient()
     async with running_chat(client) as session:
@@ -226,7 +226,7 @@ async def test_simple_stop_ends_the_writing_turn_then_releases(root, ledger):
     assert _frames(app, "watchdog_resolved")[0]["flag_ids"] == ["flag-a"]
 
 
-async def test_simple_turn_that_ignores_the_interrupt_keeps_the_flag_open(root, ledger):
+async def test_chat_turn_that_ignores_the_interrupt_keeps_the_flag_open(root, ledger):
     _flag(root, "flag-a")
     client = WritingClient(ignores_interrupt=True)
     async with running_chat(client) as session:
@@ -245,7 +245,7 @@ async def test_simple_turn_that_ignores_the_interrupt_keeps_the_flag_open(root, 
     ]
 
 
-async def test_simple_started_command_outliving_the_stop_keeps_the_flag_open_named(root, ledger):
+async def test_chat_started_command_outliving_the_stop_keeps_the_flag_open_named(root, ledger):
     _flag(root, "flag-a")
     async with running_chat(WritingClient()) as session:
         session.started_commands = lambda: [SLOW_LOOP]
@@ -256,7 +256,7 @@ async def test_simple_started_command_outliving_the_stop_keeps_the_flag_open_nam
     assert "write_loop.py" in json.dumps(_entries(ledger, "stop_unconfirmed")[0]["detail"])
 
 
-async def test_simple_unreadable_process_table_keeps_the_flag_open(root, ledger):
+async def test_chat_unreadable_process_table_keeps_the_flag_open(root, ledger):
     _flag(root, "flag-a")
 
     def unreadable():
@@ -270,7 +270,7 @@ async def test_simple_unreadable_process_table_keeps_the_flag_open(root, ledger)
     assert _entries(ledger, "stop_unconfirmed")
 
 
-async def test_simple_continue_while_stop_waits_is_not_re_marked(root, ledger):
+async def test_chat_continue_while_stop_waits_is_not_re_marked(root, ledger):
     _flag(root, "flag-a")
     _flag(root, "flag-b")
     client = WritingClient(ignores_interrupt=True)
@@ -289,7 +289,7 @@ async def test_simple_continue_while_stop_waits_is_not_re_marked(root, ledger):
     assert [f["flag_id"] for f in _frames(app, "watchdog_flag")] == ["flag-b"]
 
 
-async def test_simple_idle_stop_records_and_releases_without_interrupting(root, ledger):
+async def test_chat_idle_stop_records_and_releases_without_interrupting(root, ledger):
     _flag(root, "flag-a")
     client = WritingClient()
     with sdk_seam(client):
@@ -304,7 +304,7 @@ async def test_simple_idle_stop_records_and_releases_without_interrupting(root, 
     assert _entries(ledger, "stop")
 
 
-async def test_simple_second_stop_stays_open_until_the_started_command_ends(root, ledger):
+async def test_chat_second_stop_stays_open_until_the_started_command_ends(root, ledger):
     _flag(root, "flag-a")
     async with running_chat(WritingClient()) as session:
         session.started_commands = lambda: [SLOW_LOOP]
@@ -324,7 +324,7 @@ async def test_simple_second_stop_stays_open_until_the_started_command_ends(root
     assert not is_held(KEY, root=root)
 
 
-async def test_simple_second_stop_with_an_unreadable_process_table_stays_open(root):
+async def test_chat_second_stop_with_an_unreadable_process_table_stays_open(root):
     _flag(root, "flag-a")
 
     def unreadable():
@@ -339,7 +339,7 @@ async def test_simple_second_stop_with_an_unreadable_process_table_stays_open(ro
     assert again.json()["stop_unconfirmed"] == ["flag-a"]
 
 
-async def test_simple_second_stop_after_an_abandoned_background_agent_stays_open(root):
+async def test_chat_second_stop_after_an_abandoned_background_agent_stays_open(root):
     _flag(root, "flag-a")
     client = WritingClient(ignores_interrupt=True)
     async with running_chat(client) as session:
@@ -378,9 +378,7 @@ async def test_a_prompt_sent_while_a_response_ends_is_not_called_stopped():
         client._interrupted.set()
 
 
-async def test_simple_two_stops_at_once_on_a_turn_that_ignores_them_keep_the_flag_open(
-    root, ledger
-):
+async def test_chat_two_stops_at_once_on_a_turn_that_ignores_them_keep_the_flag_open(root, ledger):
     _flag(root, "flag-a")
     client = WritingClient(ignores_interrupt=True)
     async with running_chat(client) as session:
@@ -397,7 +395,7 @@ async def test_simple_two_stops_at_once_on_a_turn_that_ignores_them_keep_the_fla
     assert not _entries(ledger, "stop")
 
 
-async def test_simple_chat_stop_then_watchdog_stop_on_a_turn_that_ignores_them_keeps_the_flag_open(
+async def test_chat_stop_then_watchdog_stop_on_a_turn_that_ignores_them_keeps_the_flag_open(
     root, ledger
 ):
     _flag(root, "flag-a")
@@ -871,7 +869,7 @@ async def test_a_stream_that_fails_keeps_the_abandoned_agents_on_the_list():
         assert await session.cancel() == "abandoned"
 
 
-async def test_simple_stop_on_a_fresh_flag_with_a_command_running_keeps_it_open(root, ledger):
+async def test_chat_stop_on_a_fresh_flag_with_a_command_running_keeps_it_open(root, ledger):
     _flag(root, "flag-a")
     client = WritingClient()
     with sdk_seam(client):
@@ -889,7 +887,7 @@ async def test_simple_stop_on_a_fresh_flag_with_a_command_running_keeps_it_open(
     assert not _entries(ledger, "stop")
 
 
-async def test_simple_stop_on_a_fresh_flag_with_an_unreadable_process_table_keeps_it_open(root):
+async def test_chat_stop_on_a_fresh_flag_with_an_unreadable_process_table_keeps_it_open(root):
     _flag(root, "flag-a")
     client = WritingClient()
 
@@ -930,7 +928,7 @@ async def test_a_second_stop_during_the_first_ones_read_also_reads(root, ledger)
     assert not _entries(ledger, "stop")
 
 
-# ---- Expert mode ----
+# ---- The terminal ----
 
 
 async def test_pty_stop_escapes_the_writing_turn_then_releases(root, ledger):

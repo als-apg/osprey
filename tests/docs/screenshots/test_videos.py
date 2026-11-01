@@ -234,10 +234,9 @@ def test_an_entry_cannot_be_declared_without_a_layout() -> None:
         type(SECOND)(**fields)
 
 
-def test_the_watchdog_starts_in_the_simple_chat_with_knowledge_open() -> None:
+def test_the_watchdog_starts_in_the_chat_with_knowledge_open() -> None:
     watchdog = video_named("watchdog")
-    assert watchdog.layout == Layout(view="simple", active="okf", tiles=("okf",))
-    assert "config.web.expert_view=false" in watchdog.init_sets
+    assert watchdog.layout == Layout(surface="chat", active="okf", tiles=("okf",))
     assert "config.artifact_server.example_artifact=false" in watchdog.init_sets
 
 
