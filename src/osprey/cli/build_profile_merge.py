@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -38,6 +37,7 @@ from .build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
+    bundled_service_template,
     is_bundled_preset_dir,
     list_presets,
     resolve_triggers_path,
@@ -1846,17 +1846,6 @@ def profile_triggers_material(
     if source is None or source.bundled:
         return None
     return PurePosixPath(triggers).as_posix(), source.path
-
-
-def bundled_service_template(template: str) -> str | None:
-    """The framework template a service ``template:`` selects, or ``None``.
-
-    ``osprey.<name>`` names the template the framework ships as ``<name>``,
-    which holds only letters, digits, underscores and hyphens; every other
-    spelling is a directory relative to the profile root.
-    """
-    match = re.fullmatch(r"osprey\.([A-Za-z0-9_-]+)", template)
-    return match.group(1) if match else None
 
 
 def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:

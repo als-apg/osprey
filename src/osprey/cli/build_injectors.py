@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
-from osprey.cli.build_profile_merge import bundled_service_template
+from osprey.cli.build_profile_presets import bundled_service_template, bundled_services_dir
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
 from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
 from osprey.deployment.graphdb_service import (
@@ -159,22 +159,6 @@ def _rebased_bundled_worker_target(target: Any, worker_port_base: int) -> str | 
     return f"{match['prefix']}{worker_port_base}{match['suffix'] or ''}"
 
 
-def _locate_pkg_services() -> Path:
-    """Locate the OSPREY package's bundled ``templates/services`` directory.
-
-    Prefers the installed ``osprey.templates`` package's location; falls back to
-    a path relative to this module for source/editable checkouts where the
-    package metadata is unavailable. Callers check ``.is_dir()`` on the result,
-    since the directory may be absent in a stripped-down install.
-    """
-    try:
-        import osprey.templates
-
-        return Path(osprey.templates.__file__).parent / "services"
-    except (ImportError, AttributeError):
-        return Path(__file__).parent.parent / "templates" / "services"
-
-
 def _user_owned_services(project_path: Path) -> set[str]:
     """Return the claimed service names from config.yml's ``scaffold.user_owned``.
 
@@ -253,7 +237,7 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
     Returns:
         Number of partials copied.
     """
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
     if not pkg_services.is_dir():
         return 0
 
@@ -375,7 +359,7 @@ def _copy_service_templates(project_path: Path) -> int:
     config = load_config_document(config_path)
 
     # Locate the package's service templates directory
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     if not pkg_services.is_dir():
         logger.warning("Service templates directory not found. Skipping the service copy.")
@@ -511,7 +495,7 @@ def _inject_profile_services(
         # is a directory shipped inside the profile.
         bundled = bundled_service_template(svc_def.template)
         if bundled is not None:
-            src_dir = _locate_pkg_services() / bundled
+            src_dir = bundled_services_dir() / bundled
         else:
             src_dir = profile_dir / svc_def.template
 
@@ -725,7 +709,7 @@ def _inject_dispatch(
             _trigger_yaml.dump(triggers_doc, fh)
 
     # 2. Copy bundled compose templates (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
@@ -1261,7 +1245,7 @@ def _inject_bluesky(
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "bluesky"
     if not src_dir.is_dir():
@@ -1556,7 +1540,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "virtual_accelerator"
     if not src_dir.is_dir():
@@ -1718,7 +1702,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "bluesky_web"
     if not src_dir.is_dir():
@@ -1829,7 +1813,7 @@ def _inject_nextcloud_bridge(
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "nextcloud_bridge"
     if not src_dir.is_dir():
@@ -1929,7 +1913,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "gchat_bridge"
     if not src_dir.is_dir():
@@ -2032,7 +2016,7 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "teams_bridge"
     if not src_dir.is_dir():
@@ -2146,7 +2130,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     # 1. Copy the bundled compose templates (located the same way as service
     #    templates). The recorder ships no Dockerfile — it runs the VA's image
     #    with a different command — so there is nothing to build here either.
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)

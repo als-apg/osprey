@@ -305,11 +305,11 @@ class TestScaffoldCliDirectoryArtifacts:
         """Copy the packaged service template into the project, as a build does."""
         import shutil
 
-        from osprey.cli.build_injectors import _locate_pkg_services
+        from osprey.cli.build_profile_presets import bundled_services_dir
 
         destination = project_path / "services" / name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(_locate_pkg_services() / name, destination)
+        shutil.copytree(bundled_services_dir() / name, destination)
         return destination
 
     def test_claim_moves_the_directory_into_the_profile(self, tmp_path: Path):
