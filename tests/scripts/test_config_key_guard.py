@@ -936,15 +936,16 @@ def test_a_count_inside_a_declared_exception_stays_green(tmp_path, monkeypatch):
     assert guard.result.ok, details(guard)
 
 
-def test_an_exception_excuses_nothing_outside_its_own_file(tmp_path):
+def test_an_exception_excuses_nothing_outside_its_own_file(tmp_path, monkeypatch):
     """A declared phrase copied into another listed page is a count there."""
     declared = ".github/workflows/ci.yml"
-    phrase = next(iter(guard_module.PRESET_COUNT_EXCEPTIONS[declared]))
+    phrase = "The lane (two presets)"
     rel = "scripts/config_key_parity.md"
-    assert phrase not in guard_module.PRESET_COUNT_EXCEPTIONS.get(rel, {})
+    monkeypatch.setitem(guard_module.PRESET_COUNT_EXCEPTIONS, declared, {phrase: "a planted name"})
     _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
-    page = tmp_path / rel
-    page.write_text(page.read_text(encoding="utf-8") + f"\n{phrase}\n", encoding="utf-8")
+    for holder in (declared, rel):
+        page = tmp_path / holder
+        page.write_text(page.read_text(encoding="utf-8") + f"\n{phrase}\n", encoding="utf-8")
 
     guard = make_guard(root=tmp_path)
     guard.check_preset_counts()
