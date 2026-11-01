@@ -258,10 +258,12 @@ re-run.
 
 ### The full-ci run is a hard requirement
 
-Eight CI lanes drive real agent sessions against a live model endpoint, and
-they run only on a pull request carrying the `full-ci` label. They are the
-only proof the agentic paths work on the exact tree being tagged: `release.yml`
-runs no tests and never reads the tagged commit's CI status.
+The CI lanes named in `SPENDING_LANES`
+(`tests/deployment/test_ci_workflow_wiring.py`), which `release.yml` requires
+by name in `REQUIRED_LANES`, drive real agent sessions against a live model
+endpoint, and they run only on a pull request carrying the `full-ci` label.
+They are the only proof the agentic paths work on the exact tree being tagged:
+`release.yml` runs no tests and never reads the tagged commit's CI status.
 
 So the release-notes PR in Step 4 carries the label from the moment it opens:
 
@@ -269,7 +271,7 @@ So the release-notes PR in Step 4 carries the label from the moment it opens:
 gh pr edit <number> --add-label full-ci
 ```
 
-The label persists, so every refold push re-runs the eight; the run that
+The label persists, so every refold push re-runs them; the run that
 counts is the one for the commit that actually merges. If the label ever comes
 off, put it back and let the lanes run again.
 
@@ -281,11 +283,6 @@ two commands here and a deleted tag there:
 gh run list --workflow ci.yml --commit <sha> --limit 1
 gh run view <run-id> --json jobs --jq '.jobs[] | [.conclusion, .name] | @tsv'
 ```
-
-By their `ci.yml` job ids, the eight are `agentic-per-preset` (a job for every
-preset), `e2e-tests`, `dispatch-deploy-e2e`, `dispatch-overlay-e2e`,
-`scan-agentic-e2e`, `nextcloud-talk-bridge-e2e`, `gchat-bridge-e2e` and
-`target-switch-agentic-e2e`.
 
 **Skipped is not passed.** `All CI Checks Passed` cannot tell a lane that ran
 and won from a lane whose `if:` never fired, so an unlabeled release PR merges
