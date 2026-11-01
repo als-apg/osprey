@@ -2532,6 +2532,9 @@ def _inject_project_metadata(config):
         else container_project_dir
     )
     config_with_labels["osprey_worker_project_dir"] = worker_project_dir.as_posix()
+    # The root of a container that runs the project image; the worker's stays
+    # the worker's.
+    config_with_labels["osprey_container_project_dir"] = container_project_dir.as_posix()
     config_with_labels["osprey_worker_stages_config"] = True
 
     # Read by the worker template alone, so it is joined onto the worker's
@@ -2562,6 +2565,9 @@ def _inject_project_metadata(config):
         "source": repo_relative_mount_source(guarded_run_relpath()),
         "target": (worker_project_dir / guarded_run_relpath()).as_posix(),
     }
+    config_with_labels["osprey_container_guarded_run_dir"] = (
+        container_project_dir / guarded_run_relpath()
+    ).as_posix()
 
     # The control-identity step, in the values a template needs: the fixed
     # container directory the staged script and its closure are bound at (the
@@ -2891,8 +2897,13 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     "control_identity_staged": "whether the control-identity directory landed in this context",
     "osprey_control_tree_mount_source": "the control tree's host bind source",
     "osprey_container_control_tree_dir": "the control tree inside the container",
-    "osprey_guarded_run_mount": "the guarded-run directory's `{source, target}`",
-    "limits_mount": "the limits file's finished bind mount, when the tier arms",
+    "osprey_guarded_run_mount": (
+        "the guarded-run directory's host bind `source` (its `target` is the worker's)"
+    ),
+    "osprey_container_project_dir": (
+        "the project image's own root inside the container, `/app/<project>`"
+    ),
+    "osprey_container_guarded_run_dir": "the guarded-run directory inside the project image",
     "services.<k>.state_mounts": "the declared state directories, `[{source, target}]`",
     "services.<k>.writes_enabled": (
         "the render's `control_system.writes` tier arms writes (`asked` or `allowed`)"
