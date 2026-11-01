@@ -24,6 +24,7 @@ import requests
 
 from osprey.port_layout import default_port
 from tests._container_support import (
+    CONTAINER_STATE_TIMEOUT,
     is_docker_available,
     is_image_present,
     start_or_fail,
@@ -155,6 +156,36 @@ SIDECAR_REINDEX_TIMEOUT = 180.0
 
 #: Seconds the whole re-index wait may take, however much progress the log shows.
 SIDECAR_REINDEX_CEILING = 1200.0
+
+#: Seconds one ``/health`` probe may take.
+SIDECAR_PROBE_TIMEOUT = 5.0
+
+#: Seconds between the rounds of a sidecar wait.
+SIDECAR_POLL_INTERVAL = 1.0
+
+
+def _indexed_probe_bound() -> float:
+    """Seconds one round of :func:`wait_for_indexed`'s probe may take.
+
+    The probe reads the whole sidecar log through testcontainers' docker client
+    and makes one ``status`` call on the qmd client, each bounded by its
+    client's default timeout.
+    """
+    import docker.constants
+
+    from osprey.services.qmd.client import DEFAULT_TIMEOUT_SECONDS
+
+    return DEFAULT_TIMEOUT_SECONDS + docker.constants.DEFAULT_TIMEOUT_SECONDS
+
+
+#: The longest one round of a sidecar wait can take once its ceiling has
+#: passed: the slower of the two waits' probes, the pause between rounds, and
+#: the liveness read's two daemon calls.
+SIDECAR_ROUND_S = (
+    max(SIDECAR_PROBE_TIMEOUT, _indexed_probe_bound())
+    + SIDECAR_POLL_INTERVAL
+    + 2 * CONTAINER_STATE_TIMEOUT
+)
 
 #: The entrypoint's log line for the update a marker touch causes.
 _MARKER_UPDATE_LINE = "update triggered by corpus marker"
@@ -319,14 +350,14 @@ def wait_for_health(container, port: int) -> None:
         "qmd sidecar",
         container=container,
         timeout=SIDECAR_HEALTH_TIMEOUT,
-        interval=1.0,
+        interval=SIDECAR_POLL_INTERVAL,
         ceiling=SIDECAR_HEALTH_CEILING,
     )
 
 
 def _probe_health(port: int) -> None:
     """Raise unless the sidecar's ``/health`` answers ``ok``."""
-    response = requests.get(f"http://127.0.0.1:{port}/health", timeout=5)
+    response = requests.get(f"http://127.0.0.1:{port}/health", timeout=SIDECAR_PROBE_TIMEOUT)
     if not (response.ok and '"ok"' in response.text):
         raise AssertionError(f"HTTP {response.status_code}: {response.text[:200]}")
 
@@ -424,7 +455,7 @@ def wait_for_indexed(
         "qmd re-index",
         container=container,
         timeout=SIDECAR_REINDEX_TIMEOUT,
-        interval=1.0,
+        interval=SIDECAR_POLL_INTERVAL,
         ceiling=SIDECAR_REINDEX_CEILING,
     )
 
