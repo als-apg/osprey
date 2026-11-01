@@ -585,10 +585,11 @@ class TestAttachmentTextColumnsMigration:
         The reader holds ACCESS SHARE on ``enhanced_entries`` for the whole run.
         A queued ACCESS EXCLUSIVE request would make the third session's read
         wait behind it; the NOWAIT retries never queue, so it returns within its statement_timeout.
-        The reader starts once migrate has been refused the lock, inside its retry window.
+        Postgres itself attests the no-queue: a session sampling ``pg_locks`` for the whole
+        run never sees an ungranted request on the table, while a third session reads in a
+        loop until migrate returns, so a read falls inside the retry window by construction.
         """
         import asyncio
-        from types import SimpleNamespace
 
         import psycopg
 
@@ -601,29 +602,44 @@ class TestAttachmentTextColumnsMigration:
         assert await migrations.run_migrations(scratch_pool, scratch_config) == ["core_schema"]
         monkeypatch.setattr(migrations, "KNOWN_MIGRATIONS", both)
 
-        # The retry pause runs only after a refused NOWAIT attempt.
-        refused = asyncio.Event()
-
-        async def retry_pause(delay: float) -> None:
-            refused.set()
-            await asyncio.sleep(delay)
-
-        monkeypatch.setattr(migrations, "asyncio", SimpleNamespace(sleep=retry_pause))
         # A hang ceiling: k times the retry budget the busy skip is bounded by.
         ceiling_s = 6 * migrations.LOCK_ATTEMPTS * migrations.LOCK_RETRY_DELAY_S
 
         holder = await psycopg.AsyncConnection.connect(scratch_database)
         third = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
+        sampler = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
+        migrated = asyncio.Event()
         try:
             await holder.execute("SELECT count(*) FROM enhanced_entries")  # opens a txn
+            await third.execute("SET statement_timeout = '3s'")
 
-            async def late_reader() -> None:
-                await refused.wait()
-                await third.execute("SET statement_timeout = '3s'")
-                await third.execute("SELECT count(*) FROM enhanced_entries")
+            async def read_until_migrated() -> int:
+                reads = 0
+                while True:
+                    await third.execute("SELECT count(*) FROM enhanced_entries")
+                    reads += 1
+                    if migrated.is_set():
+                        return reads
+
+            async def sample_queued_requests() -> int:
+                most = 0
+                while True:
+                    queued = await sampler.execute(
+                        """
+                        SELECT count(*) FROM pg_locks
+                        WHERE relation = 'enhanced_entries'::regclass AND NOT granted
+                        """
+                    )
+                    most = max(most, (await queued.fetchone())[0])
+                    if migrated.is_set():
+                        return most
+                    await asyncio.sleep(0)
 
             async def migrate_and_see_the_lock():
-                outcome = await migrations.run_migrations_detailed(scratch_pool, scratch_config)
+                try:
+                    outcome = await migrations.run_migrations_detailed(scratch_pool, scratch_config)
+                finally:
+                    migrated.set()
                 async with scratch_pool.connection() as conn:
                     held = await conn.execute(
                         """
@@ -635,15 +651,20 @@ class TestAttachmentTextColumnsMigration:
                     )
                     return outcome, (await held.fetchone())[0] == 1
 
-            (result, lock_still_held), _ = await asyncio.wait_for(
-                asyncio.gather(migrate_and_see_the_lock(), late_reader()),
+            (result, lock_still_held), reads, most_queued = await asyncio.wait_for(
+                asyncio.gather(
+                    migrate_and_see_the_lock(), read_until_migrated(), sample_queued_requests()
+                ),
                 timeout=ceiling_s,
             )
         finally:
             await holder.rollback()
             await holder.close()
             await third.close()
+            await sampler.close()
 
+        assert most_queued == 0, "a request queued on enhanced_entries"
+        assert reads >= 1, "every read returned"
         assert result.applied == []
         assert result.busy_skipped == [self.MIGRATION]
         assert lock_still_held, "migrate returned only after the reader let go of the table"
