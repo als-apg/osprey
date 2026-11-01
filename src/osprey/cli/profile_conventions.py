@@ -54,6 +54,8 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
+from .profile_root import symlink_escapes
+
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
 
@@ -1448,13 +1450,6 @@ def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBu
     return None
 
 
-def _symlink_escapes(path: Path, profile_dir: Path) -> bool:
-    """True when ``path`` is a symlink resolving outside the profile directory."""
-    if not path.is_symlink():
-        return False
-    return not path.resolve().is_relative_to(profile_dir.resolve())
-
-
 def _validate_markdown_dir(convention: ConventionDir, root: Path) -> list[str]:
     errors: list[str] = []
     for path in _iter_files(root):
@@ -1585,7 +1580,7 @@ def validate_convention_sources(profile_dir: Path) -> None:
         escaping = [
             f"{convention.source}/{path.relative_to(root).as_posix()}"
             for path in sorted(root.rglob("*"))
-            if _symlink_escapes(path, profile_dir)
+            if symlink_escapes(path, profile_dir)
         ]
         errors += [
             f"{rel} is a symlink pointing outside the profile.\n"

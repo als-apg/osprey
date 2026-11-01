@@ -77,6 +77,13 @@ _LAYER_KINDS: dict[str, ProfileKind] = {
 }
 
 
+def symlink_escapes(path: Path, root: Path) -> bool:
+    """True when ``path`` is a symlink resolving outside ``root``."""
+    if not path.is_symlink():
+        return False
+    return not path.resolve().is_relative_to(root.resolve())
+
+
 def layer_files(root_dir: Path) -> list[tuple[ProfileKind, Path]]:
     """Every layer file a profile root carries, as ``(kind, path)``.
 
