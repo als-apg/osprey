@@ -173,6 +173,16 @@ class TestDetectProviderCredentials:
 
         assert _status_for(statuses, "cborg").found is False
 
+    def test_openrouter_key_is_detected_under_its_variable(self, project, profile_dir):
+        (project / ".env").write_text("OPENROUTER_API_KEY=sk-or-test\n")
+
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
+
+        openrouter = _status_for(statuses, "openrouter")
+        assert openrouter.found is True
+        assert openrouter.var == "OPENROUTER_API_KEY"
+        assert openrouter.source == "build/.env"
+
     def test_keyless_providers_are_excluded(self, project, profile_dir):
         statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 

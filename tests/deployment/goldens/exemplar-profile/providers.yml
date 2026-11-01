@@ -134,3 +134,15 @@ providers:
     models:
       - deepseek-v4-flash
       - deepseek-v4-pro
+  # OpenRouter — one key, models from many vendors, spelled <vendor>/<model>.
+  openrouter:
+    api_key: ${OPENROUTER_API_KEY}
+    base_url: https://openrouter.ai/api/v1
+    default_model: anthropic/claude-sonnet-5
+    health_model: anthropic/claude-haiku-4.5
+    models:
+      - anthropic/claude-opus-5.5
+      - anthropic/claude-sonnet-5
+      - anthropic/claude-haiku-4.5
+      - openai/gpt-6-sol
+      - google/gemini-3.8-flash

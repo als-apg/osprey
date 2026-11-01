@@ -98,6 +98,12 @@ _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
         key_env_var="ALS_APG_API_KEY",
         api_protocol="anthropic",
     ),
+    "openrouter": _ProviderEntry(
+        "osprey.models.providers.openrouter",
+        "OpenRouterProviderAdapter",
+        key_env_var="OPENROUTER_API_KEY",
+        api_protocol="openai",
+    ),
     "ollama": _ProviderEntry(
         "osprey.models.providers.ollama",
         "OllamaProviderAdapter",
