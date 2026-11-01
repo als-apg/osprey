@@ -887,6 +887,26 @@ def _docker_group_needs(
     return needs
 
 
+def _leading_paths(words: Sequence[str]) -> list[str]:
+    """The paths a pytest command line names before its first flag."""
+    paths: list[str] = []
+    for word in words:
+        if word.startswith("-"):
+            break
+        paths.append(word)
+    return paths
+
+
+def _pytest_paths(argv: Sequence[str]) -> list[str]:
+    """The paths *argv* hands pytest."""
+    return _leading_paths(argv[list(argv).index("pytest") + 1 :])
+
+
+def _unit_roots(context: Context) -> list[str]:
+    """What the parallel sweep collects for the run's tier and shard."""
+    return _leading_paths(unit_argv(context.tier, (), context.shard))
+
+
 def _stale_installs() -> list[list[str]]:
     """The reader's rows. It prints none on a checkout with no environment yet:
     the check's own ``uv run`` creates that one current."""
@@ -973,6 +993,9 @@ VENUES = {
 # ---------------------------------------------------------------------------
 # The checks
 
+#: The wall-clock suite; its leading paths are what its Docker hook reads.
+WALLCLOCK_ARGV = (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock")
+
 CHECKS: tuple[Check, ...] = (
     Check("lockfile", "invariant", BOTH, ("uv", "lock", "--check"), needs=("uv",)),
     Check(
@@ -1049,7 +1072,7 @@ CHECKS: tuple[Check, ...] = (
         "invariant",
         BOTH,
         (*UV_RUN, "pytest", *INVARIANT_TESTS),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         report="junit-pytest",
     ),
     Check(
@@ -1077,14 +1100,21 @@ CHECKS: tuple[Check, ...] = (
         needs=("uv",),
         annotate=GITHUB_FORMAT,
     ),
-    Check("tsc", "static", BOTH, ("npm", "run", "typecheck"), scope=TSC_SCOPE, needs=("node",)),
+    Check(
+        "tsc",
+        "static",
+        BOTH,
+        ("npm", "run", "typecheck"),
+        scope=TSC_SCOPE,
+        needs=("free-space", "node"),
+    ),
     Check(
         "eslint",
         "static",
         BOTH,
         ("npm", "run", "lint"),
         scope=("*.js", "*.mjs", "*.ts", "eslint.config.js", "tools/eslint/**", "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
     ),
     Check(
         "prettier",
@@ -1092,7 +1122,7 @@ CHECKS: tuple[Check, ...] = (
         BOTH,
         ("npm", "run", "format:check"),
         scope=("*.js", "*.mjs", ".prettierrc.json", ".prettierignore", "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
         fix=(("npm", "run", "format"),),
     ),
     Check(
@@ -1111,7 +1141,8 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         BOTH,
         (*UV_RUN, "pytest"),
-        needs=("uv", "claude-pin"),
+        needs=("free-space", "uv", "install-current", "claude-pin"),
+        selected_needs=_docker_group_needs(_unit_roots),
         bound_s=5400,
         report="junit-pytest",
         tier_flags={
@@ -1134,7 +1165,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "pytest", "tests/pty/", "-m", "pty"),
         scope=("tests/pty/**", "src/osprey/cli/**"),
-        needs=("uv",),
+        needs=("free-space", "uv", "install-current"),
         bound_s=600,
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
@@ -1147,9 +1178,10 @@ CHECKS: tuple[Check, ...] = (
         "pytest-wallclock",
         "tests",
         FULL,
-        (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
+        WALLCLOCK_ARGV,
         scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
-        needs=("uv",),
+        needs=("free-space", "uv", "install-current"),
+        selected_needs=_docker_group_needs(lambda _context: _pytest_paths(WALLCLOCK_ARGV)),
         bound_s=900,
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
@@ -1175,7 +1207,7 @@ CHECKS: tuple[Check, ...] = (
             "-v",
         ),
         scope=(READONLY_WARMUPS_TEST_FILE, "src/osprey/runtime/**"),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         venue=DARWIN_VENUE,
         bound_s=900,
         report="junit-pytest",
@@ -1191,7 +1223,7 @@ CHECKS: tuple[Check, ...] = (
             "scripts/va/live_ca/**",
             "src/osprey/services/virtual_accelerator/**",
         ),
-        needs=("uv", "va-extra"),
+        needs=("free-space", "uv", "va-extra", "install-current"),
         venue=LIVE_CA_VENUE,
     ),
     # A range picks its files through the JavaScript module-to-test mapping.
@@ -1200,7 +1232,7 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         BOTH,
         ("npx", "vitest", "run"),
-        needs=("node",),
+        needs=("free-space", "node"),
         report="junit-vitest",
         named_suffixes=(".test.js", ".test.mjs"),
         selector=_select_vitest,
@@ -1225,7 +1257,7 @@ CHECKS: tuple[Check, ...] = (
             "tests/cli/test_app_cmd.py",
             "tests/apps/fixtures/js_check_app/**",
         ),
-        needs=("uv", "node"),
+        needs=("free-space", "uv", "node", "install-current"),
         bound_s=600,
         report="junit-pytest",
         prepare=_opt_in_js_check,
@@ -1237,7 +1269,7 @@ CHECKS: tuple[Check, ...] = (
         BOTH,
         ("npx", "vitest", "run", "-c", "packages/dock-engine/vitest.config.ts"),
         scope=(DOCK_ENGINE, "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
         report="junit-vitest",
     ),
     Check(
@@ -1246,7 +1278,7 @@ CHECKS: tuple[Check, ...] = (
         BOTH,
         ("node", "packages/dock-engine/scripts/build.mjs", "--check"),
         scope=(DOCK_ENGINE, "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
     ),
     # The build runs from a clean tree, and every redirect key must leave its
     # stub page in it.
@@ -1256,7 +1288,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"),
         scope=("docs/**", "*.rst", "*.md"),
-        needs=("uv", "docs-extra", "graphviz"),
+        needs=("free-space", "uv", "docs-extra", "graphviz"),
         workdir=DOCS_DIR,
         prepare=_clean_docs_build,
         builtin=_check_redirect_stubs,
@@ -1269,7 +1301,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "make", "linkcheck"),
         scope=("docs/**",),
-        needs=("uv", "docs-extra"),
+        needs=("free-space", "uv", "docs-extra"),
         workdir=DOCS_DIR,
     ),
     # Implemented in Python: PACKAGE_STEPS, run in order.
@@ -1279,7 +1311,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (),
         scope=("pyproject.toml", "packages/**", "src/**", "MANIFEST*"),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         command=_package_command,
         builtin=_check_package,
     ),
