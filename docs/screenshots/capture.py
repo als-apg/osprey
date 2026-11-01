@@ -582,7 +582,9 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             # here would replace whatever brought us into it. But it is not
             # swallowed either — a leaked container stack outlives the run and
             # the next one inherits it.
-            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}")
+            output = getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or b""
+            tail = output.decode("utf-8", "replace")[-500:]
+            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}\n{tail}")
         shutil.rmtree(build_root, ignore_errors=True)
 
 

@@ -64,7 +64,9 @@ TERMINAL_WS_PATH = "/ws/terminal"
 # prompts and the agent's answer stay legible next to the artifacts panel.
 TERMINAL_WIDTH_FRACTION = 0.45
 
-GOTO_TIMEOUT_MS = 30_000
+# In the simple view the page load is the server's first request, which waits
+# for its startup to finish.
+GOTO_TIMEOUT_MS = 120_000
 CLICK_TIMEOUT_MS = 30_000
 MOUNT_BUDGET_MS = 30_000
 SESSION_INFO_BUDGET_MS = 30_000
