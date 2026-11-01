@@ -497,6 +497,7 @@ def test_deployment_packages_enumerates_apps_and_local_dependencies(tmp_path: Pa
     zeta = _pyproject(root / "apps" / "zeta")
     alpha = _pyproject(root / "apps" / "alpha")
     (root / "apps" / "no-python").mkdir(parents=True)
+    _pyproject(root / "apps" / "unlisted")
     rel = _pyproject(root / "libs" / "helper")
     absolute = _pyproject(tmp_path / "elsewhere" / "tool")
     url = _pyproject(tmp_path / "by-url")
@@ -510,12 +511,13 @@ def test_deployment_packages_enumerates_apps_and_local_dependencies(tmp_path: Pa
             "./missing",
             "-e ./libs/helper",
         ],
+        apps=["zeta", "no-python", "alpha", "absent"],
     )
     assert found == [alpha, zeta, rel.resolve(), absolute.resolve(), url.resolve()]
 
 
 def test_deployment_packages_without_apps_or_dependencies_is_empty(tmp_path: Path) -> None:
-    assert deployment_packages(tmp_path, []) == []
+    assert deployment_packages(tmp_path, [], apps=[]) == []
 
 
 # --- audit identity ------------------------------------------------------------------

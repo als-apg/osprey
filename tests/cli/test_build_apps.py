@@ -533,19 +533,86 @@ def test_an_unlisted_directory_is_reported_and_not_built(roster_repo: Path) -> N
     assert "apps/unlisted/" in (roster_repo / ".build-output").read_text(encoding="utf-8")
 
 
-def test_a_package_directory_with_no_manifest_on_a_profile_listing_nothing_still_builds(
-    lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
+@pytest.fixture
+def built_packages(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The names of the packages the build went on to build and install."""
+    from osprey.cli import build_cmd
+
+    names: list[str] = []
+    real = build_cmd.build_deployment_packages
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        packages = real(*args, **kwargs)
+        names.extend(package.name for package in packages)
+        return packages
+
+    monkeypatch.setattr(build_cmd, "build_deployment_packages", recording)
+    return names
+
+
+def _no_manifest(directory: Path) -> None:
+    _package(directory, "helper", MOVED_PIN)
+
+
+def _broken_manifest(directory: Path) -> None:
+    directory.mkdir(parents=True)
+    (directory / "app.yml").write_text("name: [\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("listing", [False, True], ids=["nothing listed", "another listed"])
+@pytest.mark.parametrize("unlisted", [_no_manifest, _broken_manifest])
+def test_an_unlisted_directory_is_reported_and_nothing_of_it_is_read_built_or_installed(
+    lifecycle_repo: Path,
+    built_packages: list[str],
+    caplog: pytest.LogCaptureFixture,
+    listing: bool,
+    unlisted: Any,
 ) -> None:
-    package = lifecycle_repo / "apps" / "helper"
-    package.mkdir(parents=True)
-    (package / "pyproject.toml").write_text(
-        '[project]\nname = "helper"\nversion = "0.1.0"\n', encoding="utf-8"
-    )
+    if listing:
+        _with_knob(lifecycle_repo)
+    unlisted(lifecycle_repo / "apps" / "helper")
 
     result = invoke_build(lifecycle_repo)
 
     assert result.exit_code == 0, result.output + caplog.text
     assert "apps/helper/" in result.output
+    assert built_packages == []
+
+
+def test_a_package_that_is_no_application_builds_as_a_local_dependency(
+    lifecycle_repo: Path, built_packages: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    _package(lifecycle_repo / "libs" / "helper", "helper")
+    profile = yaml.safe_load((lifecycle_repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["dependencies"] = [*(profile.get("dependencies") or []), "./libs/helper"]
+    (lifecycle_repo / "profile.yml").write_text(
+        yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+    )
+
+    result = invoke_build(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output + caplog.text
+    assert built_packages == ["helper"]
+
+
+def test_a_listed_application_package_is_built(
+    lifecycle_repo: Path, built_packages: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    _package(_with_knob(lifecycle_repo) / "apps" / "knob", "knob-app")
+
+    result = invoke_build(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output + caplog.text
+    assert built_packages == ["knob-app"]
+
+
+def test_a_listed_directory_with_no_manifest_is_refused(lifecycle_repo: Path, no_artifact) -> None:
+    _package(lifecycle_repo / "apps" / "knob", "knob-app")
+    _list_apps(lifecycle_repo, {"knob": {}})
+
+    output = no_artifact(lifecycle_repo)
+
+    assert "apps/knob/ has no app.yml" in output
 
 
 # --- the root as the one login ---------------------------------------------------

@@ -3638,6 +3638,7 @@ def _build_repo(
             repo_root,
             list(build_profile.dependencies or []),
             zones.stage / DEPLOYMENT_PACKAGES_DIRNAME,
+            apps=[manifest.name for manifest in applications.manifests],
             build=not skip_deps,
         )
         if not skip_deps:

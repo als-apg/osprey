@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,8 +42,8 @@ class DeploymentApps:
         manifests: The applications the profile's ``apps:`` block names.
         logins: Each render's selection: :data:`ROOT_LOGIN` for the root, the
             file's stem for a login.
-        unnamed: The ``apps/<name>/`` directories the block does not name, which
-            are not built.
+        unnamed: The ``apps/<name>/`` directories the block does not name: reported,
+            and nothing of them is read, built or installed.
     """
 
     manifests: tuple[AppManifest, ...] = ()
@@ -51,12 +51,17 @@ class DeploymentApps:
     unnamed: tuple[str, ...] = ()
 
 
-def load(deployment_root: Path) -> list[AppManifest]:
-    """Load every ``apps/<name>/app.yml`` under ``deployment_root``, sorted by name.
+def load(deployment_root: Path, names: Collection[str] | None = None) -> list[AppManifest]:
+    """Load the ``apps/<name>/app.yml`` files under ``deployment_root``, sorted by name.
 
     Only ``app.yml`` is read; other files in an application directory (its
     ``.provenance`` sidecar, fragments, code) are left alone. Hidden entries and
     ``__pycache__`` in ``apps/`` are skipped.
+
+    Args:
+        deployment_root: The deployment root.
+        names: The applications to read, every other directory left unread;
+            ``None`` reads them all.
 
     Raises:
         AppManifestError: A manifest is refused, its ``name`` differs from its
@@ -79,6 +84,8 @@ def load(deployment_root: Path) -> list[AppManifest]:
                     f"{APPS_DIR}/{entry.name} is a login file; apps/ holds application "
                     "directories only. Run `osprey init --revalidate` to move it to tiers/",
                 )
+            continue
+        if names is not None and entry.name not in names:
             continue
         manifest_path = entry / MANIFEST_FILE
         if not manifest_path.is_file():
@@ -107,8 +114,8 @@ def load(deployment_root: Path) -> list[AppManifest]:
 def check_deployment(root: Path) -> DeploymentApps:
     """Run every check a deployment's applications face before anything is written.
 
-    Loads ``apps/``, then validates the applications the profile names against
-    each render's selection and the names the profile already uses, refuses a
+    Loads the applications the profile names, leaving every other ``apps/<name>/``
+    unread, then validates them against each render's selection and the names the profile already uses, refuses a
     hand-written key inside a namespace the projection owns, a projected port
     that collides, and a package that would move a pinned version. ``osprey
     build`` and ``osprey app check`` both run this, so they report identically.
@@ -132,9 +139,7 @@ def check_deployment(root: Path) -> DeploymentApps:
     variant = resolve_variant_selection(root)
     overlays = (variant.path,) if variant.path is not None else ()
     host = resolve_build_document(root / PROFILE_FILENAME, None, overlays).profile
-    # A profile listing nothing runs no application, so its apps/ holds only
-    # packages and directories not yet listed, each free to carry no manifest.
-    manifests = tuple(m for m in load(root) if m.name in host.apps) if host.apps else ()
+    manifests = tuple(load(root, host.apps))
     profiles: dict[str, BuildProfile] = {ROOT_LOGIN: host}
     for _kind, layer in layer_files(root):
         profiles[layer.stem] = resolve_build_document(layer, None, overlays).profile
@@ -149,7 +154,10 @@ def check_deployment(root: Path) -> DeploymentApps:
     _refuse_projected_keys(manifests, profiles)
     if manifests:
         _refuse_unbuildable_services(root, manifests, host)
-    check_pins(deployment_packages(root, list(host.dependencies or [])), framework_pins())
+    check_pins(
+        deployment_packages(root, list(host.dependencies or []), apps=host.apps),
+        framework_pins(),
+    )
     return DeploymentApps(
         manifests=manifests,
         logins=logins,

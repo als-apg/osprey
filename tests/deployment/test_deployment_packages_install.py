@@ -1,7 +1,7 @@
 """A deployment's own Python packages reach the build venv and every project image.
 
 ``osprey build`` builds a wheel of each package
-:func:`osprey.apps.rules.deployment_packages` enumerates — every ``apps/<name>/``
+:func:`osprey.apps.rules.deployment_packages` enumerates — every listed ``apps/<name>/``
 with a ``pyproject.toml`` and every local-path profile ``dependencies`` entry —
 into a deployment-packages directory, and installs them on the one existing
 path a profile dependency takes, in two spellings of one list:
@@ -61,6 +61,13 @@ version = "0.1.0"
 dependencies = ["lume-base"]
 """
 
+APP_MANIFEST = """\
+name: knob
+containers:
+  knob:
+    runtime: osprey
+"""
+
 KIND_PYPROJECT = """\
 [project]
 name = "ring-kind"
@@ -99,6 +106,9 @@ def _deployment(root: Path) -> Path:
 
 DEPENDENCIES = ["numpy>=1.24", "./kinds/ring"]
 
+#: The application ``_deployment`` holds, as a profile lists it.
+APPS = ["knob"]
+
 
 def _profile(dependencies: list[str]) -> BuildProfile:
     return BuildProfile(
@@ -117,7 +127,7 @@ def _uv_installer(monkeypatch: pytest.MonkeyPatch) -> None:
 def _built(tmp_path: Path):
     root = _deployment(tmp_path / "repo")
     dest = tmp_path / "stage" / DEPLOYMENT_PACKAGES_DIRNAME
-    return root, dest, build_deployment_packages(root, DEPENDENCIES, dest)
+    return root, dest, build_deployment_packages(root, DEPENDENCIES, dest, apps=APPS)
 
 
 # --- the build ---------------------------------------------------------------
@@ -143,7 +153,7 @@ def test_each_package_is_built_into_the_directory_with_a_manifest(tmp_path: Path
 def test_a_deployment_with_no_package_builds_nothing(tmp_path: Path) -> None:
     dest = tmp_path / DEPLOYMENT_PACKAGES_DIRNAME
 
-    assert build_deployment_packages(tmp_path, ["numpy"], dest) == ()
+    assert build_deployment_packages(tmp_path, ["numpy"], dest, apps=APPS) == ()
     assert not dest.exists()
 
 
@@ -159,7 +169,7 @@ def test_a_failed_wheel_build_names_the_package(
     )
 
     with pytest.raises(BuildProfileError, match=r"(?s)apps/knob.*no backend"):
-        build_deployment_packages(root, [], tmp_path / DEPLOYMENT_PACKAGES_DIRNAME)
+        build_deployment_packages(root, [], tmp_path / DEPLOYMENT_PACKAGES_DIRNAME, apps=APPS)
 
 
 @pytest.mark.parametrize("entry", ["./vendor/foo.whl", "./kinds/mistyped", "/opt/foo"])
@@ -170,7 +180,7 @@ def test_a_local_path_with_no_package_to_build_is_refused_naming_it(
     root = _deployment(tmp_path / "repo")
 
     with pytest.raises(BuildProfileError) as refusal:
-        build_deployment_packages(root, ["numpy>=1.24", entry], tmp_path / "stage")
+        build_deployment_packages(root, ["numpy>=1.24", entry], tmp_path / "stage", apps=APPS)
 
     assert repr(entry) in str(refusal.value)
     assert "pyproject.toml" in str(refusal.value)
@@ -187,7 +197,7 @@ def _build_with_wheel_named(
 
     monkeypatch.setattr(wheel_build, "_build_wheel", fake)
     root = _deployment(tmp_path / "repo")
-    return build_deployment_packages(root, [], tmp_path / "stage")
+    return build_deployment_packages(root, [], tmp_path / "stage", apps=APPS)
 
 
 @pytest.mark.parametrize(
@@ -257,7 +267,7 @@ def _build_with_members(
 
     monkeypatch.setattr(wheel_build, "_build_wheel", fake)
     root = _deployment(tmp_path / "repo")
-    return build_deployment_packages(root, [], tmp_path / "stage")
+    return build_deployment_packages(root, [], tmp_path / "stage", apps=APPS)
 
 
 @pytest.mark.parametrize(
@@ -341,7 +351,7 @@ def test_a_local_path_and_a_requirement_of_one_distribution_are_refused(
 ) -> None:
     """No merge order decides which one the deployment meant."""
     root = _deployment(tmp_path / "repo")
-    packages = build_deployment_packages(root, dependencies, tmp_path / "stage")
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
 
     with pytest.raises(BuildProfileError) as refused:
         _plan_project_venv(_profile(dependencies), packages)
@@ -374,7 +384,7 @@ def test_an_application_package_and_a_requirement_of_one_distribution_are_refuse
     tmp_path: Path,
 ) -> None:
     root = _deployment(tmp_path / "repo")
-    packages = build_deployment_packages(root, ["knob_app"], tmp_path / "stage")
+    packages = build_deployment_packages(root, ["knob_app"], tmp_path / "stage", apps=APPS)
 
     with pytest.raises(BuildProfileError) as refused:
         _plan_project_venv(_profile(["knob_app"]), packages)
@@ -387,7 +397,7 @@ def test_two_packages_of_one_distribution_are_refused(tmp_path: Path) -> None:
     (root / "kinds" / "copy").mkdir()
     (root / "kinds" / "copy" / "pyproject.toml").write_text(KIND_PYPROJECT, encoding="utf-8")
     dependencies = ["./kinds/ring", "./kinds/copy"]
-    packages = build_deployment_packages(root, dependencies, tmp_path / "stage")
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
 
     with pytest.raises(BuildProfileError) as refused:
         _plan_project_venv(_profile(dependencies), packages)
@@ -399,7 +409,7 @@ def test_two_spellings_of_one_local_path_are_one_package(tmp_path: Path) -> None
     root = _deployment(tmp_path / "repo")
     dependencies = ["./kinds/ring", "-e ./kinds/ring", "numpy>=1.24"]
 
-    packages = build_deployment_packages(root, dependencies, tmp_path / "stage")
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
 
     assert deployment_dependencies(dependencies, packages) == [
         "ring-kind==0.2.0",
@@ -417,7 +427,7 @@ def test_a_symlinked_root_enumerates_an_application_named_in_the_dependencies_on
     link = tmp_path / "link"
     link.symlink_to(real, target_is_directory=True)
 
-    found = deployment_packages(link, ["./apps/knob"])
+    found = deployment_packages(link, ["./apps/knob"], apps=APPS)
 
     assert found == [(real / "apps" / "knob" / "pyproject.toml").resolve()]
 
@@ -427,7 +437,7 @@ def test_an_entry_naming_an_application_package_is_that_package_in_place(
 ) -> None:
     root = _deployment(tmp_path / "repo")
     dependencies = ["./apps/knob", *DEPENDENCIES]
-    packages = build_deployment_packages(root, dependencies, tmp_path / "stage")
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
 
     assert [p.name for p in packages] == ["knob-app", "ring-kind"]
     assert deployment_dependencies(dependencies, packages) == [
@@ -707,7 +717,9 @@ def _repo_with_packages(repo: Path, dependencies: list[str]) -> Path:
     created = CliRunner().invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
     assert created.exit_code == 0, created.output
     _deployment(repo)
+    (repo / "apps" / "knob" / "app.yml").write_text(APP_MANIFEST, encoding="utf-8")
     profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["apps"] = {"knob": {}}
     profile["dependencies"] = list(dependencies)
     (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
     return repo
@@ -845,7 +857,7 @@ def test_reading_a_package_spells_it_as_the_build_would(tmp_path: Path) -> None:
     root = _deployment(tmp_path / "repo")
     dest = tmp_path / "stage" / DEPLOYMENT_PACKAGES_DIRNAME
 
-    packages = build_deployment_packages(root, DEPENDENCIES, dest, build=False)
+    packages = build_deployment_packages(root, DEPENDENCIES, dest, apps=APPS, build=False)
 
     assert [(p.name, p.version, p.wheel) for p in packages] == [
         ("knob-app", "0.1.0", None),
@@ -861,7 +873,9 @@ def test_a_package_with_a_dynamic_version_is_named_with_no_version(tmp_path: Pat
         '[project]\nname = "ring-kind"\ndynamic = ["version"]\n', encoding="utf-8"
     )
 
-    packages = build_deployment_packages(root, ["./kinds/ring"], tmp_path / "s", build=False)
+    packages = build_deployment_packages(
+        root, ["./kinds/ring"], tmp_path / "s", apps=APPS, build=False
+    )
 
     assert deployment_dependencies(["./kinds/ring"], packages) == [
         "ring-kind",
@@ -880,7 +894,7 @@ def test_a_package_whose_name_cannot_be_read_is_refused_naming_it(
     (root / "apps" / "knob" / "pyproject.toml").write_text(text, encoding="utf-8")
 
     with pytest.raises(BuildProfileError, match="apps/knob"):
-        build_deployment_packages(root, [], tmp_path / "stage", build=False)
+        build_deployment_packages(root, [], tmp_path / "stage", apps=APPS, build=False)
 
 
 def _skip_deps_build_with_kind(
