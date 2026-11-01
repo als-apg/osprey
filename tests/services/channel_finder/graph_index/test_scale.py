@@ -12,24 +12,23 @@ it asserts anything. What the printed lines are for is the *trend* -- a build
 that goes from forty seconds to ninety has regressed even though it never
 failed, and the run history is where that is visible.
 
-The two search guards are ratios, not wall clocks. What moves between hosts is
-the whole scale and not the shape of it: a search over the hundred-thousand-row
-index takes 42 ms on a workstation and 298 ms in the shared lane, and the whole
-parity matrix over the demo corpus 5.5 ms here and 34 ms there -- the same ~7x
-on a corpus of a hundred thousand rows and on one of three thousand. A factor
-that does not move with the data is the box, not the code: four xdist workers
-on a four-vCPU runner, with DuckDB asking for cores none of them can spare
-(coverage instrumentation was measured too, and is not the cause, at +6%). So
-each search guard measures its own baseline in the same process seconds before
-the number it bounds -- the big index against the demo matrix, and the median
-matrix shape against the unfiltered scan the matrix opens with -- and host load
-divides out. The build budgets and the cold-search budget stay absolute: they
-are coarse enough that contention does not reach them, and there is no cheaper
-thing in the same process to measure them against.
+The two search guards are ratios, not absolute budgets. What moves between hosts of
+different speed is the whole scale and not the shape of it: a search over the
+hundred-thousand-row index takes 42 ms on a workstation and 298 ms in the
+shared lane, and the whole parity matrix over the demo corpus 5.5 ms here and
+34 ms there -- the same ~7x on a corpus of a hundred thousand rows and on one
+of three thousand. So each search guard measures its own baseline in the same
+process -- the big index against the demo matrix, and the median matrix shape
+against the unfiltered scan the matrix opens with -- and a faster or slower
+host moves both sides together. The build budgets and the cold-search budget
+stay absolute: there is no cheaper thing in the same process to measure them
+against.
 
-Those four absolute budgets carry the ``wallclock`` marker, so the unit job
-times them alone, in a serial step after its parallel sweep. The ratio guards
-run in the parallel lane with everything else, where host load divides out.
+A ratio does not survive *load*: its two sides are timed at different moments,
+and a neighbour that loads one and not the other moves the quotient. So all six
+timing tests carry the ``wallclock`` marker, the unit job times them alone in a
+serial step after its parallel sweep, and the parallel sweep carries no timing
+assertion from this module.
 The module is ``slow``, so the quick tier of ``scripts/check.py`` deselects it.
 
 :data:`PARITY_MATRIX` is exported for the parity lane, which replays the same
@@ -124,11 +123,10 @@ DEMO_FIRST_SEARCH_SECONDS = 0.100
 
 #: How much slower the median search over the hundred-thousand-row index may be
 #: than the median shape over the demo one, measured in the same process
-#: seconds apart. The ratio is the stable quantity: 42 ms against 5.5 ms on a
-#: workstation and 298 ms against 34 ms in the shared lane is the same factor
-#: on both, so a ceiling twice above the loaded measurement still sees a
-#: threefold regression while a contended box cancels out. Measured 6.1x-7.0x
-#: over four runs on a workstation.
+#: seconds apart. The ratio holds across hosts of different speed: 42 ms
+#: against 5.5 ms on a workstation and 298 ms against 34 ms in the shared lane
+#: is the same factor on both. Measured 6.1x-7.0x over four runs on a
+#: workstation.
 SCALE_OVER_DEMO_CEILING = 20.0
 
 #: How much slower the median shape in the parity matrix may be than the
@@ -667,6 +665,7 @@ class TestHundredThousandBindings:
 
         assert len(statements) == STATEMENTS_PER_SEARCH, statements
 
+    @pytest.mark.wallclock
     def test_a_search_over_a_hundred_thousand_rows_stays_interactive(
         self, built, demo_matrix_timings: list[float]
     ):
@@ -674,8 +673,8 @@ class TestHundredThousandBindings:
 
         The finder redraws its page on every filter click, so this is the number
         the interaction is made of -- but it is a number the box owns, not the
-        code. Held against a demo-corpus median measured moments earlier in the
-        same process, host load divides out of both sides.
+        code. Held against a demo-corpus median measured in the same process, a
+        host's speed moves both sides together.
         """
         index_path, _, _ = built
 
@@ -794,6 +793,7 @@ class TestDemoCorpusOverTheParityMatrix:
             f"budget {DEMO_FIRST_SEARCH_SECONDS * 1000:.0f} ms"
         )
 
+    @pytest.mark.wallclock
     def test_the_whole_parity_matrix_stays_inside_the_warm_budget(
         self, demo_matrix_timings: list[float]
     ):
