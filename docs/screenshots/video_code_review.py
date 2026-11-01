@@ -16,7 +16,16 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from docs.screenshots import video_chat
-from docs.screenshots.video_beats import Beat, click, focus, hold, prompt, spotlight, wait_for
+from docs.screenshots.video_beats import (
+    Beat,
+    click,
+    focus,
+    hold,
+    prompt,
+    shown,
+    spotlight,
+    wait_for,
+)
 from docs.screenshots.video_probes import POLL_MS, ProbeFailed
 
 if TYPE_CHECKING:
@@ -51,6 +60,24 @@ RULES_CARD = '#tab-safety .prompts-card[data-name="code-review/rules"]'
 RULE = "#tab-safety .osprey-md-rendered li"
 CLOSE_DRAWER = "#settings-drawer .drawer-close-btn"
 DRAWER_BUDGET_MS = 15_000
+# The first Settings click of a session shows a warning; Settings opens once it is acknowledged.
+PROCEED = ".settings-warning-proceed"
+
+# Where the drawer is: it slides in and out on a transform, so `open` alone says nothing about
+# whether its tabs are on screen yet.
+DRAWER_JS = """
+() => {
+  const drawer = document.getElementById('settings-drawer');
+  const box = drawer.getBoundingClientRect();
+  const still = getComputedStyle(drawer).transform;
+  return {
+    open: drawer.hasAttribute('open'),
+    shown: box.left >= 0 && box.right <= innerWidth + 0.5
+      && (still === 'none' || still === 'matrix(1, 0, 0, 1, 0, 0)'),
+    gone: box.left >= innerWidth - 0.5,
+  };
+}
+"""
 
 CARD = "#operator-container .op-card-reason"
 ALLOW = "#operator-container .op-btn-primary"
@@ -124,6 +151,20 @@ def _corrected_card(take: Take) -> None:
         raise ProbeFailed("corrected", f"the script on the card does not read {BEAM_MODE}")
 
 
+def _drawer(take: Take, name: str, settled: str) -> None:
+    """Poll the drawer until its *settled* state; Proceed on the warning as an operator would."""
+    proceeded = False
+    for _ in range(DRAWER_BUDGET_MS // POLL_MS):
+        state = take.page.evaluate(DRAWER_JS)
+        if state[settled] and state["open"] == (settled == "shown"):
+            return
+        if settled == "shown" and not proceeded and shown(take.page, PROCEED):
+            take.click(take.page.locator(PROCEED).first)
+            proceeded = True
+        take.page.wait_for_timeout(POLL_MS)
+    raise ProbeFailed(name, f"the Settings drawer did not settle {settled}: {state}")
+
+
 def _wait_done(take: Take) -> Any:
     for _ in range(RUN_BUDGET_MS // POLL_MS):
         if video_chat.ready(take.page):
@@ -135,6 +176,7 @@ def _wait_done(take: Take) -> Any:
 CODE_REVIEW = (
     click("more", None, MORE),
     click("settings", None, SETTINGS),
+    Beat("settings-open", None, lambda take: _drawer(take, "settings-open", "shown")),
     click("safety", None, SAFETY_TAB),
     wait_for("rules-listed", None, RULES_CARD, budget_ms=DRAWER_BUDGET_MS),
     click("rules", None, RULES_CARD),
@@ -147,6 +189,7 @@ CODE_REVIEW = (
         ms=HOLD_MS,
     ),
     click("close", None, CLOSE_DRAWER),
+    Beat("settings-closed", None, lambda take: _drawer(take, "settings-closed", "gone")),
     Beat("arm", None, _arm),
     focus("focus", None),
     prompt("ask", None, PROMPT_SCAN),
