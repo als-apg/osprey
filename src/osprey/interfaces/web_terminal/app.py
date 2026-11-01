@@ -75,6 +75,7 @@ from osprey.profiles.web_panels import (
     panel_spec_enabled,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.seconds import positive_seconds
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.types import WRITES_KEY
@@ -894,6 +895,11 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                 "app": spec.get("app"),
                 "agentRoutes": _panel_agent_routes(str(panel_id), spec.get("agent_routes")),
             }
+            # The NAME of the variable holding this panel's launch token, never
+            # its value: this dict reaches the browser. Absent on a render that
+            # does not arm the application.
+            if spec.get("launch_token_env"):
+                panel["launchTokenEnv"] = str(spec["launch_token_env"])
             # The read bound of this panel's proxied requests (see routes/proxy.py).
             # Absent and ``null`` say different things — absent keeps the shared
             # client's default, ``null`` asks for no bound — so the key is carried
@@ -903,6 +909,25 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             custom.append(panel)
 
     return enabled, custom, default_panel
+
+
+def _hold_panel_launch_tokens(app: FastAPI, custom_panels: list[dict]) -> None:
+    """Hold each panel's launch token where the proxy finds its credentials.
+
+    Read from this process's environment: compose hands it to a roster's
+    container, and a roster-less terminal loads it from the deploy ``.env``. An
+    empty variable holds nothing, so the backend refuses the launch; the warning
+    names the variable and never a value.
+    """
+    for panel in custom_panels:
+        name = panel.get("launchTokenEnv")
+        if not name:
+            continue
+        token = os.environ.get(name, "")
+        if token.strip():
+            app.state.panel_auth_headers[panel["id"]] = {LAUNCH_TOKEN_HEADER: token}
+        else:
+            logger.warning("Panel %s names %s, which holds no value", panel["id"], name)
 
 
 def _panel_agent_routes(panel_id: str, routes: object) -> list[dict[str, str]]:
@@ -1917,6 +1942,7 @@ def _create_lifespan(
         # enabled, and a launch that failed adds to neither.
         app.state.sidecars = {}
         app.state.panel_auth_headers = {}
+        _hold_panel_launch_tokens(app, custom_panels)
         # The start outcome the terminal last recorded for each sidecar panel;
         # the panel routes read it, `osprey health` reads the disk copy.
         app.state.sidecar_status = {}
