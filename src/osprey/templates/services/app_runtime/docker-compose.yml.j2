@@ -30,7 +30,7 @@
     armed render, the read-only control tree are what make an owned write judgeable
     here, and the section is driven by the projected field, never by a name. A
     container missing either refuses every owned write, and a `never` render refuses
-    before an owner is read, which is why the tree and limits binds are gated on
+    before an owner is read, which is why the tree bind is gated on
     `svc.writes_enabled`, the render's login tier. #}
 
 services:
@@ -111,11 +111,11 @@ services:
 {%- if svc.drives_target %}
       # The staged config, bound below over the image's: it alone carries the
       # login map an owned write is judged by. Both loaders read it.
-      CONFIG_FILE: {{ osprey_worker_project_dir }}/build/config.yml
-      OSPREY_CONFIG: {{ osprey_worker_project_dir }}/build/config.yml
+      CONFIG_FILE: {{ osprey_container_project_dir }}/build/config.yml
+      OSPREY_CONFIG: {{ osprey_container_project_dir }}/build/config.yml
       # Guarded runs' locks, bound below; named for the entrypoint, which joins
       # the directory's group before it drops privileges.
-      OSPREY_GUARDED_RUN_DIR: {{ osprey_guarded_run_mount.target }}
+      OSPREY_GUARDED_RUN_DIR: {{ osprey_container_guarded_run_dir }}
 {%- if svc.writes_enabled %}
       # The read-only control tree, bound below: naming it arms the read of the
       # record the identity behind an owned write last wrote.
@@ -146,11 +146,8 @@ services:
       - {{ osprey_spool_mount_source }}/{{ identity }}:{{ osprey_container_spool_dir }}/{{ identity }}
 {%- endif %}
 {%- if svc.drives_target %}
-      - ./build/services/{{ key }}/config.yml:{{ osprey_worker_project_dir }}/build/config.yml:ro
-      - {{ osprey_guarded_run_mount.source }}:{{ osprey_guarded_run_mount.target }}
-{%- if svc.writes_enabled and limits_mount is defined %}
-      - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
-{%- endif %}
+      - ./build/services/{{ key }}/config.yml:{{ osprey_container_project_dir }}/build/config.yml:ro
+      - {{ osprey_guarded_run_mount.source }}:{{ osprey_container_guarded_run_dir }}
 {%- if svc.writes_enabled %}
       - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
 {%- endif %}

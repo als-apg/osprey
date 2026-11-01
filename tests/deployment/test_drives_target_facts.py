@@ -2,9 +2,10 @@
 
 A container declaring ``drives_target`` judges owned writes in its own process.
 What makes that judgeable is what this section binds: the staged config carrying
-the login map, the read-only control tree, the guarded-run root and, on an armed
-render, the limits database. The facts come from the deployment's own config, so
-the role is the only thing a service has to declare.
+the login map, the guarded-run root and, on an armed render, the read-only control
+tree. The limits database is the copy the project image bakes beside its config.
+The facts come from the deployment's own config, so the role is the only thing a
+service has to declare.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.deployment.compose_generator import (
     _inject_project_metadata,
     drives_target_write_posture,
+    guarded_run_relpath,
     setup_build_dir,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
@@ -141,13 +143,14 @@ def test_an_armed_render_binds_everything_an_owned_write_is_judged_by(
     svc, out_dir = _render(repo, config)
 
     metadata = _inject_project_metadata(config)
-    project = metadata["osprey_worker_project_dir"]
+    project = metadata["osprey_container_project_dir"]
     guarded = metadata["osprey_guarded_run_mount"]
+    guarded_dir = metadata["osprey_container_guarded_run_dir"]
     assert svc["environment"]["CONFIG_FILE"] == f"{project}/build/config.yml"
     assert svc["environment"]["OSPREY_CONFIG"] == f"{project}/build/config.yml"
     tree = metadata["osprey_container_control_tree_dir"]
     assert svc["environment"]["OSPREY_CONTROL_CONTEXT_TREE"] == tree
-    assert svc["environment"]["OSPREY_GUARDED_RUN_DIR"] == guarded["target"]
+    assert svc["environment"]["OSPREY_GUARDED_RUN_DIR"] == guarded_dir
     assert svc["environment"]["OSPREY_AUDIT_IDENTITY"] == IDENTITY
     assert svc["environment"]["OSPREY_SPOOL_DIR"] == (
         f"{metadata['osprey_container_spool_dir']}/{IDENTITY}"
@@ -156,8 +159,7 @@ def test_an_armed_render_binds_everything_an_owned_write_is_judged_by(
     assert set(svc["volumes"]) == {
         f"./build/services/{KEY}/config.yml:{project}/build/config.yml:ro",
         _tree_mount(metadata),
-        f"{guarded['source']}:{guarded['target']}",
-        f"{LIMITS_MOUNT['source']}:{LIMITS_MOUNT['target']}:ro",
+        f"{guarded['source']}:{guarded_dir}",
         f"{metadata['osprey_spool_mount_source']}/{IDENTITY}:"
         f"{metadata['osprey_container_spool_dir']}/{IDENTITY}",
     }
@@ -165,26 +167,59 @@ def test_an_armed_render_binds_everything_an_owned_write_is_judged_by(
     assert staged["control_system"]["login_tiers"] == LOGIN_TIERS
 
 
-def test_a_never_render_mounts_neither_the_tree_nor_the_limits(repo: Path) -> None:
+def test_a_tiered_worker_keeps_its_root_and_the_container_keeps_its_own(repo: Path) -> None:
+    """The worker runs the tier's image; this container runs the project image."""
+    config = _config(_section())
+    config["services"]["dispatch_worker"] = {"tier": "readonly"}
+    config["modules"] = {
+        "web_terminals": {
+            "enabled": True,
+            "image_source": "local",
+            "image_tag": "v1",
+            "default_tier": "readonly",
+            "users": [],
+            "renders": {
+                "readonly": {
+                    "kind": "tier",
+                    "project": "fixture-readonly",
+                    "project_path": "build/fixture-readonly",
+                }
+            },
+        }
+    }
+
+    metadata = _inject_project_metadata(config)
+    assert metadata["osprey_worker_project_dir"] == "/app/fixture-readonly"
+    assert metadata["osprey_container_project_dir"] == "/app/fixture"
+    assert metadata["osprey_container_guarded_run_dir"] == f"/app/fixture/{guarded_run_relpath()}"
+
+    svc, _ = _render(repo, config)
+    assert svc["environment"]["CONFIG_FILE"] == "/app/fixture/build/config.yml"
+    assert svc["environment"]["OSPREY_CONFIG"] == "/app/fixture/build/config.yml"
+    assert f"./build/services/{KEY}/config.yml:/app/fixture/build/config.yml:ro" in svc["volumes"]
+    assert not any("fixture-readonly" in str(volume) for volume in svc["volumes"])
+
+
+def test_a_never_render_mounts_no_control_tree(repo: Path) -> None:
     config = {**_config(_section("never")), "limits_mount": LIMITS_MOUNT}
 
     svc, _ = _render(repo, config)
 
     metadata = _inject_project_metadata(config)
     guarded = metadata["osprey_guarded_run_mount"]
-    project = metadata["osprey_worker_project_dir"]
+    project = metadata["osprey_container_project_dir"]
     assert "OSPREY_CONTROL_CONTEXT_TREE" not in svc["environment"]
     assert svc["stop_grace_period"] == "15s"
     assert set(svc["volumes"]) == {
         f"./build/services/{KEY}/config.yml:{project}/build/config.yml:ro",
-        f"{guarded['source']}:{guarded['target']}",
+        f"{guarded['source']}:{metadata['osprey_container_guarded_run_dir']}",
         f"{metadata['osprey_spool_mount_source']}/{IDENTITY}:"
         f"{metadata['osprey_container_spool_dir']}/{IDENTITY}",
     }
 
 
-def test_an_armed_render_with_no_limits_database_binds_no_limits(repo: Path) -> None:
-    svc, _ = _render(repo, _config(_section()))
+def test_an_armed_render_never_binds_the_limits_file(repo: Path) -> None:
+    svc, _ = _render(repo, {**_config(_section()), "limits_mount": LIMITS_MOUNT})
 
     assert not [volume for volume in svc["volumes"] if "channel_limits" in volume]
 
