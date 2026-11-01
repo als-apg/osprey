@@ -574,6 +574,7 @@ The browser remembers the theme, the sidebar
 labels, the open lists in the sidebar, the sidebar groups, and the panel
 layout. A different browser or a different machine starts from the defaults
 of the deployment.
+
 Earlier releases had a header and a status bar that you could arrange. The
 terminal does not show them, and it does not read the bar arrangements that
 those releases saved.

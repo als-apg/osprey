@@ -33,7 +33,7 @@ Themes come in **families**. OSPREY ships four:
   prefer that look.
 
 In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
-light/dark switch, the theme family picker. Every
+light/dark switch and the theme family picker. Every
 panel opened as its own page (ARIEL, the workspace, Channel Finder, the
 lattice dashboard, the knowledge panel) has a sliders button in its own
 header. It opens the display menu, which has the same display controls, as
