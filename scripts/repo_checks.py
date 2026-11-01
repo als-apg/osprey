@@ -765,6 +765,12 @@ def _need_claude_pin() -> str | None:
     return None
 
 
+def _opt_in_js_check(context: Context) -> int:
+    """Open the test that fetches and runs the toolchain ``osprey app check`` ships."""
+    os.environ["OSPREY_JS_CHECK"] = "1"
+    return _prune_bytecode(context)
+
+
 def _js_deps_current() -> ModuleType:
     """The lockfile compare, loaded by path: scripts/ is not a package."""
     spec = importlib.util.spec_from_file_location("js_deps_current", JS_DEPS_CURRENT)
@@ -1081,6 +1087,31 @@ CHECKS: tuple[Check, ...] = (
         report="junit-vitest",
         named_suffixes=(".test.js", ".test.mjs"),
         selector=_select_vitest,
+    ),
+    # The unit lanes leave this test closed, having no reason to fetch a JS toolchain.
+    Check(
+        "app-check-js",
+        "tests",
+        FULL,
+        (
+            *UV_RUN,
+            "--extra",
+            "dev",
+            "pytest",
+            "tests/cli/test_app_cmd.py",
+            "-k",
+            "pinned_toolchain",
+        ),
+        scope=(
+            "src/osprey/apps/js_check/**",
+            "src/osprey/cli/app_cmd.py",
+            "tests/cli/test_app_cmd.py",
+            "tests/apps/fixtures/js_check_app/**",
+        ),
+        needs=("uv", "node"),
+        bound_s=600,
+        report="junit-pytest",
+        prepare=_opt_in_js_check,
     ),
     # The root Vitest config does not reach the package; it carries its own.
     Check(
