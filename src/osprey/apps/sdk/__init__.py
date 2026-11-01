@@ -17,6 +17,7 @@ from osprey import port_layout
 from osprey.apps.sdk._approval import ApprovalRefused, BoundState, check_approved_call
 from osprey.apps.sdk._facts import facility_file, read_facts, tool_keys
 from osprey.apps.sdk._serve import serve_tools
+from osprey.apps.sdk._target import owner_target
 from osprey.apps.sdk._wrappers import agent_panel_headers, queue_is_active
 from osprey.audit.call import current_tool_use_id
 from osprey.audit.dedup import record_and_mark
@@ -73,6 +74,7 @@ __all__ = [
     "make_error",
     "non_negative_seconds",
     "owner_from_header",
+    "owner_target",
     "port_layout",
     "positive_seconds",
     "queue_is_active",

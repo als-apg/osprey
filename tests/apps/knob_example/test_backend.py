@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,6 +17,7 @@ from starlette.middleware import Middleware
 
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
 from osprey.interfaces.common_middleware import WebAuthMiddleware
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.errors import ChannelWriteBlockedError, ConnectorUnavailableError
 from osprey_connectors.posture_store import bound_owner
 
@@ -100,15 +103,49 @@ def test_the_panel_page_is_served_at_the_entry(client: TestClient) -> None:
     assert client.get("/static/panel.js").status_code == 200
 
 
-def test_the_state_answers_from_the_baseline_when_no_target_is_named(client: TestClient) -> None:
+def test_the_state_answers_from_the_baseline_for_an_owner_who_has_not_switched(
+    client: TestClient,
+) -> None:
     assert client.get(STATE_ROUTE).json() == {"channel": CHANNEL, "target": "va", "readback": 1.5}
 
 
-def test_the_state_follows_the_target_it_is_told(
+def test_the_state_answers_from_the_machine_the_owner_is_on(
+    client: TestClient,
+    machines: dict[str, StandInConnector],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree.mkdir()
+    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    record = control_context.ControlContext(
+        target="standin", generation=1, switch={}, switch_epoch=1
+    )
+    path = tree / OWNER / control_context.RECORD_FILENAME
+    path.parent.mkdir()
+    path.write_text(json.dumps(record.to_payload()), encoding="utf-8")
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+
+    assert client.get(STATE_ROUTE).json()["target"] == "standin"
+    assert set(machines) == {"standin"}
+
+
+def test_a_target_named_by_the_caller_changes_nothing(
     client: TestClient, machines: dict[str, StandInConnector]
 ) -> None:
-    assert client.get(STATE_ROUTE, params={"target": "standin"}).json()["target"] == "standin"
-    assert set(machines) == {"standin"}
+    assert client.get(STATE_ROUTE, params={"target": "standin"}).json()["target"] == "va"
+    assert set(machines) == {"va"}
+
+
+def test_an_unreadable_owner_record_is_not_answered_for(
+    client: TestClient,
+    machines: dict[str, StandInConnector],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "absent"))
+    assert client.get(STATE_ROUTE).status_code == 503
+    assert machines == {}
 
 
 def test_a_state_read_that_fails_answers_unavailable(
@@ -118,14 +155,17 @@ def test_a_state_read_that_fails_answers_unavailable(
     assert client.get(STATE_ROUTE).status_code == 503
 
 
-def test_a_target_this_deployment_does_not_name_is_refused(machines: dict) -> None:
+def test_a_target_this_deployment_does_not_name_is_refused(
+    monkeypatch: pytest.MonkeyPatch, machines: dict
+) -> None:
     async def connector_for(target: str) -> StandInConnector:
         raise ValueError(f"no machine named {target}")
 
+    monkeypatch.setattr(backend, "_section", lambda: {"type": "virtual_accelerator"}, raising=True)
     app = create_app(connector_for)
     app.user_middleware = [e for e in app.user_middleware if e.cls is not WebAuthMiddleware]
     client = TestClient(app, raise_server_exceptions=False)
-    assert client.get(STATE_ROUTE, params={"target": "elsewhere"}).status_code == 422
+    assert client.get(STATE_ROUTE).status_code == 422
     assert machines == {}
 
 
@@ -176,10 +216,15 @@ def test_a_body_naming_an_owner_is_refused(client: TestClient) -> None:
     assert _write(client, owner="mallory").status_code == 422
 
 
-def test_each_connector_is_closed_on_the_way_out(machines: dict[str, StandInConnector]) -> None:
+def test_each_connector_is_closed_on_the_way_out(
+    monkeypatch: pytest.MonkeyPatch, machines: dict[str, StandInConnector]
+) -> None:
+    monkeypatch.setattr(backend, "_section", lambda: {"type": "virtual_accelerator"}, raising=True)
+
     async def connector_for(target: str) -> StandInConnector:
         return machines.setdefault(target, StandInConnector(target))
 
     with TestClient(create_app(connector_for), raise_server_exceptions=False) as test_client:
-        test_client.get(STATE_ROUTE, params={"target": "va"})
+        test_client.get(STATE_ROUTE)
+    assert machines
     assert all(machine.disconnected for machine in machines.values())

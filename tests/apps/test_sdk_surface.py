@@ -26,6 +26,7 @@ SDK_NAMES = {
     "refusal_phrase",
     "bind_owner",
     "owner_from_header",
+    "owner_target",
     "load_by_path",
     "verify_launch_token",
     "LAUNCH_TOKEN_HEADER",

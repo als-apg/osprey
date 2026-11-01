@@ -21,7 +21,6 @@ from osprey.apps.sdk import (
     serve_tools,
     web_terminal_url,
 )
-from osprey_connectors import control_context
 
 #: A panel call's bound, in seconds.
 TIMEOUT_S = 10.0
@@ -50,9 +49,7 @@ def build_server() -> FastMCP:
     @server.tool()
     async def read_corrector() -> dict[str, Any]:
         """Read the corrector this application shows, on the session's control target."""
-        record = control_context.read_record()
-        params = {"target": record.target} if record is not None else {}
-        return await _panel_call("GET", STATE_ROUTE, params=params)
+        return await _panel_call("GET", STATE_ROUTE)
 
     @server.tool()
     async def set_corrector(

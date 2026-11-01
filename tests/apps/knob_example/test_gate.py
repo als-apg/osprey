@@ -6,9 +6,16 @@ a refusal into an admission.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
+import yaml
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from knob_example import APP_NAME, WRITE_ROUTE
 from knob_example.server import create_app
 
@@ -26,6 +33,7 @@ from tests.interfaces._asgi import (
     http_scope,
     status_of,
 )
+from tests.interfaces.web_terminal._proxy_fakes import panel_app
 
 JSON_BODY = b'{"value": 1.0, "target": "va", "readback": 0.0}'
 HOST = "localhost:8080"
@@ -67,9 +75,54 @@ def test_the_backend_installs_the_gate() -> None:
     assert WebAuthMiddleware in {entry.cls for entry in create_app().user_middleware}
 
 
-@pytest.mark.parametrize("hop", HOPS)
-def test_a_json_write_passes_the_gate(app_stub, hop: str) -> None:
-    status, downstream = _post(app_stub, hop, "application/json", JSON_BODY)
+BACKEND = "http://127.0.0.1:9300"
+
+
+@pytest.fixture
+def terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAPI]:
+    """The real terminal app, on a login whose tier arms, with this panel declared."""
+    monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+    render = tmp_path / "config.yml"
+    render.write_text(yaml.safe_dump({"control_system": {"writes": "allowed"}}), encoding="utf-8")
+    panel = {
+        "id": APP_NAME,
+        "label": "Knob",
+        "url": BACKEND,
+        "configDefined": True,
+        "app": APP_NAME,
+        "agentRoutes": [{"method": "POST", "path": WRITE_ROUTE}],
+    }
+    for app, _client in panel_app(tmp_path, [panel]):
+        app.state.config_path = render
+        app.state.web_credentials = WebCredentials(
+            operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN
+        )
+        yield app
+
+
+@pytest.mark.no_auth_seam
+def test_a_json_write_with_the_panel_token_reaches_the_backend_on_the_operator_secret(
+    terminal: FastAPI,
+) -> None:
+    upstream = AsyncMock(return_value=httpx.Response(200, json={"outcome": "confirmed"}))
+    terminal.state.proxy_client.request = upstream
+
+    answer = TestClient(terminal, client=("127.0.0.1", 54321)).post(
+        f"/panel/{APP_NAME}{WRITE_ROUTE}",
+        content=JSON_BODY,
+        headers={"content-type": "application/json", "authorization": f"Bearer {PANEL_TOKEN}"},
+    )
+
+    assert answer.status_code == 200
+    sent = upstream.await_args.kwargs
+    assert (sent["method"], sent["url"]) == ("POST", f"{BACKEND}{WRITE_ROUTE}")
+    headers = {name.lower(): value for name, value in sent["headers"].items()}
+    assert headers[OPERATOR_SECRET_HEADER] == OPERATOR_SECRET
+    assert "authorization" not in headers
+
+
+def test_the_operator_secret_passes_the_backends_gate(app_stub) -> None:
+    status, downstream = _post(app_stub, "backend", "application/json", JSON_BODY)
     assert status == 200
     assert downstream.called
 
