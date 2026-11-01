@@ -40,6 +40,7 @@ def test_a_build_with_no_route_to_an_index_makes_the_wheel(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """A full build: `--skip-deps` builds no deployment wheel by contract (tests/deployment/test_deployment_packages_install.py), so the offline proof of the shipped wheel is the full build with no route to an index."""
     for name, value in {**offline_build_env, **NO_ROUTE}.items():
         monkeypatch.setitem(os.environ, name, value)
     repo = init_project(tmp_path, "control-assistant", "demo")
