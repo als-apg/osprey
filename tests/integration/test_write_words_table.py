@@ -291,7 +291,7 @@ def test_writes_off_is_the_deny_lead():
 
 
 def _refused(reason: str | None, kind: str | None = None, allowed: bool = False) -> Any:
-    verdict = SimpleNamespace(allowed=allowed, reason=reason, kind=kind)
+    verdict = SimpleNamespace(allowed=allowed, reason=reason, kind=kind, detail=None)
     return connector_base._verdict_refusal("SR:TEST:SP", 1.0, verdict)
 
 
@@ -405,6 +405,8 @@ def _refusal_surface() -> list[str]:
             texts.append(twin.refusal_text(reason, kind))
             texts.append(check._DENY_HEADER + check._text(reason, kind))
     texts += [check._fallback_text("readonly_run"), check._fallback_text("record_unavailable")]
+    # A hold's sources follow its phrase; a source is an opaque name, not a key.
+    texts.append(refusals.refusal_text("session_held", detail="Raised by: session_hold."))
     return texts
 
 
