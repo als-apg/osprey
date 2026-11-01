@@ -73,6 +73,9 @@ refusal never share one.
    * - ``hook_writes_check``, ``hook_approval``,
        ``hook_limits``, ``hook_memory_guard``
      - What the safety hooks denied, and what they put in front of a person
+   * - ``hook_code_review``
+     - What the code review decided on a notebook edit --- see
+       :ref:`architecture-safety-chain-code-review`
    * - ``http_mutation``, ``web_auth``
      - Requests that changed something through a web API, and the 401s and 403s
        the login check itself refused
@@ -164,7 +167,9 @@ JSON object:
      - Short machine-readable reason --- ``protected_key``, ``reserved path``,
        ``reserved path in ownership store``; a control-system write the
        write posture refused reads ``posture`` on every surface (the hook,
-       the MCP server and the Python executor all spell it the same way). The
+       the MCP server and the Python executor all spell it the same way);
+       ``code_review`` is a code review's own record, on ``executor`` or
+       ``hook_code_review`` (:ref:`architecture-safety-chain-code-review`). The
        login service has a vocabulary of its own --- see
        :ref:`audit-trail-login-refusals`
    * - ``detail``

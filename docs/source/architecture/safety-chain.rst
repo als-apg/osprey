@@ -201,7 +201,8 @@ connector only because a client library's own put is refused (a PVAccess put, wh
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment's own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
 so nothing a library does on the way out can hold it open; the executor reports the run from
-that record. All ten layers are described on :doc:`python-executor`.
+that record. All ten layers are described on :doc:`python-executor`. A deployment can also have
+the code read before it runs: see :ref:`Code review <architecture-safety-chain-code-review>`.
 
 .. _architecture-safety-chain-pyaml-tool:
 
@@ -273,7 +274,9 @@ cooperative, and its gaps are listed with the others on this page. A refused
 write is shown in the cell, with a line saying what to do where something in the notebook
 would change it. The agent may edit notebooks only in the ``notebooks`` and ``artifacts``
 folders under the agent-data root, held there by a file-write guard that protects the host's
-files, not the machine. See :doc:`/how-to/web-terminal/notebooks`.
+files, not the machine. A deployment can also have those agent edits read first: see
+:ref:`Code review <architecture-safety-chain-code-review>`. See
+:doc:`/how-to/web-terminal/notebooks`.
 
 .. _architecture-safety-chain-guarded-run:
 
@@ -324,6 +327,20 @@ call that was allowed, is written down as one ``audit`` entry in the agent recor
 check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See :ref:`reference-audit-trail`.
+
+.. _architecture-safety-chain-code-review:
+
+Code review
+===========
+
+Where a deployment turns it on (:ref:`profile-code-review`), an LLM reads the Python the agent
+wrote, on ``execute`` and ``execute_file`` runs and on ``NotebookEdit``, and returns its reasons
+to the agent. At ``flag`` a blocking finding proceeds as a concern; at ``block`` it is refused.
+The operator sees a notice in the activity strip. The reviewer is never a safety boundary: every
+gate on this page holds whatever it answers. Cells an operator runs are not reviewed.
+
+.. raw:: html
+   :file: ../_diagrams/code-review.html
 
 .. _architecture-safety-chain-phoebus-drive:
 
