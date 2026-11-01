@@ -1335,7 +1335,9 @@ services:
          another. Per lane rather than per deployment for the same reason: a
          render whose writes are armed on one lane alone is handed that
          lane's token alone, and every other lane's stays out of its
-         container entirely. #}
+         container entirely. An application's launch token rides the same line,
+         for a render the shell gate cleared to arm it; the terminal holds it and
+         injects it on that panel's hop. #}
       - {{ var }}={{ '${' ~ var ~ ':-}' }}
 {%- endfor %}
 {%- endif %}
