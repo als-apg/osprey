@@ -30,6 +30,7 @@ HOOK_FILES = [
     "osprey_turn_state.py",
     "osprey_watchdog_trigger.py",
     "osprey_cf_feedback_capture.py",
+    "osprey_code_review.py",
 ]
 
 # Shared libraries that live beside the hooks but are imported by them rather
@@ -206,6 +207,25 @@ class TestNotebookUpdateHook:
     def test_event_is_post_tool_use(self):
         fields, _ = _parse_front_matter(_load_docstring("osprey_notebook_update.py"))
         assert fields["event"] == "PostToolUse"
+
+
+class TestCodeReviewHook:
+    def test_it_gates_notebook_edits_standalone(self):
+        fields, _ = _parse_front_matter(_load_docstring("osprey_code_review.py"))
+        assert fields["event"] == "PreToolUse"
+        assert fields["tools"] == "NotebookEdit"
+        assert fields["wiring"] == "standalone"
+
+    def test_the_memory_guard_stays_the_outer_gate(self):
+        review, _ = _parse_front_matter(_load_docstring("osprey_code_review.py"))
+        guard, _ = _parse_front_matter(_load_docstring("osprey_memory_guard.py"))
+        assert review["safety_layer"] > guard["safety_layer"]
+
+    def test_the_timeout_is_the_deadline_of_the_default_settings(self):
+        from osprey.services.code_review.settings import ReviewSettings, hook_deadline_s
+
+        fields, _ = _parse_front_matter(_load_docstring("osprey_code_review.py"))
+        assert fields["timeout"] == hook_deadline_s(ReviewSettings())
 
 
 class TestMemoryGuardHook:
