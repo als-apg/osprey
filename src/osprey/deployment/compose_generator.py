@@ -2879,7 +2879,8 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     "service_key": "the `services/<k>` directory basename and config-block key `<k>`",
     "service": (
         "the `services.<k>` block: `app`, `command`, `image`, `config_file`, "
-        "`audit_identity`, `port`, `health`, `launch_token_env`, `network`, `env`"
+        "`audit_identity`, `drives_target`, `port`, `health`, `launch_token_env`, "
+        "`network`, `env`"
     ),
     **_PANEL_GRANT_NAMES,
     "osprey_images.worker": "the project image",
@@ -2893,7 +2894,9 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     "osprey_guarded_run_mount": "the guarded-run directory's `{source, target}`",
     "limits_mount": "the limits file's finished bind mount, when the tier arms",
     "services.<k>.state_mounts": "the declared state directories, `[{source, target}]`",
-    "services.<k>.writes_enabled": "the render's `control_system.writes` tier is `allowed`",
+    "services.<k>.writes_enabled": (
+        "the render's `control_system.writes` tier arms writes (`asked` or `allowed`)"
+    ),
     "services.<k>.stop_grace_period": "the grace compose gives the container to stop",
     "services.<k>.ca_env": "the Channel Access addressing block",
 }
@@ -2967,6 +2970,479 @@ def _render_fragment(template, template_path, config):
         ) from e
 
 
+def _yaml_key_present(document, key):
+    """Whether a mapping anywhere in *document* carries *key*."""
+    if isinstance(document, Mapping):
+        return key in document or any(_yaml_key_present(v, key) for v in document.values())
+    if isinstance(document, list):
+        return any(_yaml_key_present(v, key) for v in document)
+    return False
+
+
+def _interpolates(spelling):
+    """Whether compose substitutes a variable in *spelling*; ``$$`` is a literal ``$``.
+
+    :param spelling: A value of a rendered compose document
+    :rtype: bool
+    """
+    return "$" in str(spelling).replace("$$", "")
+
+
+def _compose_fields(spelling):
+    """Split a compose short form at its colons, leaving those inside ``${…}`` alone.
+
+    :param spelling: A short-form volume or port entry
+    :type spelling: str
+    :return: The fields as spelled, or ``None`` when a ``${`` is never closed
+    :rtype: list[str] or None
+    """
+    fields = [""]
+    depth = 0
+    for piece in re.findall(r"\$\$|\$\{|.", spelling, re.DOTALL):
+        if piece == ":" and not depth:
+            fields.append("")
+            continue
+        if piece == "${":
+            depth += 1
+        elif piece == "}" and depth:
+            depth -= 1
+        fields[-1] += piece
+    return None if depth else fields
+
+
+def _bind_sources(compose_service):
+    """The host paths a rendered compose service may bind, as spelled.
+
+    Compose interpolates before it parses, so an entry whose first field holds a
+    variable may be a bind whatever it looks like now, and so may a long form of
+    a variable type. Otherwise a short-form entry binds a path when it has a
+    target and its source starts ``.``, ``/`` or ``~``; anything else names a
+    volume.
+
+    :param compose_service: One entry of a rendered ``services:``
+    :type compose_service: dict
+    :rtype: collections.abc.Iterator[str]
+    """
+    for volume in compose_service.get("volumes") or []:
+        if isinstance(volume, Mapping):
+            kind = volume.get("type")
+            if (kind == "bind" or _interpolates(kind)) and volume.get("source"):
+                yield str(volume["source"])
+        elif isinstance(volume, str):
+            fields = _compose_fields(volume)
+            if fields is None:
+                yield volume
+                continue
+            source, *target = fields
+            if _interpolates(source) or (target and source.startswith((".", "/", "~"))):
+                yield source
+
+
+def _fragment_mapping(value, where, key):
+    """*value* as a mapping, absent being empty, or a refusal naming *where*.
+
+    :param value: A section of a rendered compose document
+    :param where: Its key path
+    :type where: str
+    :param key: The application service
+    :type key: str
+    :rtype: collections.abc.Mapping
+    :raises DeploymentPreconditionError: *value* is neither
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise DeploymentPreconditionError(
+            reason=f"The application fragment of service {key} renders {where} as a "
+            f"{type(value).__name__}, not a mapping.",
+            remedy=f"Render {where} as compose defines it.",
+        )
+    return value
+
+
+def _top_level_bind_sources(document, key):
+    """The host paths a rendered document's top-level sections reach, with their key paths.
+
+    A ``volumes.<name>`` reaches one through its ``driver_opts`` ``device``, read
+    as a host path whatever ``type`` or ``o`` says; a ``configs.<name>`` or
+    ``secrets.<name>`` through its ``file``. ``driver_opts`` with no ``device``
+    could combine with another fragment's at merge, and only the local driver's
+    options say what they bind, so neither can be judged here and both refuse.
+
+    :param document: The rendered compose document
+    :type document: dict
+    :param key: The application service
+    :type key: str
+    :rtype: collections.abc.Iterator[tuple[str, str]]
+    :raises DeploymentPreconditionError: A section is malformed, or a volume's
+        ``driver_opts`` cannot be judged
+    """
+    for name, volume in _fragment_mapping(document.get("volumes"), "volumes", key).items():
+        where = f"volumes.{name}"
+        volume = _fragment_mapping(volume, where, key)
+        opts = _fragment_mapping(volume.get("driver_opts"), f"{where}.driver_opts", key)
+        if not opts:
+            continue
+        if volume.get("driver") not in (None, "local"):
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"{where}.driver of application service {key} is {volume['driver']}, "
+                    "whose driver_opts cannot be told from a bind of the guarded-run, limits "
+                    "or identity paths."
+                ),
+                remedy="Remove the driver_opts, or use the local driver.",
+            )
+        if not opts.get("device"):
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"{where}.driver_opts of application service {key} has no device, so "
+                    "another fragment's could complete it at merge."
+                ),
+                remedy="State the device beside its type and o, or remove the driver_opts.",
+            )
+        yield f"{where}.driver_opts.device", str(opts["device"])
+    for section in ("configs", "secrets"):
+        for name, entry in _fragment_mapping(document.get(section), section, key).items():
+            where = f"{section}.{name}"
+            source = _fragment_mapping(entry, where, key).get("file")
+            if source:
+                yield f"{where}.file", str(source)
+
+
+def _service_well_formed(compose_service):
+    """Whether a rendered service has the shapes the rendered-service rules read.
+
+    :param compose_service: One entry of a rendered ``services:``
+    :rtype: bool
+    """
+    if not isinstance(compose_service, Mapping):
+        return False
+    build = compose_service.get("build")
+    contexts = build.get("additional_contexts") if isinstance(build, Mapping) else None
+    env_file = compose_service.get("env_file")
+    return (
+        all(isinstance(compose_service.get(field) or [], list) for field in ("volumes", "ports"))
+        and isinstance(build, str | Mapping | None)
+        and isinstance(contexts, list | Mapping | None)
+        and isinstance(env_file, str | list | Mapping | None)
+        and all(
+            isinstance(entry, str) or (isinstance(entry, Mapping) and entry.get("path"))
+            for entry in (env_file if isinstance(env_file, list) else [])
+        )
+        and (not isinstance(env_file, Mapping) or bool(env_file.get("path")))
+    )
+
+
+def _build_paths(compose_service):
+    """The host paths a rendered service's ``build:`` reaches, with their key paths.
+
+    A ``build:`` mapping with no ``context`` builds from the compose project
+    directory, as ``.`` does. A ``docker-image://`` or URL context names no local
+    path, and read as one it exposes nothing.
+
+    :param compose_service: One well-formed entry of a rendered ``services:``
+    :type compose_service: dict
+    :rtype: collections.abc.Iterator[tuple[str, str]]
+    """
+    build = compose_service.get("build")
+    if build is None:
+        return
+    if isinstance(build, str):
+        yield "build", build
+        return
+    yield "build.context", str(build.get("context") or ".")
+    contexts = build.get("additional_contexts") or {}
+    if isinstance(contexts, Mapping):
+        for name, path in contexts.items():
+            yield f"build.additional_contexts.{name}", str(path)
+    else:
+        for entry in contexts:
+            name, _, path = str(entry).partition("=")
+            yield f"build.additional_contexts.{name}", path
+
+
+def _env_file_paths(compose_service):
+    """The host files a rendered service's ``env_file:`` reads, as spelled.
+
+    :param compose_service: One well-formed entry of a rendered ``services:``
+    :type compose_service: dict
+    :rtype: collections.abc.Iterator[str]
+    """
+    env_file = compose_service.get("env_file")
+    if env_file is None:
+        return
+    for entry in env_file if isinstance(env_file, list) else [env_file]:
+        yield str(entry["path"] if isinstance(entry, Mapping) else entry)
+
+
+def _protected_mount(source, config):
+    """What protected path a bind *source* exposes, in words, or ``None``.
+
+    A source exposes a path by being it, being inside it or holding it. Sources
+    are compared as host paths, so no spelling of the same directory differs.
+
+    :param source: The bind source, resolved against the repo root as compose does
+    :type source: str
+    :param config: The full render context
+    :type config: dict
+    :rtype: str or None
+    """
+    repo_root = os.path.realpath(resolve_repo_root(config))
+
+    def host_path(path):
+        return os.path.realpath(os.path.join(repo_root, os.path.expanduser(path)))
+
+    host = host_path(source)
+    protected = [
+        ("the guarded-run lock directory", config["osprey_guarded_run_mount"]["source"]),
+        ("the control-context tree", config["osprey_control_tree_mount_source"]),
+    ]
+    # Absent when the tier arms no limits-checked target: nothing to expose.
+    limits = (config.get("limits_mount") or {}).get("source")
+    if limits:
+        protected.append(("the limits file", limits))
+    build_dir = config.get("deployed_build_dir") or config.get("build_dir") or "./build"
+    for other, block in (config.get("services") or {}).items():
+        if service_role(config, other, SERVICE_ROLE_CONTROL_IDENTITY):
+            context = block.get("path") if isinstance(block, Mapping) else None
+            protected.append(
+                (
+                    "the control-identity directory",
+                    os.path.join(
+                        str(build_dir),
+                        str(context or f"./{SERVICES_DIR}/{other}"),
+                        CONTROL_IDENTITY_DIRNAME,
+                    ),
+                )
+            )
+    for words, path in protected:
+        resolved = host_path(path)
+        if os.path.commonpath([host, resolved]) in (host, resolved):
+            return words
+    if (
+        os.path.commonpath([host, repo_root]) == repo_root
+        and CONTROL_IDENTITY_DIRNAME in Path(host).relative_to(repo_root).parts
+    ):
+        return "the control-identity directory"
+    return None
+
+
+def _publishes_off_loopback(entry):
+    """Whether one ``ports:`` entry publishes anywhere but ``127.0.0.1``.
+
+    An entry with no host publishes on every interface, so it counts; a host
+    spelled with a variable cannot be told from one at render time, and a ``${``
+    never closed cannot be read, so they count too.
+
+    :param entry: A short-form or long-form compose port entry
+    :type entry: str or int or dict
+    :rtype: bool
+    """
+    if isinstance(entry, Mapping):
+        host = entry.get("host_ip", "")
+    else:
+        fields = _compose_fields(str(entry))
+        if fields is None:
+            return True
+        host = ":".join(fields[:-2])
+    return str(host) != "127.0.0.1"
+
+
+def _refuse_bind(where, source, config):
+    """Refuse one host path a rendered projected fragment reaches, if a rule forbids it.
+
+    The rules read the path compose uses, in which ``$$`` is a literal ``$``.
+
+    :param where: The rendered position, for the refusal
+    :type where: str
+    :param source: The path as spelled
+    :type source: str
+    :param config: The full render context
+    :type config: dict
+    :raises DeploymentPreconditionError: A rule is broken
+    """
+    if _interpolates(source):
+        raise DeploymentPreconditionError(
+            reason=(
+                f"{where} binds {source}, whose value is unknown at render time, so it "
+                "cannot be told from the guarded-run, limits or identity paths."
+            ),
+            remedy="Spell the source as a literal path, or use a named volume.",
+        )
+    path = source.replace("$$", "$")
+    config_file = config["service"].get("config_file")
+    if config_file and os.path.normpath(path) == os.path.normpath(config_file):
+        raise DeploymentPreconditionError(
+            reason=(
+                f"{where} binds {source}, which is relative to the build, and no such "
+                "path is at the repo root."
+            ),
+            remedy=f"Bind ./build/{os.path.normpath(config_file)} instead.",
+        )
+    words = _protected_mount(path, config)
+    if words:
+        raise DeploymentPreconditionError(
+            reason=f"{where} binds {source}, which exposes {words}.",
+            remedy=(
+                "Remove the bind: an image: container may not mount the guarded-run, limits "
+                "or identity paths. An application that drives the machine sets runtime: osprey."
+            ),
+        )
+
+
+def _refuse_fragment_document(document, config):
+    """Refuse a rendered projected fragment that breaks the rendered-service rules.
+
+    A fragment owns its binds and ports, so the rules read what it rendered: no
+    service ``volumes``, ``env_file``, ``build.context`` or
+    ``build.additional_contexts`` entry, and no top-level ``volumes.<name>``
+    ``driver_opts`` ``device``, ``configs.<name>.file`` or ``secrets.<name>.file``
+    reaches a guarded-run, limits or identity path, the config binds where the
+    build wrote it, and every port stays on loopback. Fragments are judged one
+    at a time, with no compose CLI call, so whatever cannot be judged here
+    refuses: ``volumes_from``, ``extends`` and ``include`` pull in mounts the
+    rules cannot read, ``driver_opts`` with no ``device`` or on a driver that is
+    not local could mean a bind after merge, and a path or host spelled with a
+    variable has no value at render time. An application container is reached
+    through the web terminal's proxy or by its sibling containers on the compose
+    network, so it never publishes off loopback, whatever
+    ``deployment.bind_address`` says.
+
+    :param document: The rendered compose document
+    :type document: dict
+    :param config: The full render context
+    :type config: dict
+    :raises DeploymentPreconditionError: A rule is broken
+    """
+    key = config["service_key"]
+    if document.get("include"):
+        raise DeploymentPreconditionError(
+            reason=(
+                f"The application fragment of service {key} renders include:, whose mounts "
+                "cannot be told from the guarded-run, limits or identity paths."
+            ),
+            remedy="State the services and their mounts in the fragment itself.",
+        )
+    services = _fragment_mapping(document.get("services"), "services", key)
+    for name, compose_service in services.items():
+        if not _service_well_formed(compose_service):
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"Compose service {name} of application service {key} is malformed: a "
+                    "service is a mapping, its volumes: and ports: are lists, and its build: "
+                    "and env_file: are as compose defines them."
+                ),
+                remedy="Render it as a compose service definition.",
+            )
+        for field in ("volumes_from", "extends"):
+            if compose_service.get(field):
+                raise DeploymentPreconditionError(
+                    reason=(
+                        f"Compose service {name} of application service {key} renders "
+                        f"{field}:, whose mounts cannot be told from the guarded-run, limits "
+                        "or identity paths."
+                    ),
+                    remedy="State the service's mounts in its own volumes: list.",
+                )
+        for source in _bind_sources(compose_service):
+            _refuse_bind(f"Compose service {name} of application service {key}", source, config)
+        for where, source in _build_paths(compose_service):
+            _refuse_bind(
+                f"{where} of compose service {name} of application service {key}", source, config
+            )
+        for source in _env_file_paths(compose_service):
+            _refuse_bind(
+                f"env_file of compose service {name} of application service {key}", source, config
+            )
+        for entry in compose_service.get("ports") or []:
+            if _publishes_off_loopback(entry):
+                raise DeploymentPreconditionError(
+                    reason=(
+                        f"Compose service {name} of application service {key} publishes "
+                        f"{entry}, off loopback."
+                    ),
+                    remedy=(
+                        "Publish it as 127.0.0.1:<host port>:<container port>: every port an "
+                        "application container publishes stays on loopback, whatever "
+                        "deployment.bind_address says."
+                    ),
+                )
+    for where, source in _top_level_bind_sources(document, key):
+        _refuse_bind(f"{where} of application service {key}", source, config)
+
+
+def _refuse_fragment_output(output_filepath, config):
+    """Refuse one rendered output of a projected fragment that breaks a rule.
+
+    No YAML output of a fragment carries a ``writes_enabled`` key (the render's
+    tier is the fact); the compose file also answers to
+    :func:`_refuse_fragment_document`. Any other format is not read.
+
+    :param output_filepath: The rendered file
+    :type output_filepath: str
+    :param config: The full render context
+    :type config: dict
+    :raises DeploymentPreconditionError: A rule is broken, or a YAML output
+        does not parse and so cannot be judged
+    :raises ComposeMergeError: The compose file is not a compose document
+    """
+    path = Path(output_filepath)
+    key = config["service_key"]
+    if path.suffix not in (".yml", ".yaml"):
+        return
+    if path.name == COMPOSE_FILE_NAME:
+        document = _load_compose_document(path)
+    else:
+        try:
+            document = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        except yaml.YAMLError as e:
+            raise DeploymentPreconditionError(
+                reason=f"The application fragment of service {key} renders {path.name}, "
+                f"which does not parse as YAML: {e}",
+                remedy="Fix the template, or render the file under another extension.",
+            ) from e
+    if _yaml_key_present(document, "writes_enabled"):
+        raise DeploymentPreconditionError(
+            reason=(
+                f"The application fragment of service {key} renders a writes_enabled key "
+                f"in {path.name}."
+            ),
+            remedy="Remove it: the login's control_system.writes tier decides a write.",
+        )
+    if path.name == COMPOSE_FILE_NAME:
+        _refuse_fragment_document(document, config)
+
+
+def _write_fragment_output(template, template_path, config, output_filepath):
+    """Render, write and judge one output of a projected fragment.
+
+    A refused render leaves no compose file for a later start to find, neither
+    this render's nor the one an earlier render left in a busy build directory.
+
+    :param template: The template, from a strict environment
+    :type template: jinja2.Template
+    :param template_path: Its path, for the refusal
+    :type template_path: str
+    :param config: The full render context
+    :type config: dict
+    :param output_filepath: Where the output goes
+    :type output_filepath: str
+    :raises DeploymentPreconditionError: The render or its output is refused
+    :raises ComposeMergeError: The compose file is not a compose document
+    """
+    try:
+        rendered_content = _render_fragment(template, template_path, config)
+        with open(output_filepath, "w") as f:
+            f.write(rendered_content)
+        _refuse_fragment_output(output_filepath, config)
+    except (DeploymentPreconditionError, ComposeMergeError):
+        compose_file = os.path.join(os.path.dirname(output_filepath), COMPOSE_FILE_NAME)
+        for path in (output_filepath, compose_file):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
+        raise
+
+
 def render_template(template_path, config, out_dir):
     """Render Jinja2 template with configuration context to output directory.
 
@@ -3018,10 +3494,6 @@ def render_template(template_path, config, out_dir):
 
     # Inject project metadata for container labels
     config_dict = _inject_project_metadata(config)
-    if fragment:
-        rendered_content = _render_fragment(template, template_path, config_dict)
-    else:
-        rendered_content = template.render(config_dict)
 
     # Determine output filename based on template type
     if template_path.endswith("docker-compose.yml.j2"):
@@ -3032,8 +3504,12 @@ def render_template(template_path, config, out_dir):
 
     output_filepath = os.path.join(out_dir, output_filename)
     os.makedirs(out_dir, exist_ok=True)
-    with open(output_filepath, "w") as f:
-        f.write(rendered_content)
+    if fragment:
+        _write_fragment_output(template, template_path, config_dict, output_filepath)
+    else:
+        rendered_content = template.render(config_dict)
+        with open(output_filepath, "w") as f:
+            f.write(rendered_content)
     return output_filepath
 
 
