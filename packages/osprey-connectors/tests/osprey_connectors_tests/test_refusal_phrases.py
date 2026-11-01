@@ -27,6 +27,7 @@ _TWIN_PATH = REPO_ROOT / "src/osprey/templates/claude_code/claude/hooks/osprey_t
 LIFTERS = {
     "switch_off": "turn it on from the chip in the web terminal",
     "tier_never": "deployment admin",
+    "session_held": "the operator must answer",
     "owner_unknown": "deployment admin",
     "owner_unscheduled": "ask the deployment admin",
     "owner_foreign": "only that login can write here",

@@ -25,6 +25,7 @@ __all__ = ["KIND_WORDS", "REASONS", "STORE_PATH_MARKERS", "refusal_phrase", "ref
 REASONS: tuple[str, ...] = (
     "readonly_run",
     "tier_never",
+    "session_held",
     "target_unknown",
     "owner_unknown",
     "owner_unscheduled",
@@ -44,6 +45,9 @@ _PHRASES: dict[str, str] = {
     "tier_never": (
         "Writes are refused because this login's write tier does not allow them; "
         "ask the deployment admin."
+    ),
+    "session_held": (
+        "Writes are paused: this session has an unanswered hold the operator must answer."
     ),
     "target_unknown": (
         "Writes are refused because the machine this connector writes to is not known; "

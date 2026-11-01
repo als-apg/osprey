@@ -99,6 +99,8 @@ repos:
       - id: detect-private-key
       # Check JSON syntax
       - id: check-json
+        # This hold record is invalid JSON on purpose: the tests read a corrupt record.
+        exclude: ^packages/osprey-connectors/tests/osprey_connectors_tests/fixtures/session_hold/corrupt/
       # Check for debugger imports
       - id: debug-statements
 

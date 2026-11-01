@@ -785,7 +785,7 @@ layers = [
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
-    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty",
+    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
     "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
 ]
 ignore_imports = [
