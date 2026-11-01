@@ -1,0 +1,7 @@
+# A panel with JS and a JS test, the shape `osprey app check` runs its JS half over.
+name: js-check-app
+containers:
+  js-check-app:
+    runtime: osprey
+    command: [python, -m, server]
+    health: /health

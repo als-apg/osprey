@@ -41,6 +41,7 @@ names another one explicitly.
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey facility           # Check and show the facility description under data/facility/
+   osprey app                # Check a deployment's applications
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy artifacts and plan-queue history into var/archive
@@ -1035,6 +1036,23 @@ up`` seeds the store from that view. See
 
    osprey knowledge seed-from-ttl data/facility/knowledge
    osprey knowledge validate
+
+.. _cli-osprey-app:
+
+osprey app
+==========
+
+Check a deployment's applications without building anything.
+
+``osprey app check [--repo DIRECTORY]``
+   Run what ``osprey build`` checks of the applications the ``apps:`` block of
+   ``profile.yml`` names, then the import boundary over each of their Python
+   packages, ESLint over ``panel/`` when it holds JS, and Vitest over
+   ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
+   with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
+   does not name is reported and not checked. The JS checks need Node and install a
+   pinned toolchain into the user's cache once; an application with no JS needs
+   neither.
 
 .. _cli-osprey-facility:
 

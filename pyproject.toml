@@ -818,6 +818,7 @@ name = "Only the build reads a deployment's applications"
 type = "protected"
 protected_modules = ["osprey.apps.loader"]
 allowed_importers = [
+    "osprey.cli.app_cmd",
     "osprey.cli.application_material",
     "osprey.cli.build_cmd",
     "osprey.cli.build_injectors",
