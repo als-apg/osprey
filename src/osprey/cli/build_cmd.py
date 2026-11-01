@@ -3146,7 +3146,7 @@ def _render_container_project(
     rendered.rename(image_root / BUILD_DIR_NAME)
     scratch.rmdir()
     _stage_source_zone(shared.repo_root, image_root)
-    if shared.deployment_packages:
+    if any(p.wheel is not None for p in shared.deployment_packages):
         # The wheels its Dockerfile names, at the context root where its deps
         # layer copies them from.
         shutil.copytree(
@@ -3579,11 +3579,14 @@ def _build_repo(
         # environment it describes must ship together.
         # The deployment's own packages, built to wheels in the staged render
         # before the venv: the venv installs each from its wheel, and every
-        # image context carries the directory (`_render_container_project`).
+        # image context carries the directory (`_render_container_project`). The
+        # wheel build is a dependency step: `--skip-deps` builds none, the packages
+        # are only read, and the render's image fails its install at the missing wheel.
         deployment_packages = build_deployment_packages(
             repo_root,
             list(build_profile.dependencies or []),
             zones.stage / DEPLOYMENT_PACKAGES_DIRNAME,
+            build=not skip_deps,
         )
         if not skip_deps:
             # Judged before the phase opens: a plan that refuses the build
@@ -4229,7 +4232,7 @@ def _repo_render_context(
         "deployment_packages_dir": DEPLOYMENT_PACKAGES_DIRNAME if deployment_packages else "",
         # Each of those wheels, by distribution and file: the image binds the
         # name the dependency list carries to its staged wheel.
-        "deployment_wheels": [{"name": p.name, "wheel": p.wheel.name} for p in deployment_packages],
+        "deployment_wheels": [{"name": p.name, "wheel": p.wheel_name} for p in deployment_packages],
         # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
         # the agent's user: a render that can still reach the setup tool needs
         # the file that tool edits to be writable, and every other tier must
