@@ -56,6 +56,7 @@ from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     DeploymentPackage,
     build_deployment_packages,
+    is_secret_file,
     refuse_named_twice,
     refuse_unshipped_kinds,
 )
@@ -2851,7 +2852,7 @@ def _strip_secrets(image_root: Path) -> None:
     to supply, and the shipped ``.dockerignore`` already makes that exception.
     """
     for path in image_root.rglob(".env*"):
-        if path.is_file() and path.name != ".env.example":
+        if path.is_file() and is_secret_file(path.name):
             path.unlink()
 
 

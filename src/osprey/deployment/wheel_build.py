@@ -30,7 +30,7 @@ import subprocess
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from importlib.metadata import entry_points
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey.cli.phase_reporter import report_step
@@ -653,6 +653,7 @@ def build_deployment_packages(
         wheel = _build_wheel(pyproject.parent, dest)
         name, version, _build, tags = parse_wheel_filename(wheel.name)
         _refuse_unfit_wheel(wheel, tags, pyproject.parent)
+        _refuse_secrets_in_wheel(wheel, pyproject.parent)
         packages.append(
             DeploymentPackage(
                 name=str(name),
@@ -743,6 +744,31 @@ def _refuse_unfit_wheel(wheel: Path, tags: Iterable[Any], source: Path) -> None:
         "        Make the package pure Python, or publish a fitting wheel and name it as an "
         "index requirement."
     )
+
+
+def is_secret_file(name: str) -> bool:
+    """Whether a path element of this name is a deployment secret store no image may hold."""
+    return name.startswith(".env") and name != ".env.example"
+
+
+def _refuse_secrets_in_wheel(wheel: Path, source: Path) -> None:
+    """Refuse a wheel holding a ``.env``: a sweep of the image tree cannot open a wheel."""
+    import zipfile
+
+    from osprey_connectors.errors import BuildProfileError
+
+    with zipfile.ZipFile(wheel) as archive:
+        members = [
+            m
+            for m in archive.namelist()
+            if any(is_secret_file(part) for part in PurePosixPath(m).parts)
+        ]
+    if members:
+        raise BuildProfileError(
+            f"the wheel {wheel.name} of the deployment package {_shown(source)} holds "
+            f"{', '.join(members)}, a secret store no image may carry.\n"
+            "        Exclude it from the package's build."
+        )
 
 
 def _shown(source: Path) -> str:
