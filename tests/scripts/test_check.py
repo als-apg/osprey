@@ -1880,6 +1880,156 @@ def test_no_usable_temporary_directory_is_a_fault(monkeypatch: pytest.MonkeyPatc
         fw._need_free_space()
 
 
+class FakeDocker:
+    """Answers ``_probe`` for the docker commands; no test here starts a real one."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, **answers: Any) -> None:
+        self.calls: list[list[str]] = []
+        #: The verb (``info``, ``create``, ``rm``) to (status, stderr) or an exception.
+        self.answers = answers
+        self.timeouts: list[float | None] = []
+        monkeypatch.setattr(fw.shutil, "which", lambda name: f"/stub/{name}")
+        monkeypatch.setattr(fw, "_probe", self)
+
+    def __call__(self, argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:
+        self.calls.append(list(argv))
+        self.timeouts.append(timeout)
+        answer = self.answers.get(argv[1] if argv[1] == "info" else argv[2], (0, ""))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer[0], "", answer[1]
+
+
+def _volume(verb: str) -> list[str]:
+    return ["docker", "volume", verb, f"osprey-check-probe-{os.getpid()}"]
+
+
+def test_docker_storage_creates_and_removes_a_probe_volume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(monkeypatch)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == [["docker", "info"], _volume("create"), _volume("rm")]
+    assert set(docker.timeouts) == {60}
+
+
+def test_no_docker_on_the_path_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeDocker(monkeypatch)
+    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == []
+
+
+@pytest.mark.parametrize(
+    "info", [(1, "Cannot connect to the Docker daemon"), subprocess.TimeoutExpired("docker", 60)]
+)
+def test_a_daemon_that_does_not_answer_is_met(monkeypatch: pytest.MonkeyPatch, info: Any) -> None:
+    docker = FakeDocker(monkeypatch, info=info)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == [["docker", "info"]]
+
+
+def test_a_failing_volume_create_is_a_fault_in_the_daemons_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(
+        monkeypatch,
+        create=(
+            1,
+            "Error response from daemon: mkdir /var/lib/docker/volumes/x: input/output error\n",
+        ),
+    )
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.probe == "docker storage"
+    assert fault.value.fact == "volume create input/output error"
+    assert _volume("rm") not in docker.calls
+
+
+def test_a_volume_create_that_does_not_answer_is_a_fault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeDocker(monkeypatch, create=subprocess.TimeoutExpired("docker", 60))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.fact == "volume create did not answer in 60 s"
+
+
+def test_a_failing_volume_remove_is_a_fault_after_the_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(monkeypatch, rm=(1, "remove x: volume is in use"))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.fact == "volume rm volume is in use"
+    assert docker.calls[-1] == _volume("rm")
+
+
+@pytest.fixture
+def group_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A git tree with a file carrying the docker group, one without, and a
+    package whose conftest carries it."""
+    carrying = 'import pytest\npytestmark = pytest.mark.xdist_group("docker")\n'
+    for path, text in {
+        "tests/plain/test_plain.py": "def test_x(): pass\n",
+        "tests/containers/test_db.py": carrying,
+        "tests/suite/conftest.py": carrying,
+        "tests/suite/deep/test_deep.py": "def test_y(): pass\n",
+        "tests/README.md": 'pytest.mark.xdist_group("docker")\n',
+    }.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    return tmp_path
+
+
+def _hook(*roots: str) -> Any:
+    return fw._docker_group_needs(lambda _context: roots)
+
+
+@pytest.mark.parametrize(
+    ("paths", "needs"),
+    [
+        (("tests/plain/test_plain.py",), ()),
+        (("tests/plain/test_plain.py::test_x",), ()),
+        (("tests/containers/test_db.py::test_q",), ("docker-storage",)),
+        (("tests/plain/test_plain.py", "tests/containers/test_db.py"), ("docker-storage",)),
+        (("tests/containers/",), ("docker-storage",)),
+        (("tests/suite/deep/test_deep.py",), ("docker-storage",)),
+        (("tests/suite/deep",), ("docker-storage",)),
+        (("tests/gone/test_deleted.py",), ()),
+        (("tests/gone/test_deleted.py", "tests/containers/test_db.py"), ("docker-storage",)),
+    ],
+)
+def test_the_docker_group_is_read_from_the_selected_paths(
+    group_tree: Path,  # noqa: ARG001
+    paths: tuple[str, ...],
+    needs: tuple[str, ...],
+) -> None:
+    selection = check.Selection(check.PATHS, paths)
+    assert _hook("tests/")(selection, check.Context()) == needs
+
+
+def test_the_docker_group_under_a_whole_selection_is_read_from_the_roots(
+    group_tree: Path,  # noqa: ARG001
+) -> None:
+    whole = check.Selection(check.WHOLE)
+    assert _hook("tests/plain")(whole, check.Context()) == ()
+    assert _hook("tests/containers")(whole, check.Context()) == ("docker-storage",)
+
+
+def test_a_hook_that_cannot_read_the_tree_answers_no_need(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    selection = check.Selection(check.WHOLE)
+    assert _hook("tests/")(selection, check.Context()) == ()
+    monkeypatch.setattr(fw, "_probe", lambda argv: (127, "", ""))
+    assert _hook("tests/")(selection, check.Context()) == ()
+
+
 def test_a_check_off_its_venue_has_its_needs_left_unprobed(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

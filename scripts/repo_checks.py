@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -718,6 +718,13 @@ JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 #: Below this a run can die halfway through its temp tree; one figure, no knob.
 FREE_SPACE_FLOOR_GIB = 5
 
+#: How long each docker command of the storage probe may take.
+DOCKER_PROBE_TIMEOUT_S = 60
+
+#: The docker group as the tests spell it, read as text: collecting the
+#: selection to ask would cost more than the probe it arms.
+DOCKER_GROUP_PATTERN = r'mark\.xdist_group\(\s*"docker"'
+
 #: ``--no-sync``: a plain ``uv run`` is what would hide a stale install, or install it.
 INSTALLED_VERSIONS_PROBE = (*UV_RUN, "--no-sync", "python", "scripts/installed_versions.py")
 
@@ -748,10 +755,12 @@ def _need_workflow_linters() -> str | None:
     return "the workflow linters are not installed: run uv sync --extra dev"
 
 
-def _probe(argv: Sequence[str]) -> tuple[int, str, str]:
+def _probe(argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:
     """Run a probe and return its exit status, stdout and stderr."""
     try:
-        done = subprocess.run(list(argv), cwd=kit.ROOT, capture_output=True, text=True)
+        done = subprocess.run(
+            list(argv), cwd=kit.ROOT, capture_output=True, text=True, timeout=timeout
+        )
     except FileNotFoundError:
         return 127, "", ""
     return done.returncode, done.stdout, done.stderr
@@ -830,6 +839,54 @@ def _need_free_space() -> str | None:
     return None
 
 
+def _need_docker_storage() -> str | None:
+    """Met when a volume can be created and removed, and on a machine with no
+    daemon to ask, whose Docker tests skip. It starts no container."""
+    if not shutil.which("docker"):
+        return None
+    try:
+        if _probe(("docker", "info"), DOCKER_PROBE_TIMEOUT_S)[0] != 0:
+            return None
+    except subprocess.TimeoutExpired:
+        return None
+    volume = f"osprey-check-probe-{os.getpid()}"
+    for verb in ("create", "rm"):
+        try:
+            status, _out, err = _probe(("docker", "volume", verb, volume), DOCKER_PROBE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            fact = f"did not answer in {DOCKER_PROBE_TIMEOUT_S} s"
+        else:
+            if status == 0:
+                continue
+            fact = err.strip().rpartition(": ")[2] or f"exited {status}"
+        raise EnvironmentFault("docker storage", f"volume {verb} {fact}")
+    return None
+
+
+def _docker_group_needs(
+    roots: Callable[[Context], Iterable[str]],
+) -> Callable[[Selection, Context], tuple[str, ...]]:
+    """The hook of a check whose whole selection is *roots*: it needs Docker
+    storage when a selected file, or a conftest above one, carries the group."""
+
+    def needs(selection: Selection, context: Context) -> tuple[str, ...]:
+        paths = selection.paths if selection.state == PATHS else roots(context)
+        targets = [path.partition("::")[0].rstrip("/") for path in paths]
+        above = {
+            conftest
+            for target in targets
+            for parent in PurePosixPath(target).parents
+            if (kit.ROOT / (conftest := str(parent / "conftest.py"))).is_file()
+        }
+        status, out, _err = _probe(
+            ("git", "grep", "--untracked", "-lE", DOCKER_GROUP_PATTERN, "--", *targets, *above)
+        )
+        hit = status == 0 and any(line.endswith(".py") for line in out.splitlines())
+        return ("docker-storage",) if hit else ()
+
+    return needs
+
+
 def _stale_installs() -> list[list[str]]:
     """The reader's rows. It prints none on a checkout with no environment yet:
     the check's own ``uv run`` creates that one current."""
@@ -893,6 +950,7 @@ NEEDS = {
     "workflow-linters": _need_workflow_linters,
     "va-extra": _need_va_extra,
     "free-space": _need_free_space,
+    "docker-storage": _need_docker_storage,
     "install-current": _need_install_current,
 }
 
