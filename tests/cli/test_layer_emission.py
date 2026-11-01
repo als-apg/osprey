@@ -86,7 +86,7 @@ def test_init_writes_exactly_the_exemplar_layer_set(exemplar_repo: Path) -> None
     )
 
     assert written == sorted(EXEMPLAR_LAYER_FILES)
-    assert not (exemplar_repo / "apps").exists()
+    assert [path.name for path in (exemplar_repo / "apps").iterdir()] == ["knob-example"]
     for retired in RETIRED_LAYER_DIRS:
         assert not (exemplar_repo / retired).exists()
 
@@ -255,7 +255,7 @@ def test_only_the_logins_the_roster_names_are_written(runner: CliRunner, tmp_pat
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "logbook"}
-    assert _layer_names(target, "apps") == set()
+    assert _layer_names(target, "apps") == {"knob-example"}
 
 
 def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
@@ -274,7 +274,7 @@ def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "readwrite"}
-    assert _layer_names(target, "apps") == set()
+    assert _layer_names(target, "apps") == {"knob-example"}
 
 
 def test_role_and_dispatch_tiers_are_named_too() -> None:
@@ -341,7 +341,7 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly"}
-    assert _layer_names(target, "apps") == set()
+    assert _layer_names(target, "apps") == {"knob-example"}
 
     built = invoke_build(target)
 

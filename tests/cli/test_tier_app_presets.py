@@ -351,7 +351,7 @@ def test_bundled_login_directory_holds_exactly_the_three_shared_logins() -> None
         if yaml.safe_load(p.read_text(encoding="utf-8")).get("lists") == "own"
     )
     assert found == sorted(APP_NAMES)
-    assert not (_presets_dir() / "apps").exists()
+    assert not list((_presets_dir() / "apps").glob("*.yml"))
 
 
 @pytest.mark.parametrize("app", APP_NAMES)

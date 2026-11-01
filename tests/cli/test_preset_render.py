@@ -463,7 +463,8 @@ class TestControlAssistantRenderedAdmin:
         here exists on the landing page and in nothing else."""
         tiers = sorted(p.stem for p in (rendered_preset_repo / TIERS_DIRNAME).glob("*.yml"))
         assert tiers == ["admin", "channel-finder", "knowledge", "logbook", "readonly", "readwrite"]
-        assert not (rendered_preset_repo / APPS_DIRNAME).exists()
+        applications = (rendered_preset_repo / APPS_DIRNAME).iterdir()
+        assert [path.name for path in applications] == ["knob-example"]
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

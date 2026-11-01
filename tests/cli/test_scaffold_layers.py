@@ -100,7 +100,7 @@ def test_deleted_files_come_back_byte_identical(roster_repo: Path) -> None:
     for name in LOGINS:
         assert f"tiers/{name}.yml (created)" in result.output
     assert {p: p.read_bytes() for p in before} == before
-    assert not (roster_repo / "apps").exists()
+    assert not list((roster_repo / "apps").glob("*.yml"))
 
 
 # ===================================================================

@@ -68,7 +68,7 @@ def test_list_presets_lists_deployments_only() -> None:
     assert {"control-assistant", "hello-world"} <= set(presets)
     assert not set(presets) & set(list_tiers())
     assert "tiers" not in presets and "apps" not in presets
-    assert not (build_profile_presets._presets_dir() / "apps").exists()
+    assert not list((build_profile_presets._presets_dir() / "apps").glob("*.yml"))
 
 
 @pytest.mark.usefixtures("fake_presets")

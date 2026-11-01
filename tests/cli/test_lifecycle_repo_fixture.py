@@ -305,7 +305,7 @@ def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> 
     assert tuple(web_terminals["shared"]) == SHARED_LOGINS
     for name in SHARED_LOGINS:
         assert (lifecycle_repo / TIERS_DIRNAME / f"{name}.yml").is_file(), name
-    assert not (lifecycle_repo / APPS_DIRNAME).exists()
+    assert [path.name for path in (lifecycle_repo / APPS_DIRNAME).iterdir()] == ["knob-example"]
 
 
 def test_provenance_records_the_live_preset(lifecycle_repo: Path) -> None:

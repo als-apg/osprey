@@ -27,6 +27,7 @@ from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone
 from osprey.cli.build_profile_merge import compute_preset_hash
 from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
 from osprey_connectors.errors import BuildProfileError
+from tests.fixtures.lifecycle_repo import lay_preset_applications
 
 # A bundled tier and the host preset whose deployments carry it.
 RENDER_PRESET = "tiers/readonly"
@@ -211,6 +212,7 @@ def test_provenance_survives_a_resolution_round_trip(tmp_path) -> None:
     # ``osprey init`` writes `data:` into the profile it materializes and lays
     # the tree down beside it; the emitter alone produces neither.
     (tmp_path / "data").mkdir()
+    lay_preset_applications(HOST_PRESET, tmp_path)
     profile_file = tmp_path / "profile.yml"
     profile_file.write_text("data: data\n" + _standalone(HOST_PRESET), encoding="utf-8")
 
