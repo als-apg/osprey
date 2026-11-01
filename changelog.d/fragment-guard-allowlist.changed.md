@@ -1,0 +1,1 @@
+An application `image:` fragment may carry only the stated compose keys; any other key, a volume driver or driver option, or host networking the service's network axis did not ask for is refused by name.

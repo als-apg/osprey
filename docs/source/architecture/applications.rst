@@ -28,9 +28,9 @@ the paths a profile's own entries take:
 - **For the deployment**, each container becomes a ``services.<key>`` entry, its port published
   on loopback, so a panel is reached through the terminal's proxy only. An ``image:`` container's
   compose fragment renders from a stated, strict context (``compose_generator.FRAGMENT_CONTEXT``);
-  a fragment that reads any other name, binds the guarded-run, limits or control-identity paths,
-  or publishes a port off loopback is refused when the compose files render, before the build
-  publishes its render. A container on the compose bridge that drives the target is named the
+  a fragment that reads any other name, carries a compose key outside the stated schema, binds
+  the guarded-run, limits or control-identity paths, or publishes a port off loopback is refused
+  when the compose files render, before the build publishes its render. A container on the compose bridge that drives the target is named the
   Channel Access gateway the render's tier selects: the read-only one unless the tier arms writes.
 - **For each login** that shows the application, its render gains the panel's ``web.panels.<id>``
   block, a tool server (``mcp__<name>__<tool>``) whose write tools are its ``writes:`` list, the

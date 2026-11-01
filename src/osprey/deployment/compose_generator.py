@@ -2876,6 +2876,49 @@ FRAGMENT_CONTEXT: Mapping[str, str] = {
     "control_system.connector.epics.gateways.read_only.port": "the read gateway's port",
 }
 
+#: The stated schema of an application's ``image:`` fragment, the top-level keys
+#: of its rendered compose document: :func:`_refuse_fragment_document` refuses any
+#: other by name. A ``volumes.<name>`` further sets no ``driver`` or ``driver_opts``.
+FRAGMENT_TOP_LEVEL_KEYS: tuple[str, ...] = (
+    "services",
+    "volumes",
+    "networks",
+    "configs",
+    "secrets",
+)
+
+#: The keys a compose service of such a fragment may carry. ``network_mode`` is
+#: only ever ``host``, and only when the service's network axis asked for it.
+FRAGMENT_SERVICE_KEYS: tuple[str, ...] = (
+    "image",
+    "container_name",
+    "build",
+    "env_file",
+    "environment",
+    "ports",
+    "volumes",
+    "networks",
+    "network_mode",
+    "command",
+    "entrypoint",
+    "working_dir",
+    "user",
+    "labels",
+    "restart",
+    "depends_on",
+    "healthcheck",
+    "stop_grace_period",
+)
+
+#: The keys a ``build:`` mapping of such a compose service may carry.
+FRAGMENT_BUILD_KEYS: tuple[str, ...] = (
+    "context",
+    "dockerfile",
+    "args",
+    "target",
+    "additional_contexts",
+)
+
 #: The names only the bundled ``app_runtime`` template reads, under the lenient
 #: bundled context: name -> what it holds.
 APP_RUNTIME_CONTEXT: Mapping[str, str] = {
@@ -3073,50 +3116,122 @@ def _fragment_mapping(value, where, key):
 def _top_level_bind_sources(document, key):
     """The host paths a rendered document's top-level sections reach, with their key paths.
 
-    A ``volumes.<name>`` reaches one through its ``driver_opts`` ``device``, read
-    as a host path whatever ``type`` or ``o`` says; a ``configs.<name>`` or
-    ``secrets.<name>`` through its ``file``. ``driver_opts`` with no ``device``
-    could combine with another fragment's at merge, and only the local driver's
-    options say what they bind, so neither can be judged here and both refuse.
+    A ``configs.<name>`` or ``secrets.<name>`` reaches one through its ``file``.
 
     :param document: The rendered compose document
     :type document: dict
     :param key: The application service
     :type key: str
     :rtype: collections.abc.Iterator[tuple[str, str]]
-    :raises DeploymentPreconditionError: A section is malformed, or a volume's
-        ``driver_opts`` cannot be judged
+    :raises DeploymentPreconditionError: A section is malformed
     """
-    for name, volume in _fragment_mapping(document.get("volumes"), "volumes", key).items():
-        where = f"volumes.{name}"
-        volume = _fragment_mapping(volume, where, key)
-        opts = _fragment_mapping(volume.get("driver_opts"), f"{where}.driver_opts", key)
-        if not opts:
-            continue
-        if volume.get("driver") not in (None, "local"):
-            raise DeploymentPreconditionError(
-                reason=(
-                    f"{where}.driver of application service {key} is {volume['driver']}, "
-                    "whose driver_opts cannot be told from a bind of the guarded-run, limits "
-                    "or identity paths."
-                ),
-                remedy="Remove the driver_opts, or use the local driver.",
-            )
-        if not opts.get("device"):
-            raise DeploymentPreconditionError(
-                reason=(
-                    f"{where}.driver_opts of application service {key} has no device, so "
-                    "another fragment's could complete it at merge."
-                ),
-                remedy="State the device beside its type and o, or remove the driver_opts.",
-            )
-        yield f"{where}.driver_opts.device", str(opts["device"])
     for section in ("configs", "secrets"):
         for name, entry in _fragment_mapping(document.get(section), section, key).items():
             where = f"{section}.{name}"
             source = _fragment_mapping(entry, where, key).get("file")
             if source:
                 yield f"{where}.file", str(source)
+
+
+def _refuse_unstated_keys(section, stated, where, prefix=""):
+    """Refuse the first key of *section* its stated schema does not hold.
+
+    :param section: A mapping of a rendered compose document
+    :type section: collections.abc.Mapping
+    :param stated: What it may carry
+    :type stated: tuple[str, ...]
+    :param where: Its position, for the refusal
+    :type where: str
+    :param prefix: The key path to *section* inside *where*
+    :type prefix: str
+    :raises DeploymentPreconditionError: It carries another key
+    """
+    for field in section:
+        if field not in stated:
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"{where} renders {prefix}{field}:, which is not a key an application "
+                    "fragment may carry."
+                ),
+                remedy=f"Remove it. The keys stated here are: {', '.join(stated)}.",
+            )
+
+
+def _refuse_fragment_sections(document, key):
+    """Refuse a rendered document's top-level keys, volume drivers and host networks.
+
+    A volume's ``driver`` and ``driver_opts`` can split across fragments and
+    combine only at merge, after each was judged alone, so a fragment sets
+    neither. A service that joins a network named ``host`` or of the ``host``
+    driver shares the host's network with no ``network_mode`` to read, and a name
+    or driver spelled with a variable may be that.
+
+    :param document: The rendered compose document
+    :type document: dict
+    :param key: The application service
+    :type key: str
+    :raises DeploymentPreconditionError: A rule is broken, or a section is malformed
+    """
+    _refuse_unstated_keys(
+        document, FRAGMENT_TOP_LEVEL_KEYS, f"The application fragment of service {key}"
+    )
+    for name, volume in _fragment_mapping(document.get("volumes"), "volumes", key).items():
+        where = f"volumes.{name}"
+        for field in ("driver", "driver_opts"):
+            if field in _fragment_mapping(volume, where, key):
+                raise DeploymentPreconditionError(
+                    reason=(
+                        f"{where}.{field} of application service {key} is refused: another "
+                        "fragment's could complete it at merge, into a bind of the guarded-run, "
+                        "limits or identity paths."
+                    ),
+                    remedy="Remove it: an application fragment's volume uses the default driver.",
+                )
+    for name, network in _fragment_mapping(document.get("networks"), "networks", key).items():
+        where = f"networks.{name}"
+        network = _fragment_mapping(network, where, key)
+        external = network.get("external")
+        spellings = (
+            network.get("name"),
+            network.get("driver"),
+            external.get("name") if isinstance(external, Mapping) else None,
+        )
+        if any(spelling == "host" or _interpolates(spelling or "") for spelling in spellings):
+            raise DeploymentPreconditionError(
+                reason=f"{where} of application service {key} may be the host's network.",
+                remedy=f"Set network: host on apps.<name>.services.{key} instead.",
+            )
+
+
+def _refuse_service_schema(compose_service, where, config):
+    """Refuse a rendered service's keys outside the stated schema, and unasked host networking.
+
+    :param compose_service: One well-formed entry of a rendered ``services:``
+    :type compose_service: dict
+    :param where: The service, for the refusal
+    :type where: str
+    :param config: The full render context
+    :type config: dict
+    :raises DeploymentPreconditionError: A rule is broken
+    """
+    _refuse_unstated_keys(compose_service, FRAGMENT_SERVICE_KEYS, where)
+    build = compose_service.get("build")
+    if isinstance(build, Mapping):
+        _refuse_unstated_keys(build, FRAGMENT_BUILD_KEYS, where, "build.")
+    if "network_mode" not in compose_service:
+        return
+    mode = compose_service["network_mode"]
+    if mode != "host" or config["service"].get("network") != "host":
+        raise DeploymentPreconditionError(
+            reason=(
+                f"{where} renders network_mode: {mode}, which the service's network axis did "
+                "not ask for."
+            ),
+            remedy=(
+                "Remove it. A service on the host's network sets network: host on "
+                f"apps.<name>.services.{config['service_key']}."
+            ),
+        )
 
 
 def _service_well_formed(compose_service):
@@ -3149,6 +3264,7 @@ def _build_paths(compose_service):
     A ``build:`` mapping with no ``context`` builds from the compose project
     directory, as ``.`` does. A ``docker-image://`` or URL context names no local
     path, and read as one it exposes nothing.
+    Its ``dockerfile`` resolves against its context.
 
     :param compose_service: One well-formed entry of a rendered ``services:``
     :type compose_service: dict
@@ -3160,7 +3276,10 @@ def _build_paths(compose_service):
     if isinstance(build, str):
         yield "build", build
         return
-    yield "build.context", str(build.get("context") or ".")
+    context = str(build.get("context") or ".")
+    yield "build.context", context
+    if build.get("dockerfile"):
+        yield "build.dockerfile", os.path.join(context, str(build["dockerfile"]))
     contexts = build.get("additional_contexts") or {}
     if isinstance(contexts, Mapping):
         for name, path in contexts.items():
@@ -3303,20 +3422,23 @@ def _refuse_bind(where, source, config):
 def _refuse_fragment_document(document, config):
     """Refuse a rendered projected fragment that breaks the rendered-service rules.
 
-    A fragment owns its binds and ports, so the rules read what it rendered: no
-    service ``volumes``, ``env_file``, ``build.context`` or
-    ``build.additional_contexts`` entry, and no top-level ``volumes.<name>``
-    ``driver_opts`` ``device``, ``configs.<name>.file`` or ``secrets.<name>.file``
-    reaches a guarded-run, limits or identity path, the config binds where the
-    build wrote it, and every port stays on loopback. Fragments are judged one
-    at a time, with no compose CLI call, so whatever cannot be judged here
-    refuses: ``volumes_from``, ``extends`` and ``include`` pull in mounts the
-    rules cannot read, ``driver_opts`` with no ``device`` or on a driver that is
-    not local could mean a bind after merge, and a path or host spelled with a
-    variable has no value at render time. An application container is reached
-    through the web terminal's proxy or by its sibling containers on the compose
-    network, so it never publishes off loopback, whatever
-    ``deployment.bind_address`` says.
+    A fragment carries what :data:`FRAGMENT_TOP_LEVEL_KEYS`,
+    :data:`FRAGMENT_SERVICE_KEYS` and :data:`FRAGMENT_BUILD_KEYS` state, and any
+    other key refuses by name. This is a safety rail for honest mistakes, not a
+    boundary against a hostile author, who also ships the image.
+
+    Within that schema a fragment owns its binds and ports, so the rules read what
+    it rendered: no service ``volumes``, ``env_file``, ``build.context``,
+    ``build.dockerfile`` or ``build.additional_contexts`` entry, and no
+    ``configs.<name>.file`` or ``secrets.<name>.file`` reaches a guarded-run, limits
+    or identity path, the config binds where the build wrote it, and every port
+    stays on loopback. Host networking comes from the service's network axis alone.
+    Fragments are judged one at a time, with no compose CLI call, so whatever
+    cannot be judged here refuses: a volume ``driver`` or ``driver_opts`` could
+    mean a bind after merge, and a path or host spelled with a variable has no
+    value at render time. An application container is reached through the web
+    terminal's proxy or by its sibling containers on the compose network, so it
+    never publishes off loopback, whatever ``deployment.bind_address`` says.
 
     :param document: The rendered compose document
     :type document: dict
@@ -3325,14 +3447,7 @@ def _refuse_fragment_document(document, config):
     :raises DeploymentPreconditionError: A rule is broken
     """
     key = config["service_key"]
-    if document.get("include"):
-        raise DeploymentPreconditionError(
-            reason=(
-                f"The application fragment of service {key} renders include:, whose mounts "
-                "cannot be told from the guarded-run, limits or identity paths."
-            ),
-            remedy="State the services and their mounts in the fragment itself.",
-        )
+    _refuse_fragment_sections(document, key)
     services = _fragment_mapping(document.get("services"), "services", key)
     for name, compose_service in services.items():
         if not _service_well_formed(compose_service):
@@ -3344,16 +3459,9 @@ def _refuse_fragment_document(document, config):
                 ),
                 remedy="Render it as a compose service definition.",
             )
-        for field in ("volumes_from", "extends"):
-            if compose_service.get(field):
-                raise DeploymentPreconditionError(
-                    reason=(
-                        f"Compose service {name} of application service {key} renders "
-                        f"{field}:, whose mounts cannot be told from the guarded-run, limits "
-                        "or identity paths."
-                    ),
-                    remedy="State the service's mounts in its own volumes: list.",
-                )
+        _refuse_service_schema(
+            compose_service, f"Compose service {name} of application service {key}", config
+        )
         for source in _bind_sources(compose_service):
             _refuse_bind(f"Compose service {name} of application service {key}", source, config)
         for where, source in _build_paths(compose_service):

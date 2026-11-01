@@ -19,7 +19,10 @@ from osprey.apps import loader
 from osprey.apps.projection import project_deployment
 from osprey.deployment.compose_generator import (
     APP_RUNTIME_CONTEXT,
+    FRAGMENT_BUILD_KEYS,
     FRAGMENT_CONTEXT,
+    FRAGMENT_SERVICE_KEYS,
+    FRAGMENT_TOP_LEVEL_KEYS,
     _incremental_setup_build_dir,
     _inject_project_metadata,
     setup_build_dir,
@@ -425,11 +428,6 @@ def _document_with(**sections: Any) -> str:
     return yaml.safe_dump({"services": {"controls-admin-web": {"image": "demo"}}, **sections})
 
 
-def _driver(**opts: str) -> dict[str, Any]:
-    return {"lock": {"driver_opts": opts}}
-
-
-DEVICE = "volumes.lock.driver_opts.device"
 LIMITS_CONFIG = "configs.limits.file"
 LIMITS_SECRET = "secrets.limits.file"
 
@@ -437,33 +435,6 @@ LIMITS_SECRET = "secrets.limits.file"
 @pytest.mark.parametrize(
     ("sections", "path"),
     [
-        pytest.param(
-            {"volumes": _driver(type="none", o="bind", device="./var/guarded_run")},
-            DEVICE,
-            id="driver-bind",
-        ),
-        pytest.param(
-            {"volumes": _driver(type="none", o="ro,bind", device="var/guarded_run")},
-            DEVICE,
-            id="driver-bind-relative",
-        ),
-        pytest.param(
-            {"volumes": _driver(device="./data/limits.json")}, DEVICE, id="device-a-path-only"
-        ),
-        pytest.param(
-            {"volumes": _driver(type="${KIND}", o="${OPTS}", device="var/guarded_run")},
-            DEVICE,
-            id="driver-spelled-with-variables",
-        ),
-        pytest.param(
-            {"volumes": _driver(o="rbind", device="./var/guarded_run")}, DEVICE, id="rbind-no-type"
-        ),
-        pytest.param({"volumes": _driver(device="var/guarded_run")}, DEVICE, id="bare-relative"),
-        pytest.param(
-            {"volumes": {"lock": {"driver": "local", "driver_opts": {"device": "var"}}}},
-            DEVICE,
-            id="driver-local",
-        ),
         pytest.param({"configs": {"limits": {"file": "./data/limits.json"}}}, LIMITS_CONFIG),
         pytest.param({"secrets": {"limits": {"file": "./data/limits.json"}}}, LIMITS_SECRET),
         pytest.param({"secrets": {"limits": {"file": "./var/$$x/../guarded_run"}}}, LIMITS_SECRET),
@@ -486,12 +457,6 @@ def test_a_protected_path_refuses_through_a_top_level_section(
 @pytest.mark.parametrize(
     ("sections", "path"),
     [
-        pytest.param({"volumes": _driver(device="${DATA}")}, DEVICE, id="device"),
-        pytest.param(
-            {"volumes": _driver(type="none", o="bind", device="./${ZONE}/guarded_run")},
-            DEVICE,
-            id="driver-bind",
-        ),
         pytest.param({"configs": {"limits": {"file": "${DATA}/limits"}}}, LIMITS_CONFIG),
         pytest.param({"secrets": {"limits": {"file": "${DATA}/limits"}}}, LIMITS_SECRET),
     ],
@@ -508,43 +473,31 @@ def test_a_top_level_source_spelled_with_a_variable_refuses(
 
 
 @pytest.mark.parametrize(
-    "opts",
+    "volume",
     [
-        pytest.param({"type": "none", "o": "bind"}, id="type-and-o"),
-        pytest.param({"o": "bind"}, id="o-only"),
-        pytest.param({"type": "none"}, id="type-only"),
-        pytest.param({"type": "none", "o": "bind", "device": ""}, id="empty-device"),
+        pytest.param(
+            {"driver_opts": {"type": "overlay", "o": "lowerdir=./var/guarded_run,upperdir=/u"}},
+            id="overlay-lowerdir",
+        ),
+        pytest.param({"driver_opts": {"type": "none", "o": "bind"}}, id="no-device"),
+        pytest.param({"driver_opts": {"device": "/facility/data"}}, id="device"),
+        pytest.param({"driver_opts": {}}, id="empty-opts"),
+        pytest.param({"driver": "local"}, id="driver-local"),
+        pytest.param({"driver": "rexray"}, id="driver-a-plugin"),
+        pytest.param({"driver": "${DRIVER}"}, id="driver-spelled-with-a-variable"),
+        pytest.param({"driver": "$$local"}, id="driver-an-escaped-dollar"),
     ],
 )
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_driver_opts_without_a_device_refuse(
-    repo: Path, entry_point: str, opts: dict[str, str]
+def test_a_volume_driver_refuses_in_any_spelling(
+    repo: Path, entry_point: str, volume: dict[str, Any]
 ) -> None:
-    """Another fragment's device could complete them at merge, after this one was judged."""
-    _write_fragment(_document_with(volumes=_driver(**opts)))
-    with pytest.raises(DeploymentPreconditionError, match=KEY) as refused:
-        _render(entry_point, _config(repo))
-    assert "volumes.lock.driver_opts" in refused.value.reason
-    assert "device" in refused.value.reason
-
-
-@pytest.mark.parametrize("driver", ["rexray", "${DRIVER}", "$$local"])
-@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_driver_opts_on_a_driver_that_is_not_local_refuse(
-    repo: Path, entry_point: str, driver: str
-) -> None:
-    """Only the local driver's options say what they bind."""
-    volume = {"driver": driver, "driver_opts": {"device": "/facility/data"}}
+    """A driver and its options can split across fragments and combine only at merge."""
     _write_fragment(_document_with(volumes={"lock": volume}))
     with pytest.raises(DeploymentPreconditionError, match=KEY) as refused:
         _render(entry_point, _config(repo))
-    assert "volumes.lock.driver" in refused.value.reason
-
-
-def test_a_volume_driver_with_no_driver_opts_renders(repo: Path) -> None:
-    volumes = {"plugin": {"driver": "rexray"}, "empty": {"driver": "${DRIVER}", "driver_opts": {}}}
-    _write_fragment(_document_with(volumes=volumes))
-    assert _render("full", _config(repo))["volumes"] == volumes
+    assert f"volumes.lock.{next(iter(volume))}" in refused.value.reason
+    assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
 
 
 def _service_with(**fields: Any) -> str:
@@ -559,6 +512,11 @@ def _service_with(**fields: Any) -> str:
         pytest.param({"context": "./data"}, "build.context", id="above-the-limits-file"),
         pytest.param({"context": "."}, "build.context", id="the-repo"),
         pytest.param({"args": {"A": "1"}}, "build.context", id="no-context-is-the-repo"),
+        pytest.param(
+            {"context": "./x", "dockerfile": "../var/guarded_run/Dockerfile"},
+            "build.dockerfile",
+            id="dockerfile-resolved-against-the-context",
+        ),
         pytest.param(
             {"context": "./x", "additional_contexts": {"lock": "./var/guarded_run"}},
             "build.additional_contexts",
@@ -585,6 +543,15 @@ def test_a_build_path_on_a_protected_path_refuses(
     assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
 
 
+def test_an_absolute_dockerfile_on_a_protected_path_refuses(repo: Path) -> None:
+    _write_fragment(
+        _service_with(build={"context": "./x", "dockerfile": f"{repo}/var/guarded_run/Dockerfile"})
+    )
+    with pytest.raises(DeploymentPreconditionError, match="build.dockerfile") as refused:
+        _render("full", _config(repo))
+    assert "exposes" in refused.value.reason
+
+
 @pytest.mark.parametrize(
     "build",
     [
@@ -592,6 +559,7 @@ def test_a_build_path_on_a_protected_path_refuses(
         pytest.param({"context": "./${CONTEXT}"}, id="context"),
         pytest.param({"context": "./x", "additional_contexts": {"a": "${A}"}}, id="additional"),
         pytest.param({"context": "./x", "additional_contexts": ["a=${A}"]}, id="additional-list"),
+        pytest.param({"context": "./x", "dockerfile": "${DOCKERFILE}"}, id="dockerfile"),
     ],
 )
 def test_a_build_path_spelled_with_a_variable_refuses(repo: Path, build: Any) -> None:
@@ -605,6 +573,15 @@ def test_a_build_path_spelled_with_a_variable_refuses(repo: Path, build: Any) ->
     [
         pytest.param("./x", id="short-form"),
         pytest.param({"context": "./x"}, id="context"),
+        pytest.param(
+            {
+                "context": "./x",
+                "dockerfile": "docker/Dockerfile",
+                "args": {"A": "1"},
+                "target": "t",
+            },
+            id="dockerfile-args-target",
+        ),
         pytest.param(
             {
                 "context": "./x",
@@ -684,9 +661,6 @@ def test_top_level_sections_that_expose_no_protected_path_render(repo: Path) -> 
             "plain": None,
             "named": {"name": "elsewhere"},
             "shared": {"external": True},
-            "nfs": {"driver_opts": {"type": "nfs", "o": "addr=10.0.0.1", "device": ":/share"}},
-            "ram": {"driver_opts": {"type": "tmpfs", "device": "tmpfs"}},
-            "facility": {"driver_opts": {"type": "none", "o": "bind", "device": "/facility/data"}},
         },
         "configs": {"site": {"file": "./site.yml"}, "inline": {"content": "a: 1"}},
         "secrets": {"token": {"environment": "TOKEN"}, "local": {"file": "./data$$token"}},
@@ -875,11 +849,6 @@ def test_a_sibling_output_of_any_yaml_shape_or_another_format_renders(repo: Path
         pytest.param("secrets: 5\n", "secrets", id="secrets-a-number"),
         pytest.param("volumes:\n  data: foo\n", "volumes.data", id="volume-a-string"),
         pytest.param("configs:\n  site: foo\n", "configs.site", id="config-a-string"),
-        pytest.param(
-            "volumes:\n  data:\n    driver_opts: 5\n",
-            "volumes.data.driver_opts",
-            id="driver-opts-a-number",
-        ),
     ],
 )
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
@@ -937,6 +906,198 @@ def test_a_mount_the_document_does_not_state_refuses(
         _render(entry_point, _config(repo))
     assert named in refused.value.reason
     assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("privileged", True, id="privileged"),
+        pytest.param("privileged", False, id="privileged-false"),
+        pytest.param("devices", ["/dev/mem:/dev/mem"], id="devices"),
+        pytest.param("cap_add", ["SYS_ADMIN"], id="cap-add"),
+        pytest.param("security_opt", ["no-new-privileges:true"], id="security-opt"),
+        pytest.param("pid", "host", id="pid-host"),
+        pytest.param("ipc", "host", id="ipc-host"),
+        pytest.param("volumes_from", [], id="volumes-from-empty"),
+        pytest.param("label_file", "./var/guarded_run/labels", id="label-file"),
+        pytest.param("develop", {"watch": [{"path": ".", "action": "sync"}]}, id="develop"),
+        pytest.param("no_such_key", 1, id="unknown"),
+    ],
+)
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_a_service_key_outside_the_schema_refuses_by_name(
+    repo: Path, entry_point: str, field: str, value: Any
+) -> None:
+    _write_fragment(_service_with(**{field: value}))
+    with pytest.raises(DeploymentPreconditionError, match="controls-admin-web") as refused:
+        _render(entry_point, _config(repo))
+    assert f"{field}:" in refused.value.reason
+    assert KEY in refused.value.reason
+    assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("ssh", ["default"], id="ssh"),
+        pytest.param("secrets", ["token"], id="secrets"),
+        pytest.param("cache_from", ["type=local,src=./var/guarded_run"], id="cache-from"),
+        pytest.param("cache_to", ["type=local,dest=./var/guarded_run"], id="cache-to"),
+        pytest.param("dockerfile_inline", "FROM scratch", id="dockerfile-inline"),
+        pytest.param("no_such_key", 1, id="unknown"),
+    ],
+)
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_a_build_key_outside_the_schema_refuses_by_name(
+    repo: Path, entry_point: str, field: str, value: Any
+) -> None:
+    _write_fragment(_service_with(build={"context": "./x", field: value}))
+    with pytest.raises(DeploymentPreconditionError, match="controls-admin-web") as refused:
+        _render(entry_point, _config(repo))
+    assert f"build.{field}:" in refused.value.reason
+    assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("include", [], id="include-empty"),
+        pytest.param("name", "other", id="name"),
+        pytest.param("version", "3.9", id="version"),
+        pytest.param("x-shared", {"a": 1}, id="extension"),
+    ],
+)
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_a_top_level_key_outside_the_schema_refuses_by_name(
+    repo: Path, entry_point: str, field: str, value: Any
+) -> None:
+    _write_fragment(_document_with(**{field: value}))
+    with pytest.raises(DeploymentPreconditionError, match=KEY) as refused:
+        _render(entry_point, _config(repo))
+    assert f"{field}:" in refused.value.reason
+    assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
+
+
+def test_the_plain_keys_of_an_application_container_render(repo: Path) -> None:
+    fields = {
+        "container_name": "web",
+        "command": ["serve"],
+        "entrypoint": ["/entry"],
+        "working_dir": "/app",
+        "user": "1000:1000",
+        "labels": {"a": "b"},
+        "restart": "unless-stopped",
+        "depends_on": ["db"],
+        "healthcheck": {"test": ["CMD", "true"]},
+        "stop_grace_period": "30s",
+        "networks": ["osprey-network"],
+    }
+    _write_fragment(_service_with(**fields))
+    service = _render("full", _config(repo))["services"]["controls-admin-web"]
+    assert {field: service[field] for field in fields} == fields
+
+
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_host_networking_spelled_by_a_fragment_refuses_with_no_axis(
+    repo: Path, entry_point: str
+) -> None:
+    _write_fragment(_service_with(network_mode="host"))
+    with pytest.raises(DeploymentPreconditionError, match="controls-admin-web") as refused:
+        _render(entry_point, _config(repo))
+    assert "network_mode" in refused.value.reason
+    assert not (Path("build") / "services" / KEY / "docker-compose.yml").exists()
+
+
+@pytest.mark.parametrize("mode", ["bridge", "none", "service:db", "container:db", "${MODE}", None])
+@pytest.mark.parametrize("axis", ["host", None])
+def test_a_network_mode_but_the_axis_host_refuses(repo: Path, mode: str | None, axis: str) -> None:
+    """Whatever the axis says: a namespace shared with another container is host-reach too."""
+    _write_fragment(_service_with(network_mode=mode))
+    with pytest.raises(DeploymentPreconditionError, match="network_mode"):
+        _render("full", _config(repo, **({"network": axis} if axis else {})))
+
+
+def test_host_networking_the_axis_asked_for_renders_when_spelled(repo: Path) -> None:
+    _write_fragment(_service_with(network_mode="host"))
+    service = _render("full", _config(repo, network="host"))["services"]["controls-admin-web"]
+    assert service["network_mode"] == "host"
+
+
+@pytest.mark.parametrize(
+    "network",
+    [
+        pytest.param({"name": "host", "external": True}, id="name"),
+        pytest.param({"external": {"name": "host"}}, id="external-name"),
+        pytest.param({"driver": "host"}, id="driver"),
+        pytest.param({"name": "${NET}", "external": True}, id="name-spelled-with-a-variable"),
+        pytest.param({"driver": "${DRIVER}"}, id="driver-spelled-with-a-variable"),
+    ],
+)
+@pytest.mark.parametrize("axis", ["host", None])
+def test_a_top_level_network_on_the_host_refuses(
+    repo: Path, network: dict[str, Any], axis: str | None
+) -> None:
+    """A service that joins it shares the host's network, with no network_mode to read."""
+    _write_fragment(_document_with(networks={"lan": network}))
+    with pytest.raises(DeploymentPreconditionError, match="networks.lan"):
+        _render("full", _config(repo, **({"network": axis} if axis else {})))
+
+
+def test_a_top_level_network_off_the_host_renders(repo: Path) -> None:
+    networks = {
+        "plain": None,
+        "named": {"name": "elsewhere"},
+        "shared": {"external": True},
+        "bridge": {"driver": "bridge"},
+    }
+    _write_fragment(_document_with(networks=networks))
+    assert _render("full", _config(repo))["networks"] == networks
+
+
+@pytest.mark.parametrize(
+    ("fragment", "named"),
+    [
+        pytest.param("networks: foo\n", "networks", id="networks-a-string"),
+        pytest.param("networks:\n  lan: foo\n", "networks.lan", id="network-a-string"),
+    ],
+)
+def test_a_malformed_network_refuses_naming_the_section(
+    repo: Path, fragment: str, named: str
+) -> None:
+    _write_fragment(fragment)
+    with pytest.raises(DeploymentPreconditionError, match=named):
+        _render("full", _config(repo))
+
+
+def test_the_schema_is_the_contract() -> None:
+    assert set(FRAGMENT_TOP_LEVEL_KEYS) == {"services", "volumes", "networks", "configs", "secrets"}
+    assert set(FRAGMENT_SERVICE_KEYS) == {
+        "image",
+        "container_name",
+        "build",
+        "env_file",
+        "environment",
+        "ports",
+        "volumes",
+        "networks",
+        "network_mode",
+        "command",
+        "restart",
+        "stop_grace_period",
+        "healthcheck",
+        "entrypoint",
+        "working_dir",
+        "user",
+        "labels",
+        "depends_on",
+    }
+    assert set(FRAGMENT_BUILD_KEYS) == {
+        "context",
+        "dockerfile",
+        "args",
+        "target",
+        "additional_contexts",
+    }
 
 
 def test_the_rules_leave_a_bundled_render_alone(repo: Path) -> None:
