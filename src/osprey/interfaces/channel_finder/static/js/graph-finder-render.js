@@ -689,7 +689,7 @@ export function skeletonHtml(density) {
         <kbd title="Press / to search">/</kbd>
       </label>
       <span class="finder-count" id="${FINDER_IDS.count}"></span>
-      <span class="cf-spacer"></span>
+      <span class="cf-fill"></span>
       <span class="cf-seg" role="group" aria-label="Row density">${toggle('comfortable', 'Comfortable')}${toggle('compact', 'Compact')}</span>
       <button type="button" class="cf-iconbtn" data-more aria-haspopup="menu"
               title="More options" aria-label="More options">⋯</button>

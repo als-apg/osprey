@@ -1175,10 +1175,11 @@ def _control_target_bar_markup(
        path: the chip reads the *hub's* ``/api/terminal/posture``, and a prefix
        of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
        none of them.
-    2. **A scoped import map**, for the one root-absolute module specifier in
-       the bar's import closure (``confirm-skip.js`` imports
-       ``/design-system/js/storage-scope.js``). The hub's own page retargets
-       that with a document-wide import map; here the mapping is confined to a
+    2. **A scoped import map**, for the root-absolute module specifiers in the
+       bar's import closure, both under ``/design-system/`` (``confirm-skip.js``
+       imports ``storage-scope.js``, ``lab-theme-follow.js`` imports
+       ``tokens.js``). The hub's own page retargets that prefix with a
+       document-wide import map; here the mapping is confined to a
        ``scopes`` entry keyed on the bar's own directory, so nothing the panel
        itself imports can be redirected by it. With an empty prefix the mapping
        is the identity, which is what the hub's map is there too.

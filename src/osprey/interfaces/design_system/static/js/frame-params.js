@@ -8,6 +8,12 @@
  * - `embedded` — `"true"` marks the page as running inside a host frame; see
  *   {@link applyEmbedded}, which adds the `embedded` class to `document.body`
  *   when set.
+ * - `popout` — `"true"` marks the page as a panel the web terminal popped out
+ *   into its own window. {@link applyEmbedded} stamps `data-popout="true"` on
+ *   `<html>`, follows the hub's view mode and starts the pop-out client
+ *   (popout-client.js), which reports to the hub that opened the window. The
+ *   page keeps its own chrome: unlike an embedded frame it has no tile bar
+ *   around it.
  * - `mode` — a one-shot Expert/Simple hint, resolved pre-paint by
  *   mode-boot.js. It is not re-read here, but {@link stripQueryMode} drops it
  *   from the URL once the operator makes an explicit choice, so a leftover
@@ -35,6 +41,7 @@
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { initPopoutClient } from '/design-system/js/popout-client.js';
 
 /**
  * Base Expert/Simple key — the one mode-boot.js resolves from. Never used
@@ -67,15 +74,39 @@ export function isEmbedded() {
 }
 
 /**
+ * Whether this page was opened as a pop-out window by the web terminal: the
+ * `popout` query param is exactly `"true"`, the rule {@link isEmbedded} applies
+ * to `embedded`. A pop-out is a standalone page that follows one hub, so
+ * theme-manager.js runs it in the `follower` role whatever role the page asks
+ * for.
+ *
+ * @returns {boolean}
+ */
+export function isPopout() {
+  return new URLSearchParams(window.location.search).get('popout') === 'true';
+}
+
+/**
  * Read the `embedded` query param and, when it is exactly `"true"`, add the
  * `embedded` class to `document.body`. No-op otherwise (including when the
  * param is absent, or set to any other value such as `"false"` or `"1"`).
+ *
+ * On a pop-out page ({@link isPopout}) this also stamps `data-popout="true"`
+ * on `<html>`, subscribes the page to the hub's view-mode broadcasts
+ * ({@link onModeChange}, so `data-ui-mode` follows the hub) and starts the
+ * pop-out client, which reports the window to the hub. Every panel page calls
+ * this on load, which is what makes one call enough for both cases.
  *
  * @returns {void}
  */
 export function applyEmbedded() {
   if (isEmbedded()) {
     document.body.classList.add('embedded');
+  }
+  if (isPopout()) {
+    document.documentElement.setAttribute('data-popout', 'true');
+    onModeChange();
+    initPopoutClient();
   }
 }
 
@@ -119,7 +150,7 @@ export function expertViewOffered() {
  * same-origin listener ({@link onModeChange}, every `<osprey-display-menu>`
  * included) to apply. The display menu's View row calls this; so does the
  * web terminal's command palette, which must flip the mode with no display
- * menu on the page, since that menu is a bar item the operator may remove.
+ * menu on the page, since that menu is optional chrome the operator may remove.
  *
  * A pick of the mode already stamped on `<html>` persists and strips but does
  * not broadcast: the listeners treat every broadcast as a flip (the web

@@ -542,7 +542,12 @@ async function submitLogbook() {
 
 // ---- API: open compose modal ----
 
-/** @param {any} opts */
+/**
+ * Open the composer on its first phase for one artifact. The preview
+ * header's Logbook button and the embedded viewer's `logbook` action both
+ * land here.
+ * @param {{artifact_id: string}} opts - the artifact the entry is about
+ */
 async function openComposeModal(opts) {
   currentOpts = opts;
   showModal();
@@ -567,7 +572,7 @@ function createLogbookBtn(opts) {
 
 /**
  * Inject logbook buttons into the preview action bar.
- * Called after each render pass by preview.js.
+ * Called by preview.js after each render that has a header.
  */
 function injectLogbookButtons() {
   document.querySelectorAll('.logbook-action-btn').forEach(function (b) {
@@ -590,6 +595,7 @@ function injectLogbookButtons() {
 
 export {
   injectLogbookButtons,
+  openComposeModal,
   makeBtn,
   updateHeaderTitle,
   getSteeringValues,

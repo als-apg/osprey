@@ -4,7 +4,9 @@
  * Pure DOM/logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/design_system/js/frame-params.test.js
  *
- * Covers CONTRACT_VERSION, applyEmbedded(), stripQueryMode(), and
+ * Covers CONTRACT_VERSION, applyEmbedded() (the embedded class, and on a
+ * pop-out page the `data-popout` stamp, the mode subscription and the pop-out
+ * client start), isEmbedded(), isPopout(), stripQueryMode(), and
  * onModeChange() (the receive side of the host's `osprey-mode-change`
  * postMessage broadcast: origin check, mode normalization, data-ui-mode
  * stamping, callback hook).
@@ -17,10 +19,14 @@
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
 
+const { initPopoutClient } = vi.hoisted(() => ({ initPopoutClient: vi.fn(() => true) }));
+vi.mock('/design-system/js/popout-client.js', () => ({ initPopoutClient }));
+
 import {
   applyEmbedded,
   expertViewOffered,
   isEmbedded,
+  isPopout,
   onModeChange,
   pickUiMode,
   stripQueryMode,
@@ -74,6 +80,33 @@ describe('applyEmbedded', () => {
 
     expect(document.body.classList.contains('embedded')).toBe(false);
   });
+
+  test('?popout=true stamps data-popout on <html>, follows the mode and starts the client', () => {
+    window.history.replaceState({}, '', '?popout=true');
+    initPopoutClient.mockClear();
+
+    applyEmbedded();
+
+    expect(document.documentElement.getAttribute('data-popout')).toBe('true');
+    expect(document.body.classList.contains('embedded')).toBe(false);
+    expect(initPopoutClient).toHaveBeenCalledTimes(1);
+    // The hub's mode broadcast lands on <html> without the page wiring
+    // onModeChange itself.
+    deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
+    expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
+    document.documentElement.removeAttribute('data-popout');
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  test('an embedded frame is not a pop-out: no stamp, no client', () => {
+    window.history.replaceState({}, '', '?embedded=true&popout=false');
+    initPopoutClient.mockClear();
+
+    applyEmbedded();
+
+    expect(document.documentElement.hasAttribute('data-popout')).toBe(false);
+    expect(initPopoutClient).not.toHaveBeenCalled();
+  });
 });
 
 describe('isEmbedded', () => {
@@ -99,6 +132,26 @@ describe('isEmbedded', () => {
     window.history.replaceState({}, '', '/?embedded=true');
     expect(document.body.classList.contains('embedded')).toBe(false);
     expect(isEmbedded()).toBe(true);
+  });
+});
+
+describe('isPopout', () => {
+  afterEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('is true only for ?popout=true, the rule isEmbedded applies to embedded', () => {
+    for (const [query, expected] of [
+      ['?popout=true', true],
+      ['?popout=true&theme=dark&mode=expert', true],
+      ['?popout=false', false],
+      ['?popout=1', false],
+      ['?embedded=true', false],
+      ['', false],
+    ]) {
+      window.history.replaceState({}, '', `/${query}`);
+      expect(isPopout()).toBe(expected);
+    }
   });
 });
 

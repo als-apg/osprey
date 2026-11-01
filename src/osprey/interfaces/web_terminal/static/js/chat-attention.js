@@ -1,10 +1,14 @@
 // @ts-check
 /* OSPREY Web Terminal — Simple-mode attention signal
  *
- * Makes a wait on the operator visible from another tab. While an approval,
- * plan, or question card is pending, the tab title carries a count. An opt-in
- * bell in the console bar sends a desktop notification when a card arrives
- * while the page is hidden, and one more when a turn ends while it is hidden.
+ * Makes a wait on the operator visible from another tab and from the sidebar.
+ * While an approval, plan, or question card is pending, the tab title carries
+ * a count, and the chat bus carries it as `attention` `{waiting}` — emitted on
+ * every change of the count, and `0` on reset and turn end — for the
+ * sidebar's Agent row, which badges it while the Agent pane is closed. An
+ * opt-in bell in the Agent bar sends a desktop notification when a card
+ * arrives while the page is hidden, and one more when a turn ends while it is
+ * hidden.
  *
  * Replayed history never badges and never notifies: a frame's `replay` flag
  * says whether it is a past turn being redrawn. Pending cards come from the
@@ -17,7 +21,8 @@
  * @module chat-attention
  */
 
-import { onChat } from './chat-events.js';
+import { barButton } from './chat-console.js';
+import { emitChat, onChat } from './chat-events.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** Storage base for the bell's state; scoped per operator on a multi-user mount. */
@@ -25,11 +30,6 @@ const STORAGE_BASE = 'osprey-chat-notify';
 
 /** Tag for the one "agent finished" notification; a newer one replaces it. */
 const TURN_TAG = 'osprey-turn-finished';
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-/** The bell outline, on the same 24-unit grid as chat-icons.js. */
-const BELL_PATHS = ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0'];
 
 const BELL_TITLE = 'Desktop notifications, when the agent needs you while this tab is hidden';
 const BLOCKED_TITLE =
@@ -129,26 +129,6 @@ function titleBadge() {
   };
 }
 
-/** A small bell outline, built as SVG nodes like chat-icons.js does. */
-function bellIcon() {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('class', 'op-icon');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  for (const d of BELL_PATHS) {
-    const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', d);
-    svg.append(path);
-  }
-  return svg;
-}
-
 /**
  * The opt-in bell. It is on only when the operator turned it on and the browser
  * has granted permission. A denied or unsupported browser leaves it off: the
@@ -157,12 +137,8 @@ function bellIcon() {
  */
 function createBell() {
   const api = notifier();
-  const button = /** @type {HTMLButtonElement} */ (document.createElement('button'));
-  button.type = 'button';
-  button.className = 'op-attention-toggle';
-  button.setAttribute('aria-label', 'Desktop notifications');
+  const button = barButton('op-attention-toggle', 'bell', 'Desktop notifications');
   button.title = BELL_TITLE;
-  button.append(bellIcon());
 
   let on = api?.permission === 'granted' && readStored();
   button.setAttribute('aria-pressed', String(on));
@@ -244,9 +220,17 @@ export function initChatAttention(ctx) {
     open.delete(id);
   }
 
+  /** The waiting count last put on the chat bus. */
+  let emitted = 0;
+
+  /** Show the waiting count in the title, and on the bus when it changed. */
   function render() {
     const kinds = [...pending.values()].map((waiting) => waiting.kind);
     title.set(kinds.length, waitingLabel(kinds));
+    if (kinds.length !== emitted) {
+      emitted = kinds.length;
+      emitChat('attention', { waiting: emitted });
+    }
   }
 
   /** The turn is over or the log was cleared: nothing waits any more. */
@@ -254,7 +238,12 @@ export function initChatAttention(ctx) {
     for (const id of [...pending.keys()]) closeNote(id);
     pending.clear();
     cards.clear();
+    const before = emitted;
     render();
+    // render() puts the zero on the bus only when the count changed. It is said
+    // at every turn boundary all the same, so a listener that joined late
+    // settles on zero.
+    if (before === 0) emitChat('attention', { waiting: 0 });
   }
 
   /**

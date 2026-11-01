@@ -91,7 +91,7 @@
    active surface everywhere else. */
 .nav-link:hover {
   color: var(--text-primary);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
   text-decoration: none;
 }
 
@@ -108,10 +108,18 @@
 
 /* Embedded in web terminal: the host tile header bar IS this panel's header —
  * it carries the panel name, the hub's theming, and (via app.js) the Search /
- * Browse / New Entry nav contributed into it. The panel's own header would be a second
- * bar, so it goes away wholesale. The display menu needs no rule here: the
- * component injects its own body.embedded hide rule. */
+ * Browse / New Entry nav contributed into it, in Expert and Simple alike. The
+ * panel's own header would be a second bar, so it goes away wholesale. The
+ * display menu needs no rule here: the component injects its own
+ * body.embedded hide rule. */
 body.embedded .header { display: none; }
+
+/* Embedded, each view's title row goes too: the tile bar already names the
+ * panel and its nav marks the active view, so "Search the Logbook",
+ * "Browse Entries" and "New Entry" would be a second title inside the body.
+ * Standalone keeps them as the page's view headings. */
+body.embedded .search-hero,
+body.embedded .dashboard-header { display: none; }
 
 /* === Main Content === */
 .main {
@@ -268,7 +276,7 @@ body.embedded .header { display: none; }
 }
 
 .entry-detail-content {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -300,7 +308,7 @@ body.embedded .header { display: none; }
 }
 
 .metadata-card {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -354,7 +362,7 @@ body.embedded .header { display: none; }
 }
 
 .stat-card {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -395,7 +403,7 @@ body.embedded .header { display: none; }
 }
 
 .create-entry-form {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-5);
@@ -443,7 +451,7 @@ body.embedded .header { display: none; }
 
 /* === Activity Log === */
 .activity-log {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -556,7 +564,7 @@ html[data-ui-mode="simple"] .nav-simple-link {
 
 html[data-ui-mode="simple"] .nav-simple-link:hover {
   color: var(--color-accent);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
   text-decoration: none;
 }
 
@@ -588,7 +596,7 @@ html[data-ui-mode="simple"] .entry-card .entry-card-footer {
 
 /* ---- Simple result cards (plain: title · date · author · summary) ---- */
 .entry-card-simple {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
@@ -599,7 +607,7 @@ html[data-ui-mode="simple"] .entry-card .entry-card-footer {
 
 .entry-card-simple:hover {
   border-color: var(--border-accent);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
 }
 
 .entry-card-simple-title {

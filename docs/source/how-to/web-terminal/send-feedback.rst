@@ -5,9 +5,9 @@ Send and Retrieve Feedback
 
 Anyone using the Web Terminal can report a problem, or ask for something, from
 the terminal itself — no bug tracker account, no separate form. The **Feedback**
-control sits at the far end of the panel rail, next to the **Docs** link, and
+control sits in the footer of the sidebar, next to the **Docs** link, and
 opens a dialog with a text box, a channel picker, and two attachment
-checkboxes. If it has been hidden, **⋯ More** brings it back.
+checkboxes.
 
 Every submission is recorded on the deployment it was sent from, whichever
 channel the sender picks. Facility staff read those records back with

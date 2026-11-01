@@ -2,42 +2,91 @@
 /* OSPREY Web Terminal — Panel Iframe State Sync
  *
  * The per-iframe "push host state into a panel" seam: theme, active session,
- * and UI mode, each serialized to a panel iframe via postMessage. Extracted
- * from panel-manager so that module stays focused on panel lifecycle, rail
- * rendering, and health — these three helpers share one shape (take an
- * iframe, guard its contentWindow, swallow the cross-origin throw) and one
- * concern (host → follower messaging), and depend on none of panel-manager's
- * private panel state, so they live cleanly on their own.
+ * UI mode and header actions, plus the artifacts viewer's three messages
+ * (which artifact to show, a tile-menu action on it, and a server-side change
+ * to it), each serialized to a panel
+ * iframe via postMessage. Extracted from panel-manager so that module stays
+ * focused on panel lifecycle, rail rendering, and health — these helpers
+ * share one shape (take an iframe, guard its contentWindow, swallow the
+ * cross-origin throw) and one concern (host → follower messaging), and depend
+ * on none of panel-manager's private panel state, so they live cleanly on
+ * their own.
+ *
+ * A panel popped out into its own window (popout.js) is a follower too, with
+ * a WindowProxy where an iframe has a contentWindow: the three state messages
+ * have a window-addressed twin each, and the pop-out URL is built beside the
+ * embed URL so the two query contracts cannot drift.
  *
  * The hub-role fan-outs that iterate every panel (theme-manager's own theme
  * broadcast; panel-manager's broadcastMode) stay with their owners — this
- * module is only the single-iframe trigger points (iframe creation and tab
- * activation) those fan-outs and panel-manager call into.
+ * module is only the single-target sends those fan-outs and their callers
+ * use.
  */
 
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 
 /**
- * The shared single-iframe send: guard a missing contentWindow (a not-yet-loaded
- * or detached iframe) and swallow the cross-origin postMessage throw. Every
- * host → follower message below funnels through here.
+ * The shared single-window send: swallow the cross-origin postMessage throw.
+ * Every host → follower message below funnels through here, by way of
+ * {@link postToIframe} for a frame.
  *
  * The target origin is the hub's own, so an opaque panel (origin "null") never
  * receives the session id, the mode or a header action: the browser drops a
- * message whose target origin does not match. Only the theme message passes
- * `targetOrigin: '*'` (see sendThemeToIframe).
+ * message whose target origin does not match. Only the theme message to a
+ * frame passes `targetOrigin: '*'` (see sendThemeToIframe).
+ * @param {Window | null} win
+ * @param {object} message
+ * @param {string} [targetOrigin]
+ */
+function postToWindow(win, message, targetOrigin = window.location.origin) {
+  if (!win) return;
+  try {
+    win.postMessage(message, targetOrigin);
+  } catch {
+    /* cross-origin */
+  }
+}
+
+/**
+ * The single-iframe send: guard a missing contentWindow (a not-yet-loaded or
+ * detached iframe), then {@link postToWindow}.
  * @param {HTMLIFrameElement | null} iframe
  * @param {object} message
  * @param {string} [targetOrigin]
  */
 function postToIframe(iframe, message, targetOrigin = window.location.origin) {
-  if (!iframe?.contentWindow) return;
-  try {
-    iframe.contentWindow.postMessage(message, targetOrigin);
-  } catch {
-    /* cross-origin */
-  }
+  postToWindow(iframe?.contentWindow ?? null, message, targetOrigin);
+}
+
+/**
+ * Send the hub's current theme to a popped-out window. A pop-out is always a
+ * first-party page (an opaque panel has no standalone URL to pop out to), so
+ * unlike the frame send this one is addressed to the hub's own origin.
+ * @param {Window | null} win
+ */
+export function sendThemeToWindow(win) {
+  postToWindow(win, { type: 'osprey-theme-change', theme: getTheme() });
+}
+
+/**
+ * Send the hub's active session id to a popped-out window — the window twin
+ * of {@link sendSessionToIframe}, with the same no-session guard.
+ * @param {Window | null} win
+ */
+export function sendSessionToWindow(win) {
+  const sid = getCurrentSessionId();
+  if (!sid) return;
+  postToWindow(win, { type: 'osprey-session-change', session_id: sid });
+}
+
+/**
+ * Send the hub's current UI mode to a popped-out window — the window twin of
+ * {@link sendModeToIframe}.
+ * @param {Window | null} win
+ */
+export function sendModeToWindow(win) {
+  postToWindow(win, { type: 'osprey-mode-change', mode: getMode() });
 }
 
 /**
@@ -124,6 +173,50 @@ export function sendHeaderActionToIframe(iframe, id, value) {
 }
 
 /**
+ * Show one artifact in the artifacts panel's viewer. The hub's sidebar owns
+ * the artifact list (sidebar-artifacts.js) and the embedded gallery shows the
+ * one artifact named here (artifacts viewer.js). Showing is not focusing: the
+ * agent's focus is never touched by this message.
+ * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
+ * @param {string | null} artifactId  null shows the viewer's empty state
+ */
+export function sendArtifactSelectToIframe(iframe, artifactId) {
+  postToIframe(iframe, { type: 'osprey-artifact-select', artifact_id: artifactId });
+}
+
+/**
+ * Ask the artifacts viewer to run a tile-menu action on an artifact, through
+ * the gallery's own code path for it (its confirm, its request, its popup).
+ * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
+ * @param {string} artifactId
+ * @param {'pin' | 'unpin' | 'print' | 'logbook' | 'delete'} action
+ */
+export function sendArtifactActionToIframe(iframe, artifactId, action) {
+  postToIframe(iframe, { type: 'osprey-artifact-action', artifact_id: artifactId, action });
+}
+
+/**
+ * Tell the artifacts viewer that the artifact it shows changed on the server.
+ * The embedded viewer opens no event stream of its own (each stream holds one
+ * of the browser's few connections to the hub's origin), so the hub forwards
+ * the shown artifact's own frames from its stream: an update, with the
+ * server's copy, re-renders it; a delete empties the viewer until the hub
+ * selects another.
+ * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
+ * @param {string} artifactId  the artifact the viewer shows
+ * @param {'updated' | 'deleted'} change
+ * @param {object} [artifact]  updated: the server's copy of the artifact
+ */
+export function sendArtifactChangedToIframe(iframe, artifactId, change, artifact) {
+  postToIframe(iframe, {
+    type: 'osprey-artifact-changed',
+    artifact_id: artifactId,
+    change,
+    ...(artifact ? { artifact } : {}),
+  });
+}
+
+/**
  * Build the src for a panel embed — the load-time half of the host→follower
  * contract whose live half is the postMessage senders above: the target URL
  * stamped with `embedded` plus the current theme and mode, so the panel first-
@@ -138,9 +231,32 @@ export function sendHeaderActionToIframe(iframe, id, value) {
  * @returns {string}
  */
 export function buildEmbedSrc(targetUrl) {
-  const embedUrl = new URL(targetUrl, window.location.origin);
-  embedUrl.searchParams.set('embedded', 'true');
-  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
-  embedUrl.searchParams.set('mode', getMode());
-  return embedUrl.toString();
+  return stampedUrl(targetUrl, 'embedded');
+}
+
+/**
+ * Build the URL a panel pops out to: the same load-time state as
+ * {@link buildEmbedSrc} under `popout=true` instead of `embedded=true`. The
+ * page keeps its own chrome — there is no tile bar around a window — and the
+ * `popout` flag is what makes it report to the hub (frame-params.js). Never
+ * a token or a cap: a pop-out is a plain first-party page under the
+ * operator's own session.
+ * @param {string} targetUrl
+ * @returns {string}
+ */
+export function buildPopoutSrc(targetUrl) {
+  return stampedUrl(targetUrl, 'popout');
+}
+
+/**
+ * @param {string} targetUrl
+ * @param {'embedded' | 'popout'} flag
+ * @returns {string}
+ */
+function stampedUrl(targetUrl, flag) {
+  const url = new URL(targetUrl, window.location.origin);
+  url.searchParams.set(flag, 'true');
+  url.searchParams.set('theme', /** @type {string} */ (getTheme()));
+  url.searchParams.set('mode', getMode());
+  return url.toString();
 }

@@ -124,6 +124,7 @@
 
 import { getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { setPanelFocus, reportPanelLayout } from './panel-commands.js';
+import { isPoppedOut } from './popout.js';
 // dock-iframe.js owns the placeholder lifecycle and resolves panels by these ids;
 // dockPanelBesideActive() below pre-creates a placeholder the adapter then adopts
 // by the same id, so both modules share the single source of truth for them.
@@ -458,6 +459,10 @@ function panelIdForTab(tab) {
  * position at all (nothing meaningful to do).
  *
  * No-op in fallback mode (no dock to place into); the same in both ui views.
+ * No-op too for a panel living in its own pop-out window — every placement
+ * verb lands here (open beside, drag-and-drop, the agent switch, the arrange
+ * rebuild), and a placeholder for it would be an empty tile: the panel comes
+ * back through popout.js when its window closes.
  * Wrapped in the echo guard so neither the removal's auto-activation nor the
  * add's active-panel change is read as a human focus — the caller's show path
  * owns the focus POST.
@@ -468,7 +473,7 @@ function panelIdForTab(tab) {
  */
 export function dockPanelAt(serviceId, title = serviceId, position = null) {
   const api = getDockApi();
-  if (!api) return;
+  if (!api || isPoppedOut(serviceId)) return;
   const placeholderId = PLACEHOLDER_PREFIX + serviceId;
   const existing = api.getPanel(placeholderId);
   if (existing) {

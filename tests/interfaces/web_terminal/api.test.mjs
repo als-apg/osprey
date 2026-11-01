@@ -444,6 +444,23 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test('a page leaving by its own navigation is never reloaded over it', async () => {
+    vi.useFakeTimers();
+    const loc = stubLocation();
+    const sockets = stubWebSocket();
+    stubFetchStatus(401);
+
+    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
+    sockets[0].onclose({ code: 1006 });
+    // The probe is already out when the logout starts, and answers after it.
+    api.stopForLeaving();
+    await flushProbe();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(loc.reload).not.toHaveBeenCalled();
+    expect(sockets.length).toBe(1);
+  });
+
   test('reloads at most once no matter how many channels close afterwards', async () => {
     const loc = stubLocation();
     const sockets = stubWebSocket();

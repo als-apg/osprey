@@ -1,7 +1,7 @@
 """Browser tests: the Expert/Simple UI-mode mechanic, end to end.
 
 Proves the mode axis (``data-ui-mode`` on ``<html>``) behaves correctly across
-the pre-paint resolution ladder, the header toggle, and reloads — behavior the
+the pre-paint resolution ladder, the More menu's View rows, and reloads — behavior the
 FastAPI TestClient cannot reach because none of it exists until a real browser
 runs ``mode-boot.js`` in ``<head>`` and ``app.js``'s toggle wiring afterwards.
 
@@ -9,16 +9,17 @@ Coverage (one test each):
 
   (a) a hub whose ``web.ui_mode`` is ``simple`` first-paints Simple with NO
       Expert flash — the pre-paint ladder's SSR ``data-ui-mode`` rung.
-  (b) the artifacts iframe embedded in a Simple-mode hub first-paints its Simple
-      layout with NO Expert flash — the ``?mode=`` rung, stamped onto the iframe
+  (b) the artifacts viewer embedded in a Simple-mode hub first-paints in Simple
+      mode with NO Expert flash — the ``?mode=`` rung, stamped onto the iframe
       URL by panel-manager next to ``?theme=``.
-  (c) toggling the header segment persists to localStorage and survives a reload.
+  (c) picking a View row in the sidebar's More menu persists to localStorage and
+      survives a reload.
   (d) toggling in a tab opened with ``?mode=simple`` still sticks after reload —
       the ``history.replaceState`` strip stops the spent URL param from
       out-ranking the fresh explicit choice.
   (e) ``?mode=`` out-ranks a conflicting localStorage value.
-  (f) the header action cluster — search, the display menu, and its System
-      Settings row — renders the same in both modes, across a live flip.
+  (f) the sidebar — search and the More menu — renders in both modes, and the
+      More menu's View rows report the mode they would pick, across a live flip.
 
 "No flash" is asserted at the earliest observable point, not just on the settled
 DOM: an init script installed at document-start records the value of
@@ -39,7 +40,6 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -52,6 +52,8 @@ from tests.interfaces._panel_launch import publish_artifact_url
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
+
+    from playwright.sync_api import FrameLocator
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -172,33 +174,30 @@ def _stored_mode(page: Page) -> str | None:
     return page.evaluate("localStorage.getItem('osprey-ui-mode')")
 
 
-def _open_display_menu(page: Page) -> None:
-    """Open the header display-menu popover and wait for the card to render.
-
-    The dot is a toggle, so callers must only ever call this from the collapsed
-    state -- pair it with ``_close_display_menu`` when the card is not dismissed
-    by the interaction itself.
-    """
-    page.locator("#display-menu .display-menu-trigger").click()
-    expect(page.locator("#display-menu .display-menu-card")).to_have_class(re.compile(r"\bopen\b"))
+def _open_more_menu(page: Page) -> None:
+    """Open the sidebar's More menu and wait for it to show."""
+    page.locator("#more-btn").click()
+    expect(page.locator("#more-menu")).to_be_visible()
 
 
-def _close_display_menu(page: Page) -> None:
-    page.locator("#display-menu .display-menu-trigger").click()
-    expect(page.locator("#display-menu .display-menu-card")).not_to_have_class(
-        re.compile(r"\bopen\b")
-    )
+def _close_more_menu(page: Page) -> None:
+    """Dismiss the More menu if a pick left it open."""
+    menu = page.locator("#more-menu")
+    if menu.is_visible():
+        page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
+
+
+def _view_row(page: Page, mode: str):
+    return page.locator(f'#more-menu [role="menuitemradio"][data-view="{mode}"]')
 
 
 def _click_segment(page: Page, mode: str) -> None:
-    # The mode toggle lives inside the header display-menu popover (the sliders
-    # button); open it first. A mode pick deliberately LEAVES the card open, so
-    # dismiss it here to return callers to the collapsed state.
-    _open_display_menu(page)
-    page.locator(
-        f'#display-menu .display-menu-view .display-seg-option[data-mode="{mode}"]'
-    ).click()
-    _close_display_menu(page)
+    # The View rows live in the sidebar's More menu; open it, pick, and return
+    # callers to the closed state whether or not the pick dismissed the menu.
+    _open_more_menu(page)
+    _view_row(page, mode).click()
+    _close_more_menu(page)
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +209,7 @@ def test_simple_config_boots_simple_no_flash(tmp_path, chromium_browser):
     """A hub configured ``web.ui_mode: simple`` first-paints Simple with no flash.
 
     The SSR ``data-ui-mode="simple"`` rung is honored pre-paint: the probe must
-    never see "expert", the html attribute settles on "simple", and the
-    Simple-mode shell delta (the static "Connected" label replacing the mono
-    session label) is what CSS actually renders.
+    never see "expert" and the html attribute settles on "simple".
     """
     with _hub_with_artifacts(tmp_path, ui_mode="simple") as (base_url, _app):
         page = _open_hub_page(chromium_browser, base_url)
@@ -220,10 +217,6 @@ def test_simple_config_boots_simple_no_flash(tmp_path, chromium_browser):
         # No Expert flash at any observed point, and settled on Simple.
         _assert_never_expert(page, "hub first paint")
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
-
-        # CSS gating actually rendered the Simple shell (corroborates the attr).
-        expect(page.locator(".terminal-label-simple")).to_be_visible()
-        expect(page.locator("#terminal-label")).to_be_hidden()
 
         page.close()
 
@@ -233,15 +226,28 @@ def test_simple_config_boots_simple_no_flash(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
+def _assert_artifact_viewer(root: Page | FrameLocator) -> None:
+    """The embedded artifacts page is the hub's viewer of one artifact.
+
+    The preview pane shows; the browser column is hidden (the hub's sidebar
+    owns the list); there is no preview header (the hub's tile header names the
+    artifact).
+    """
+    expect(root.locator("#browse-preview-pane")).to_be_visible(timeout=10_000)
+    expect(root.locator("#browse-sidebar")).to_be_hidden()
+    expect(root.locator(".preview-header")).to_have_count(0)
+
+
 def test_artifacts_iframe_boots_simple_no_flash(tmp_path, chromium_browser):
-    """The embedded artifacts iframe first-paints its Simple layout, no flash.
+    """The embedded artifacts viewer first-paints in Simple mode, no flash.
 
     Two halves, because a JS-created iframe's pre-paint is not observable from
     the parent (Playwright arms an iframe's init script only after it loads):
 
     1. On the live hub, panel-manager stamps ``mode=simple`` (read off the hub's
-       ``<html>``) onto the iframe URL next to ``theme=``, and the embed renders
-       the Simple view — not the browse/Expert view.
+       ``<html>``) onto the iframe URL next to ``theme=``, and the embed carries
+       ``data-ui-mode="simple"`` and renders the viewer: the preview pane, with
+       no browser column, no Simple section and no preview header.
     2. Loading that exact stamped URL as its own page proves the artifacts
        document — which carries no SSR ``data-ui-mode`` — resolves Simple from
        the ``?mode=`` rung before first paint: the probe never sees "expert".
@@ -257,21 +263,20 @@ def test_artifacts_iframe_boots_simple_no_flash(tmp_path, chromium_browser):
             f"hub must stamp mode=simple onto the artifacts iframe; src was {iframe_src!r}"
         )
 
-        # Live embed: the Simple view is shown and the Expert (browse) view is not.
+        # Live embed: Simple mode, and the page is the viewer of one artifact.
         iframe = page.frame_locator(_ARTIFACTS_IFRAME)
-        expect(iframe.locator("#view-artifacts-simple")).to_be_visible(timeout=10_000)
-        expect(iframe.locator("#view-artifacts-browse")).to_be_hidden()
-        expect(iframe.locator("html")).to_have_attribute("data-ui-mode", "simple")
+        expect(iframe.locator("html")).to_have_attribute("data-ui-mode", "simple", timeout=10_000)
+        _assert_artifact_viewer(iframe)
         page.close()
 
         # Pre-paint proof: load the exact stamped URL top-level, where the probe
         # can observe first paint. mode-boot resolves Simple from ?mode= with no
-        # Expert ever on the element, and the Simple view is what renders.
+        # Expert ever on the element, and the viewer is what renders.
         probe = chromium_browser.new_page()
         probe.add_init_script(_MODE_LOG_INIT_SCRIPT)
         probe.goto(iframe_src, wait_until="domcontentloaded")
-        expect(probe.locator("#view-artifacts-simple")).to_be_visible(timeout=10_000)
-        expect(probe.locator("html")).to_have_attribute("data-ui-mode", "simple")
+        expect(probe.locator("html")).to_have_attribute("data-ui-mode", "simple", timeout=10_000)
+        _assert_artifact_viewer(probe)
         _assert_never_expert(probe, "artifacts first paint (stamped URL)")
         probe.close()
 
@@ -369,83 +374,36 @@ def test_query_param_beats_localstorage(tmp_path, chromium_browser):
 
 
 # ---------------------------------------------------------------------------
-# (f) the header action cluster does not move under a mode flip
+# (f) the sidebar is the same in both modes, and the More menu names the mode
 # ---------------------------------------------------------------------------
 
 
-def test_header_action_cluster_is_mode_invariant(tmp_path, chromium_browser):
-    """Search, the display menu, and System Settings render the same in both modes.
+def test_sidebar_and_more_menu_are_mode_invariant(tmp_path, chromium_browser):
+    """Search and ☰ More render in both modes; the View rows track the mode.
 
-    The top-right cluster is the operator's fixed handhold: nothing there
-    appears, disappears, or shifts when the shell flips between Expert and
-    Simple, so muscle memory built in one mode still lands in the other.  Only
-    the shell BELOW the header changes.  Asserted across a LIVE flip (no
-    reload), since the mode axis is a pure CSS gate off ``html[data-ui-mode]``.
+    The sidebar is the operator's fixed handhold in Expert and in Simple, so a
+    live flip (no reload) leaves it in place. The More menu's View rows are a
+    radio pair: the row for the current mode is the checked one.
     """
     with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
         page = _open_hub_page(chromium_browser, base_url)
         search = page.locator("#command-palette-btn")
-        menu_btn = page.locator("#display-menu .display-menu-trigger")
-        settings_row = page.locator("#display-menu-settings")
+        more = page.locator("#more-btn")
 
         expect(search).to_be_visible()
-        expect(menu_btn).to_be_visible()
+        expect(more).to_be_visible()
+        _open_more_menu(page)
+        expect(_view_row(page, "expert")).to_have_attribute("aria-checked", "true")
+        expect(_view_row(page, "simple")).to_have_attribute("aria-checked", "false")
+        _close_more_menu(page)
 
-        # Expert: the row is there, and it is the trigger settings.js gates.
-        _open_display_menu(page)
-        expect(settings_row).to_be_visible()
-        expect(settings_row).to_have_attribute("data-drawer-trigger", "settings-drawer")
-        _close_display_menu(page)
-
-        # Live flip to Simple: every header control is still there, unmoved.
         _click_segment(page, "simple")
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         expect(search).to_be_visible()
-        expect(menu_btn).to_be_visible()
-        _open_display_menu(page)
-        expect(settings_row).to_be_visible()
-        expect(page.locator("#display-menu .display-menu-appearance")).to_be_visible()
-        expect(page.locator("#display-menu .display-menu-view")).to_be_visible()
-        _close_display_menu(page)
-
-        # Flip back: unchanged again (no DOM was torn down either way).
-        _click_segment(page, "expert")
-        expect(search).to_be_visible()
-        _open_display_menu(page)
-        expect(settings_row).to_be_visible()
-
-        page.close()
-
-
-def test_display_menu_survives_a_mode_flip(tmp_path, chromium_browser):
-    """A mode pick leaves the card open so the operator can flip straight back.
-
-    The View row behaves like the Appearance and Theme rows: the card stays put
-    across the pick, and since every row renders in both modes the card an
-    operator is looking at is the same card afterwards.  Only System Settings --
-    which moves the operator to another surface -- dismisses it.
-    """
-    with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
-        page = _open_hub_page(chromium_browser, base_url)
-        card = page.locator("#display-menu .display-menu-card")
-        open_re = re.compile(r"\bopen\b")
-
-        _open_display_menu(page)
-        page.locator(
-            '#display-menu .display-menu-view .display-seg-option[data-mode="simple"]'
-        ).click()
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
-        expect(card).to_have_class(open_re)
-
-        # ...and straight back, without ever re-opening the menu.
-        page.locator(
-            '#display-menu .display-menu-view .display-seg-option[data-mode="expert"]'
-        ).click()
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert")
-        expect(card).to_have_class(open_re)
-
-        # The one row that DOES dismiss the card.
-        page.locator("#display-menu-settings").click()
-        expect(card).not_to_have_class(open_re)
+        expect(more).to_be_visible()
+        _open_more_menu(page)
+        expect(_view_row(page, "simple")).to_have_attribute("aria-checked", "true")
+        expect(_view_row(page, "expert")).to_have_attribute("aria-checked", "false")
+        _close_more_menu(page)
 
         page.close()

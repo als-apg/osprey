@@ -7,7 +7,7 @@
  * server→client half — the /api/files/events SSE subscription and its frame
  * dispatcher — is panel-sse.js, which calls back into this module's addPanel
  * and ensureRailMembership. This module owns the birth-and-liveness half of
- * it — a panel's cold state, the rail render and membership entries it
+ * it — a panel's cold state, the sidebar rows and membership entries it
  * appears through, its config fetch, and the health polling that decides
  * when it may fill a tile.
  *
@@ -22,10 +22,18 @@
 
 import { apiRequest, fetchJSON } from './api.js';
 import { setKnownServicePanels, setPanelReachable } from './dock-iframe.js';
-import { PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
+import { setPanelServed } from './panel-availability.js';
+import {
+  PANELS,
+  TERMINAL_RAIL_ID,
+  TERMINAL_RAIL_LABEL,
+  panelIconName,
+  titleCase,
+} from './panel-catalog.js';
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
 import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
+import { isPoppedOut } from './popout.js';
 import {
   clockTime,
   createRail,
@@ -33,6 +41,7 @@ import {
   placeEntry,
   setActive,
   setEntryEnabled,
+  setEntryPoppedOut,
   setEntryReachable,
   setEntryStatus,
 } from './panel-rail.js';
@@ -94,25 +103,55 @@ export function freshPanelState() {
 }
 
 /**
- * Destructive full render of the rail: the terminal entry first (the session
- * tile is the workspace's anchor), then every MEMBER service panel in the
- * server's rail order — non-members have no entry at all. The terminal entry is enabled
- * after the render (it never health-polls, so it would stay disabled).
+ * Set where a panel is served, or `null` for nowhere: the one write of
+ * `PanelState.url`, so the page's followers of it (panel-availability.js) hear
+ * every change.
+ * @param {string} panelId
+ * @param {string | null} url
+ */
+export function publishPanelUrl(panelId, url) {
+  ctx().panelState[panelId].url = url;
+  setPanelServed(panelId, url !== null);
+}
+
+/**
+ * A catalog panel as its sidebar row draws it: the label in title case, the
+ * panel's glyph, and the context-menu hint.
+ * @param {{id: string, label: string}} panel
+ * @returns {import('./panel-rail.js').RailPanel}
+ */
+function railPanel(panel) {
+  return {
+    id: panel.id,
+    label: titleCase(panel.label),
+    icon: panelIconName(panel.id),
+    hint: RAIL_MENU_HINT,
+  };
+}
+
+/**
+ * Destructive full render of the sidebar rows: the Agent row first (the
+ * pane is the workspace's anchor), then every MEMBER service panel in the
+ * server's rail order, each in the operator's group for it — non-members
+ * have no row at all. The Agent row is enabled after the render (it never
+ * health-polls, so it would stay disabled), and a row whose panel is popped
+ * out gets its mark back, since the render builds rows cold.
  */
 export function renderRail() {
   const railEl = ctx().getRailEl();
   createRail(
     railEl,
     [
-      { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL },
+      { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL, icon: panelIconName(TERMINAL_RAIL_ID) },
       ...[...ctx().memberSet]
         .map((id) => PANELS.find((p) => p.id === id))
         .filter((p) => p !== undefined)
-        .map((p) => ({ id: p.id, label: p.label, hint: RAIL_MENU_HINT })),
+        .map(railPanel),
     ],
     railOptions()
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
+  for (const id of ctx().memberSet) if (isPoppedOut(id)) setEntryPoppedOut(railEl, id, true);
 }
 
 /**
@@ -129,15 +168,16 @@ export function applyRailOrder(order) {
   const rest = [...c.memberSet].filter((id) => !ordered.includes(id));
   c.memberSet.clear();
   for (const id of [...rest, ...ordered]) c.memberSet.add(id);
-  // Appending each in turn leaves SESSION (never in `order`) at the head.
+  // Each row moves within its own group (the Agent row stays first); moving
+  // every ordered row to the end in turn puts each group in `order`.
   for (const id of ordered) placeEntry(c.getRailEl(), id, null);
 }
 
 /**
- * Re-apply a rail entry's live state after it was (re)built cold by addEntry —
- * enabled from the panel's health, and the active accent when this panel is the
- * surfaced one (a "+"-menu reveal activates locally BEFORE the membership echo
- * rebuilds the entry).
+ * Re-apply a sidebar row's live state after addEntry (re)built or re-showed it
+ * — enabled from the panel's health, the active accent when this panel is
+ * the surfaced one (a "+"-menu reveal activates locally BEFORE the membership
+ * echo adds the row), and the popped-out mark while its window is open.
  * @param {string} panelId
  */
 function applyEntryState(panelId) {
@@ -151,13 +191,14 @@ function applyEntryState(panelId) {
   if (ps.failedMessage)
     setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
+  if (isPoppedOut(panelId)) setEntryPoppedOut(c.getRailEl(), panelId, true);
 }
 
 /**
- * Give a panel its rail entry as a MEMBER: record the membership and append the
- * entry (membership IS the rail — there is no dimmed in-between state). The
- * entry is built cold, so its live health/active state is re-applied after the
- * add. Idempotent: addEntry no-ops for an id that already has an entry.
+ * Give a panel its sidebar row as a MEMBER: record the membership and add the
+ * row (membership IS the rail — there is no dimmed in-between state). A new
+ * row is built cold, so its live health/active state is re-applied after the
+ * add. Idempotent: addEntry no-ops for an id that already has a row.
  * @param {string} panelId
  */
 export function ensureRailMembership(panelId) {
@@ -165,12 +206,12 @@ export function ensureRailMembership(panelId) {
   c.memberSet.add(panelId);
   const spec = PANELS.find((p) => p.id === panelId);
   if (!spec) return;
-  addEntry(c.getRailEl(), { id: spec.id, label: spec.label, hint: RAIL_MENU_HINT }, railOptions());
+  addEntry(c.getRailEl(), railPanel(spec), railOptions());
   applyEntryState(panelId);
 }
 
 /**
- * Register a runtime panel and append its rail entry without wiping existing ones.
+ * Register a runtime panel and add its sidebar row without wiping existing ones.
  *
  * spec shape (matches the panel_register SSE broadcast payload):
  *   { id, label, url, healthEndpoint, path }
@@ -183,13 +224,13 @@ export function addPanel(spec) {
   const { panelState } = ctx();
   if (panelState[spec.id]) {
     // Re-registration: update url so subsequent navigation stays consistent
-    if (spec.url) panelState[spec.id].url = spec.url;
+    if (spec.url) publishPanelUrl(spec.id, spec.url);
     return;
   }
 
   const normalized = {
     id: spec.id,
-    label: spec.label || spec.id.toUpperCase(),
+    label: titleCase(spec.label || spec.id.toUpperCase()),
     configEndpoint: null,
     healthEndpoint: spec.healthEndpoint || null,
     path: spec.path || '/',
@@ -200,20 +241,15 @@ export function addPanel(spec) {
 
   panelState[spec.id] = freshPanelState();
 
-  // Append exactly one entry. addEntry is non-destructive — never a full
-  // re-render — so every live entry keeps its active/disabled/LED state, and it
-  // is idempotent by id, which also guards the re-register path.
-  addEntry(
-    ctx().getRailEl(),
-    { id: normalized.id, label: normalized.label, hint: RAIL_MENU_HINT },
-    railOptions()
-  );
+  // Add exactly one row. addEntry is non-destructive — never a full re-render
+  // — so every live row keeps its active/disabled state, and it is idempotent
+  // by id, which also guards the re-register path.
+  addEntry(ctx().getRailEl(), railPanel(normalized), railOptions());
 
   // Seed url and health, mirroring the custom-panel block in initPanelManager
   if (spec.url) {
-    const ps = panelState[spec.id];
-    ps.url = spec.url;
-    ps.configLoaded = true;
+    publishPanelUrl(spec.id, spec.url);
+    panelState[spec.id].configLoaded = true;
     if (!spec.healthEndpoint) {
       assumeHealthy(normalized);
     } else {
@@ -282,29 +318,73 @@ export async function initPanel(panel) {
     if (state.url) return;
     config = await readConfig(panel.configEndpoint);
   }
-  // Artifact server returns { url }, ARIEL returns { url, available }
-  if (config?.url && (config.available === undefined || config.available)) {
-    state.url = config.url;
-  }
+  const url = servedUrl(config);
+  if (url) publishPanelUrl(panel.id, url);
   state.configLoaded = true;
 
   // A sidecar reports its start outcome with its config: a failed one gets
   // its clickable failed entry, a starting one is followed until it settles.
   if (config?.state === 'failed') showFailed(panel, config.message);
   else if (config?.state === 'starting') followStart(panel);
-  else if (state.url) {
-    // External panels (healthEndpoint === null) skip health polling —
-    // mark healthy immediately so the tab is enabled.
-    if (panel.healthEndpoint == null) {
-      // null or undefined → skip polling
-      assumeHealthy(panel);
-    } else {
-      startHealthPolling(panel);
-    }
-  }
+  else if (state.url) followLiveness(panel);
   // Re-evaluate on every settle, including the no-url case: this panel may be
   // the default that another panel's health poll was waiting on.
   c.ensureActive();
+}
+
+/**
+ * The url a config answer says the panel is served at. The artifact server
+ * returns { url }, ARIEL returns { url, available }.
+ * @param {any} config
+ * @returns {string | null}
+ */
+function servedUrl(config) {
+  return config?.url && (config.available === undefined || config.available) ? config.url : null;
+}
+
+/**
+ * Start tracking a served panel's liveness. External panels (healthEndpoint
+ * null or undefined) skip health polling: mark them healthy at once so the tab
+ * is enabled.
+ * @param {Panel} panel
+ */
+function followLiveness(panel) {
+  if (panel.healthEndpoint == null) assumeHealthy(panel);
+  else startHealthPolling(panel);
+}
+
+/**
+ * Read a panel's config again once the hub may have restarted (the event
+ * stream reopened), since the answer {@link initPanel} took as final holds only
+ * for that hub. A panel that gained a url starts up; one that lost it stops:
+ * its entry goes back to `.disabled` and a tile it holds carries the notice. A
+ * sidecar is skipped: its own start and health paths already follow it.
+ * @param {Panel} panel
+ */
+export async function rereadPanelConfig(panel) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (!state || !panel.configEndpoint || panel.startEndpoint) return;
+  const config = await readConfig(panel.configEndpoint);
+  if (config === undefined) return; // no answer: the next reopen asks again
+  const url = servedUrl(config);
+  if (Boolean(url) === Boolean(state.url)) return;
+  if (url) {
+    publishPanelUrl(panel.id, url);
+    setPanelReachable(panel.id, true);
+    if (state.iframe) state.iframe.src = buildEmbedSrc(url);
+    followLiveness(panel);
+    c.ensureActive();
+    return;
+  }
+  stopHealthPolling(state);
+  publishPanelUrl(panel.id, null);
+  state.healthy = false;
+  if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
+  state.misses = 0;
+  state.missSince = null;
+  setEntryEnabled(c.getRailEl(), panel.id, false);
+  setPanelReachable(panel.id, false, clockTime(Date.now()));
 }
 
 // ---- Health Polling ----
@@ -365,7 +445,7 @@ function onHealthSettled(panel, wasHealthy) {
       .then((config) => {
         if (config?.state !== 'failed') return;
         stopHealthPolling(state);
-        state.url = null;
+        publishPanelUrl(panel.id, null);
         state.healthy = false;
         showFailed(panel, config.message);
       })
@@ -470,7 +550,7 @@ function settleStart(panel, answer, lastMessage) {
     showFailed(panel, lastMessage);
     return;
   }
-  state.url = answer.url;
+  publishPanelUrl(panel.id, answer.url);
   if (state.iframe) state.iframe.src = buildEmbedSrc(answer.url);
   stopHealthPolling(state);
   startHealthPolling(panel);

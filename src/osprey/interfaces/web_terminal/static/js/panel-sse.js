@@ -33,9 +33,15 @@ import {
 } from './panel-agent-attention.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
-import { ensureRailMembership, addPanel, applyRailOrder } from './panel-lifecycle.js';
+import {
+  ensureRailMembership,
+  addPanel,
+  applyRailOrder,
+  rereadPanelConfig,
+} from './panel-lifecycle.js';
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
+import { isPoppedOut, focusPopout } from './popout.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -130,6 +136,7 @@ export function subscribePanelEvents(sseDeps) {
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
   // action itself already happened. Untagged frames behave exactly as before.
+  let streamOpened = false;
   createEventSource('/api/files/events', {
     // prefixed via createEventSource (api.js)
     // SSE has no replay: anything broadcast while this client was
@@ -142,6 +149,10 @@ export function subscribePanelEvents(sseDeps) {
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
+      // The first open follows the config reads of this page's boot. A later
+      // one may be a different hub: what each panel is served at is read again.
+      if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
+      streamOpened = true;
     },
     onMessage: (raw) => {
       try {
@@ -155,15 +166,22 @@ export function subscribePanelEvents(sseDeps) {
           // settle may fill the slot.
           c.endWorkspaceSuppression();
           if (data.url) c.navigate(data.panel, data.url);
-          // An AGENT switch is polite: focus the panel's own tile, or open one
-          // beside the operator's — never take a tile away (applyAgentSwitch).
-          // Human focus is never broadcast (the server mirrors it silently and
-          // the gesturing client applies it locally), so an unattributed frame
-          // can only come from an out-of-contract caller; it keeps the plain
-          // activation. The attribution runs after the switch so a just-added
-          // entry can flash and the tile glow measures the tile the switch
-          // actually surfaced.
-          if (data.source === 'agent') {
+          // A panel living in its own pop-out window has no tile to focus or
+          // open: the window comes to the front instead, and an agent switch
+          // still flashes the rail entry so the operator sees who asked.
+          if (isPoppedOut(data.panel)) {
+            focusPopout(data.panel);
+            if (data.source === 'agent') flashAgentTile(data.panel);
+          } else if (data.source === 'agent') {
+            // An AGENT switch is polite: focus the panel's own tile, or open
+            // one beside the operator's — never take a tile away
+            // (applyAgentSwitch). Human focus is never broadcast (the server
+            // mirrors it silently and the gesturing client applies it
+            // locally), so an unattributed frame can only come from an
+            // out-of-contract caller; it keeps the plain activation. The
+            // attribution runs after the switch so a just-added entry can
+            // flash and the tile glow measures the tile the switch actually
+            // surfaced.
             applyAgentSwitch(data.panel);
             flashAgentTile(data.panel);
           } else {
@@ -227,7 +245,7 @@ export function subscribePanelEvents(sseDeps) {
  * hidden active panel never strands a blank pane.
  *
  * An addition with an `index` lands at that position among the rail's panel
- * entries, counted without SESSION — the same count the operator's Undo took
+ * entries, counted without Agent — the same count the operator's Undo took
  * at removal — so every client puts a restored entry back where it was, not
  * only the one that clicked. A panel that was already a member keeps its
  * place.

@@ -61,14 +61,12 @@
   </header>
 
   <!--
-    In-body view switcher. The same three views are ALSO described to the web
-    terminal's tile bar (panel.js, `contributeHeader`), but this strip is not a
-    fallback that can be dropped: `contributeHeader` is a strict no-op outside
-    an embedded frame, and the hub collapses a service tile's bar to zero
-    height in Simple mode. Without the in-body strip the panel is unnavigable
-    standalone and unnavigable in Simple. It is therefore hidden ONLY in the
-    one case where the tile bar really is showing these tabs — embedded AND
-    Expert (see `.panel-tabs` in panel.css).
+    In-body view switcher, for standalone serving only. Embedded, the same
+    three views are described to the web terminal's tile bar (panel.js,
+    `contributeHeader`) in every UI mode, and the hub draws that bar in Simple
+    as well as Expert, so this strip is hidden whenever the panel is embedded
+    (see `.panel-tabs` in panel.css). Standalone, `contributeHeader` is a
+    strict no-op and this strip is the only way to navigate.
   -->
   <nav class="panel-tabs" id="view-tabs" role="tablist" aria-label="Bluesky views">
     <button type="button" id="view-tab-plans" class="panel-tab active" role="tab"
@@ -82,10 +80,10 @@
   <!--
     The queue control strip. NOT a tab and NEVER contributed to the tile bar:
     the queue state and the two halts must be live from first paint in EVERY
-    UI mode, and the tile bar is collapsed to zero height in Simple mode. They
-    must also never be a tab switch away, which is why the ONE set of controls
-    sits outside the three view containers below and stays on screen for all
-    of them.
+    UI mode and wherever the panel runs, and the tile bar does not exist
+    standalone. They must also never be a tab switch away, which is why the
+    ONE set of controls sits outside the three view containers below and
+    stays on screen for all of them.
 
     What the strip SHOWS depends on the tab (stripControls in queue-client.js).
     On the Queue tab it is the control panel — Start, Stop, Abort, in every
@@ -102,9 +100,9 @@
          lane (panel.js fills it from GET /lanes). It lives HERE, beside the
          queue badge and the two halts, because which machine this panel is
          pointed at is safety-bearing context for all three: it must be
-         visible from every tab and in every UI mode, and the tile bar
-         survives neither. Switching lanes navigates to a fresh document — a
-         lane is a different machine, and one document never shows two (see
+         visible from every tab and in every UI mode, and the tile bar does
+         not exist standalone. Switching lanes navigates to a fresh document:
+         a lane is a different machine, and one document never shows two (see
          lane-client.js). -->
     <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>
     <span class="strip-kicker">Queue</span>
@@ -201,8 +199,8 @@
            tabindex="0"></div>
 
       <section class="detail" aria-label="Plan detail">
-        <div id="detail-empty" class="detail-empty" hidden>
-          <p class="muted">No plan selected.</p>
+        <div id="detail-empty" class="detail-empty">
+          <p class="muted">Select a plan to see its parameters.</p>
         </div>
 
         <div id="detail-body" class="detail-body" hidden>

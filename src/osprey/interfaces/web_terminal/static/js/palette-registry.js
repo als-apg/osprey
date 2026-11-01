@@ -78,8 +78,8 @@ const PANEL_SYNONYMS = {
   'system-health': 'status monitoring',
 };
 
-/** Verb vocabulary for "Open … in a new window" rows. */
-const POPOUT_ALIASES = 'window popout standalone tab';
+/** Verb vocabulary for "Pop out …" rows. */
+const POPOUT_ALIASES = 'window popout standalone';
 
 /** Verb vocabulary for "Open … in a new tile" rows. */
 const BESIDE_ALIASES = 'tile beside split';
@@ -185,16 +185,17 @@ function buildSettings(deps) {
 
 /**
  * Build the Panels group: a "Show <label>" item per hidden panel, a
- * "Focus <label>" item per visible (non-active) panel, an "Open <label> in a
- * new window" item per pop-out-able panel, and an "Open <label> in a new tile"
- * item per visible (non-active) panel.
+ * "Focus <label>" item per visible (non-active) panel, a "Pop out <label>"
+ * item per pop-out-able panel, and an "Open <label> in a new tile" item per
+ * visible (non-active) panel.
  *
- * The two "Open" verbs draw on DIFFERENT sources on purpose, and the
- * difference is the whole point of FR8:
+ * The pop-out and new-tile verbs draw on DIFFERENT sources on purpose, and
+ * the difference is the whole point of FR8:
  *
- *   - new window ← `getPopoutPanels`, which INCLUDES the active panel (popping
+ *   - pop out ← `getPopoutPanels`, which INCLUDES the active panel (popping
  *     out the panel you are looking at is the verb's commonest use) and is
- *     already filtered to members whose standalone URL has resolved.
+ *     already filtered to members that can pop out: a standalone URL has
+ *     resolved and no window is open for them yet.
  *   - new tile ← `getVisiblePanels`, which EXCLUDES the active panel (opening
  *     it beside itself is a guaranteed no-op), and carries no URL gate — the
  *     rail corner this verb replaces never had one.
@@ -246,8 +247,8 @@ function buildPanels(deps) {
     const id = panel.id;
     items.push({
       group: 'Panels',
-      label: `Open ${panel.label} in a new window`,
-      searchText: panelSearchText('open', panel, POPOUT_ALIASES),
+      label: `Pop out ${panel.label}`,
+      searchText: panelSearchText('pop out', panel, POPOUT_ALIASES),
       run: () => {
         if (typeof popoutPanel === 'function') {
           popoutPanel(id);

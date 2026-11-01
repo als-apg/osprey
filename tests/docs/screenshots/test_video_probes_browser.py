@@ -74,14 +74,22 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
     assert video_probes.azimuth_change(before, after) >= 45
 
 
-# The preview pane's markup as the gallery's renderPreview writes it.
+# The hub's sidebar artifact row, and the embedded viewer's preview pane
+# as the gallery's renderPreview writes it. The probes run the row check on the
+# hub and the preview checks inside the artifacts iframe; one page holds both.
 _PANE = """
-<div class="tree-item" data-id="abc123"></div>
-<div id="preview-empty">Select an artifact to preview</div>
-<div id="preview-content" class="{hidden}">
-  <div class="preview-header"><span class="preview-header-title">Channels</span></div>
-  <span class="preview-path-text">var/agent_data/artifacts/{shown}_channels.md</span>
-  <div class="preview-viewport">{viewport}</div>
+<div class="sidebar-kids-list" id="sidebar-artifacts-list" role="listbox">
+  <button class="osprey-list-row" role="option" data-id="abc123">
+    <span class="osprey-list-title">Channels</span>
+  </button>
+</div>
+<div id="browse-preview-pane">
+  <div id="preview-empty">Select an artifact to preview</div>
+  <div id="preview-content" class="{hidden}">
+    <p class="preview-desc">Channel list</p>
+    <span class="preview-path-text">var/agent_data/artifacts/{shown}_channels.md</span>
+    <div class="preview-viewport">{viewport}</div>
+  </div>
 </div>
 """
 

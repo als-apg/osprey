@@ -71,6 +71,7 @@ Getting Help
    :hidden:
 
    development-setup
+   design-language
    workflow
    extending-osprey
    agent-skills

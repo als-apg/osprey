@@ -41,17 +41,17 @@
 .dock-root.dockview-theme-light,
 .dock-root .dv-shell.dockview-theme-dark,
 .dock-root .dv-shell.dockview-theme-light {
-  /* Surfaces. The header bar is ONE seated surface: strip and tab share
-   * --bg-panel so there is no seam where the tab ends (--bg-secondary is
-   * only 3/255 from the body in the dark theme — a distinction that read as
-   * dirt, not structure). The active-tile signal is the bar's hairline and
-   * title color (below), not a background split. */
-  --dv-group-view-background-color: var(--bg-primary);
-  --dv-tabs-and-actions-container-background-color: var(--bg-panel);
-  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-panel);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-panel);
+  /* Surfaces. Every tile is an inset card (below): the group, its header
+   * bar and its tab all sit on --surface-card, one seated surface with no
+   * seam where the tab ends. The canvas between the cards is #dock-root's
+   * own background. The active-tile signal is the bar's hairline and title
+   * colour (below), not a background split. */
+  --dv-group-view-background-color: var(--surface-card);
+  --dv-tabs-and-actions-container-background-color: var(--surface-card);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--surface-card);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--surface-card);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--surface-card);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--surface-card);
 
   /* Tab text: the active tab reads primary, everything backgrounded is dimmer. */
   --dv-activegroup-visiblepanel-tab-color: var(--text-primary);
@@ -59,18 +59,20 @@
   --dv-inactivegroup-visiblepanel-tab-color: var(--text-secondary);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--text-muted);
 
-  /* Borders / separators (all consumed as bare colors by dockview.css). */
-  --dv-separator-border: var(--border-default);
-  --dv-tab-divider-color: var(--border-default);
-  --dv-paneview-header-border-color: var(--border-default);
-  --dv-sash-color: var(--border-default);
+  /* Borders / separators (all consumed as bare colors by dockview.css). The
+   * gutters separate the cards, so the split separator and the sash strip
+   * are transparent at rest; the grip pill below is the sash's affordance. */
+  --dv-separator-border: transparent;
+  --dv-tab-divider-color: var(--surface-hairline);
+  --dv-paneview-header-border-color: var(--surface-hairline);
+  --dv-sash-color: transparent;
 
   /* Accent-driven interaction: resize sash, drop target, focus outline. */
   --dv-active-sash-color: var(--color-accent);
   --dv-paneview-active-outline-color: var(--color-accent);
   --dv-drag-over-background-color: var(--accent-tint-20);
   --dv-drag-over-border: 2px solid var(--color-accent);
-  --dv-icon-hover-background-color: var(--bg-elevated);
+  --dv-icon-hover-background-color: var(--surface-hover);
 
   /* Floating groups + context menu (elevated overlay surfaces). */
   --dv-floating-box-shadow: var(--shadow-dialog);
@@ -79,11 +81,12 @@
   --dv-context-menu-color: var(--text-primary);
   --dv-tabs-container-scrollbar-color: var(--border-default);
 
-  /* Type + shape + motion onto the emitted scales (flat OSPREY chrome). */
+  /* Type + shape + motion onto the emitted scales. Groups are rounded cards,
+   * so floating groups and drop targets take the same radius. */
   --dv-tab-font-size: var(--text-sm);
   --dv-tab-border-radius: var(--radius-none);
-  --dv-border-radius: var(--radius-none);
-  --dv-sash-border-radius: var(--radius-none);
+  --dv-border-radius: var(--radius-xl);
+  --dv-sash-border-radius: var(--radius-full);
   --dv-tab-group-chip-border-radius: var(--radius-sm);
   --dv-dropdown-border-radius: var(--radius-md);
   --dv-transition-duration: var(--duration-fast);
@@ -154,22 +157,68 @@
   opacity: 1;
 }
 
+/* ---- Inset cards on the canvas ----
+ * The dock is a canvas (--surface-canvas, one step deeper than the cards)
+ * with every tile an inset card: --surface-card, hairline border,
+ * --radius-xl corners, clipped to them. dockview sizes each .dv-view
+ * absolutely (border-box), so padding on a LEAF view (the one holding a
+ * .dv-groupview, not a nested split's branch view) insets its card without
+ * touching dockview's math. Half a gutter per side makes one full
+ * --wt-gutter between two cards; the other half at the dock's outer edge
+ * comes from the dock's container. The sash stays on the view boundary,
+ * centred in the gutter, so its 12px hit zone (above) spans the gap.
+ * Overlay iframes sit outside the card and are rounded to match in
+ * dock-iframe.js (TILE_BODY_RADIUS). */
+.dock-root {
+  background: var(--surface-canvas);
+}
+
+.dock-root .dv-view:has(> .dv-groupview) {
+  padding: calc(var(--wt-gutter) / 2);
+}
+
+.dock-root .dv-groupview {
+  box-sizing: border-box;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+/* The Agent card's own frame (terminal.css: a padded .terminal-panel holding
+ * a bordered .terminal-card) is the fallback-mode look. Docked, the tile card
+ * above is the frame, so the adopted subtree is its interior: no inset, no
+ * second border, the card surface. `.terminal-card` stays on the element —
+ * the tour anchors on it. */
+.dock-root .terminal-panel {
+  padding: 0;
+  background: var(--surface-card);
+}
+
+.dock-root .terminal-card {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-card);
+}
+
 /* ---- Tile header bar: the single tab IS the host chrome ----
  * One panel per tile is a workspace invariant (both modes), so a tile's "tab"
  * can never have siblings; dock-tab.js renders it as the tile's header bar.
- * EVERY tile carries the same 36px bar with the same grammar — the tile's
- * identity on the left, its actions right-anchored — so naming and closing a
- * tile is one gesture learned once. There is no drag badge: the whole bar is
- * the drag handle (cursor: grab below).
+ * EVERY tile carries the same bar — --wt-pane-head-height, the pane header
+ * row of the design language — with the same grammar: the tile's identity
+ * on the left, its actions right-anchored, so naming and closing a tile is
+ * one gesture learned once. There is no drag badge: the whole bar is the
+ * drag handle (cursor: grab below).
  *
  *   SERVICE tiles show the panel's name (.tile-tab-title) + contributed
  *     controls + close.
- *   The TERMINAL tile shows the adopted .terminal-header (session LED,
- *     session id, selector, "+ New") + close.
+ *   The AGENT tile shows its adopted bar + close: the chat console's
+ *     .op-session-bar in Simple (operator.css), the .terminal-header in
+ *     Expert (terminal.css).
  *
- * SEATED CHROME: the bar is its own surface (--bg-panel, remapped above)
- * closed by a hairline. The hairline turns accent on the ACTIVE tile — the
- * tile receiving keystrokes — and inactive tiles dim their name to
+ * SEATED CHROME: the bar is part of the card (--surface-card, remapped
+ * above) closed by a hairline. The hairline turns accent on the ACTIVE tile
+ * — the tile receiving keystrokes — and inactive tiles dim their name to
  * secondary, so focus is legible at a glance without a background split.
  *
  * Fixed height, no hover reveal: the bar never changes size, so tile content
@@ -184,8 +233,8 @@
  * describes. Compounding onto the container is (0,2,0) and wins on
  * specificity, deterministically, in either theme. */
 .dock-root .dv-tabs-and-actions-container {
-  height: 36px;
-  border-bottom: 1px solid var(--border-default);
+  height: var(--wt-pane-head-height);
+  border-bottom: 1px solid var(--surface-hairline);
 }
 
 /* The active tile's bar closes with the accent hairline. dv-active-group /
@@ -197,10 +246,11 @@
 }
 
 /* Inactive tiles dim their identity to secondary; the active tile's name
- * reads primary (set on .tile-tab-title below). The terminal's session label
- * is the same identity element (see terminal.css), so it dims the same way. */
+ * reads primary (set on .tile-tab-title below). The Agent tile's label is
+ * the same identity element in either adopted bar, so it dims the same way. */
 .dock-root .dv-groupview.dv-inactive-group .tile-tab-title,
-.dock-root .dv-groupview.dv-inactive-group .tile-tab .terminal-label {
+.dock-root .dv-groupview.dv-inactive-group .tile-tab .terminal-label,
+.dock-root .dv-groupview.dv-inactive-group .tile-tab .op-session-label {
   color: var(--text-secondary);
 }
 
@@ -218,12 +268,15 @@
   padding: 0;
 }
 
+/* The pane header's metrics (the mockup's `.pane-head`): 16px in from the
+ * card's left edge, 8px from its right, 8px between items. On .tile-tab, not
+ * on dockview's container, so the drag clone keeps them. */
 .tile-tab {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  padding: 0 6px 0 12px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-4);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -249,7 +302,6 @@
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: var(--weight-medium);
-  letter-spacing: 0.04em;
   color: var(--text-primary);
 }
 
@@ -266,7 +318,7 @@
 .tile-tab .tile-tab-contrib {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
@@ -303,12 +355,13 @@
 }
 
 /* ---- One control language ----
- * Every interactive element the bar renders — contributed buttons, nav
- * segments, the ⋯ menu, the tile's own close — is the same 24px ghost
- * control: transparent at rest, elevated fill under the pointer, one
- * radius, one type style. Icons are inline SVG on currentColor
- * (svg-icons.js), so they take each control's own state color. */
-.tile-tab .tile-tab-actions button,
+ * Every interactive element the bar renders is the design language's 28px
+ * ghost control. The tile's own close (and the Agent bar's buttons) ARE
+ * `.osprey-icon-btn` (primitives.css); the contributed buttons, nav
+ * segments and the ⋯ menu take the same look here: transparent at rest,
+ * the hover wash under the pointer, the press wash while held or open, one
+ * radius, one type style. Icons are inline SVG on currentColor, so they take
+ * each control's own state colour. */
 .tile-tab .contrib-btn,
 .tile-tab .contrib-nav-link,
 .tile-tab .contrib-menu-btn {
@@ -317,40 +370,45 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  height: 24px;
+  height: 28px;
   padding: 0 var(--space-2);
   border: none;
   background: transparent;
   font-family: var(--font-display);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   font-weight: var(--weight-medium);
   line-height: var(--leading-none);
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   white-space: nowrap;
   flex: 0 0 auto;
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 
-.tile-tab .tile-tab-actions button:hover,
 .tile-tab .contrib-btn:hover:not(:disabled),
 .tile-tab .contrib-nav-link:hover,
-.tile-tab .contrib-menu-btn:hover,
+.tile-tab .contrib-menu-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.tile-tab .contrib-btn:active:not(:disabled),
+.tile-tab .contrib-menu-btn:active,
 .tile-tab .contrib-menu-btn[aria-expanded='true'] {
   color: var(--text-primary);
-  background: var(--bg-elevated);
+  background: var(--surface-press);
 }
 
 /* Icon-only controls square off. */
-.tile-tab .tile-tab-actions button,
 .tile-tab .contrib-menu-btn {
-  width: 24px;
+  width: 28px;
   padding: 0;
 }
 
 .tile-tab .bar-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   display: block;
 }
 
@@ -374,49 +432,52 @@
 .tile-tab .contrib-nav {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  height: 24px;
+  gap: 1px;
+  height: 28px;
   padding: 2px;
   box-sizing: border-box;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
   flex: 0 0 auto;
 }
 
 .tile-tab .contrib-nav-link {
-  height: 18px;
-  border-radius: var(--radius-xs);
+  height: 22px;
+  border-radius: var(--radius-md);
 }
 
 .tile-tab .contrib-nav-link.active {
   color: var(--text-primary);
-  background: var(--bg-elevated);
+  background: var(--surface-press);
 }
 
-/* Search pill. Deliberately the same grammar as `.command-palette-trigger`
- * in palette.css — magnifier, muted placeholder, bordered field — so a
+/* Search pill. Deliberately the same grammar as the sidebar's search
+ * (`.osprey-search`) — magnifier, muted placeholder, bordered field — so a
  * panel's filter and the hub's own search read as one affordance. Recessed
- * to --bg-primary now that the bar itself sits on --bg-panel. Sized to
- * the 36px bar rather than the 28px header, and allowed to shrink to an
- * icon-plus-stub before the overflow ladder collapses it further. */
+ * into the card (--surface-well), sized to the bar's 28px controls, and
+ * allowed to shrink to an icon-plus-stub before the overflow ladder
+ * collapses it further. */
 .tile-tab .contrib-search {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   flex: 0 1 200px;
   min-width: 92px;
-  height: 24px;
+  height: 28px;
   padding: 0 var(--space-2);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  background: var(--surface-well);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
-.tile-tab .contrib-search:hover,
+.tile-tab .contrib-search:hover {
+  border-color: var(--border-default);
+}
+
 .tile-tab .contrib-search:focus-within {
-  border-color: var(--border-accent);
-  background: var(--bg-elevated);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--surface-focus);
 }
 
 .tile-tab .contrib-search-icon {
@@ -467,12 +528,12 @@
   order: 3;
 }
 
-/* Ladder step 1: the search field down to its magnifier — a 24px ghost
+/* Ladder step 1: the search field down to its magnifier — a 28px ghost
  * button (click / Enter re-expands it for typing). */
 .tile-tab .contrib-search-collapsed {
   flex: 0 0 auto;
-  width: 24px;
-  min-width: 24px;
+  width: 28px;
+  min-width: 28px;
   padding: 0;
   justify-content: center;
   background: transparent;
@@ -481,7 +542,7 @@
 }
 
 .tile-tab .contrib-search-collapsed:hover {
-  background: var(--bg-elevated);
+  background: var(--surface-hover);
   border-color: transparent;
 }
 
@@ -496,18 +557,19 @@
 /* Menu popover. Body-level and fixed — the contribution region is
  * overflow:hidden and one bar tall, so an in-place popover would be clipped
  * away. Positioned from JS (tile-header-items.js place()); everything here is
- * appearance only. Not scoped under .dock-root: it is a child of <body>. */
+ * appearance only, and matches `.osprey-popover` (primitives.css). Not
+ * scoped under .dock-root: it is a child of <body>. */
 .contrib-menu-popover {
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-dropdown);
   min-width: 168px;
   padding: var(--space-1);
   display: flex;
   flex-direction: column;
   gap: 1px;
-  background: var(--bg-elevated);
+  background: var(--surface-card);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dropdown);
 }
 
@@ -517,31 +579,31 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
+  height: 30px;
   border: none;
   background: transparent;
   font-family: var(--font-display);
-  font-size: var(--text-sm);
+  font-size: var(--text-lg);
   line-height: var(--leading-none);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   text-align: left;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .contrib-menu-item:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: var(--bg-panel);
+  background: var(--surface-hover);
 }
 
 .contrib-menu-item:disabled {
-  opacity: 0.45;
+  opacity: 0.35;
   cursor: default;
 }
 
 .contrib-menu-item.checked {
-  color: var(--text-primary);
+  font-weight: var(--weight-medium);
 }
 
 /* Fixed-width gutter so labels align whether or not an entry is checkable. */
@@ -551,12 +613,14 @@
   color: var(--color-accent);
 }
 
-/* Actions cluster: right-anchored; its buttons take the unified ghost
- * language above. Present in both ui views: Simple's tiles drag, close and
- * resize exactly as Expert's, so their header bars are live chrome there too. */
+/* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
+ * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
+ * primitive gives them their size, washes and disabled look.
+ * Present in both ui views: Simple's tiles drag, close and resize exactly as
+ * Expert's, so their header bars are live chrome there too. */
 .tile-tab .tile-tab-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-2);
 }

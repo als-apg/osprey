@@ -3,9 +3,9 @@
  *
  * The rail entry's and tile header's right-click popover, listing a panel's
  * verbs in words — the legible home for the actions that used to be
- * hover-revealed corner glyphs ("open in a new tile" ⊞, "open in a new
- * window" ↗). Opened by panel-menu-policy from a rail entry's or tile header's
- * contextmenu event, and by panel-rail from the menu key and Shift+F10.
+ * hover-revealed corner glyphs ("open in a new tile" ⊞, "pop out" ↗). Opened
+ * by panel-menu-policy from a rail entry's or tile header's contextmenu
+ * event, and by panel-rail from the menu key and Shift+F10.
  *
  * The behaviour — popover DOM, dismissal, focus hand-back, viewport clamping —
  * is the design system's shared context menu (/design-system/js/context-menu.js),
@@ -15,7 +15,7 @@
  *
  *   <div class="rail-context-menu" role="menu" aria-label="ARIEL actions">
  *     <button class="rail-context-item" role="menuitem" type="button">
- *       <span class="rail-context-label">Open in a new window</span>
+ *       <span class="rail-context-label">Pop out</span>
  *       <span class="rail-context-glyph" aria-hidden="true">↗</span>
  *     </button>
  *     <div class="rail-context-divider" role="separator"></div>

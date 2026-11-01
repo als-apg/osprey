@@ -51,25 +51,37 @@ import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs'
 // engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
 // default, which is exactly what the real getDockApi returns with no dockview
 // shell — every test that does not opt in keeps running in fallback mode.
-const { getDockApi, openTerminalPanel, closeTerminalPanel, resetDockLayout, dockState } =
-  vi.hoisted(() => ({
-    dockState: { api: /** @type {any} */ (null) },
-    getDockApi: vi.fn(() => /** @type {any} */ (null)),
-    openTerminalPanel: vi.fn(),
-    closeTerminalPanel: vi.fn(),
-    resetDockLayout: vi.fn(),
-  }));
+const {
+  getDockApi,
+  openTerminalPanel,
+  closeTerminalPanel,
+  isTerminalPanelOpen,
+  resetDockLayout,
+  dockState,
+} = vi.hoisted(() => ({
+  dockState: { api: /** @type {any} */ (null), redock: /** @type {(() => void) | null} */ (null) },
+  getDockApi: vi.fn(() => /** @type {any} */ (null)),
+  openTerminalPanel: vi.fn(),
+  closeTerminalPanel: vi.fn(),
+  isTerminalPanelOpen: vi.fn(() => true),
+  resetDockLayout: vi.fn(),
+}));
 getDockApi.mockImplementation(() => dockState.api);
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi,
   openTerminalPanel,
   closeTerminalPanel,
+  isTerminalPanelOpen,
   resetDockLayout,
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
   defaultServiceWidth: () => 600,
-  setServiceRedock: () => {},
+  // Captured, so a test can replay "a layout was applied" the way
+  // dock-workspace does after a stored-layout restore.
+  setServiceRedock: (/** @type {() => void} */ fn) => {
+    dockState.redock = fn;
+  },
   onDragGesture: () => [],
 }));
 
@@ -78,22 +90,23 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
 // boundary so a menu pick can be asserted as the call it makes — the restart
 // PAIR above all, which is a correctness contract, not a detail: restartTerminal
 // tears the PTY down without reconnecting.
-// Only the three verbs are replaced: terminal.js is already on the import
+// Only the four verbs are replaced: terminal.js is already on the import
 // chain (panel-iframe-sync reads the live session id from it), so a whole-module
 // stub would strand that reader — these are partial mocks, registered per
 // import next to the dock-iframe one below for the same freshness reason.
 const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
 const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
-const { restartTerminal, startTerminal, startNewSession } = vi.hoisted(() => ({
+const { restartTerminal, startTerminal, focusTerminal, startNewSession } = vi.hoisted(() => ({
   restartTerminal: vi.fn(async () => {}),
   startTerminal: vi.fn(),
+  focusTerminal: vi.fn(),
   startNewSession: vi.fn(),
 }));
 
 /** @param {() => Promise<unknown>} importOriginal */
 async function terminalWithVerbSpies(importOriginal) {
   const actual = /** @type {Record<string, unknown>} */ (await importOriginal());
-  return { ...actual, restartTerminal, startTerminal };
+  return { ...actual, restartTerminal, startTerminal, focusTerminal };
 }
 
 /** @param {() => Promise<unknown>} importOriginal */
@@ -254,6 +267,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   getDockApi.mockImplementation(() => dockState.api);
   dockState.api = null;
+  // The pop-out seam (popout.js) rolls call on a BroadcastChannel at boot,
+  // which the test environment does not provide. Unstubbed with the rest.
+  vi.stubGlobal(
+    'BroadcastChannel',
+    class {
+      postMessage() {}
+      close() {}
+    }
+  );
 
   // Armed in the first hook and disarmed in the last, so the span it covers is
   // the test body AND the hooks either side of it — a stall in a hook is as
@@ -1137,7 +1159,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(entry('terminal')).not.toBeNull();
     expect(entry('artifacts')).not.toBeNull();
     expect(entry('ariel')).toBeNull();
-    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'ARIEL' }]);
+    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'Ariel' }]);
   });
 
   test('a panel_visibility show APPENDS the entry with its live health state', async () => {
@@ -1233,7 +1255,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(strip).not.toHaveBeenCalled();
   });
 
-  test('the SESSION (terminal) entry is always present and enabled', async () => {
+  test('the Agent (terminal) row is always present and enabled', async () => {
     await bootMembership();
     const term = entry('terminal');
     expect(term).not.toBeNull();
@@ -1386,8 +1408,8 @@ const menuRow = (label) =>
   );
 
 /**
- * Right-click a rail surface the way the browser does — on the entry button or
- * on a child of it (the "×" corner), letting the event bubble. The returned
+ * Right-click a sidebar row the way the browser does — on the row button or
+ * on a child of it, letting the event bubble. The returned
  * event's `defaultPrevented` is the visible half of the handler's boolean:
  * true means a menu was claimed and the browser's native menu is suppressed.
  * @param {Element} el
@@ -2103,6 +2125,159 @@ describe('tile notice — a docked panel that stops answering says so over its o
   });
 });
 
+describe('which panels are served: PanelState.url, followed by the sidebar', () => {
+  const AVAILABILITY =
+    '../../../src/osprey/interfaces/web_terminal/static/js/panel-availability.js';
+
+  /**
+   * Boot with a mutable answer for the artifacts config endpoint and a stub
+   * whose `open()` is the event stream (re)opening.
+   * @param {() => Response | Promise<Response>} [firstAnswer] - the first read's answer
+   */
+  async function bootFollowing(firstAnswer) {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    const server = { artifacts: /** @type {string | null} */ (null) };
+    let answered = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({ enabled: ['artifacts'], custom: [], visible: ['artifacts'], labels: {} });
+        }
+        if (url === '/api/artifact-server') {
+          if (firstAnswer && !answered) {
+            answered = true;
+            return firstAnswer();
+          }
+          return jsonOk({ url: server.artifacts, available: server.artifacts !== null });
+        }
+        return jsonOk({ status: 'ok' });
+      })
+    );
+    /** @type {{ onopen?: (() => void) | null }[]} */
+    const sources = [];
+    class FakeEventSource {
+      constructor() {
+        /** @type {(() => void) | null} */
+        this.onopen = null;
+        sources.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const mod = await freshImport();
+    const availability = await import(AVAILABILITY);
+    const calls = { started: 0, stopped: 0 };
+    availability.whilePanelServed(
+      'artifacts',
+      () => (calls.started += 1),
+      () => (calls.stopped += 1)
+    );
+    return {
+      mod,
+      server,
+      calls,
+      open: () => {
+        for (const s of sources) s.onopen?.();
+      },
+    };
+  }
+
+  /** Let every read the page has started land, before saying nothing happened. */
+  const drained = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  /** The Artifacts row. */
+  const row = () =>
+    /** @type {HTMLElement} */ (
+      document.querySelector('.panel-rail-button[data-panel-id="artifacts"]')
+    );
+
+  test('enabled but not launched: a config answer with no url starts nothing', async () => {
+    const { mod, open, calls } = await bootFollowing();
+    await mod.initPanelManager('panel-manager');
+    await drained();
+    open();
+    await drained();
+
+    expect(calls).toEqual({ started: 0, stopped: 0 });
+    expect(row().classList.contains('disabled')).toBe(true);
+  });
+
+  test('a panel the deployment does not enable starts nothing', async () => {
+    const { mod, calls } = await bootFollowing();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) =>
+        url === '/api/panels'
+          ? jsonOk({ enabled: [], custom: [], visible: [], labels: {} })
+          : jsonOk({ status: 'ok' })
+      )
+    );
+    await mod.initPanelManager('panel-manager');
+    await drained();
+
+    expect(calls).toEqual({ started: 0, stopped: 0 });
+  });
+
+  test('a served panel starts its followers once its config answers', async () => {
+    const { mod, server, calls, open } = await bootFollowing();
+    server.artifacts = '/panel/artifacts';
+    await mod.initPanelManager('panel-manager');
+    await settled(() => expect(calls.started).toBe(1));
+
+    open();
+    open();
+    await drained();
+
+    expect(calls).toEqual({ started: 1, stopped: 0 });
+    expect(row().classList.contains('disabled')).toBe(false);
+  });
+
+  test('a config read that failed at boot starts them when a retry answers', async () => {
+    const { mod, server, calls } = await bootFollowing(() => {
+      throw new Error('offline');
+    });
+    server.artifacts = '/panel/artifacts';
+    await mod.initPanelManager('panel-manager');
+    await drained();
+    expect(calls.started).toBe(0);
+
+    await vi.waitFor(() => expect(calls.started).toBe(1), { timeout: 3000, interval: 20 });
+  });
+
+  test('a reopened stream starts a panel the restarted hub now serves', async () => {
+    const { mod, server, calls, open } = await bootFollowing();
+    await mod.initPanelManager('panel-manager');
+    await drained();
+    open();
+    await drained();
+    expect(calls.started).toBe(0);
+
+    server.artifacts = '/panel/artifacts';
+    open();
+
+    await settled(() => expect(calls.started).toBe(1));
+    await settled(() => expect(row().classList.contains('disabled')).toBe(false));
+  });
+
+  test('a reopened stream stops a panel the restarted hub no longer serves', async () => {
+    const { mod, server, calls, open } = await bootFollowing();
+    server.artifacts = '/panel/artifacts';
+    await mod.initPanelManager('panel-manager');
+    await settled(() => expect(calls.started).toBe(1));
+    open();
+    await drained();
+
+    server.artifacts = null;
+    open();
+
+    await settled(() => expect(calls.stopped).toBe(1));
+    expect(row().classList.contains('disabled')).toBe(true);
+  });
+});
+
 describe('SSE reconnect resync — membership re-converges from /api/panels', () => {
   /**
    * Boot against a MUTABLE server state and an EventSource stub whose
@@ -2656,12 +2831,14 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
 
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
-      'Focus ARIEL',
+      'Focus Ariel',
       'Open in a new tile',
-      'Open in a new window',
+      'Pop out',
+      'Move to Workspace',
+      'Move to new group…',
       'Remove from rail',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('ARIEL actions');
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Ariel actions');
   });
 
   test('the entry is the menu’s anchor, so a panel scrolling its own content leaves it open', async () => {
@@ -2693,18 +2870,189 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(contextMenu()).toBeNull();
   });
 
-  test('"Open in a new window" opens the panel’s standalone url in a new tab', async () => {
-    const { mod } = await bootWorkspace();
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+  test('"Pop out" opens the panel’s pop-out page in a named popup and retires the tile', async () => {
+    const { api, mod, calls } = await bootWorkspace();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    calls.length = 0; // the new-tile reveal above reports its own focus
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new window')).click();
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
 
-    expect(open).toHaveBeenCalledWith(mod.getPanelStandaloneUrl('ariel'), '_blank', 'noopener');
+    // The standalone page, stamped like an embed but with `popout` — never
+    // `embedded`, never a token — under the protocol's window name, as a
+    // popup sized and placed in the features string.
+    const [url, name, features] = open.mock.calls[0];
+    const opened = new URL(String(url));
+    expect(opened.pathname).toBe(
+      new URL(String(mod.getPanelStandaloneUrl('ariel')), 'http://h').pathname
+    );
+    expect(opened.searchParams.get('popout')).toBe('true');
+    expect(opened.searchParams.has('embedded')).toBe(false);
+    expect(opened.searchParams.has('theme')).toBe(true);
+    expect(opened.searchParams.has('mode')).toBe(true);
+    expect(name).toBe('osprey-popout-ariel');
+    expect(features).toMatch(/^popup=yes,width=\d+,height=\d+,left=\d+,top=\d+$/);
+    // The tile is gone from the dock while the window is open: a layout
+    // report cannot list it, and a layout restore cannot bring it back. The
+    // rail row stays (membership is untouched, nothing is POSTed).
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    expect(entry('ariel')).not.toBeNull();
+    expect(posts(calls)).toEqual([]);
+    // The menu now offers the way back; the palette's pop-out rows skip it.
+    rightClick(entry('ariel'));
+    expect(menuLabels()).toContain('Bring back');
+    expect(menuLabels()).not.toContain('Open in a new tile');
+    expect(mod.getPopoutPanels().map((p) => p.id)).toEqual(['artifacts']);
     open.mockRestore();
   });
 
-  test('"Remove from rail" POSTs the same membership change the "×" does', async () => {
+  test('a focus of a popped-out panel brings its window forward instead of docking', async () => {
+    const { api, mod, emit, calls } = await bootWorkspace();
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+
+    // The rail click, the palette's Focus and the agent's open_panel all land
+    // on the window; none of them docks a tile or reports a focus.
+    entry('ariel').click();
+    mod.activateTab('ariel', { userInitiated: true });
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+    expect(popup.focus).toHaveBeenCalledTimes(3);
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    expect(posts(calls)).toEqual([]);
+    open.mockRestore();
+  });
+
+  test('"Bring back" closes the window, and the closed window re-docks the tile beside the active one', async () => {
+    const { api, calls } = await bootWorkspace();
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    const artifactsGroup = api.getPanel('iframe:artifacts').group;
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Bring back')).click();
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    // Closing is the window's own business: the tile returns once the poll
+    // (every 500 ms) sees the window closed.
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    popup.closed = true;
+    await settled(() => expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']));
+
+    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
+    // Nobody asked the server for this surfacing.
+    expect(posts(calls)).toEqual([]);
+    open.mockRestore();
+  });
+
+  test('a hub reload adopts the window that answers the roll-call and retires its tile', async () => {
+    /** @type {any[]} */
+    const channels = [];
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        /** @param {string} name */
+        constructor(name) {
+          this.name = name;
+          this.posted = /** @type {any[]} */ ([]);
+          channels.push(this);
+        }
+        /** @param {any} message */
+        postMessage(message) {
+          this.posted.push(message);
+        }
+        close() {}
+      }
+    );
+    const { api } = await bootWorkspace({ restored: ['ariel'] });
+    expect(channels.map((c) => [c.name, c.posted])).toEqual([
+      ['osprey-popout', [{ type: 'osprey-popout-roll-call' }]],
+    ]);
+
+    // The popup's hello: a same-origin window this hub opened under the
+    // protocol's name. Its tile goes, and it is told the hub's state.
+    const popup = {
+      closed: false,
+      opener: window,
+      name: 'osprey-popout-ariel',
+      focus: vi.fn(),
+      close: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'osprey-popout-hello', panelId: 'ariel' },
+        origin: window.location.origin,
+        source: /** @type {any} */ (popup),
+      })
+    );
+
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+    // The window is shared across this file's module graphs, so the hub
+    // instances of earlier tests answer the hello too: each sends the same
+    // state (no session yet, so no session message).
+    expect(new Set(popup.postMessage.mock.calls.map((c) => c[0].type))).toEqual(
+      new Set(['osprey-theme-change', 'osprey-mode-change'])
+    );
+    expect(popup.postMessage.mock.calls.every((c) => c[1] === window.location.origin)).toBe(true);
+    rightClick(entry('ariel'));
+    expect(menuLabels()).toContain('Bring back');
+  });
+
+  test('a restored placeholder is filled with its panel’s iframe; the accent stays on the landing', async () => {
+    const { api, calls } = await bootWorkspace();
+    expect(document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')).toBeNull();
+
+    // The stored layout lands after the landing panel's activation, as
+    // dock-workspace restores it after its /api/panels round trip: a
+    // placeholder for every tile that was open, then the layout-applied seam.
+    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
+    dockState.redock?.();
+
+    const iframe = /** @type {HTMLElement | null} */ (
+      document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+    );
+    expect(iframe).not.toBeNull();
+    expect(iframe?.style.display).not.toBe('none');
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    // The landing panel keeps the accent and the stamp; filling the tile is
+    // not a surfacing anybody asked for, so nothing is reported.
+    expect(activeStamp()).toBe('artifacts');
+    expect(entry('artifacts').getAttribute('aria-current')).toBe('page');
+    expect(entry('ariel').getAttribute('aria-current')).toBeNull();
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('a popped-out panel’s restored placeholder is pruned, never filled', async () => {
+    const { api } = await bootWorkspace();
+    const popup = { closed: false, focus: vi.fn(), close: vi.fn(), postMessage: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    const iframe = /** @type {HTMLElement} */ (
+      document.querySelector('iframe.panel-iframe[data-panel-id="ariel"]')
+    );
+    expect(iframe.style.display).toBe('none');
+
+    // A layout apply brings the placeholder back (a layout stored before the
+    // pop-out); the adapter prunes it and the manager leaves the iframe hidden.
+    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
+    dockState.redock?.();
+
+    expect(api.getPanel('iframe:ariel')).toBeNull();
+    expect(iframe.style.display).toBe('none');
+    open.mockRestore();
+  });
+
+  test('"Remove from rail" POSTs the same membership change the Delete key does', async () => {
     const { calls } = await bootWorkspace();
 
     rightClick(entry('ariel'));
@@ -2717,27 +3065,40 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(JSON.parse(post.opts.body)).toEqual({ panel: 'ariel', visible: false });
   });
 
-  test('Focus on the ALREADY-active panel is a no-op — never the entry click’s retire branch', async () => {
+  test('Focus on the ALREADY-active panel is a no-op — never the row click’s retire branch', async () => {
     const { api } = await bootWorkspace();
     expect(activeStamp()).toBe('artifacts');
 
     rightClick(entry('artifacts'));
-    /** @type {HTMLElement} */ (menuRow('Focus WORKSPACE')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus Artifacts')).click();
 
     expect(dockedTiles(api)).toContain('artifacts');
     expect(activeStamp()).toBe('artifacts');
 
-    // The contrast that makes the row’s wording true: clicking the entry
+    // The contrast that makes the row’s wording true: clicking a plain row
     // itself toggles, and DOES retire the tile it is already showing.
     entry('artifacts').click();
     expect(dockedTiles(api)).not.toContain('artifacts');
+  });
+
+  test('a parent row (Artifacts) only ever brings its tile forward, never retires it', async () => {
+    const { api } = await bootWorkspace();
+    expect(activeStamp()).toBe('artifacts');
+    // The page ships the Artifacts row as a `.parent`: its click opens the
+    // row's list, which is what the operator reached for.
+    entry('artifacts').classList.add('parent');
+
+    entry('artifacts').click();
+
+    expect(dockedTiles(api)).toContain('artifacts');
+    expect(activeStamp()).toBe('artifacts');
   });
 
   test('Focus surfaces a member that holds no tile', async () => {
     const { api } = await bootWorkspace();
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Focus ARIEL')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus Ariel')).click();
 
     expect(dockedTiles(api)).toContain('ariel');
     expect(activeStamp()).toBe('ariel');
@@ -2749,29 +3110,26 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     rightClick(entry('ariel'));
 
     expect(menuLabels()).toEqual([
-      'Focus ARIEL',
+      'Focus Ariel',
       'Open in a new tile',
-      'Open in a new window',
+      'Pop out',
+      'Move to Workspace',
+      'Move to new group…',
       'Remove from rail',
     ]);
   });
 
-  test('a disabled entry gets no menu — not by right-click, not through its still-live "×"', async () => {
+  test('a disabled entry gets no menu, and the browser keeps its own', async () => {
     await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
     expect(entry('ariel').classList.contains('disabled')).toBe(true);
 
     // The gate is the handler’s, not the CSS’s: happy-dom applies no
-    // pointer-events, so these dispatches are exactly the two routes that get
-    // past `pointer-events: none` in a real browser.
+    // pointer-events, so this dispatch is exactly the route that gets past
+    // `pointer-events: none` in a real browser.
     const onEntry = rightClick(entry('ariel'));
     expect(contextMenu()).toBeNull();
     // Declining leaves the event alone, so the browser’s own menu still shows.
     expect(onEntry.defaultPrevented).toBe(false);
-
-    const close = /** @type {Element} */ (entry('ariel').querySelector('.panel-rail-close'));
-    const onClose = rightClick(close);
-    expect(contextMenu()).toBeNull();
-    expect(onClose.defaultPrevented).toBe(false);
   });
 
   test('the keyboard route obeys the same gate', async () => {
@@ -2789,7 +3147,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(opened.defaultPrevented).toBe(true);
   });
 
-  test('the terminal entry offers the session verbs, and pairs restart with reconnect', async () => {
+  test('the Agent row offers the session verbs, and pairs restart with reconnect', async () => {
     await bootWorkspace();
 
     const ev = rightClick(entry('terminal'));
@@ -2799,9 +3157,9 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Restart terminal',
       'New session',
       'Reset layout',
-      'Close terminal tile',
+      'Close Agent pane',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('SESSION actions');
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
 
     /** @type {HTMLElement} */ (menuRow('Restart terminal')).click();
     await settled(() => expect(startTerminal).toHaveBeenCalled());
@@ -2813,7 +3171,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     );
   });
 
-  test('the terminal entry’s other verbs reach the session list and the dock', async () => {
+  test('the Agent row’s other verbs reach the session list and the dock', async () => {
     await bootWorkspace();
 
     rightClick(entry('terminal'));
@@ -2821,7 +3179,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(startNewSession).toHaveBeenCalled();
 
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
 
     // Reset puts the current view's default arrangement back.
@@ -2830,7 +3188,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('simple mode keeps only the layout rows on the terminal menu', async () => {
+  test('simple mode keeps only the layout rows on the Agent menu', async () => {
     await bootWorkspace({ mode: 'simple' });
 
     // The tile hosts the operator console there, so the two PTY verbs would
@@ -2839,12 +3197,53 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Reset layout', 'Close terminal tile']);
+    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane']);
     /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
+  });
+
+  test('a click on the Agent row opens the pane and focuses the terminal — twice, never a close', async () => {
+    await bootWorkspace();
+    openTerminalPanel.mockClear();
+    focusTerminal.mockClear();
+
+    entry('terminal').click();
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalledTimes(2);
+    expect(focusTerminal).toHaveBeenCalledTimes(2);
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
+  });
+
+  test('in simple mode the Agent row puts the caret in the chat composer', async () => {
+    await bootWorkspace({ mode: 'simple' });
+    focusTerminal.mockClear();
+    const operator = document.createElement('div');
+    operator.id = 'operator-container';
+    const composer = document.createElement('textarea');
+    operator.append(composer);
+    document.body.append(operator);
+
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalled();
+    expect(document.activeElement).toBe(composer);
+    expect(focusTerminal).not.toHaveBeenCalled();
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
+  });
+
+  test('an Agent pane that did not open takes no focus', async () => {
+    await bootWorkspace();
+    focusTerminal.mockClear();
+    isTerminalPanelOpen.mockReturnValueOnce(false);
+
+    entry('terminal').click();
+
+    expect(openTerminalPanel).toHaveBeenCalled();
+    expect(focusTerminal).not.toHaveBeenCalled();
   });
 });
 
@@ -2874,12 +3273,12 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
 
     rightClick(entry('ariel'));
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
-    await settled(() => expect(notice()?.textContent).toContain('ARIEL removed from the rail'));
+    await settled(() => expect(notice()?.textContent).toContain('Ariel removed from the rail'));
     emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
 
     /** @type {HTMLElement} */ (undoButton()).click();
-    // The position counts panel entries only — SESSION is not one of them.
+    // The position counts panel rows only — the Agent row is not one of them.
     await settled(() =>
       expect(visibilityBodies(calls).at(-1)).toEqual({ panel: 'ariel', visible: true, index: 1 })
     );
@@ -2888,11 +3287,18 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
   });
 
-  test('the entry\'s "×" corner offers the same Undo', async () => {
+  /** Press Delete on a focused row, as an operator removing it from the keyboard.
+   *  @param {string} id */
+  const pressDelete = (id) =>
+    entry(id).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
+    );
+
+  test('the row’s Delete key offers the same Undo', async () => {
     const { calls } = await bootWorkspace({ panels: PANELS3 });
 
-    /** @type {HTMLElement} */ (entry('artifacts').querySelector('.panel-rail-close')).click();
-    await settled(() => expect(notice()?.textContent).toContain('WORKSPACE removed from the rail'));
+    pressDelete('artifacts');
+    await settled(() => expect(notice()?.textContent).toContain('Artifacts removed from the rail'));
     /** @type {HTMLElement} */ (undoButton()).click();
     await settled(() =>
       expect(visibilityBodies(calls).at(-1)).toEqual({
@@ -2921,7 +3327,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     /** @type {HTMLElement} */ (menuRow('Remove from rail')).click();
 
     await settled(() =>
-      expect(notice()?.textContent).toContain('Could not remove ARIEL from the rail')
+      expect(notice()?.textContent).toContain('Could not remove Ariel from the rail')
     );
     expect(undoButton()).toBeNull();
   });
@@ -2940,16 +3346,28 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     const { emit } = await bootWorkspace({ panels: PANELS3, visible: ['artifacts', 'lattice'] });
     expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice']);
 
-    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
-    expect(railIds()).toEqual(['terminal', 'ariel', 'artifacts', 'lattice']);
+    // Index 1 among the panel rows: after artifacts, before lattice.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 1 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 2 });
-    expect(railIds()).toEqual(['terminal', 'ariel', 'artifacts', 'lattice']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
 
-    // Past the end clamps to the foot of the rail.
+    // Past the end clamps to the foot of the row's group.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 9 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'lattice', 'ariel']);
+
+    // An index naming a row of an earlier group lands at the head of the
+    // row's own group: a row moves within its group only.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: false });
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, index: 0 });
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
+
+    // A Workspace panel comes back to its own group whatever the index.
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 9 });
-    expect(railIds()).toEqual(['terminal', 'ariel', 'lattice', 'artifacts']);
+    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'lattice']);
   });
 
   test('Undo also reopens the tile the removal closed, and only that', async () => {
@@ -2957,7 +3375,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(dockedTiles(api)).toEqual(['artifacts']);
 
     // artifacts holds a tile; its removal closes it, and Undo brings it back.
-    /** @type {HTMLElement} */ (entry('artifacts').querySelector('.panel-rail-close')).click();
+    pressDelete('artifacts');
     await settled(() => expect(undoButton()).not.toBeNull());
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
     expect(dockedTiles(api)).not.toContain('artifacts');
@@ -2966,7 +3384,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, index: 0 });
 
     // lattice held no tile, so its Undo restores the rail entry alone.
-    /** @type {HTMLElement} */ (entry('lattice').querySelector('.panel-rail-close')).click();
+    pressDelete('lattice');
     await settled(() => expect(undoButton()).not.toBeNull());
     emit({ type: 'panel_visibility', panel: 'lattice', visible: false });
     /** @type {HTMLElement} */ (undoButton()).click();
@@ -2979,129 +3397,90 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
     expect(dockedTiles(api)).not.toContain('lattice');
   });
 
-  test('"Close terminal tile" offers Undo, which reopens the tile', async () => {
+  test('"Close Agent pane" offers Undo, which reopens the pane', async () => {
     await bootWorkspace();
     closeTerminalPanel.mockReturnValueOnce(true);
 
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
 
-    expect(notice()?.textContent).toContain('Terminal tile closed');
+    expect(notice()?.textContent).toContain('Agent pane closed');
     openTerminalPanel.mockClear();
     /** @type {HTMLElement} */ (undoButton()).click();
     expect(openTerminalPanel).toHaveBeenCalledTimes(1);
   });
 
-  test('no notice when there was no terminal tile to close', async () => {
+  test('no notice when there was no Agent pane to close', async () => {
     await bootWorkspace();
     closeTerminalPanel.mockReturnValueOnce(false);
 
     rightClick(entry('terminal'));
-    /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
+    /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
 
     expect(notice()).toBeNull();
   });
 });
 
-describe('openPanelOffRail — a tile that opens and leaves the rail unchanged', () => {
-  const POLICY = '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
-  const railIds = () =>
-    [...document.querySelectorAll('.panel-rail-button')].map((el) =>
-      el.getAttribute('data-panel-id')
+/**
+ * The row menu's "Move to" rows move a member's sidebar row between the
+ * operator's groups (sidebar-groups.js). The groups live in this browser's
+ * storage, which outlives a module reset, so every test starts and ends with
+ * it empty.
+ */
+describe('Move to — the row menu moves a row between the sidebar groups', () => {
+  const entry = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (
+      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
     );
-  const PANELS3 = ['artifacts', 'ariel', 'system-health'];
-  const OFF_RAIL = { panels: PANELS3, visible: ['artifacts', 'ariel'] };
 
-  /** Open the tile-header menu of `id` on the manager's own module graph. @param {string} id */
-  async function openTileMenu(id) {
-    const policy = await import(POLICY);
-    const anchor = document.createElement('div');
-    document.body.append(anchor);
-    return policy.openTileContextMenu(id, { x: 10, y: 10, anchorEl: anchor });
+  /** @param {string} name @returns {HTMLElement} */
+  function sidebarGroup(name) {
+    return /** @type {HTMLElement} */ (
+      document.querySelector(`.sidebar-group[data-group="${name}"]`)
+    );
   }
 
+  beforeEach(() => localStorage.clear());
   afterEach(() => {
     document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    localStorage.clear();
   });
 
-  test('opens and focuses the tile with no rail entry and no POST', async () => {
-    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
+  test('"Move to Workspace" moves the row there, in this browser only', async () => {
+    const { calls } = await bootWorkspace();
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Move to Workspace')).click();
 
-    mod.openPanelOffRail('system-health');
-
-    expect(dockedTiles(api)).toContain('system-health');
-    expect(mod.getActivePanel()).toBe('system-health');
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel']);
+    expect(sidebarGroup('workspace').contains(entry('ariel'))).toBe(true);
+    const stored = JSON.parse(localStorage.getItem('osprey-sidebar-groups') ?? '{}');
+    expect(stored.placement).toEqual({ ariel: 'workspace' });
+    // The groups are the operator's own: nothing reaches the server.
     expect(posts(calls)).toEqual([]);
+
+    // The moved row offers the way back.
+    rightClick(entry('ariel'));
+    expect(menuLabels()).toContain('Move to Tools');
+    expect(menuLabels()).not.toContain('Move to Workspace');
   });
 
-  test('a member is activated as a rail click would, focus report included', async () => {
-    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
+  test('"Move to new group…" makes a group below the row’s own and opens its name', async () => {
+    await bootWorkspace();
+    rightClick(entry('artifacts'));
+    /** @type {HTMLElement} */ (menuRow('Move to new group…')).click();
 
-    mod.openPanelOffRail('ariel');
-
-    expect(dockedTiles(api)).toContain('ariel');
-    expect(posts(calls)).toEqual(['/api/panel-focus']);
+    const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
+    const ids = groups.map((g) => g.getAttribute('data-group'));
+    expect(ids).toEqual(['workspace', expect.stringMatching(/^g-[0-9a-f]{8}$/), 'tools']);
+    expect(groups[1].contains(entry('artifacts'))).toBe(true);
+    const field = groups[1].querySelector('.sidebar-group-rename');
+    expect(field).not.toBeNull();
+    expect(document.activeElement).toBe(field);
   });
 
-  test('its tile header offers "Pin to rail" in place of "Remove from rail"', async () => {
-    const { mod, calls, emit } = await bootWorkspace(OFF_RAIL);
-    mod.openPanelOffRail('system-health');
-
-    expect(await openTileMenu('system-health')).toBe(true);
-    expect(menuLabels()).toEqual([
-      'Focus SYSTEM',
-      'Open in a new tile',
-      'Open in a new window',
-      'Pin to rail',
-    ]);
-    /** @type {HTMLElement} */ (menuRow('Pin to rail')).click();
-
-    await settled(() => expect(posts(calls)).toEqual(['/api/panel-visibility']));
-    expect(JSON.parse(calls[0].opts.body)).toEqual({ panel: 'system-health', visible: true });
-    // The echo appends the entry where any new member goes, and the open tile
-    // it already had carries the active accent onto it.
-    emit({ type: 'panel_visibility', panel: 'system-health', visible: true });
-    expect(railIds()).toEqual(['terminal', 'artifacts', 'ariel', 'system-health']);
-    expect(
-      document
-        .querySelector('.panel-rail-button[data-panel-id="system-health"]')
-        ?.classList.contains('active')
-    ).toBe(true);
-
-    expect(await openTileMenu('system-health')).toBe(true);
-    expect(menuLabels().at(-1)).toBe('Remove from rail');
-  });
-
-  test('moving it to a new tile and focusing it from its header keep it off the rail', async () => {
-    const { api, mod, calls } = await bootWorkspace(OFF_RAIL);
-    mod.openPanelOffRail('system-health');
-
-    await openTileMenu('system-health');
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
-    await openTileMenu('system-health');
-    /** @type {HTMLElement} */ (menuRow('Focus SYSTEM')).click();
-
-    expect(dockedTiles(api)).toContain('system-health');
-    expect(railIds()).not.toContain('system-health');
-    expect(posts(calls)).toEqual([]);
-  });
-
-  test('a hide of a panel that was never on the rail leaves its off-rail tile alone', async () => {
-    const { api, mod, emit } = await bootWorkspace(OFF_RAIL);
-    mod.openPanelOffRail('system-health');
-
-    emit({ type: 'panel_visibility', panel: 'system-health', visible: false, source: 'agent' });
-
-    expect(dockedTiles(api)).toContain('system-health');
-  });
-
-  test('a reload does not bring an off-rail tile back — the rail is the way back', async () => {
-    // ariel's restored tile is the focused one, so the boot's default panel
-    // takes that tile over; system-health's tile is left to the prune alone.
-    const { api } = await bootWorkspace({ ...OFF_RAIL, restored: ['system-health', 'ariel'] });
-
-    expect(dockedTiles(api)).toEqual(['artifacts']);
+  test('the Agent row offers no move: it stays first', async () => {
+    await bootWorkspace();
+    rightClick(entry('terminal'));
+    expect(menuLabels().some((label) => label?.startsWith('Move to'))).toBe(false);
   });
 });
 
@@ -3225,7 +3604,7 @@ describe('sidecar start failure and retry', () => {
     await settled(() => expect(jupyter.classList.contains('disabled')).toBe(false));
     await settled(() => expect(jupyter.classList.contains('active')).toBe(true));
     expect(jupyter.classList.contains('failed')).toBe(false);
-    expect(jupyter.title).toBe('JUPYTER · right-click for actions');
+    expect(jupyter.title).toBe('Jupyter · right-click for actions');
     expect(calls.some((c) => c.url === '/api/panel-focus' && c.opts?.method === 'POST')).toBe(true);
   });
 

@@ -430,3 +430,21 @@ describe('a refused own-resume in Simple view', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBe('newer-key');
   });
 });
+
+describe('the header label', () => {
+  test('reads Agent, with the session id as its tooltip and data attribute', () => {
+    const label = document.createElement('span');
+    label.id = 'terminal-label';
+    document.body.append(label);
+
+    terminal.setSessionLabel('abcdef12-3456-4789-8abc-def012345678');
+    expect(label.textContent).toBe('Agent');
+    expect(label.title).toBe('Session abcdef12-3456-4789-8abc-def012345678');
+    expect(label.dataset.sessionId).toBe('abcdef12-3456-4789-8abc-def012345678');
+
+    terminal.setSessionLabel(null);
+    expect(label.textContent).toBe('Agent');
+    expect(label.hasAttribute('title')).toBe(false);
+    expect(label.hasAttribute('data-session-id')).toBe(false);
+  });
+});

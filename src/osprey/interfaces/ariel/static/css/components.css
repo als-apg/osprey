@@ -87,7 +87,7 @@
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
   color: var(--text-primary);
 }
 
@@ -227,7 +227,7 @@ textarea.input {
 
 /* === Cards === */
 .card {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -259,7 +259,7 @@ textarea.input {
 
 /* === Entry Card (logbook entries) === */
 .entry-card {
-  background: var(--surface-card);
+  background: var(--ariel-surface-card);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
@@ -270,7 +270,7 @@ textarea.input {
 
 .entry-card:hover {
   border-color: var(--border-accent);
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
 }
 
 .entry-card-cited {
@@ -638,7 +638,7 @@ textarea.input {
 }
 
 .pipeline-details-toggle:hover {
-  background: var(--surface-hover);
+  background: var(--ariel-surface-hover);
 }
 
 .pipeline-details-toggle::-webkit-details-marker {
@@ -862,7 +862,7 @@ textarea.input {
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--neutral-tint-10);
   background: var(--bg-elevated);
-  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+  border-radius: var(--radius-none) var(--radius-none) var(--radius-2xl) var(--radius-2xl);
 }
 
 /* === Loading Spinner === */
