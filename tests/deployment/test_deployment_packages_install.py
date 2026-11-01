@@ -47,6 +47,7 @@ from osprey.deployment import wheel_build
 from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
     DEPLOYMENT_PACKAGES_MANIFEST,
+    DeploymentPackage,
     build_deployment_packages,
 )
 from osprey.utils.workspace import IMAGE_DIR_NAME
@@ -173,6 +174,75 @@ def test_a_local_path_with_no_package_to_build_is_refused_naming_it(
 
     assert repr(entry) in str(refusal.value)
     assert "pyproject.toml" in str(refusal.value)
+
+
+def _build_with_wheel_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+) -> tuple[DeploymentPackage, ...]:
+    def fake(_source: Path, out_dir: Path) -> Path:
+        wheel = out_dir / filename
+        with zipfile.ZipFile(wheel, "w") as archive:
+            archive.writestr("x/__init__.py", "")
+        return wheel
+
+    monkeypatch.setattr(wheel_build, "_build_wheel", fake)
+    root = _deployment(tmp_path / "repo")
+    return build_deployment_packages(root, [], tmp_path / "stage")
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "cp312-cp312-macosx_14_0_arm64",
+        "cp313-cp313-linux_x86_64",
+        "cp312-cp312-win_amd64",
+        "cp312-cp312-musllinux_1_2_x86_64",
+        "py2-none-any",
+        "cp312-cp312-linux_aarch64",
+    ],
+)
+def test_a_wheel_that_does_not_fit_the_image_is_refused_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tag: str
+) -> None:
+    """Never left for the image to look the name up in an index instead."""
+    monkeypatch.setattr(wheel_build.platform, "machine", lambda: "x86_64")
+    filename = f"knob_app-0.1.0-{tag}.whl"
+
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_wheel_named(tmp_path, monkeypatch, filename)
+
+    assert filename in str(refused.value) and "apps/knob" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("machine", "tag"),
+    [
+        ("x86_64", "py3-none-any"),
+        ("x86_64", "py2.py3-none-any"),
+        ("x86_64", "py312-none-any"),
+        ("x86_64", "cp312-cp312-linux_x86_64"),
+        ("x86_64", "cp312-abi3-manylinux_2_28_x86_64"),
+        ("x86_64", "cp39-abi3-manylinux2014_x86_64"),
+        ("arm64", "cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64"),
+        ("aarch64", "py3-none-linux_aarch64"),
+    ],
+)
+def test_a_wheel_that_fits_the_image_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, machine: str, tag: str
+) -> None:
+    monkeypatch.setattr(wheel_build.platform, "machine", lambda: machine)
+
+    packages = _build_with_wheel_named(tmp_path, monkeypatch, f"knob_app-0.1.0-{tag}.whl")
+
+    assert packages[0].wheel.name.endswith(f"{tag}.whl")
+
+
+def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
+    from importlib import resources
+
+    source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
+    major, minor = wheel_build.IMAGE_PYTHON
+    assert f"\nFROM python:{major}.{minor}-slim\n" in source.read_text(encoding="utf-8")
 
 
 # --- the two spellings of one list --------------------------------------------
