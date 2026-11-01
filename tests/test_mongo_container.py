@@ -7,8 +7,7 @@ container engine, since each of the fixtures concerned skips there. So it is
 proved here without one: two tree-read guards (a Mongo container is built in
 exactly one module, and no module reaches for the superseded import path),
 the bring-up's retry rules against scripted fakes, and the server flags the
-recipe passes, among them the TTL sweeper that is off unless a test asks for
-it. This file exempts itself from the tree scan, because both guards name what
+recipe passes, among them the TTL sweeper that starts off. This file exempts itself from the tree scan, because both guards name what
 they forbid.
 """
 
@@ -165,7 +164,7 @@ def test_a_store_that_exits_on_every_fresh_start_fails_naming_every_attempt(monk
 
 
 # ---------------------------------------------------------------------------
-# Server flags: the sweeper is part of the recipe, off unless a test asks
+# Server flags: the sweeper starts off, and a test turns it on at runtime
 # ---------------------------------------------------------------------------
 
 #: The parameter that switches mongod's TTL sweeper off, as the recipe passes it.
@@ -182,16 +181,12 @@ def _set_parameters(flags: list[str]) -> list[str]:
     ]
 
 
-def test_the_sweeper_is_off_unless_asked_for() -> None:
+def test_the_sweeper_starts_off() -> None:
     """A seeded store keeps the fixture's clock, so no sweep runs unless a test asks."""
-    default = _mongo_container._server_flags(None, sweeper=False)
+    default = _mongo_container._server_flags(None)
     assert _set_parameters(default) == [SWEEP_INTERVAL, SWEEPER_OFF]
 
-    on = _mongo_container._server_flags(None, sweeper=True)
-    assert _set_parameters(on) == [SWEEP_INTERVAL]
-    assert not any("ttlMonitorEnabled" in flag for flag in on)
-
     caller = ["--wiredTigerCollectionBlockCompressor", "zstd"]
-    flags = _mongo_container._server_flags(caller, sweeper=False)
+    flags = _mongo_container._server_flags(caller)
     assert flags[: len(caller)] == caller, "the caller's flags come first, as given"
     assert _set_parameters(flags[len(caller) :]) == [SWEEP_INTERVAL, SWEEPER_OFF]
