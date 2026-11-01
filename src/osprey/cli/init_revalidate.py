@@ -607,6 +607,16 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         3,
         "sha256:24247dd971887136c2a7e38327cc656e7a5c6d9ee9b6bcaa6bb5fed6e8c0b477",
     ),
+    # The display-name example, which named the facility's machine "Real machine".
+    # Both deployment presets ship these lines, so one row covers both.
+    WriteStanza(
+        "control-assistant",
+        "# control_system.target_display_names.standin: Rehearsal",
+        2,
+        "sha256:7fbcc759924ac0e790c9b07421fd57505d4df780eca762851a2fafd3d947d2fe",
+        2,
+        "sha256:b55e33e5f5d5c4d7fb434c7e62a182d676ce5cfe5cc048ec02749ecf8059f953",
+    ),
     # The approval block's words, which now say the slider decides for the
     # tools the write switch governs.
     WriteStanza(
