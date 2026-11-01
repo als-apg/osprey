@@ -36,7 +36,8 @@ that the operator approved it (APPROVAL_NOTE). That note reaches the request aft
 With code review on, the scripted model answers the reviewer too, and two more runs prove
 the review comes first: (j) a passed execute is carded with its verdict, runs on an allow and
 is reviewed once, the executor taking the review from the ask stamp; (k) a blocked execute is
-denied with its reasons and never carded.
+denied with its reasons and never carded. A third proves the review with no prompt: (l) with the
+switch at ``allowed`` the executor's review refuses a blocked run.
 
 Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
 it reads "ran" in (c), "not run" in (d), and "failed" in (e).
@@ -925,3 +926,29 @@ async def test_a_blocked_execute_is_denied_before_the_operator_is_asked(
     assert refused["preview"].startswith(f"PreToolUse:{EXECUTE} hook error"), facts
     assert BLOCK_REASON in refused["preview"], facts
     assert _review_notebooks(repo) == before, "a blocked execute left a review notebook"
+
+
+async def test_at_allowed_the_executor_reviews_what_no_prompt_saw(
+    safety_project_code_review, scripted_model
+):
+    """(l): at ``allowed`` the hook asks nobody and reviews nothing, so the executor's review is
+    the only one. A block there refuses the run in the tool, past the hook that let it through.
+    """
+    repo = safety_project_code_review
+    blocked = ScriptedCall(
+        EXECUTE,
+        {"code": BLOCKED_CODE, "description": "Read the corrector.", "execution_mode": "readwrite"},
+    )
+    with switch_at(repo, "allowed"):
+        model, run = await _drive_reviewed(repo, scripted_model, [[blocked], [read(SETPOINT)]])
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (l) {facts} reviews={len(model.reviews)}")
+
+    assert len(model.reviews) == 1, f"the code was reviewed {len(model.reviews)} times: {facts}"
+    assert not run.cards, f"a run at allowed reached the operator: {facts}"
+    assert ("approval", "allow") in run.statuses(execute), facts
+    refused = run.results[execute["tool_use_id"]]
+    assert refused["is_error"], facts
+    assert not refused["preview"].startswith("PreToolUse:"), facts
+    assert BLOCK_REASON in refused["preview"], facts

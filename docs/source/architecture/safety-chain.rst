@@ -369,8 +369,8 @@ reviewer found. A concern never stops code; it only comes with an explanation.
 Three things are worth knowing. First, the review happens *before* the operator's approval.
 In blocking mode, code the reviewer stops never reaches the operator; otherwise the answer and
 the reasons stand on the approval prompt and in the approval preview, so the operator decides
-knowing what the reviewer found. A run no prompt sees --- a policy that asks nobody, a
-read-only run under a selective policy --- is reviewed by the executor just before it starts.
+knowing what the reviewer found. A run no prompt sees --- the write switch at *allowed*, a
+read-only run --- is reviewed by the executor just before it starts.
 Second, the operator sees a *code review* line in the activity log whenever the reviewer found
 something --- what was reviewed, the answer, and whether the code ran; the reasons go to the
 agent, and on a run they are on the prompt too; the audit trail keeps a record that a review

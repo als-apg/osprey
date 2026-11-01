@@ -173,6 +173,18 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     posture_store.invalidate_cache()
 
 
+@pytest.fixture(autouse=True)
+def _a_recorded_call(request, monkeypatch):
+    """Each call carries the record a prompt, or the switch at ``allowed``, leaves for it.
+
+    ``execute`` and ``execute_file`` are governed, so no policy spares them the record, and a
+    call without one is declined before the review. These cases are about the review;
+    ``TestAdmissionRefusal`` keeps the real check.
+    """
+    if request.cls is not TestAdmissionRefusal:
+        monkeypatch.setattr(executor, "_check_approved_call", lambda *args, **kwargs: None)
+
+
 @pytest.fixture
 def project_root(tmp_path, monkeypatch):
     """A throwaway render: the project root, holding the config the gate reads."""
@@ -668,9 +680,9 @@ def _admit(tool: str = "execute", code: str = CODE, mode: str = "readwrite", **a
 class TestAdmissionRefusal:
     """Agrees with the decline ``execute_code`` would produce, and touches nothing."""
 
-    def test_a_call_that_asks_nobody_is_admitted(self, project_root):
+    def test_a_skip_policy_does_not_spare_a_governed_call_its_record(self, project_root):
         _configure(project_root)
-        assert _admit() is False
+        assert _admit() is True
 
     def test_a_readonly_call_is_admitted_with_no_stamp(self, project_root):
         _configure(project_root, approval=None)

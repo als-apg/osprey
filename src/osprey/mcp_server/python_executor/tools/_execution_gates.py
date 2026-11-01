@@ -746,8 +746,8 @@ async def _review_before_launch(
     A call the approval prompt already reviewed is not reviewed again: its ask stamp carries the
     digest of the code the reviewer read and what the agent is told
     (:mod:`osprey.services.code_review.stamp`), and a digest that is this code's answers for it.
-    That makes this gate the backstop for a run no prompt reviewed: a policy that asks nobody,
-    a read-only run under a selective policy, a hook that could not review.
+    That makes this gate the only review of a run no prompt saw: a governed call with the write
+    switch at ``allowed``, a read-only run, a hook that could not review.
 
     Args:
         tool: Tool name as the agent knows it.

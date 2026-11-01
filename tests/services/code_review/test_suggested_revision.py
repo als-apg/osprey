@@ -85,6 +85,12 @@ class ReviewerStub:
         assert not any(line in message for line in REVISION_LINES)
 
 
+@pytest.fixture(autouse=True)
+def _a_recorded_call(monkeypatch):
+    """The record a prompt, or the switch at ``allowed``, leaves: a governed call needs one."""
+    monkeypatch.setattr(executor, "_check_approved_call", lambda *args, **kwargs: None)
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _a_silent_decline_fails_loudly():
     """An admission refusal skips the review silently, and would leave nothing to assert on."""
@@ -98,7 +104,6 @@ def _write_deployment(root: Path, level: str) -> None:
     prompt.parent.mkdir(parents=True, exist_ok=True)
     prompt.write_text("Review this code.", encoding="utf-8")
     config = {
-        "approval": {"tools": {"execute": "skip", "execute_file": "skip"}},
         "code_review": {"enabled": True, "level": level},
     }
     (root / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
