@@ -10,11 +10,13 @@ fits the narrow terminal card.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 import pytest
 from docs.screenshots.contact_sheet import (
+    _NAV_TIMEOUT_MS,
     _PLOT_DRAWN_SELECTOR,
     ACCENT_EXCLUSIONS,
     CONTACT_SHEET_NAME,
@@ -868,6 +870,36 @@ def test_hub_capture_names_the_variant_when_the_plot_row_is_not_clickable(
     assert not (tmp_path / "shot.png").exists()
 
 
+def _note_failed_capture(exc: BaseException, capture: str, hub: HermeticHub) -> None:
+    """Add a note naming *capture* and the hub's answer to one ``GET /health``."""
+    url = f"{hub.base_url}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=_NAV_TIMEOUT_MS / 1000) as resp:  # loopback
+            state = f"HTTP {resp.status}"
+    except urllib.error.HTTPError as probe_exc:
+        state = f"HTTP {probe_exc.code}"
+    except Exception as probe_exc:  # the note records whatever the probe met
+        state = f"{type(probe_exc).__name__}: {probe_exc}"
+    exc.add_note(f"{capture}; hub {url}: {state}")
+
+
+def test_a_failed_hub_capture_notes_the_capture_and_the_hub_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A Playwright error from a capture is noted with the capture and the hub's answer."""
+    page = _FakeHubPage(drawn=[True, True], click_error=PlaywrightError("Target closed"))
+    hub = HermeticHub("http://127.0.0.1:9", "http://127.0.0.1:9", tmp_path, tmp_path / "s")
+    with pytest.raises(PlaywrightError) as info:
+        try:
+            _drive(monkeypatch, tmp_path, page)
+        except (RuntimeError, PlaywrightError) as exc:
+            _note_failed_capture(exc, "capture 0 of 1 (light, expert)", hub)
+            raise
+    (note,) = info.value.__notes__
+    assert note.startswith("capture 0 of 1 (light, expert); hub http://127.0.0.1:9/health: ")
+    assert "URLError" in note
+
+
 @pytest.mark.browser
 def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
     """Every mode captures in one hub, and a repeat Expert capture does not stall."""
@@ -886,8 +918,9 @@ def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
                 dest = tmp_path / f"{index}_{theme}_{mode}.png"
                 try:
                     capture_hub_view(browser, hub, theme, mode, dest)
-                except RuntimeError as exc:
-                    exc.add_note(f"capture {index} of {len(sequence)} ({theme}, {mode})")
+                except (RuntimeError, PlaywrightError) as exc:
+                    capture = f"capture {index} of {len(sequence)} ({theme}, {mode})"
+                    _note_failed_capture(exc, capture, hub)
                     raise
                 assert dest.exists()
                 assert dest.read_bytes().startswith(b"\x89PNG")
