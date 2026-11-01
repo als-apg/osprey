@@ -981,10 +981,8 @@ async def terminal_ws(websocket: WebSocket):
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
     # terminal the operator cannot use. The server knows before spawning, so
-    # it says so and closes; the client renders the state and offers a fresh
-    # start (terminal.js). Deliberately not a silent fresh session: the
-    # operator picked a chat, and starting a different one under them hides
-    # that it is gone.
+    # it says so and closes, spawning nothing for that id; the client says so
+    # and starts a new session (terminal.js).
     if (
         mode == "resume"
         and req_session_id
