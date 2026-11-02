@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Procedure
 title: Sample Scan
 description: Procedure to perform an automated position scan of a sample at an experimental station using motor control and detector readout.

@@ -24,7 +24,9 @@ import pytest
 import yaml
 
 from osprey.facility.build import LATER_STAGES, build_facility
+from osprey.facility.bundled import _is_seeded
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.layers import HEADER, _seed_knowledge_index
 from osprey.facility.layers.mml.importer import (
     LAYER_DIR,
     import_mml,
@@ -32,7 +34,7 @@ from osprey.facility.layers.mml.importer import (
     write_records,
 )
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.seed import HEADER, READOUT_FILE, TUNING, band
+from osprey.facility.layers.mml.seed import READOUT_FILE, TUNING, band
 from osprey.facility.sources import group_families
 from osprey.facility.validate import known_classes, run_stages
 from tests.facility._mml_built import (
@@ -171,6 +173,31 @@ def test_every_seeded_file_opens_with_the_header(imported: _Imported) -> None:
     for name, content in authored.items():
         assert content.decode("utf-8").splitlines()[0] == HEADER, name
     assert HEADER.startswith("# ")
+    assert "facility import" in HEADER
+    assert "mml" not in HEADER
+
+
+def test_the_knowledge_index_is_seeded_once(tmp_path: Path) -> None:
+    from osprey.services.facility_knowledge.okf.index import validate_index
+
+    facility = tmp_path / "facility"
+
+    written = _seed_knowledge_index(facility)
+
+    index = facility / "knowledge" / "index.md"
+    assert written == index
+    validate_index(index, bundle_root=index.parent)
+    assert index.read_text(encoding="utf-8").splitlines() == [
+        "---",
+        HEADER,
+        "---",
+        "",
+        "Put your facility's documentation here: one page per topic.",
+    ]
+    assert _is_seeded(index)
+    before = index.read_bytes()
+    assert _seed_knowledge_index(facility) is None
+    assert index.read_bytes() == before
 
 
 def test_the_import_returns_each_file_it_seeded(imports: Callable[[str], _Imported]) -> None:

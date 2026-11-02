@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Subsystem
 title: Vacuum System (VAC)
 description: Ultra-high vacuum across all beamline sections, maintained by ion pumps, turbomolecular pumps, and gate valves.
