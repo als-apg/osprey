@@ -859,7 +859,7 @@ def test_a_readwrite_run_fills_one_action_context(
     metadata = sandbox.run(env, _HOLD_PROBE)
 
     assert metadata["success"] is True, metadata.get("traceback")
-    expected = {"target": "live", "owner": owner, "approved_target": "live"}
+    expected = {"target": "live", "owner": owner, "approved_target": "live", "limits_off": False}
     lines = calls.read_text(encoding="utf-8").splitlines()
     assert [json.loads(line) for line in lines] == [expected], "exactly one context per run"
     results = metadata["_results"]

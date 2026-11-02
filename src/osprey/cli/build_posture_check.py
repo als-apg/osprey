@@ -386,6 +386,10 @@ def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     :func:`check_approval_hook_selected` stops every build whose render asks
     without selecting the approval hook.
 
+    This is the one rule of when an application tool asks, read by its full
+    ``mcp__<app>__<tool>`` name: ``skip`` asks nobody, and ``selective`` reads
+    as ``always``, since only the hook's ``execute`` branch is content-aware.
+
     Args:
         rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
         tool: The tool's short name, as ``approval.tools`` keys it.

@@ -1103,7 +1103,7 @@ config:
     #     roles: {operator: {tier: readwrite}, viewer: {tier: readonly}}
     #     claims: {claim: groups, map: {ca-operators: operator, ca-viewers: viewer}}
     # How the landing page is laid out. Omit this whole block and you get the
-    # people below first and the shared apps after them, headed "Apps".
+    # people below first and the shared logins after them, headed "Shared logins".
     landing:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
@@ -1124,10 +1124,10 @@ config:
           # to your terminal" button, so the page lists nobody. It needs the
           # login wall above (auth.method password or oidc).
           # names: shown
-        # `apps` renders one card per entry in `shared:` below, titled by the
-        # app's own `name:` in apps/. Everyone on the roster opens them.
-        - type: apps
-          label: Apps
+        # `shared` renders one card per entry in `shared:` below, titled by the
+        # login's own `name:` in tiers/. Everyone on the roster opens them.
+        - type: shared
+          label: Shared logins
     users:
       # One web terminal per person. `index` pins that user's ports, `tier`
       # names their access level in tiers/, and `display_name` becomes the
@@ -1149,10 +1149,11 @@ config:
         index: 2
         tier: admin
         display_name: "Deployment Admin (Carol)"
-    # Apps everyone above may open, each defined in apps/<name>.yml: a second
-    # agent beside this deployment's own, on this deployment's services. Each
-    # gets its own container and a port slot counted down from the top of the
-    # user block, in this order; no password of its own, so none is set in .env.
+    # Logins everyone above may open, each defined in tiers/<name>.yml: a
+    # second agent beside this deployment's own, on this deployment's services,
+    # sealed read-only for everyone. Each gets its own container and a port slot
+    # counted down from the top of the user block, in this order; no password of
+    # its own, so none is set in .env.
     shared:
       - logbook          # Logbook Research: search and synthesise the logbook
       - knowledge        # Facility Knowledge: how the machine is built

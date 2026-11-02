@@ -59,6 +59,12 @@ enums:
       periodic:
         description: With the periodic solve alone.
 
+  wiring_mark_enum:
+    description: A mark a model's engine sets on a wiring record.
+    permissible_values:
+      command:
+        description: Written as a command rather than a setting; only a written record carries it.
+
   value_type_enum:
     description: The type of the value a channel carries.
     permissible_values:
@@ -587,6 +593,10 @@ classes:
       refresh:
         range: refresh_enum
         description: Computed; when the engine recomputes the record's value.
+      marks:
+        range: wiring_mark_enum
+        multivalued: true
+        description: Computed; the marks the engine sets on the record, absent for none.
       provenance:
         range: Provenance
         inlined: true

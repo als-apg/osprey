@@ -624,15 +624,12 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
     assert result.exit_code == 0, result.output
 
     tiers = sorted(path.stem for path in (repo / "tiers").glob("*.yml"))
-    apps = sorted(path.stem for path in (repo / "apps").glob("*.yml"))
     assert tiers
-    assert apps
     images = sorted((repo / "build" / ".image").iterdir())
     assert images
     renders = [
         repo / "build",
         *(_render_project(repo, tier) for tier in tiers),
-        *(_render_project(repo, app) for app in apps),
         *(image / "build" for image in images),
     ]
     for render in renders:
@@ -1011,10 +1008,9 @@ class TestDeployServicesKnob:
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
         (profile.parent / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
-        # The tiers and apps the inherited roster names, which `osprey init`
-        # copies beside the profile from the bundled layer presets.
-        for layer in ("tiers", "apps"):
-            shutil.copytree(_presets_dir() / layer, profile.parent / layer)
+        # The logins the inherited roster names, which `osprey init` copies
+        # beside the profile from the bundled layer presets.
+        shutil.copytree(_presets_dir() / "tiers", profile.parent / "tiers")
         return _render_from(str(profile))
 
     @pytest.fixture(scope="class")

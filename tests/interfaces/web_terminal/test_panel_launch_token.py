@@ -1,0 +1,511 @@
+"""An application panel's launch token: held by the terminal, spent on one hop.
+
+``web.panels.<id>.launch_token_env`` names the variable. The terminal reads it
+from its own environment at startup and injects the value as ``X-Launch-Token``
+on that panel's ``/panel/<id>`` hop, so the browser never holds it: ``GET
+/api/panels`` carries the name only. An inbound ``X-Launch-Token`` is dropped on
+every panel hop, armed or not. The grant reaches the terminal through compose
+from what the deploy's shell gate cleared, and on a deployment with no roster
+through the deploy ``.env``.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+import yaml
+from starlette.websockets import WebSocketDisconnect
+
+import osprey as osprey_package
+from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
+from osprey.deployment.web_terminals.artifacts import (
+    LaunchTokenEntitlement,
+    LaunchTokenNameError,
+    check_bash_launch_token_conflict,
+    resolve_render_inputs,
+    write_web_terminal_artifacts,
+)
+from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
+from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.interfaces.web_terminal.app import _load_panel_config
+from osprey.interfaces.web_terminal.panel_cap import PANEL_CAP_SEGMENT, mint_cap
+from osprey.mcp_env import load_dotenv_from_project
+from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
+from tests.deployment.web_terminals._panel_fixtures import _panel_render, _roster
+from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_connect, panel_app
+
+#: The panel holding a token, the variable naming it and the value it holds.
+PANEL_ID = "knob"
+TOKEN_ENV = "KNOB_LAUNCH_TOKEN"
+TOKEN = "held-launch-token-value"
+
+#: A value a caller tries to present for itself.
+FORGED = "forged-launch-token-value"
+
+_LOGIN_TIER = "osprey.interfaces.web_terminal.routes.proxy._login_tier"
+
+
+def _panel(*, panel_id: str = PANEL_ID, url: str = "http://127.0.0.1:9300", **extra) -> dict:
+    """A config-defined application panel as ``_load_panel_config`` forwards it."""
+    return {
+        "id": panel_id,
+        "label": panel_id.upper(),
+        "url": url,
+        "configDefined": True,
+        "app": panel_id,
+        "agentRoutes": [],
+        **extra,
+    }
+
+
+#: The same application with no token named: what a render that does not arm it carries.
+UNARMED_RENDER_PANEL = _panel()
+
+#: The panel on a render that arms the application.
+ARMED_RENDER_PANEL = _panel(launchTokenEnv=TOKEN_ENV)
+
+
+@pytest.fixture(autouse=True)
+def _environment():
+    """Each test sets the token its own way; nothing it sets outlives it."""
+    with patch.dict(os.environ):
+        os.environ.pop(TOKEN_ENV, None)
+        os.environ["OSPREY_TERMINAL_USER"] = "alice"
+        yield
+
+
+def _capture(app) -> list[dict[str, str]]:
+    """Stub the upstream HTTP client; return the headers of each request it was sent."""
+    sent: list[dict[str, str]] = []
+
+    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
+        sent.append(dict(headers))
+        return httpx.Response(200, json={"ok": True}, headers={"content-type": "application/json"})
+
+    app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+    return sent
+
+
+def _lowered(headers: dict[str, str]) -> dict[str, str]:
+    return {name.lower(): value for name, value in headers.items()}
+
+
+def _token_on(headers: dict[str, str]) -> str | None:
+    return _lowered(headers).get(LAUNCH_TOKEN_HEADER.lower())
+
+
+@pytest.fixture
+def armed(workspace_dir):
+    """The token set and named, on a login whose tier arms the application."""
+    os.environ[TOKEN_ENV] = TOKEN
+    with patch(_LOGIN_TIER, return_value="allowed"):
+        yield from panel_app(
+            workspace_dir, [dict(ARMED_RENDER_PANEL), _panel(panel_id="other", app="other")]
+        )
+
+
+# ---------------------------------------------------------------------------
+# What the terminal holds, and what the browser is told
+# ---------------------------------------------------------------------------
+
+
+def test_the_panel_dict_carries_the_variable_name_and_never_the_value():
+    os.environ[TOKEN_ENV] = TOKEN
+    with patch(
+        "osprey_connectors.workspace.load_osprey_config",
+        return_value={
+            "web": {
+                "panels": {
+                    PANEL_ID: {
+                        "url": "http://127.0.0.1:9300",
+                        "app": PANEL_ID,
+                        "launch_token_env": TOKEN_ENV,
+                    }
+                }
+            }
+        },
+    ):
+        _enabled, (panel,), _default = _load_panel_config()
+
+    assert panel["launchTokenEnv"] == TOKEN_ENV
+    assert TOKEN not in repr(panel)
+
+
+def test_a_block_naming_no_token_carries_no_key():
+    with patch(
+        "osprey_connectors.workspace.load_osprey_config",
+        return_value={"web": {"panels": {PANEL_ID: {"url": "http://127.0.0.1:9300"}}}},
+    ):
+        _enabled, (panel,), _default = _load_panel_config()
+
+    assert "launchTokenEnv" not in panel
+
+
+def test_the_token_sits_beside_the_other_panel_credentials(armed):
+    app, _client = armed
+    assert app.state.panel_auth_headers[PANEL_ID] == {LAUNCH_TOKEN_HEADER: TOKEN}
+
+
+def test_get_api_panels_never_contains_the_value(armed):
+    _app, client = armed
+
+    response = client.get("/api/panels")
+
+    assert response.status_code == 200
+    assert TOKEN not in response.text
+    assert TOKEN_ENV in response.text
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_a_variable_holding_nothing_holds_no_credential(workspace_dir, caplog, value):
+    """The backend refuses a launch it was not armed for; the operator sees why here."""
+    if value is not None:
+        os.environ[TOKEN_ENV] = value
+    with patch(_LOGIN_TIER, return_value="allowed"):
+        for app, client in panel_app(workspace_dir, [dict(ARMED_RENDER_PANEL)]):
+            sent = _capture(app)
+            assert PANEL_ID not in app.state.panel_auth_headers
+            client.get(f"/panel/{PANEL_ID}/api/state")
+            assert _token_on(sent[0]) is None
+    assert TOKEN_ENV in caplog.text
+
+
+@pytest.mark.parametrize("delivery", ["compose_environment", "deploy_dotenv"])
+def test_the_terminal_reads_the_token_whichever_way_the_deployment_delivers_it(
+    workspace_dir, tmp_path, monkeypatch, delivery
+):
+    """A roster hands it through compose; a roster-less host reads the deploy ``.env``."""
+    if delivery == "compose_environment":
+        os.environ[TOKEN_ENV] = TOKEN
+    else:
+        (tmp_path / ".env").write_text(f"{TOKEN_ENV}={TOKEN}\n", encoding="utf-8")
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+        # What `osprey web` runs before the app is served.
+        load_dotenv_from_project(include_sensitive=True)
+
+    with patch(_LOGIN_TIER, return_value="allowed"):
+        for app, client in panel_app(workspace_dir, [dict(ARMED_RENDER_PANEL)]):
+            sent = _capture(app)
+            client.get(f"/panel/{PANEL_ID}/api/state")
+            assert _token_on(sent[0]) == TOKEN
+
+
+# ---------------------------------------------------------------------------
+# The hop
+# ---------------------------------------------------------------------------
+
+
+def test_the_token_is_injected_on_that_panels_http_hop(armed):
+    app, client = armed
+    sent = _capture(app)
+
+    client.post(f"/panel/{PANEL_ID}/api/set", json={})
+
+    assert _token_on(sent[0]) == TOKEN
+
+
+def test_the_token_is_injected_on_that_panels_websocket_hop(armed):
+    _app, client = armed
+    fake = _FakeConnect()
+
+    with _patch_connect(fake):
+        with client.websocket_connect(f"/panel/{PANEL_ID}/ws"):
+            pass
+
+    assert _token_on(fake.kwargs["additional_headers"]) == TOKEN
+
+
+def test_no_other_panel_receives_it(armed):
+    app, client = armed
+    sent = _capture(app)
+
+    client.get("/panel/other/api/state")
+
+    assert _token_on(sent[0]) is None
+
+
+def test_a_caller_cannot_replace_the_held_value(armed):
+    app, client = armed
+    sent = _capture(app)
+
+    client.post(f"/panel/{PANEL_ID}/api/set", json={}, headers={LAUNCH_TOKEN_HEADER: FORGED})
+
+    assert _token_on(sent[0]) == TOKEN
+
+
+def test_an_off_box_backend_is_not_sent_the_token(workspace_dir):
+    """The same gate every credential on this hop answers to."""
+    os.environ[TOKEN_ENV] = TOKEN
+    panel = _panel(url="http://elsewhere.example.org:9300", launchTokenEnv=TOKEN_ENV)
+    with patch(_LOGIN_TIER, return_value="allowed"):
+        for app, client in panel_app(workspace_dir, [panel]):
+            sent = _capture(app)
+            client.get(f"/panel/{PANEL_ID}/api/state")
+            assert _token_on(sent[0]) is None
+
+
+def test_a_cap_path_never_opens_a_projected_panel(armed):
+    """A cap serves opaque panels only, and a config-defined panel is never opaque."""
+    from osprey.interfaces.web_auth import get_web_credentials
+
+    app, client = armed
+    cap = mint_cap(get_web_credentials(app), "alice", PANEL_ID)
+    fake = _FakeConnect()
+
+    with _patch_connect(fake), pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(f"/panel/{PANEL_ID}/{PANEL_CAP_SEGMENT}/{cap}/ws"):
+            pass
+
+    assert fake.kwargs is None
+
+
+# ---------------------------------------------------------------------------
+# The inbound strip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name",
+    [LAUNCH_TOKEN_HEADER, LAUNCH_TOKEN_HEADER.lower(), LAUNCH_TOKEN_HEADER.replace("-", "_")],
+)
+def test_a_caller_supplied_value_never_reaches_the_backend_on_an_unarmed_hop(workspace_dir, name):
+    with patch(_LOGIN_TIER, return_value="never"):
+        for app, client in panel_app(workspace_dir, [dict(UNARMED_RENDER_PANEL)]):
+            sent = _capture(app)
+            client.get(f"/panel/{PANEL_ID}/api/state", headers={name: FORGED})
+            assert len(sent) == 1
+            assert FORGED not in sent[0].values()
+
+
+def test_a_caller_supplied_value_is_dropped_on_every_panel(workspace_dir):
+    """Not an application's panel at all: the header is still never forwarded."""
+    plain = {"id": "plain", "label": "P", "url": "http://127.0.0.1:9301", "configDefined": True}
+    for app, client in panel_app(workspace_dir, [plain]):
+        sent = _capture(app)
+        client.get("/panel/plain/api/state", headers={LAUNCH_TOKEN_HEADER: FORGED})
+        assert FORGED not in sent[0].values()
+
+
+# ---------------------------------------------------------------------------
+# The token follows arming
+# ---------------------------------------------------------------------------
+
+
+def test_an_asked_login_forwards_the_write_with_the_token(workspace_dir):
+    os.environ[TOKEN_ENV] = TOKEN
+    with patch(_LOGIN_TIER, return_value="asked"):
+        for app, client in panel_app(workspace_dir, [dict(ARMED_RENDER_PANEL)]):
+            sent = _capture(app)
+            response = client.post(f"/panel/{PANEL_ID}/api/set", json={})
+            assert response.status_code == 200
+            assert _token_on(sent[0]) == TOKEN
+
+
+@pytest.mark.parametrize("tier", ["unknown", "never"])
+def test_a_login_that_does_not_arm_is_refused_the_write(workspace_dir, tier):
+    os.environ[TOKEN_ENV] = TOKEN
+    with patch(_LOGIN_TIER, return_value=tier):
+        for app, client in panel_app(workspace_dir, [dict(ARMED_RENDER_PANEL)]):
+            sent = _capture(app)
+            response = client.post(f"/panel/{PANEL_ID}/api/set", json={})
+            assert response.status_code == 403
+            assert sent == []
+
+
+@pytest.mark.parametrize("tier", ["unknown", "never"])
+def test_a_read_on_a_login_that_does_not_arm_carries_no_token(workspace_dir, tier):
+    """The render holds the token, this login's own rung does not arm: the read goes bare."""
+    os.environ[TOKEN_ENV] = TOKEN
+    with patch(_LOGIN_TIER, return_value=tier):
+        for app, client in panel_app(workspace_dir, [dict(ARMED_RENDER_PANEL)]):
+            sent = _capture(app)
+            response = client.get(f"/panel/{PANEL_ID}/api/state")
+            assert response.status_code == 200
+            assert _token_on(sent[0]) is None
+
+
+def test_a_panel_token_on_a_never_login_opens_no_socket(workspace_dir):
+    os.environ[TOKEN_ENV] = TOKEN
+    fake = _FakeConnect()
+    with patch(_LOGIN_TIER, return_value="never"):
+        for _app, client in panel_app(workspace_dir, [dict(ARMED_RENDER_PANEL)]):
+            with _patch_connect(fake), pytest.raises(WebSocketDisconnect):
+                with client.websocket_connect(f"/panel/{PANEL_ID}/ws"):
+                    pass
+    assert fake.kwargs is None
+
+
+# ---------------------------------------------------------------------------
+# The grant: what the shell gate cleared is what compose hands over
+# ---------------------------------------------------------------------------
+
+
+_TEMPLATES = Path(osprey_package.__file__).parent / "templates"
+
+
+def _built_compose(tmp_path, renders: dict) -> dict:
+    config = _roster(tmp_path, renders)
+    artifacts = render_web_terminals(config, **resolve_render_inputs(config, tmp_path))
+    return yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+
+def _user_environment(compose: dict, user: str) -> list[str]:
+    (service,) = [body for name, body in compose["services"].items() if name.endswith(user)]
+    return list(service["environment"])
+
+
+def test_resolve_render_inputs_carries_exactly_what_the_gate_returned(tmp_path):
+    config = _roster(tmp_path, {"rw": (_panel_render("allowed", token=True), False)})
+    entitlement = LaunchTokenEntitlement({}, by_token_env={"OTHER_LAUNCH_TOKEN": {"rw"}})
+
+    with patch(
+        "osprey.deployment.web_terminals.artifacts.check_bash_launch_token_conflict",
+        return_value=entitlement,
+    ):
+        inputs = resolve_render_inputs(config, tmp_path)
+
+    assert inputs["application_token_renders"] == {"OTHER_LAUNCH_TOKEN": {"rw"}}
+
+
+def test_only_a_cleared_render_gets_the_token_in_its_environment(tmp_path):
+    compose = _built_compose(
+        tmp_path,
+        {
+            "ro": (_panel_render("never"), True),
+            "rw": (_panel_render("allowed", token=True), False),
+            "asked": (_panel_render("asked", token=True), False),
+        },
+    )
+    line = f"{TOKEN_ENV}=${{{TOKEN_ENV}:-}}"
+
+    # One user per render, in sorted order.
+    assert line in _user_environment(compose, "user0")  # asked
+    assert line not in _user_environment(compose, "user1")  # ro
+    assert line in _user_environment(compose, "user2")  # rw
+
+
+def test_the_token_is_compose_interpolated_never_written_into_the_artifact(tmp_path):
+    os.environ[TOKEN_ENV] = TOKEN
+    config = _roster(tmp_path, {"rw": (_panel_render("allowed", token=True), False)})
+
+    artifacts = render_web_terminals(config, **resolve_render_inputs(config, tmp_path))
+
+    assert TOKEN not in artifacts["docker-compose.web.yml"]
+
+
+def test_a_render_keeps_its_lane_tokens_beside_an_application_token(tmp_path):
+    config = _roster(tmp_path, {"rw": (_panel_render("allowed", token=True), False)})
+    inputs = resolve_render_inputs(config, tmp_path)
+    inputs["launch_token_renders"] = {LANE_ONE: {"rw"}}
+
+    compose = yaml.safe_load(render_web_terminals(config, **inputs)["docker-compose.web.yml"])
+
+    environment = _user_environment(compose, "user0")
+    lane_token = f"{lane_env_prefix(LANE_ONE)}_LAUNCH_TOKEN"
+    assert f"{lane_token}=${{{lane_token}:-}}" in environment
+    assert f"{TOKEN_ENV}=${{{TOKEN_ENV}:-}}" in environment
+
+
+def test_a_dispatch_worker_render_is_handed_no_launch_token():
+    """It has no proxy to spend one on and no gate cleared it."""
+    template = _TEMPLATES / "services" / "dispatch_worker" / "docker-compose.yml.j2"
+
+    assert "LAUNCH_TOKEN" not in template.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Only the application's own variable is ever granted or read
+# ---------------------------------------------------------------------------
+
+#: (app, launch_token_env) pairs no build writes: each is a hand-set panel block.
+_REFUSED_NAMES = {
+    "built_in_token": ("knob", f"{lane_env_prefix(LANE_ONE)}_LAUNCH_TOKEN"),
+    "built_in_token_under_its_own_name": ("bluesky", "BLUESKY_LAUNCH_TOKEN"),
+    "unrelated_variable": ("knob", "ANTHROPIC_API_KEY"),
+    "no_app": (None, TOKEN_ENV),
+}
+
+
+def _hand_set(app: str | None, token_env: str) -> dict:
+    """A render whose knob panel names *token_env* for *app*."""
+    render = _panel_render("allowed", token=True)
+    block = render["web"]["panels"][PANEL_ID]
+    block["launch_token_env"] = token_env
+    if app is None:
+        del block["app"]
+    else:
+        block["app"] = app
+    return render
+
+
+@pytest.fixture(params=_REFUSED_NAMES.values(), ids=_REFUSED_NAMES.keys())
+def refused_name(request):
+    return request.param
+
+
+def test_a_name_that_is_not_the_applications_own_refuses_the_deploy(tmp_path, refused_name):
+    app, token_env = refused_name
+    config = _roster(tmp_path, {"rw": (_hand_set(app, token_env), False)})
+
+    with pytest.raises(LaunchTokenNameError) as refused:
+        check_bash_launch_token_conflict(config, tmp_path)
+
+    assert PANEL_ID in str(refused.value)
+    assert token_env in str(refused.value)
+    assert "'rw'" in str(refused.value)
+
+
+def test_the_refusal_stops_the_render_before_any_artifact_is_written(tmp_path, refused_name):
+    config = _roster(tmp_path, {"rw": (_hand_set(*refused_name), False)})
+
+    with pytest.raises(LaunchTokenNameError):
+        resolve_render_inputs(config, tmp_path)
+    with pytest.raises(LaunchTokenNameError):
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert not (tmp_path / "build" / "docker-compose.web.yml").exists()
+
+
+def test_the_collected_preflight_report_names_the_same_refusal(tmp_path, refused_name):
+    app, token_env = refused_name
+    config = _roster(tmp_path, {"rw": (_hand_set(app, token_env), False)})
+
+    problems = [
+        problem for problem, _ in web_terminal_preflight_problems(config, repo_root=tmp_path)
+    ]
+
+    assert any(PANEL_ID in problem and token_env in problem for problem in problems)
+
+
+def test_the_applications_own_name_is_granted(tmp_path):
+    config = _roster(tmp_path, {"rw": (_hand_set("knob", TOKEN_ENV), False)})
+
+    assert check_bash_launch_token_conflict(config, tmp_path).by_token_env == {TOKEN_ENV: {"rw"}}
+
+
+@pytest.mark.parametrize(
+    ("app", "token_env"),
+    [
+        pytest.param("knob", "BLUESKY_LAUNCH_TOKEN", id="another_token"),
+        pytest.param("knob", "ANTHROPIC_API_KEY", id="unrelated_variable"),
+        pytest.param(None, TOKEN_ENV, id="no_app"),
+    ],
+)
+def test_the_terminal_never_reads_another_variable_into_a_header(
+    workspace_dir, caplog, app, token_env
+):
+    os.environ[token_env] = TOKEN
+    with patch(_LOGIN_TIER, return_value="allowed"):
+        for test_app, client in panel_app(
+            workspace_dir, [_panel(**{"app": app, "launchTokenEnv": token_env})]
+        ):
+            sent = _capture(test_app)
+            assert PANEL_ID not in test_app.state.panel_auth_headers
+            client.get(f"/panel/{PANEL_ID}/api/state")
+            assert _token_on(sent[0]) is None
+    assert token_env in caplog.text
+    assert TOKEN not in caplog.text

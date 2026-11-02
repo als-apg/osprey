@@ -1824,7 +1824,12 @@ class TestOperatorLoginUrl:
         child_argv = fake_subprocess.Popen.call_args.args[0]
         assert child_argv[0] == sys.executable
         assert secret not in child_argv
-        assert not any("token" in str(arg) for arg in child_argv[1:])
+        # The --repo value is the deployment's own path, which this test does not
+        # compose (a temp root may spell "token"); every other element is `web`'s.
+        repo_at = child_argv.index("--repo")
+        assert child_argv[repo_at + 1] == str(deployment)
+        composed = [arg for i, arg in enumerate(child_argv) if i > 0 and i != repo_at + 1]
+        assert not any("token" in str(arg) for arg in composed)
         # Catch an EMBEDDED secret too, not just a standalone argv element.
         assert not any(secret in str(arg) for arg in child_argv)
 

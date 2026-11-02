@@ -37,6 +37,11 @@
   per model, as the build read it from the view; `kinds` maps each listed kind
   to the view name of each setpoint role it steps; `{}` when the render has none.
 
+  `app_approvals` is each application write tool's approval declaration keyed
+  by its full `mcp__<app>__<tool>` name, and `app_error_types` the class and
+  guidance text of each `<app>.<type>` error, both derived from the rendered
+  `apps.<name>` leaves; `{}` when the render has no application.
+
   `watchdogs_enabled` is the one conditional key: `true` when the render has an
   enabled watchdog and absent otherwise, so a build with none renders what it
   would render without the feature. It has nothing to do with writes.
@@ -73,7 +78,9 @@
   "governed_tools": {{ governed_tools | default([], true) | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
-  "measurement": {{ measurement | default({}, true) | tojson }}
+  "measurement": {{ measurement | default({}, true) | tojson }},
+  "app_approvals": {{ app_approvals | default({}, true) | tojson }},
+  "app_error_types": {{ app_error_types | default({}, true) | tojson }}
 {%- if watchdogs_enabled %},
   "watchdogs_enabled": true
 {%- endif %}

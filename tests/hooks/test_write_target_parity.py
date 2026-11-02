@@ -43,6 +43,7 @@ FACILITY_SERVER_TOOL = "mcp__magnets__set_current"
 DECLARED_WRITE = "mcp__plc__set_value"
 DECLARED_READ = "mcp__plc__get_value"
 FACILITY_EXTRA = "mcp__orbit__apply_correction"
+APP_WRITE = "mcp__knob__set_knob"
 
 HOOK_CONFIG: dict[str, Any] = {
     "server_prefixes": [
@@ -53,6 +54,7 @@ HOOK_CONFIG: dict[str, Any] = {
         "mcp__orbit__",
         "mcp__phoebus__",
         "mcp__plc__",
+        "mcp__knob__",
     ],
     "write_tools": [
         "mcp__controls__channel_write",
@@ -64,9 +66,11 @@ HOOK_CONFIG: dict[str, Any] = {
         "mcp__magnets__.*",
         DECLARED_WRITE,
         FACILITY_EXTRA,
+        APP_WRITE,
     ],
     "control_system_write_tools": [FACILITY_EXTRA],
-    "facility_write_tools": [DECLARED_WRITE, "mcp__magnets__.*"],
+    "facility_write_tools": [DECLARED_WRITE, "mcp__magnets__.*", APP_WRITE],
+    "app_approvals": {APP_WRITE: {"app": "knob"}},
     "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
 }
 
@@ -110,6 +114,7 @@ CALLS: list[tuple[str, str, dict[str, Any]]] = [
     ("facility-extra", FACILITY_EXTRA, {}),
     ("declared-write", DECLARED_WRITE, {}),
     ("declared-read", DECLARED_READ, {}),
+    ("app-write", APP_WRITE, {}),
     ("queue-start-no-lane", "mcp__bluesky__queue_start", {}),
     ("queue-start-va", "mcp__bluesky__queue_start", {"lane": "bluesky_va"}),
     ("queue-start-live", "mcp__bluesky__queue_start", {"lane": "bluesky_live"}),
@@ -292,6 +297,39 @@ def test_a_declaring_server_sends_its_declared_tool_to_live_and_its_read_nowhere
     )
 
 
+def test_an_application_write_follows_the_sessions_machine(tmp_path, monkeypatch, stamped):
+    """An application tool is in the facility write set, yet writes where the session points."""
+    write_control_context(stamped, target="va", generation=3)
+
+    assert _both(tmp_path, monkeypatch, CONFIGS["two-lanes"], HOOK_CONFIG, APP_WRITE, {}) == (
+        "va",
+        "va",
+    )
+
+
+#: The shipped virtual-accelerator preset's section, with writes allowed.
+VA_PRESET = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    "writes": "allowed",
+}
+
+
+@pytest.mark.parametrize("record", ["va", "missing"])
+def test_an_application_write_on_the_va_preset_is_not_refused_target_unknown(
+    tmp_path, monkeypatch, stamped, record
+):
+    """A simulator-only deployment has no real machine to send an application write to."""
+    _set_record(stamped, record)
+
+    package, hooked = _both(
+        tmp_path, monkeypatch, {"control_system": VA_PRESET}, HOOK_CONFIG, APP_WRITE, {}
+    )
+
+    assert package == hooked == "va"
+    assert twin.write_verdict(VA_PRESET, hooked).reason != "target_unknown"
+
+
 def test_without_the_key_a_whole_server_matcher_is_still_facility(tmp_path, monkeypatch, stamped):
     """A render from before the key keeps sending its whole-server servers to `live`."""
     write_control_context(stamped, target="va", generation=3)
@@ -312,6 +350,7 @@ def test_the_lane_keys_match():
     assert write_target._LANE_ADDRESSED_KEY == twin._LANE_ADDRESSED_KEY
     assert write_target._FACILITY_EXTRAS_KEY == twin._FACILITY_EXTRAS_KEY
     assert write_target._FACILITY_WRITES_KEY == twin._FACILITY_WRITES_KEY
+    assert write_target._APP_APPROVALS_KEY == twin._APP_APPROVALS_KEY
 
 
 @pytest.mark.usefixtures("stamped")

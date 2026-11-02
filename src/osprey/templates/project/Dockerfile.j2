@@ -5,6 +5,7 @@
 # container repo the build renders for exactly this purpose, one directory above
 # the render this file sits in. From the deployment repo root:
 #   docker build -t {{ project_name }} -f build/.image/{{ project_name }}/build/Dockerfile build/.image/{{ project_name }}
+# When the profile states `images.platform`, the FROM below already names it.
 # Then run it (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
 #
@@ -52,7 +53,7 @@
 #                       networks where a proxy re-signs TLS with its own CA.
 #                       Unset (the default), the CA layer is a no-op.
 
-FROM python:3.12-slim
+FROM {% if image_platform %}--platform={{ image_platform }} {% endif %}python:{{ image_python }}-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework declares only
@@ -178,7 +179,21 @@ ENV DISABLE_AUTOUPDATER=1
 # carry the fragment (a PyPI release pin) resolves its members from the index,
 # where they are the releases paired with that framework version. The member
 # list is the framework's own, rendered in by `osprey build`.
+#
+# The deployment's own packages (its applications and local-path dependencies)
+# are built to wheels by `osprey build` into a directory of this context and
+# named by distribution in the dependency list. The primer binds each name to
+# its staged wheel, so they resolve together with the framework's own pins,
+# no index can serve that name instead, and the uv cache is refreshed for it:
+# a rebuilt wheel of an unchanged version is installed, not a cached one.
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+{%- set ns = namespace(packages="") %}
+{%- if deployment_packages_dir | default("") %}
+COPY {{ deployment_packages_dir }}/ /tmp/deps-ctx/{{ deployment_packages_dir }}/
+{%- for package in deployment_wheels | default([]) %}
+{%- set ns.packages = ns.packages ~ ' --refresh-package ' ~ package.name ~ ' "' ~ package.name ~ ' @ file:///tmp/deps-ctx/' ~ deployment_packages_dir ~ '/' ~ package.wheel ~ '"' %}
+{%- endfor %}
+{%- endif %}
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
 # (CompileError escapes uncaught), which fails any source build of the EPICS
 # toolchain (pvxslibs/epicscorelibs/softioc) on platforms without a binary
@@ -235,10 +250,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 {%- endfor %}
                   ;; \
          esac; } \
-    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
+    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }}{{ ns.packages }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
-                && uv pip install osprey-framework {{ pip_dependency_args | default("") }}; \
+                && uv pip install osprey-framework {{ pip_dependency_args | default("") }}{{ ns.packages }}; \
             else exit 1; fi; } \
     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
            uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt; \

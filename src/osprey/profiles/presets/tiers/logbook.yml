@@ -1,0 +1,119 @@
+# logbook.yml
+# Logbook research login: the ARIEL logbook assistant a deployment offers beside its own agent.
+#
+# A narrow login (`lists: own`), opened from a shared card on the landing page
+# by everyone on the roster once `modules.web_terminals.shared` names it. Its
+# lists below are the whole selection: nothing is inherited from the
+# deployment's lists and nothing is subtracted from them. The deployment's
+# PreToolUse guards reach it whatever its hooks list says.
+#
+# Services, data and provider are profile.yml's: the logbook's Postgres, the
+# qmd search sidecar, the graph store and telemetry are the deployment's, and
+# the build tells this render where they are (the Reach Contract,
+# `osprey.deployment.reach`), so the operators and this login look at one
+# logbook. The model is profile.yml's too, unless a top-level `model:` here
+# names one the provider serves. The config keys below are laid over the
+# deployment's.
+#
+# A shared login is read-only on the machine whatever its config says: the
+# build pins writes never and adds the writes-check hook itself. The write pin
+# below says the same thing on purpose, so the file reads as what it renders.
+#
+# The other two bundled shared logins are `knowledge` and `channel-finder`.
+
+name: Logbook Research
+
+# The whole selection is the lists below.
+lists: own
+
+# The logbook-research brief instead of the control-room operator one: the
+# agent's whole brief is written for searching, reading and synthesising
+# logbook entries through the ARIEL tools.
+claude_md_template: CLAUDE.logbook.md.j2
+
+# Open on the ARIEL search tab. The always-on Workspace tab stays present (the
+# deep-research skill hands artifacts off through it); it is just not the one
+# you land on.
+default_panel: ariel
+
+# No channel finder: finding a channel address is not logbook work, and the
+# channel-finder server is switched off below. A deployment that wants channel
+# lookups beside the logbook offers the `channel-finder` login.
+channel_finder_mode: null
+
+hooks:
+  - approval          # Gate logbook entry creation on user approval prompt
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - config-drift      # Warn at session start when the build is out of date
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Tell the agent which web terminal panels exist
+  - workspace-delta   # Report web workspace changes since the agent's last turn
+  - control-context   # Tell the agent the active control target and each target's write state
+  - turn-state        # Tell the web terminal when a turn starts and ends
+
+rules:
+  # The safety rule governs no tool this login carries today. It stays because
+  # the login runs inside a deployment that does move hardware: if a control
+  # server is ever switched back on here, the rule is already in place.
+  - safety            # Core safety rules: never write without approval
+  - error-handling    # Standard error handling and retry guidance
+  - artifacts         # Rules for saving diagnostic artifacts
+  - facility          # Facility-level conventions (naming, units, logbook)
+  - workflows         # Approved workflow patterns (plan, delegate, parallelize)
+  - timezone          # Always localise timestamps to facility timezone
+
+# Logbook search and deep research run as SKILLS from the main agent, with the
+# whole session's context, rather than through a subagent boundary that a
+# single-purpose agent gains nothing from crossing.
+skills:
+  - session-report          # Summarise session actions and outcomes to the logbook
+  - logbook-deep-research   # Multi-phase logbook investigation
+
+agents:
+  # Structural machine questions a logbook investigation runs into ("which
+  # magnets sit in sector 3?") are answered from the deployment's graph store.
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - ariel             # ARIEL search interface
+
+# No tool servers of its own; the deployment's facility servers are not this
+# login's to inherit.
+mcp_servers: {}
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block. These win over
+# the deployment's config; the deployment's own tool-server switches never
+# reach this render, so every server this login does without is named here.
+config:
+  # No control-system surface at all: the tools are absent, not merely unused.
+  # Each line is a decision about a server the deployment runs.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.channel-finder.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  # The facility knowledge bundle answers "how is the machine documented"; that
+  # is the `knowledge` login's question, not this one's.
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+  # Kept on: `osprey_workspace` (the Workspace tab), `ariel` (the point of this
+  # login) and `graph` (the facility-knowledge-graph subagent dials the
+  # deployment's graph store). The event dispatcher renders only with the
+  # EVENTS panel, which no shared login carries.
+  #
+  # The write boundary: `never`, the only value a shared login may spell.
+  control_system.writes: never
+  # Creating a logbook entry is this agent's only write of any kind, and it is
+  # approval-gated like every other write. Publishing is the half that reaches
+  # the facility's logbook, so it is gated too.
+  approval.tools.entry_create: always
+  approval.tools.entry_publish: always
+  # No control-target picker in the title bar: nothing here reaches the machine.
+  web.control_target_picker: false
+  # No shipped example plot: it invites a live plot this login cannot produce.
+  artifact_server.example_artifact: false

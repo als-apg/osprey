@@ -44,6 +44,7 @@ from osprey.deployment.compose_generator import (
     prepare_compose_files,
     repo_identity,
     resolve_image_defaults,
+    resolve_image_platform,
     resolve_project_name,
     resolve_repo_root,
     resolve_site_image_axes,
@@ -215,6 +216,56 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "mongodb": ("MONGO_ROOT_PASSWORD",),
     "graphdb": ("GRAPHDB_PASSWORD",),
 }
+
+
+def builtin_token_vars() -> frozenset[str]:
+    """Every variable :data:`_SERVICE_TOKEN_VARS` mints, lane tokens included.
+
+    OSPREY's own credentials only: a projected application's launch token is
+    never among them (:func:`_service_token_vars`), so a rule that keeps an
+    application off these names never refuses the name it was given.
+    """
+    return frozenset(var for names in _SERVICE_TOKEN_VARS.values() for var in names)
+
+
+def _projected_services(config: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """The deployed ``services.<key>`` rows an application's manifest projected.
+
+    A projected row is the one kind of service row that names its owning
+    application (``services.<key>.app``).
+    """
+    deployed = {str(s) for s in (config.get("deployed_services") or [])}
+    services = config.get("services") or {}
+    return {
+        str(key): row
+        for key, row in services.items()
+        if str(key) in deployed and isinstance(row, Mapping) and row.get("app")
+    }
+
+
+def _service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    """:data:`_SERVICE_TOKEN_VARS` merged with the projected panels' launch tokens.
+
+    A projected panel that declares ``launch_token`` carries the variable's name
+    as ``services.<key>.launch_token_env``, whatever its container runs; that
+    recorded name is minted as it stands.
+    """
+    merged = dict(_SERVICE_TOKEN_VARS)
+    for key, row in _projected_services(config).items():
+        name = row.get("launch_token_env")
+        if name:
+            merged[key] = (str(name),)
+    return merged
+
+
+def service_token_vars(config: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Every service's minted variables for *config*, applications' launch tokens included.
+
+    The one producer for a reader outside this module; ``{}`` answers the static
+    map.
+    """
+    return _service_token_vars(config)
+
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
 # NEVER minted — distinct from _SERVICE_TOKEN_VARS (which mints an unset var
@@ -619,7 +670,7 @@ def _ensure_service_tokens(
     assignment below). Everything the rest of this docstring says about "the
     ``.env``" is about the file the caller named.
 
-    For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
+    For any token var (per :func:`_service_token_vars`, keyed by the deployed
     services present) unset — or present with an empty value — in BOTH the
     process env and that ``.env``,
     generate a strong random value (``_generate_token``: ``token_urlsafe(32)``
@@ -710,7 +761,7 @@ def _ensure_service_tokens(
     # deterministic regardless of set iteration order or config.yml ordering.
     required_vars: list[str] = []
     seen: set[str] = set()
-    for svc_name, token_vars in _SERVICE_TOKEN_VARS.items():
+    for svc_name, token_vars in _service_token_vars(config).items():
         if svc_name not in services:
             continue
         for var in token_vars:
@@ -1978,7 +2029,7 @@ SITE_CA_CONTEXT_FILENAME = "osprey-site-ca.crt"
 
 
 def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
-    """The site's ``--build-arg`` flags for one image build, context staged.
+    """The site's build flags for one image build, context staged.
 
     One producer for the three images ``osprey up`` builds from OSPREY's own
     recipes — the project image, each render image and the web-terminal auth
@@ -1988,11 +2039,14 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     honours them. Before this, the Dockerfiles declared the ARGs and no builder
     passed them: the settings existed only for a hand-run ``docker build``.
 
-    Two producers feed it:
+    Three producers feed it:
 
     * :func:`~osprey.deployment.compose_generator.resolve_site_image_axes` for
       the ``images.*`` block — the site CA, pip's proxy bypass list and the two
-      index URLs; and
+      index URLs;
+    * :func:`~osprey.deployment.compose_generator.resolve_image_platform` for
+      ``images.platform``, passed as ``--platform``, the platform the wheel fit
+      check judged and the rendered ``FROM`` names; and
     * the top-level ``offline`` key, read exactly as
       :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
       vendoring and the runtime check that decides whether to SERVE the
@@ -2010,6 +2064,7 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     :raises FileNotFoundError: If ``images.site_ca`` names a file that is not
         there. A CA the build cannot find is a build that silently fails TLS
         verification against the site proxy much later.
+    :raises ValueError: If ``images.platform`` names no accepted platform.
     """
     from osprey.interfaces.vendor import offline_from_config
 
@@ -2023,6 +2078,9 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
         # "1" is the one spelling the Dockerfiles compare against; the config
         # layer accepts every truthy spelling `is_offline` does.
         args.extend(["--build-arg", "OSPREY_OFFLINE=1"])
+    stated = resolve_image_platform(config)
+    if stated:
+        args.extend(["--platform", stated])
     return args
 
 
@@ -2353,7 +2411,9 @@ def _deployed_project_image_services(
 ) -> list[str]:
     """Every service this deployment renders on the project image's compose line.
 
-    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the two derived
+    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, every projected
+    ``runtime: osprey`` application container (a projected row with no
+    ``image``), plus the two derived
     services, which are never ``deployed_services`` entries: the history page,
     rendered exactly when
     :func:`~osprey.agent_record.config.history_page_deployed` holds, and
@@ -2375,6 +2435,7 @@ def _deployed_project_image_services(
     """
     deployed = {str(s) for s in (config.get("deployed_services") or [])}
     services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
+    services += [key for key, row in _projected_services(config).items() if not row.get("image")]
     if history_page_deployed(config):
         services.append(HISTORY_SERVICE)
     if compose_files is None or _stack_runs_record(compose_files):
@@ -3153,7 +3214,9 @@ def _ci_only_env_names(document: Mapping[str, object]) -> set[str]:
     return names
 
 
-def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> list[tuple[str, str]]:
+def _required_env_problems(
+    repo_root: Path | str, env: Mapping[str, str], config: Mapping[str, Any]
+) -> list[tuple[str, str]]:
     """One finding per ``env.required`` name nothing gives this deploy a value for.
 
     ``env.required`` is the profile's statement that the agent cannot run
@@ -3194,6 +3257,7 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
     :param repo_root: The deployment repo root, holding ``profile.yml`` and the
         env chain.
     :param env: The environment the stack would be started with.
+    :param config: The deploy config, whose applications name minted variables too.
     :return: ``(problem, remedy)`` pairs in the order the profile declares the
         names, so the report reads in the order of the file the operator opens
         to fix it. Empty when the profile declares nothing (or nothing missing).
@@ -3206,7 +3270,7 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
     if not isinstance(declared, list):
         return []
 
-    excluded = _ci_only_env_names(document) | _deploy_written_env_vars()
+    excluded = _ci_only_env_names(document) | _deploy_written_env_vars(config)
     chain = merge_chain(Path(repo_root))
 
     problems: list[tuple[str, str]] = []
@@ -3497,7 +3561,7 @@ def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tup
     return findings
 
 
-def _deploy_written_env_vars() -> set[str]:
+def _deploy_written_env_vars(config: Mapping[str, Any]) -> set[str]:
     """Every variable name a deploy-time writer can put into ``.env``.
 
     The census the pin declaration is checked against, and deliberately the
@@ -3509,27 +3573,29 @@ def _deploy_written_env_vars() -> set[str]:
     Three writers, all of them appending to (or rewriting) the local file on the
     ordinary start path:
 
-    * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
+    * :func:`_service_token_vars` — the minted secrets: the whole static map,
+      whatever this deploy enables, and each projected application's launch token;
     * the RE manager's control-socket keypair
       (:func:`_ensure_bluesky_control_plane_keys`);
     * the credentials ``--reuse-stores`` restores from surviving data volumes
       (:func:`_adopt_original_credentials`, over
       :data:`_VOLUME_INITIALIZED_VARS`).
 
+    :param config: The deploy config.
     :return: The names, as one set.
     """
-    written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
+    written = {var for names in _service_token_vars(config).values() for var in names}
     # Every lane's control-plane pair, not only lane 1's: the census is a
     # census of names this command can write, and a two-lane deploy writes two
     # pairs. Enumerated from the lane keys rather than from this deploy's
-    # config, because the census has none.
+    # config, so the census does not move with the lanes this deploy enables.
     for _lane_key in (_BLUESKY_LANE_ONE, *_BLUESKY_SECOND_LANE_KEYS):
         written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
     return written
 
 
-def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
+def _preflight_pinned_writers(repo_root: Path | str, config: Mapping[str, Any]) -> list[str]:
     """Refuse a pin on a name the deploy itself writes.
 
     ``env.pinned`` says a variable's value comes from this repo's chain and
@@ -3543,18 +3609,19 @@ def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
 
     Checked against the whole writer census (:func:`_deploy_written_env_vars`),
     not the services this deploy enables, so the answer is a property of the
-    profile and does not change with the config. Runs before anything reads or
+    profile and its ``apps:`` block. Runs before anything reads or
     writes the chain, because a profile making an unsatisfiable statement is
     wrong independently of what the files currently hold.
 
     :param repo_root: The deployment repo root, holding the profile.
+    :param config: The deploy config.
     :return: The empty list, when nothing pinned is machine-written.
     :raises RuntimeError: ``env.pinned`` names at least one written variable.
     """
     declared = pinned_env_keys(repo_root)
     if not declared:
         return []
-    offenders = sorted(declared & _deploy_written_env_vars())
+    offenders = sorted(declared & _deploy_written_env_vars(config))
     if not offenders:
         return []
 
@@ -6031,7 +6098,7 @@ def _collect_unmet_preconditions(
     # rather than about one image's build, and the deploy meets it first. Sees
     # the chain as it stands AFTER every mint above, so a token the deploy just
     # provisioned is not reported as missing -- see _required_env_problems.
-    findings.extend(_required_env_problems(repo_root, env))
+    findings.extend(_required_env_problems(repo_root, env, config))
     # The start-blocking rule asked of the config alone: reader names that
     # would share one set of the history page's sign-on settings.
     findings.extend(history_preflight_problems(config))
@@ -6497,7 +6564,7 @@ def _start_stack(
     # declaration that contradicts a provisioner is wrong whatever the chain
     # currently holds, and saying so first keeps the operator from resolving an
     # override on a name that should never have been pinned.
-    _preflight_pinned_writers(repo_root)
+    _preflight_pinned_writers(repo_root, config)
 
     # Refuse a local file that overrides a name the deployment pins. On the
     # PRE-MINT chain, so the refusal is about lines the operator wrote rather

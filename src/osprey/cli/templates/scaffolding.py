@@ -51,6 +51,17 @@ def _default_cli_version(ctx: dict) -> None:
     ctx["claude_code_cli_version"] = version or _DEFAULT_CLAUDE_CLI_VERSION
 
 
+def _default_image_facts(ctx: dict) -> None:
+    """Expose the image facts to Dockerfile.j2's ``FROM``: the Python every image
+    is built from (:data:`~osprey.deployment.image_facts.IMAGE_PYTHON`, the one
+    the wheel fit check judges against) and the platform ``images.platform``
+    states, empty when it states none."""
+    from osprey.deployment.image_facts import IMAGE_PYTHON
+
+    ctx["image_python"] = f"{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}"
+    ctx.setdefault("image_platform", "")
+
+
 def project_template_for(template_root: Path, template_file: str) -> str | None:
     """The template that renders project file *template_file*.
 
@@ -158,7 +169,7 @@ def provider_base_url_entries() -> list[dict[str, str]]:
 
 
 # Human-readable blurbs for the deploy-minted variables, keyed by var name.
-# Prose only: the *list* of variables comes from ``_SERVICE_TOKEN_VARS``, so a
+# Prose only: the *list* of variables comes from ``service_token_vars``, so a
 # newly minted var still reaches ``.env.example`` (named by the services that
 # declare it) even with no entry here. Nothing silently drops out.
 _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
@@ -197,21 +208,23 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
 
 
 def service_token_var_entries() -> list[dict[str, str]]:
-    """Every variable ``osprey up`` mints, for env-file templates.
+    """Every variable ``osprey up`` mints whatever the deployment, for env-file templates.
 
-    Derived from :data:`osprey.deployment.container_lifecycle._SERVICE_TOKEN_VARS`
+    Derived from :func:`osprey.deployment.container_lifecycle.service_token_vars`
     — the map the deploy path actually mints from — so the documented set
     cannot fall behind the minted set. A variable declared by more than one
-    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both.
+    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both. An
+    application's launch token is not here: the scaffold is rendered before any
+    application exists.
 
     Returns:
         Ordered list of ``{"var": <ENV_VAR>, "services": "<a, b>", "note":
         <blurb or "">}`` dicts, in declaration order.
     """
-    from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+    from osprey.deployment.container_lifecycle import service_token_vars
 
     services_by_var: dict[str, list[str]] = {}
-    for service, token_vars in _SERVICE_TOKEN_VARS.items():
+    for service, token_vars in service_token_vars({}).items():
         for var in token_vars:
             services_by_var.setdefault(var, []).append(service)
 
@@ -258,6 +271,7 @@ def create_project_structure(
     project_template_dir = template_root / "project"
 
     _default_cli_version(ctx)
+    _default_image_facts(ctx)
 
     # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
     files_to_render = [

@@ -25,7 +25,7 @@ deployment's own profile:
   tool, the web Config panel, the scaffold gallery's editors, and the
   ``setup-mode`` skill that drives them.
 
-Three apps ship in ``presets/apps/``, each a complete agent definition that
+Three shared logins ship in ``presets/tiers/`` (``lists: own``), each a complete agent definition that
 owns its own lists and runs on the deployment's services:
 
 * ``logbook`` — logbook research, with the facility knowledge graph;
@@ -45,7 +45,7 @@ deployment axis, so a new tier inherits the floor and has to ask for a
 privilege by name.
 
 Tiers and apps are read the way a build reads them: the bundled files laid into
-a deployment repo's ``tiers/`` and ``apps/`` beside the exemplar ``profile.yml``
+a deployment repo's ``tiers/`` beside the exemplar ``profile.yml``
 (the materialized control-assistant deployment), each loaded over that profile.
 """
 
@@ -64,7 +64,7 @@ from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.cli.build_profile_document import retired_write_answer
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
-from osprey.cli.build_profile_presets import _presets_dir, list_apps, list_presets, list_tiers
+from osprey.cli.build_profile_presets import _presets_dir, list_presets, list_tiers
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
@@ -158,9 +158,9 @@ def test_tier_kind_key_set_is_derived_from_the_root_set() -> None:
     assert _TIER_EXTRA_KEYS <= TIER_KIND_KEYS
 
 
-def test_bundled_tier_directory_holds_exactly_the_three_tiers() -> None:
+def test_bundled_tier_directory_holds_exactly_the_three_tiers_and_the_shared_logins() -> None:
     found = sorted(p.stem for p in (_presets_dir() / "tiers").glob("*.yml"))
-    assert found == sorted(TIER_NAMES)
+    assert found == sorted((*TIER_NAMES, *APP_NAMES))
 
 
 @pytest.mark.parametrize("tier", TIER_NAMES)
@@ -241,7 +241,7 @@ def test_tier_files_are_not_listed_as_deployment_presets() -> None:
 
 # ── Bundled app presets ──────────────────────────────────────────────────────
 #
-# A bundled app (``presets/apps/<name>.yml``) is a complete agent definition a
+# A bundled shared login (``presets/tiers/<name>.yml``, ``lists: own``) is a complete agent definition a
 # deployment offers beside its own agent: its own lists, brief, landing panel
 # and channel-finder mode, plus config keys laid over the host's. It carries no
 # deployment fact (the host's services, provider and data are its by
@@ -255,6 +255,14 @@ APP_TITLES = {
     "channel-finder": "Channel Finder",
 }
 APP_NAMES = tuple(APP_TITLES)
+#: The bundled shared logins, sorted: the `lists: own` files in ``presets/tiers/``.
+SHARED_LOGIN_NAMES = tuple(sorted(APP_TITLES))
+
+
+def _person_tiers() -> list[str]:
+    """The bundled tiers a person is given: every bundled login but the shared ones."""
+    return [name for name in list_tiers() if name not in SHARED_LOGIN_NAMES]
+
 
 APP_KIND_KEYS = frozenset(
     {
@@ -274,6 +282,7 @@ APP_KIND_KEYS = frozenset(
         "seed_base",
         "image",
         "provenance",
+        "lists",
     }
 )
 # Every bundled app spells these: the whole definition, nothing inherited.
@@ -291,6 +300,7 @@ APP_REQUIRED_KEYS = frozenset(
         "channel_finder_mode",
         "config",
         "mcp_servers",
+        "lists",
     }
 )
 _APP_LIST_KEYS = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
@@ -321,12 +331,12 @@ APP_SERVERS_ON = {
 
 
 def _app_path(name: str) -> Path:
-    return _presets_dir() / "apps" / f"{name}.yml"
+    return _presets_dir() / "tiers" / f"{name}.yml"
 
 
 def _load_app(name: str) -> dict[str, Any]:
     document = yaml.safe_load(_app_path(name).read_text(encoding="utf-8"))
-    assert isinstance(document, dict), f"apps/{name}.yml is not a mapping"
+    assert isinstance(document, dict), f"tiers/{name}.yml is not a mapping"
     return document
 
 
@@ -334,19 +344,24 @@ def _server_switch(name: str) -> str:
     return f"claude_code.servers.{name}.enabled"
 
 
-def test_bundled_app_directory_holds_exactly_the_three_apps() -> None:
-    found = sorted(p.stem for p in (_presets_dir() / "apps").glob("*.yml"))
+def test_bundled_login_directory_holds_exactly_the_three_shared_logins() -> None:
+    found = sorted(
+        p.stem
+        for p in (_presets_dir() / "tiers").glob("*.yml")
+        if yaml.safe_load(p.read_text(encoding="utf-8")).get("lists") == "own"
+    )
     assert found == sorted(APP_NAMES)
+    assert not (_presets_dir() / "apps").exists()
 
 
 @pytest.mark.parametrize("app", APP_NAMES)
 def test_app_keys_are_the_complete_app_kind_set(app: str) -> None:
     keys = set(_load_app(app))
     assert keys <= APP_KIND_KEYS, (
-        f"apps/{app}.yml spells keys outside the app kind: {sorted(keys - APP_KIND_KEYS)}"
+        f"tiers/{app}.yml spells keys outside the app kind: {sorted(keys - APP_KIND_KEYS)}"
     )
     assert APP_REQUIRED_KEYS <= keys, (
-        f"apps/{app}.yml is not a complete app definition; missing "
+        f"tiers/{app}.yml is not a complete app definition; missing "
         f"{sorted(APP_REQUIRED_KEYS - keys)}"
     )
 
@@ -355,7 +370,7 @@ def test_app_keys_are_the_complete_app_kind_set(app: str) -> None:
 def test_app_carries_no_inheritance_subtraction_or_deployment_key(app: str) -> None:
     keys = set(_load_app(app))
     assert not (keys & _APP_FORBIDDEN_KEYS), (
-        f"apps/{app}.yml spells {sorted(keys & _APP_FORBIDDEN_KEYS)}"
+        f"tiers/{app}.yml spells {sorted(keys & _APP_FORBIDDEN_KEYS)}"
     )
 
 
@@ -376,9 +391,9 @@ def test_app_lists_are_lists_of_names(app: str) -> None:
     document = _load_app(app)
     for key in _APP_LIST_KEYS:
         value = document[key]
-        assert isinstance(value, list), f"apps/{app}.yml {key} is not a list"
+        assert isinstance(value, list), f"tiers/{app}.yml {key} is not a list"
         assert all(isinstance(item, str) and item for item in value)
-        assert len(value) == len(set(value)), f"apps/{app}.yml {key} repeats a name"
+        assert len(value) == len(set(value)), f"tiers/{app}.yml {key} repeats a name"
     assert isinstance(document["mcp_servers"], dict)
 
 
@@ -395,7 +410,7 @@ def test_app_brief_template_ships(app: str) -> None:
     template = _load_app(app)["claude_md_template"]
     assert template == f"CLAUDE.{app}.md.j2"
     shipped = Path(__file__).resolve().parents[2] / "src/osprey/templates/claude_code" / template
-    assert shipped.is_file(), f"apps/{app}.yml names a brief that does not ship: {template}"
+    assert shipped.is_file(), f"tiers/{app}.yml names a brief that does not ship: {template}"
     names = {
         a.canonical_name
         for a in BuildArtifactCatalog.default()._by_name.values()
@@ -409,8 +424,8 @@ def test_app_config_is_dotted_and_free_of_attachment_facts(app: str) -> None:
     config = _load_app(app)["config"]
     assert isinstance(config, dict)
     for key, value in config.items():
-        assert "." in key, f"apps/{app}.yml config key {key!r} is not dotted"
-        assert not isinstance(value, dict), f"apps/{app}.yml config {key!r} is nested"
+        assert "." in key, f"tiers/{app}.yml config key {key!r} is not dotted"
+        assert not isinstance(value, dict), f"tiers/{app}.yml config {key!r} is nested"
     assert not (set(config) & _ATTACHMENT_CONFIG_KEYS)
     assert not any(k.startswith("services.") for k in config)
 
@@ -421,10 +436,10 @@ def test_app_states_every_host_server_it_switches_off(app: str) -> None:
     for server in HOST_SERVERS:
         key = _server_switch(server)
         if server in APP_SERVERS_ON[app]:
-            assert config.get(key, True) is True, f"apps/{app}.yml switches off {server}"
+            assert config.get(key, True) is True, f"tiers/{app}.yml switches off {server}"
         else:
             assert config.get(key) is False, (
-                f"apps/{app}.yml does not state {server} switched off ({key}: false)"
+                f"tiers/{app}.yml does not state {server} switched off ({key}: false)"
             )
 
 
@@ -492,7 +507,7 @@ def test_app_selections_name_shipped_artifacts(app: str) -> None:
     )
     for key, prefix in selections:
         for item in document[key]:
-            assert f"{prefix}/{item}" in names, f"apps/{app}.yml {key} names unknown {item!r}"
+            assert f"{prefix}/{item}" in names, f"tiers/{app}.yml {key} names unknown {item!r}"
 
 
 def test_app_files_are_not_listed_as_deployment_presets() -> None:
@@ -610,9 +625,8 @@ def _layered_repo(dest: Path) -> Path:
         The repo root.
     """
     repo = build_exemplar_repo(dest)
-    for kind in ("tiers", "apps"):
-        for path in sorted((_presets_dir() / kind).glob("*.yml")):
-            shutil.copyfile(path, repo / kind / path.name)
+    for path in sorted((_presets_dir() / "tiers").glob("*.yml")):
+        shutil.copyfile(path, repo / "tiers" / path.name)
     return repo
 
 
@@ -626,12 +640,11 @@ def layered_repo(tmp_path_factory) -> Path:
 def layers(layered_repo: Path) -> dict[str, BuildProfile]:
     """The deployment's own profile and every tier and app loaded over it.
 
-    Keyed ``"profile"``, ``"tiers/<name>"`` and ``"apps/<name>"``.
+    Keyed ``"profile"`` and ``"tiers/<name>"``.
     """
     loaded = {"profile": load_profile(layered_repo / "profile.yml")}
-    for kind, names in (("tiers", list_tiers()), ("apps", list_apps())):
-        for name in names:
-            loaded[f"{kind}/{name}"] = load_profile(layered_repo / kind / f"{name}.yml")
+    for name in list_tiers():
+        loaded[f"tiers/{name}"] = load_profile(layered_repo / "tiers" / f"{name}.yml")
     return loaded
 
 
@@ -867,11 +880,11 @@ class TestControlAssistantWebTier:
             },
         ]
         # Every tier the roster names is one the deployment ships.
-        assert {user["tier"] for user in wt["users"]} | {wt["default_tier"]} <= set(list_tiers())
+        assert {user["tier"] for user in wt["users"]} | {wt["default_tier"]} <= set(_person_tiers())
 
         # Every bundled app, shared with the whole roster, in the stated order.
         assert wt["shared"] == FLAGSHIP_SHARED
-        assert sorted(wt["shared"]) == list_apps()
+        assert sorted(wt["shared"]) == list(SHARED_LOGIN_NAMES)
 
         # No render projection and no per-card landing section.
         assert "renders" not in wt
@@ -881,7 +894,7 @@ class TestControlAssistantWebTier:
         # People first, under their own heading; the apps after, under theirs.
         assert wt["landing"]["groups"] == [
             {"type": "users", "label": "Users"},
-            {"type": "apps", "label": "Apps"},
+            {"type": "shared", "label": "Shared logins"},
         ]
 
     def test_preset_spells_the_roster_in_tier_words(self) -> None:
@@ -978,19 +991,19 @@ class TestControlAssistantWebTier:
         here, so one added later is covered without editing this test.
         """
         assert "jupyter" in resolve_preset("control-assistant").web_panels
-        assert list_tiers(), "no bundled tier"
-        for tier in list_tiers():
+        assert _person_tiers(), "no bundled tier"
+        for tier in _person_tiers():
             assert "jupyter" in layers[f"tiers/{tier}"].web_panels, tier
 
         no_control_surface = sorted(
             app
-            for app in list_apps()
-            if layers[f"apps/{app}"].config.get("claude_code.servers.controls.enabled") is False
+            for app in list(SHARED_LOGIN_NAMES)
+            if layers[f"tiers/{app}"].config.get("claude_code.servers.controls.enabled") is False
         )
         assert no_control_surface == ["channel-finder", "knowledge", "logbook"]
-        for app in list_apps():
+        for app in list(SHARED_LOGIN_NAMES):
             expected = app not in no_control_surface
-            assert ("jupyter" in layers[f"apps/{app}"].web_panels) is expected, app
+            assert ("jupyter" in layers[f"tiers/{app}"].web_panels) is expected, app
 
     def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
         """The container names derived from the rendered compose project —
@@ -1096,8 +1109,10 @@ class TestControlAssistantTiersAndApps:
         shares, is one OSPREY ships — and every one OSPREY ships is reachable
         from the flagship roster, so none is dead weight in a fresh repo."""
         wt = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]
-        assert sorted({user["tier"] for user in wt["users"]} | {wt["default_tier"]}) == list_tiers()
-        assert sorted(wt["shared"]) == list_apps()
+        assert (
+            sorted({user["tier"] for user in wt["users"]} | {wt["default_tier"]}) == _person_tiers()
+        )
+        assert sorted(wt["shared"]) == list(SHARED_LOGIN_NAMES)
 
     def test_readonly_disables_writes(self, layers: dict[str, BuildProfile]) -> None:
         profile = layers["tiers/readonly"]
@@ -1163,7 +1178,7 @@ class TestControlAssistantTiersAndApps:
         assert "claude_code.permissions.remove_ask" not in base.config
 
         unprivileged = [f"tiers/{name}" for name in ("readonly", "readwrite")]
-        unprivileged += [f"apps/{name}" for name in list_apps()]
+        unprivileged += [f"tiers/{name}" for name in SHARED_LOGIN_NAMES]
         for key in unprivileged:
             layer = layers[key]
             assert SETUP_PATCH_TOOL in layer.config.get(DENY_KEY), key
@@ -1220,7 +1235,7 @@ class TestControlAssistantTiersAndApps:
         harmless, while the stand-in the preset also declares is a target the
         operator switches to on purpose. No tier names ``control_system.type``,
         so every tier keeps that baseline."""
-        for tier in list_tiers():
+        for tier in _person_tiers():
             assert "control_system.type" not in _own_config("tiers", tier), tier
             assert layers[f"tiers/{tier}"].config.get("control_system.type") == (
                 "virtual_accelerator"
@@ -1311,7 +1326,7 @@ class TestControlAssistantTiersAndApps:
         base = resolve_preset("control-assistant")
         for hook in ("writes-check", "limits", "approval"):
             assert hook in base.hooks
-            for tier in list_tiers():
+            for tier in _person_tiers():
                 assert hook in layers[f"tiers/{tier}"].hooks, (tier, hook)
 
     def test_tiers_and_apps_render_attached(self, layers: dict[str, BuildProfile]) -> None:
@@ -1324,7 +1339,7 @@ class TestControlAssistantTiersAndApps:
         The build decides this from where the file sits, so no bundled tier or
         app states either key itself."""
         assert layers["profile"].deploy_services is True
-        for kind, names in (("tiers", list_tiers()), ("apps", list_apps())):
+        for kind, names in (("tiers", _person_tiers()), ("tiers", list(SHARED_LOGIN_NAMES))):
             for name in names:
                 layer = layers[f"{kind}/{name}"]
                 assert layer.deploy_services is False, name
@@ -1351,7 +1366,7 @@ class TestControlAssistantTiersAndApps:
         layer INHERITS those keys. What must stay empty is what a tier or app
         says for itself.
         """
-        for kind, names in (("tiers", list_tiers()), ("apps", list_apps())):
+        for kind, names in (("tiers", _person_tiers()), ("tiers", list(SHARED_LOGIN_NAMES))):
             for name in names:
                 own = _own_config(kind, name)
                 pinned = sorted(
@@ -1557,7 +1572,7 @@ class TestControlAssistantTiersAndApps:
         """
         project = _render_dir(built_layered_stack, "logbook")
         assert project.is_dir(), "the logbook app was never rendered"
-        assert "claude_code.servers.graph.enabled" not in _own_config("apps", "logbook")
+        assert "claude_code.servers.graph.enabled" not in _own_config("tiers", "logbook")
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
         assert set(servers) == {"ariel", "graph", "osprey_workspace"}
@@ -1671,12 +1686,9 @@ def _pinned_rows_match_the_shipped_set(pinned: dict) -> None:
     """Every bundled tier and app has a row, exactly, and every deployment row
     is a shipped deployment preset (the deployment listing itself is pinned in
     ``tests/cli/test_preset_listings.py``)."""
-    assert sorted(key for key in pinned if key.startswith("tiers/")) == [
+    assert sorted(key for key in pinned if key.startswith("tiers/")) == sorted(
         f"tiers/{name}" for name in list_tiers()
-    ]
-    assert sorted(key for key in pinned if key.startswith("apps/")) == [
-        f"apps/{name}" for name in list_apps()
-    ]
+    )
     deployments = {key for key in pinned if "/" not in key}
     assert deployments == {"control-assistant", "hello-world"}
     assert deployments <= set(list_presets())
@@ -1713,9 +1725,9 @@ PINNED_WRITE_POSTURE: dict[str, str] = {
     "tiers/readonly": "never",
     # Every app renders `never`, whatever its host or its file says: the
     # composer pins it.
-    "apps/channel-finder": "never",
-    "apps/knowledge": "never",
-    "apps/logbook": "never",
+    "tiers/channel-finder": "never",
+    "tiers/knowledge": "never",
+    "tiers/logbook": "never",
 }
 
 
@@ -1763,9 +1775,11 @@ class TestWritePostureMatrix:
     def test_every_app_states_never(self) -> None:
         """Each app states the write boundary in its own file, the same way:
         ``never``, which is also what the composer pins on every app render."""
-        stated = {app: _stated_writes(_own_config("apps", app)) for app in list_apps()}
+        stated = {
+            app: _stated_writes(_own_config("tiers", app)) for app in list(SHARED_LOGIN_NAMES)
+        }
 
-        assert stated == dict.fromkeys(list_apps(), "never")
+        assert stated == dict.fromkeys(list(SHARED_LOGIN_NAMES), "never")
 
     @pytest.mark.parametrize("app", ["channel-finder", "knowledge", "logbook"])
     def test_every_app_keeps_the_deployments_targets(
@@ -1775,7 +1789,7 @@ class TestWritePostureMatrix:
         deployment has: an app's configured targets are the deployment's."""
         (tmp_path / "app").mkdir()
         (tmp_path / "root").mkdir()
-        section = _rendered_section(tmp_path / "app", f"apps/{app}", layers, "control_system")
+        section = _rendered_section(tmp_path / "app", f"tiers/{app}", layers, "control_system")
         hosting = _rendered_section(tmp_path / "root", "profile", layers, "control_system")
 
         assert configured_targets(section) == configured_targets(hosting)
@@ -1822,9 +1836,9 @@ PINNED_CONTROL_TARGET_PICKER: dict[str, bool | None] = {
     "tiers/admin": None,
     "tiers/readonly": None,
     "tiers/readwrite": None,
-    "apps/channel-finder": False,
-    "apps/knowledge": False,
-    "apps/logbook": False,
+    "tiers/channel-finder": False,
+    "tiers/knowledge": False,
+    "tiers/logbook": False,
 }
 
 

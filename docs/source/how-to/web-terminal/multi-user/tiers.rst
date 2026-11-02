@@ -198,9 +198,10 @@ read-only tier.
         - refused
         - refused
 
-   The apps — ``logbook``, ``knowledge`` and ``channel-finder`` — are not in
-   the table: every app render is read-only on the machine and closed to
-   deployment editing, whatever the host sets.
+   The shared logins — ``logbook``, ``knowledge`` and ``channel-finder`` — are
+   not in the table: every login ``shared:`` names renders
+   ``control_system.writes: never`` and closed to deployment editing, whatever
+   its file or the host sets.
 
 A tier is a file under ``tiers/``
 =================================
@@ -233,10 +234,18 @@ the floor until its file says otherwise. :doc:`Build Profiles
 <../../build-profiles>` covers what a tier file may contain and how the floor
 is written so that a tier can lift it.
 
-An **app** is different: a second, complete agent under ``apps/``, opened from
-a shared card by everyone on the roster and read-only on the machine by
-construction. The tiers decide what the deployment's own agent may do; the
-apps sit beside it.
+A **shared login** is the same kind of file, named by
+``modules.web_terminals.shared`` and opened from a card everyone on the roster
+can use. A shared card never writes: the build seals its render
+``control_system.writes: never`` whatever the file says. The bundled
+``logbook``, ``knowledge`` and ``channel-finder`` logins say ``lists: own``, so
+their lists are the whole selection rather than additions to the
+deployment's. A login's ``apps:`` block picks which of the deployment's
+applications its card shows; a shown application writes only where the
+login's tier is ``asked`` or ``allowed`` and the operator's switch is on for
+that machine. :doc:`Build Profiles <../../build-profiles>` lists every key a
+login file may carry, and ``osprey init --revalidate`` moves a login an older
+repository keeps under ``apps/`` into ``tiers/``.
 
 A roster entry can also name a **role** instead of a tier, and let the role
 carry the mapping — ``operator: {tier: readwrite}`` written once, rather than
@@ -418,8 +427,9 @@ the remedy.
    one to every tier it has, so a shared card there is the most exposed
    version of this rather than an exempt one. The remedy is the card's own
    key — ``access: own``, or dropping the key — or pointing the entry at a
-   tier that holds none of them. An app card never reaches this rule: the
-   build closes all three surfaces on every app, whatever the host sets.
+   tier that holds none of them. A ``shared:`` card never reaches this rule:
+   the build closes all three surfaces on every shared login, whatever the
+   host sets.
 
    A privileged ``default_tier`` is refused too, in a deployment that draws
    a privilege split at all — one whose profile floors those surfaces and lets
@@ -483,5 +493,5 @@ Related pages
 - :ref:`The control-target chip <web-terminal-session-posture>` — how an
   operator takes writes away from one control target for their own session,
   and can never gain more than the tier permits.
-- :doc:`../../build-profiles` — tiers and apps: what a tier file may contain,
+- :doc:`../../build-profiles` — logins: what a login file may contain,
   and how the floor is written so that one tier can lift it.

@@ -1592,6 +1592,18 @@ jobs:
     - name: Run dock-engine tests (vitest)
       run: python3 scripts/check.py run dock-engine-tests
 
+    # `osprey app check` installs its own pinned toolchain and runs it through Python.
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Install Python dependencies
+      run: uv sync --extra dev
+
+    - name: Run osprey app check over a panel (pinned JS toolchain)
+      run: python3 scripts/check.py run app-check-js
+
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)
     runs-on: ubuntu-latest

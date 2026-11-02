@@ -25,7 +25,7 @@ from osprey.cli import build_profile_emit
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
 from osprey.cli.build_profile_merge import compute_preset_hash
-from osprey.cli.build_profile_presets import _load_preset_raw, list_apps, list_tiers
+from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
 from osprey_connectors.errors import BuildProfileError
 
 # A bundled tier and the host preset whose deployments carry it.
@@ -33,9 +33,7 @@ RENDER_PRESET = "tiers/readonly"
 HOST_PRESET = "control-assistant"
 
 #: Every bundled layer, kind-qualified the way the emitter names it.
-RENDER_PRESETS = tuple(f"tiers/{name}" for name in list_tiers()) + tuple(
-    f"apps/{name}" for name in list_apps()
-)
+RENDER_PRESETS = tuple(f"tiers/{name}" for name in list_tiers())
 
 
 def _delta(preset: str = RENDER_PRESET, name: str = "My Profile") -> dict:
@@ -52,19 +50,19 @@ def test_the_bundled_layers_are_listed() -> None:
     """Guards the parametrizations below against running over nothing."""
     assert "tiers/readonly" in RENDER_PRESETS
     assert "tiers/readwrite" in RENDER_PRESETS
-    assert any(preset.startswith("apps/") for preset in RENDER_PRESETS)
+    assert "tiers/logbook" in RENDER_PRESETS
 
 
 @pytest.mark.parametrize("preset", RENDER_PRESETS)
 def test_delta_content_is_the_preset_layer_minus_extends(preset: str) -> None:
     """The one contract: emitted keys == the bundled file's own raw layer plus
-    its provenance, a tier's ``name`` retitled after the deployment and an
-    app's kept. A key that appeared here without being in the bundled file
-    would be a host setting frozen into the layer."""
-    kind, _sep, stem = preset.partition("/")
+    its provenance, a tier's ``name`` retitled after the deployment and a
+    ``lists: own`` login's kept. A key that appeared here without being in the
+    bundled file would be a host setting frozen into the layer."""
+    _kind, _sep, stem = preset.partition("/")
     raw, _path = _load_preset_raw(preset)
     expected = dict(raw)
-    if kind == "tiers":
+    if raw.get("lists") != "own":
         expected["name"] = f"Retitled ({stem})"
     expected["provenance"] = {"preset": stem, "preset_hash": compute_preset_hash(preset)}
 
@@ -135,32 +133,33 @@ def test_header_explains_the_implicit_merge_and_names_the_source() -> None:
     assert "Render (readonly) — one access level of this deployment's agent" in header
     assert "A tier adds to profile.yml and never subtracts from it" in header
     assert "the build lays this file over that one" in header
-    assert "Made from the bundled `readonly` tier" in header
+    assert "Made from the bundled `readonly` login" in header
     assert f"content hash: {compute_preset_hash(RENDER_PRESET)}" in header
     assert "osprey validate my-profile/tiers/readonly.yml" in header
 
 
-def test_app_header_says_the_app_is_a_whole_definition() -> None:
-    """An app brings its own lists and borrows only the host's services, so its
-    header says so instead of describing a delta."""
+def test_an_own_list_login_header_says_it_is_a_whole_definition() -> None:
+    """A ``lists: own`` login brings its own lists and borrows only the host's
+    services, so its header says so instead of describing a delta."""
     text = emit_layer_delta_yaml(
-        preset_name="apps/knowledge",
+        preset_name="tiers/knowledge",
         profile_name="Render",
-        profile_filename="my-profile/apps/knowledge.yml",
+        profile_filename="my-profile/tiers/knowledge.yml",
     )
     header = _unwrapped_comments(text, header_only=True)
 
-    assert "an app this deployment offers on a shared card" in header
+    assert "a narrow login of this deployment (`lists: own`)" in header
     assert "nothing is inherited from profile.yml's lists or subtracted from them" in header
-    assert "Made from the bundled `knowledge` app" in header
-    assert "osprey validate my-profile/apps/knowledge.yml" in header
+    assert "Services, data and provider are profile.yml's" in header
+    assert "Made from the bundled `knowledge` login" in header
+    assert "osprey validate my-profile/tiers/knowledge.yml" in header
 
 
 def test_preset_without_extends_cannot_be_emitted_as_a_delta() -> None:
     """Only a bundled tier or app is a layer: a deployment preset is the
     ``profile.yml`` itself, and is refused by name rather than emitted as a
     file laid over another one."""
-    with pytest.raises(BuildProfileError, match="names no tier or app"):
+    with pytest.raises(BuildProfileError, match="names no login"):
         emit_layer_delta_yaml(
             preset_name=HOST_PRESET,
             profile_name="Render",

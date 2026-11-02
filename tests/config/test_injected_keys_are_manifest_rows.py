@@ -7,7 +7,9 @@ reach the guard's preset-and-framework union: the ones the service injectors
 write into ``services.<name>`` during a deploying build, and the ones a compose
 template or a Python reader takes that no preset states. These tests pin both
 halves, and pin that the guard itself now renders the injected shape, so the
-gap cannot reopen unseen.
+gap cannot reopen unseen. A third kind comes from a deployment's applications:
+the build projects them into four families of keys, which the guard reads from a
+fixture deployment's render.
 """
 
 from __future__ import annotations
@@ -79,6 +81,58 @@ def test_every_key_an_injector_writes_is_a_manifest_row(guard, guard_module) -> 
         "no preset's deploying render injected a service — the probe proves nothing"
     )
     assert not missing, f"injector-written keys with no manifest row: {missing}"
+
+
+def test_every_key_the_projection_writes_is_a_manifest_row(guard) -> None:
+    """The fixture deployment's render: every path it adds has a row, in family spelling."""
+    rows = manifest_rows()
+    added = guard.application_paths()
+
+    assert {
+        "dispatch.denied_app_tools",
+        "services.<app-container>.port",
+        "services.<app-container>.image",
+        "services.<app-container>.command",
+        "web.panels.<app-panel>.agent_routes",
+        "web.panels.<app-panel>.launch_token_env",
+        "web.panels.<app-panel>.enabled",
+        "claude_code.servers.<server>.writes",
+        "claude_code.servers.<server>.permissions.allow",
+        "claude_code.servers.<server>.condition",
+        "apps.<app>.tools.read",
+        "apps.<app>.tools.errors.unreachable",
+        "apps.<app>.tools.errors.refused",
+        "apps.<app>.approval.<tool>.prompt",
+        "apps.<app>.approval.<tool>.bind.state_fields",
+        "apps.<app>.approval.<tool>.bind.input_digests",
+        "apps.<app>.approval.<tool>.require.all_of",
+        "apps.<app>.approval.<tool>.require.one_of",
+        "apps.<app>.approval.<tool>.errors.refused",
+    } <= added
+    assert not sorted(path for path in added if not _is_row(path, rows))
+
+
+def test_no_row_names_an_application_of_the_fixture(guard) -> None:
+    """A family holds every application: no rendered instance name reaches the union."""
+    _own, render = guard.application_render()
+    apps = sorted(render["apps"])
+    assert apps == ["gauge", "ledger"]
+
+    spelled = [path for path in guard.application_paths() if {*path.split(".")} & {*apps}]
+    assert not spelled
+    assert not [key for key in manifest_rows() if {*key.split(".")} & {*apps}]
+
+
+def test_the_fixture_renders_both_shapes_of_an_application(guard) -> None:
+    """One application with an approval tool, one with reads only and its own error texts."""
+    _own, render = guard.application_render()
+
+    gauge, ledger = render["apps"]["gauge"], render["apps"]["ledger"]
+    assert list(gauge["approval"]) == ["gauge_set"]
+    assert gauge["tools"]["errors"] == {"unreachable": None, "refused": None}
+    assert ledger["approval"] == {}
+    assert all(ledger["tools"]["errors"].values())
+    assert render["dispatch"]["denied_app_tools"] == ["mcp__gauge__gauge_set"]
 
 
 def _template_reads() -> dict[str, set[str]]:

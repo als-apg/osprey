@@ -1,15 +1,15 @@
-"""What ``osprey init`` writes beside ``profile.yml``: the tier and app files.
+"""What ``osprey init`` writes beside ``profile.yml``: the login files.
 
-A profile that stands up the multi-user web-terminal stack owns the tiers and
-apps its roster names: ``osprey init`` writes ``tiers/<n>.yml`` for every tier a
-person, ``default_tier``, a role or ``dispatch.tier`` names, and
-``apps/<n>.yml`` for every app in ``shared:``.
+A profile that stands up the multi-user web-terminal stack owns the logins its
+roster names: ``osprey init`` writes ``tiers/<n>.yml`` for every tier a person,
+``default_tier``, a role or ``dispatch.tier`` names, and for every shared login
+in ``shared:``.
 
 Each is materialized the way ``profile.yml`` is: the bundled file's whole
 content with its comments, a header saying what the file is, and a
 ``provenance:`` block naming what it was made from. There is no ``extends:`` and
 no pointer into the package — the materialized repo is explicit. Location is
-the relation to the host: a file in ``tiers/`` or ``apps/`` is laid over the
+the relation to the host: a file in ``tiers/`` is laid over the
 ``profile.yml`` beside it, so none restates the host's data tree, provider or
 model.
 
@@ -34,16 +34,14 @@ from osprey.utils.workspace import RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import (
-    APP_PRESETS,
     EXEMPLAR_DIRNAME,
+    SHARED_LOGIN_PRESETS,
     TIER_PRESETS,
     exemplar_source_files,
 )
 
-#: Every tier and app file the exemplar holds, repo-relative.
-EXEMPLAR_LAYER_FILES = tuple(
-    [f"tiers/{name}.yml" for name in TIER_PRESETS] + [f"apps/{name}.yml" for name in APP_PRESETS]
-)
+#: Every login file the exemplar holds, repo-relative.
+EXEMPLAR_LAYER_FILES = tuple(f"tiers/{name}.yml" for name in (*TIER_PRESETS, *SHARED_LOGIN_PRESETS))
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
@@ -83,11 +81,12 @@ def test_init_writes_exactly_the_exemplar_layer_set(exemplar_repo: Path) -> None
     retired layer directory beside them."""
     written = sorted(
         f"{folder}/{path.name}"
-        for folder in ("tiers", "apps")
+        for folder in ("tiers",)
         for path in (exemplar_repo / folder).iterdir()
     )
 
     assert written == sorted(EXEMPLAR_LAYER_FILES)
+    assert not (exemplar_repo / "apps").exists()
     for retired in RETIRED_LAYER_DIRS:
         assert not (exemplar_repo / retired).exists()
 
@@ -120,11 +119,11 @@ def test_exemplar_layers_restate_nothing_the_host_owns(exemplar_repo: Path, rela
         assert host_key not in parsed, host_key
 
 
-def test_exemplar_tiers_are_titled_after_the_deployment_and_apps_keep_their_own(
+def test_exemplar_tiers_are_titled_after_the_deployment_and_shared_logins_keep_their_own(
     exemplar_repo: Path,
 ) -> None:
-    """A tier is an access level of the deployment's agent; an app's ``name:``
-    is the title of the card it runs behind."""
+    """A tier is an access level of the deployment's agent; a ``lists: own``
+    login's ``name:`` is the title of the card it runs behind."""
     titles = {
         relative: yaml.safe_load((exemplar_repo / relative).read_text(encoding="utf-8"))["name"]
         for relative in EXEMPLAR_LAYER_FILES
@@ -132,13 +131,13 @@ def test_exemplar_tiers_are_titled_after_the_deployment_and_apps_keep_their_own(
 
     for tier in TIER_PRESETS:
         assert titles[f"tiers/{tier}.yml"] == f"Als Exemplar ({tier})"
-    assert titles["apps/logbook.yml"] == "Logbook Research"
+    assert titles["tiers/logbook.yml"] == "Logbook Research"
 
 
 def test_exemplar_profile_and_layers_build_every_render(
     exemplar_repo: Path, tmp_path: Path
 ) -> None:
-    """The emitted repo builds: one render per tier and app it holds."""
+    """The emitted repo builds: one render per login it holds."""
     import shutil
 
     repo = tmp_path / EXEMPLAR_DIRNAME
@@ -170,7 +169,7 @@ def test_exemplar_layer_texts_parse_to_deltas_keyed_by_render_name() -> None:
         _rewrite_shadow_lines(texts[relative], relative, ["rules/facility"]) == expected[relative]
         for relative in texts
     )
-    assert set(_parsed_layer_deltas(texts)) == {*TIER_PRESETS, *APP_PRESETS}
+    assert set(_parsed_layer_deltas(texts)) == {*TIER_PRESETS, *SHARED_LOGIN_PRESETS}
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +196,7 @@ def test_the_emitter_names_a_nested_profile_path_in_its_hint() -> None:
 def test_the_emitter_refuses_a_name_that_is_not_a_kind_qualified_layer(name: str) -> None:
     from osprey.cli.build_profile_emit import emit_layer_delta_yaml
 
-    with pytest.raises(BuildProfileError, match="names no tier or app"):
+    with pytest.raises(BuildProfileError, match="names no login"):
         emit_layer_delta_yaml(preset_name=name, profile_name="X", profile_filename="x.yml")
 
 
@@ -218,12 +217,12 @@ def test_the_emitter_refuses_a_bundled_layer_that_declares_extends(
 
     with pytest.raises(BuildProfileError, match="declares extends"):
         emit_mod.emit_layer_delta_yaml(
-            preset_name="apps/logbook", profile_name="X", profile_filename="apps/logbook.yml"
+            preset_name="tiers/logbook", profile_name="X", profile_filename="tiers/logbook.yml"
         )
 
 
 # ---------------------------------------------------------------------------
-# Which tiers and apps: the ones the roster names
+# Which logins: the ones the roster names
 # ---------------------------------------------------------------------------
 
 
@@ -244,9 +243,7 @@ def _layer_names(target: Path, folder: str) -> set[str]:
     return {path.stem for path in directory.iterdir()} if directory.is_dir() else set()
 
 
-def test_only_the_tiers_and_apps_the_roster_names_are_written(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_only_the_logins_the_roster_names_are_written(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "my-facility"
     edit = _web_terminals_edit(
         users=[{"name": "bob", "index": 1, "tier": "readonly"}],
@@ -257,8 +254,8 @@ def test_only_the_tiers_and_apps_the_roster_names_are_written(
     result = _new(runner, target, "control-assistant", *edit)
 
     assert result.exit_code == 0, result.output
-    assert _layer_names(target, "tiers") == {"readonly"}
-    assert _layer_names(target, "apps") == {"logbook"}
+    assert _layer_names(target, "tiers") == {"readonly", "logbook"}
+    assert _layer_names(target, "apps") == set()
 
 
 def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
@@ -355,9 +352,7 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
     assert rendered["modules"]["web_terminals"]["renders"]["readonly"]["kind"] == "tier"
 
 
-def test_a_preset_without_web_terminals_writes_no_tiers_or_apps(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_a_preset_without_web_terminals_writes_no_logins(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, "hello-world").exit_code == 0
@@ -367,7 +362,7 @@ def test_a_preset_without_web_terminals_writes_no_tiers_or_apps(
 
 
 # ---------------------------------------------------------------------------
-# Refusals: a roster whose tiers or apps cannot be materialized
+# Refusals: a roster whose logins cannot be materialized
 # ---------------------------------------------------------------------------
 
 
@@ -384,13 +379,18 @@ def test_a_tier_osprey_does_not_ship_is_refused_before_anything_is_written(
     assert result.exit_code == 2
     # Every problem named at once.
     assert "the roster names tier 'ops', but OSPREY ships no such tier" in result.output
-    assert "the roster names app 'nonesuch', but OSPREY ships no such app" in result.output
+    assert (
+        "the roster names shared login 'nonesuch', but OSPREY ships no such shared login"
+        in result.output
+    )
     assert not target.exists()  # fail-before-mutating
 
 
-def test_a_name_that_is_both_a_tier_and_an_app_is_refused(runner: CliRunner, tmp_path: Path):
-    """A render is named after its file, so a tier and an app sharing a name
-    would be one render built from two files."""
+def test_a_name_that_is_both_a_tier_and_a_shared_login_is_refused(
+    runner: CliRunner, tmp_path: Path
+):
+    """One file has one audience: a person's tier and a shared card cannot be
+    built from the same login file."""
     target = tmp_path / "my-facility"
     edit = _web_terminals_edit(
         users=[{"name": "bob", "index": 1, "tier": "logbook"}], shared=["logbook"]
@@ -399,7 +399,9 @@ def test_a_name_that_is_both_a_tier_and_an_app_is_refused(runner: CliRunner, tmp
     result = _new(runner, target, "control-assistant", *edit)
 
     assert result.exit_code == 2
-    assert "'logbook' is both a tier the roster names and an app in shared:" in result.output
+    assert (
+        "'logbook' is both a tier the roster names and a shared login in shared:" in result.output
+    )
     assert not target.exists()
 
 
@@ -412,14 +414,14 @@ def test_a_malformed_emitted_layer_is_reported_before_anything_is_written(
     monkeypatch.setattr(emit_mod, "emit_layer_delta_yaml", lambda **_: "name: [unclosed\n")
     target = tmp_path / "my-facility"
 
-    with pytest.raises(BuildProfileError, match=r"Emitted layer (tiers|apps)/.*not valid YAML"):
+    with pytest.raises(BuildProfileError, match=r"Emitted layer tiers/.*not valid YAML"):
         _materialize_profile_directory(target, "control-assistant")
 
     assert not target.exists()
 
 
 # ---------------------------------------------------------------------------
-# The privilege tally: every card the roster runs, people and apps
+# The privilege tally: every card the roster runs, people and shared logins
 # ---------------------------------------------------------------------------
 
 
@@ -497,25 +499,25 @@ def test_a_privileged_default_tier_is_refused(runner: CliRunner, tmp_path: Path)
 
 
 def _tampered_logbook(monkeypatch: pytest.MonkeyPatch, line: str) -> None:
-    """Emit the bundled logbook app with ``line`` added to its ``config:``."""
+    """Emit the bundled logbook login with ``line`` added to its ``config:``."""
     import osprey.cli.build_profile_emit as emit_mod
 
     real = emit_mod.emit_layer_delta_yaml
 
     def tampered(**kwargs: str) -> str:
         text = real(**kwargs)
-        if kwargs["preset_name"] != "apps/logbook":
+        if kwargs["preset_name"] != "tiers/logbook":
             return text
         return text.replace("\nconfig:\n", f"\nconfig:\n  {line}\n", 1)
 
     monkeypatch.setattr(emit_mod, "emit_layer_delta_yaml", tampered)
 
 
-def test_an_app_that_opens_a_door_is_still_composed_without_it(
+def test_a_shared_login_that_opens_a_door_is_still_sealed_without_it(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tally judges an app card on the render the build composes, which
-    closes every deployment-editing door whatever the app file says: the
+    """The tally judges a shared card on the render the build seals, which
+    closes every deployment-editing door whatever the login file says: the
     shared logbook card holds nothing, so init does not refuse it."""
     _tampered_logbook(monkeypatch, "web.config_panel.enabled: true")
     target = tmp_path / "my-facility"
@@ -526,11 +528,11 @@ def test_an_app_that_opens_a_door_is_still_composed_without_it(
     assert "user 'logbook' is a shared card" not in result.output
 
 
-def test_an_app_the_composer_refuses_is_refused_by_init(
+def test_a_shared_login_the_seal_refuses_is_refused_by_init(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tally runs over every card the roster runs, the derived app cards
-    included: an app file that lifts the setup deny composes into a render
+    """The tally runs over every card the roster runs, the shared cards
+    included: a shared login that lifts the setup deny seals into a render
     that could edit the deployment, so init refuses it before writing a repo."""
     _tampered_logbook(
         monkeypatch, "claude_code.permissions.remove_deny: [mcp__osprey_workspace__setup_patch]"

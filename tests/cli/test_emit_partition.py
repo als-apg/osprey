@@ -1,9 +1,10 @@
 """Partition guard for emitted profiles — "no silent config" (FR8).
 
-Every ``BuildProfile`` field belongs to exactly one of three named sets, and
+Every ``BuildProfile`` field belongs to exactly one of four named sets, and
 what each set promises is asserted against real emissions of every bundled
 preset: EXPLICIT members always appear, COMMENTED members appear either active
-or as a commented template, and build-mechanics keys are never synthesized.
+or as a commented template, build-mechanics keys are never synthesized, and
+login-only keys never appear in a deployment's profile.
 
 The second half of the file is about the ``config:`` block the presets now
 carry. Those keys used to live in an app template the operator never opened, so
@@ -30,6 +31,7 @@ from osprey.cli.build_profile_emit import (
     _COMMENTED_TEMPLATES,
     _EXPLICIT_DEFAULTS,
     _EXPLICIT_KEYS,
+    _LOGIN_ONLY_KEYS,
     emit_standalone_profile_yaml,
 )
 from osprey.cli.build_profile_load import (
@@ -106,12 +108,33 @@ def _comment_lines(text: str) -> list[str]:
 
 def test_every_field_is_classified_exactly_once() -> None:
     """A new BuildProfile field fails here until someone classifies it."""
-    union = _EXPLICIT_KEYS | _COMMENTED_TEMPLATE_KEYS | _BUILD_MECHANICS_KEYS
+    sets = (_EXPLICIT_KEYS, _COMMENTED_TEMPLATE_KEYS, _BUILD_MECHANICS_KEYS, _LOGIN_ONLY_KEYS)
+    union = frozenset().union(*sets)
 
     assert union == _FIELDS, f"unclassified: {_FIELDS - union}; unknown: {union - _FIELDS}"
-    assert not _EXPLICIT_KEYS & _COMMENTED_TEMPLATE_KEYS
-    assert not _EXPLICIT_KEYS & _BUILD_MECHANICS_KEYS
-    assert not _COMMENTED_TEMPLATE_KEYS & _BUILD_MECHANICS_KEYS
+    assert sum(len(s) for s in sets) == len(union), "a field is in two sets"
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_login_only_keys_never_reach_a_profile(preset: str) -> None:
+    """`lists` belongs to a login file: no emitted profile.yml spells or offers it."""
+    text = _emit(preset)
+    active, templated = _active_and_commented(text)
+
+    assert not active & _LOGIN_ONLY_KEYS
+    assert not templated & _LOGIN_ONLY_KEYS
+    for key in _LOGIN_ONLY_KEYS:
+        assert f"\n# {key}:" not in text
+
+
+def test_a_preset_that_sets_apps_emits_it_live() -> None:
+    """COMMENTED governs only the unset case: a set `apps:` is written active."""
+    text = _emit("hello-world", set_pairs=("apps.knob.config.step=1",))
+    active, templated = _active_and_commented(text)
+
+    assert "apps" in active
+    assert "apps" not in templated
+    assert yaml.safe_load(text)["apps"] == {"knob": {"config": {"step": 1}}}
 
 
 def test_every_commented_member_has_a_template() -> None:
@@ -273,6 +296,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
 
     assert templated == {
         "model",
+        "apps",
         "channel_finder_mode",
         "default_panel",
         "deploy",
@@ -341,6 +365,7 @@ def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None
     and is refused in a profile.
     """
     expected = _FIELDS | {"extends", "exclude"} | {CONNECTOR_PROFILE_KEY, PORT_BASE_PROFILE_KEY}
+    assert _LOGIN_ONLY_KEYS <= _FIELDS
 
     assert set(_KNOWN_PROFILE_KEYS) == expected
     assert PRESET_DATA_BUNDLE_KEY not in _KNOWN_PROFILE_KEYS

@@ -655,19 +655,19 @@ def exemplar_config(lifecycle_repo: Path) -> dict:
     return document["config"]
 
 
-#: The layers the exemplar repo carries: its three tiers, then its three apps.
-_EXEMPLAR_LAYERS = ["admin", "readonly", "readwrite", "channel-finder", "knowledge", "logbook"]
+#: The layers the exemplar repo carries: its six logins, sorted.
+_EXEMPLAR_LAYERS = ["admin", "channel-finder", "knowledge", "logbook", "readonly", "readwrite"]
 
 
 def test_read_layer_deltas_reads_one_delta_per_layer_file(lifecycle_repo: Path) -> None:
     deltas = read_layer_deltas(lifecycle_repo)
 
-    # Keyed by file stem, tiers before apps, sorted within each.
+    # Keyed by file stem, sorted.
     assert list(deltas) == _EXEMPLAR_LAYERS
     # Every one was really read, and it is the file's own content.
     assert all(delta for delta in deltas.values())
     assert deltas["logbook"] == yaml.safe_load(
-        (lifecycle_repo / "apps" / "logbook.yml").read_text(encoding="utf-8")
+        (lifecycle_repo / "tiers" / "logbook.yml").read_text(encoding="utf-8")
     )
     assert deltas["admin"] == yaml.safe_load(
         (lifecycle_repo / "tiers" / "admin.yml").read_text(encoding="utf-8")
@@ -694,8 +694,8 @@ def test_read_layer_deltas_reads_a_layer_file_added_to_the_directory(
     # reports it as well; a dot-file or a nested tree is not a layer.
     (lifecycle_repo / "tiers" / "operator.yml").write_text("provider: cborg\n", encoding="utf-8")
     (lifecycle_repo / "tiers" / ".draft.yml").write_text("provider: x\n", encoding="utf-8")
-    (lifecycle_repo / "apps" / "nested").mkdir()
-    (lifecycle_repo / "apps" / "nested" / "deep.yml").write_text("provider: x\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / "nested").mkdir()
+    (lifecycle_repo / "tiers" / "nested" / "deep.yml").write_text("provider: x\n", encoding="utf-8")
 
     deltas = read_layer_deltas(lifecycle_repo)
 
@@ -704,7 +704,7 @@ def test_read_layer_deltas_reads_a_layer_file_added_to_the_directory(
 
 
 def test_read_layer_deltas_drops_a_removed_layer(lifecycle_repo: Path) -> None:
-    (lifecycle_repo / "apps" / "logbook.yml").unlink()
+    (lifecycle_repo / "tiers" / "logbook.yml").unlink()
 
     deltas = read_layer_deltas(lifecycle_repo)
 
@@ -732,12 +732,12 @@ def test_read_layer_deltas_refuses_an_unparsable_file(lifecycle_repo: Path) -> N
 def test_read_layer_deltas_refuses_a_file_that_is_not_a_mapping(lifecycle_repo: Path) -> None:
     # Valid YAML, but nothing a delta can be merged from. Carried as an empty
     # delta it would read as a layer that overrides nothing.
-    (lifecycle_repo / "apps" / "knowledge.yml").write_text("- readonly\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / "knowledge.yml").write_text("- readonly\n", encoding="utf-8")
 
     with pytest.raises(click.ClickException) as excinfo:
         read_layer_deltas(lifecycle_repo)
 
-    assert "apps/knowledge.yml is not a YAML mapping" in str(excinfo.value)
+    assert "tiers/knowledge.yml is not a YAML mapping" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
@@ -963,14 +963,14 @@ def test_a_broken_layer_file_never_reaches_the_json_document(
     lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An unparsable layer refuses, and the refusal lands on stderr alone."""
-    (lifecycle_repo / "apps" / "logbook.yml").write_text("- not a mapping\n", encoding="utf-8")
+    (lifecycle_repo / "tiers" / "logbook.yml").write_text("- not a mapping\n", encoding="utf-8")
     monkeypatch.chdir(lifecycle_repo)
 
     result = CliRunner().invoke(cli, ["profile", "card", "--json"], catch_exceptions=False)
 
     assert result.exit_code == 1
     assert result.stdout == ""
-    assert "apps/logbook.yml is not a YAML mapping" in result.stderr
+    assert "tiers/logbook.yml is not a YAML mapping" in result.stderr
 
 
 @pytest.mark.parametrize("mode", [[], ["--json"]], ids=["plain", "json"])

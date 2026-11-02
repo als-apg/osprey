@@ -509,6 +509,77 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `showThinkingSummaries`, true unless the deployment
         # sets `claude_code.thinking.display: omitted`.
         "show_thinking_summaries": _thinking_display(config) == "summarized",
+        # Each application tool's approval declaration, keyed by its full
+        # name, and the class and guidance of each application error type, for
+        # hook_config.json. Read from the rendered `apps.<name>` leaves, so
+        # every render path writes the same file.
+        "app_approvals": _app_approvals(config),
+        "app_error_types": _app_error_types(config),
+        # `panel:<id>`, true for every panel block the render shows: the
+        # condition a `shown_when: panel` application server carries, merged
+        # before resolve_servers runs like the server gates above.
+        **_shown_panel_keys(config),
+    }
+
+
+#: The class of each error type an application's tool server emits, as
+#: ``<app>.<type>``; the guidance text comes from the application's manifest.
+APP_ERROR_CLASSES: dict[str, str] = {"unreachable": "Connection", "refused": "Safety"}
+
+
+def _app_blocks(config: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    apps = config.get("apps")
+    if not isinstance(apps, Mapping):
+        return []
+    return [(str(name), block) for name, block in apps.items() if isinstance(block, Mapping)]
+
+
+def _app_approvals(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Every ``apps.<name>.approval.<tool>`` entry, keyed ``mcp__<name>__<tool>``.
+
+    Each entry gains ``app``, the application name its path names.
+    """
+    declared: dict[str, Any] = {}
+    for name, block in _app_blocks(config):
+        approval = block.get("approval")
+        if not isinstance(approval, Mapping):
+            continue
+        for tool, entry in approval.items():
+            if isinstance(entry, Mapping):
+                declared[f"mcp__{name}__{tool}"] = {"app": name, **entry}
+    return declared
+
+
+def _app_error_types(config: Mapping[str, Any]) -> dict[str, dict[str, str | None]]:
+    """``{"<app>.<type>": {class, text}}`` for every application with a tool server."""
+    types: dict[str, dict[str, str | None]] = {}
+    for name, block in _app_blocks(config):
+        tools = block.get("tools")
+        if not isinstance(tools, Mapping):
+            continue
+        errors = tools.get("errors")
+        for kind, error_class in APP_ERROR_CLASSES.items():
+            text = errors.get(kind) if isinstance(errors, Mapping) else None
+            types[f"{name}.{kind}"] = {
+                "class": error_class,
+                "text": text if isinstance(text, str) and text else None,
+            }
+    return types
+
+
+def _shown_panel_keys(config: Mapping[str, Any]) -> dict[str, bool]:
+    """``{"panel:<id>": True}`` for every ``web.panels`` block the render shows."""
+    from osprey.apps.projection import PANEL_CONDITION_PREFIX
+    from osprey.profiles.web_panels import panel_spec_enabled
+
+    web = config.get("web")
+    panels = web.get("panels") if isinstance(web, Mapping) else None
+    if not isinstance(panels, Mapping):
+        return {}
+    return {
+        f"{PANEL_CONDITION_PREFIX}{pid}": True
+        for pid, block in panels.items()
+        if panel_spec_enabled(block)
     }
 
 

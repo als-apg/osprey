@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -100,7 +101,14 @@ def malformed(checks: tuple[Any, ...]) -> list[str]:
             problems.append(f"{c.id}: unknown tier in {sorted(c.tiers)}")
         problems += [
             f"{c.id}: unknown need {need}"
-            for need in c.needs
+            for need in (
+                *c.needs,
+                *(
+                    c.selected_needs(check.Selection(check.WHOLE), check.Context())
+                    if c.selected_needs
+                    else ()
+                ),
+            )
             if need != "base" and need not in check.NEED_PROBES
         ]
         if c.venue and c.venue not in check.VENUES:
@@ -167,6 +175,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
+        "app-check-js",
         "dock-engine-tests",
         "dock-engine-bundle",
         "docs",
@@ -178,10 +187,22 @@ def test_the_check_ids_are_the_public_names() -> None:
         "pytest-wallclock",
         "readonly-warmups-py314",
         "live-ca",
+        "app-check-js",
         "docs",
         "linkcheck",
         "package",
     ]
+
+
+def test_the_js_check_lane_opens_the_test_it_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OSPREY_JS_CHECK", "0")  # Puts the variable back after the test.
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+
+    assert BY_ID["app-check-js"].prepare(None) == 0
+
+    assert os.environ["OSPREY_JS_CHECK"] == "1"
 
 
 #: Modules whose import is a read of the whole tests tree.
@@ -916,7 +937,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800"]
-    assert bounds("full") == ["5400", "600", "900", "900"]
+    assert bounds("full") == ["5400", "600", "900", "900", "600"]
 
 
 # ---------------------------------------------------------------------------
@@ -1610,12 +1631,13 @@ def test_a_refusal_names_every_unmet_need(
         f"check: eslint: refused ({node})",
         f"check: prettier: refused ({node})",
         f"check: vitest: refused ({node})",
+        f"check: app-check-js: refused ({node})",
         f"check: dock-engine-tests: refused ({node})",
         f"check: dock-engine-bundle: refused ({node})",
         f"check: docs: refused ({docs})",
         f"check: linkcheck: refused ({docs})",
-        f"check: refused: tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle "
-        f"({node}); "
+        f"check: refused: tsc, eslint, prettier, vitest, app-check-js, dock-engine-tests, "
+        f"dock-engine-bundle ({node}); "
         f"refused: docs, linkcheck ({docs})",
     ]
 
@@ -1626,6 +1648,393 @@ def test_fix_rewrites_nothing_when_a_need_is_refused(
     monkeypatch.setitem(check.NEED_PROBES, "node", lambda: "Node is not installed")
     assert check.main(["quick", "--fix"]) == 2
     assert recorder.calls == []
+
+
+def last_error_line(capsys: pytest.CaptureFixture[str]) -> str:
+    return capsys.readouterr().err.strip().splitlines()[-1]
+
+
+def _faulting(probe: str, fact: str) -> Any:
+    """A need probe that says this machine cannot judge."""
+
+    def need() -> str | None:
+        raise kit.EnvironmentFault(probe, fact)
+
+    return need
+
+
+def test_a_raising_need_gives_the_environment_verdict_and_runs_nothing(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fault = _faulting("docker storage", "volume create input/output error")
+    monkeypatch.setitem(check.NEED_PROBES, "uv", fault)
+    assert check.main(["quick", "--fix"]) == kit.ENVIRONMENT_EXIT == 3
+    assert last_error_line(capsys) == (
+        "check: environment: docker storage: volume create input/output error"
+    )
+    assert recorder.calls == []
+
+
+def test_a_fault_wins_over_a_refusal(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "uv", lambda: "uv is not on PATH")
+    monkeypatch.setitem(check.NEED_PROBES, "node", _faulting("free space", "1 MiB free"))
+    assert check.main(["full"]) == 3
+    assert last_error_line(capsys) == "check: environment: free space: 1 MiB free"
+    assert recorder.calls == []
+
+
+def test_a_reports_directory_that_cannot_open_is_the_environment_verdict(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def full(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(check.tempfile, "TemporaryDirectory", full)
+    assert check.main(["quick"]) == 3
+    assert last_error_line(capsys) == (
+        "check: environment: free space: [Errno 28] No space left on device"
+    )
+    assert recorder.calls == []
+
+
+def test_a_selected_need_is_probed_from_the_selection_and_the_run(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[Any, Any]] = []
+    probed: list[str] = []
+
+    def hook(selection: Any, context: Any) -> tuple[str, ...]:
+        seen.append((selection, context))
+        return ("gitleaks",)
+
+    monkeypatch.setitem(check.NEED_PROBES, "gitleaks", lambda: probed.append("gitleaks"))
+    _replace(monkeypatch, "pytest", selected_needs=hook)
+    assert check.main(["run", "pytest", "--shard", "cli"]) == 0
+    ((selection, context),) = seen
+    assert selection.state == check.WHOLE
+    assert context.shard == "cli"
+    assert probed == ["gitleaks"]
+    assert recorder.ran("pytest")
+
+
+def test_an_unmet_selected_need_is_a_refusal(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "gitleaks", lambda: "gitleaks is not on PATH")
+    _replace(monkeypatch, "pytest", selected_needs=lambda _s, _c: ("gitleaks",))
+    assert check.main(["run", "pytest"]) == 2
+    assert "gitleaks is not on PATH" in last_error_line(capsys)
+    assert recorder.calls == []
+
+
+@pytest.mark.parametrize("words", [["list"], ["list", "--json"]])
+def test_list_probes_nothing(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, words: list[str]
+) -> None:
+    for need in check.NEED_PROBES:
+        monkeypatch.setitem(check.NEED_PROBES, need, _faulting("free space", "listed"))
+    assert check.main(words) == 0
+    assert recorder.calls == []
+
+
+def test_the_selection_hook_stays_out_of_the_declaration() -> None:
+    assert all("selected_needs" not in entry for entry in check.declaration()["checks"])
+
+
+def _probing(monkeypatch: pytest.MonkeyPatch, *answers: tuple[int, str]) -> list[list[str]]:
+    """``_probe`` answers each call with the next (status, stdout); the argv are returned."""
+    calls: list[list[str]] = []
+    queue = list(answers)
+
+    def probe(argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:  # noqa: ARG001
+        calls.append(list(argv))
+        status, out = queue.pop(0)
+        return status, out, ""
+
+    monkeypatch.setattr(fw, "_probe", probe)
+    return calls
+
+
+STALE_ROW = "osprey-connectors\t2026.9.0b3\t2026.10.0\n"
+
+
+def test_a_current_install_syncs_nothing(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read = _probing(monkeypatch, (0, ""))
+    assert fw._need_install_current() is None
+    assert read == [list(fw.INSTALLED_VERSIONS_PROBE)]
+    assert "--no-sync" in fw.INSTALLED_VERSIONS_PROBE
+    assert recorder.calls == []
+
+
+def test_a_stale_install_is_resynced_and_rechecked(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    read = _probing(monkeypatch, (0, STALE_ROW + "pyaml-cs-osprey\t2026.9.0\t2026.10.0\n"), (0, ""))
+    assert fw._need_install_current() is None
+    assert len(read) == 2
+    assert recorder.calls == [
+        [
+            "uv",
+            "sync",
+            "--frozen",
+            "--inexact",
+            "--reinstall-package",
+            "osprey-connectors",
+            "--reinstall-package",
+            "pyaml-cs-osprey",
+        ]
+    ]
+    assert "osprey-connectors installed 2026.9.0b3" in capsys.readouterr().out
+
+
+def test_an_install_still_stale_after_the_sync_is_a_fault(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _probing(monkeypatch, (0, STALE_ROW), (0, STALE_ROW))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_install_current()
+    assert fault.value.probe == "install currency"
+    assert fault.value.fact == (
+        "osprey-connectors installed 2026.9.0b3, tree describes 2026.10.0 after uv sync"
+    )
+    assert len(recorder.calls) == 1
+
+
+def test_a_failed_sync_is_a_fault_whatever_the_reread_prints(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder.failing = {"uv sync": 1}
+    _probing(monkeypatch, (0, STALE_ROW), (1, ""))
+    with pytest.raises(kit.EnvironmentFault, match="after uv sync"):
+        fw._need_install_current()
+
+
+@pytest.mark.parametrize("status", [127, 1])
+def test_a_reader_that_cannot_run_answers_met(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """127: the ``uv`` need refuses. Otherwise a checkout with no environment
+    yet: the check's own ``uv run`` creates it current."""
+    _probing(monkeypatch, (status, ""))
+    assert fw._need_install_current() is None
+    assert recorder.calls == []
+
+
+def _free(monkeypatch: pytest.MonkeyPatch, **by_place: int) -> list[str]:
+    """``shutil.disk_usage`` answers *temp* and *root* bytes free; the paths asked are returned."""
+    asked: list[str] = []
+
+    def usage(path: Any) -> Any:
+        asked.append(str(path))
+        free = by_place["temp"] if str(path) == fw.tempfile.gettempdir() else by_place["root"]
+        return shutil._ntuple_diskusage(10**15, 10**15 - free, free)
+
+    monkeypatch.setattr(fw.shutil, "disk_usage", usage)
+    return asked
+
+
+GIB = 2**30
+
+
+def test_free_space_above_the_floor_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    _free(monkeypatch, temp=fw.FREE_SPACE_FLOOR_GIB * GIB, root=fw.FREE_SPACE_FLOOR_GIB * GIB)
+    assert fw._need_free_space() is None
+
+
+def test_free_space_under_the_floor_names_the_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    _free(monkeypatch, temp=313 * 2**20, root=100 * GIB)
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_free_space()
+    assert fault.value.probe == "free space"
+    assert fault.value.fact == f"313 MiB free on {tmp_path}, floor 5 GiB"
+
+
+def test_free_space_is_read_once_per_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(kit, "ROOT", tmp_path / "root")
+    (tmp_path / "root").mkdir()
+    asked = _free(monkeypatch, temp=100 * GIB, root=100 * GIB)
+    assert fw._need_free_space() is None
+    assert asked == [str(tmp_path)]
+
+
+def test_a_second_device_is_read_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "root"
+    monkeypatch.setattr(fw.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(kit, "ROOT", root)
+    monkeypatch.setattr(fw, "_device", lambda path: str(path))
+    asked = _free(monkeypatch, temp=100 * GIB, root=1 * GIB)
+    with pytest.raises(kit.EnvironmentFault, match="1024 MiB free on .*root"):
+        fw._need_free_space()
+    assert asked == [str(tmp_path), str(root)]
+
+
+def test_no_usable_temporary_directory_is_a_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    def nowhere() -> str:
+        raise FileNotFoundError(2, "No usable temporary directory found")
+
+    monkeypatch.setattr(fw.tempfile, "gettempdir", nowhere)
+    with pytest.raises(kit.EnvironmentFault, match="No usable temporary directory found"):
+        fw._need_free_space()
+
+
+class FakeDocker:
+    """Answers ``_probe`` for the docker commands; no test here starts a real one."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, **answers: Any) -> None:
+        self.calls: list[list[str]] = []
+        #: The verb (``info``, ``create``, ``rm``) to (status, stderr) or an exception.
+        self.answers = answers
+        self.timeouts: list[float | None] = []
+        monkeypatch.setattr(fw.shutil, "which", lambda name: f"/stub/{name}")
+        monkeypatch.setattr(fw, "_probe", self)
+
+    def __call__(self, argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:
+        self.calls.append(list(argv))
+        self.timeouts.append(timeout)
+        answer = self.answers.get(argv[1] if argv[1] == "info" else argv[2], (0, ""))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer[0], "", answer[1]
+
+
+def _volume(verb: str) -> list[str]:
+    return ["docker", "volume", verb, f"osprey-check-probe-{os.getpid()}"]
+
+
+def test_docker_storage_creates_and_removes_a_probe_volume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(monkeypatch)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == [["docker", "info"], _volume("create"), _volume("rm")]
+    assert set(docker.timeouts) == {60}
+
+
+def test_no_docker_on_the_path_is_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeDocker(monkeypatch)
+    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == []
+
+
+@pytest.mark.parametrize(
+    "info", [(1, "Cannot connect to the Docker daemon"), subprocess.TimeoutExpired("docker", 60)]
+)
+def test_a_daemon_that_does_not_answer_is_met(monkeypatch: pytest.MonkeyPatch, info: Any) -> None:
+    docker = FakeDocker(monkeypatch, info=info)
+    assert fw._need_docker_storage() is None
+    assert docker.calls == [["docker", "info"]]
+
+
+def test_a_failing_volume_create_is_a_fault_in_the_daemons_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(
+        monkeypatch,
+        create=(
+            1,
+            "Error response from daemon: mkdir /var/lib/docker/volumes/x: input/output error\n",
+        ),
+    )
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.probe == "docker storage"
+    assert fault.value.fact == "volume create input/output error"
+    assert _volume("rm") not in docker.calls
+
+
+def test_a_volume_create_that_does_not_answer_is_a_fault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeDocker(monkeypatch, create=subprocess.TimeoutExpired("docker", 60))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.fact == "volume create did not answer in 60 s"
+
+
+def test_a_failing_volume_remove_is_a_fault_after_the_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    docker = FakeDocker(monkeypatch, rm=(1, "remove x: volume is in use"))
+    with pytest.raises(kit.EnvironmentFault) as fault:
+        fw._need_docker_storage()
+    assert fault.value.fact == "volume rm volume is in use"
+    assert docker.calls[-1] == _volume("rm")
+
+
+@pytest.fixture
+def group_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A git tree with a file carrying the docker group, one without, and a
+    package whose conftest carries it."""
+    carrying = 'import pytest\npytestmark = pytest.mark.xdist_group("docker")\n'
+    for path, text in {
+        "tests/plain/test_plain.py": "def test_x(): pass\n",
+        "tests/containers/test_db.py": carrying,
+        "tests/suite/conftest.py": carrying,
+        "tests/suite/deep/test_deep.py": "def test_y(): pass\n",
+        "tests/README.md": 'pytest.mark.xdist_group("docker")\n',
+    }.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    return tmp_path
+
+
+def _hook(*roots: str) -> Any:
+    return fw._docker_group_needs(lambda _context: roots)
+
+
+@pytest.mark.parametrize(
+    ("paths", "needs"),
+    [
+        (("tests/plain/test_plain.py",), ()),
+        (("tests/plain/test_plain.py::test_x",), ()),
+        (("tests/containers/test_db.py::test_q",), ("docker-storage",)),
+        (("tests/plain/test_plain.py", "tests/containers/test_db.py"), ("docker-storage",)),
+        (("tests/containers/",), ("docker-storage",)),
+        (("tests/suite/deep/test_deep.py",), ("docker-storage",)),
+        (("tests/suite/deep",), ("docker-storage",)),
+        (("tests/gone/test_deleted.py",), ()),
+        (("tests/gone/test_deleted.py", "tests/containers/test_db.py"), ("docker-storage",)),
+    ],
+)
+def test_the_docker_group_is_read_from_the_selected_paths(
+    group_tree: Path,  # noqa: ARG001
+    paths: tuple[str, ...],
+    needs: tuple[str, ...],
+) -> None:
+    selection = check.Selection(check.PATHS, paths)
+    assert _hook("tests/")(selection, check.Context()) == needs
+
+
+def test_the_docker_group_under_a_whole_selection_is_read_from_the_roots(
+    group_tree: Path,  # noqa: ARG001
+) -> None:
+    whole = check.Selection(check.WHOLE)
+    assert _hook("tests/plain")(whole, check.Context()) == ()
+    assert _hook("tests/containers")(whole, check.Context()) == ("docker-storage",)
+
+
+def test_a_hook_that_cannot_read_the_tree_answers_no_need(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    selection = check.Selection(check.WHOLE)
+    assert _hook("tests/")(selection, check.Context()) == ()
+    monkeypatch.setattr(fw, "_probe", lambda argv: (127, "", ""))
+    assert _hook("tests/")(selection, check.Context()) == ()
 
 
 def test_a_check_off_its_venue_has_its_needs_left_unprobed(
@@ -2076,7 +2485,53 @@ def test_the_pin_probe_runs_the_resolver() -> None:
 
 
 def test_the_test_sweep_needs_the_pin() -> None:
-    assert BY_ID["pytest"].needs == ("uv", "claude-pin")
+    assert BY_ID["pytest"].needs == ("free-space", "uv", "install-current", "claude-pin")
+
+
+def _runs_pytest(c: Any) -> bool:
+    return "pytest" in c.argv
+
+
+def test_free_space_is_the_first_need_of_every_check_that_writes() -> None:
+    writes = [
+        c
+        for c in check.CHECKS
+        if c.kind in ("tests", "build") or "node" in c.needs or _runs_pytest(c)
+    ]
+    assert writes
+    assert [c.id for c in writes if c.needs[:1] != ("free-space",)] == []
+
+
+def test_every_pytest_run_on_the_synced_venv_needs_a_current_install() -> None:
+    synced = [
+        c
+        for c in check.CHECKS
+        if _runs_pytest(c)
+        and tuple(c.argv[:3]) == fw.UV_RUN
+        and "--isolated" not in c.argv
+        and c.id != "invariant-tests"
+    ]
+    assert {c.id for c in synced} >= {"pytest", "pytest-pty", "pytest-wallclock", "app-check-js"}
+    assert [c.id for c in synced if "install-current" not in c.needs] == []
+
+
+def test_a_check_that_writes_nothing_runs_under_a_free_space_fault(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(check.NEED_PROBES, "free-space", _faulting("free space", "1 MiB free"))
+    assert check.main(["run", "lockfile", "ruff"]) == 0
+    assert recorder.ran("uv lock --check") and recorder.ran("ruff check .")
+
+
+def test_a_shard_narrows_the_roots_the_docker_hook_reads() -> None:
+    assert fw._unit_roots(check.Context(shard="cli")) == ["tests/cli"]
+    assert fw._unit_roots(check.Context()) == list(fw.UNIT_SELECTION.roots)
+    assert fw._pytest_paths(BY_ID["pytest-wallclock"].argv) == ["tests/integration"]
+
+
+def test_docker_storage_is_derived_from_the_selection_never_declared() -> None:
+    assert [c.id for c in check.CHECKS if "docker-storage" in c.needs] == []
+    assert {c.id for c in check.CHECKS if c.selected_needs} == {"pytest", "pytest-wallclock"}
 
 
 @pytest.mark.usefixtures("recorder")
@@ -2096,7 +2551,7 @@ def test_the_pin_goes_first_on_path_before_any_check(
     monkeypatch.setitem(check.NEED_PROBES, "claude-pin", fw._need_claude_pin)
     assert check.main(["quick"]) == 0
     assert os.environ["PATH"].startswith(str(pin) + os.pathsep)
-    assert probed == [fw.CLAUDE_PIN_PROBE]
+    assert [argv for argv in probed if argv[0] != "git"] == [fw.CLAUDE_PIN_PROBE]
 
 
 @pytest.mark.parametrize(
@@ -2209,7 +2664,8 @@ def test_a_pytest_check_leaves_its_output_on_the_callers_stdout(
 ) -> None:
     assert check.main(["run", "pytest-pty", "--", "-q"]) == 0
     assert "stub uv says hello" in capfd.readouterr().out
-    logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip()
+    probe, logged = (tmp_path / "uv.log").read_text(encoding="utf-8").strip().splitlines()
+    assert probe == shlex.join(fw.INSTALLED_VERSIONS_PROBE[1:])
     pty = shlex.join(BY_ID["pytest-pty"].argv)
     command = f"{shlex.join(kit.UV_RUN[1:])} python scripts/run_bounded.py 600 -- {pty} -q"
     written = re.fullmatch(re.escape(command) + r" --junitxml=(\S+) -o junit_family=xunit1", logged)
@@ -2625,7 +3081,7 @@ def test_the_docs_build_refuses_without_graphviz(
 def test_the_dock_engine_steps_run_in_both_tiers() -> None:
     for check_id in ("dock-engine-bundle", "dock-engine-tests"):
         declared = BY_ID[check_id]
-        assert declared.tiers == check.BOTH and declared.needs == ("node",)
+        assert declared.tiers == check.BOTH and declared.needs == ("free-space", "node")
         assert fw.DOCK_ENGINE in declared.scope
     assert fw.DOCK_ENGINE in fw.TSC_SCOPE
     got = selected("quick", "packages/dock-engine/src/rules.ts")

@@ -12,6 +12,7 @@ what counts as a shell.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from osprey.utils.tool_rules import matches_denylist
 
@@ -159,6 +160,42 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
         "mcp__event_dispatcher__manual_fire",
     }
 )
+
+
+def dispatch_denied_tools(denied_app_tools: object, job_servers: Iterable[str]) -> frozenset[str]:
+    """The denylist one dispatch job runs under: the floor plus the render's app tools.
+
+    ``denied_app_tools`` is the rendered config's ``dispatch.denied_app_tools``: the
+    full names of the application tools no job may call, exact entries only. A
+    ``*`` entry would deny by prefix, and every tool of an application shares its
+    server's prefix, so such a list is not read as a list.
+
+    When the list is missing or unreadable (not a list of exact tool names) the
+    job fails closed without it: every server the job names that is not one of
+    the framework's own is denied whole, as one ``mcp__<server>__*`` entry, so
+    framework tools such as ``mcp__controls__channel_read`` stay usable.
+
+    Args:
+        denied_app_tools: The raw rendered value, ``None`` when the key is absent.
+        job_servers: The MCP server segments of the job's tool names, as the agent
+            CLI forms them (characters outside ``[A-Za-z0-9_-]`` already ``_``).
+
+    Returns:
+        :data:`DISPATCH_DENIED_TOOLS` extended by the listed names, or by one
+        prefix entry per non-framework server when there is no readable list.
+    """
+    if isinstance(denied_app_tools, list) and all(
+        isinstance(name, str) and name and not name.endswith("*") for name in denied_app_tools
+    ):
+        return DISPATCH_DENIED_TOOLS | frozenset(denied_app_tools)
+
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    framework = {_MCP_NAME_UNSAFE.sub("_", name) for name in FRAMEWORK_SERVERS}
+    return DISPATCH_DENIED_TOOLS | frozenset(
+        f"mcp__{server}__*" for server in job_servers if server not in framework
+    )
+
 
 #: The ``permissions.deny`` entries every render must ship before a deployment
 #: may run OPEN (``modules.web_terminals.auth.method: none``). Each is a

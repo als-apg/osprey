@@ -1,8 +1,8 @@
 """The build's render projection: ``modules.web_terminals.renders.<name>``.
 
-``osprey build`` writes one entry per tier and app it renders into the root
-render's ``build/config.yml`` — ``{kind, project, project_path}`` derived from
-the file's location and ``project_name``, plus ``extra_mounts``, ``seed_base``
+``osprey build`` writes one entry per login it renders into the root render's
+``build/config.yml`` — ``{kind, project, project_path}`` derived from the
+file's location and ``project_name``, plus ``extra_mounts``, ``seed_base``
 and ``image`` copied from the file's top level when it sets them. The retired
 render catalog appears nowhere in the rendered config. The profile lint
 judges the same projection before any render exists, and a profile that spells
@@ -85,15 +85,13 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, list[dic
     return repo, judged
 
 
-def test_build_writes_one_projection_entry_per_tier_and_app(built_repo):
+def test_build_writes_one_projection_entry_per_login(built_repo):
     repo, _judged = built_repo
     renders = _rendered_web_terminals(repo)["renders"]
 
     assert set(renders) == {*TIERS, *APPS}
-    for name in TIERS:
+    for name in (*TIERS, *APPS):
         assert renders[name]["kind"] == "tier"
-    for name in APPS:
-        assert renders[name]["kind"] == "app"
     for name, entry in renders.items():
         assert entry["project"] == f"{PROJECT}-{name}"
         assert entry["project_path"] == f"build/{PROJECT}-{name}"
@@ -119,7 +117,7 @@ def test_built_entries_carry_only_the_derived_keys_when_no_file_sets_a_knob(buil
         assert set(entry) == {"kind", "project", "project_path"}, name
 
 
-def test_tier_and_app_renders_carry_no_projection_of_their_own(built_repo):
+def test_login_renders_carry_no_projection_of_their_own(built_repo):
     repo, _judged = built_repo
     for name in (*TIERS, *APPS):
         render = yaml.safe_load(
@@ -150,7 +148,7 @@ def test_rendered_projection_feeds_the_deploy_readers(built_repo):
     assert set(effective_web_terminals(config)["renders"]) == {*TIERS, *APPS}
     assert emits_layer_profiles(config)
 
-    # The secret/telemetry walk: every tier a person runs, plus every shared app.
+    # The secret/telemetry walk: every tier a person runs, plus every shared login.
     referenced = {
         name for name, render in served_renders(config, strict=True).items() if render is not None
     }
@@ -158,30 +156,31 @@ def test_rendered_projection_feeds_the_deploy_readers(built_repo):
     assert set(APPS) <= referenced
 
 
-def test_render_projection_lists_layers_by_kind(tmp_path: Path):
+def test_render_projection_lists_every_login_file(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "tiers").mkdir(parents=True)
-    (repo / "apps").mkdir()
+    (repo / "apps" / "knob").mkdir(parents=True)
     (repo / "profile.yml").write_text("name: x\n")
     (repo / "tiers" / "ops.yml").write_text("name: ops\nseed_base: false\n")
-    (repo / "apps" / "logbook.yml").write_text("name: logbook\nimage: reg/logbook:1\n")
-    (repo / "apps" / "broken.yml").write_text(": : not yaml : [\n")
+    (repo / "tiers" / "logbook.yml").write_text("name: logbook\nimage: reg/logbook:1\n")
+    (repo / "tiers" / "broken.yml").write_text(": : not yaml : [\n")
+    (repo / "apps" / "knob" / "app.yml").write_text("name: knob\n")
 
     projection = render_projection(repo, "site")
 
     assert projection == {
+        "broken": {"kind": "tier", "project": "site-broken", "project_path": "build/site-broken"},
+        "logbook": {
+            "kind": "tier",
+            "project": "site-logbook",
+            "project_path": "build/site-logbook",
+            "image": "reg/logbook:1",
+        },
         "ops": {
             "kind": "tier",
             "project": "site-ops",
             "project_path": "build/site-ops",
             "seed_base": False,
-        },
-        "broken": {"kind": "app", "project": "site-broken", "project_path": "build/site-broken"},
-        "logbook": {
-            "kind": "app",
-            "project": "site-logbook",
-            "project_path": "build/site-logbook",
-            "image": "reg/logbook:1",
         },
     }
 
@@ -241,7 +240,7 @@ def test_a_profile_spelling_the_projection_is_refused(config):
 
     assert len(errors) == 1
     assert "modules.web_terminals.renders" in errors[0]
-    assert "tiers/" in errors[0] and "apps/" in errors[0]
+    assert "tiers/" in errors[0] and "apps/" not in errors[0]
 
 
 def test_a_profile_without_the_projection_passes():
@@ -262,7 +261,7 @@ def test_image_build_units_read_project_path_and_source_file_from_the_projection
                 "renders": {
                     "ops": {"kind": "tier", "project": "s-ops", "project_path": "build/s-ops"},
                     "logbook": {
-                        "kind": "app",
+                        "kind": "tier",
                         "project": "s-logbook",
                         "project_path": "build/s-logbook",
                     },
@@ -291,13 +290,13 @@ def test_image_build_units_read_project_path_and_source_file_from_the_projection
             "render": "logbook",
             "project": "s-logbook",
             "project_path": "build/s-logbook",
-            "build_profile": "apps/logbook.yml",
+            "build_profile": "tiers/logbook.yml",
             "image": "s-logbook:local",
         },
     ]
 
 
-@pytest.mark.parametrize("other_dir", ["apps", *RETIRED_LAYER_DIRS])
+@pytest.mark.parametrize("other_dir", [*RETIRED_LAYER_DIRS])
 def test_two_layer_files_with_one_name_are_refused_not_hidden(tmp_path: Path, other_dir: str):
     repo = tmp_path / "repo"
     (repo / "tiers").mkdir(parents=True)
@@ -316,8 +315,9 @@ def _web_terminals_with_renders(**extra) -> dict:
         "users": [{"name": "alice", "index": 1}],
         "renders": {
             "ops": {"kind": "tier", "project": "s-ops", "project_path": "build/s-ops"},
-            "logbook": {"kind": "app", "project": "s-logbook", "project_path": "build/s-logbook"},
+            "logbook": {"kind": "tier", "project": "s-logbook", "project_path": "build/s-logbook"},
         },
+        "shared": ["logbook"],
         **extra,
     }
 
@@ -330,12 +330,12 @@ def test_people_resolve_against_tier_renders_only():
     assert alice["project"] == "s-ops"
 
 
-def test_a_person_given_an_app_render_as_tier_is_refused():
-    # `logbook` has an app render but is not listed in `shared`: it is still
-    # an app, never a person's access level.
+def test_a_person_given_a_shared_login_as_tier_is_refused():
+    # `logbook` is listed in `shared`: one file has one audience, so it is
+    # never a person's access level as well.
     web_terminals = _web_terminals_with_renders(default_tier="logbook")
 
-    with pytest.raises(ValueError, match="tier or an app"):
+    with pytest.raises(ValueError, match="tier or a shared card"):
         resolve_cards(web_terminals, {}, strict=True)
     lenient = resolve_cards(web_terminals, {}, strict=False)
     (alice,) = [entry for entry in lenient if entry["name"] == "alice"]

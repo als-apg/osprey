@@ -24,7 +24,7 @@ import copy
 import posixpath
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
@@ -41,6 +41,7 @@ from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
+    deployed_app_audit_identities,
     resolve_project_name,
 )
 from osprey.deployment.web_terminals.ports import (
@@ -73,7 +74,7 @@ from osprey.deployment.web_terminals.render_images import (
     _canonical_delta_reference,
     render_build_profile_shape_problem,
 )
-from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, RENDER_KIND_TIER
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_TIER
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
     APP_ENTRY_KIND,
@@ -121,7 +122,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
+from osprey.utils.workspace import LAYER_DIR_KINDS
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
@@ -224,7 +225,7 @@ def lint_web_terminals(
     findings.extend(_check_empty_users(users))
     findings.extend(_check_duplicate_users(users))
     findings.extend(_check_username_charset(users))
-    findings.extend(_check_reserved_audit_identities(users))
+    findings.extend(_check_reserved_audit_identities(users, deployed_app_audit_identities(root)))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
     findings.extend(_check_user_tour(users))
@@ -327,6 +328,7 @@ def lint_web_terminals(
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_landing_names(web_terminals))
+    findings.extend(_check_landing_group_types(web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
     findings.extend(_check_shared_card_subject(web_terminals, users))
@@ -998,14 +1000,14 @@ def _check_port_overlap(
     return findings
 
 
-# --- shared app cards --------------------------------------------------------
+# --- shared login cards ------------------------------------------------------
 #
-# `modules.web_terminals.shared` names the apps every roster login may open. Each
-# name derives one card (see `renders.roster_entries`) at port slot
+# `modules.web_terminals.shared` names the logins every roster login may open.
+# Each name derives one card (see `renders.roster_entries`) at port slot
 # `INDEX_MAX - position`, counting down from the top of the family band while the
 # people count up from 0. The checks below are the ones the derivation leaves to
-# lint: what a name must be, what it must not collide with, and which app files
-# exist to back it.
+# lint: what a name must be, what it must not collide with, and which login
+# files exist to back it.
 
 
 def _with_profile_renders(
@@ -1014,8 +1016,8 @@ def _with_profile_renders(
     """*root* and *web_terminals* with the renders a profile repo holds on disk.
 
     A profile carries no ``renders`` projection — the build writes that — so at
-    profile altitude the tiers and apps are the ``tiers/<name>.yml`` and
-    ``apps/<name>.yml`` files beside the profile. They are projected here into
+    profile altitude the logins are the ``tiers/<name>.yml`` files beside the
+    profile. They are projected here into
     the same ``renders`` shape the rendered config carries, so every check reads
     one catalog at both altitudes. A config that already states ``renders`` or a
     ``renders`` catalog is returned unchanged; the caller's dicts are never
@@ -1037,29 +1039,29 @@ def _with_profile_renders(
     return {**root, "modules": modules}, projected
 
 
-def _known_apps(
+def _known_logins(
     web_terminals: dict[str, Any], *, rendered_project: bool, profile_root: Path | None
 ) -> frozenset[str] | None:
-    """The apps a ``shared:`` name may name, or ``None`` when this altitude cannot tell.
+    """The logins a ``shared:`` name may name, or ``None`` when this altitude cannot tell.
 
-    At profile altitude they are the ``apps/<name>.yml`` files beside the
-    profile. At rendered altitude they are the ``modules.web_terminals.renders``
-    entries of kind ``app`` the build projected; a rendered config without that
-    projection names no apps either way, so nothing is judged against it.
+    At profile altitude they are the login files beside the profile
+    (``tiers/<name>.yml``). At rendered altitude they are the
+    ``modules.web_terminals.renders`` entries the build projected; a rendered
+    config without that projection names no logins either way, so nothing is
+    judged against it.
     """
     if not rendered_project:
-        apps_dir = (profile_root or Path(".")) / APPS_DIRNAME
-        if not apps_dir.is_dir():
-            return frozenset()
-        return frozenset(path.stem for path in apps_dir.glob("*.yml"))
+        base = profile_root or Path(".")
+        return frozenset(
+            path.stem
+            for dirname in LAYER_DIR_KINDS
+            if (base / dirname).is_dir()
+            for path in (base / dirname).glob("*.yml")
+        )
     renders = web_terminals.get("renders")
     if not isinstance(renders, Mapping):
         return None
-    return frozenset(
-        str(name)
-        for name, entry in renders.items()
-        if isinstance(entry, Mapping) and entry.get("kind") == APP_ENTRY_KIND
-    )
+    return frozenset(str(name) for name, entry in renders.items() if isinstance(entry, Mapping))
 
 
 #: The keys a mapping item of ``shared:`` may carry.
@@ -1152,14 +1154,14 @@ def _check_shared_apps(
     * ``invalid_shared_entry`` — ``shared`` is not a list, or an item is neither
       a non-empty string nor a ``{name, access}`` mapping naming one (it derives
       no card but keeps its slot).
-    * ``duplicate_shared_app`` — one app named twice would run two cards under
+    * ``duplicate_shared_app`` — one login named twice would run two cards under
       one compose service name.
-    * ``unknown_shared_app`` — no app file backs the name, so there is nothing to
-      render for it.
-    * ``user_named_like_app`` — a person whose name is an app's would share the
-      app card's service name, URL and secrets.
+    * ``unknown_shared_app`` — no login file backs the name, so there is nothing
+      to render for it.
+    * ``user_named_like_app`` — a person whose name is a shared login's would
+      share that card's service name, URL and secrets.
     * ``user_index_in_app_band`` — a person whose index reaches
-      ``INDEX_MAX - len(shared) + 1`` sits in the slots the shared apps take.
+      ``INDEX_MAX - len(shared) + 1`` sits in the slots the shared logins take.
     """
     if "shared" not in web_terminals:
         return []
@@ -1170,7 +1172,7 @@ def _check_shared_apps(
                 severity="error",
                 code="web_terminals.invalid_shared_entry",
                 message=(
-                    "modules.web_terminals.shared must be a list of app names, got "
+                    "modules.web_terminals.shared must be a list of login names, got "
                     f"{type(raw).__name__}"
                 ),
             )
@@ -1189,7 +1191,7 @@ def _check_shared_apps(
                 code="web_terminals.invalid_shared_entry",
                 message=(
                     f"modules.web_terminals.shared[{position}] is {item!r}; each entry "
-                    "must be the name of an app in this repo's apps/ directory, or a "
+                    "must be the name of a login in this repo's tiers/ directory, or a "
                     "mapping with that name under 'name' and, optionally, who may open "
                     "it under 'access'"
                 ),
@@ -1209,30 +1211,32 @@ def _check_shared_apps(
                 code="web_terminals.duplicate_shared_app",
                 message=(
                     f"modules.web_terminals.shared names {sorted(duplicates)} more than "
-                    "once; each app is one shared card, so list it once"
+                    "once; each login is one shared card, so list it once"
                 ),
             )
         )
 
-    known = _known_apps(web_terminals, rendered_project=rendered_project, profile_root=profile_root)
+    known = _known_logins(
+        web_terminals, rendered_project=rendered_project, profile_root=profile_root
+    )
     if known is not None:
         unknown = sorted({name for name in names if name not in known})
         if unknown:
-            where = "modules.web_terminals.renders" if rendered_project else "this repo's apps/"
+            where = "modules.web_terminals.renders" if rendered_project else "this repo's tiers/"
             findings.append(
                 Finding(
                     severity="error",
                     code="web_terminals.unknown_shared_app",
                     message=(
                         f"modules.web_terminals.shared names {unknown}, which "
-                        f"{'have' if len(unknown) > 1 else 'has'} no app in {where}. "
-                        "Add the app with `osprey scaffold apps`, or remove the name "
+                        f"{'have' if len(unknown) > 1 else 'has'} no login in {where}. "
+                        "Add the login with `osprey scaffold tiers`, or remove the name "
                         "from modules.web_terminals.shared"
                     ),
                 )
             )
 
-    app_names = set(names) | set(known or ())
+    app_names = set(names)
     clashing = sorted(
         {name for name, _ in _people_slots(users) if isinstance(name, str) and name in app_names}
     )
@@ -1243,9 +1247,9 @@ def _check_shared_apps(
                 code="web_terminals.user_named_like_app",
                 message=(
                     f"modules.web_terminals.users names {clashing}, which "
-                    f"{'are apps' if len(clashing) > 1 else 'is an app'}; a person and an "
-                    "app card would share one service name, URL and secret. Rename the "
-                    "person"
+                    f"{'are shared logins' if len(clashing) > 1 else 'is a shared login'}; "
+                    "a person and a shared card would share one service name, URL and "
+                    "secret. Rename the person"
                 ),
             )
         )
@@ -1261,7 +1265,7 @@ def _check_shared_apps(
                     message=(
                         f"modules.web_terminals.users entry {name!r} has index {index}, "
                         f"but indices {floor}..{INDEX_MAX} are the {len(raw)} shared "
-                        "app slots (modules.web_terminals.shared counts down from "
+                        "login slots (modules.web_terminals.shared counts down from "
                         f"{INDEX_MAX}). Give the person an index below {floor}"
                     ),
                 )
@@ -1283,13 +1287,12 @@ def _check_shared_apps(
 
 
 def _render_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
-    """Every render the projection lists, tiers and apps, as catalog entries keyed by name.
+    """Every render the projection lists, as catalog entries keyed by name.
 
     Read from the render projection ``modules.web_terminals.renders``. Each
     entry keeps its ``kind``, ``project``, ``project_path`` and file knobs and
     states the file the build renders it from as ``build_profile``
-    (``tiers/<name>.yml`` or ``apps/<name>.yml``, by kind) unless the entry
-    states one of its own, so the checks below judge the layer file exactly as
+    (``tiers/<name>.yml``) unless the entry states one of its own, so the checks below judge the layer file exactly as
     they judge any rendered-from-a-file entry. A rule whose question is about
     the tiers a person can be given reads :func:`_tier_catalog` instead."""
     renders = web_terminals.get("renders")
@@ -1297,27 +1300,26 @@ def _render_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
         return {}
     catalog: dict[str, Any] = {}
     for name, render in renders.items():
-        if not isinstance(render, dict) or render.get("kind") not in (
-            RENDER_KIND_TIER,
-            RENDER_KIND_APP,
-        ):
+        if not isinstance(render, dict) or render.get("kind") != RENDER_KIND_TIER:
             continue
         entry = dict(render)
-        entry.setdefault("build_profile", _canonical_delta_reference(name, render["kind"]))
+        entry.setdefault("build_profile", _canonical_delta_reference(name))
         catalog[name] = entry
     return catalog
 
 
 def _tier_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
-    """The tiers a person can be given: :func:`_render_catalog`'s ``kind: tier`` entries.
+    """The tiers a person can be given: :func:`_render_catalog` minus the shared logins.
 
-    A shared app carries no access level of its own, so an app's name never
-    stands in for a tier — not as ``default_tier``, and not as the catalog a
-    roster needs."""
+    A shared login is sealed read-only for everyone on the roster, so its name
+    never stands in for a person's tier — not as ``default_tier``, and not as
+    the catalog a roster needs."""
+    shared = web_terminals.get("shared")
+    shared_names = {shared_app_name(item) for item in shared} if isinstance(shared, list) else set()
     return {
         name: entry
         for name, entry in _render_catalog(web_terminals).items()
-        if entry.get("kind") == RENDER_KIND_TIER
+        if name not in shared_names
     }
 
 
@@ -1404,7 +1406,7 @@ def _check_default_tier_exists(web_terminals: dict[str, Any]) -> list[Finding]:
             code="web_terminals.unknown_default_tier",
             message=(
                 f"modules.web_terminals.default_tier {default_tier!r} names no "
-                f"tier: there is no {_canonical_delta_reference(default_tier, RENDER_KIND_TIER)}"
+                f"tier: there is no {_canonical_delta_reference(default_tier)}"
             ),
         )
     ]
@@ -1522,8 +1524,8 @@ def _profile_tier_layers(
         return _rendered_elsewhere_layers(entry, profile_root=profile_root)
 
     shape_problem = render_build_profile_shape_problem(build_profile)
-    if shape_problem is None and entry.get("kind") == RENDER_KIND_APP:
-        return _profile_app_layers(root, build_profile, profile_root=profile_root)
+    if shape_problem is None and _is_composed_login(root, build_profile, profile_root):
+        return _profile_composed_layers(root, build_profile, profile_root=profile_root)
     if shape_problem is None:
         # A delta beside the host profile: its own layer over the linted config.
         delta_file = (profile_root or Path(".")) / build_profile
@@ -1563,26 +1565,46 @@ def _profile_tier_layers(
     return _TierLayers((resolved.config,), authored, build_profile, is_delta=False)
 
 
-def _profile_app_layers(
+def _is_composed_login(root: dict[str, Any], build_profile: str, profile_root: Path | None) -> bool:
+    """Whether the login at *build_profile* renders composed rather than merged.
+
+    A ``lists: own`` login is composed from the host and its file, and a login
+    ``shared:`` names is sealed read-only; either way the layer chain a plain
+    tier delta has is not the document the deployment runs.
+    """
+    shared = as_dict(as_dict(root.get("modules")).get("web_terminals")).get("shared")
+    if isinstance(shared, list) and PurePosixPath(build_profile).stem in {
+        shared_app_name(item) for item in shared
+    }:
+        return True
+    try:
+        with ((profile_root or Path(".")) / build_profile).open("r", encoding="utf-8") as fh:
+            delta = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError):
+        return False
+    return as_dict(delta).get("lists") == "own"
+
+
+def _profile_composed_layers(
     root: dict[str, Any], build_profile: str, *, profile_root: Path | None
 ) -> _TierLayers | _UnreadableRender:
-    """The one config an app render is deployed from, at PROFILE altitude.
+    """The one config a narrow or shared login is deployed from, at PROFILE altitude.
 
-    An app render is never a delta merged over the host: the build composes it
+    Such a login is never a delta merged over the host: the build composes it
     (:func:`~osprey.cli.build_profile_merge.render_document`) from the host
-    profile and the app's complete file, pinning what the app may not hold. So
-    the layer chain a tier has does not exist for an app, and judging the app
-    file as a tier delta would read a document no deployment runs. The
-    composed config is the single layer, and the app's own ``config:`` the
-    authored one. The host is ``profile.yml`` beside the app's directory,
-    resolved the way the build resolves it (its ``extends`` chain folded in).
-    Where there is none — a bundled preset, whose ``apps/`` sit beside the
-    preset file rather than a ``profile.yml`` — the host is the document being
-    linted, the same host a tier delta is layered over here.
+    profile and the login's file, sealing a shared one read-only. So the layer
+    chain a plain tier has does not exist for it, and judging the file as a
+    tier delta would read a document no deployment runs. The composed config
+    is the single layer, and the login's own ``config:`` the authored one. The
+    host is ``profile.yml`` beside the login's directory, resolved the way the
+    build resolves it (its ``extends`` chain folded in). Where there is none —
+    a bundled preset, whose ``tiers/`` sit beside the preset file rather than a
+    ``profile.yml`` — the host is the document being linted, the same host a
+    tier delta is layered over here.
 
     Returns:
         A :class:`_TierLayers`, or an :class:`_UnreadableRender` when either
-        file cannot be read or the composer refuses the app.
+        file cannot be read or the composition refuses the login.
     """
     base = profile_root or Path(".")
     app_file = base / build_profile
@@ -1593,7 +1615,6 @@ def _profile_app_layers(
     try:
         from osprey.cli.build_profile_document import _read_profile_document
         from osprey.cli.build_profile_merge import _resolve_extends, render_document
-        from osprey.cli.profile_root import ProfileKind
         from osprey.utils.workspace import PROFILE_FILENAME
         from osprey_connectors.errors import BuildProfileError
 
@@ -1611,9 +1632,9 @@ def _profile_app_layers(
     except Exception:
         return _UnreadableRender(build_profile, str(app_file), None)
     try:
-        composed = render_document(ProfileKind.APP, host, dict(app_raw), build_profile)
+        composed = render_document(host, dict(app_raw), build_profile, layer_path=app_file)
     except BuildProfileError as refusal:
-        # The files read; the composer refused the app, and says why. That
+        # The files read; the composition refused the login, and says why. That
         # reason is the instruction, so it travels instead of "cannot be read".
         return _UnreadableRender(build_profile, str(app_file), None, refusal=str(refusal))
     except Exception:
@@ -2323,18 +2344,19 @@ def _connector_writes_type(path: str) -> str | None:
 
 
 #: The hook that refuses a write tool call while the target's posture is off.
-#: Every app render selects it, so a write switch is never its only guard.
+#: Every shared login's render selects it, so a write switch is never its only guard.
 _WRITES_CHECK_HOOK = "writes-check"
 
 
-#: The one write posture an app render may hold.
-_APP_WRITES = "never"
+#: The one write posture a shared login's render may hold.
+_SHARED_WRITES = "never"
 
 
-def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
-    """Check that one composed app render can neither write nor edit the deployment.
+def lint_shared_render(render: Mapping[str, Any]) -> list[Finding]:
+    """Check that one sealed shared login's render can neither write nor edit the deployment.
 
-    An app render runs beside a deployment, never as its writer: its
+    A login ``modules.web_terminals.shared`` names is opened by everyone on
+    the roster, never as the deployment's writer: its
     ``control_system.writes`` is pinned ``never``, no retired
     ``writes_enabled`` leaf (the flat one or a connector type's) holds
     anything but ``false``, ``writes-check`` is among its hooks, and every
@@ -2347,10 +2369,10 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
     passes.
 
     Args:
-        render: The resolved app render (its ``hooks`` and ``config``).
+        render: The resolved shared render (its ``hooks`` and ``config``).
 
     Returns:
-        One ``web_terminals.app_render_holds_privilege`` error naming every
+        One ``web_terminals.shared_render_holds_privilege`` error naming every
         problem, or ``[]`` for a render that holds nothing.
     """
     from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
@@ -2373,9 +2395,9 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
         or (path == WRITES_KEY.split(".")[0] and not isinstance(value, Mapping))
     ]
     if not any(path == WRITES_KEY for path, _ in tier_key) or any(
-        path != WRITES_KEY or value != _APP_WRITES for path, value in tier_key
+        path != WRITES_KEY or value != _SHARED_WRITES for path, value in tier_key
     ):
-        problems.append(f"{WRITES_KEY} is not pinned to {_APP_WRITES}")
+        problems.append(f"{WRITES_KEY} is not pinned to {_SHARED_WRITES}")
     for path, value in spelled:
         if path != _RETIRED_FLAT_KEY and _connector_writes_type(path) is None:
             continue
@@ -2411,14 +2433,15 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
     return [
         Finding(
             "error",
-            "web_terminals.app_render_holds_privilege",
-            "An app render must not be able to write or edit the deployment, and this "
-            "one can: "
+            "web_terminals.shared_render_holds_privilege",
+            "A shared login's render must not be able to write or edit the deployment, "
+            "and this one can: "
             + "; ".join(problems)
-            + f". An app is composed with {WRITES_KEY} pinned to {_APP_WRITES}, no "
-            "retired writes_enabled key, every deployment-editing door closed and "
-            "'writes-check' selected; rebuild with `osprey build` rather than editing the "
-            "render, and give write or editing access through a tier.",
+            + f". A login named by modules.web_terminals.shared is sealed with {WRITES_KEY} "
+            f"pinned to {_SHARED_WRITES}, no retired writes_enabled key, every "
+            "deployment-editing door closed and 'writes-check' selected; rebuild with "
+            "`osprey build` rather than editing the render, and give write or editing "
+            "access through a person's login.",
         )
     ]
 
@@ -2716,7 +2739,7 @@ def _check_unknown_tier_reference(
             code="web_terminals.unknown_tier_reference",
             message=(
                 f"{source} references tier {name!r}, which names no tier: there "
-                f"is no {_canonical_delta_reference(name, RENDER_KIND_TIER)}"
+                f"is no {_canonical_delta_reference(name)}"
             ),
         )
         for name in unknown
@@ -3208,10 +3231,7 @@ def _check_one_render_project_path(
     if has_build_profile:
         problem = render_build_profile_shape_problem(cast(str, build_profile))
         if problem is not None:
-            kind = entry.get("kind")
-            reference = _canonical_delta_reference(
-                render_name, kind if isinstance(kind, str) else RENDER_KIND_TIER
-            )
+            reference = _canonical_delta_reference(render_name)
             return [
                 Finding(
                     severity="error",
@@ -4692,6 +4712,33 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
     return findings
 
 
+def _check_landing_group_types(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A ``type: apps`` landing section is the retired spelling of ``type: shared``.
+
+    Read as ``type: shared`` for one release, with one warning naming the
+    rewrite; ``osprey init --revalidate`` makes it.
+    """
+    from osprey.deployment.web_terminals.render import RETIRED_SHARED_GROUP_TYPE
+
+    groups = as_dict(web_terminals.get("landing")).get("groups")
+    if not isinstance(groups, list):
+        return []
+    return [
+        Finding(
+            severity="warn",
+            code="web_terminals.retired_landing_group_type",
+            message=(
+                f"modules.web_terminals.landing.groups[{i}] spells `type: "
+                f"{RETIRED_SHARED_GROUP_TYPE}`, which is read as `type: shared` (the shared "
+                "logins section); `type: apps` is deprecated and will be refused in the next "
+                "release. To rewrite it, run `osprey init --revalidate`"
+            ),
+        )
+        for i, entry in enumerate(groups)
+        if isinstance(entry, dict) and entry.get("type") == RETIRED_SHARED_GROUP_TYPE
+    ]
+
+
 def _check_landing_names(web_terminals: dict[str, Any]) -> list[Finding]:
     """A hidden roster needs a sign-in in front of it.
 
@@ -5072,7 +5119,9 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
     return findings
 
 
-def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
+def _check_reserved_audit_identities(
+    users: list[Any], app_identities: Mapping[str, str] | None = None
+) -> list[Finding]:
     """A roster name may not be a service's own identity.
 
     Every container writes under ``var/spool/<identity>/`` and
@@ -5093,10 +5142,29 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
     usable path segment at all, which still names a spool bind source under
     ``auth.method: none`` — is already reported unconditionally by
     :func:`_check_username_charset`.
+
+    A deployed application's audit identity (*app_identities*, identity to
+    application) is refused the same way: its containers write facts as it.
     """
+    app_identities = app_identities or {}
     findings: list[Finding] = []
     for user in users:
         name = _roster_entry_name(user)
+        if name is not None and name in app_identities:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.reserved_audit_identity",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} takes the audit "
+                        f"identity of application {app_identities[name]!r}. Each user's "
+                        "container binds var/spool/<user>/ and var/state/<user>/ "
+                        "read-write, so this user could write facts as that application "
+                        "and read its state. Rename the roster entry"
+                    ),
+                )
+            )
+            continue
         if name is None or not _RESERVED_AUDIT_IDENTITY_RE.fullmatch(name):
             continue
         findings.append(

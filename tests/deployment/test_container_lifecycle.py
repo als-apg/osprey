@@ -2615,6 +2615,34 @@ def test_project_and_render_builds_share_one_site_arg_producer(tmp_path):
     assert site_args <= set(tier)
 
 
+@pytest.mark.usefixtures("no_site_env")
+def test_a_stated_image_platform_reaches_every_managed_build(tmp_path):
+    """The project and render builders extend the one producer the sidecar does too."""
+    from osprey.deployment.web_terminals import render_images
+
+    config = {"project_name": "myfacility", "images": {"platform": "linux/amd64"}}
+    project = container_lifecycle._project_image_build_cmd(config, "docker", str(tmp_path))
+    tier = render_images._render_image_build_cmd(
+        "docker", str(tmp_path), "demo:local", "myfacility", config
+    )
+
+    assert container_lifecycle.site_image_build_args(config, tmp_path) == [
+        "--platform",
+        "linux/amd64",
+    ]
+    for cmd in (project, tier):
+        assert cmd[cmd.index("--platform") + 1] == "linux/amd64"
+        assert cmd[-1] == str(tmp_path)
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_an_image_platform_no_builder_accepts_is_refused_before_the_build(tmp_path):
+    config = {"project_name": "x", "images": {"platform": "linux/riscv64"}}
+
+    with pytest.raises(ValueError, match="images.platform"):
+        container_lifecycle.site_image_build_args(config, tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # The project image build is watched, labeled with its own tag. A single-image
 # build's BuildKit headers name no service (`#10 [ 2/13]`), so an unlabeled
@@ -3489,11 +3517,13 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
 
     # The history page is derived from the config rather than deployed by name,
     # so it joins the gate through its predicate (test_history_service.py);
-    # agent-record is derived and always deployed, so it joins unconditionally.
+    # agent-record is derived and always deployed, so it joins unconditionally;
+    # a projected application runtime joins by its row (_projected_services).
     assert on_project_image == {
         *container_lifecycle._PROJECT_IMAGE_SERVICES,
         HISTORY_SERVICE,
         container_lifecycle.AGENT_RECORD_TEMPLATE_DIR,
+        "app_runtime",
     }
 
 

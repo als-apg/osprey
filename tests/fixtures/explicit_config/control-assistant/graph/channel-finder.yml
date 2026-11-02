@@ -225,8 +225,8 @@ modules:
       groups:
       - label: Users
         type: users
-      - label: Apps
-        type: apps
+      - label: Shared logins
+        type: shared
       notices:
       - data/landing/working-safely.md
     shared:

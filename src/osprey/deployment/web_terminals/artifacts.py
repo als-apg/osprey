@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
+from osprey.apps.manifest import is_write_method, launch_token_env
 from osprey.bluesky_bridge_connection import lane_env_prefix
 from osprey.deployment.errors import DeploymentError
 from osprey.deployment.web_terminals.auth_credentials import (
@@ -40,9 +42,9 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
 )
 from osprey.deployment.web_terminals.roster import (
-    app_titles_in,
     as_dict,
     launch_token_writes_key,
+    login_titles_in,
     referenced_render_project_dirs,
     rendered_configs,
     renders_needing_archiver_ca_bundles,
@@ -112,6 +114,26 @@ def dangerously_allow_bash(config: Any) -> bool:
     raise DangerouslyAllowBashValueError(value)
 
 
+class LaunchTokenNameError(DeploymentError):
+    """A panel block names a variable that is not its application's launch token.
+
+    The terminal sends what the variable holds upstream as a header, and the
+    render hands the variable to its container, so the name decides what leaves.
+    The build only ever writes :func:`osprey.apps.manifest.launch_token_env` of
+    the application; anything else is a hand-set block.
+    """
+
+    def __init__(self, problems: Iterable[str]) -> None:
+        self.problems = list(problems)
+        listed = "".join(f"\n  - {problem}" for problem in self.problems)
+        super().__init__(
+            "Refusing to deploy: a panel names a launch-token variable that is not "
+            f"its application's own.{listed}\n"
+            "Remove launch_token_env from that web.panels block and let the build "
+            "project it from the application's manifest."
+        )
+
+
 class BashLaunchTokenConflictError(DeploymentError):
     """A render would hold ``BLUESKY_LAUNCH_TOKEN`` while its agent may run a shell.
 
@@ -164,6 +186,11 @@ class BashLaunchTokenConflictError(DeploymentError):
         writes_keys: Per lane, the config key that decides that lane's token
             entitlement (:func:`~osprey.deployment.web_terminals.roster.launch_token_writes_key`),
             which is the login tier's ``control_system.writes`` on every lane.
+        applications: The application rows in conflict
+            (:func:`application_shell_conflicts`): renders whose rendered
+            ``web.panels.<id>`` arms an application beside an open shell. Their
+            renders are in ``tiers`` too; ``dangerously_allow_bash`` never
+            waives them.
     """
 
     def __init__(
@@ -172,12 +199,26 @@ class BashLaunchTokenConflictError(DeploymentError):
         *,
         by_lane: Mapping[str, Iterable[str]] | None = None,
         writes_keys: Mapping[str, str] | None = None,
+        applications: Iterable[ApplicationRow] = (),
     ) -> None:
         self.tiers = sorted(tiers)
         self.renders_by_lane = {
             lane: sorted(names) for lane, names in sorted((by_lane or {}).items())
         }
-        named = ", ".join(repr(name) for name in self.tiers)
+        rows = sorted(applications, key=lambda row: (row.render, row.app))
+        self.applications: dict[str, dict[str, tuple[str, ...]]] = {}
+        for row in rows:
+            self.applications.setdefault(row.render, {})[row.app] = row.entitled_by
+        app_message = _application_conflict_message(rows)
+        lane_renders = (
+            set().union(*self.renders_by_lane.values())
+            if by_lane is not None
+            else set(self.tiers) - set(self.applications)
+        )
+        if not lane_renders:
+            super().__init__(app_message)
+            return
+        named = ", ".join(repr(name) for name in sorted(lane_renders))
         breakdown = "".join(
             f"\n  - lane {lane!r} ({lane_env_prefix(lane)}_LAUNCH_TOKEN): "
             f"{', '.join(repr(name) for name in names)} — armed by "
@@ -205,11 +246,194 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
             f"moving that render off the bluesky server "
             f"(claude_code.servers.bluesky.enabled: false) or off writes "
-            f"({writes_remedy})."
+            f"({writes_remedy})." + (f"\n{app_message}" if app_message else "")
         )
 
 
-def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> dict[str, set[str]]:
+@dataclass(frozen=True)
+class ApplicationRow:
+    """One application a render arms, read off its rendered ``web.panels.<id>``.
+
+    The arming fact is what the render holds, never a re-derived tier: the build
+    projects ``launch_token_env`` and write agent routes only onto renders that
+    arm the application, so a render carrying either is an application row.
+
+    Attributes:
+        render: The render name.
+        app: The application name (the block's ``app``, else the panel id).
+        token_env: The launch-token variable the render is granted, or ``None``.
+        write_routes: The write agent routes, as ``"METHOD path"``.
+    """
+
+    render: str
+    app: str
+    token_env: str | None
+    write_routes: tuple[str, ...]
+
+    @property
+    def entitled_by(self) -> tuple[str, ...]:
+        """What entitles the row: ``"launch token"``, ``"write route"`` or both."""
+        return (("launch token",) if self.token_env else ()) + (
+            ("write route",) if self.write_routes else ()
+        )
+
+
+def _application_conflict_message(rows: Iterable[ApplicationRow]) -> str:
+    lines = []
+    for row in rows:
+        holds = []
+        if row.token_env:
+            holds.append(f"its launch token {row.token_env}")
+        if row.write_routes:
+            holds.append(f"write route(s) {', '.join(row.write_routes)}")
+        lines.append(f"\n  - {row.render!r} holds application {row.app!r}'s {' and '.join(holds)}")
+    if not lines:
+        return ""
+    return (
+        f"Refusing to deploy: a render arms an application while also permitted to run "
+        f"a shell.{''.join(lines)}\n"
+        f"An agent with a shell can read the launch token out of its own environment, "
+        f"or call the write routes directly, and reach the application's writes with no "
+        f'approval. Restore "Bash" and "Monitor" to permissions.deny for that render '
+        f"and REBUILD its image, or withdraw the arming ({WRITES_KEY}: never in that "
+        f"render's tier, or stop selecting the application). "
+        f"{DANGEROUSLY_ALLOW_BASH_KEY} does not waive this refusal."
+    )
+
+
+def _route_label(route: Any) -> str | None:
+    """``"METHOD path"`` for a write agent route, ``None`` for a safe one.
+
+    A route whose method is missing or not a string counts as a write: the gate
+    fails closed on a shape it cannot read.
+    """
+    route = as_dict(route)
+    method = route.get("method")
+    if isinstance(method, str) and not is_write_method(method):
+        return None
+    return f"{method} {route.get('path')}"
+
+
+def _rendered_panels(
+    config: Any, project_root: Path | str
+) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Every ``web.panels`` block of every referenced render, as ``(render, id, block)``."""
+    for render, render_config in sorted(rendered_configs(config, project_root).items()):
+        panels = as_dict(as_dict(as_dict(render_config).get("web")).get("panels"))
+        for panel_id, block in sorted(panels.items()):
+            yield render, panel_id, as_dict(block)
+
+
+def application_rows(config: Any, project_root: Path | str) -> list[ApplicationRow]:
+    """Every application each referenced render arms, from its rendered config.
+
+    Read over :func:`~osprey.deployment.web_terminals.roster.rendered_configs`,
+    the same documents the lane entitlement reads. A ``web.panels.<id>`` entry is
+    a row when it carries a ``launch_token_env`` or an ``agent_routes`` entry
+    whose method is a write method (:func:`osprey.apps.manifest.is_write_method`).
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+    """
+    rows = []
+    for render, panel_id, block in _rendered_panels(config, project_root):
+        token_env = block.get("launch_token_env") or None
+        routes = block.get("agent_routes")
+        write_routes = tuple(
+            label
+            for route in (routes if isinstance(routes, list) else [])
+            if (label := _route_label(route)) is not None
+        )
+        if token_env or write_routes:
+            rows.append(
+                ApplicationRow(
+                    render=render,
+                    app=str(block.get("app") or panel_id),
+                    token_env=str(token_env) if token_env else None,
+                    write_routes=write_routes,
+                )
+            )
+    return rows
+
+
+def _is_own_launch_token(token_env: Any, application: Any) -> bool:
+    """Whether *token_env* is the one name :func:`launch_token_env` gives *application*."""
+    try:
+        return bool(token_env == launch_token_env(str(application or "")))
+    except ValueError:
+        return False
+
+
+def launch_token_name_problems(config: Any, project_root: Path | str) -> list[str]:
+    """One line per panel block naming a variable it may not be granted.
+
+    A block's ``launch_token_env`` must be its application's own name, and never
+    one of OSPREY's own credentials: an application called ``bluesky`` does not
+    earn the lane's token. Computed without refusing anything, for the
+    collect-all preflight; :func:`check_bash_launch_token_conflict` refuses on it.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+    """
+    # Imported here, as compose_generator is: container_lifecycle reaches this package.
+    from osprey.deployment.container_lifecycle import builtin_token_vars
+
+    problems = []
+    for render, panel_id, block in _rendered_panels(config, project_root):
+        token_env = block.get("launch_token_env")
+        if not token_env:
+            continue
+        application = block.get("app")
+        if not application:
+            why = "the block names no application"
+        elif not _is_own_launch_token(token_env, application):
+            why = f"application {application!r} holds only its own launch-token variable"
+        elif token_env in builtin_token_vars():
+            why = "that is one of OSPREY's own credentials"
+        else:
+            continue
+        problems.append(f"{render!r}: web.panels.{panel_id} names {token_env}, but {why}")
+    return problems
+
+
+def application_shell_conflicts(config: Any, project_root: Path | str) -> list[ApplicationRow]:
+    """The application rows whose render ships settings that leave a shell open.
+
+    Computed without refusing anything, and outside the
+    :data:`DANGEROUSLY_ALLOW_BASH_KEY` waiver: the key never applies to them.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+    """
+    permitting = renders_with_open_shell(config, project_root)
+    return [row for row in application_rows(config, project_root) if row.render in permitting]
+
+
+class LaunchTokenEntitlement(dict[str, set[str]]):
+    """What the shell gate cleared: ``{lane: renders}``, with the application map beside it.
+
+    The mapping itself is the lane map, unchanged.
+    :attr:`by_token_env` is ``{token_env: renders}``, the renders granted each
+    application launch token. A render carrying only write routes is absent from
+    it: it is entitled to no token.
+    """
+
+    def __init__(
+        self, by_lane: Mapping[str, set[str]], *, by_token_env: Mapping[str, set[str]]
+    ) -> None:
+        super().__init__(by_lane)
+        self.by_token_env: dict[str, set[str]] = dict(by_token_env)
+
+
+def check_bash_launch_token_conflict(
+    config: Any, project_root: Path | str
+) -> LaunchTokenEntitlement:
     """Refuse the deploy if any launch-token render's shipped settings leave a shell (``Bash`` or ``Monitor``) open.
 
     The whole guard in one callable, because it runs at **three** points and the
@@ -235,7 +459,13 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
       whose pre-recreate re-render reaches the render seam through neither of the
       call sites above. The seam has to answer for itself.
 
-    :data:`DANGEROUSLY_ALLOW_BASH_KEY` waives the refusal -- and ONLY the
+    The same gate refuses every application row (:func:`application_rows`)
+    whose render leaves a shell open: a render holding an application's launch
+    token or a write agent route beside a shell. The build already refuses that
+    pair on an ``allowed`` render; this reads it again from the shipped artifacts.
+
+    :data:`DANGEROUSLY_ALLOW_BASH_KEY` waives the bluesky-lane refusal -- never an
+    application row's -- and ONLY the
     refusal: the entitlement map below is returned unchanged, so the waived
     render is granted exactly the token it would have been. It is honoured
     here and in :func:`bash_launch_token_offenders` off one reader
@@ -259,25 +489,34 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
         hands the *same* sets down, and what the guard cleared cannot drift from
         what the render grants. A lane nobody may arm is absent, per
         :func:`~osprey.deployment.web_terminals.roster.renders_needing_launch_token_by_lane`.
+        Its :attr:`~LaunchTokenEntitlement.by_token_env` is ``{token_env: renders}``
+        for the application launch tokens.
 
     Raises:
-        BashLaunchTokenConflictError: One or more renders entitled on SOME lane
-            ship a ``.claude/settings.json`` that does not deny both ``Bash`` and
-            ``Monitor``.
+        LaunchTokenNameError: A panel block names a variable other than its
+            application's own launch token (:func:`launch_token_name_problems`).
+        BashLaunchTokenConflictError: One or more renders entitled on SOME lane,
+            or arming an application, ship a ``.claude/settings.json`` that does
+            not deny both ``Bash`` and ``Monitor``.
             Any lane's token is enough: a shell reads whichever one the container
             holds, and every lane arms real hardware motion on its own target.
     """
     # Read FIRST, so a mis-set key is a config error even on a roster with no
     # conflict to waive.
     waived = dangerously_allow_bash(config)
+    # Ahead of the entitlement below, which grants whatever name a block carries.
+    if name_problems := launch_token_name_problems(config, project_root):
+        raise LaunchTokenNameError(name_problems)
     entitled_by_lane = renders_needing_launch_token_by_lane(config, project_root)
     permitting = renders_with_open_shell(config, project_root)
+    rows = application_rows(config, project_root)
+    app_conflicts = [row for row in rows if row.render in permitting]
     offenders_by_lane = {
         lane: conflicted
         for lane, tiers in entitled_by_lane.items()
-        if (conflicted := tiers & permitting)
+        if not waived and (conflicted := tiers & permitting)
     }
-    if offenders_by_lane and not waived:
+    if offenders_by_lane or app_conflicts:
         # Read once more, only on the refusal path: the remedy names the key
         # that decides THAT lane's posture in THAT render's config, and a lane
         # whose offenders disagree about it (two renders, two live connector
@@ -290,11 +529,16 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
             for lane, tiers in offenders_by_lane.items()
         }
         raise BashLaunchTokenConflictError(
-            set().union(*offenders_by_lane.values()),
+            set().union(*offenders_by_lane.values(), {row.render for row in app_conflicts}),
             by_lane=offenders_by_lane,
             writes_keys=writes_keys,
+            applications=app_conflicts,
         )
-    return entitled_by_lane
+    by_token_env: dict[str, set[str]] = {}
+    for row in rows:
+        if row.token_env:
+            by_token_env.setdefault(row.token_env, set()).add(row.render)
+    return LaunchTokenEntitlement(entitled_by_lane, by_token_env=by_token_env)
 
 
 def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[str]:
@@ -320,11 +564,13 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
         Every render both entitled to SOME lane's launch token and shipping
         settings that leave a shell open — the union across lanes, because one
         token in the container's environment is one shell away from arming its
-        lane. Empty when there is no conflict.
+        lane — plus every render in :func:`application_shell_conflicts`, which
+        the waiver never removes. Empty when there is no conflict.
     """
+    applications = {row.render for row in application_shell_conflicts(config, project_root)}
     if dangerously_allow_bash(config):
-        return set()
-    return _offenders_ignoring_the_waiver(config, project_root)
+        return applications
+    return _offenders_ignoring_the_waiver(config, project_root) | applications
 
 
 def dangerously_allowed_bash_renders(config: Any, project_root: Path | str) -> set[str]:
@@ -333,7 +579,8 @@ def dangerously_allowed_bash_renders(config: Any, project_root: Path | str) -> s
     What the deploy's banner names: exactly the set
     :func:`bash_launch_token_offenders` would have returned with the key off,
     computed by the same predicate so the banner and the refusal cannot
-    disagree about who is in conflict. Empty whenever the key is off, and
+    disagree about who is in conflict. Never an application row's render, which
+    the key does not waive. Empty whenever the key is off, and
     empty on a conflict-free roster with the key on -- a banner naming nobody
     would train operators to ignore it.
 
@@ -344,7 +591,8 @@ def dangerously_allowed_bash_renders(config: Any, project_root: Path | str) -> s
     """
     if not dangerously_allow_bash(config):
         return set()
-    return _offenders_ignoring_the_waiver(config, project_root)
+    refused = {row.render for row in application_shell_conflicts(config, project_root)}
+    return _offenders_ignoring_the_waiver(config, project_root) - refused
 
 
 def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set[str]:
@@ -837,9 +1085,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     were provisioned with; the roster's operator secrets; and which proxy
     settings hold a value where compose will read them (this process's
     environment, then the chain); and the facility's display name, from the
-    build's facility identity; and each shared app's title, the top-level
-    ``name:`` of its ``apps/<name>.yml``, which titles the app's landing card,
-    browser tab and sign-in chooser entry.
+    build's facility identity; and each shared login's title, the top-level
+    ``name:`` of its ``tiers/<name>.yml``, which titles the card's landing
+    entry, browser tab and sign-in chooser entry.
 
     The one seam between "what is on disk" and "what the render is told", so a
     test that wants the render the deploy actually produces asks this rather
@@ -873,10 +1121,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         shared_corpus_gid,
     )
     from osprey.utils.facility import facility_name
-    from osprey.utils.workspace import APPS_DIRNAME
+    from osprey.utils.workspace import TIERS_DIRNAME
 
     root = Path(repo_root)
-    launch_token_renders_by_lane = check_bash_launch_token_conflict(config, root)
+    entitlement = check_bash_launch_token_conflict(config, root)
     # The second fail-closed gate, in the same position and for the same reason:
     # an open deployment whose renders can still reach its own terminals must
     # leave no half-written artifacts behind either.
@@ -888,7 +1136,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # Every lane's slice: the render grants each render one launch token
         # per lane whose target that render is armed for, and the guard above
         # cleared every lane, so no grant reaches the render unchecked.
-        "launch_token_renders": launch_token_renders_by_lane,
+        "launch_token_renders": dict(entitlement),
+        # The same clearance's application tokens, never rebuilt from the configs.
+        "application_token_renders": entitlement.by_token_env,
         "graphdb_renders": renders_needing_graphdb_password(config, root),
         "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),
@@ -918,7 +1168,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "facility_name": facility_name(
             web_artifacts_dir(root), as_dict(config).get("project_name")
         ),
-        "app_titles": app_titles_in(root / APPS_DIRNAME),
+        "shared_titles": login_titles_in(root / TIERS_DIRNAME),
     }
 
 

@@ -100,6 +100,10 @@ RENDER_NAMED_VARS = frozenset(
         STATE_VAR,
     }
 )
+#: The one LIST the render names: every state directory an application
+#: container declares, colon-separated, each joined, probed and pruned exactly
+#: as a single-directory variable is.
+APP_STATE_VAR = "OSPREY_APP_STATE_DIRS"
 
 #: Who this container acts as, and the staged module that makes uid 1000 say so.
 IDENTITY_VAR = "OSPREY_CONTROL_IDENTITY"
@@ -202,8 +206,9 @@ class TestScriptShape:
         assert "join_mounted_groups() {" in section, "the slice lost the dispatcher"
         code = "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
         read = set(re.findall(r"\bOSPREY_[A-Z_]+\b", code))
-        assert RENDER_NAMED_VARS <= read, f"a render-named mount is never joined: {read}"
-        others = read - RENDER_NAMED_VARS
+        named = RENDER_NAMED_VARS | {APP_STATE_VAR}
+        assert named <= read, f"a render-named mount is never joined: {read}"
+        others = read - named
         assert not others, f"the join reads variables the render does not name: {others}"
 
     def test_every_render_named_variable_is_joined_and_probed(self, text: str):
@@ -225,6 +230,20 @@ class TestScriptShape:
                 body,
                 flags=re.MULTILINE,
             ), var
+
+    def test_every_app_state_entry_is_joined_and_probed(self, text: str):
+        """The list variable keeps the join-without-probe invariant per ENTRY:
+        the dispatcher splits it and hands each entry, under the list's name,
+        to the same two helpers every other variable goes through — the same
+        entry to both, and a write probe, because the app writes its state."""
+        body = _dispatcher_body(text)
+        join = re.search(rf'^\s*join_mounted_group {APP_STATE_VAR} "\$(_\w+)"$', body, re.MULTILINE)
+        assert join, body
+        entry = join.group(1)
+        assert re.search(
+            rf'^\s*probe_mounted_dir {APP_STATE_VAR} "\${entry}" write$', body, re.MULTILINE
+        ), body
+        assert f'"${{{APP_STATE_VAR}:-}}"' in body, "the list is not read with a default"
 
     def test_the_read_only_tree_is_the_only_read_probe(self, text: str):
         """The mode is per VARIABLE, not per container: the tree is bound
@@ -284,6 +303,7 @@ class TestScriptShape:
             AGENT_RECORD_ARCHIVE_VAR,
             SPOOL_VAR,
             STATE_VAR,
+            APP_STATE_VAR,
         ):
             assert f'"${{{var}:-}}"' in body, var
 
@@ -310,6 +330,7 @@ class TestScriptShape:
             AGENT_RECORD_ARCHIVE_VAR,
             SPOOL_VAR,
             STATE_VAR,
+            APP_STATE_VAR,
         ):
             assert var in comment, var
         assert "membership" in comment.lower()
@@ -406,6 +427,12 @@ class Sandbox:
         state zone, setgid and group-shared like the record directory."""
         return self._mount(self.state / "archive", gid)
 
+    def app_state_mount(self, gid: int, service: str, identity: str = "knob-demo") -> Path:
+        """One application container's declared state directory, where compose
+        binds it: inside its identity's state zone, provisioned setgid and
+        group-shared like the zone itself."""
+        return self._mount(self.state / "state" / identity / service, gid)
+
     def _mount(self, path: Path, gid: int) -> Path:
         path.mkdir(parents=True, exist_ok=True)
         with self.gid_map.open("a") as handle:
@@ -428,6 +455,7 @@ class Sandbox:
         bundle_dir: Path | str | None = None,
         mirror_dir: Path | str | None = None,
         archive_dir: Path | str | None = None,
+        app_state_dirs: str | None = None,
         groupadd_rc: int = 0,
         usermod_rc: int = 0,
         stat_rc: int | None = None,
@@ -511,6 +539,8 @@ class Sandbox:
             env[MIRROR_VAR] = str(mirror_dir)
         if archive_dir is not None:
             env[AGENT_RECORD_ARCHIVE_VAR] = str(archive_dir)
+        if app_state_dirs is not None:
+            env[APP_STATE_VAR] = app_state_dirs
 
         command = [
             "/bin/sh",
@@ -1759,6 +1789,81 @@ def _non_root_branch(text: str) -> str:
 
 #: The privilege drop, spelled exactly once in the shipped script.
 _EXEC_FORM = re.compile(r'^[ \t]*exec gosu osprey "\$@"$', re.MULTILINE)
+
+
+class TestTheAppStateDirs:
+    """``OSPREY_APP_STATE_DIRS`` names a LIST, and every entry gets what a
+    single-directory variable gets: the join, the write probe and the prune."""
+
+    def test_every_entry_is_joined(self, sandbox: Sandbox):
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        second = sandbox.app_state_mount(gid=3001, service="knob-cache")
+
+        run = sandbox.run(app_state_dirs=f"{first}:{second}")
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == [
+            "groupadd 3000 osprey-mount-3000",
+            "groupadd 3001 osprey-mount-3001",
+        ]
+
+    def test_every_entry_is_write_probed_even_on_a_shared_gid(self, sandbox: Sandbox):
+        """The second entry's gid is already joined, so its join returns early;
+        the probe must still ask about it."""
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        second = sandbox.app_state_mount(gid=3000, service="knob-cache")
+
+        run = sandbox.run(app_state_dirs=f"{first}:{second}")
+
+        assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
+        probes = _probes(run)
+        for path in (first, second):
+            assert f"probe osprey -w {path}" in probes, probes
+            assert f"probe osprey -x {path}" in probes, probes
+
+    def test_an_entry_with_a_space_is_one_directory(self, sandbox: Sandbox):
+        spaced = sandbox.app_state_mount(gid=3000, service="knob demo")
+
+        run = sandbox.run(app_state_dirs=str(spaced))
+
+        assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
+        assert f"probe osprey -w {spaced}" in _probes(run)
+
+    def test_empty_and_missing_entries_are_skipped_not_fatal(self, sandbox: Sandbox):
+        present = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        missing = sandbox.state / "state" / "knob-demo" / "gone"
+
+        run = sandbox.run(app_state_dirs=f":{present}::{missing}:")
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
+        assert f"{APP_STATE_VAR}={missing} is not a directory" in run.stderr
+        assert f"-path {missing} " not in run.find_args, run.find_args
+
+    def test_every_entry_is_pruned_and_never_traversed(self, sandbox: Sandbox):
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        second = sandbox.app_state_mount(gid=3001, service="knob-cache")
+        kept = first / "state.json"
+        kept.write_text("{}")
+        elsewhere = sandbox.state / "elsewhere.json"
+        elsewhere.write_text("{}")
+
+        run = sandbox.run(app_state_dirs=f"{first}:{second}")
+
+        for path in (first, second):
+            assert f"-path {path} -prune -o" in run.find_args, run.find_args
+        assert str(elsewhere) in run.visited, run.visited
+        assert str(kept) not in run.visited, "the sweep walked into an app state dir"
+
+    def test_without_the_list_the_sweep_would_reach_it(self, sandbox: Sandbox):
+        """Non-vacuity for the prune above."""
+        first = sandbox.app_state_mount(gid=3000, service="knob-demo")
+        kept = first / "state.json"
+        kept.write_text("{}")
+
+        run = sandbox.run()
+
+        assert str(kept) in run.visited, run.visited
 
 
 class TestTheIdentityStepShape:

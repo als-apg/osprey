@@ -91,9 +91,9 @@ FLOOR_PRESETS = [
     PRESET,
     f"{TIERS_DIRNAME}/readonly",
     f"{TIERS_DIRNAME}/readwrite",
-    f"{APPS_DIRNAME}/logbook",
-    f"{APPS_DIRNAME}/knowledge",
-    f"{APPS_DIRNAME}/channel-finder",
+    f"{TIERS_DIRNAME}/logbook",
+    f"{TIERS_DIRNAME}/knowledge",
+    f"{TIERS_DIRNAME}/channel-finder",
 ]
 
 
@@ -101,8 +101,8 @@ FLOOR_PRESETS = [
 def initialized_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """``osprey init`` of the bare ``control-assistant`` preset, not yet built.
 
-    The repo holds ``profile.yml`` and the ``tiers/`` and ``apps/`` files init
-    materializes beside it — the layers every render below is resolved from.
+    The repo holds ``profile.yml`` and the ``tiers/`` files init materializes
+    beside it — the layers every render below is resolved from.
     """
     repo = tmp_path_factory.mktemp("preset-va-default") / "preset-va-default"
     created = CliRunner().invoke(
@@ -116,9 +116,9 @@ def initialized_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def resolve_preset(initialized_repo: Path):
     """Resolve the deployment's profile or one layer of it, by name.
 
-    ``control-assistant`` names the repo's ``profile.yml``; ``tiers/<n>`` and
-    ``apps/<n>`` name the file of that kind beside it, merged or composed over
-    the profile exactly as the build does.
+    ``control-assistant`` names the repo's ``profile.yml``; ``tiers/<n>`` names
+    the login file beside it, merged or composed over the profile exactly as
+    the build does.
     """
 
     def resolve(name: str) -> BuildProfile:
@@ -458,13 +458,12 @@ class TestControlAssistantRenderedAdmin:
     def test_init_emits_a_layer_delta_for_every_tier_including_admin(
         self, rendered_preset_repo: Path
     ) -> None:
-        """Every bundled tier, admin included, and every bundled app. ``tiers/``
-        and ``apps/`` are what ``osprey build`` renders a project per, so a tier
-        or app with no file here exists on the landing page and in nothing else."""
+        """Every bundled login, admin and the shared ones included. ``tiers/`` is
+        what ``osprey build`` renders a project per, so a login with no file
+        here exists on the landing page and in nothing else."""
         tiers = sorted(p.stem for p in (rendered_preset_repo / TIERS_DIRNAME).glob("*.yml"))
-        apps = sorted(p.stem for p in (rendered_preset_repo / APPS_DIRNAME).glob("*.yml"))
-        assert tiers == ["admin", "readonly", "readwrite"]
-        assert apps == ["channel-finder", "knowledge", "logbook"]
+        assert tiers == ["admin", "channel-finder", "knowledge", "logbook", "readonly", "readwrite"]
+        assert not (rendered_preset_repo / APPS_DIRNAME).exists()
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

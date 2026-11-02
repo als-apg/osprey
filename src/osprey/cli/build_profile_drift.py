@@ -11,9 +11,9 @@ stamp was written for.
 The reference is not the preset's raw layer, which no repo ever holds, but
 :func:`~osprey.cli.build_profile_emit.materialized_profile` — the document
 ``osprey init`` would write from the installed preset for this repo today. The
-profile is compared with it key by key. Each tier and app file is compared the
+profile is compared with it key by key. Each login file is compared the
 same way with :func:`~osprey.cli.build_profile_emit.emit_layer_delta_yaml` —
-the file ``osprey init`` would write from the bundled tier or app its own
+the file ``osprey init`` would write from the bundled login its own
 ``provenance:`` block names. What a repo writes for itself rather than copies
 from the preset is not compared: the display name, the materialized data tree,
 the schema floor and the provenance stamp.
@@ -28,12 +28,14 @@ existing marker convention is the first consumer rather than a second one.
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import yaml
 from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 
 from osprey import __version__
@@ -42,12 +44,14 @@ from osprey.profiles.providers import (
     load_provider_catalog,
     packaged_catalog_path,
 )
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
+from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
+from .application_material import app_build_output, application_dirs
 from .build_profile_document import _parse_profile_document, _read_profile_document
 from .build_profile_emit import emit_layer_delta_yaml, materialized_profile
 from .build_profile_merge import (
+    _fold_source_tree,
     _resolve_extends,
     compute_preset_hash,
     resolve_profile_document,
@@ -132,6 +136,108 @@ def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list
         {"providers": shipped_entries},
     )
     return _apply_markers(comparison.findings, catalog.path, root_dir, tag)
+
+
+#: The sidecar ``osprey init`` writes inside each application directory it
+#: copies from a preset: the preset's name and hash and the digest of the tree
+#: as copied. A file of its own because ``app.yml`` refuses unknown keys.
+APP_PROVENANCE_FILENAME = ".provenance"
+
+
+def _app_source_skip(app_dir: Path) -> Callable[[str], bool]:
+    """Which files under *app_dir* are not the application's source.
+
+    The files the build writes into it
+    (:func:`~osprey.cli.application_material.app_build_output`), the byte-code a
+    source checkout leaves beside its Python — the copy drops it too — and the
+    sidecar itself.
+    """
+    build_output = app_build_output(app_dir)
+
+    def skip(rel: str) -> bool:
+        return (
+            build_output(rel)
+            or rel == APP_PROVENANCE_FILENAME
+            or "__pycache__" in rel.split("/")
+            or rel.endswith((".pyc", ".pyo"))
+        )
+
+    return skip
+
+
+def app_tree_digest(app_dir: Path) -> str:
+    """The digest of an application directory's source, as its sidecar records it."""
+    digest = hashlib.sha256()
+    _fold_source_tree(digest, "app", app_dir, skip=_app_source_skip(app_dir))
+    return f"sha256:{digest.hexdigest()}"
+
+
+def app_provenance_text(app_dir: Path, preset: str, preset_hash: str | None) -> str:
+    """The ``.provenance`` sidecar for *app_dir*, copied from *preset*."""
+    body = yaml.safe_dump(
+        {"preset": preset, "preset_hash": preset_hash, "tree_digest": app_tree_digest(app_dir)},
+        sort_keys=False,
+    )
+    return (
+        "# Written by `osprey init`: the preset this application was copied from, and\n"
+        "# the digest of the files as copied. `osprey validate` compares the digest\n"
+        "# with the files on disk; a deviation-marker comment here claims an edit.\n"
+        f"{body}"
+    )
+
+
+def _compare_apps(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[str], list[str]]:
+    """Each application ``osprey init`` copied against the tree it copied.
+
+    An application with a ``.provenance`` sidecar is compared by its source
+    digest (:func:`app_tree_digest`): a difference is a note, never a refusal —
+    the copy is the operator's to edit, as ``profile.yml`` is — and a
+    ``# <TAG>:`` comment in the sidecar claims it. A preset that has moved on
+    since the copy is said once per application. An application with no
+    sidecar is the operator's own and is not compared.
+
+    Returns:
+        ``(findings, stale markers, notes)``.
+    """
+    findings: list[DriftFinding] = []
+    stale: list[str] = []
+    notes: list[str] = []
+    for app_dir in application_dirs(root_dir):
+        sidecar = app_dir / APP_PROVENANCE_FILENAME
+        if not sidecar.is_file():
+            continue
+        relative = f"{app_dir.relative_to(root_dir).as_posix()}/"
+        recorded = _parse_profile_document(
+            sidecar.read_text(encoding="utf-8"), f"{relative}{APP_PROVENANCE_FILENAME}"
+        )
+        if not isinstance(recorded, Mapping):
+            raise BuildProfileError(f"{sidecar} must be a YAML mapping")
+        preset = str(recorded.get("preset") or "")
+        recorded_hash = str(recorded.get("preset_hash") or "")
+        installed = compute_preset_hash(preset) if preset else None
+        if installed is not None and recorded_hash and installed != recorded_hash:
+            notes.append(
+                f"{relative} was copied from preset {preset} at {_short_hash(recorded_hash)}; "
+                f"the preset bundled with OSPREY {__version__} is {_short_hash(installed)} — "
+                f"it has moved on since"
+            )
+        found: list[DriftFinding] = []
+        if app_tree_digest(app_dir) != recorded.get("tree_digest"):
+            found.append(
+                DriftFinding(
+                    subject=relative,
+                    detail=f"its files differ from the ones `osprey init` copied from {preset}",
+                    profile_ref=relative,
+                    preset_ref=f"preset {preset}",
+                    token=relative.rstrip("/"),
+                    line=None,
+                    kind="value",
+                )
+            )
+        claimed, unclaimed = _apply_markers(found, sidecar, root_dir, tag)
+        findings.extend(claimed)
+        stale.extend(unclaimed)
+    return findings, stale, notes
 
 
 # Top-level keys `osprey init` writes for the repo rather than copies from the
@@ -224,16 +330,15 @@ class DriftReport:
 def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None) -> DriftReport:
     """Compare the profile at *profile_file* with what it was materialized from.
 
-    Reads the tracked documents — ``profile.yml`` and every tier and app file
+    Reads the tracked documents — ``profile.yml`` and every login file
     beside it — never a host-variant overlay: drift is a property of what the
     repo tracks, and an overlay is one host's layer over it. ``profile.yml``
-    pairs with the preset its provenance names; each ``tiers/<n>.yml`` and
-    ``apps/<n>.yml`` pairs with the bundled tier or app ITS provenance names
-    (see :func:`_layer_pairs`).
+    pairs with the preset its provenance names; each ``tiers/<n>.yml`` pairs
+    with the bundled login ITS provenance names (see :func:`_layer_pairs`).
 
     Args:
-        profile_file: A repo's ``profile.yml``, or one tier or app file under
-            its ``tiers/`` or ``apps/``. A layer file is compared alone; the
+        profile_file: A repo's ``profile.yml``, or one login file under its
+            ``tiers/``. A layer file is compared alone; the
             root compares itself and every layer it carries.
         provenance: The parsed ``provenance:`` block the loader resolved for
             *profile_file*. For a layer file it may be the layer's own block
@@ -288,6 +393,13 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None
                 findings_root, stale_root = _compare_root(profile, preset, root_path, root_dir, tag)
                 findings.extend(findings_root)
                 stale.extend(stale_root)
+    if not is_delta:
+        # Each copied application carries its own provenance, so it is compared
+        # whether or not the root's preset is bundled here.
+        findings_apps, stale_apps, notes_apps = _compare_apps(root_dir, tag)
+        findings.extend(findings_apps)
+        stale.extend(stale_apps)
+        notes.extend(notes_apps)
 
     profile_name = str(profile.get("name", ""))
     for pair in _layer_pairs(
@@ -370,7 +482,7 @@ def _compare_root(
 
 @dataclass(frozen=True)
 class _LayerPair:
-    """One materialized tier or app file and the bundled source it names."""
+    """One materialized login file and the bundled source it names."""
 
     path: Path
     dirname: str
@@ -381,33 +493,33 @@ class _LayerPair:
 
     @property
     def source(self) -> str:
-        """The kind-qualified bundled name: ``tiers/<stem>`` or ``apps/<stem>``."""
+        """The kind-qualified bundled name: ``tiers/<stem>``."""
         return f"{self.dirname}/{self.stem}"
 
 
 def _layer_pairs(root_dir: Path, project_name: str, only: Path | None) -> list[_LayerPair]:
-    """Each tier and app file with the bundled source its provenance block names.
+    """Each login file with the bundled source its provenance block names.
 
     Enumerated over the ``renders`` projection
     (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
     — the same set of files the build renders — so a layer is compared exactly
     when it is built. The pairing is by provenance, not by file name, the way
-    ``profile.yml`` pairs with its preset: a copy of ``apps/logbook.yml`` saved
-    as ``apps/night-shift.yml`` still pairs with the bundled ``logbook``. A file
+    ``profile.yml`` pairs with its preset: a copy of ``tiers/logbook.yml`` saved
+    as ``tiers/night-shift.yml`` still pairs with the bundled ``logbook``. A file
     with no provenance block was not materialized by ``osprey init`` and has
     nothing to drift from; a file that is not a mapping is the build's to name.
 
     Args:
-        root_dir: The profile root holding ``tiers/`` and ``apps/``.
+        root_dir: The profile root holding ``tiers/``.
         project_name: The deployment's ``project_name``, which names renders.
         only: Restrict to this one layer file, if given.
     """
-    from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, render_projection
+    from osprey.deployment.web_terminals.render_naming import render_projection
 
     paths = {path.stem: path for _kind, path in layer_files(root_dir)}
     target = only.resolve() if only is not None else None
     pairs: list[_LayerPair] = []
-    for name, entry in render_projection(root_dir, project_name or "project").items():
+    for name in render_projection(root_dir, project_name or "project"):
         path = paths.get(name)
         if path is None or (target is not None and path.resolve() != target):
             continue
@@ -421,7 +533,7 @@ def _layer_pairs(root_dir: Path, project_name: str, only: Path | None) -> list[_
         pairs.append(
             _LayerPair(
                 path=path,
-                dirname=APPS_DIRNAME if entry.get("kind") == RENDER_KIND_APP else TIERS_DIRNAME,
+                dirname=TIERS_DIRNAME,
                 stem=_normalize_preset_name(str(block["preset"])),
                 preset_hash=str(block.get("preset_hash") or ""),
                 marker=marker.strip() if isinstance(marker, str) and marker.strip() else None,

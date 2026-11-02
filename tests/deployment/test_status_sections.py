@@ -1272,9 +1272,18 @@ _MAP = {"alice": "allowed", "bob": "never"}
 
 
 def _stage_map(repo: Path, login_tiers, *, service: str = "bluesky") -> Path:
-    """Stage a shared container's ``config.yml`` carrying *login_tiers*, as a build does."""
+    """Stage a shared container's ``config.yml`` carrying *login_tiers*, as a build does.
+
+    The as-built ``build/config.yml`` names *service*, as every build's does:
+    status reads the map from the services that drive the target there.
+    """
     path = repo / "build" / "services" / service / "config.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
+    as_built = repo / "build" / "config.yml"
+    built = yaml.safe_load(as_built.read_text(encoding="utf-8")) if as_built.is_file() else {}
+    built = built if isinstance(built, dict) else {}
+    built.setdefault("services", {}).setdefault(service, {})
+    as_built.write_text(yaml.safe_dump(built), encoding="utf-8")
     document = {"control_system": {"writes": "allowed", "login_tiers": login_tiers}}
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     return path

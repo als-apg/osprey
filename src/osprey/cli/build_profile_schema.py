@@ -188,6 +188,62 @@ class McpServerDef:
     # None means the server declares no list; [] declares that none writes.
     # Validated as written — the build never queries the server's tool list.
     writes: list[str] | None = None
+    # The render-context key that must be truthy for the server to render;
+    # a projected ``shown_when: panel`` server's is ``panel:<panel id>``.
+    condition: str | None = None
+    # The application this server is projected for; None for any other server.
+    app: str | None = None
+
+
+ListsMode = Literal["own", "add"]
+"""How a login's selection lists relate to the deployment's: ``add`` lays them
+over the deployment's own, ``own`` takes them from the login file alone."""
+
+LISTS_MODES: tuple[ListsMode, ...] = ("own", "add")
+"""The closed ``lists:`` vocabulary."""
+
+DEFAULT_LISTS_MODE: ListsMode = "add"
+"""What a login that spells no ``lists:`` means."""
+
+
+@dataclass
+class AppServiceAxes:
+    """The deployment's axes for one container of an application
+    (``apps.<name>.services.<key>``, the key being the manifest's container key).
+
+    Only the axes a deployment sets per host; everything else about the
+    container is the application's own, in its ``app.yml`` or compose fragment.
+    """
+
+    network: Any = None
+    """The container's attachment (:data:`VALID_NETWORK_MODES`); ``None`` keeps
+    :data:`DEFAULT_NETWORK_MODE`. Held as written and checked by the validator,
+    so every bad spelling is reported at once."""
+    env: Any = None
+    """Host variable names passed through to the container; ``None`` adds none."""
+
+
+@dataclass
+class AppEntry:
+    """One application in a profile's ``apps:`` block.
+
+    Listing an application turns it on; there is no ``enabled`` key. Its tool
+    server is projected by the build from its manifest, so no tool-server key
+    is written here. A login file spells only ``shown``; ``config`` and
+    ``services`` are the deployment's.
+    """
+
+    config: dict[str, Any] = field(default_factory=dict)
+    """Free-form settings, handed to the application as a rendered file."""
+    services: dict[str, AppServiceAxes] = field(default_factory=dict)
+    """Per-container axes, keyed by the manifest's container keys."""
+    shown: bool | None = None
+    """Whether the card shows the application; ``None`` takes the default its
+    ``lists:`` mode gives (shown under ``add``, hidden under ``own``)."""
+
+
+#: The keys a login may spell inside ``apps.<name>``.
+LOGIN_APP_ENTRY_KEYS = frozenset({"shown"})
 
 
 @dataclass

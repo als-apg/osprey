@@ -123,10 +123,11 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
 # serving the genuine render output — so the baseline exercises the real
 # deploy render path, not a hand-built HTML fixture. Two users on distinct
 # tiers (alice->operator, bob->physicist) so both tier sublabels appear, plus
-# the three shared apps the control-assistant preset ships (logbook research,
-# facility knowledge and channel finder), titled by their app files' ``name:``
-# — so the baseline also covers the labelled users section and the apps tray
-# (accent-edged panel, no badges on app cards).
+# the three shared logins the control-assistant preset ships (logbook research,
+# facility knowledge and channel finder), titled by their login files' ``name:``
+# — so the baseline also covers the labelled users section and the shared tray
+# (accent-edged panel, no badges on shared cards). The tray keeps the label
+# "Apps" the baseline was taken with.
 # ---------------------------------------------------------------------------
 
 _MULTI_USER_LANDING_CONFIG = {
@@ -142,7 +143,9 @@ _MULTI_USER_LANDING_CONFIG = {
             "ariel_base_port": 8300,
             "lattice_base_port": 8400,
             "default_tier": "operator",
-            "landing": {"groups": [{"type": "users", "label": "Users"}, {"type": "apps"}]},
+            "landing": {
+                "groups": [{"type": "users", "label": "Users"}, {"type": "shared", "label": "Apps"}]
+            },
             "renders": {
                 name: {
                     "kind": kind,
@@ -152,9 +155,9 @@ _MULTI_USER_LANDING_CONFIG = {
                 for name, kind in (
                     ("operator", "tier"),
                     ("physicist", "tier"),
-                    ("logbook", "app"),
-                    ("knowledge", "app"),
-                    ("channel-finder", "app"),
+                    ("logbook", "tier"),
+                    ("knowledge", "tier"),
+                    ("channel-finder", "tier"),
                 )
             },
             "users": [
@@ -166,7 +169,7 @@ _MULTI_USER_LANDING_CONFIG = {
     },
 }
 
-#: Each shared app's title, as the deploy reads it off ``apps/<name>.yml``.
+#: Each shared login's title, as the deploy reads it off ``tiers/<name>.yml``.
 _MULTI_USER_LANDING_APP_TITLES = {
     "logbook": "Logbook Research",
     "knowledge": "Facility Knowledge",
@@ -178,7 +181,7 @@ def _create_multi_user_landing_app() -> FastAPI:
     from osprey.deployment.web_terminals.render import render_web_terminals
 
     landing_html = render_web_terminals(
-        _MULTI_USER_LANDING_CONFIG, app_titles=_MULTI_USER_LANDING_APP_TITLES
+        _MULTI_USER_LANDING_CONFIG, shared_titles=_MULTI_USER_LANDING_APP_TITLES
     )["nginx/landing.html"]
 
     app = FastAPI()

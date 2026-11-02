@@ -19,7 +19,7 @@ of the split.
 |---|---|---|
 | `src/osprey/templates/project/config.yml.j2` | `framework` | only what the BUILD derives: the project layout, the artifact port, `api.providers` from `providers.yml`, and the keys a profile FIELD (`provider:`, `model:`, `channel_finder_mode:`, `default_panel:`, `panel_presets:`, `web_panels:`) decides — the list in `osprey.cli.derived_keys.DERIVED_KEYS` |
 | `src/osprey/profiles/presets/*.yml` (`render_contexts.presets`) | the preset's stem | everything else, as dotted `config:` keys with a comment on the line that sets each one |
-| `src/osprey/profiles/presets/apps/*.yml` (`render_contexts.apps`) | the app's stem | each app's `config:` composed over `render_contexts.host` through the resolver's app branch: the host's facts, the app's keys over them, every write switch pinned off |
+| `src/osprey/profiles/presets/tiers/{logbook,knowledge,channel-finder}.yml` (`render_contexts.shared`) | the login's stem | each shared login's `config:` composed over `render_contexts.host` as a `lists: own` login named by `shared:`: the host's facts, the login's keys over them, every write switch pinned off |
 
 The two root presets, which are what `osprey init --preset <name>` copies out as
 the operator's own `profile.yml`:
@@ -29,20 +29,20 @@ the operator's own `profile.yml`:
 | `hello-world` | `src/osprey/profiles/presets/hello-world.yml` |
 | `control-assistant` | `src/osprey/profiles/presets/control-assistant.yml` |
 
-The bundled apps, each composed over `control-assistant` (the host):
+The bundled shared logins, each composed over `control-assistant` (the host):
 
 | id | path |
 |----|------|
-| `channel-finder` | `src/osprey/profiles/presets/apps/channel-finder.yml` |
-| `knowledge` | `src/osprey/profiles/presets/apps/knowledge.yml` |
-| `logbook` | `src/osprey/profiles/presets/apps/logbook.yml` |
+| `channel-finder` | `src/osprey/profiles/presets/tiers/channel-finder.yml` |
+| `knowledge` | `src/osprey/profiles/presets/tiers/knowledge.yml` |
+| `logbook` | `src/osprey/profiles/presets/tiers/logbook.yml` |
 
-An app is a complete agent definition, not a delta, so a key only an app states
-has its writer in the apps context: the `python` and
+A `lists: own` login is a complete agent definition, not a delta, so a key only
+it states has its writer in the shared context: the `python` and
 `osprey_facility_knowledge` server switches, `web.control_target_picker`,
 the `graph` server switch and the per-type write pins. The
-governed-set claims are measured from the `logbook` and `channel-finder` app
-renders.
+governed-set claims are measured from the `logbook` and `channel-finder`
+shared renders.
 
 The bundled tiers (`tiers/*.yml`) are deltas over their root and deliberately
 out of scope: every key they carry is either inherited from the root — already

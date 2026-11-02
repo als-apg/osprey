@@ -1896,6 +1896,10 @@ _FACILITY_EXTRAS_KEY = "control_system_write_tools"
 #: verbatim from ``osprey.registry.mcp.facility_write_tools``, its one producer.
 _FACILITY_WRITES_KEY = "facility_write_tools"
 
+#: The hook_config key holding every application tool's approval declaration,
+#: keyed by full tool name.
+_APP_APPROVALS_KEY = "app_approvals"
+
 #: The wildcard a whole-server ``writes_check`` matcher ends in.
 _SERVER_MATCHER_WILDCARD = ".*"
 
@@ -1930,6 +1934,12 @@ def _is_facility_tool(tool_name, hook_config):
                 return True
     extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
+
+
+def _is_app_tool(tool_name, hook_config):
+    """Whether *tool_name* is an application tool: one ``app_approvals`` keys."""
+    declared = hook_config.get(_APP_APPROVALS_KEY)
+    return isinstance(declared, dict) and tool_name in declared
 
 
 def _lane_block(config, lane_key):
@@ -1999,6 +2009,8 @@ def hook_write_target(config, tool_name, short_name, hook_input):
 
     * ``None`` for a call that writes nothing: a tool outside the render's
       ``write_tools``, or a readonly execution.
+    * The session's target for an application tool (``app_approvals``): an
+      application drives whatever machine the session is pointed at.
     * :data:`TARGET_LIVE` for a facility write tool (:func:`_is_facility_tool`):
       the deployment declared it, and only the real machine's switch covers it.
       A declaring server's other tools are in no write list, so they are
@@ -2024,6 +2036,8 @@ def hook_write_target(config, tool_name, short_name, hook_input):
         if not is_write_call(tool_name, tool_input, short_name):
             return None
         hook_config = load_hook_config()
+        if _is_app_tool(tool_name, hook_config):
+            return _session_machine(config, hook_input)
         if _is_facility_tool(tool_name, hook_config):
             return TARGET_LIVE
         if short_name in tuple(hook_config.get(_LANE_ADDRESSED_KEY) or ()):

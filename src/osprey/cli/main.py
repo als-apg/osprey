@@ -80,6 +80,7 @@ class LazyGroup(click.Group):
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
             "facility": "osprey.cli.facility_cmd",  # Facility description checks
+            "app": "osprey.cli.app_cmd",  # Deployment application checks
             "query": "osprey.cli.query_cmd",  # Headless agent query
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
             "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
@@ -157,6 +158,7 @@ class LazyGroup(click.Group):
             "vendor",
             "knowledge",
             "facility",
+            "app",
             "query",
             "users",
             "feedback",

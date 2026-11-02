@@ -2,8 +2,8 @@
 
 This pins the recipe the setup skill hands an operator who starts from
 ``hello-world`` and adopts ``control-assistant``'s web-terminal stack: splice the
-block in, strip what the base cannot serve, write the tier and app files, prune
-the apps and the panels, pull the knowledge bundle, validate, build. Scripted end
+block in, strip what the base cannot serve, write the login files, prune the
+shared logins and the panels, pull the knowledge bundle, validate, build. Scripted end
 to end so the reference stays executable — a step that stops working fails here
 rather than in an interview.
 
@@ -16,10 +16,9 @@ web-terminal block alone does not build:
   ``web.config_panel.enabled`` sit outside the block in the preset; without them
   the shared ``logbook`` and ``knowledge`` cards resolve as privileged and
   validation refuses.
-* **Tiers and apps before validation.** The block names a default tier and its
-  shared cards by name. Until ``osprey scaffold tiers`` and ``osprey scaffold
-  apps`` have written ``tiers/<n>.yml`` and ``apps/<n>.yml``, validation refuses
-  and names the verb that fixes it.
+* **Logins before validation.** The block names a default tier and its shared
+  cards by name. Until ``osprey scaffold tiers`` has written ``tiers/<n>.yml``
+  for each, validation refuses and names the verb that fixes it.
 * **Panels the host lacks.** The write-armed tiers name ``events`` and
   ``bluesky``, which need service blocks this deployment has no reason to
   deploy, so the whole ``web_panels`` key comes out of those two files.
@@ -174,7 +173,7 @@ def drop_unserved_apps(repo_root: Path) -> None:
     save_config_document(profile_path, document)
 
     for name in DROPPED_APPS:
-        layer_file(repo_root, "apps", name).unlink()
+        layer_file(repo_root, "tiers", name).unlink()
         shutil.rmtree(repo_root / CONTEXT_DIRNAME / name, ignore_errors=True)
 
 
@@ -204,7 +203,7 @@ def drop_graph_store_readers(repo_root: Path) -> None:
     from osprey.utils.config_writer import load_config_document, save_config_document
 
     for name in GRAPH_PRUNED_APPS:
-        path = layer_file(repo_root, "apps", name)
+        path = layer_file(repo_root, "tiers", name)
         document = load_config_document(path)
         document["channel_finder_mode"] = "hierarchical"
         document["agents"] = [
@@ -248,7 +247,6 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     spliced = runner.invoke(cli, ["validate", "--repo", str(repo_root), "--drift=warn"])
 
     tiers = invoke(runner, "scaffold", "tiers", "--repo", str(repo_root), "--from", SOURCE_PRESET)
-    apps = invoke(runner, "scaffold", "apps", "--repo", str(repo_root), "--from", SOURCE_PRESET)
     emitted = {"tiers": emitted_names(repo_root, "tiers"), "apps": emitted_names(repo_root, "apps")}
 
     scaffolded = runner.invoke(cli, ["validate", "--repo", str(repo_root), "--drift=warn"])
@@ -278,7 +276,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         "spliced_validate": spliced,
         "scaffolded_validate": scaffolded,
         "emitted": emitted,
-        "scaffold": tiers.output + apps.output,
+        "scaffold": tiers.output,
         "pull": pull.output,
         "set": settings.output,
         "validate": validate.output,
@@ -292,19 +290,19 @@ def test_the_spliced_profile_refuses_until_its_tiers_and_apps_exist(
     """The splice alone does not validate, and the refusal names the way out.
 
     The block names a default tier and three shared cards that have no file in
-    this repo yet; the remedy for the cards is ``osprey scaffold apps``.
+    this repo yet; the remedy for the cards is ``osprey scaffold tiers``.
     """
     result: Result = built_repo["spliced_validate"]
 
     assert result.exit_code != 0, result.output
-    assert "osprey scaffold apps" in result.output, result.output
+    assert "osprey scaffold tiers" in result.output, result.output
     assert "tiers/readonly.yml" in result.output, result.output
 
 
 def test_the_profile_validates_once_the_tiers_and_apps_are_written(
     built_repo: dict[str, Any],
 ) -> None:
-    """From the two scaffold verbs onward validation is green, before any
+    """From the scaffold verb onward validation is green, before any
     pruning — which is what makes "validate after every change" true for every
     later step instead of only the last one."""
     result: Result = built_repo["scaffolded_validate"]
@@ -315,11 +313,11 @@ def test_the_profile_validates_once_the_tiers_and_apps_are_written(
 def test_the_recipe_writes_every_tier_and_app_the_preset_names(
     built_repo: dict[str, Any],
 ) -> None:
-    """The scaffold verbs have no selection flag: every deployment starts with
-    all of them."""
+    """The scaffold verb has no selection flag: every deployment starts with
+    all of them, and none lands in ``apps/``."""
     assert built_repo["emitted"] == {
-        "tiers": sorted(TIER_NAMES),
-        "apps": sorted(APP_NAMES),
+        "tiers": sorted((*TIER_NAMES, *APP_NAMES)),
+        "apps": [],
     }, built_repo["scaffold"]
 
 
@@ -335,7 +333,7 @@ def test_an_app_nothing_serves_leaves_nothing_behind(built_repo: dict[str, Any])
     block = read_profile(repo_root)["config"][BLOCK_KEY]
 
     for name in DROPPED_APPS:
-        assert not layer_file(repo_root, "apps", name).exists(), name
+        assert not layer_file(repo_root, "tiers", name).exists(), name
         assert not (repo_root / CONTEXT_DIRNAME / name).exists(), name
         assert name not in block["shared"], name
 
@@ -369,7 +367,7 @@ def test_every_written_file_parses_as_the_framework_reads_it(built_repo: dict[st
         name: layer_file(repo_root, "tiers", name).read_text(encoding="utf-8")
         for name in TIER_NAMES
     } | {
-        name: layer_file(repo_root, "apps", name).read_text(encoding="utf-8") for name in KEPT_APPS
+        name: layer_file(repo_root, "tiers", name).read_text(encoding="utf-8") for name in KEPT_APPS
     }
 
     parsed = dict(_parsed_layer_deltas(texts, require_mapping=True))
@@ -389,7 +387,7 @@ def test_no_kept_app_reads_a_graph_store(built_repo: dict[str, Any]) -> None:
     repo_root: Path = built_repo["repo_root"]
 
     for name in KEPT_APPS:
-        app = yaml.safe_load(layer_file(repo_root, "apps", name).read_text(encoding="utf-8"))
+        app = yaml.safe_load(layer_file(repo_root, "tiers", name).read_text(encoding="utf-8"))
         assert app.get("channel_finder_mode") != "graph", name
 
 
@@ -405,7 +403,7 @@ def test_the_host_offers_exactly_the_panels_the_apps_land_on(
     repo_root: Path = built_repo["repo_root"]
 
     landed_on = set()
-    for kind, names in (("tiers", TIER_NAMES), ("apps", KEPT_APPS)):
+    for kind, names in (("tiers", TIER_NAMES), ("tiers", KEPT_APPS)):
         for name in names:
             layer = yaml.safe_load(layer_file(repo_root, kind, name).read_text(encoding="utf-8"))
             if layer.get("default_panel") is not None:

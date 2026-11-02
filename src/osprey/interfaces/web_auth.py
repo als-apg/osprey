@@ -87,6 +87,7 @@ import secrets
 import threading
 import time
 import urllib.parse
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -125,6 +126,7 @@ __all__ = [
     "peek_supplied_panel_token",
     "peek_web_credentials",
     "reset_web_credentials",
+    "set_panel_agent_routes",
 ]
 
 #: The operator secret's environment carrier. In the container shape the deploy
@@ -1286,16 +1288,18 @@ def reset_web_credentials() -> None:
     ``app.state.web_credentials`` on an app built before the reset — an app
     outliving the reset keeps the credentials it cached.
 
-    It also forgets the supplied panel token, and that is load-bearing rather
+    It also forgets the supplied panel token and the declared panel agent
+    routes (:func:`set_panel_agent_routes`), and that is load-bearing rather
     than tidiness: this runs before and after every test
     (``tests/conftest.py::reset_web_credentials_between_tests``), and a
     remembered token surviving a test would hand a bearer to the next test
     asserting that a process holding nothing sends none.
     """
-    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN
+    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN, _PANEL_AGENT_ROUTES
     with _POPULATION_LOCK:
         _CREDENTIALS = None
         _SUPPLIED_PANEL_TOKEN = None
+        _PANEL_AGENT_ROUTES = frozenset()
 
 
 def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:
@@ -1507,6 +1511,44 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
 #: repoint anything.
 PANEL_REGISTER_ROUTE: tuple[str, str] = ("POST", "/api/panels/register")
 
+#: The prefix every declared panel agent route must carry: the terminal's panel
+#: proxy. Nothing outside it can be admitted through :func:`set_panel_agent_routes`.
+_PANEL_PROXY_PREFIX = "/panel/"
+
+#: The exact ``(method, /panel/<id><path>)`` pairs the configured application
+#: panels declare as agent routes (``web.panels.<id>.agent_routes``), admitted
+#: on the panel token beside :data:`PANEL_TIER_ROUTES`. Empty until the web
+#: terminal loads its panel config; kept apart from the flat table so that
+#: table stays the fixed statement of the tier and this one is only what the
+#: render declared.
+_PANEL_AGENT_ROUTES: frozenset[tuple[str, str]] = frozenset()
+
+
+def set_panel_agent_routes(routes: Iterable[tuple[str, str]]) -> None:
+    """Replace the declared panel agent routes :func:`classify` admits.
+
+    Called once by the web terminal at startup, with the pairs it composed from
+    its config-defined loopback panels. The set is replaced, never extended: a
+    route the config no longer declares stops admitting.
+
+    Args:
+        routes: Exact ``(method, path)`` pairs; the method is upper-cased.
+
+    Raises:
+        ValueError: A path not under ``/panel/<id>/`` — this hook declares panel
+            routes, it cannot widen the tier anywhere else.
+    """
+    global _PANEL_AGENT_ROUTES
+    pairs = set()
+    for method, path in routes:
+        if not path.startswith(_PANEL_PROXY_PREFIX) or path.count("/") < 3:
+            raise ValueError(
+                f"panel agent route {method} {path!r} is not under {_PANEL_PROXY_PREFIX}<id>/"
+            )
+        pairs.add((method.upper(), path))
+    with _POPULATION_LOCK:
+        _PANEL_AGENT_ROUTES = frozenset(pairs)
+
 
 def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
     """Return the credential tier a request must satisfy.
@@ -1535,7 +1577,9 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
 
     Returns:
         :data:`Tier.PANEL` for the handful of routes in
-        :data:`PANEL_TIER_ROUTES`, and for a ``url``-free panel registration.
+        :data:`PANEL_TIER_ROUTES`, for a configured panel's declared agent
+        route (:func:`set_panel_agent_routes`), and for a ``url``-free panel
+        registration.
         :data:`Tier.OPERATOR` for everything else.
 
     The match is **exact** on both fields, and that is the security property
@@ -1552,7 +1596,7 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
         return Tier.OPERATOR
 
     route = (method.upper(), path)
-    if route in PANEL_TIER_ROUTES:
+    if route in PANEL_TIER_ROUTES or route in _PANEL_AGENT_ROUTES:
         return Tier.PANEL
     if route == PANEL_REGISTER_ROUTE and not body_has_url:
         return Tier.PANEL

@@ -50,7 +50,7 @@ from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_r
 from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
-from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
+from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
 from osprey_connectors.types import WRITES_KEY, tier_writes
 from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
 
@@ -64,8 +64,13 @@ _WORKDIR_RE = re.compile(r"^WORKDIR\s+(\S+)\s*$", re.M)
 
 def _rendered_dockerfile(project_name: str = PROJECT_NAME) -> str:
     """Render the packaged project Dockerfile the way ``osprey build`` does."""
+    from osprey.cli.templates.scaffolding import _default_image_facts
+
+    facts: dict[str, str] = {}
+    _default_image_facts(facts)
     template = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
     return Template(template.read_text(encoding="utf-8")).render(
+        **facts,
         project_name=project_name,
         claude_code_cli_version="1.2.3",
         port_base=DEFAULT_PORT_BASE,
@@ -684,10 +689,7 @@ def test_the_hashed_profile_is_the_repos_own_and_the_recorded_one_is_the_render_
     assert build_args["profile_path_abs"] == f"/app/{name}/{PROFILE_FILENAME}"
     assert (context / PROFILE_FILENAME).is_file(), "the file the advisory hashes must ship"
 
-    from tests.fixtures.lifecycle_repo import APP_PRESETS
-
-    layer_dir = APPS_DIRNAME if tier in APP_PRESETS else TIERS_DIRNAME
-    expected_source = PROFILE_FILENAME if tier is None else f"{layer_dir}/{tier}.yml"
+    expected_source = PROFILE_FILENAME if tier is None else f"{TIERS_DIRNAME}/{tier}.yml"
     assert build_args["profile_path"] == f"/app/{name}/{expected_source}"
 
 

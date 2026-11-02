@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="multi-user-title multi-user-desc">
   <title id="multi-user-title">Multi-user landing page</title>
-  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the logbook app everyone on the roster opens — all of which share the same databases and agent record; when login is on, nginx asks the auth service about every request before proxying.</desc>
+  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the shared logbook login everyone on the roster opens — all of which share the same databases and agent record; when login is on, nginx asks the auth service about every request before proxying.</desc>
   <defs>
     <marker id="multi-user-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -49,8 +49,8 @@
   <text class="ts" x="660" y="168" text-anchor="middle">own container + volumes</text>
   <rect class="mask" x="560" y="208" width="200" height="48" rx="6"/>
   <rect class="nb" x="560" y="208" width="200" height="48" rx="6"/>
-  <text class="tn" x="660" y="228" text-anchor="middle">logbook — app</text>
-  <text class="ts" x="660" y="244" text-anchor="middle">a second agent, shared</text>
+  <text class="tn" x="660" y="228" text-anchor="middle">logbook — shared login</text>
+  <text class="ts" x="660" y="244" text-anchor="middle">sealed read-only</text>
   <rect class="mask" x="272" y="224" width="176" height="48" rx="6"/>
   <rect class="nb-bnd" x="272" y="224" width="176" height="48" rx="6"/>
   <text class="tn" x="360" y="244" text-anchor="middle">auth service</text>

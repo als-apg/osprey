@@ -1,10 +1,10 @@
-"""Drift of the materialized tier and app files from the bundled source each names.
+"""Drift of the materialized login files from the bundled source each names.
 
-``osprey init`` writes every tier and app as an explicit file under ``tiers/``
-and ``apps/`` with a ``provenance:`` block naming the bundled source it was
-made from, exactly as ``profile.yml`` names its preset. ``osprey validate``
-compares each of them with what ``init`` would write from that source today,
-so a facility edit to an app is reported the way an edit to the profile is —
+``osprey init`` writes every login as an explicit file under ``tiers/`` with a
+``provenance:`` block naming the bundled source it was made from, exactly as
+``profile.yml`` names its preset. ``osprey validate`` compares each of them
+with what ``init`` would write from that source today, so a facility edit to a
+shared login is reported the way an edit to the profile is —
 and a file whose source no longer ships is named rather than crashed on.
 
 The fixture is one real ``osprey init`` of ``control-assistant``, copied per
@@ -25,7 +25,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
 
 PROFILE = "profile.yml"
-LOGBOOK = Path("apps") / "logbook.yml"
+LOGBOOK = Path("tiers") / "logbook.yml"
 READONLY = Path("tiers") / "readonly.yml"
 EXAMPLE_ARTIFACT = "artifact_server.example_artifact: false"
 
@@ -82,14 +82,14 @@ def test_fresh_init_repo_reports_no_drift(repo: Path) -> None:
         assert _drift_lines(result.output) == []
 
 
-def test_every_tier_and_app_file_is_paired(repo: Path) -> None:
-    """Each tier and app file in the repo is compared — none is silently skipped."""
+def test_every_login_file_is_paired(repo: Path) -> None:
+    """Each login file in the repo is compared — none is silently skipped."""
     layers = sorted(
         path.relative_to(repo).as_posix()
-        for dirname in ("tiers", "apps")
+        for dirname in ("tiers",)
         for path in (repo / dirname).glob("*.yml")
     )
-    assert layers, "the flagship preset materializes tiers and apps"
+    assert len(layers) == 6, "the flagship preset materializes six logins"
     for relative in layers:
         path = repo / relative
         text = path.read_text(encoding="utf-8")
@@ -102,37 +102,37 @@ def test_every_tier_and_app_file_is_paired(repo: Path) -> None:
     assert subjects == layers
 
 
-def test_one_edited_app_key_is_one_drift_line(repo: Path) -> None:
+def test_one_edited_shared_login_key_is_one_drift_line(repo: Path) -> None:
     _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
     report = _report(repo)
     assert len(report.unmarked) == 1
     finding = report.unmarked[0]
     assert finding.kind == "value"
     assert finding.subject == "config.artifact_server.example_artifact"
-    assert finding.profile_ref.startswith("apps/logbook.yml:")
+    assert finding.profile_ref.startswith("tiers/logbook.yml:")
 
     result = _validate(str(repo / PROFILE))
     assert result.exit_code == 0, result.output  # a value difference is a note
     lines = _drift_lines(result.output)
     assert len(lines) == 1, result.output
-    assert "apps/logbook.yml" in lines[0]
+    assert "tiers/logbook.yml" in lines[0]
     assert "artifact_server.example_artifact" in lines[0]
 
 
-def test_validating_the_app_file_reports_that_app_only(repo: Path) -> None:
+def test_validating_the_shared_login_file_reports_that_login_only(repo: Path) -> None:
     _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
     _edit(repo / READONLY, "control_system.writes: never", "control_system.writes: asked")
     refs = [f.profile_ref for f in _report(repo, repo / LOGBOOK).unmarked]
-    assert len(refs) == 1 and refs[0].startswith("apps/logbook.yml:")
+    assert len(refs) == 1 and refs[0].startswith("tiers/logbook.yml:")
     refs = [f.profile_ref for f in _report(repo, repo / READONLY).unmarked]
     assert len(refs) == 1 and refs[0].startswith("tiers/readonly.yml:")
 
 
-def test_structural_app_drift_is_refused(repo: Path) -> None:
+def test_structural_shared_login_drift_is_refused(repo: Path) -> None:
     _edit(repo / LOGBOOK, "  - logbook-deep-research", "")
     result = _validate(str(repo / PROFILE))
     assert result.exit_code == 2, result.output
-    assert "apps/logbook.yml" in result.output
+    assert "tiers/logbook.yml" in result.output
     assert "logbook-deep-research" in result.output
 
     passed = _validate(str(repo / PROFILE), "--drift=warn")
@@ -152,8 +152,8 @@ def test_a_marker_claims_a_layer_difference(repo: Path) -> None:
 
 
 def test_pairing_follows_provenance_not_the_file_name(repo: Path) -> None:
-    """A copy of an app under another name still pairs with the source it names."""
-    shutil.copy(repo / LOGBOOK, repo / "apps" / "night-shift.yml")
+    """A copy of a login under another name still pairs with the source it names."""
+    shutil.copy(repo / LOGBOOK, repo / "tiers" / "night-shift.yml")
     assert _report(repo).findings == []
 
 
@@ -161,13 +161,13 @@ def test_source_that_no_longer_ships_is_reported_not_crashed_on(repo: Path) -> N
     _edit(repo / LOGBOOK, "  preset: logbook", "  preset: retired-app")
     report = _report(repo)
     assert report.note is not None
-    assert "apps/logbook.yml" in report.note and "retired-app" in report.note
+    assert "tiers/logbook.yml" in report.note and "retired-app" in report.note
     assert report.findings == []
 
     result = _validate(str(repo / PROFILE))
     assert result.exit_code == 0, result.output
     assert "retired-app" in result.output
-    assert "apps/logbook.yml" in result.output
+    assert "tiers/logbook.yml" in result.output
 
 
 def test_a_moved_on_source_is_noted(repo: Path) -> None:
@@ -175,7 +175,7 @@ def test_a_moved_on_source_is_noted(repo: Path) -> None:
     old = next(line for line in text.splitlines() if line.startswith("  preset_hash:"))
     _edit(repo / LOGBOOK, old, "  preset_hash: sha256:" + "0" * 64)
     report = _report(repo)
-    assert report.note is not None and "apps/logbook.yml" in report.note
+    assert report.note is not None and "tiers/logbook.yml" in report.note
     assert report.findings == []
 
 

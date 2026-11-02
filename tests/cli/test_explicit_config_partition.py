@@ -28,9 +28,8 @@ preset admits), the keys of the frozen root render are partitioned into:
 ``W``
     Keys the build writes that no preset states: the MCP health address a
     render serving web terminals pins, the bundled record archive's compose
-    directory, and the render projection — each tier's and app's ``kind``,
-    project name and project directory, derived from the files in ``tiers/``
-    and ``apps/``.
+    directory, and the render projection — each login's ``kind``, project
+    name and project directory, derived from the files in ``tiers/``.
 ``B``
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
@@ -78,7 +77,6 @@ from osprey.cli.build_profile_presets import (
 from osprey.cli.derived_keys import is_derived_key
 from osprey.cli.profile_root import ProfileKind
 from osprey.deployment.web_terminals.render_naming import (
-    RENDER_KIND_APP,
     RENDER_KIND_TIER,
     RENDERS_KEY,
 )
@@ -105,9 +103,9 @@ _PROVIDERS_KEY = "api.providers"
 #: service a profile section deploys.
 _VALUE_REWRITTEN_BY_BUILD = ("container_runtime", "deployed_services")
 #: The render projection's leaves, ``modules.web_terminals.renders.<name>.*``:
-#: the build writes one entry per file in ``tiers/`` and ``apps/``
+#: the build writes one entry per file in ``tiers/``
 #: (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
-#: its ``kind`` from the file's directory and its ``project`` and
+#: its ``kind`` ``tier`` and its ``project`` and
 #: ``project_path`` from the deployment's ``project_name`` and the file's stem.
 #: No profile may spell any of it
 #: (:func:`~osprey.cli.build_profile_model.render_key_errors`).
@@ -177,17 +175,18 @@ def _preset_document(preset: str) -> dict[str, Any]:
 
 
 def _layer_document(preset: str, stem: str, kind: ProfileKind) -> dict[str, Any]:
-    """The document a bundled tier or app renders from over *preset*, as the build composes it.
+    """The document a bundled login renders from over *preset*, as the build composes it.
 
     The build's own composer (:func:`~osprey.cli.build_profile_merge.render_document`,
-    then the attachment facts): a tier is merged over the deployment, an app is
-    composed from the deployment's facts and its complete app file.
+    then the attachment facts): a login that adds is merged over the
+    deployment, a ``lists: own`` one composed from the deployment's facts and
+    its complete file, and a shared one sealed.
     """
     path = _layer_presets_dir(kind) / f"{stem}.yml"
     layer = _read_profile_document(path)
     assert isinstance(layer, dict), path
     return _attach(
-        render_document(kind, _preset_document(preset), layer, f"{path.parent.name}/{path.name}")
+        render_document(_preset_document(preset), layer, f"{path.parent.name}/{path.name}")
     )
 
 
@@ -449,7 +448,7 @@ def _render_cells() -> list[tuple[str, str, str]]:
 
 
 #: The bundled layer kind each render-projection ``kind`` names.
-_LAYER_KINDS = {RENDER_KIND_TIER: ProfileKind.TIER, RENDER_KIND_APP: ProfileKind.APP}
+_LAYER_KINDS = {RENDER_KIND_TIER: ProfileKind.TIER}
 
 
 @pytest.mark.parametrize(("_preset", "_mode", "directory"), _cells())
@@ -470,16 +469,16 @@ def test_render_projection_names_every_frozen_render(
 def test_render_stays_inside_the_partition(stem: str, preset: str, directory: str) -> None:
     """An attached render carries no key outside its own sources.
 
-    A tier is the bundled ``tiers/<stem>.yml`` merged over the root preset; an
-    app is composed from the root preset's facts and the bundled
-    ``apps/<stem>.yml``. Either is built attached: it renders no services of
+    A login is the bundled ``tiers/<stem>.yml`` merged over the root preset, or
+    composed from the root preset's facts and that file when it says ``lists:
+    own``. Either is built attached: it renders no services of
     its own and has the host's ports projected in (the Reach Contract), so the
     check is containment, not equality — every rendered key is the render's
     ``config:``, derived, a provider, a projected port, or a section's.
     """
     projected_kind = _render(directory)[f"{RENDERS_KEY}.{stem}.kind"]
     kind = layer_preset_kind(stem)
-    assert kind is not None, f"{directory}/{stem}: no bundled tier or app {stem!r}"
+    assert kind is not None, f"{directory}/{stem}: no bundled login {stem!r}"
     assert _LAYER_KINDS[projected_kind] is kind, (
         f"{directory}/{stem}: projected as {projected_kind!r}, bundled as {kind.value!r}"
     )

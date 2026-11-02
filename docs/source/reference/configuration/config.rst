@@ -643,8 +643,8 @@ The control-target picker
 The control-target block in the sidebar names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The bundled ``logbook``, ``knowledge`` and
-``channel-finder`` apps do.
+server and no JUPYTER panel. The bundled shared logins ``logbook``,
+``knowledge`` and ``channel-finder`` do.
 
 The setting changes what the page shows, not what the agent may do. With it
 off, the sidebar has no control-target block. A value that is not a boolean is
@@ -710,7 +710,9 @@ trusted operator and no live machine behind it:
    dangerously_allow_bash: true
 
 It takes the boolean ``true`` and nothing else — any other value is a config
-error. Absent, the refusal stands exactly as before. When set, every
+error. Absent, the refusal stands exactly as before. It never waives the
+refusal of a tier that holds an application's launch token or a write agent
+route beside an open shell. When set, every
 ``osprey up`` prints a warning naming the tiers it waved through, and the
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
@@ -731,8 +733,10 @@ Each entry has a ``type`` and an optional ``label``:
 - ``users`` — one card per person on the roster. ``names: hidden`` replaces the
   name cards with one sign-in button; it needs ``auth.method`` ``password`` or
   ``oidc``, and only a ``users`` entry takes it.
-- ``apps`` — one card per app in ``shared``, titled by the app's ``name:``,
-  opened by anyone on the roster (:ref:`multi-user-shared-card`).
+- ``shared`` — one card per login in ``shared``, titled by the login's
+  ``name:``, opened by anyone on the roster (:ref:`multi-user-shared-card`).
+  The retired ``apps`` reads as ``shared`` for one release, with a lint
+  warning.
 - ``links`` — your own cards, each a ``label`` and a ``url``.
 
 .. code-block:: yaml
@@ -743,22 +747,22 @@ Each entry has a ``type`` and an optional ``label``:
          groups:
            - type: users
              label: Users
-           - type: apps
-             label: Apps
+           - type: shared
+             label: Shared logins
            - type: links
              label: Facility
              links:
                - {label: Elog, url: https://elog.example.org}
 
-Left out, the page shows ``[{type: users}, {type: apps}]``. A section with no
+Left out, the page shows ``[{type: users}, {type: shared}]``. A section with no
 cards shows no heading.
 
 ``modules.web_terminals.renders`` is the render catalog: one entry per file in
-``tiers/`` and ``apps/``, keyed by that file's name, with its ``kind``,
-``project`` and ``project_path``. ``osprey build`` writes it into
-``build/config.yml``; a profile that spells it is refused. Set a render's
-``extra_mounts``, ``seed_base`` or ``image`` at the top of its tier or app file
-instead.
+``tiers/``, keyed by that file's name, with its ``kind`` (``tier``, or
+``shared`` for a login only ``shared:`` names), ``project`` and
+``project_path``. ``osprey build`` writes it into ``build/config.yml``; a
+profile that spells it is refused. Set a render's ``extra_mounts``,
+``seed_base`` or ``image`` at the top of its login file instead.
 
 .. _config-artifact-server:
 
@@ -1174,6 +1178,10 @@ the sixteen rows above:
      - ``OSPREY_IMAGE_TAG``
      - ``images.tag``
      - ``local``
+   * - Platform
+     - none: set in ``profile.yml`` only
+     - ``images.platform`` (``linux/amd64`` or ``linux/arm64``)
+     - built for this host
 
 .. code-block:: yaml
 

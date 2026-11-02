@@ -1,0 +1,1081 @@
+"""A deployment's own Python packages reach the build venv and every project image.
+
+``osprey build`` builds a wheel of each package
+:func:`osprey.apps.rules.deployment_packages` enumerates — every listed ``apps/<name>/``
+with a ``pyproject.toml`` and every local-path profile ``dependencies`` entry —
+into a deployment-packages directory, and installs them on the one existing
+path a profile dependency takes, in two spellings of one list:
+
+- the build venv installs each from its wheel, beside the framework, in one
+  resolve;
+- the recorded ``pyproject.toml`` and the rendered Dockerfile carry the
+  distribution names, each bound to its wheel, which the record reaches through a
+  relative ``[tool.uv.sources]`` path and the image from the directory staged into
+  every image context, on the same line as ``$OSPREY_PIP_SPEC``.
+
+Neither the record nor any Dockerfile names a path on the building host, and no
+index can serve a deployment package's name instead of its wheel.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tomllib
+import zipfile
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+import yaml
+from click.testing import CliRunner
+from jinja2 import Template
+
+from osprey.cli.build_environment import (
+    _create_project_venv,
+    _plan_project_venv,
+    _write_project_pyproject,
+    deployment_dependencies,
+)
+from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
+from osprey.deployment import image_facts, wheel_build
+from osprey.deployment.wheel_build import (
+    DEPLOYMENT_PACKAGES_DIRNAME,
+    DEPLOYMENT_PACKAGES_MANIFEST,
+    DeploymentPackage,
+    build_deployment_packages,
+)
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import BUILD_DIR_NAME
+
+APP_PYPROJECT = """\
+[project]
+name = "Knob_App"
+version = "0.1.0"
+dependencies = ["lume-base"]
+"""
+
+APP_MANIFEST = """\
+name: knob
+containers:
+  knob:
+    runtime: osprey
+"""
+
+KIND_PYPROJECT = """\
+[project]
+name = "ring-kind"
+version = "0.2.0"
+dependencies = []
+"""
+
+
+_REAL_BUILD_WHEEL = wheel_build._build_wheel
+
+
+def _fake_wheel(source: Path, out_dir: Path) -> Path:
+    """Stand in for the wheel build: a wheel named from the source's pyproject."""
+    import tomllib
+
+    project = tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    stem = project["name"].replace("-", "_").lower()
+    wheel = out_dir / f"{stem}-{project['version']}-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{stem}-{project['version']}.dist-info/METADATA", "Name: x\n")
+    return wheel
+
+
+@pytest.fixture(autouse=True)
+def _no_real_wheel_builds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+
+
+def _deployment(root: Path) -> Path:
+    (root / "apps" / "knob").mkdir(parents=True)
+    (root / "apps" / "knob" / "pyproject.toml").write_text(APP_PYPROJECT, encoding="utf-8")
+    (root / "kinds" / "ring").mkdir(parents=True)
+    (root / "kinds" / "ring" / "pyproject.toml").write_text(KIND_PYPROJECT, encoding="utf-8")
+    return root
+
+
+DEPENDENCIES = ["numpy>=1.24", "./kinds/ring"]
+
+#: The application ``_deployment`` holds, as a profile lists it.
+APPS = ["knob"]
+
+
+def _profile(dependencies: list[str]) -> BuildProfile:
+    return BuildProfile(
+        name="test",
+        dependencies=list(dependencies),
+        osprey_install="osprey-framework==2026.10.1",
+        environment=EnvironmentConfig(),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _uv_installer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UV", "/opt/bin/uv")
+
+
+def _built(tmp_path: Path):
+    root = _deployment(tmp_path / "repo")
+    dest = tmp_path / "stage" / DEPLOYMENT_PACKAGES_DIRNAME
+    return root, dest, build_deployment_packages(root, DEPENDENCIES, dest, apps=APPS)
+
+
+# --- the build ---------------------------------------------------------------
+
+
+def test_each_package_is_built_into_the_directory_with_a_manifest(tmp_path: Path) -> None:
+    _root, dest, packages = _built(tmp_path)
+
+    assert [(p.name, p.version) for p in packages] == [
+        ("knob-app", "0.1.0"),
+        ("ring-kind", "0.2.0"),
+    ]
+    assert all(p.wheel.parent == dest and p.wheel.is_file() for p in packages)
+    manifest = json.loads((dest / DEPLOYMENT_PACKAGES_MANIFEST).read_text(encoding="utf-8"))
+    assert manifest == {
+        "packages": [
+            {"name": "knob-app", "version": "0.1.0", "wheel": packages[0].wheel.name},
+            {"name": "ring-kind", "version": "0.2.0", "wheel": packages[1].wheel.name},
+        ]
+    }
+
+
+def test_a_deployment_with_no_package_builds_nothing(tmp_path: Path) -> None:
+    dest = tmp_path / DEPLOYMENT_PACKAGES_DIRNAME
+
+    assert build_deployment_packages(tmp_path, ["numpy"], dest, apps=APPS) == ()
+    assert not dest.exists()
+
+
+def test_a_failed_wheel_build_names_the_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.undo()
+    root = _deployment(tmp_path / "repo")
+    monkeypatch.setattr(
+        wheel_build.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 1, stdout="", stderr="no backend"),
+    )
+
+    with pytest.raises(BuildProfileError, match=r"(?s)apps/knob.*no backend"):
+        build_deployment_packages(root, [], tmp_path / DEPLOYMENT_PACKAGES_DIRNAME, apps=APPS)
+
+
+@pytest.mark.parametrize("entry", ["./vendor/foo.whl", "./kinds/mistyped", "/opt/foo"])
+def test_a_local_path_with_no_package_to_build_is_refused_naming_it(
+    tmp_path: Path, entry: str
+) -> None:
+    """Passed through, it would break the image build and put a host path in the Dockerfile."""
+    root = _deployment(tmp_path / "repo")
+
+    with pytest.raises(BuildProfileError) as refusal:
+        build_deployment_packages(root, ["numpy>=1.24", entry], tmp_path / "stage", apps=APPS)
+
+    assert repr(entry) in str(refusal.value)
+    assert "pyproject.toml" in str(refusal.value)
+
+
+def _build_with_wheel_named(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    filename: str,
+    *,
+    image_platform: str | None = None,
+) -> tuple[DeploymentPackage, ...]:
+    def fake(_source: Path, out_dir: Path) -> Path:
+        wheel = out_dir / filename
+        with zipfile.ZipFile(wheel, "w") as archive:
+            archive.writestr("x/__init__.py", "")
+        return wheel
+
+    monkeypatch.setattr(wheel_build, "_build_wheel", fake)
+    root = _deployment(tmp_path / "repo")
+    return build_deployment_packages(
+        root, [], tmp_path / "stage", apps=APPS, image_platform=image_platform
+    )
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "cp312-cp312-macosx_14_0_arm64",
+        "cp313-cp313-linux_x86_64",
+        "cp312-cp312-win_amd64",
+        "cp312-cp312-musllinux_1_2_x86_64",
+        "py2-none-any",
+        "cp312-cp312-linux_aarch64",
+    ],
+)
+def test_a_wheel_that_does_not_fit_the_image_is_refused_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tag: str
+) -> None:
+    """Never left for the image to look the name up in an index instead."""
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: "x86_64")
+    filename = f"knob_app-0.1.0-{tag}.whl"
+
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_wheel_named(tmp_path, monkeypatch, filename)
+
+    assert filename in str(refused.value) and "apps/knob" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("machine", "tag"),
+    [
+        ("x86_64", "py3-none-any"),
+        ("x86_64", "py2.py3-none-any"),
+        ("x86_64", "py312-none-any"),
+        ("x86_64", "cp312-cp312-linux_x86_64"),
+        ("x86_64", "cp312-abi3-manylinux_2_28_x86_64"),
+        ("x86_64", "cp39-abi3-manylinux2014_x86_64"),
+        ("arm64", "cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64"),
+        ("aarch64", "py3-none-linux_aarch64"),
+    ],
+)
+def test_a_wheel_that_fits_the_image_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, machine: str, tag: str
+) -> None:
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: machine)
+
+    packages = _build_with_wheel_named(tmp_path, monkeypatch, f"knob_app-0.1.0-{tag}.whl")
+
+    assert packages[0].wheel.name.endswith(f"{tag}.whl")
+
+
+@pytest.mark.parametrize(
+    ("machine", "stated", "tag"),
+    [
+        ("arm64", "linux/amd64", "cp312-cp312-manylinux_2_17_x86_64"),
+        ("x86_64", "linux/arm64", "cp312-cp312-manylinux_2_17_aarch64"),
+    ],
+)
+def test_a_wheel_is_judged_against_the_platform_the_profile_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, machine: str, stated: str, tag: str
+) -> None:
+    """Unset, this host decides and the refusal says so; stated, the profile decides."""
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: machine)
+    filename = f"knob_app-0.1.0-{tag}.whl"
+
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_wheel_named(tmp_path / "unset", monkeypatch, filename)
+    packages = _build_with_wheel_named(
+        tmp_path / "stated", monkeypatch, filename, image_platform=stated
+    )
+
+    assert "this host; images.platform names another" in str(refused.value)
+    assert packages[0].wheel.name == filename
+
+
+def test_a_wheel_refused_for_the_stated_platform_names_it_and_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(image_facts.platform, "machine", lambda: "x86_64")
+
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_wheel_named(
+            tmp_path,
+            monkeypatch,
+            "knob_app-0.1.0-cp312-cp312-linux_x86_64.whl",
+            image_platform="linux/arm64",
+        )
+
+    assert "linux/arm64 (images.platform)" in str(refused.value)
+
+
+def test_the_python_a_wheel_is_judged_against_is_the_images() -> None:
+    from importlib import resources
+
+    from osprey.cli.templates.scaffolding import _default_image_facts
+
+    source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
+    from_line = next(
+        line for line in source.read_text(encoding="utf-8").splitlines() if line.startswith("FROM ")
+    )
+    context: dict[str, Any] = {}
+    _default_image_facts(context)
+    major, minor = image_facts.IMAGE_PYTHON
+    assert Template(from_line).render(context) == f"FROM python:{major}.{minor}-slim"
+
+
+def _build_with_members(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *members: str
+) -> tuple[DeploymentPackage, ...]:
+    def fake(source: Path, out_dir: Path) -> Path:
+        wheel = _fake_wheel(source, out_dir)
+        with zipfile.ZipFile(wheel, "a") as archive:
+            for member in members:
+                archive.writestr(member, "KEY=value\n")
+        return wheel
+
+    monkeypatch.setattr(wheel_build, "_build_wheel", fake)
+    root = _deployment(tmp_path / "repo")
+    return build_deployment_packages(root, [], tmp_path / "stage", apps=APPS)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "knob/.env",
+        ".env",
+        "knob/conf/.env.production",
+        "knob/.env/production",
+        "knob/.env.d/key",
+    ],
+)
+def test_a_wheel_holding_an_env_file_is_refused_naming_wheel_and_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, member: str
+) -> None:
+    """The wheels reach the image inside a file no sweep of the tree can open."""
+    with pytest.raises(BuildProfileError) as refused:
+        _build_with_members(tmp_path, monkeypatch, member)
+
+    assert "knob_app-0.1.0-py3-none-any.whl" in str(refused.value)
+    assert member in str(refused.value)
+
+
+def test_a_wheel_holding_the_env_example_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _build_with_members(tmp_path, monkeypatch, "knob/.env.example", "knob/environment.py")
+
+
+def test_the_image_sweep_and_the_wheel_refusal_are_one_rule(tmp_path: Path) -> None:
+    from osprey.cli.build_cmd import _strip_secrets
+
+    names = [".env", ".env.local", ".envrc", ".env.example", "env", "a.env"]
+    for name in names:
+        (tmp_path / name).write_text("", encoding="utf-8")
+
+    _strip_secrets(tmp_path)
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
+        name for name in names if not wheel_build.is_secret_file(name)
+    )
+
+
+# --- the two spellings of one list --------------------------------------------
+
+
+def test_each_local_path_entry_is_substituted_in_place_and_apps_follow(tmp_path: Path) -> None:
+    _root, _dest, packages = _built(tmp_path)
+
+    assert deployment_dependencies(DEPENDENCIES, packages) == [
+        "numpy>=1.24",
+        "ring-kind==0.2.0",
+        "knob-app==0.1.0",
+    ]
+    install = deployment_dependencies(DEPENDENCIES, packages, install=True)
+    assert install[0] == "numpy>=1.24"
+    assert install[1] == f"ring-kind @ {packages[1].wheel.resolve().as_uri()}"
+    assert install[2] == f"knob-app @ {packages[0].wheel.resolve().as_uri()}"
+
+
+def test_the_plan_carries_both_spellings_and_the_wheels(tmp_path: Path) -> None:
+    _root, _dest, packages = _built(tmp_path)
+
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+
+    assert plan.deployment_packages == packages
+    assert plan.extra_deps == ["numpy>=1.24", "ring-kind==0.2.0", "knob-app==0.1.0"]
+    assert [d.split(" @ ")[0] for d in plan.install_deps] == [
+        "numpy>=1.24",
+        "ring-kind",
+        "knob-app",
+    ]
+
+
+@pytest.mark.parametrize(
+    "dependencies",
+    [[*DEPENDENCIES, "ring-kind"], ["Ring_Kind>=0.1", *DEPENDENCIES]],
+)
+def test_a_local_path_and_a_requirement_of_one_distribution_are_refused(
+    tmp_path: Path, dependencies: list[str]
+) -> None:
+    """No merge order decides which one the deployment meant."""
+    root = _deployment(tmp_path / "repo")
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(dependencies), packages)
+
+    message = str(refused.value)
+    assert "'./kinds/ring'" in message
+    assert repr(next(d for d in dependencies if "ring-kind" in d.lower().replace("_", "-"))) in (
+        message
+    )
+
+
+def test_a_local_path_and_an_environment_package_of_one_distribution_are_refused(
+    tmp_path: Path,
+) -> None:
+    _root, _dest, packages = _built(tmp_path)
+    profile = BuildProfile(
+        name="test",
+        dependencies=list(DEPENDENCIES),
+        osprey_install="osprey-framework==2026.10.1",
+        environment=EnvironmentConfig(packages=["ring-kind==9"]),
+    )
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(profile, packages)
+
+    assert "'./kinds/ring'" in str(refused.value) and "'ring-kind==9'" in str(refused.value)
+
+
+def test_an_application_package_and_a_requirement_of_one_distribution_are_refused(
+    tmp_path: Path,
+) -> None:
+    root = _deployment(tmp_path / "repo")
+    packages = build_deployment_packages(root, ["knob_app"], tmp_path / "stage", apps=APPS)
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(["knob_app"]), packages)
+
+    assert "'apps/knob'" in str(refused.value) and "'knob_app'" in str(refused.value)
+
+
+def test_two_packages_of_one_distribution_are_refused(tmp_path: Path) -> None:
+    root = _deployment(tmp_path / "repo")
+    (root / "kinds" / "copy").mkdir()
+    (root / "kinds" / "copy" / "pyproject.toml").write_text(KIND_PYPROJECT, encoding="utf-8")
+    dependencies = ["./kinds/ring", "./kinds/copy"]
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(dependencies), packages)
+
+    assert "'./kinds/ring'" in str(refused.value) and "'./kinds/copy'" in str(refused.value)
+
+
+def test_two_spellings_of_one_local_path_are_one_package(tmp_path: Path) -> None:
+    root = _deployment(tmp_path / "repo")
+    dependencies = ["./kinds/ring", "-e ./kinds/ring", "numpy>=1.24"]
+
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
+
+    assert deployment_dependencies(dependencies, packages) == [
+        "ring-kind==0.2.0",
+        "numpy>=1.24",
+        "knob-app==0.1.0",
+    ]
+
+
+def test_a_symlinked_root_enumerates_an_application_named_in_the_dependencies_once(
+    tmp_path: Path,
+) -> None:
+    from osprey.apps.rules import deployment_packages
+
+    real = _deployment(tmp_path / "repo")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    found = deployment_packages(link, ["./apps/knob"], apps=APPS)
+
+    assert found == [(real / "apps" / "knob" / "pyproject.toml").resolve()]
+
+
+def test_an_entry_naming_an_application_package_is_that_package_in_place(
+    tmp_path: Path,
+) -> None:
+    root = _deployment(tmp_path / "repo")
+    dependencies = ["./apps/knob", *DEPENDENCIES]
+    packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
+
+    assert [p.name for p in packages] == ["knob-app", "ring-kind"]
+    assert deployment_dependencies(dependencies, packages) == [
+        "knob-app==0.1.0",
+        "numpy>=1.24",
+        "ring-kind==0.2.0",
+    ]
+
+
+def test_the_venv_resolves_the_wheels_with_the_framework_and_records_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An app requiring a pinned package is resolved WITH the framework's pins.
+
+    One install command carries the framework spec and every wheel, so a
+    requirement that would move a pinned version fails the resolve instead of
+    upgrading it; nothing installs a wheel on its own or with ``--no-deps``.
+    """
+    _root, _dest, packages = _built(tmp_path)
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+    calls: list[list[str]] = []
+
+    def run(cmd: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", run)
+    project = tmp_path / "build"
+    project.mkdir()
+    _create_project_venv(project, plan)
+
+    installs = [cmd for cmd in calls if "install" in cmd]
+    assert len(installs) == 1
+    assert plan.osprey_spec in installs[0]
+    assert all(dep in installs[0] for dep in plan.install_deps)
+    assert "--no-deps" not in installs[0]
+    record = (project / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"knob-app==0.1.0"' in record and '"ring-kind==0.2.0"' in record
+    assert tomllib.loads(record)["tool"]["uv"]["sources"].keys() == {"knob-app", "ring-kind"}
+    assert str(tmp_path) not in record
+
+
+def test_the_record_binds_each_package_to_its_wheel_by_relative_path(tmp_path: Path) -> None:
+    _root, dest, packages = _built(tmp_path)
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+    project = tmp_path / "stage"
+
+    _write_project_pyproject(
+        project,
+        plan.osprey_spec,
+        plan.osprey_label,
+        plan.extra_deps,
+        plan.base_python_arg,
+        plan.deployment_packages,
+    )
+
+    record = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "knob-app==0.1.0" in record["project"]["dependencies"]
+    sources = record["tool"]["uv"]["sources"]
+    assert set(sources) == {"knob-app", "ring-kind"}
+    for package in packages:
+        path = sources[package.name]["path"]
+        assert not Path(path).is_absolute()
+        assert (project / path).resolve() == package.wheel.resolve()
+
+
+def test_a_deployment_with_no_package_records_no_source(tmp_path: Path) -> None:
+    _write_project_pyproject(tmp_path, "osprey-framework==2026.10.1", "pin", ["numpy>=1"], "py")
+
+    record = tomllib.loads((tmp_path / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "sources" not in record.get("tool", {}).get("uv", {})
+
+
+def _real_wheel(out_dir: Path, name: str, version: str, who: str) -> Path:
+    """A wheel an installer accepts: ``import <name>`` then says which one it was."""
+    module = name.replace("-", "_")
+    info = f"{module}-{version}.dist-info"
+    wheel = out_dir / f"{module}-{version}-py3-none-any.whl"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{module}/__init__.py", f"WHO = {who!r}\n")
+        archive.writestr(
+            f"{info}/METADATA", f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+        )
+        archive.writestr(
+            f"{info}/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+        archive.writestr(
+            f"{info}/RECORD",
+            f"{module}/__init__.py,,\n{info}/METADATA,,\n{info}/WHEEL,,\n{info}/RECORD,,\n",
+        )
+    return wheel
+
+
+def _uv_env() -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV" and not k.startswith("UV")}
+    return {**env, "UV_INDEX_STRATEGY": "unsafe-best-match"}
+
+
+def _which_uv() -> str:
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is not installed")
+    return uv
+
+
+def test_uv_sync_rebuilds_the_environment_from_the_record_offline(tmp_path: Path) -> None:
+    """The record resolves, from the wheel, with an index offering the same name and version."""
+    uv = _which_uv()
+    project = tmp_path / "project"
+    wheel = _real_wheel(project / DEPLOYMENT_PACKAGES_DIRNAME, "knob-app", "0.1.0", "staged")
+    framework = _real_wheel(tmp_path / "framework", "osprey-framework", "1.0", "framework")
+    index = tmp_path / "index"
+    _real_wheel(index, "knob-app", "0.1.0", "index")
+    package = wheel_build.DeploymentPackage(name="knob-app", version="0.1.0", wheel=wheel)
+
+    _write_project_pyproject(
+        project, str(framework), "wheel", [package.requirement], sys.executable, (package,)
+    )
+    synced = subprocess.run(
+        [uv, "sync", "--offline", "--python", sys.executable, "--find-links", str(index)],
+        cwd=project,
+        env=_uv_env(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert synced.returncode == 0, synced.stdout + synced.stderr
+    probe = subprocess.run(
+        [str(project / ".venv" / "bin" / "python"), "-c", "import knob_app; print(knob_app.WHO)"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert probe.stdout.strip() == "staged", probe.stderr
+
+
+def test_the_image_install_line_takes_the_staged_wheel_over_an_index(tmp_path: Path) -> None:
+    """The Dockerfile's two spellings, on one line, against an index of the same name and version."""
+    uv = _which_uv()
+    env = _uv_env()
+    staged = _real_wheel(tmp_path / "staged", "knob-app", "0.1.0", "staged")
+    index = tmp_path / "index"
+    _real_wheel(index, "knob-app", "0.1.0", "index")
+    venv = tmp_path / "venv"
+    subprocess.run(
+        [uv, "venv", "--python", sys.executable, str(venv)], check=True, env=env, timeout=60
+    )
+    python = str(venv / "bin" / "python")
+
+    installed = subprocess.run(
+        [
+            *[uv, "pip", "install", "--no-index", "--python", python],
+            *["--find-links", str(index)],
+            "knob-app==0.1.0",
+            *["--refresh-package", "knob-app"],
+            f"knob-app @ {staged.as_uri()}",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    probe = subprocess.run(
+        [python, "-c", "import knob_app; print(knob_app.WHO)"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert probe.stdout.strip() == "staged", probe.stderr
+
+
+def test_a_registered_kind_with_no_shipped_package_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _root, _dest, packages = _built(tmp_path)
+    kinds = [
+        SimpleNamespace(name="ring", dist=SimpleNamespace(name="ring-kind")),
+        SimpleNamespace(name="halo", dist=SimpleNamespace(name="Halo_Kind")),
+    ]
+    monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
+
+    with pytest.raises(BuildProfileError) as refused:
+        _plan_project_venv(_profile(DEPENDENCIES), packages)
+
+    message = str(refused.value)
+    assert "'halo'" in message and "Halo_Kind" in message
+    assert "the kind's package is not among the packages the project image installs" in message
+    assert "'ring'" not in message
+
+
+def test_a_kind_shipped_as_an_index_dependency_is_not_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kinds = [SimpleNamespace(name="halo", dist=SimpleNamespace(name="halo-kind"))]
+    monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
+
+    plan = _plan_project_venv(_profile(["Halo_Kind>=1"]), ())
+
+    assert plan.extra_deps == ["Halo_Kind>=1"]
+
+
+# --- the Dockerfile ----------------------------------------------------------
+
+
+def _dockerfile(
+    pip_dependency_args: str, packages_dir: str, wheels: tuple[dict[str, str], ...] = ()
+) -> str:
+    from importlib import resources
+
+    from osprey.deployment.members import WORKSPACE_MEMBERS
+    from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
+    source = resources.files("osprey").joinpath("templates/project/Dockerfile.j2")
+    return Template(source.read_text(encoding="utf-8")).render(
+        image_python="{}.{}".format(*image_facts.IMAGE_PYTHON),
+        project_name="fixture",
+        claude_code_cli_version="1.2.3",
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+        workspace_members=list(WORKSPACE_MEMBERS),
+        pip_dependency_args=pip_dependency_args,
+        deployment_packages_dir=packages_dir,
+        deployment_wheels=list(wheels),
+    )
+
+
+def _install_lines(text: str) -> list[str]:
+    return [
+        line for line in text.splitlines() if "uv pip install" in line and "osprey" in line.lower()
+    ]
+
+
+KNOB_WHEEL = {"name": "knob-app", "wheel": "knob_app-0.1.0-py3-none-any.whl"}
+
+
+def test_the_image_installs_the_wheels_on_the_framework_line() -> None:
+    text = _dockerfile("numpy>=1.24 knob-app==0.1.0", DEPLOYMENT_PACKAGES_DIRNAME, (KNOB_WHEEL,))
+    staged = f"/tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/{KNOB_WHEEL['wheel']}"
+    bound = f'"knob-app @ file://{staged}"'
+
+    copy = f"COPY {DEPLOYMENT_PACKAGES_DIRNAME}/ /tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/"
+    assert copy in text
+    assert text.index(copy) < text.index("--mount=type=cache,target=/root/.cache/uv")
+    primer, fallback = (
+        line for line in _install_lines(text) if "$OSPREY_PIP_SPEC" in line or "framework " in line
+    )
+    for line in (primer, fallback):
+        assert "knob-app==0.1.0" in line and bound in line
+        # The name is bound to the staged wheel, never looked up: a rebuilt
+        # wheel of an unchanged version is not served from the uv cache, and
+        # no index distribution of that name competes with it.
+        assert "--refresh-package knob-app" in line
+    assert "--find-links" not in text
+    # A registry build stages no local-requirements file; the wheels are not
+    # inside that file's branch, so they install all the same.
+    local = next(line for line in text.splitlines() if "osprey-local-requirements.txt;" in line)
+    assert staged not in local
+
+
+def test_a_deployment_without_packages_renders_no_copy_and_no_binding() -> None:
+    text = _dockerfile("numpy>=1.24", "")
+
+    assert DEPLOYMENT_PACKAGES_DIRNAME not in text
+    assert "--refresh-package" not in text and "file:///tmp/deps-ctx" not in text
+
+
+# --- end to end: every image context ------------------------------------------
+
+
+def _repo_with_packages(repo: Path, dependencies: list[str]) -> Path:
+    from osprey.cli.init_cmd import init
+
+    created = CliRunner().invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
+    assert created.exit_code == 0, created.output
+    _deployment(repo)
+    (repo / "apps" / "knob" / "app.yml").write_text(APP_MANIFEST, encoding="utf-8")
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["apps"] = {"knob": {}}
+    profile["dependencies"] = list(dependencies)
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
+    return repo
+
+
+def _osprey_build(repo: Path, *flags: str) -> Any:
+    from osprey.cli.build_cmd import build as build_command
+
+    return CliRunner().invoke(build_command, ["--repo", str(repo), *flags])
+
+
+def _no_venv(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Stand in for the venv: the record is written, nothing is installed."""
+    from osprey.cli import build_cmd
+
+    created: list[Path] = []
+
+    def fake(project_path: Path, plan: Any) -> None:
+        created.append(project_path)
+        _write_project_pyproject(
+            project_path,
+            plan.osprey_spec,
+            plan.osprey_label,
+            plan.extra_deps,
+            plan.base_python_arg,
+            plan.deployment_packages,
+        )
+
+    monkeypatch.setattr(build_cmd, "_create_project_venv", fake)
+    return created
+
+
+def test_every_image_context_carries_the_wheels_and_installs_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The deployment's image and a login's render image, from one build."""
+    _no_venv(monkeypatch)
+    repo = _repo_with_packages(tmp_path / "pkgs", DEPENDENCIES)
+    (repo / "tiers").mkdir(exist_ok=True)
+    (repo / "tiers" / "viewer.yml").write_text(
+        "name: Viewer\nconfig:\n  control_system.writes: never\n", encoding="utf-8"
+    )
+
+    result = _osprey_build(repo)
+    assert result.exit_code == 0, result.output
+
+    wheels = ["knob_app-0.1.0-py3-none-any.whl", "ring_kind-0.2.0-py3-none-any.whl"]
+    contexts = sorted((repo / BUILD_DIR_NAME / IMAGE_DIR_NAME).iterdir())
+    assert [c.name for c in contexts] == ["pkgs", "pkgs-viewer"]
+    for context in contexts:
+        staged = context / DEPLOYMENT_PACKAGES_DIRNAME
+        assert sorted(p.name for p in staged.glob("*.whl")) == wheels
+        assert not list(context.glob("*.whl")), "a root wheel would be reinstalled as osprey"
+        dockerfile = (context / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
+        primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
+        assert "ring-kind==0.2.0" in primer and "knob-app==0.1.0" in primer
+        for wheel in wheels:
+            assert f"file:///tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}/{wheel}" in primer
+        assert "./kinds/ring" not in dockerfile
+        assert not re.search(re.escape(str(tmp_path)), dockerfile)
+    # The record the swap put in place reaches the wheels the swap put beside it.
+    record = tomllib.loads((repo / BUILD_DIR_NAME / "pyproject.toml").read_text(encoding="utf-8"))
+    for source in record["tool"]["uv"]["sources"].values():
+        assert (repo / BUILD_DIR_NAME / source["path"]).is_file()
+
+
+# --- a wheel build is a dependency step: --skip-deps runs none --------------------
+
+
+@pytest.fixture
+def no_build_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(source: Path, _out_dir: Path) -> Path:
+        raise AssertionError(f"a build backend ran for {source}")
+
+    monkeypatch.setattr(wheel_build, "_build_wheel", refuse)
+
+
+@pytest.mark.usefixtures("no_build_backend")
+@pytest.mark.parametrize("flags", [["--skip-deps"], ["--skip-deps", "--skip-lifecycle"]])
+def test_a_skip_deps_build_builds_no_wheel_and_its_image_cannot_reach_an_index(
+    tmp_path: Path, flags: list[str]
+) -> None:
+    repo = _repo_with_packages(tmp_path / "pkgs", DEPENDENCIES)
+
+    result = _osprey_build(repo, *flags)
+    assert result.exit_code == 0, result.output
+
+    context = next((repo / BUILD_DIR_NAME / IMAGE_DIR_NAME).iterdir())
+    assert not (context / DEPLOYMENT_PACKAGES_DIRNAME).exists()
+    assert not (repo / BUILD_DIR_NAME / DEPLOYMENT_PACKAGES_DIRNAME).exists()
+    dockerfile = (context / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
+    primer = next(line for line in _install_lines(dockerfile) if "$OSPREY_PIP_SPEC" in line)
+    # Each name stays bound to a wheel this context does not hold, so the install
+    # stops there; no index is ever asked for it.
+    staged = f"file:///tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}"
+    assert f'"knob-app @ {staged}/knob_app-0.1.0-py3-none-any.whl"' in primer
+    assert f'"ring-kind @ {staged}/ring_kind-0.2.0-py3-none-any.whl"' in primer
+
+
+def test_skip_lifecycle_still_builds_and_installs_the_packages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It skips only the profile's hooks: the wheel build is a dependency step."""
+    created = _no_venv(monkeypatch)
+    repo = _repo_with_packages(tmp_path / "pkgs", DEPENDENCIES)
+
+    result = _osprey_build(repo, "--skip-lifecycle")
+
+    assert result.exit_code == 0, result.output
+    assert created
+    context = next((repo / BUILD_DIR_NAME / IMAGE_DIR_NAME).iterdir())
+    assert sorted(p.name for p in (context / DEPLOYMENT_PACKAGES_DIRNAME).glob("*.whl")) == [
+        "knob_app-0.1.0-py3-none-any.whl",
+        "ring_kind-0.2.0-py3-none-any.whl",
+    ]
+    record = tomllib.loads((repo / BUILD_DIR_NAME / "pyproject.toml").read_text(encoding="utf-8"))
+    assert set(record["tool"]["uv"]["sources"]) == {"knob-app", "ring-kind"}
+
+
+@pytest.mark.usefixtures("no_build_backend")
+def test_a_skip_deps_build_reads_a_kinds_package_from_its_pyproject(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kinds = [SimpleNamespace(name="ring", dist=SimpleNamespace(name="ring-kind"))]
+    monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
+    repo = _repo_with_packages(tmp_path / "pkgs", DEPENDENCIES)
+
+    result = _osprey_build(repo, "--skip-deps")
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.usefixtures("no_build_backend")
+def test_reading_a_package_spells_it_as_the_build_would(tmp_path: Path) -> None:
+    root = _deployment(tmp_path / "repo")
+    dest = tmp_path / "stage" / DEPLOYMENT_PACKAGES_DIRNAME
+
+    packages = build_deployment_packages(root, DEPENDENCIES, dest, apps=APPS, build=False)
+
+    assert [(p.name, p.version, p.wheel) for p in packages] == [
+        ("knob-app", "0.1.0", None),
+        ("ring-kind", "0.2.0", None),
+    ]
+    assert not dest.exists()
+
+
+@pytest.mark.usefixtures("no_build_backend")
+def test_a_package_with_a_dynamic_version_is_named_with_no_version(tmp_path: Path) -> None:
+    root = _deployment(tmp_path / "repo")
+    (root / "kinds" / "ring" / "pyproject.toml").write_text(
+        '[project]\nname = "ring-kind"\ndynamic = ["version"]\n', encoding="utf-8"
+    )
+
+    packages = build_deployment_packages(
+        root, ["./kinds/ring"], tmp_path / "s", apps=APPS, build=False
+    )
+
+    assert deployment_dependencies(["./kinds/ring"], packages) == [
+        "ring-kind",
+        "knob-app==0.1.0",
+    ]
+    # The bound file name still parses as a wheel, so a resolve fails at the file.
+    assert packages[1].wheel_name == "ring_kind-0-py3-none-any.whl"
+
+
+@pytest.mark.usefixtures("no_build_backend")
+@pytest.mark.parametrize("text", ["[build-system]\n", "not toml ["])
+def test_a_package_whose_name_cannot_be_read_is_refused_naming_it(
+    tmp_path: Path, text: str
+) -> None:
+    root = _deployment(tmp_path / "repo")
+    (root / "apps" / "knob" / "pyproject.toml").write_text(text, encoding="utf-8")
+
+    with pytest.raises(BuildProfileError, match="apps/knob"):
+        build_deployment_packages(root, [], tmp_path / "stage", apps=APPS, build=False)
+
+
+def _skip_deps_build_with_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **declared: list[str]
+) -> Any:
+    """``osprey build --skip-deps`` with kind ``halo`` registered by ``halo-kind``."""
+    from osprey.cli.build_cmd import build as build_command
+    from osprey.cli.init_cmd import init
+
+    kinds = [SimpleNamespace(name="halo", dist=SimpleNamespace(name="halo-kind"))]
+    monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
+    repo = tmp_path / "pkgs"
+    runner = CliRunner()
+    created = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
+    assert created.exit_code == 0, created.output
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    if "packages" in declared:
+        profile.setdefault("environment", {})["packages"] = declared["packages"]
+    if "dependencies" in declared:
+        profile["dependencies"] = declared["dependencies"]
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
+    return runner.invoke(build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+
+def test_a_skip_deps_build_judges_the_kinds_over_what_its_image_installs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``--skip-deps`` installs the dependencies only: environment packages do not ship."""
+    result = _skip_deps_build_with_kind(tmp_path, monkeypatch, packages=["halo-kind>=1"])
+
+    assert result.exit_code != 0
+    # The build reports a refusal through its logger, not on stdout.
+    assert "'halo'" in caplog.text
+    assert "halo-kind" in caplog.text
+    assert "not among the packages the project image installs" in caplog.text
+
+
+def test_a_skip_deps_build_ships_a_kind_named_in_the_dependencies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _skip_deps_build_with_kind(tmp_path, monkeypatch, dependencies=["halo-kind>=1"])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_a_skip_deps_build_refuses_one_distribution_named_twice(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from osprey.cli.build_cmd import build as build_command
+    from osprey.cli.init_cmd import init
+
+    repo = tmp_path / "pkgs"
+    runner = CliRunner()
+    created = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
+    assert created.exit_code == 0, created.output
+    _deployment(repo)
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
+    profile["dependencies"] = ["./kinds/ring", "ring-kind"]
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+    result = runner.invoke(build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+    assert result.exit_code != 0
+    assert "'./kinds/ring'" in caplog.text and "'ring-kind'" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("operator", "expected"), [(None, "315532800"), ("1700000000", "1700000000")]
+)
+def test_a_wheel_build_is_reproducible_unless_the_operator_says_otherwise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operator: str | None, expected: str
+) -> None:
+    """``SOURCE_DATE_EPOCH`` defaults to the earliest zip time; the operator's wins."""
+    recorded: dict[str, Any] = {}
+
+    def fake(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        flag = "--out-dir" if "--out-dir" in cmd else "--wheel-dir"
+        (Path(cmd[cmd.index(flag) + 1]) / "x-1.0-py3-none-any.whl").write_bytes(b"")
+        recorded["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(
+        wheel_build,
+        "subprocess",
+        SimpleNamespace(run=fake, TimeoutExpired=subprocess.TimeoutExpired),
+    )
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    if operator is not None:
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", operator)
+    out = tmp_path / "out"
+    out.mkdir()
+
+    _REAL_BUILD_WHEEL(tmp_path, out)
+
+    assert recorded["env"]["SOURCE_DATE_EPOCH"] == expected
+
+
+def test_a_wheel_build_is_handed_no_deploy_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build backend is the package's own code; it gets what fetching and building need."""
+    recorded: dict[str, Any] = {}
+
+    def fake(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        (Path(cmd[cmd.index("--out-dir") + 1]) / "x-1.0-py3-none-any.whl").write_bytes(b"")
+        recorded["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(
+        wheel_build,
+        "subprocess",
+        SimpleNamespace(run=fake, TimeoutExpired=subprocess.TimeoutExpired),
+    )
+    credentials = {"DEPLOY_REGISTRY_PASSWORD", "ANTHROPIC_API_KEY", "OSPREY_TERMINAL_SECRET"}
+    for name in credentials:
+        monkeypatch.setenv(name, "x")
+    monkeypatch.setenv("PIP_INDEX_URL", "https://mirror.invalid/simple")
+    monkeypatch.setenv("https_proxy", "http://proxy.invalid:3128")
+    out = tmp_path / "out"
+    out.mkdir()
+
+    _REAL_BUILD_WHEEL(tmp_path, out)
+
+    env = recorded["env"]
+    # On the names: an assertion's diff would print this environment's values.
+    assert not sorted(credentials & set(env))
+    assert not sorted(name for name in env if name.endswith(("_KEY", "_TOKEN", "_SECRET")))
+    assert "PATH" in env
+    assert env["PIP_INDEX_URL"] == "https://mirror.invalid/simple"
+    assert env["https_proxy"] == "http://proxy.invalid:3128"

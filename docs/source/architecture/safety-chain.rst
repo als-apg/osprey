@@ -23,6 +23,9 @@ and sets ``phoebus.agent_access: read_write`` has one more: ``phoebus_drive`` pa
 the Phoebus product writes the value through its own connections, not through the connector
 --- see :ref:`A Phoebus drive <architecture-safety-chain-phoebus-drive>`.
 
+A deployment that runs an application has one more, whose writes meet the same chain and
+connector --- see :doc:`applications`.
+
 A write also carries a name --- whose write it is. A machine's write switch is one login's,
 so the name decides whose tier and whose switch a write is judged against. :ref:`Whose write is it <architecture-safety-chain-owner>`, at the foot of
 this page, says where the name comes from and what it does not cover.
@@ -64,6 +67,13 @@ drive meet the first and the last:
    already running there (see :ref:`architecture-safety-chain-residual`). Python code that names the store holding the machine's switch is asked
    in every position and refused where nothing can ask, as in a dispatch run. The executor
    checks it again before the code runs, read-only runs included.
+
+**An application's write tool** is judged by the same chain: the login's
+``control_system.writes`` ceiling (``never``, ``asked`` or ``allowed``), the owner's per-machine
+switch position, then the approval record, whose approver is ``human``, ``dispatch_policy`` or
+``write_switch``. The switch's position decides whether a person is asked; the application's
+declaration only describes and binds the call, and no per-tool approval policy exists for it. An
+application arms on a login whose tier is ``asked`` or ``allowed``. See :doc:`applications`.
 
 Which machine the deployment points at, and the login's switch position for it, come
 from the records the deployment keeps --- one per login --- read fresh on every call, so a

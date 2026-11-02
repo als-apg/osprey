@@ -966,11 +966,12 @@ def list_users(user: str | None, as_json: bool, live: bool, repo: Path | None) -
         _users_session(repo, announce=False) as session,
     ):
         from osprey.deployment.compose_generator import resolve_project_name
-        from osprey.deployment.web_terminals.roster import app_titles_in
+        from osprey.deployment.web_terminals.roster import login_titles_in
         from osprey.deployment.web_terminals.roster_report import (
             attach_live,
             build_roster_report,
         )
+        from osprey.utils.workspace import TIERS_DIRNAME
         from osprey_connectors.config import load_project_config
 
         config = load_project_config(session.config)
@@ -978,7 +979,7 @@ def list_users(user: str | None, as_json: bool, live: bool, repo: Path | None) -
             config,
             session.root,
             project_name=resolve_project_name(config),
-            app_titles=app_titles_in(session.root / "apps"),
+            shared_titles=login_titles_in(session.root / TIERS_DIRNAME),
         )
         if live:
             attach_live(document, config, session.root)

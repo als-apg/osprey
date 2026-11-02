@@ -36,7 +36,8 @@ from osprey.deployment.compose_generator import _dispatch_worker_corpus_mounts
 from osprey.deployment.web_terminals import env_production, render_images, roster
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.env_production import ensure_env_production
-from osprey.deployment.web_terminals.lint import lint_app_render, lint_web_terminals
+from osprey.deployment.web_terminals.lint import lint_shared_render, lint_web_terminals
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
     config_archiver_ca_bundles,
@@ -293,7 +294,8 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
     }
-    assert set(predicates) | {"launch_token_renders"} == set(grants)
+    keyed = {"launch_token_renders", "application_token_renders"}
+    assert set(predicates) | keyed == set(grants)
     for grant, predicate in predicates.items():
         for name, render_config in configs.items():
             assert (name in grants[grant]) == bool(predicate(render_config)), (grant, name)
@@ -304,6 +306,14 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
                 lane,
                 name,
             )
+    # An application token is granted to exactly the renders whose rendered
+    # config serves that application's panel under its launch_token_env; the
+    # flagship projects none, so the map is empty and the loop proves that.
+    for token_env, entitled in grants["application_token_renders"].items():
+        for name, render_config in configs.items():
+            panels = ((render_config.get("web") or {}).get("panels") or {}).values()
+            holds = any((block or {}).get("launch_token_env") == token_env for block in panels)
+            assert (name in entitled) == holds, (token_env, name)
 
     # The kind is never asked: the projection with every ``kind`` removed
     # grants exactly the same.
@@ -351,7 +361,7 @@ def test_open_doors_refuse_a_headless_tier(
 
 
 def test_privilege(stack: Path, served: dict[str, roster.ServedRender], open_stack: Path) -> None:
-    """An app render holds no deployment-editing door, even on a host that
+    """A shared login's render holds no deployment-editing door, even on a host that
     opens them all; the admin tier keeps what it held."""
     open_served = served_renders(_host(open_stack), strict=True)
     assert set(open_served) == SERVED
@@ -359,11 +369,11 @@ def test_privilege(stack: Path, served: dict[str, roster.ServedRender], open_sta
 
     for app in APPS:
         render = open_served[app]
-        assert render.kind == roster.RENDER_KIND_APP, app
+        assert render.kind == RENDER_KIND_SHARED, app
         app_config = _render_config(open_stack, render)
         assert tier_privileges(app_config) == (), app
         document = {"hooks": _render_hooks(open_stack, render), "config": app_config}
-        assert lint_app_render(document) == [], app
+        assert lint_shared_render(document) == [], app
 
     # The doors really are open on the host's tiers, so the app result above is
     # the composer closing them, not a host that never opened them.

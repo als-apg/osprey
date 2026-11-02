@@ -754,6 +754,9 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
         # The render carries no pyAML view.
         "measurement": {},
+        # Nor an application.
+        "app_approvals": {},
+        "app_error_types": {},
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
 
 
@@ -1654,8 +1657,8 @@ def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
 def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
     """Selecting a hook COPIES the helpers it needs; nothing WIRES them.
 
-    ``osprey_hook_log.py``, ``osprey_target_state.py`` and
-    ``osprey_safety_file.py`` are libraries the real hooks import, and
+    ``osprey_hook_log.py``, ``osprey_target_state.py``,
+    ``osprey_safety_file.py`` and ``osprey_prompt_render.py`` are libraries the real hooks import, and
     ``hook_config.json`` is the file the logger reads beside itself. A profile
     names none of them: the build ships the closure of the hooks it does name.
     None of them declares an ``event``, so none may appear in ``settings.json``:
@@ -1688,6 +1691,7 @@ def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
         "osprey_hook_log.py",
         "osprey_target_state.py",
         "osprey_safety_file.py",
+        "osprey_prompt_render.py",
         "hook_config.json",
     )
 

@@ -1,0 +1,1 @@
+An application container that declares `drives_target` renders with its staged config, the guarded-run mount and, on an armed render, the control tree and limits mounts, plus a stop grace period from the connector's call bound and Channel Access addressing on the compose bridge. A bridge container whose Channel Access target has no derivable name server refuses the build.

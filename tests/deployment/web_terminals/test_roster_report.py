@@ -30,7 +30,7 @@ CONFIG = textwrap.dedent(
           editor: {kind: tier, project: demo-editor, project_path: build/demo-editor}
           spare: {kind: tier, project: demo-spare, project_path: build/demo-spare}
           runner: {kind: tier, project: demo-runner, project_path: build/demo-runner}
-          search: {kind: app, project: demo-search, project_path: build/demo-search}
+          search: {kind: tier, project: demo-search, project_path: build/demo-search}
         users:
           - {name: desk, index: 0, tier: viewer, display_name: Desk, access: [roster]}
           - {name: alice, index: 1, tier: editor, oidc_subject: alice@example.org,
@@ -62,7 +62,9 @@ def repo(tmp_path):
 
 def _report(repo):
     config = load_project_config(str(repo / "build" / "config.yml"))
-    return build_roster_report(config, repo, project_name="demo", app_titles={"search": "Search"})
+    return build_roster_report(
+        config, repo, project_name="demo", shared_titles={"search": "Search"}
+    )
 
 
 def _card(report, name):

@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -39,6 +39,7 @@ from check_kit import (
     WHOLE,
     Check,
     Context,
+    EnvironmentFault,
     Lane,
     Refused,
     Selection,
@@ -714,6 +715,19 @@ CLAUDE_PIN_PROBE = (*UV_RUN, "python", "scripts/pinned_claude.py")
 #: The compare of ``node_modules`` with ``package-lock.json``, stdlib only.
 JS_DEPS_CURRENT = Path(__file__).resolve().with_name("js_deps_current.py")
 
+#: Below this a run can die halfway through its temp tree; one figure, no knob.
+FREE_SPACE_FLOOR_GIB = 5
+
+#: How long each docker command of the storage probe may take.
+DOCKER_PROBE_TIMEOUT_S = 60
+
+#: The docker group as the tests spell it, read as text: collecting the
+#: selection to ask would cost more than the probe it arms.
+DOCKER_GROUP_PATTERN = r'mark\.xdist_group\(\s*"docker"'
+
+#: ``--no-sync``: a plain ``uv run`` is what would hide a stale install, or install it.
+INSTALLED_VERSIONS_PROBE = (*UV_RUN, "--no-sync", "python", "scripts/installed_versions.py")
+
 #: Runs only in a venv synced with the dev extra. actionlint disables its
 #: shellcheck rule without a word when shellcheck is absent and still exits 0, so
 #: this probe is what keeps the check from passing over unread ``run:`` blocks.
@@ -741,10 +755,12 @@ def _need_workflow_linters() -> str | None:
     return "the workflow linters are not installed: run uv sync --extra dev"
 
 
-def _probe(argv: Sequence[str]) -> tuple[int, str, str]:
+def _probe(argv: Sequence[str], timeout: float | None = None) -> tuple[int, str, str]:
     """Run a probe and return its exit status, stdout and stderr."""
     try:
-        done = subprocess.run(list(argv), cwd=kit.ROOT, capture_output=True, text=True)
+        done = subprocess.run(
+            list(argv), cwd=kit.ROOT, capture_output=True, text=True, timeout=timeout
+        )
     except FileNotFoundError:
         return 127, "", ""
     return done.returncode, done.stdout, done.stderr
@@ -763,6 +779,12 @@ def _need_claude_pin() -> str | None:
     os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
     kit.say(f"claude-pin: {directory} first on PATH")
     return None
+
+
+def _opt_in_js_check(context: Context) -> int:
+    """Open the test that fetches and runs the toolchain ``osprey app check`` ships."""
+    os.environ["OSPREY_JS_CHECK"] = "1"
+    return _prune_bytecode(context)
 
 
 def _js_deps_current() -> ModuleType:
@@ -792,6 +814,124 @@ def _need_node() -> str | None:
     if again is not None:
         return f"node_modules still differs from package-lock.json after npm ci: {again}"
     return None
+
+
+def _device(path: str | Path) -> int:
+    return os.stat(path).st_dev
+
+
+def _need_free_space() -> str | None:
+    """Met when the temp directory and the checkout each hold the floor; each
+    device is read once."""
+    try:
+        places: dict[int, str | Path] = {}
+        for place in (tempfile.gettempdir(), kit.ROOT):
+            places.setdefault(_device(place), place)
+        for path in places.values():
+            free = shutil.disk_usage(path).free
+            if free < FREE_SPACE_FLOOR_GIB * 2**30:
+                raise EnvironmentFault(
+                    "free space",
+                    f"{free // 2**20} MiB free on {path}, floor {FREE_SPACE_FLOOR_GIB} GiB",
+                )
+    except OSError as error:
+        raise EnvironmentFault("free space", str(error)) from error
+    return None
+
+
+def _need_docker_storage() -> str | None:
+    """Met when a volume can be created and removed, and on a machine with no
+    daemon to ask, whose Docker tests skip. It starts no container."""
+    if not shutil.which("docker"):
+        return None
+    try:
+        if _probe(("docker", "info"), DOCKER_PROBE_TIMEOUT_S)[0] != 0:
+            return None
+    except subprocess.TimeoutExpired:
+        return None
+    volume = f"osprey-check-probe-{os.getpid()}"
+    for verb in ("create", "rm"):
+        try:
+            status, _out, err = _probe(("docker", "volume", verb, volume), DOCKER_PROBE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            fact = f"did not answer in {DOCKER_PROBE_TIMEOUT_S} s"
+        else:
+            if status == 0:
+                continue
+            fact = err.strip().rpartition(": ")[2] or f"exited {status}"
+        raise EnvironmentFault("docker storage", f"volume {verb} {fact}")
+    return None
+
+
+def _docker_group_needs(
+    roots: Callable[[Context], Iterable[str]],
+) -> Callable[[Selection, Context], tuple[str, ...]]:
+    """The hook of a check whose whole selection is *roots*: it needs Docker
+    storage when a selected file, or a conftest above one, carries the group."""
+
+    def needs(selection: Selection, context: Context) -> tuple[str, ...]:
+        paths = selection.paths if selection.state == PATHS else roots(context)
+        targets = [path.partition("::")[0].rstrip("/") for path in paths]
+        above = {
+            conftest
+            for target in targets
+            for parent in PurePosixPath(target).parents
+            if (kit.ROOT / (conftest := str(parent / "conftest.py"))).is_file()
+        }
+        status, out, _err = _probe(
+            ("git", "grep", "--untracked", "-lE", DOCKER_GROUP_PATTERN, "--", *targets, *above)
+        )
+        hit = status == 0 and any(line.endswith(".py") for line in out.splitlines())
+        return ("docker-storage",) if hit else ()
+
+    return needs
+
+
+def _leading_paths(words: Sequence[str]) -> list[str]:
+    """The paths a pytest command line names before its first flag."""
+    paths: list[str] = []
+    for word in words:
+        if word.startswith("-"):
+            break
+        paths.append(word)
+    return paths
+
+
+def _pytest_paths(argv: Sequence[str]) -> list[str]:
+    """The paths *argv* hands pytest."""
+    return _leading_paths(argv[list(argv).index("pytest") + 1 :])
+
+
+def _unit_roots(context: Context) -> list[str]:
+    """What the parallel sweep collects for the run's tier and shard."""
+    return _leading_paths(unit_argv(context.tier, (), context.shard))
+
+
+def _stale_installs() -> list[list[str]]:
+    """The reader's rows. It prints none on a checkout with no environment yet:
+    the check's own ``uv run`` creates that one current."""
+    rows = (line.split("\t") for line in _probe(INSTALLED_VERSIONS_PROBE)[1].splitlines())
+    return [row for row in rows if len(row) == 3]
+
+
+def _need_install_current() -> str | None:
+    """Met when the install is what the tree describes; re-syncs it when it is not."""
+    stale = _stale_installs()
+    if not stale:
+        return None
+    for dist, installed, described in stale:
+        kit.say(f"install-current: {dist} installed {installed}, tree describes {described}")
+    reinstall = [word for row in stale for word in ("--reinstall-package", row[0])]
+    # --inexact: a plain sync removes the extras this environment was given.
+    status = kit.run(("uv", "sync", "--frozen", "--inexact", *reinstall))
+    still = _stale_installs() or (stale if status != 0 else [])
+    if not still:
+        return None
+    dist, installed, described = still[0]
+    raise EnvironmentFault(
+        "install currency",
+        f"{dist} installed {installed}, tree describes {described} after uv sync",
+    )
 
 
 def _need_history() -> str | None:
@@ -829,6 +969,9 @@ NEEDS = {
     "graphviz": _need_graphviz,
     "workflow-linters": _need_workflow_linters,
     "va-extra": _need_va_extra,
+    "free-space": _need_free_space,
+    "docker-storage": _need_docker_storage,
+    "install-current": _need_install_current,
 }
 
 
@@ -849,6 +992,9 @@ VENUES = {
 
 # ---------------------------------------------------------------------------
 # The checks
+
+#: The wall-clock suite; its leading paths are what its Docker hook reads.
+WALLCLOCK_ARGV = (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock")
 
 CHECKS: tuple[Check, ...] = (
     Check("lockfile", "invariant", BOTH, ("uv", "lock", "--check"), needs=("uv",)),
@@ -926,7 +1072,7 @@ CHECKS: tuple[Check, ...] = (
         "invariant",
         BOTH,
         (*UV_RUN, "pytest", *INVARIANT_TESTS),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         report="junit-pytest",
     ),
     Check(
@@ -954,14 +1100,21 @@ CHECKS: tuple[Check, ...] = (
         needs=("uv",),
         annotate=GITHUB_FORMAT,
     ),
-    Check("tsc", "static", BOTH, ("npm", "run", "typecheck"), scope=TSC_SCOPE, needs=("node",)),
+    Check(
+        "tsc",
+        "static",
+        BOTH,
+        ("npm", "run", "typecheck"),
+        scope=TSC_SCOPE,
+        needs=("free-space", "node"),
+    ),
     Check(
         "eslint",
         "static",
         BOTH,
         ("npm", "run", "lint"),
         scope=("*.js", "*.mjs", "*.ts", "eslint.config.js", "tools/eslint/**", "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
     ),
     Check(
         "prettier",
@@ -969,7 +1122,7 @@ CHECKS: tuple[Check, ...] = (
         BOTH,
         ("npm", "run", "format:check"),
         scope=("*.js", "*.mjs", ".prettierrc.json", ".prettierignore", "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
         fix=(("npm", "run", "format"),),
     ),
     Check(
@@ -988,7 +1141,8 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         BOTH,
         (*UV_RUN, "pytest"),
-        needs=("uv", "claude-pin"),
+        needs=("free-space", "uv", "install-current", "claude-pin"),
+        selected_needs=_docker_group_needs(_unit_roots),
         bound_s=5400,
         report="junit-pytest",
         tier_flags={
@@ -1011,7 +1165,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "pytest", "tests/pty/", "-m", "pty"),
         scope=("tests/pty/**", "src/osprey/cli/**"),
-        needs=("uv",),
+        needs=("free-space", "uv", "install-current"),
         bound_s=600,
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
@@ -1024,9 +1178,10 @@ CHECKS: tuple[Check, ...] = (
         "pytest-wallclock",
         "tests",
         FULL,
-        (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock"),
+        WALLCLOCK_ARGV,
         scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
-        needs=("uv",),
+        needs=("free-space", "uv", "install-current"),
+        selected_needs=_docker_group_needs(lambda _context: _pytest_paths(WALLCLOCK_ARGV)),
         bound_s=900,
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
@@ -1052,7 +1207,7 @@ CHECKS: tuple[Check, ...] = (
             "-v",
         ),
         scope=(READONLY_WARMUPS_TEST_FILE, "src/osprey/runtime/**"),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         venue=DARWIN_VENUE,
         bound_s=900,
         report="junit-pytest",
@@ -1068,7 +1223,7 @@ CHECKS: tuple[Check, ...] = (
             "scripts/va/live_ca/**",
             "src/osprey/services/virtual_accelerator/**",
         ),
-        needs=("uv", "va-extra"),
+        needs=("free-space", "uv", "va-extra", "install-current"),
         venue=LIVE_CA_VENUE,
     ),
     # A range picks its files through the JavaScript module-to-test mapping.
@@ -1077,10 +1232,35 @@ CHECKS: tuple[Check, ...] = (
         "tests",
         BOTH,
         ("npx", "vitest", "run"),
-        needs=("node",),
+        needs=("free-space", "node"),
         report="junit-vitest",
         named_suffixes=(".test.js", ".test.mjs"),
         selector=_select_vitest,
+    ),
+    # The unit lanes leave this test closed, having no reason to fetch a JS toolchain.
+    Check(
+        "app-check-js",
+        "tests",
+        FULL,
+        (
+            *UV_RUN,
+            "--extra",
+            "dev",
+            "pytest",
+            "tests/cli/test_app_cmd.py",
+            "-k",
+            "pinned_toolchain",
+        ),
+        scope=(
+            "src/osprey/apps/js_check/**",
+            "src/osprey/cli/app_cmd.py",
+            "tests/cli/test_app_cmd.py",
+            "tests/apps/fixtures/js_check_app/**",
+        ),
+        needs=("free-space", "uv", "node", "install-current"),
+        bound_s=600,
+        report="junit-pytest",
+        prepare=_opt_in_js_check,
     ),
     # The root Vitest config does not reach the package; it carries its own.
     Check(
@@ -1089,7 +1269,7 @@ CHECKS: tuple[Check, ...] = (
         BOTH,
         ("npx", "vitest", "run", "-c", "packages/dock-engine/vitest.config.ts"),
         scope=(DOCK_ENGINE, "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
         report="junit-vitest",
     ),
     Check(
@@ -1098,7 +1278,7 @@ CHECKS: tuple[Check, ...] = (
         BOTH,
         ("node", "packages/dock-engine/scripts/build.mjs", "--check"),
         scope=(DOCK_ENGINE, "package*.json"),
-        needs=("node",),
+        needs=("free-space", "node"),
     ),
     # The build runs from a clean tree, and every redirect key must leave its
     # stub page in it.
@@ -1108,7 +1288,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"),
         scope=("docs/**", "*.rst", "*.md"),
-        needs=("uv", "docs-extra", "graphviz"),
+        needs=("free-space", "uv", "docs-extra", "graphviz"),
         workdir=DOCS_DIR,
         prepare=_clean_docs_build,
         builtin=_check_redirect_stubs,
@@ -1121,7 +1301,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (*UV_RUN, "make", "linkcheck"),
         scope=("docs/**",),
-        needs=("uv", "docs-extra"),
+        needs=("free-space", "uv", "docs-extra"),
         workdir=DOCS_DIR,
     ),
     # Implemented in Python: PACKAGE_STEPS, run in order.
@@ -1131,7 +1311,7 @@ CHECKS: tuple[Check, ...] = (
         FULL,
         (),
         scope=("pyproject.toml", "packages/**", "src/**", "MANIFEST*"),
-        needs=("uv",),
+        needs=("free-space", "uv"),
         command=_package_command,
         builtin=_check_package,
     ),

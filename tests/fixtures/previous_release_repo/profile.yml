@@ -1138,7 +1138,7 @@ config:
     #     roles: {operator: {tier: readwrite}, viewer: {tier: readonly}}
     #     claims: {claim: groups, map: {ca-operators: operator, ca-viewers: viewer}}
     # How the landing page is laid out. Omit this whole block and you get the
-    # people below first and the shared apps after them, headed "Apps".
+    # people below first and the shared logins after them, headed "Shared logins".
     landing:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
@@ -1217,10 +1217,11 @@ config:
       knowledge:
         build_profile: personas/knowledge.yml
         landing_group: Standalone deployments
-    # Apps everyone above may open, each defined in apps/<name>.yml: a second
-    # agent beside this deployment's own, on this deployment's services. Each
-    # gets its own container and a port slot counted down from the top of the
-    # user block, in this order; no password of its own, so none is set in .env.
+    # Logins everyone above may open, each defined in tiers/<name>.yml: a
+    # second agent beside this deployment's own, on this deployment's services,
+    # sealed read-only for everyone. Each gets its own container and a port slot
+    # counted down from the top of the user block, in this order; no password of
+    # its own, so none is set in .env.
     shared:
       - channel-finder   # Channel Finder: channel addresses from the hierarchy
 
@@ -1445,3 +1446,21 @@ panel_presets: {}
 # teams_bridge:
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
+
+# --- Applications ------------------------------------------------------------
+# The applications this deployment runs, one entry per apps/<name>/ directory
+# holding its app.yml. Listing one turns it on; to turn it off, remove the
+# entry. Its tool server is added by the build, so no tool-server key goes here,
+# and its writes follow each login's control_system.writes tier.
+#
+# apps:
+#   knob-example:
+#     config:                    # free-form; handed to the application as a file
+#       step: 0.5
+#     services:
+#       knob-example:            # a container key from its app.yml
+#         network: host          # bridge | host
+#         env: [HTTP_PROXY]      # host variables passed through
+#
+# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
+# {shown: false}}`, and `lists: own` to show only what it names.

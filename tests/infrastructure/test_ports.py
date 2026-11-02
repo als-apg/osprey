@@ -17,6 +17,7 @@ import pytest
 from osprey.deployment.subprocess_capture import observe_exit, stop_child
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
+    _MACOS_DEFAULT_RANGE_START,
     bound_socket,
     ephemeral_range_start,
     lock_path,
@@ -265,3 +266,36 @@ def test_a_bound_socket_can_listen():
         held.listen()
         client.settimeout(5)
         client.connect(("127.0.0.1", held.getsockname()[1]))
+
+
+@pytest.fixture
+def fresh_range_probe():
+    """Probe the ephemeral range anew here, and leave no patched answer in the cache."""
+    ephemeral_range_start.cache_clear()
+    yield
+    ephemeral_range_start.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_range_probe")
+def test_a_slow_macos_probe_falls_back_to_the_platform_default(monkeypatch, capsys):
+    probes: list[list[str]] = []
+
+    def timed_out(command: list[str], **_kwargs: object) -> None:
+        probes.append(command)
+        raise subprocess.TimeoutExpired(command, 10)
+
+    monkeypatch.setattr(_ports.sys, "platform", "darwin")
+    monkeypatch.setattr(_ports.subprocess, "run", timed_out)
+
+    assert ephemeral_range_start() == _MACOS_DEFAULT_RANGE_START
+    assert ephemeral_range_start() == _MACOS_DEFAULT_RANGE_START
+
+    assert len(probes) == 1
+    assert capsys.readouterr().err.count(str(_MACOS_DEFAULT_RANGE_START)) == 1
+
+
+@pytest.mark.usefixtures("fresh_range_probe")
+def test_an_unknown_platform_still_refuses(monkeypatch):
+    monkeypatch.setattr(_ports.sys, "platform", "plan9")
+    with pytest.raises(RuntimeError, match="plan9"):
+        ephemeral_range_start()

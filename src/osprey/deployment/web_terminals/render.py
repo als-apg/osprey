@@ -44,6 +44,7 @@ from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     FIXED_SERVICE_AUDIT_IDENTITIES,
     configured_ariel_mirror_path,
+    deployed_app_audit_identities,
     guarded_run_relpath,
     repo_identity,
     repo_relative_mount_source,
@@ -787,6 +788,7 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
 def _launch_token_env_vars(
     entry: dict[str, Any],
     launch_token_renders: dict[str, set[str]] | None,
+    application_token_renders: Mapping[str, set[str]] | None = None,
 ) -> list[str]:
     """The launch-token variable names ONE roster entry is handed, in render order.
 
@@ -799,16 +801,24 @@ def _launch_token_env_vars(
     :param entry: One resolved roster entry.
     :param launch_token_renders: ``{lane: renders}`` — see
         :func:`render_web_terminals`.
-    :return: ``<PREFIX>_LAUNCH_TOKEN`` for each lane this entry may arm, empty
-        when it may arm none.
+    :param application_token_renders: ``{token_env: renders}`` — see
+        :func:`render_web_terminals`.
+    :return: ``<PREFIX>_LAUNCH_TOKEN`` for each lane this entry may arm, then each
+        application token it was granted; empty when it may arm none.
     """
     render = entry.get("render")
     entitled_by_lane = launch_token_renders or {}
-    return [
+    lane_tokens = [
         f"{lane_env_prefix(lane)}_LAUNCH_TOKEN"
         for lane in LANE_KEYS
         if render in entitled_by_lane.get(lane, set())
     ]
+    application_tokens = sorted(
+        token_env
+        for token_env, renders in (application_token_renders or {}).items()
+        if render in renders
+    )
+    return [*lane_tokens, *application_tokens]
 
 
 def render_web_terminals(
@@ -817,6 +827,7 @@ def render_web_terminals(
     dispatcher_renders: set[str] | None = None,
     ariel_renders: set[str] | None = None,
     launch_token_renders: dict[str, set[str]] | None = None,
+    application_token_renders: Mapping[str, set[str]] | None = None,
     graphdb_renders: set[str] | None = None,
     facility_bundle_renders: set[str] | None = None,
     facility_bundle_gid: int | None = None,
@@ -828,7 +839,7 @@ def render_web_terminals(
     terminal_secrets: dict[str, str] | None = None,
     proxy_env_names: tuple[str, ...] = (),
     facility_name: str = "",
-    app_titles: Mapping[str, str] | None = None,
+    shared_titles: Mapping[str, str] | None = None,
     agent_record_login_digests: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -894,6 +905,11 @@ def render_web_terminals(
             read-only render holding it would be able to move hardware. A lane
             no render may arm is absent from the map (an empty set grants the
             same nothing). ``None`` emits no line for any user.
+        application_token_renders: ``{token_env: render names}`` — the renders
+            the shell gate cleared to hold each application launch token,
+            :attr:`~osprey.deployment.web_terminals.artifacts.LaunchTokenEntitlement.by_token_env`
+            as it came back, never recomputed. Same per-user placement as
+            ``launch_token_renders``. ``None`` emits no line.
         graphdb_renders: Render names whose project configures a graph store,
             and whose users therefore need the Neo4j password ``osprey up``
             minted into the deploy ``.env`` (see
@@ -1012,12 +1028,12 @@ def render_web_terminals(
             :func:`osprey.deployment.web_terminals.artifacts.resolve_render_inputs`,
             because this function reads no file. ``""`` (the default) emits no
             sign-in name and leaves the landing page its own title.
-        app_titles: Each shared app's title, ``{app name: name:}`` off the
-            repo's ``apps/*.yml``
-            (:func:`osprey.deployment.web_terminals.roster.app_titles_in`),
-            passed in because this function reads no file. It titles the app's
-            landing card, browser tab and sidecar chooser label alike; an app
-            it leaves out is titled by its name.
+        shared_titles: Each shared login's title, ``{login name: name:}`` off
+            the repo's ``tiers/*.yml``
+            (:func:`osprey.deployment.web_terminals.roster.login_titles_in`),
+            passed in because this function reads no file. It titles the
+            login's landing card, browser tab and sidecar chooser label alike; a
+            login it leaves out is titled by its name.
         agent_record_login_digests: The sha256 of each terminal's
             agent-record login file, by identity
             (:func:`osprey.agent_record.credentials.login_digests`), emitted as
@@ -1084,7 +1100,11 @@ def render_web_terminals(
         raise ValueError(REGISTRY_MODE_MISSING_URL)
 
     resolved_users = resolve_cards(
-        web_terminals, registry, strict=True, project_name=project_name, app_titles=app_titles
+        web_terminals,
+        registry,
+        strict=True,
+        project_name=project_name,
+        shared_titles=shared_titles,
     )
     # The other half of what a roster `role:` says. `resolve_cards` above
     # consumed it into each entry's render (which image, which project); this
@@ -1101,7 +1121,9 @@ def render_web_terminals(
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
-        launch_token_env_vars = _launch_token_env_vars(entry, launch_token_renders)
+        launch_token_env_vars = _launch_token_env_vars(
+            entry, launch_token_renders, application_token_renders
+        )
         # Bound once because two keys below are anchored on it — the volume's
         # own mount target and the control-context directory nested inside it.
         # Resolving it twice would let one anchor be changed without the other.
@@ -1398,7 +1420,7 @@ def render_web_terminals(
     # a sidecar it returns and the audit gate refuses the same name as a
     # directory. Reversing these two would leave the charset gate unreachable.
     _check_roster_charset(services, auth_tls_ctx)
-    _check_roster_audit_identities(services)
+    _check_roster_audit_identities(services, deployed_app_audit_identities(config))
     _check_roster_env_var_collisions(services, auth_tls_ctx)
     _check_roster_control_identities(
         authored_people(web_terminals), claim=auth_tls_ctx["auth_oidc_claim"] or ""
@@ -2468,11 +2490,15 @@ def _app_card(app_entry: dict[str, Any], token_login_names: frozenset[str]) -> d
     }
 
 
-_APPS_LABEL = "Apps"
-"""Default heading of a ``{type: apps}`` landing group."""
+_SHARED_LABEL = "Shared logins"
+"""Default heading of a ``{type: shared}`` landing group."""
 
-_DEFAULT_LANDING_GROUPS: tuple[dict[str, str], ...] = ({"type": "users"}, {"type": "apps"})
-"""The ``landing.groups`` a deployment that sets none renders: people, then apps."""
+_DEFAULT_LANDING_GROUPS: tuple[dict[str, str], ...] = ({"type": "users"}, {"type": "shared"})
+"""The ``landing.groups`` a deployment that sets none renders: people, then shared logins."""
+
+#: The retired spelling of ``type: shared``, read as it for one release
+#: (lint warns about it; ``osprey init --revalidate`` rewrites it).
+RETIRED_SHARED_GROUP_TYPE = "apps"
 
 
 def _build_groups(
@@ -2490,18 +2516,19 @@ def _build_groups(
 
     * ``{type: users}`` — one card per person on the roster (see
       :func:`_user_groups`), headed ``label`` or ``"Terminals"``.
-    * ``{type: apps}`` — one card per ``shared:`` app, in ``shared:`` order,
-      titled by the app's ``name:`` (see :func:`_app_card`), headed ``label``
-      or ``"Apps"`` and marked ``variant: "tray"``, the cue landing.html.j2
-      renders as an accent-edged panel so the page reads as people, then
-      services.
+    * ``{type: shared}`` — one card per ``shared:`` login, in ``shared:``
+      order, titled by the login file's ``name:`` (see :func:`_app_card`),
+      headed ``label`` or ``"Shared logins"`` and marked ``variant: "tray"``,
+      the cue landing.html.j2 renders as an accent-edged panel so the page
+      reads as people, then services. The retired ``{type: apps}`` is read as
+      it for one release.
     * ``{type: links, label, links}`` — ``links`` passed straight through as
       ``items`` (link cards carry neither a ``sublabel`` nor a posture).
 
     An omitted or empty ``landing.groups`` renders ``[{type: users}, {type:
-    apps}]``. Every group is emitted even when it has no cards; the template's
+    shared}]``. Every group is emitted even when it has no cards; the template's
     empty-items rule is the one place that decides whether a heading appears,
-    so a deployment without ``shared:`` shows no Apps heading. Unrecognized or
+    so a deployment without ``shared:`` shows no shared-logins heading. Unrecognized or
     malformed group entries are dropped rather than raising: lint is the
     authoritative gate on schema well-formedness, this is just the render-time
     adapter.
@@ -2543,10 +2570,10 @@ def _build_groups(
                     sign_in_url=sign_in_url,
                 )
             )
-        elif group_type == "apps":
+        elif group_type in ("shared", RETIRED_SHARED_GROUP_TYPE):
             groups.append(
                 {
-                    "label": label if isinstance(label, str) and label else _APPS_LABEL,
+                    "label": label if isinstance(label, str) and label else _SHARED_LABEL,
                     "items": [_app_card(app, token_login_names) for app in apps],
                     "variant": "tray",
                 }
@@ -2574,7 +2601,7 @@ def _user_groups(
 
     Args:
         people: The person entries of :func:`resolve_cards` output, in
-            roster order; shared app entries are the ``apps`` group's.
+            roster order; shared login entries are the ``shared`` group's.
         default_label: The ``{type: "users"}`` entry's own ``label``. Anything
             that is not a non-empty string falls back to ``"Terminals"``.
         token_login_names: Passed straight to :func:`_user_card`, which turns
@@ -3206,7 +3233,9 @@ _RESERVED_AUDIT_IDENTITY_RE = re.compile(
 )
 
 
-def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
+def _check_roster_audit_identities(
+    services: list[dict[str, Any]], app_identities: Mapping[str, str] | None = None
+) -> None:
     """Fail-closed render gate: a roster name may not name a service's own directories.
 
     Unconditional on ``auth.method``, unlike :func:`_check_roster_charset`.
@@ -3243,14 +3272,34 @@ def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
     A render-time refusal rather than a lint finding because lint is skippable
     (``--no-lint``) and the consequence is a mount, not a warning.
 
+    A deployed application's ``audit_identity`` is a service's own identity
+    in the same sense: its containers write facts as it, under
+    ``var/spool/<identity>/``.
+
     Args:
         services: The resolved per-user service entries (each with a ``user``).
+        app_identities: Every deployed application's audit identity, to the
+            application holding it
+            (:func:`~osprey.deployment.compose_generator.deployed_app_audit_identities`).
 
     Raises:
         ValueError: If any roster name is a service's own identity, or is
             not usable as a single path segment. The message names every
             offender.
     """
+    app_identities = app_identities or {}
+    taken = [
+        f"{service['user']!r} (application {app_identities[service['user']]!r})"
+        for service in services
+        if service["user"] in app_identities
+    ]
+    if taken:
+        raise ValueError(
+            f"modules.web_terminals.users {', '.join(taken)} take a deployed "
+            "application's audit identity. Each user's container binds "
+            "var/spool/<user>/ and var/state/<user>/ read-write, so such a user could "
+            "write facts as that application and read its state. Rename the roster entry."
+        )
     reserved = [
         service["user"]
         for service in services

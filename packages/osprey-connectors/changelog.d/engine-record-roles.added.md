@@ -1,0 +1,1 @@
+The simulator view names its record roles (`SETPOINT`, `READBACK`, `MONITOR`, `OUTPUT`), refresh `PERIODIC`, the `COMMAND_MARK` and `MARKS`, and a `Binding` carries the `marks` its wiring record states; a view without marks reads as before.

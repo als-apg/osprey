@@ -57,7 +57,7 @@ from osprey.stores.artifact_manifest import (
     is_collectable_file,
 )
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
-from osprey.utils.workspace import LAYER_DIRNAMES
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES
 from osprey_connectors import posture_store
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.posture_env import POSTURE_ENV_VAR
@@ -111,8 +111,10 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "osprey.service",
     # Source directories at the repo root.
     "data",
-    # The tier and app files laid over the profile, by location.
+    # The login files laid over the profile, by location.
     *LAYER_DIRNAMES,
+    # The applications: `apps/<name>/` source, not a layer directory.
+    APPS_DIRNAME,
     "profiles",
     "scripts",
     "watchdogs",

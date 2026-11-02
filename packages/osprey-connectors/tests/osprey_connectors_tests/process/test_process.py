@@ -170,8 +170,10 @@ async def test_terminate_returns_the_reaped_code():
         "import os\nprint('exiting', flush=True)\nos._exit(3)\n",
         stdout=asyncio.subprocess.PIPE,
     )
-    # The pipe closes only when the child dies, so terminate meets an exited child.
+    # The pipe closes while the child dies, before it has exited; the wait makes
+    # terminate meet an exited child.
     assert await asyncio.wait_for(exited.stdout.read(), 10.0) == b"exiting\n"
+    await asyncio.wait_for(exited.wait(), _EXIT_WAIT_S)
     assert await terminate(exited, 0.5) == 3
 
     sleeping = await asyncio.create_subprocess_exec(
@@ -181,6 +183,9 @@ async def test_terminate_returns_the_reaped_code():
 
 
 _SLEEP = "import time; time.sleep(60)"
+
+#: Seconds a child that has closed its pipe gets to finish exiting on a loaded host.
+_EXIT_WAIT_S = 30.0
 
 
 def _python(code: str, *args: str) -> list[str]:

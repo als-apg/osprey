@@ -113,6 +113,10 @@ class ServerDefinition:
     # Read by the headless block, the audit and the kill switch through
     # ``_server_to_dict``'s ``writes`` key and :func:`facility_write_tools`.
     writes: tuple[str, ...] | None = None
+    # The application a projected tool server serves (``mcp_servers.<n>.app``);
+    # ``None`` for every other server. Its declared writes get the preflight
+    # approval budget and reach the session's control target, not ``live``.
+    app: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1587,6 +1591,8 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                 continue
             custom = _custom_server_from_spec(name, spec)
             if custom is not None:
+                if custom.condition and not ctx.get(custom.condition):
+                    custom.default_enabled = False
                 _warn_writes_without_live_target(custom, ctx)
                 servers[name] = custom
 
@@ -1620,9 +1626,10 @@ def _warn_writes_without_live_target(sdef: ServerDefinition, ctx: dict) -> None:
     Judged only when the caller put the ``control_system:`` section in ctx as
     ``control_system_section``: a caller that did not has not said the target
     is missing, and guessing either way would be a warning about nothing or
-    silence about something.
+    silence about something. An application's server is not judged: its writes
+    reach the session's control target, which need not be ``live``.
     """
-    if not sdef.writes or "control_system_section" not in ctx:
+    if not sdef.writes or sdef.app or "control_system_section" not in ctx:
         return
     from osprey_connectors.types import TARGET_LIVE, target_configured
 
@@ -1926,9 +1933,14 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
             "tool with writes-check and approval; drop 'writes_check' from "
             "hooks.pre_tool_use."
         )
+    app = spec.get("app")
+    # An application's approval may read the panel's state before it asks, so
+    # its writes carry the preflight budget; a prompt that fetches nothing
+    # answers well inside it.
+    approval = _APPROVAL_PREFLIGHT if app else _APPROVAL
     if writes is not None:
         hooks_pre.extend(
-            HookRule(matcher=f"mcp__{name}__{tool}", hooks=[_WRITES_CHECK, _APPROVAL])
+            HookRule(matcher=f"mcp__{name}__{tool}", hooks=[_WRITES_CHECK, approval])
             for tool in _declared_write_rule_tools(name, writes, spec.get("permissions", {}))
         )
     if pre_presets:
@@ -1988,9 +2000,11 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         permissions_ask=perms.get("ask", []),
         hooks_pre=hooks_pre,
         hooks_post=[_post_error(f"mcp__{name}__.*")]
-        if perms.get("allow") or perms.get("ask")
+        if perms.get("allow") or perms.get("ask") or app
         else [],
         writes=writes,
+        condition=spec.get("condition"),
+        app=app,
     )
 
 

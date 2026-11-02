@@ -30,7 +30,6 @@ from osprey.cli.build_profile import (
 from osprey.cli.build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
-    list_apps,
     list_presets,
     list_tiers,
 )
@@ -104,6 +103,32 @@ def test_bluesky_web_not_a_mapping_raises() -> None:
     """A non-mapping 'bluesky_web' block raises during parsing."""
     with pytest.raises(BuildProfileError, match="bluesky_web"):
         _parse_profile({"name": "x", "bluesky_web": "not-a-mapping"})
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"images": {"platform": "linux/riscv64"}},
+        {"images.platform": "linux/riscv64"},
+    ],
+)
+def test_an_image_platform_no_builder_accepts_is_refused_at_parse(config: dict) -> None:
+    """Refused naming the accepted values, not left for a failed pull at ``osprey up``."""
+    with pytest.raises(BuildProfileError) as refused:
+        _parse_profile({"name": "x", "config": config})
+
+    assert "images.platform" in str(refused.value)
+    assert "linux/amd64" in str(refused.value) and "linux/arm64" in str(refused.value)
+
+
+def test_a_stated_image_platform_parses() -> None:
+    from osprey.cli.build_profile_load import config_image_platform
+
+    raw = {"name": "x", "config": {"images.platform": "linux/amd64"}}
+
+    _parse_profile(raw)
+    assert config_image_platform(raw["config"]) == "linux/amd64"
+    assert config_image_platform({}) is None and config_image_platform(None) is None
 
 
 def test_bluesky_web_is_known_key() -> None:
@@ -901,7 +926,7 @@ def test_the_shipped_preset_listings_are_not_empty() -> None:
     """Guards the two parametrizations below against running over nothing."""
     assert {"control-assistant", "hello-world"} <= set(list_presets())
     assert {"readonly", "readwrite", "admin"} <= set(list_tiers())
-    assert {"logbook", "knowledge"} <= set(list_apps())
+    assert {"logbook", "knowledge"} <= set(list_tiers())
 
 
 @pytest.mark.parametrize("preset", list_presets())
@@ -914,7 +939,7 @@ def test_the_shipped_presets_pass_both_refusals(preset: str) -> None:
 
 @pytest.mark.parametrize(
     "layer",
-    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+    [f"tiers/{name}" for name in list_tiers()],
 )
 def test_the_shipped_tiers_and_apps_pass_both_refusals(layer: str) -> None:
     """Every bundled tier and app spells its ``config:`` block in a way the

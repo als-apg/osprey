@@ -61,7 +61,7 @@ from pathlib import Path
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 _GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -124,12 +124,12 @@ EXAMPLE_CONFIG: dict = {
 
 
 def _with_shared_logbook(config: dict) -> dict:
-    """*config* plus one shared app, ``logbook``, and the landing's Apps group."""
+    """*config* plus one shared login, ``logbook``, and the landing's shared group."""
     config = copy.deepcopy(config)
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["shared"] = ["logbook"]
-    web_terminals["renders"]["logbook"] = app_render("logbook", "dls_controls-logbook")
-    web_terminals["landing"]["groups"].insert(1, {"type": "apps"})
+    web_terminals["renders"]["logbook"] = tier_render("logbook", "dls_controls-logbook")
+    web_terminals["landing"]["groups"].insert(1, {"type": "shared"})
     return config
 
 

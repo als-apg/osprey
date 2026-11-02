@@ -98,7 +98,7 @@ harness's `_guards.py`) that changes how work is handed to workers:
   and the whole group goes to one worker. Use this only when *separate files*
   must not run at the same time as each other.
 
-There is exactly **one** sanctioned group today: `"docker"`, shared by the ten
+There is exactly **one** sanctioned group today: `"docker"`, shared by the
 files that start real containers (the MongoDB connector tests and the
 Postgres-backed ARIEL tests). One group means one worker, one testcontainers
 session, one reaper — see section 6.

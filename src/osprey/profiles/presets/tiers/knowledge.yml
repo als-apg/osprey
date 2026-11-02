@@ -1,32 +1,37 @@
 # knowledge.yml
-# Facility knowledge app: how the machine is built, answered from the deployment's knowledge layer.
+# Facility knowledge login: how the machine is built, answered from the deployment's knowledge layer.
 #
-# An app is not an access level of the deployment's agent. It is a second,
-# complete agent definition, opened from a shared card on the landing page by
-# everyone on the roster. Its lists below are the whole selection: nothing is
-# inherited from the deployment's lists and nothing is subtracted from them.
+# A narrow login (`lists: own`), opened from a shared card on the landing page
+# by everyone on the roster once `modules.web_terminals.shared` names it. Its
+# lists below are the whole selection: nothing is inherited from the
+# deployment's lists and nothing is subtracted from them. The deployment's
+# PreToolUse guards reach it whatever its hooks list says.
 #
-# This app answers from three read-only sources and names the one that
+# This login answers from three read-only sources and names the one that
 # answered: the facility knowledge graph, the graph-backed channel finder, and
-# the facility knowledge bundle. It reads the deployment's graph store and data
-# tree (the build tells its render where they are, the Reach Contract,
-# `osprey.deployment.reach`), so the operators and this app answer from one
-# graph. It cannot read a channel, move hardware, run Python, or search the
-# logbook.
+# the facility knowledge bundle. Services, data and provider are profile.yml's:
+# it reads the deployment's graph store and data tree (the build tells its
+# render where they are, the Reach Contract, `osprey.deployment.reach`), so the
+# operators and this login answer from one graph. The model is profile.yml's
+# too, unless a top-level `model:` here names one the provider serves. It
+# cannot read a channel, move hardware, run Python, or search the logbook.
 #
-# Every app render is read-only on the machine whatever its config says: the
+# A shared login is read-only on the machine whatever its config says: the
 # build pins writes never and adds the writes-check hook itself. The write pin
 # below says the same thing on purpose, so the file reads as what it renders.
 #
-# The other two bundled apps are `logbook` and `channel-finder`.
+# The other two bundled shared logins are `logbook` and `channel-finder`.
 
 name: Facility Knowledge
+
+# The whole selection is the lists below.
+lists: own
 
 # The knowledge brief: answering "how is the machine built" from three
 # read-only sources and citing which one answered.
 claude_md_template: CLAUDE.knowledge.md.j2
 
-# Open on the KNOWLEDGE tab. The CHANNELS tab is the other one this app keeps.
+# Open on the KNOWLEDGE tab. The CHANNELS tab is the other one this login keeps.
 default_panel: okf
 
 # Channel addresses come from the graph, the same store the knowledge-graph
@@ -47,8 +52,8 @@ hooks:
   - turn-state        # Tell the web terminal when a turn starts and ends
 
 rules:
-  # The safety rule governs no tool this app carries today. It stays because
-  # the app runs inside a deployment that does move hardware.
+  # The safety rule governs no tool this login carries today. It stays because
+  # the login runs inside a deployment that does move hardware.
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
@@ -56,7 +61,7 @@ rules:
   - timezone          # Always localise timestamps to facility timezone
 
 # No skills: every bundled skill either writes to the logbook, drives the
-# machine or needs the Python sandbox, and this app reaches none of them.
+# machine or needs the Python sandbox, and this login reaches none of them.
 skills: []
 
 agents:
@@ -72,13 +77,13 @@ web_panels:
   - channel-finder    # Interactive channel-finder web UI
 
 # No tool servers of its own; the deployment's facility servers are not this
-# app's to inherit.
+# login's to inherit.
 mcp_servers: {}
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block. These win over
 # the deployment's config; the deployment's own tool-server switches never
-# reach this render, so every server this app does without is named here.
+# reach this render, so every server this login does without is named here.
 config:
   # No control-system surface and no logbook: each line is a decision about a
   # server the deployment runs.
@@ -86,19 +91,19 @@ config:
   claude_code.servers.python.enabled: false
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
-  # The logbook is the `logbook` app's.
+  # The logbook is the `logbook` login's.
   claude_code.servers.ariel.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
   # (the bundle), `channel-finder` and `graph` (the store both read). The event
-  # dispatcher renders only with the EVENTS panel, which no app carries.
+  # dispatcher renders only with the EVENTS panel, which no shared login carries.
   #
   # Reading the bundle, never writing to it: drafting a concept is the
   # deployment's editors' work, not a shared card's.
   claude_code.permissions.deny:
     - mcp__osprey_facility_knowledge__draft_concept
-  # The write boundary: `never`, the only value an app may spell.
+  # The write boundary: `never`, the only value a shared login may spell.
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
+  # No shipped example plot: it invites a live plot this login cannot produce.
   artifact_server.example_artifact: false

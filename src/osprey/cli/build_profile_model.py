@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,7 +49,9 @@ from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
 from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
+    DEFAULT_LISTS_MODE,
     SECOND_LANE_PORT_STRIDE,
+    AppEntry,
     BlueskyConfig,
     BlueskyWebConfig,
     DispatchConfig,
@@ -57,6 +59,7 @@ from .build_profile_schema import (
     EnvironmentConfig,
     GChatBridgeProfileConfig,
     LifecycleConfig,
+    ListsMode,
     McpServerDef,
     NextcloudBridgeProfileConfig,
     ProfileProvenance,
@@ -315,8 +318,8 @@ def render_key_errors(config: Any) -> list[str]:
         return []
     return [
         "config: modules.web_terminals.renders is written by the build, which derives "
-        "every entry from the files in tiers/ and apps/ and from project_name; set "
-        "extra_mounts, seed_base or image at the top of the tier or app file instead. "
+        "every entry from the login files in tiers/ and from project_name; set "
+        "extra_mounts, seed_base or image at the top of the login file instead. "
         "Delete modules.web_terminals.renders from profile.yml."
     ]
 
@@ -465,6 +468,14 @@ class BuildProfile:
     The resolved block is written into the rendered ``config.yml`` under the
     top-level key ``agent_record`` (see :mod:`osprey.agent_record.config`).
     """
+    apps: dict[str, AppEntry] = field(default_factory=dict)
+    """The applications this deployment runs (``apps:``), by the name of their
+    ``apps/<name>/`` directory. Listing one turns it on; a login render carries
+    the deployment's entries merged with the login's ``shown`` choices."""
+    lists: ListsMode = DEFAULT_LISTS_MODE
+    """How a login's selection lists relate to the deployment's (``lists:``);
+    spelled in a login file only. Decides whether a listed application is
+    shown by default (:meth:`app_shown`)."""
     watchdogs: WatchdogsBlock = field(default_factory=dict)
     """The deployment's watchdogs (``watchdogs:``), as the author spelled them.
 
@@ -527,6 +538,77 @@ class BuildProfile:
         if not isinstance(self.data, str) or not self.data.strip():
             return None
         return (profile_dir / self.data).resolve()
+
+    def app_shown(self, name: str) -> bool:
+        """Whether this render's card shows application *name*.
+
+        An unlisted application is never shown. A listed one is shown when its
+        entry says so, and otherwise by the ``lists:`` default: shown under
+        ``add``, hidden under ``own``.
+
+        Args:
+            name: The application's name.
+
+        Returns:
+            Whether the card shows it.
+        """
+        entry = self.apps.get(name)
+        if entry is None:
+            return False
+        if entry.shown is not None:
+            return entry.shown
+        return self.lists == "add"
+
+    def _validate_apps(self, profile_dir: Path) -> list[str]:
+        """Return validation errors for the ``apps:`` block, closed against the manifests.
+
+        Every listed name must be an application under ``apps/<name>/``, every
+        ``services.<key>`` one of that application's containers, and every axis
+        value well-formed.
+
+        Args:
+            profile_dir: The profile root, whose ``apps/`` holds the applications.
+
+        Returns:
+            Human-readable error messages; empty when the block is valid.
+        """
+        if not self.apps:
+            return []
+        from osprey.apps.errors import AppManifestError
+        from osprey.apps.loader import MANIFEST_FILE
+        from osprey.apps.loader import load as load_apps
+
+        from .application_material import application_dirs
+
+        try:
+            manifests = {m.name: m for m in load_apps(profile_dir, self.apps)}
+        except AppManifestError as exc:
+            return [f"apps: {exc}"]
+
+        errors: list[str] = []
+        dirs = application_dirs(profile_dir)
+        known = ", ".join(d.name for d in dirs if (d / MANIFEST_FILE).is_file()) or "none"
+        for name, entry in sorted(self.apps.items()):
+            manifest = manifests.get(name)
+            if manifest is None:
+                errors.append(
+                    f"apps.{name} names no application: there is no apps/{name}/app.yml "
+                    f"(applications here: {known})."
+                )
+                continue
+            for key, axes in sorted(entry.services.items()):
+                where = f"apps.{name}.services.{key}"
+                if key not in manifest.containers:
+                    containers = ", ".join(sorted(manifest.containers))
+                    errors.append(
+                        f"{where} names no container of {name}: its app.yml declares {containers}."
+                    )
+                    continue
+                if axes.network is not None:
+                    errors.extend(network_mode_errors(axes.network, f"{where}.network"))
+                if axes.env is not None:
+                    errors.extend(env_names_errors(axes.env, f"{where}.env"))
+        return errors
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.
@@ -1121,6 +1203,37 @@ class BuildProfile:
 
         return claimed
 
+    def projected_port_collisions(
+        self, services: Mapping[str, Mapping[str, Any]]
+    ) -> list[tuple[str, str]]:
+        """Every projected port the profile, or another projected service, already spends.
+
+        The ledger is :meth:`_claimed_ports` plus the stand-in's own ports, which
+        the ledger leaves to their own rule among the profile's blocks.
+
+        Args:
+            services: The projected ``services.<key>`` entries, each holding its
+                ``config.port`` and ``config.app``.
+
+        Returns:
+            ``(service key, message)`` per collision, naming both holders.
+        """
+        holders = {port: key for key, port in self._claimed_ports().items()}
+        va = self.virtual_accelerator
+        if va is not None:
+            holders.setdefault(va.port, "virtual_accelerator.port")
+            if va.pva_port is not None:
+                holders.setdefault(va.pva_port, "virtual_accelerator.pva_port")
+        found: list[tuple[str, str]] = []
+        for key, entry in services.items():
+            config = entry["config"]
+            port = config["port"]
+            where = f"apps.{config['app']}.services.{key}"
+            holder = holders.setdefault(port, where)
+            if holder != where:
+                found.append((key, f"{where} publishes port {port}, which {holder} already spends"))
+        return found
+
     def _resolved_port_base(self) -> int:
         """Return the port base this profile's ``config:`` block resolves to.
 
@@ -1542,6 +1655,7 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
+        errors.extend(self._validate_apps(profile_dir))
 
         if (
             self.channel_finder_mode is not None

@@ -20,7 +20,7 @@ import yaml
 
 from osprey.cli.build_limits_check import limits_database_errors
 from osprey.deployment.compose_generator import (
-    _bluesky_lane_write_posture,
+    drives_target_write_posture,
     resolve_limits_mount,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
@@ -108,7 +108,7 @@ def _environment(rendered: dict[str, Any], service: str) -> dict[str, Any]:
 def test_a_lanes_posture_is_the_renders_tier(section: Any, armed: bool) -> None:
     lane = {"bluesky": {"port": BLUESKY_PORT}}
 
-    assert _bluesky_lane_write_posture(lane, section) == {"bluesky": armed}
+    assert drives_target_write_posture(lane, section) == {"bluesky": armed}
 
 
 def test_the_tier_arms_every_lane_whatever_its_target() -> None:
@@ -117,8 +117,8 @@ def test_the_tier_arms_every_lane_whatever_its_target() -> None:
     lanes = _two_lanes()
     allowed = {"type": "epics", "writes": "allowed"}
 
-    assert _bluesky_lane_write_posture(lanes, allowed) == {"bluesky": True, "bluesky_va": True}
-    assert _bluesky_lane_write_posture(lanes, {"type": "epics", "writes": "never"}) == {
+    assert drives_target_write_posture(lanes, allowed) == {"bluesky": True, "bluesky_va": True}
+    assert drives_target_write_posture(lanes, {"type": "epics", "writes": "never"}) == {
         "bluesky": False,
         "bluesky_va": False,
     }

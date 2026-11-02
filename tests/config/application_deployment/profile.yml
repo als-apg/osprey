@@ -1,0 +1,15 @@
+# The deployment the config-key guard renders so the keys the build projects from
+# an application are visible to it. Between them the two applications spell every
+# shape a projected key takes: `gauge` has a panel and an approval tool, `ledger`
+# has read tools only, an image container and its own error texts.
+extends: hello-world
+data: data
+config:
+  control_system.writes: asked
+apps:
+  gauge:
+    services:
+      gauge:
+        network: host
+        env: [GAUGE_EXTRA]
+  ledger: {}

@@ -26,9 +26,9 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
 from osprey_connectors.types import WRITES_KEY
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -1912,15 +1912,12 @@ def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
 
 @pytest.mark.parametrize(
     ("build", "expected"),
-    [
-        (tier_render, f"{TIERS_DIRNAME}/assistant.yml"),
-        (app_render, f"{APPS_DIRNAME}/assistant.yml"),
-    ],
-    ids=["tier", "app"],
+    [(tier_render, f"{TIERS_DIRNAME}/assistant.yml")],
+    ids=["tier"],
 )
 def test_lint_not_a_delta_names_the_file_of_the_entry_kind(tmp_path, build, expected) -> None:
-    """The remedy names the file `osprey init` writes for the render's kind:
-    `tiers/<name>.yml` for a tier, `apps/<name>.yml` for an app."""
+    """The remedy names the file `osprey init` writes for every render:
+    `tiers/<name>.yml`, the login file."""
     # Arrange
     entry = build(
         "assistant",
@@ -4914,14 +4911,14 @@ def test_layer_writes_returns_the_word_the_layer_states(layer, expected) -> None
     assert lint._layer_writes(layer) == expected
 
 
-def test_lint_app_render_refuses_asked() -> None:
-    """Only the literal `never` is an app's pin: `asked` arms."""
+def test_lint_shared_render_refuses_asked() -> None:
+    """Only the literal `never` is a shared login's pin: `asked` arms."""
     # Arrange / Act
-    findings = lint.lint_app_render({"config": {WRITES_KEY: "asked"}, "hooks": []})
+    findings = lint.lint_shared_render({"config": {WRITES_KEY: "asked"}, "hooks": []})
 
     # Assert
     [finding] = findings
-    assert finding.code == "web_terminals.app_render_holds_privilege"
+    assert finding.code == "web_terminals.shared_render_holds_privilege"
     assert f"{WRITES_KEY} is not pinned to never" in finding.message
 
 
@@ -6512,3 +6509,21 @@ def test_osprey_up_refuses_a_start_over_a_carrier_collision(tmp_path, monkeypatc
     container_lifecycle._collect_unmet_preconditions(
         _history_config(), tmp_path, {}, dev_mode=False, web_terminals_enabled=False
     )
+
+
+def test_lint_username_matching_a_deployed_apps_audit_identity_is_an_error() -> None:
+    """The scaffold-time half of the render's refusal: the finding names the
+    roster entry and the application whose identity it takes."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["knob", "bob"]
+    config["services"]["knob-panel"] = {"app": "knob", "audit_identity": "knob"}
+    config["deployed_services"] = ["knob-panel"]
+
+    findings = [
+        f
+        for f in _errors(lint_web_terminals(config))
+        if f.code == "web_terminals.reserved_audit_identity"
+    ]
+
+    assert len(findings) == 1
+    assert "'knob'" in findings[0].message and "application 'knob'" in findings[0].message

@@ -46,8 +46,8 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the slots the build
 filled from the channel, its limits record and the model's engine (direction,
-unit, default, value_range, role, plane, refresh) and, for a waveform channel,
-its ``value_type`` and ``shape``.
+unit, default, value_range, role, plane, refresh, marks) and, for a waveform
+channel, its ``value_type`` and ``shape``.
 """
 
 from __future__ import annotations
@@ -144,6 +144,7 @@ _WIRING_ENTRY_KEYS = (
     "role",
     "plane",
     "refresh",
+    "marks",
 )
 
 #: The channels and models last wired and each model's wiring of them, keyed on

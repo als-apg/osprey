@@ -809,6 +809,24 @@ ignore_imports = [
     "osprey_connectors.types -> osprey_connectors.posture_store",
 ]
 
+[[tool.importlinter.contracts]]
+id = "apps-loader-build-only"
+name = "Only the build reads a deployment's applications"
+# Rendered config is what the rest of the framework reads; the loader is the
+# build's. `osprey.apps.manifest` stays importable for the `AppManifest` type.
+# Deployment code is held to its own boundary by
+# `osprey.apps.boundary`, because import-linter refuses a listed module that is
+# missing from the graph and a deployment's package is not in it.
+type = "protected"
+protected_modules = ["osprey.apps.loader"]
+allowed_importers = [
+    "osprey.cli.app_cmd",
+    "osprey.cli.application_material",
+    "osprey.cli.build_cmd",
+    "osprey.cli.build_injectors",
+    "osprey.cli.build_profile_model",
+]
+
 # Ruff configuration for modern Python linting
 [tool.ruff]
 line-length = 100

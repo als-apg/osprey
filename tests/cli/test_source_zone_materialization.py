@@ -876,9 +876,10 @@ def test_render_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_p
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     layers = layer_files(target)
-    assert {kind for kind, _path in layers} == {ProfileKind.TIER, ProfileKind.APP}, (
-        "control-assistant should emit tier and app files"
+    assert {kind for kind, _path in layers} == {ProfileKind.TIER}, (
+        "control-assistant should emit login files"
     )
+    assert len(layers) == 6
     for _kind, layer_file in layers:
         assert "edit profile -> rebuild -> redeploy" not in layer_file.read_text(encoding="utf-8")
 
@@ -1503,3 +1504,16 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert "facility_tools:" in text
     # The category guidance is independent — still appended.
     assert "# artifact_server:" in text
+
+
+def test_the_applications_directory_stays_a_materialized_source_entry() -> None:
+    """``apps/`` left the layer directories but is still source the repo owns.
+
+    A re-materialization replaces it like every other source entry, so it is
+    named explicitly rather than reaching the set through the layer table.
+    """
+    from osprey.cli.profile_cmd import MATERIALIZED_SOURCE_ENTRIES
+    from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
+
+    assert APPS_DIRNAME not in LAYER_DIR_KINDS
+    assert APPS_DIRNAME in MATERIALIZED_SOURCE_ENTRIES

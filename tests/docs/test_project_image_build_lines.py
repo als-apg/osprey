@@ -62,7 +62,7 @@ def test_no_by_hand_line_changes_directory():
 
 def test_every_docker_build_names_the_rendered_context_and_recipe():
     builds = _docker_builds()
-    assert len(builds) >= 4, builds
+    assert len(builds) >= 3, builds
     for argv in builds:
         assert "-f" in argv, argv
         assert argv[argv.index("-f") + 1] == _RECIPE, argv

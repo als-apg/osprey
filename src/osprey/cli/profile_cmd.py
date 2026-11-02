@@ -251,6 +251,8 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     PROVIDERS_FILENAME,
     _PROFILE_DATA_DIRNAME,
     *LAYER_DIR_KINDS,
+    # The applications: not a layer directory, but source the repo owns.
+    APPS_DIRNAME,
     PROFILE_TRIGGERS_FILENAME,
     _CONTEXT_CONVENTION_DIRNAME,
     _PROFILE_ENV_EXAMPLE_FILENAME,
@@ -1295,13 +1297,13 @@ def _privileged_tier_problems(
 
 
 def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[str], list[str]]:
-    """The tiers and apps this profile's roster names, as ``(tiers, apps)``, sorted.
+    """The logins this profile's roster names, as ``(tiers, shared)``, sorted.
 
     A tier is named by any card a person runs on (their ``tier:`` or role, or
     ``default_tier`` when they name neither), by ``default_tier`` itself — the
     tier the next person added inherits — by every role ``authorization``
     binds, since single sign-on may hand any of them out, and by
-    ``dispatch.tier``. An app is named by ``shared:``. A profile that stands up
+    ``dispatch.tier``. A shared login is named by ``shared:``. A profile that stands up
     no web terminals deploys no roster, so it names only ``dispatch.tier``: the
     dispatch workers run that tier with or without a terminal beside them.
 
@@ -1310,11 +1312,11 @@ def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[
 
     The served set itself is
     :func:`~osprey.deployment.web_terminals.roster.served_render_names`; this
-    splits it by kind. A ``shared:`` name the served set already counts as a
+    splits it by use. A ``shared:`` name the served set already counts as a
     tier is listed under both, so the caller's refusal that a card renders
     from one file reports it.
     """
-    from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP
+    from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED
     from osprey.deployment.web_terminals.roster import served_render_names, shared_app_name
 
     from .build_profile_emit import effective_web_terminals
@@ -1323,8 +1325,8 @@ def _roster_layers(config: Mapping[str, Any], dispatch_tier: Any) -> tuple[list[
     if not web_terminals.get("enabled"):
         web_terminals = {}
     served = served_render_names(web_terminals, dispatch_tier)
-    tiers = {name for name, kind in served.items() if kind != RENDER_KIND_APP}
-    apps = {name for name, kind in served.items() if kind == RENDER_KIND_APP}
+    tiers = {name for name, kind in served.items() if kind != RENDER_KIND_SHARED}
+    apps = {name for name, kind in served.items() if kind == RENDER_KIND_SHARED}
     shared = web_terminals.get("shared")
     for item in shared if isinstance(shared, list) else []:
         name = shared_app_name(item)
@@ -1338,16 +1340,16 @@ def _layer_profile_texts(
     profile_name: str,
     render_path_prefix: str,
 ) -> dict[str, str]:
-    """Emit the tier and app files this profile's roster names.
+    """Emit the login files this profile's roster names.
 
-    Each is the bundled tier or app materialized as an explicit file
+    Each is the bundled login materialized as an explicit file
     (:func:`~.build_profile_emit.emit_layer_delta_yaml`): its whole content,
     comments and a provenance block, and no pointer into the package. Which
     ones is :func:`_roster_layers`' answer, so a fresh repo holds a file for
-    every tier and app it deploys and nothing else.
+    every tier and shared login it deploys and nothing else.
 
-    ``render_path_prefix`` is what the emitted headers prefix ``tiers/`` and
-    ``apps/`` with when they name a file: the profile's directory name and a
+    ``render_path_prefix`` is what the emitted headers prefix ``tiers/``
+    with when they name a file: the profile's directory name and a
     slash for a nested profile directory, and empty for a repo root, where the
     reader already stands where those paths are relative to.
 
@@ -1364,8 +1366,8 @@ def _layer_profile_texts(
         render_path_prefix: See above.
 
     Returns:
-        ``{repo-relative file (tiers/<n>.yml, apps/<n>.yml): text}``, tiers
-        first, each kind sorted.
+        ``{repo-relative file (tiers/<n>.yml): text}``, the tiers first, then
+        the shared logins, each sorted.
 
     Raises:
         click.UsageError: With every unusable roster reference named at once —
@@ -1379,8 +1381,7 @@ def _layer_profile_texts(
 
     from .build_profile_emit import emit_layer_delta_yaml
     from .build_profile_merge import render_document
-    from .build_profile_presets import list_apps, list_tiers
-    from .profile_root import ProfileKind
+    from .build_profile_presets import list_tiers
 
     dispatch_tier = resolved.dispatch.tier if resolved.dispatch is not None else None
     tiers, apps = _roster_layers(resolved.config, dispatch_tier)
@@ -1393,14 +1394,13 @@ def _layer_profile_texts(
     privileges: dict[str, tuple[str, ...]] = {}
     absolute: dict[str, tuple[str, ...]] = {}
     problems: list[str] = [
-        f"{name!r} is both a tier the roster names and an app in shared:, but a "
+        f"{name!r} is both a tier the roster names and a shared login in shared:, but a "
         f"card renders from one file — rename one of them"
         for name in sorted(set(tiers) & set(apps))
     ]
-    for dirname, word, names, bundled in (
-        (TIERS_DIRNAME, LAYER_DIR_KINDS[TIERS_DIRNAME], tiers, list_tiers()),
-        (APPS_DIRNAME, LAYER_DIR_KINDS[APPS_DIRNAME], apps, list_apps()),
-    ):
+    bundled = list_tiers()
+    dirname = TIERS_DIRNAME
+    for word, names in (("tier", tiers), ("shared login", [n for n in apps if n not in tiers])):
         for name in names:
             # `..` needs naming explicitly: `Path("..").name` is `".."`, so the
             # plain-name check alone would pass it and write a `tiers/..yml`.
@@ -1429,18 +1429,18 @@ def _layer_profile_texts(
             texts[relative] = text
     if problems:
         raise click.UsageError(
-            "Cannot materialize the tiers and apps this profile's web-terminal "
+            "Cannot materialize the logins this profile's web-terminal "
             "roster names:\n  - " + "\n  - ".join(problems)
         )
-    # Each layer is judged on the document the build renders it from — an app
-    # is composed, never merged like a tier — and the composer reads only the
-    # host's `config`, `hooks` and `mcp_servers`, so `config` stands in for it.
+    # Each layer is judged on the document the build renders it from — a
+    # `lists: own` login is composed and a shared one sealed, never merged like
+    # a plain tier — and the composition reads only the host's `config`, `hooks`
+    # and `mcp_servers`, so `config` stands in for it.
     host_doc = {"config": resolved.config}
     for relative, text in texts.items():
         [(name, delta)] = _parsed_layer_deltas({relative: text}).items()
-        kind = ProfileKind(LAYER_DIR_KINDS[relative.split("/", 1)[0]])
         try:
-            rendered = render_document(kind, host_doc, dict(delta), relative)
+            rendered = render_document(host_doc, dict(delta), relative)
         except BuildProfileError as e:
             problems.append(f"{name!r}: {e}")
             continue
@@ -1452,7 +1452,7 @@ def _layer_profile_texts(
             privileges[name] = lifted
     if problems:
         raise click.UsageError(
-            "Cannot materialize the tiers and apps this profile's web-terminal "
+            "Cannot materialize the logins this profile's web-terminal "
             "roster names:\n  - " + "\n  - ".join(problems)
         )
     privilege_problems = _privileged_tier_problems(resolved.config, privileges, absolute)
@@ -2016,6 +2016,28 @@ def _materialize_profile_directory(
                 )
         if seeded:
             logger.debug("  Seeded: %s", ", ".join(f"{name}/" for name in seeded))
+        # The applications the preset lists, copied from beside the preset into
+        # `apps/<name>/` as deployment source, each with a `.provenance` sidecar
+        # the drift check reads. Unlike the seeds above they are source the repo
+        # owns: `apps/` is a materialized entry, so `--force` replaces it and a
+        # failed run's `_cleanup` removes it. Byte-code is dropped as for a seed.
+        if resolved.apps:
+            from .build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
+            from .build_profile_merge import compute_preset_hash
+
+            preset_hash = compute_preset_hash(normalized_preset)
+            for app_name in sorted(resolved.apps):
+                app_target = target / APPS_DIRNAME / app_name
+                shutil.copytree(
+                    preset_dir / APPS_DIRNAME / app_name,
+                    app_target,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+                )
+                (app_target / APP_PROVENANCE_FILENAME).write_text(
+                    app_provenance_text(app_target, normalized_preset, preset_hash),
+                    encoding="utf-8",
+                )
+            logger.debug("  Applications: %s", ", ".join(f"{name}/" for name in resolved.apps))
 
         # A profile or app that selects the library facility rule by its bare
         # name selects the copy seeded above instead, by its path.
