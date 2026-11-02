@@ -30,6 +30,7 @@ __all__ = [
     "epoch_seconds_array",
     "event_positions",
     "keyed_normals",
+    "step_end",
     "wander",
 ]
 
@@ -310,6 +311,30 @@ def anchored_instant(event: dict[str, Any], anchor: float, tz: ZoneInfo | None =
     return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor, zone)).timestamp()
 
 
+def step_end(event: dict[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float | None:
+    """Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.
+
+    ``until`` is a window fraction (paired with ``at``), ``until_offset`` is
+    seconds from the anchor (paired with ``at_offset``) and ``until_when`` is a
+    ``{days_ago, time}`` placed exactly as ``at_when`` is (paired with it).
+
+    Args:
+        event: A ``step`` event.
+        anchor: The activation anchor T0, in epoch seconds.
+        tz: The facility timezone ``until_when`` calendar days are counted in.
+
+    Returns:
+        The end position, or ``None`` when the step states no end.
+    """
+    if "until_offset" in event:
+        return anchor + float(event["until_offset"])
+    if "until_when" in event:
+        return anchored_instant({"at_when": event["until_when"]}, anchor, tz)
+    if "until" in event:
+        return float(event["until"])
+    return None
+
+
 def event_positions(
     event: dict[str, Any],
     t_frac: "np.ndarray",
@@ -376,7 +401,11 @@ def apply_events(
     anchor: float,
     tz: ZoneInfo | None = None,
 ) -> "np.ndarray":
-    """Apply step/ramp/spike events in order (window-fraction or wall-clock)."""
+    """Apply step/ramp/spike events in order (window-fraction or wall-clock).
+
+    A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``
+    and leaves later samples on the baseline; without one it holds to the end.
+    """
     if not events:
         return series
     t_frac = np.linspace(0.0, 1.0, n)
@@ -386,7 +415,9 @@ def apply_events(
         offset_anchored = "at_offset" in event
         for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
             if shape == "step":
-                series[x >= at] = float(event["to"])
+                end = step_end(event, anchor, tz)
+                inside = x >= at if end is None else (x >= at) & (x < end)
+                series[inside] = float(event["to"])
             elif shape == "ramp":
                 until = (
                     anchor + float(event["until_offset"])
