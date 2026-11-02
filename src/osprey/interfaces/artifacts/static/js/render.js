@@ -77,6 +77,27 @@ function pickMarkup(a, picked) {
 // ---- Gallery Card HTML (shared by both sidebar modes in gallery layout) ----
 
 /**
+ * How many rows of a render reveal one after another. Every row carries the
+ * `itemReveal` animation (opacity 0 until its delay has passed), so an
+ * uncapped delay of `i * 30ms` kept the thousandth row of a large list
+ * invisible for half a minute after every rebuild -- and the list is rebuilt
+ * on every page that arrives and every artifact the server announces. Past
+ * this many rows, every row shares one short delay and appears at once.
+ */
+const REVEAL_STAGGER_ROWS = 12;
+
+/**
+ * The reveal delay for the row at `i`, in ms: staggered over the first few
+ * rows, then flat.
+ * @param {number} i
+ * @param {number} [stepMs]
+ * @returns {number}
+ */
+export function revealDelayMs(i, stepMs = 30) {
+  return Math.min(i, REVEAL_STAGGER_ROWS) * stepMs;
+}
+
+/**
  * @param {any} a
  * @param {number} i
  * @returns {string}
@@ -87,9 +108,9 @@ function galleryCardHtml(a, i) {
   const pick = pickMarkup(a, getPickedIds());
   return `
     <div class="gallery-card${sel}${pinnedCls}${pick.cls}"${pick.aria}
-         data-id="${a.id}"
+         data-id="${a.id}" draggable="true"
          data-type="${escapeHtml(a.category || a.artifact_type)}"
-         style="animation-delay: ${i * 30}ms">
+         style="animation-delay: ${revealDelayMs(i)}ms">
       <div class="gallery-card-thumb">${thumbnailHtml(a)}</div>
       <div class="gallery-card-info">
         <div class="gallery-card-title" title="${escapeHtml(a.title)}">
@@ -231,8 +252,8 @@ export function createSidebarRenderer(callbacks) {
     const pick = pickMarkup(a, getPickedIds());
     return `
                 <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}"${pick.aria}
-                     data-id="${a.id}"
-                     style="animation-delay: ${i * 30}ms">
+                     data-id="${a.id}" draggable="true"
+                     style="animation-delay: ${revealDelayMs(i)}ms">
                   ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ''}
                   <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
                   <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
@@ -390,7 +411,7 @@ export function createSidebarRenderer(callbacks) {
             <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}"${pick.aria}
                  data-id="${a.id}"
                  data-type="${escapeHtml(a.category || a.artifact_type)}"
-                 style="animation-delay: ${itemIndex * 25}ms">
+                 style="animation-delay: ${revealDelayMs(itemIndex, 25)}ms">
               <span class="timeline-dot"></span>
               <div class="timeline-item-body">
                 <div class="timeline-item-title" title="${escapeHtml(a.title)}">
@@ -417,25 +438,35 @@ export function createSidebarRenderer(callbacks) {
 
   // ---- Shared item handlers (unified: click/dblclick/drag-to-terminal) ----
 
+  /** The container the delegated handlers are installed on, so they are installed once. */
+  /** @type {HTMLElement|null} */
+  let handledBody = null;
+
+  /**
+   * Install the row and section handlers on the list's container, once.
+   *
+   * The rows are rebuilt from markup on every render -- every page that
+   * arrives, every artifact the server announces -- so handlers on the rows
+   * themselves had to be attached again each time, three per row over the
+   * whole held list: with a few thousand artifacts held, every page append
+   * spent most of its time re-wiring rows that had not changed. One set of
+   * listeners on the container, resolving the row from the event's target,
+   * costs the same for one row as for ten thousand and survives every
+   * rebuild. The container itself is never replaced by a render.
+   */
   function attachSidebarHandlers() {
     const sidebarBody = document.getElementById('sidebar-body');
-    if (!sidebarBody) return;
-
-    // Tree/gallery section toggle
-    sidebarBody
-      .querySelectorAll('.tree-section-header, .gallery-section-header')
-      .forEach((header) => {
-        header.addEventListener('click', () => {
-          const section = /** @type {HTMLElement} */ (header.parentElement);
-          const type = section.dataset.type || '';
-          if (section.classList.toggle('collapsed')) collapsedSections.add(type);
-          else collapsedSections.delete(type);
-        });
-      });
-
-    // Item click, double-click (fullscreen), drag-and-drop (send to terminal)
-    const clickables = '.tree-item, .timeline-item, .gallery-card';
+    if (!sidebarBody || handledBody === sidebarBody) return;
+    handledBody = sidebarBody;
     const body = sidebarBody;
+    const clickables = '.tree-item, .timeline-item, .gallery-card';
+
+    /** @param {Event} e @returns {HTMLElement|null} the row the event happened in, if any */
+    function rowOf(e) {
+      const target = /** @type {HTMLElement|null} */ (e.target);
+      const row = target?.closest?.(clickables);
+      return row instanceof HTMLElement && body.contains(row) ? row : null;
+    }
 
     /** Reflect the picks on the rendered rows in place and tell the pick bar. */
     function updatePickClasses() {
@@ -456,74 +487,75 @@ export function createSidebarRenderer(callbacks) {
         .map((row) => row.dataset.id || '');
     }
 
-    sidebarBody.querySelectorAll(clickables).forEach((el) => {
-      el.addEventListener('click', (e) => {
-        if (
-          /** @type {HTMLElement} */ (e.target).closest(
-            '.tree-section-header, .gallery-section-header'
-          )
-        )
-          return;
-        const id = /** @type {HTMLElement} */ (el).dataset.id;
-        if (!id) return;
-        const mouse = /** @type {MouseEvent} */ (e);
-
-        // Shift-click: pick the run from the anchor to this row; the anchor stays.
-        if (mouse.shiftKey) {
-          window.getSelection()?.removeAllRanges();
-          const anchor = getPickAnchor() ?? getSelectedArtifact()?.id ?? id;
-          setPicked(pickRange(shownOrder(), anchor, id));
-          updatePickClasses();
-          return;
-        }
-
-        // Cmd/Ctrl-click: add or remove this one row; it becomes the anchor.
-        if (mouse.metaKey || mouse.ctrlKey) {
-          const selected = getSelectedArtifact();
-          if (getPickedIds().size === 0 && selected) setPicked([selected.id]);
-          togglePicked(id);
-          setPickAnchor(id);
-          updatePickClasses();
-          return;
-        }
-
-        clearPicked();
+    body.addEventListener('click', (e) => {
+      const target = /** @type {HTMLElement} */ (e.target);
+      // Tree/gallery section toggle
+      const header = target.closest('.tree-section-header, .gallery-section-header');
+      if (header && body.contains(header)) {
+        const section = /** @type {HTMLElement} */ (header.parentElement);
+        const type = section.dataset.type || '';
+        if (section.classList.toggle('collapsed')) collapsedSections.add(type);
+        else collapsedSections.delete(type);
+        return;
+      }
+      const el = rowOf(e);
+      if (!el) return;
+      const id = el.dataset.id;
+      if (!id) return;
+      const mouse = /** @type {MouseEvent} */ (e);
+      // Shift-click: pick the run from the anchor to this row; the anchor stays.
+      if (mouse.shiftKey) {
+        window.getSelection()?.removeAllRanges();
+        const anchor = getPickAnchor() ?? getSelectedArtifact()?.id ?? id;
+        setPicked(pickRange(shownOrder(), anchor, id));
+        updatePickClasses();
+        return;
+      }
+      // Cmd/Ctrl-click: add or remove this one row; it becomes the anchor.
+      if (mouse.metaKey || mouse.ctrlKey) {
+        const selected = getSelectedArtifact();
+        if (getPickedIds().size === 0 && selected) setPicked([selected.id]);
+        togglePicked(id);
         setPickAnchor(id);
         updatePickClasses();
-        const a = getArtifacts().find((x) => x.id === id);
-        if (a) {
-          const alreadySelected = getSelectedArtifact()?.id === a.id;
-          setSelectedArtifact(a);
-          callbacks.onSelect(a);
-          sidebarBody
-            .querySelectorAll(clickables)
-            .forEach((item) => item.classList.remove('selected'));
-          el.classList.add('selected');
-          if (!alreadySelected) callbacks.onPreviewNeeded();
-        }
-      });
-
-      // Fullscreen: double-click
-      el.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        const id = /** @type {HTMLElement} */ (el).dataset.id;
-        const a = getArtifacts().find((x) => x.id === id);
-        if (!a) return;
+        return;
+      }
+      clearPicked();
+      setPickAnchor(id);
+      updatePickClasses();
+      const a = getArtifacts().find((x) => x.id === id);
+      if (a) {
+        const alreadySelected = getSelectedArtifact()?.id === a.id;
         setSelectedArtifact(a);
-        callbacks.onEnterFullscreen(a);
-      });
+        callbacks.onSelect(a);
+        body.querySelectorAll(clickables).forEach((item) => item.classList.remove('selected'));
+        el.classList.add('selected');
+        if (!alreadySelected) callbacks.onPreviewNeeded();
+      }
+    });
 
-      // Drag-and-drop: drag artifact to terminal to paste reference
-      /** @type {HTMLElement} */ (el).draggable = true;
-      el.addEventListener('dragstart', (e) => {
-        const id = /** @type {HTMLElement} */ (el).dataset.id;
-        const a = getArtifacts().find((x) => x.id === id);
-        if (!a) return;
-        const text = `Please have a look at ${artifactPath(a)}`;
-        const dragEvent = /** @type {DragEvent} */ (e);
-        /** @type {DataTransfer} */ (dragEvent.dataTransfer).setData('text/plain', text);
-        /** @type {DataTransfer} */ (dragEvent.dataTransfer).effectAllowed = 'copy';
-      });
+    // Fullscreen: double-click
+    body.addEventListener('dblclick', (e) => {
+      const el = rowOf(e);
+      if (!el) return;
+      e.preventDefault();
+      const a = getArtifacts().find((x) => x.id === el.dataset.id);
+      if (!a) return;
+      setSelectedArtifact(a);
+      callbacks.onEnterFullscreen(a);
+    });
+
+    // Drag-and-drop: drag artifact to terminal to paste reference. The rows
+    // carry draggable="true" in their markup.
+    body.addEventListener('dragstart', (e) => {
+      const el = rowOf(e);
+      if (!el) return;
+      const a = getArtifacts().find((x) => x.id === el.dataset.id);
+      if (!a) return;
+      const text = `Please have a look at ${artifactPath(a)}`;
+      const dragEvent = /** @type {DragEvent} */ (e);
+      /** @type {DataTransfer} */ (dragEvent.dataTransfer).setData('text/plain', text);
+      /** @type {DataTransfer} */ (dragEvent.dataTransfer).effectAllowed = 'copy';
     });
   }
 
