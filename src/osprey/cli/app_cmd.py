@@ -61,7 +61,9 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     """Check the applications the profile's apps: block names, as `osprey build` would.
 
     Reports every violation with its application, field and rule, and adds the import
-    boundary and each application's own JS checks. Exits 1 on any violation.
+    boundary and each application's own JS checks. The JS checks execute the
+    application's JS tests, with no secret of this shell's environment. Exits 1 on any
+    violation.
     """
     from osprey.apps.loader import check_deployment
     from osprey_connectors.errors import BuildProfileError
@@ -151,16 +153,21 @@ def _js_violations(app_dirs: Iterable[Path]) -> list[Violation]:
         toolchain = _toolchain()
     except _ToolchainUnavailable as error:
         return [Violation("", "", "js_toolchain", str(error))]
+    from osprey.deployment.wheel_build import _wheel_build_env
+
+    # The tools run the application's own code, so they get what a wheel build gets,
+    # less the proxies: fetching is the install's business alone.
+    env = {name: value for name, value in _wheel_build_env().items() if "proxy" not in name.lower()}
     found: list[Violation] = []
     for app_dir, panel, tests in work:
         if panel:
-            found += _tool_violation(app_dir, "eslint", _eslint_command(toolchain, panel), {})
+            found += _tool_violation(app_dir, "eslint", _eslint_command(toolchain, panel), env)
         if tests:
             found += _tool_violation(
                 app_dir,
                 "vitest",
                 _vitest_command(toolchain),
-                {"OSPREY_DESIGN_SYSTEM_JS": str(_DESIGN_SYSTEM_JS)},
+                {**env, "OSPREY_DESIGN_SYSTEM_JS": str(_DESIGN_SYSTEM_JS)},
             )
     return found
 
@@ -259,7 +266,9 @@ def _toolchain() -> Path:
     try:
         for path in sources:
             shutil.copy2(path, staging / path.name)
-        done = _run(("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"), staging, {})
+        done = _run(
+            ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"), staging, dict(os.environ)
+        )
         if done.returncode != 0:
             raise _ToolchainUnavailable(
                 "The JS toolchain cannot be fetched and none is cached; run once with network "
@@ -284,11 +293,11 @@ def _cache_root() -> Path:
 def _run(
     argv: Sequence[str], cwd: Path, env: Mapping[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    """Run a JS tool in *cwd*, its output captured for the report."""
+    """Run a JS tool in *cwd* with exactly *env*, its output captured for the report."""
     return subprocess.run(
         list(argv),
         cwd=cwd,
-        env={**os.environ, **env},
+        env=dict(env),
         capture_output=True,
         text=True,
         check=False,

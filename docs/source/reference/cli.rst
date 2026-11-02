@@ -1094,9 +1094,10 @@ Check a deployment's applications without building anything.
    packages, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
-   does not name is reported and not checked. The JS checks need Node and install a
-   pinned toolchain into the user's cache once; an application with no JS needs
-   neither.
+   does not name is reported and not checked. The JS checks execute the
+   application's JS tests, with none of the shell's secrets; they need Node and
+   install a pinned toolchain into the user's cache once; an application with no
+   JS needs neither.
 
 .. _cli-osprey-facility:
 
