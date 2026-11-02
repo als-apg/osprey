@@ -38,7 +38,6 @@ from osprey.interfaces.web_terminal.session_handoff import (
     acquire_surface,
     get_state,
 )
-from tests._live import async_wait_until
 from tests.interfaces.web_terminal._fakes import (
     FakeChatPool,
     FakeChatSession,
@@ -332,9 +331,25 @@ def wait_returns(reason: str, *, before=None):
 # ---------------------------------------------------------------------------
 
 
+#: How long :func:`until` sleeps between looks at its predicate.
+UNTIL_POLL_S = 0.001
+
+
 async def until(predicate, *, timeout: float = 5.0) -> None:
-    """Spin the loop (real time) until *predicate* holds."""
-    await async_wait_until(predicate, timeout=timeout, interval=0.001)
+    """Spin the loop (real time) until *predicate* holds.
+
+    Gives up once *timeout* seconds have passed **and** the loop has turned as
+    often as it would in that time. A pause of the whole process (a long
+    garbage collection on a loaded runner) moves the clock without giving the
+    code under test a turn, so it is not charged against that code.
+    """
+    turns_left = round(timeout / UNTIL_POLL_S)
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if turns_left <= 0 and time.monotonic() >= deadline:
+            raise AssertionError(f"condition not reached within {timeout:g} s")
+        turns_left -= 1
+        await asyncio.sleep(UNTIL_POLL_S)
 
 
 async def ticks(app: SimpleNamespace, n: int) -> None:
