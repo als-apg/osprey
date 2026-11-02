@@ -182,7 +182,9 @@ def _render_limits_view(document: Any) -> Path:
     root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-limits-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
     target = root / LIMITS_FILE
-    target.write_text(json.dumps(limits_document(document), indent=2), encoding="utf-8")
+    target.write_text(
+        json.dumps(limits_document(FacilityRecords(document)), indent=2), encoding="utf-8"
+    )
     return target
 
 

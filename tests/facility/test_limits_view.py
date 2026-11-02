@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.limits import limits_document
 from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.facility._limits_render import render_limits, validator_under
@@ -85,7 +86,7 @@ def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict
 def test_a_record_resolves_to_one_entry(
     role: str, record: dict[str, Any], entry: dict[str, Any]
 ) -> None:
-    document = limits_document(_doc({"A:B": role}, [{"address": "A:B", **record}]))
+    document = limits_document(FacilityRecords(_doc({"A:B": role}, [{"address": "A:B", **record}])))
 
     assert document == {"_version": "4.0", "A:B": entry}
 
@@ -96,21 +97,26 @@ def test_a_channel_without_a_record_has_no_entry() -> None:
         [{"address": "A:SP", "min_value": 0.0, "max_value": 1.0}],
     )
 
-    assert sorted(limits_document(doc)) == ["A:SP", "_version"]
+    assert sorted(limits_document(FacilityRecords(doc))) == ["A:SP", "_version"]
 
 
 @pytest.mark.parametrize("records", [None, []])
 def test_no_records_give_the_version_alone(records: list[dict[str, Any]] | None) -> None:
     doc = _doc({"A:SP": "setpoint", "A:RB": "readback"}, records)
 
-    assert limits_document(doc) == {"_version": "4.0"}
+    assert limits_document(FacilityRecords(doc)) == {"_version": "4.0"}
 
 
 def test_entries_follow_the_version_sorted_by_address() -> None:
     channels = {"C:SP": "setpoint", "A:SP": "setpoint", "B:SP": "setpoint"}
     records = [{"address": address, "writable": False} for address in channels]
 
-    assert list(limits_document(_doc(channels, records))) == ["_version", "A:SP", "B:SP", "C:SP"]
+    assert list(limits_document(FacilityRecords(_doc(channels, records)))) == [
+        "_version",
+        "A:SP",
+        "B:SP",
+        "C:SP",
+    ]
 
 
 # --- the control-assistant build ---------------------------------------------------
@@ -119,7 +125,10 @@ def test_entries_follow_the_version_sorted_by_address() -> None:
 @pytest.mark.slow
 class TestTheControlAssistantBuild:
     def test_every_render_carries_the_view(self, built_control_assistant: BuiltProject) -> None:
-        expected = json.dumps(limits_document(built_control_assistant.facility), indent=2) + "\n"
+        expected = (
+            json.dumps(limits_document(FacilityRecords(built_control_assistant.facility)), indent=2)
+            + "\n"
+        )
 
         assert built_control_assistant.outputs
         for outputs in built_control_assistant.outputs:

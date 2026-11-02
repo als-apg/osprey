@@ -42,6 +42,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
+from osprey.facility.records import FacilityRecords
 from osprey_connectors import yaml_loader
 from tests.cli._lifecycle_build import rendered_config
 from tests.fixtures.mml._trees import names
@@ -652,7 +653,7 @@ class TestTheBandsOfAHarvestedTree:
         bands = json.loads((repo / "build" / "data" / LIMITS_FILE).read_text(encoding="utf-8"))
 
         assert records
-        assert bands == limits_document(facility)
+        assert bands == limits_document(FacilityRecords(facility))
         assert sorted(key for key in bands if not key.startswith("_")) == sorted(
             record["address"] for record in records
         )

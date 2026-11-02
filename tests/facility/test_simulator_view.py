@@ -25,6 +25,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.facility import TEXTURE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA
@@ -352,7 +353,7 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
     models = {model["name"]: model for model in variables["models"]}
 
     for name, model in models.items():
-        assert model["wiring"] == simulator_wiring(facility, name), name
+        assert model["wiring"] == simulator_wiring(FacilityRecords(facility), name), name
     assert len(models["SR"]["wiring"]) > 0
     assert models["SR"] | {"wiring": None} == {
         "name": "SR",
