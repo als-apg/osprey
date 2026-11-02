@@ -552,7 +552,11 @@ def deployment_packages(
 
 
 def refuse_shadowed_packages(
-    root: Path, dependencies: Sequence[str], *, apps: Iterable[str]
+    root: Path,
+    dependencies: Sequence[str],
+    *,
+    apps: Iterable[str],
+    environment_packages: Sequence[str] = (),
 ) -> None:
     """Refuse a requirement that names a package only an unlisted directory holds.
 
@@ -561,10 +565,15 @@ def refuse_shadowed_packages(
     ``[project]`` name of each unlisted ``apps/<dir>/pyproject.toml`` is read; one
     that is broken or nameless names nothing, so it never refuses.
 
+    Every requirement list is read: the profile's ``dependencies`` and
+    ``environment.packages``, and each built package's ``[project]`` dependencies,
+    optional dependencies and ``[build-system]`` requires.
+
     Args:
         root: The deployment root.
         dependencies: The profile's ``dependencies`` entries.
         apps: The applications the profile's ``apps:`` block lists.
+        environment_packages: The profile's ``environment.packages`` entries.
 
     Raises:
         AppManifestError: Naming, for each such requirement, where it is written
@@ -595,28 +604,50 @@ def refuse_shadowed_packages(
             source=source,
         )
 
-    found = [
-        refused(raw, "", f"dependencies.{index}", PROFILE_FILENAME)
-        for index, raw in enumerate(dependencies)
+    lists: list[tuple[str, str, str, object]] = [
+        ("", "dependencies", PROFILE_FILENAME, list(dependencies)),
+        ("", "environment.packages", PROFILE_FILENAME, list(environment_packages)),
     ]
     for path in built:
-        requirements = _project_table(path).get("dependencies")
-        found += [
-            refused(str(raw), path.parent.name, f"project.dependencies.{index}", str(path))
-            for index, raw in enumerate(requirements if isinstance(requirements, list) else ())
+        document = _pyproject_document(path)
+        project = _table(document, "project")
+        lists.append(
+            (path.parent.name, "project.dependencies", str(path), project.get("dependencies"))
+        )
+        optional = _table(project, "optional-dependencies")
+        lists += [
+            (path.parent.name, f"project.optional-dependencies.{extra}", str(path), requirements)
+            for extra, requirements in optional.items()
         ]
+        requires = _table(document, "build-system").get("requires")
+        lists.append((path.parent.name, "build-system.requires", str(path), requires))
+    found = [
+        refused(str(raw), app, f"{field}.{index}", source)
+        for app, field, source, requirements in lists
+        for index, raw in enumerate(requirements if isinstance(requirements, list) else ())
+    ]
     violations = [violation for violation in found if violation is not None]
     if violations:
         raise AppManifestError.from_violations(violations)
 
 
-def _project_table(pyproject: Path) -> dict[str, object]:
-    """The ``[project]`` table of a ``pyproject.toml``, empty when it cannot be read."""
+def _pyproject_document(pyproject: Path) -> dict[str, object]:
+    """A ``pyproject.toml``, parsed; empty when it cannot be read."""
     try:
-        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project")
+        return tomllib.loads(pyproject.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return project if isinstance(project, dict) else {}
+
+
+def _table(document: dict[str, object], key: str) -> dict[str, object]:
+    """The table *document* holds at *key*, empty when it holds none."""
+    table = document.get(key)
+    return table if isinstance(table, dict) else {}
+
+
+def _project_table(pyproject: Path) -> dict[str, object]:
+    """The ``[project]`` table of a ``pyproject.toml``, empty when it cannot be read."""
+    return _table(_pyproject_document(pyproject), "project")
 
 
 def _project_name(pyproject: Path) -> str | None:
