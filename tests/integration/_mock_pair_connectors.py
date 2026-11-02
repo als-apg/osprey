@@ -53,7 +53,7 @@ from osprey_connectors.control_system._base import (
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
 
 #: What ``control_system.type`` names to make ``live`` resolve to this module's
 #: live connector. Spelled here rather than in the test so the config and the
@@ -126,15 +126,17 @@ class _PairConnector(ControlSystemConnector):
         """This connector's constant for *channel_address*.
 
         Raises:
-            ConnectionError: The channel belongs to the other target, or to no
-                target at all. A refusal is how a read proves which process
+            ChannelUnreachableError: The channel belongs to the other target, or
+                to no target at all. A refusal is how a read proves which process
                 answered it when the value alone would not.
         """
         if channel_address in (SHARED_CHANNEL, self.probe_channel, SLOW_CHANNEL):
             return self.seed
         if channel_address in BATCH_CHANNELS:
             return self.seed + BATCH_CHANNELS.index(channel_address) + 1
-        raise ConnectionError(f"{type(self).__name__} serves no channel named {channel_address!r}")
+        raise ChannelUnreachableError(
+            channel_address, f"{type(self).__name__} serves no channel named {channel_address!r}"
+        )
 
     async def read_channel(
         self,

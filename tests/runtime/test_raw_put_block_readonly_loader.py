@@ -65,6 +65,13 @@ def _assert_refused(line: str, label: str) -> None:
     assert READONLY_REFUSAL_MARKER in line, line
 
 
+def _assert_load_of_libca_refused(line: str, label: str) -> None:
+    """The refusal names the library it refused, and no write."""
+    _assert_refused(line, label)
+    assert "'libca" in line, line
+    assert "writes are refused" not in line, line
+
+
 def test_readonly_refuses_ctypes_dlopen_of_libca():
     libca = _libca_path()
 
@@ -76,7 +83,7 @@ def test_readonly_refuses_ctypes_dlopen_of_libca():
     """
     )
 
-    _assert_refused(lines[-1], "dlopen")
+    _assert_load_of_libca_refused(lines[-1], "dlopen")
 
 
 def test_readonly_refuses_cffi_dlopen_of_libca():
@@ -91,7 +98,7 @@ def test_readonly_refuses_cffi_dlopen_of_libca():
     """
     )
 
-    _assert_refused(lines[-1], "cffi")
+    _assert_load_of_libca_refused(lines[-1], "cffi")
 
 
 def test_readonly_install_does_not_import_cffi():

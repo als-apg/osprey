@@ -183,6 +183,9 @@ everything else lands in every render.
    * - ``services/``
      - ``services/``
      - a directory per compose service
+   * - ``watchdogs/``
+     - ``watchdogs/``, for enabled watchdogs only
+     - a directory named for one watchdog (see :ref:`profile-watchdogs-block`)
    * - ``project/``
      - the build root (``build/``)
      - any file, mirrored verbatim
@@ -272,7 +275,7 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_limits.json``
+   * - ``data/channel_limits.json``
      - the build, from ``data/facility/limits.yaml``
    * - ``data/pyaml/<model>/``
      - the build: the pyAML view, per served model with a measurement file
@@ -604,6 +607,21 @@ An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment's services, data and provider. Every app
 render is read-only on the machine.
 
+An app runs the deployment's model unless its file names its own with a
+top-level ``model:``, such as a cheaper model for a research card:
+
+.. code-block:: yaml
+
+   # apps/logbook.yml
+   model: claude-sonnet-5
+
+The id must be one the deployment's provider serves; the provider itself is
+always ``profile.yml``'s. As for ``profile.yml``, an id the provider's
+``models`` list does not carry is used as written, and the build warns that the
+provider does not list it. A tier may set ``model:`` the same way. Neither
+spells ``config: claude_code.default_model``; the build renders that key from
+``model:`` and refuses it in the file that spells it.
+
 Both kinds may set ``extra_mounts``, ``seed_base`` and ``image`` at the top of
 the file. Edit a file to change what its terminals can do, and see the merged
 result with:
@@ -753,7 +771,10 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
 anything, and says which variant it used in its output. Tiers and apps are rendered
-for the same host, so a stack cannot come up half-configured for another one.
+for the same host, so a stack cannot come up half-configured for another one: each
+sees the overlay through the ``profile.yml`` it merges over. An overlay that adds a
+``services:`` entry therefore adds it to the deployment, and the tier and app renders
+stay attached to it like any other service the deployment runs.
 
 The overlays are committed: which hosts a deployment has is part of what the
 deployment is. The choice between them is not — ``.env.variant`` is covered by
@@ -871,6 +892,67 @@ Every key ``profile.yml`` accepts — the field table, ``config:`` overrides, MC
 servers, tool permissions, ``services``, ``va_archiver``, lifecycle commands,
 ``env``, dependencies and the execution environment — is in
 :doc:`/reference/configuration/profile`.
+
+.. _profile-watchdogs-block:
+
+The ``watchdogs:`` block
+------------------------
+
+A map from a watchdog's name to its definition, with any number of entries. The name is
+lowercase letters, digits, ``-`` and ``_``, starting with a letter or digit, and it names the
+directory ``watchdogs/<name>/`` beside ``profile.yml``. That directory holds
+``instructions.md`` and, optionally, ``references/``. A rendered project carries only the
+enabled entries and their directories; with none enabled, it carries neither the block nor the
+trigger hook. :doc:`safety-watchdogs` has the steps.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 14 14 52
+
+   * - Key
+     - Engine
+     - Default
+     - Meaning
+   * - ``engine``
+     - both
+     - required
+     - ``decision`` or ``agent``.
+   * - ``enabled``
+     - both
+     - ``false``
+     - Run it on every prompt. An enabled watchdog needs its instructions, and needs
+       ``turn-state`` in ``hooks:``.
+   * - ``options``
+     - decision
+     - required
+     - A list of ``{id, text, flag}``, with at least one ``flag: true`` and one not. ``text``
+       is what the operator reads.
+   * - ``threshold``
+     - decision
+     - ``0.5``
+     - The summed probability of the flag options at which it flags, between 0 and 1,
+       exclusive. Not calibrated.
+   * - ``tools``
+     - agent
+     - ``[]``
+     - Read tools beyond those it always has. An entry is a tool name, optionally ending in
+       ``*`` or ``.*``; one that reaches a write tool fails the build.
+   * - ``model``
+     - agent
+     - ``null``
+     - A model name; ``null`` is the deployment's own.
+   * - ``timeout_s``
+     - agent
+     - ``90``
+     - Seconds one run may take.
+   * - ``max_cost_usd``
+     - agent
+     - ``0.25``
+     - Dollars one run may spend.
+
+A key the entry's engine does not read fails the build. A profile that inherits a watchdog
+through ``extends`` does not inherit its files, so it may carry the entry disabled as it stands
+and must add the files itself to enable it.
 
 
 Building

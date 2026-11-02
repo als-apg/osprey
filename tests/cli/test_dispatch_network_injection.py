@@ -96,8 +96,7 @@ def _project(tmp_path: Path) -> tuple[Path, Path]:
     profile_dir.mkdir()
     yaml = YAML()
     config = {"deployed_services": ["postgresql"], "services": {"postgresql": {}}}
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
     return project_path, profile_dir
 
 
@@ -114,15 +113,13 @@ def _dispatch(**overrides: object) -> DispatchConfig:
 def _services(project_path: Path) -> dict:
     """Reload the rendered config.yml's ``services`` block."""
     yaml = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml.load(fh)["services"]
+    return yaml.load(project_path / "config.yml")["services"]
 
 
 def _dispatcher_block(project_path: Path) -> dict:
     """Reload the copied triggers file's ``dispatcher`` block."""
     yaml = YAML()
-    with open(project_path / "triggers.yml") as fh:
-        return yaml.load(fh)["dispatcher"]
+    return yaml.load(project_path / "triggers.yml")["dispatcher"]
 
 
 class TestBridgeDefault:
@@ -320,8 +317,7 @@ class TestHostMode:
         )
 
         yaml = YAML()
-        with open(project_path / "triggers.yml") as fh:
-            doc = yaml.load(fh)
+        doc = yaml.load(project_path / "triggers.yml")
         assert any(trigger["name"] == "hello-dispatch" for trigger in doc["triggers"])
 
     def test_deployed_services_registration_is_unaffected(self, tmp_path: Path) -> None:
@@ -336,8 +332,9 @@ class TestHostMode:
         )
 
         yaml = YAML()
-        with open(project_path / "config.yml") as fh:
-            deployed = [str(name) for name in yaml.load(fh)["deployed_services"]]
+        deployed = [
+            str(name) for name in yaml.load(project_path / "config.yml")["deployed_services"]
+        ]
         assert deployed == ["postgresql", "event_dispatcher", "dispatch_worker"]
 
 

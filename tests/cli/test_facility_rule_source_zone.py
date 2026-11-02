@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 #: A preset whose `rules:` selection includes the facility rule. hello-world
 #: deliberately leaves it out, and a deployment that does not select the rule
@@ -34,7 +34,7 @@ def _init(repo: Path) -> None:
 
 
 def _build(repo: Path) -> None:
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
 

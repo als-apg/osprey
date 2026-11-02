@@ -4,14 +4,14 @@ Exercises the client-side half of the multi-user round trip in a real Chromium
 page — the part a FastAPI TestClient can't see because it neither runs the
 frontend JS nor persists ``localStorage`` across navigations:
 
-  * the display menu's session footer — the identity line naming the user and
-    the logout control beside System Settings (``#logout-btn`` carrying
-    ``data-landing-url``) — renders only when the server emitted a non-empty
-    ``terminal_user`` / ``landing_url`` (multi-user);
-  * clicking logout POSTs the real server logout route (``logout_terminal``,
-    routes/websocket.py — empties the PTY and operator registries), clears the
-    client's stored PTY session id, THEN navigates to the configured landing
-    origin;
+  * the ☰ More menu's identity line naming the user and the sidebar footer's
+    Sign out row (``#logout-btn`` carrying ``data-landing-url``) render only
+    when the server emitted a non-empty ``terminal_user`` / ``landing_url``
+    (multi-user);
+  * clicking Sign out asks first (the sign-out dialog); confirming POSTs the
+    real server logout route (``logout_terminal``, routes/websocket.py —
+    empties the PTY and operator registries), clears the client's stored PTY
+    session id, THEN navigates to the configured landing origin;
   * returning to the terminal origin does NOT resume the prior warm PTY —
     this render's stored pointer stays empty across the round trip and the
     client opens a brand-new WebSocket (no ``mode=resume``, no stale
@@ -40,20 +40,13 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import os
-import sys
-from contextlib import contextmanager
-from typing import TYPE_CHECKING
-from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _authorize_browser_context, _run_app_server
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from osprey.interfaces._serving import authorize_browser_context
+from tests.interfaces.web_terminal._surface import arm_terminal_tab
+from tests.interfaces.web_terminal._user_terminal import launch_landing, launch_terminal
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -65,107 +58,6 @@ except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
 
 
-# A PTY command that stays alive AND tolerates the ``--resume <id>`` (and any
-# ``--effort <level>``) args the websocket route appends on a resume connection.
-# ``sleep``/``cat``/``echo`` would each exit or error on the extra args, which
-# would trip terminal.js's auto-resume failover and clear the stored id mid-test.
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
-
-
-# ---------------------------------------------------------------------------
-# Live-server context managers
-# ---------------------------------------------------------------------------
-
-
-def _nginx_stand_in(app, prefix: str):
-    """ASGI wrapper reproducing nginx's prefix contract for a per-user app.
-
-    In a real multi-user deployment the browser talks to nginx at
-    ``/u/<user>/…`` and nginx strips that prefix before proxying, so the app
-    only ever sees bare paths (see the ``root_path`` note in ``create_app``).
-    This wrapper is that stripping proxy: http/websocket scopes whose path
-    starts with the prefix are forwarded with the prefix removed; the
-    ``lifespan`` scope passes through untouched so the inner app's startup
-    still runs (a ``starlette`` ``Mount`` would swallow it).
-    """
-
-    async def asgi(scope, receive, send):
-        if scope["type"] in ("http", "websocket"):
-            if scope["path"] == prefix:  # bare /u/<user>, as nginx's trailing-slash redirect
-                scope = dict(scope, path="/")
-            elif scope["path"].startswith(f"{prefix}/"):
-                scope = dict(scope, path=scope["path"][len(prefix) :])
-        await app(scope, receive, send)
-
-    return asgi
-
-
-@contextmanager
-def _launch_terminal(
-    tmp_path, monkeypatch, *, terminal_user: str = "", landing_url: str = ""
-) -> Iterator[str]:
-    """Launch the web terminal with ``OSPREY_TERMINAL_{USER,LANDING_URL}`` set.
-
-    The env vars are read by ``create_app`` (app.py:443-444) into ``app.state``,
-    so they MUST be in ``os.environ`` before the factory runs. Companion backends
-    (artifact server, panels) are bypassed via the same patch set the other
-    web-terminal browser suites use.
-
-    With a ``terminal_user`` the SPA self-addresses under ``/u/<user>/`` and the
-    app serves bare paths, so the pair only functions behind a prefix-stripping
-    proxy; the server is wrapped in ``_nginx_stand_in`` and the yielded base URL
-    carries the prefix, exactly as a user would reach it through nginx.
-    """
-    monkeypatch.chdir(tmp_path)
-    env = {
-        "OSPREY_TERMINAL_USER": terminal_user,
-        "OSPREY_TERMINAL_LANDING_URL": landing_url,
-    }
-    with (
-        patch.dict(os.environ, env),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(tmp_path)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=list(_LONG_LIVED_SHELL))
-        if terminal_user:
-            prefix = f"/u/{terminal_user}"
-            with _run_app_server(_nginx_stand_in(app, prefix)) as server_url:
-                yield f"{server_url}{prefix}"
-        else:
-            with _run_app_server(app) as base_url:
-                yield base_url
-
-
-@contextmanager
-def _launch_landing() -> Iterator[str]:
-    """A trivial second origin standing in for the operator landing page."""
-    from fastapi import FastAPI
-    from fastapi.responses import HTMLResponse
-
-    app = FastAPI()
-
-    @app.get("/", response_class=HTMLResponse)
-    def _root() -> str:
-        return (
-            "<!doctype html><html><body><h1 id='landing-marker'>OSPREY LANDING</h1></body></html>"
-        )
-
-    with _run_app_server(app) as base_url:
-        yield base_url
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -173,12 +65,12 @@ def _launch_landing() -> Iterator[str]:
 
 @pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
 def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_browser):
-    """Full multi-user loop: header + logout render, logout resets the station.
+    """Full multi-user loop: identity + Sign out render, logout resets the station.
 
     Closes M2: a warm PTY (represented here by a seeded ``localStorage`` id, see
     the module docstring) does NOT survive the logout -> landing -> return round
     trip. Logout clears the client's stored session id before navigating away
-    (task 4.2's ``initLogoutButton``, backed server-side by task 4.1's real
+    (logout.js, run by the sign-out dialog; backed server-side by the real
     ``logout_terminal`` registry cleanup), so the return visit opens a brand-new
     terminal — no ``mode=resume``, no ``session_id`` carried over from the prior
     visit, and no re-adopted stored id — rather than reconnecting to the old
@@ -188,12 +80,13 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
     stored_id = "11111111-2222-3333-4444-555555555555"
 
     with (
-        _launch_landing() as landing_url,
-        _launch_terminal(
+        launch_landing() as landing_url,
+        launch_terminal(
             tmp_path, monkeypatch, terminal_user=user, landing_url=landing_url
         ) as base_url,
     ):
         page = chromium_browser.new_page()
+        arm_terminal_tab(page, scope=user)
 
         # --- First load: multi-user chrome renders, fresh (new) session opens ---
         with page.expect_websocket() as first_ws:
@@ -208,8 +101,8 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         logout = page.locator("#logout-btn")
         expect(logout).to_have_count(1)
         assert logout.get_attribute("data-landing-url") == landing_url
-        # It lives inside the display menu's popover, so it starts hidden.
-        expect(logout).to_be_hidden()
+        # It is a row of the sidebar footer, on screen from the first paint.
+        expect(logout).to_be_visible()
 
         # --- Represent an established (warm) PTY session (see module docstring) ---
         # Seed the key the client actually reads: derived from the scope the
@@ -238,14 +131,16 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         page.on("request", _record)
 
         # --- Logout: clears the stored pointer, THEN navigates to landing ---
-        # Logout lives behind the header identity chip — the name in the corner
-        # is what an operator reaches for to leave. Open it first.
-        page.click("#header-identity-trigger")
-        # The menu names the operator, so they can confirm WHICH terminal they
-        # are leaving before they leave it.
-        expect(page.locator("#header-identity-menu .header-identity-who-name")).to_have_text(user)
-        expect(page.locator("#logout-btn")).to_be_visible()
+        # The ☰ More menu names the operator, so they can confirm WHICH terminal
+        # they are leaving before they leave it.
+        page.click("#more-btn")
+        expect(page.locator("#more-menu .more-menu-user")).to_have_text(user)
+        page.keyboard.press("Escape")
+        # Sign out is the sidebar footer's row, and it asks first.
         page.click("#logout-btn")
+        dialog = page.locator(".posture-modal-overlay:not([data-closing])")
+        expect(dialog.locator(".posture-modal-title")).to_have_text("Sign out of OSPREY?")
+        dialog.locator(".posture-modal-confirm").click()
         page.wait_for_url(lambda u: u.startswith(landing_url))
         assert page.url.startswith(landing_url)
         expect(page.locator("#landing-marker")).to_be_visible()
@@ -275,7 +170,7 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         # ``new_page()`` and cannot re-mint mid-test, so the perimeter's re-issue
         # is stood in for here. Without it the navigation below is refused 401
         # and never opens a socket — which would say nothing about resume.
-        _authorize_browser_context(page.context)
+        authorize_browser_context(page.context)
 
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")

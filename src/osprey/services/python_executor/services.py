@@ -50,7 +50,7 @@ def make_json_serializable(obj: Any) -> Any:
             return obj.isoformat()
 
         # Handle numpy arrays first (they also have 'item' method)
-        elif hasattr(obj, "tolist"):
+        if hasattr(obj, "tolist"):
             try:
                 return obj.tolist()
             except (ValueError, AttributeError):

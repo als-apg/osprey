@@ -3,7 +3,8 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``) plus the
+``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``,
+``watchdogs``) plus the
 checkers that hold their environment-variable names to
 :data:`~osprey_connectors.connection.ENV_NAME_RE`. Parsing, inheritance
 merging, and validation live in
@@ -23,8 +24,15 @@ from typing import Any, Literal
 from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_owns_binding
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
+from osprey.utils.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
+
+WatchdogsBlock = dict[str, dict[str, Any]]
+"""The ``watchdogs:`` block as an author spells it: watchdog name to its keys.
+
+The rules, and the parsed definitions, are :mod:`osprey.services.watchdog.config`'s:
+one parser serves profile validation and the runtime, and a render writes the
+block back out, so the profile keeps the map itself rather than a parsed copy."""
 
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""

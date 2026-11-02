@@ -18,7 +18,7 @@ fixture's, not the enclosing one's, and is left alone. A fixture that hands
 back a function making directories on demand makes their parent with
 ``mktemp`` during its setup, so the parent is the one recorded.
 
-Registered as a plugin for the reason ``tests/_env_scope_guard.py`` gives:
+Registered as a plugin for the reason the harness's ``_env_scope_guard.py`` gives:
 ``pytest_fixture_setup`` is dispatched on the node that owns the fixture's
 scope, and only a plugin is in scope for every node.
 """

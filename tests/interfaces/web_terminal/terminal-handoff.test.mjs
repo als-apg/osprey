@@ -3,13 +3,13 @@
  * Unit tests for the Web Terminal's side of the session hand-off (terminal.js):
  *   npx vitest run tests/interfaces/web_terminal/terminal-handoff.test.mjs
  *
- * Both views are windows onto one session, and only one of them may run its
+ * Both surfaces are windows onto one session, and only one of them may run its
  * agent at a time. Taking it over is therefore a negotiation rather than a
  * connect: the server answers `handoff_pending` while the outgoing agent
  * finishes its turn (never ended on a clock), `session_info` once this
  * terminal holds it, or a refusal close code when it cannot have it at all.
  * This file covers what the operator sees for each of those, and the two
- * places the Simple view changes what the terminal may do on its own.
+ * places the chat changes what the terminal may do on its own.
  *
  * Module isolation and the xterm/WebSocket fakes follow terminal-resume.test.mjs
  * — module-private state has no reset API, so each test gets a fresh instance
@@ -18,6 +18,15 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import {
+  FakeTerminal,
+  FakeWebSocket,
+  openSocket,
+  receive,
+  refuse,
+  stubSessionProbe,
+  stubTerminalGlobals,
+} from './_terminal-fake.mjs';
 import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js')} */
@@ -29,105 +38,6 @@ const STORAGE_KEY = 'osprey-pty-session';
 const WS_CLOSE_SESSION_ATTACHED = 4409;
 const WS_CLOSE_OUTGOING_RUNNING = 4503;
 const WS_CLOSE_STARTED_COMMANDS = 4428;
-
-/** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
-class FakeTerminal {
-  constructor() {
-    this.cols = 80;
-    this.rows = 24;
-    this.options = {};
-    /** Everything written to the screen, concatenated. */
-    this.written = '';
-    /** @type {((data: string) => void)|null} */
-    this.dataHandler = null;
-    FakeTerminal.last = this;
-  }
-  loadAddon() {}
-  open() {}
-  /** @param {(data: string) => void} fn */
-  onData(fn) {
-    this.dataHandler = fn;
-  }
-  onResize() {}
-  /** @param {string} text */
-  write(text) {
-    this.written += text;
-  }
-  reset() {}
-  focus() {}
-  attachCustomKeyEventHandler() {}
-}
-/** @type {FakeTerminal|null} */
-FakeTerminal.last = null;
-
-class FakeAddon {
-  fit() {}
-}
-
-/** Minimal fake WebSocket; happy-dom's own implementation dials out for real. */
-class FakeWebSocket {
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = FakeWebSocket.CONNECTING;
-    /** @type {any[]} */
-    this.sent = [];
-    /** @type {((ev?: any) => void)|null} */
-    this.onopen = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onmessage = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onclose = null;
-    FakeWebSocket.last = this;
-    FakeWebSocket.created += 1;
-  }
-  /** @param {any} data */
-  send(data) {
-    this.sent.push(data);
-  }
-  close() {
-    this.readyState = FakeWebSocket.CLOSED;
-    if (this.onclose) this.onclose({ code: 1000, reason: '' });
-  }
-}
-FakeWebSocket.CONNECTING = 0;
-FakeWebSocket.OPEN = 1;
-FakeWebSocket.CLOSING = 2;
-FakeWebSocket.CLOSED = 3;
-/** @type {FakeWebSocket|null} */
-FakeWebSocket.last = null;
-/** How many have been constructed — a reconnect is a new one. */
-FakeWebSocket.created = 0;
-
-/** Flip the most recently created fake socket to OPEN and fire its onopen. */
-function openSocket() {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  ws.readyState = FakeWebSocket.OPEN;
-  if (!ws.onopen) throw new Error('onopen handler not set');
-  ws.onopen();
-}
-
-/**
- * Deliver a JSON control message from the "server" on the current socket.
- * @param {any} msg
- */
-function receive(msg) {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  if (!ws.onmessage) throw new Error('onmessage handler not set');
-  ws.onmessage({ data: JSON.stringify(msg) });
-}
-
-/**
- * Close the current socket the way a server refusal does.
- * @param {number} code
- * @param {string} [reason]
- */
-function refuse(code, reason = '') {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  ws.readyState = FakeWebSocket.CLOSED;
-  if (!ws.onclose) throw new Error('onclose handler not set');
-  ws.onclose({ code, reason });
-}
 
 /** The overlay's single line of copy, or null when no overlay is up. */
 function overlayText() {
@@ -141,6 +51,7 @@ function overlayAction() {
 }
 
 beforeEach(async () => {
+  document.documentElement.setAttribute('data-agent-surface', 'terminal');
   vi.resetModules();
   localStorage.clear();
 
@@ -154,53 +65,37 @@ beforeEach(async () => {
   // @ts-expect-error -- test stub, not a full FontFaceSet
   document.fonts = { ready: Promise.resolve() };
 
-  vi.stubGlobal('Terminal', FakeTerminal);
-  vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
-  vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
-  vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
-  vi.stubGlobal('WebSocket', FakeWebSocket);
-  // api.js probes `/api/session` whenever a channel closes, to tell an expired
-  // session from a dropped connection. Nothing serves this environment, so the
-  // probe is answered here with the signed-in status every test below assumes.
-  // Any other URL is a dependency this file has not declared, and fails loudly.
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, json: async () => ({}) };
-    })
-  );
+  stubTerminalGlobals();
+  stubSessionProbe();
   // xtermPalette() logs a console.error when the CSS custom properties it
   // reads are absent, which they are in this bare happy-dom document.
   vi.spyOn(console, 'error').mockImplementation(() => {});
 
-  FakeWebSocket.last = null;
-  FakeWebSocket.created = 0;
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
 });
 
 afterEach(() => {
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-describe('the Simple view starts nothing', () => {
-  // One live agent per session. In Simple view the chat is holding it and the
+describe('the chat surface starts nothing', () => {
+  // One live agent per session. In chat the console is holding it and the
   // terminal is off screen, so a terminal that connected here would take the
-  // conversation away from the view the operator is looking at.
+  // conversation away from the surface the operator is looking at.
 
   test('initTerminal does not open a connection', () => {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
 
     terminal.initTerminal('terminal-container');
 
     expect(FakeWebSocket.created).toBe(0);
   });
 
-  test('the terminal itself is still built, so the flip has something to attach', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+  test('the terminal itself is still built, so opening it has something to attach', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
 
     terminal.initTerminal('terminal-container');
 
@@ -209,13 +104,14 @@ describe('the Simple view starts nothing', () => {
   });
 });
 
-describe('startExpert: taking the session over', () => {
+describe('startTerminalSurface: taking the session over', () => {
   test('resumes the key the tab is pointed at', () => {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     terminal.initTerminal('terminal-container');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
-    terminal.startExpert();
+    terminal.startTerminalSurface();
 
     const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
     expect(url).toContain('session_id=shared-key');
@@ -224,10 +120,11 @@ describe('startExpert: taking the session over', () => {
   });
 
   test('starts an ordinary session when no key is stored', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     terminal.initTerminal('terminal-container');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
 
-    terminal.startExpert();
+    terminal.startTerminalSurface();
 
     const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
     expect(url).not.toContain('session_id=');
@@ -236,12 +133,13 @@ describe('startExpert: taking the session over', () => {
 
   test('an early exit does not drop the shared key', () => {
     // The page-load auto-resume treats an early exit as a dead id and forgets
-    // it. A flip must not: the key is the chat's too, and an exit here is a
+    // it. A hand-off must not: the key is the chat's too, and an exit here is a
     // hand-off that did not complete.
     localStorage.setItem(STORAGE_KEY, 'shared-key');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+    terminal.startTerminalSurface();
     openSocket();
     const socketsBefore = FakeWebSocket.created;
 
@@ -252,21 +150,22 @@ describe('startExpert: taking the session over', () => {
   });
 });
 
-describe('startExpert settles when the acquire has an answer', () => {
-  // app.js serialises the flip on this promise: a Simple → Expert → Simple
+describe('startTerminalSurface settles when the acquire has an answer', () => {
+  // app.js serialises the change on this promise: a chat → terminal → chat
   // round trip must not ask for the session again until the server has seen
-  // the Expert channel resolve, one way or the other.
+  // the terminal channel resolve, one way or the other.
 
-  /** Reach the flip's starting point: Simple view, a key stored, no socket. */
-  function flipToExpert() {
+  /** Open the terminal from chat with a key stored and no socket. */
+  function openFromChat() {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     terminal.initTerminal('terminal-container');
-    return terminal.startExpert();
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+    return terminal.startTerminalSurface();
   }
 
   test('a pending hand-off does not settle it', async () => {
-    const settled = flipToExpert();
+    const settled = openFromChat();
     openSocket();
     receive({ type: 'handoff_pending', busy: true });
 
@@ -288,7 +187,7 @@ describe('startExpert settles when the acquire has an answer', () => {
     // Fake timers discard the backoff reconnect an ordinary close schedules.
     vi.useFakeTimers();
     try {
-      const settled = flipToExpert();
+      const settled = openFromChat();
       openSocket();
       answer();
 
@@ -299,17 +198,17 @@ describe('startExpert settles when the acquire has an answer', () => {
   });
 
   test('a second call while a connection exists settles at once', async () => {
-    const settled = flipToExpert();
+    const settled = openFromChat();
     openSocket();
     receive({ type: 'session_info', session_id: 'shared-key' });
     await settled;
 
-    await expect(terminal.startExpert()).resolves.toBeUndefined();
+    await expect(terminal.startTerminalSurface()).resolves.toBeUndefined();
   });
 });
 
 describe('handoff_pending: the transitional state', () => {
-  /** Flip to Expert on a stored key and reach the pending state. */
+  /** Open the terminal on a stored key and reach the pending state. */
   function pending() {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
@@ -320,7 +219,7 @@ describe('handoff_pending: the transitional state', () => {
   test('says what is happening and how long it has been', () => {
     pending();
 
-    expect(overlayText()).toBe('Finishing in the other view · 0:00');
+    expect(overlayText()).toBe('Finishing the running turn · 0:00');
   });
 
   test('the elapsed wait counts up', () => {
@@ -329,7 +228,7 @@ describe('handoff_pending: the transitional state', () => {
       pending();
       vi.advanceTimersByTime(65_000);
 
-      expect(overlayText()).toBe('Finishing in the other view · 1:05');
+      expect(overlayText()).toBe('Finishing the running turn · 1:05');
     } finally {
       vi.useRealTimers();
     }
@@ -375,7 +274,7 @@ describe('handoff_pending: the transitional state', () => {
     }
   });
 
-  test('flipping back to Simple clears it', () => {
+  test('going back to chat clears it', () => {
     pending();
 
     terminal.stopTerminal();
@@ -406,7 +305,7 @@ describe('handoff_pending: the transitional state', () => {
   test("it disarms the page-load failover, so the outgoing agent's exit is not read as a dead key", () => {
     // This connection IS the page-load auto-resume, so the failover is armed:
     // an early exit would ordinarily mean "that id is gone". A handoff_pending
-    // says the opposite — the key is alive in the other view — and the exit
+    // says the opposite — the key is alive in the other surface — and the exit
     // that follows is the outgoing agent being handed over, not a dead id.
     pending();
     const socketsBefore = FakeWebSocket.created;
@@ -422,10 +321,10 @@ describe('handoff_pending: the transitional state', () => {
 describe('handoff_pending on an idle chat: a restart, not a wait', () => {
   // The server says whether the chat holding the key is mid-turn. When it is
   // not, nothing is being finished anywhere: the session's agent is stopped
-  // in the other view and started in this one, which takes about a second.
+  // in the other surface and started in this one, which takes about a second.
   // Showing that as a wait with a clock and a way out would be untrue.
 
-  /** Flip to Expert on a stored key; the server reports the chat idle. */
+  /** Open the terminal on a stored key; the server reports the chat idle. */
   function idle() {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
@@ -442,22 +341,22 @@ describe('handoff_pending on an idle chat: a restart, not a wait', () => {
       // A frame that says nothing about the turn is read as idle too.
       receive({ type: 'handoff_pending', ...frame });
 
-      expect(overlayText()).toBe('Restarting the agent in this view…');
+      expect(overlayText()).toBe('Restarting the agent…');
       expect(document.querySelector('.terminal-handoff-elapsed')).toBeNull();
       expect(overlayAction()?.hidden).toBe(true);
     }
   );
 
-  test('a restart that outlasts its budget becomes the wait, clocked from the flip', () => {
+  test('a restart that outlasts its budget becomes the wait, clocked from the change', () => {
     vi.useFakeTimers();
     try {
       idle();
       vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS - 1);
-      expect(overlayText()).toBe('Restarting the agent in this view…');
+      expect(overlayText()).toBe('Restarting the agent…');
 
       vi.advanceTimersByTime(1);
 
-      expect(overlayText()).toBe('Finishing in the other view · 0:04');
+      expect(overlayText()).toBe('Finishing the running turn · 0:04');
       expect(overlayAction()?.hidden).toBe(false);
       expect(overlayAction()?.textContent).toBe('Stop and switch now');
     } finally {
@@ -476,7 +375,7 @@ describe('handoff_pending on an idle chat: a restart, not a wait', () => {
       // A later hand-off starts from the restart again: an escalation left
       // armed behind the cleared overlay would have switched it to the wait.
       receive({ type: 'handoff_pending', busy: false });
-      expect(overlayText()).toBe('Restarting the agent in this view…');
+      expect(overlayText()).toBe('Restarting the agent…');
     } finally {
       vi.useRealTimers();
     }
@@ -497,7 +396,7 @@ describe('handoff_pending on an idle chat: a restart, not a wait', () => {
       openSocket();
       receive({ type: 'handoff_pending', busy: false });
 
-      expect(overlayText()).toBe('Finishing in the other view · 0:03');
+      expect(overlayText()).toBe('Finishing the running turn · 0:03');
       expect(overlayAction()?.hidden).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -543,7 +442,7 @@ describe('"Stop and switch now"', () => {
       receive({ type: 'handoff_pending', busy: true });
 
       // 0:30 and counting, not back to 0:00.
-      expect(overlayText()).toBe('Finishing in the other view · 0:30');
+      expect(overlayText()).toBe('Finishing the running turn · 0:30');
       expect(overlayAction()?.disabled).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -552,9 +451,9 @@ describe('"Stop and switch now"', () => {
 });
 
 describe('stopTerminal reports when the channel is actually gone', () => {
-  // The flip to Simple drops this socket and then asks the server for the
-  // session over HTTP. Asking while the Expert channel is still attached is
-  // refused with the one refusal that has no retry, so the flip waits for the
+  // Going back to chat drops this socket and then asks the server for the
+  // session over HTTP. Asking while the terminal channel is still attached is
+  // refused with the one refusal that has no retry, so the change waits for the
   // close rather than racing the server's grace window.
 
   test('resolves once the dropped socket reports its close', async () => {
@@ -567,14 +466,14 @@ describe('stopTerminal reports when the channel is actually gone', () => {
   });
 
   test('resolves at once when there is nothing open to drop', async () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    document.documentElement.removeAttribute('data-agent-surface');
     terminal.initTerminal('terminal-container');
 
     await expect(terminal.stopTerminal()).resolves.toBeUndefined();
     expect(FakeWebSocket.created).toBe(0);
   });
 
-  test('a socket that never reports a close cannot hang the flip', async () => {
+  test('a socket that never reports a close cannot hang the change', async () => {
     vi.useFakeTimers();
     try {
       localStorage.setItem(STORAGE_KEY, 'shared-key');
@@ -602,7 +501,7 @@ describe('stopTerminal reports when the channel is actually gone', () => {
 
 describe('a refused connection', () => {
   /**
-   * Flip to Expert on a stored key and have the server refuse.
+   * Open the terminal on a stored key and have the server refuse.
    * @param {number} code
    */
   function refused(code) {
@@ -615,7 +514,7 @@ describe('a refused connection', () => {
   test('4409 says the session is in use elsewhere', () => {
     refused(WS_CLOSE_SESSION_ATTACHED);
 
-    expect(overlayText()).toBe('This session is in use in another tab or view.');
+    expect(overlayText()).toBe('This session is in use in another tab.');
     // Retrying does not change who holds the session, so none is offered.
     expect(overlayAction()?.hidden).toBe(true);
   });
@@ -680,7 +579,7 @@ describe('a refused connection', () => {
       reason: '',
     });
 
-    expect(overlayText()).toBe('Finishing in the other view · 0:00');
+    expect(overlayText()).toBe('Finishing the running turn · 0:00');
   });
 
   test('a refusal after a pending wait replaces the transitional state', () => {
@@ -712,7 +611,7 @@ describe('a refused connection', () => {
   });
 });
 
-describe('started commands in the other view', () => {
+describe('started commands in the other surface', () => {
   const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py' };
 
   afterEach(async () => {
@@ -739,7 +638,7 @@ describe('started commands in the other view', () => {
     refuse(WS_CLOSE_STARTED_COMMANDS, 'handoff_started_commands');
   }
 
-  /** Flip to Expert on the shared key and have the server ask. */
+  /** Open the terminal on the shared key and have the server ask. */
   function asked() {
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
@@ -795,32 +694,23 @@ describe('started commands in the other view', () => {
     expect(url).toContain('end_started=1');
   });
 
-  test('"Cancel" sends nothing more and hands the session back to the Simple view', () => {
-    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+  test('"Cancel" sends nothing more and hands the session back to the chat', () => {
     asked();
     const socketsBefore = FakeWebSocket.created;
 
     dialogButton('.posture-modal-cancel').click();
 
-    expect(post).toHaveBeenCalledWith(
-      { type: 'osprey-mode-change', mode: 'simple' },
-      expect.anything()
-    );
+    expect(document.documentElement.hasAttribute('data-agent-surface')).toBe(false);
     expect(FakeWebSocket.created).toBe(socketsBefore);
   });
 
   test('Escape behaves as Cancel', () => {
-    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
     asked();
     const socketsBefore = FakeWebSocket.created;
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
-    expect(post).toHaveBeenCalledWith(
-      { type: 'osprey-mode-change', mode: 'simple' },
-      expect.anything()
-    );
-    expect(post).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.hasAttribute('data-agent-surface')).toBe(false);
     expect(FakeWebSocket.created).toBe(socketsBefore);
   });
 

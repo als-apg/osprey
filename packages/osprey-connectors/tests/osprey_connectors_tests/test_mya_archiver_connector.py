@@ -9,8 +9,8 @@ so the fixtures below build integer indices -- the shape the client library
 hands back once it has been told not to parse them.
 """
 
+import asyncio
 import sys
-import time
 import types
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -688,19 +688,28 @@ async def test_check_availability_reports_each_channel():
 async def test_check_availability_bounds_each_channel_not_the_whole_sweep():
     """A wide list must not time out as a unit and discard every answer.
 
-    Ten lookups at 50 ms each exceed the 300 ms timeout in total but sit well
-    inside it individually, so this passes only if the bound is per channel.
+    Each lookup spends 600 ms of a 1 s timeout, so any two outrun it together
+    but none does alone, and this passes only if the bound is per channel. The
+    loop's clock moves only when a lookup moves it: how long a worker thread
+    waits to be scheduled on a busy runner spends none of the budget.
     """
+    loop = asyncio.get_running_loop()
+    now = [loop.time()]
+
+    def lookup():
+        now[0] += 0.6
+
     client = _fake_client()
     client.channel.Channel.side_effect = lambda query, url=None: MagicMock(
-        matches=[{"name": query.pattern}], run=lambda: time.sleep(0.05)
+        matches=[{"name": query.pattern}], run=lookup
     )
     client.query.ChannelQuery.side_effect = lambda **kw: MagicMock(pattern=kw["pattern"])
     connector = _connected(client)
-    connector._timeout = 0.3
+    connector._timeout = 1.0
 
     channels = [f"TEST:PV{n}" for n in range(10)]
-    assert await connector.check_availability(channels) == dict.fromkeys(channels, True)
+    with patch.object(loop, "time", lambda: now[0]):
+        assert await connector.check_availability(channels) == dict.fromkeys(channels, True)
 
 
 @pytest.mark.asyncio

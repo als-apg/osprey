@@ -33,9 +33,9 @@ from osprey.bridges.nextcloud_talk import (
     RoomTypeUnresolved,
     TalkClient,
 )
-from osprey.bridges.nextcloud_talk.client import LAST_GIVEN_HEADER
 from osprey.bridges.nextcloud_talk.poller import RoomPoller
 from osprey.bridges.nextcloud_talk.rooms import BACKOFF_CAP
+from tests.bridges.nextcloud.conftest import ocs
 
 ROOM = "roomA"
 
@@ -55,15 +55,6 @@ hanging the suite."""
 def _message(message_id, text="hi"):
     """A minimal Talk chat message. The poller passes these through untouched."""
     return {"id": message_id, "token": ROOM, "actorId": "alice", "message": text}
-
-
-def _ocs(data, *, last_given=None):
-    headers = {} if last_given is None else {LAST_GIVEN_HEADER: str(last_given)}
-    return httpx.Response(
-        200,
-        json={"ocs": {"meta": {"status": "ok", "statuscode": 200}, "data": data}},
-        headers=headers,
-    )
 
 
 class FakeTalk:
@@ -100,7 +91,7 @@ class FakeTalk:
             payload = {"type": self.room_type, "displayName": "Ops"}
             if self.last_message_id is not None:
                 payload["lastMessage"] = {"id": self.last_message_id}
-            return _ocs(payload)
+            return ocs(payload)
 
         self.requested.append(int(request.url.params["lastKnownMessageId"]))
         if self.stop_after is not None and len(self.requested) >= self.stop_after:
@@ -112,8 +103,8 @@ class FakeTalk:
             return httpx.Response(httpx.codes.NOT_MODIFIED)
         if isinstance(answer, tuple):
             messages, last_given = answer
-            return _ocs(messages, last_given=last_given)
-        return _ocs(answer)
+            return ocs(messages, last_given=last_given)
+        return ocs(answer)
 
 
 class FakeRuntime:

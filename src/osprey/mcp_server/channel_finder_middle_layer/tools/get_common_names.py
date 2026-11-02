@@ -36,16 +36,15 @@ def get_common_names(system: str, family: str) -> str:
 
         if common_names is not None:
             return json.dumps({"common_names": common_names})
-        else:
-            return json.dumps(
-                {
-                    "common_names": None,
-                    "message": (
-                        f"No common names available for '{system}:{family}'. "
-                        f"Not all families have CommonNames defined in the database."
-                    ),
-                }
-            )
+        return json.dumps(
+            {
+                "common_names": None,
+                "message": (
+                    f"No common names available for '{system}:{family}'. "
+                    f"Not all families have CommonNames defined in the database."
+                ),
+            }
+        )
 
     except ToolError:
         raise

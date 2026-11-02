@@ -26,7 +26,8 @@
 #                           running virtual-accelerator container.
 #   PROBE_KEEP_CONTAINER=1  leave the container running after the gate, for
 #                           the separate client-coexistence check.
-#   OSPREY_VA_RUNTIME       force docker or podman.
+#   CONTAINER_RUNTIME       force the container runtime (the setting osprey up
+#                           reads); auto-detected when unset.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,23 +61,8 @@ if [[ ! -x "${VENV_PY}" ]]; then
     exit 1
 fi
 
-# Container runtime: prefer podman, fall back to docker if podman cannot
-# actually mount a container (a known storage fault on this host).
-RUNTIME="${OSPREY_VA_RUNTIME:-}"
-if [[ -z "${RUNTIME}" ]]; then
-    if command -v podman >/dev/null 2>&1 && \
-       podman run --rm --name "osprey-va-pcaspy-probe-healthcheck-$$" busybox:latest true >/dev/null 2>&1; then
-        RUNTIME="podman"
-    elif command -v docker >/dev/null 2>&1; then
-        RUNTIME="docker"
-        if command -v podman >/dev/null 2>&1; then
-            echo "WARNING: podman found but failed a basic container-run health check; falling back to docker" >&2
-        fi
-    else
-        echo "FATAL: neither a working podman nor docker found on PATH" >&2
-        exit 1
-    fi
-fi
+# The container runtime is the one osprey up drives.
+RUNTIME="$("${VENV_PY}" -m osprey.deployment.runtime_helper --build)" || exit 1
 echo "Using container runtime: ${RUNTIME}"
 echo "Using CA server port: ${CA_PORT} (TCP only)"
 

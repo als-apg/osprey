@@ -26,16 +26,23 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 import yaml
 
+from osprey.agent_record.config import HISTORY_SERVICE, history_origin_port, history_page_deployed
+from osprey.agent_record.identities import (
+    BRIDGE_IDENTITIES,
+    OPERATOR_IDENTITY,
+    host_identity,
+    reader_entries,
+)
 from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     resolve_project_name,
 )
-from osprey.deployment.telemetry_config import RESERVED_ACCOUNT_NAMES, RESERVED_ACCOUNT_PREFIX
 from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
     allocate_ports,
@@ -46,6 +53,7 @@ from osprey.deployment.web_terminals.render import (
     _AUTH_PORT_SLOT,
     _RESERVED_AUDIT_IDENTITY_RE,
     AUTH_SIDECAR_AUDIT_IDENTITY,
+    HISTORY_ORIGIN_REQUIRED,
     SUPPORTED_AUTH_METHODS,
     TLS_LISTEN_PORT,
     _auth_throttle_problems,
@@ -58,6 +66,7 @@ from osprey.deployment.web_terminals.render import (
     _scope_list,
     _tls_enabled,
     deployment_origin,
+    invalid_history_origin,
 )
 from osprey.deployment.web_terminals.render_images import (
     PREDATES_DELTA_REMEDY,
@@ -71,6 +80,7 @@ from osprey.deployment.web_terminals.roster import (
     REGISTRY_MODE_MISSING_URL,
     RENDER_CATALOG_REQUIRED,
     SUPPORTED_MCP_TOPOLOGY,
+    TIER_PRINCIPAL_PREFIX,
     USERNAME_CHARSET_RE,
     _is_shared_entry,
     _roster_entry_name,
@@ -85,6 +95,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     effective_tier,
     entry_is_shared,
+    expand_tier_principals,
     is_app_entry,
     privilege_phrase,
     privileged_default_tier_problem,
@@ -97,6 +108,7 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
     roster_people,
     served_render_names,
+    shared_app_name,
     shared_card_privileged_problems,
     tier_privileges,
 )
@@ -109,6 +121,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
@@ -117,8 +130,8 @@ from osprey_connectors.types import (
     configured_targets,
     resolve_target,
     speaks_channel_access,
+    tier_allows,
 )
-from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
 # listener is `tls.port` and the auth sidecar's is `auth.port`. Neither default
@@ -230,6 +243,7 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
+    findings.extend(_check_shared_app_access(web_terminals))
     findings.extend(_check_render_charset(web_terminals))
     findings.extend(_check_render_seed_base(web_terminals))
     findings.extend(_check_default_tier_exists(web_terminals))
@@ -324,6 +338,15 @@ def lint_web_terminals(
     findings.extend(_check_role_charset(web_terminals))
     findings.extend(_check_authorization_unsafe_values(web_terminals))
     findings.extend(_check_user_role(web_terminals, users))
+    findings.extend(_check_history_values(web_terminals, users))
+    if history_page_deployed(root):
+        findings.extend(_check_history_port(root))
+        findings.extend(_check_history_origin(web_terminals))
+        findings.extend(
+            Finding(severity="error", code=HISTORY_CARRIER_COLLISION, message=f"{p}. {r}")
+            for p, r in history_carrier_collision_problems(root)
+        )
+        findings.extend(_check_unbound_history_roles(web_terminals, users))
     return findings
 
 
@@ -893,8 +916,10 @@ def _check_port_overlap(
         base = base_ports.get(family)
         if base is None:
             continue
-        for index in [*range(len(users)), *app_indices]:
-            entries.append((base + index, f"web_terminals.{base_field}[index={index}]"))
+        entries.extend(
+            (base + index, f"web_terminals.{base_field}[index={index}]")
+            for index in [*range(len(users)), *app_indices]
+        )
 
     # nginx's own listener, the one port the stack is reached on from off-host.
     # Resolved rather than read off the key: an unset `nginx_port` is not an
@@ -1037,6 +1062,82 @@ def _known_apps(
     )
 
 
+#: The keys a mapping item of ``shared:`` may carry.
+_SHARED_ITEM_KEYS = frozenset({"name", "access"})
+
+
+def _check_shared_app_access(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A shared app's ``access`` must parse and must admit somebody. ERROR.
+
+    * ``invalid_shared_access`` — the authored ``access`` is refused by
+      :func:`resolve_access_principals`; the finding carries its sentence.
+    * ``access_principal_without_idp`` — under ``method: password`` a ``user:``,
+      ``domain:`` or ``tier:`` member names an identity no password login
+      asserts, so the app opens to nobody it names.
+    * ``tier_principal_admits_nobody`` — under ``method: oidc`` a ``tier:``
+      member names a tier no roster person with an ``oidc_subject`` runs, so it
+      expands to nobody at render.
+    """
+    raw = web_terminals.get("shared")
+    if not isinstance(raw, list):
+        return []
+    context = _auth_context(web_terminals)
+    method = context["auth_method"] if context is not None else None
+    cards = resolve_cards(web_terminals, {}, strict=False)
+    findings: list[Finding] = []
+    for item in raw:
+        name = shared_app_name(item)
+        if name is None or not isinstance(item, dict) or "access" not in item:
+            continue
+        try:
+            principals = resolve_access_principals(
+                {"kind": APP_ENTRY_KIND, "name": name, "access": item["access"]}
+            )
+        except ValueError as exc:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_shared_access",
+                    message=str(exc),
+                )
+            )
+            continue
+        for member in sorted(principals):
+            if method == "password" and member.startswith(("user:", "domain:", "tier:")):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.access_principal_without_idp",
+                        message=(
+                            f"modules.web_terminals.shared app {name!r} has an access member "
+                            f"{member!r}, but auth.method is 'password': that member names "
+                            "an identity by an ID-token claim, and a password login asserts "
+                            "none, so nobody it names can open the app. Set auth.method: "
+                            "oidc, or open the app to the whole roster by listing its name "
+                            "alone"
+                        ),
+                    )
+                )
+            elif (
+                method == "oidc"
+                and member.startswith(TIER_PRINCIPAL_PREFIX)
+                and not expand_tier_principals(frozenset({member}), cards)
+            ):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.tier_principal_admits_nobody",
+                        message=(
+                            f"modules.web_terminals.shared app {name!r} has an access member "
+                            f"{member!r}, but no roster person with an oidc_subject runs "
+                            f"that tier, so it admits nobody. Name a tier the roster uses, "
+                            "or give its people an oidc_subject"
+                        ),
+                    )
+                )
+    return findings
+
+
 def _check_shared_apps(
     web_terminals: dict[str, Any],
     users: list[Any],
@@ -1048,8 +1149,9 @@ def _check_shared_apps(
 
     Errors, each its own code:
 
-    * ``invalid_shared_entry`` — ``shared`` is not a list, or an item is not a
-      non-empty string (it derives no card but keeps its slot).
+    * ``invalid_shared_entry`` — ``shared`` is not a list, or an item is neither
+      a non-empty string nor a ``{name, access}`` mapping naming one (it derives
+      no card but keeps its slot).
     * ``duplicate_shared_app`` — one app named twice would run two cards under
       one compose service name.
     * ``unknown_shared_app`` — no app file backs the name, so there is nothing to
@@ -1076,8 +1178,10 @@ def _check_shared_apps(
     findings: list[Finding] = []
     names: list[str] = []
     for position, item in enumerate(raw):
-        if isinstance(item, str) and item:
-            names.append(item)
+        name = shared_app_name(item)
+        extra = sorted(set(item) - _SHARED_ITEM_KEYS) if isinstance(item, dict) else []
+        if name is not None and not extra:
+            names.append(name)
             continue
         findings.append(
             Finding(
@@ -1085,7 +1189,9 @@ def _check_shared_apps(
                 code="web_terminals.invalid_shared_entry",
                 message=(
                     f"modules.web_terminals.shared[{position}] is {item!r}; each entry "
-                    "must be the name of an app in this repo's apps/ directory"
+                    "must be the name of an app in this repo's apps/ directory, or a "
+                    "mapping with that name under 'name' and, optionally, who may open "
+                    "it under 'access'"
                 ),
             )
         )
@@ -1242,21 +1348,19 @@ def _check_render_charset(web_terminals: dict[str, Any]) -> list[Finding]:
     (``web-terminal-<render>:latest``) and a path component (``/app/<project>``,
     local-mode image tags); it's held to the same charset as usernames,
     ``^[a-z0-9][a-z0-9_-]*$`` (see :func:`_check_username_charset`)."""
-    findings: list[Finding] = []
-    for render_name in _render_catalog(web_terminals):
-        if isinstance(render_name, str) and not USERNAME_CHARSET_RE.fullmatch(render_name):
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.invalid_render_charset",
-                    message=(
-                        f"modules.web_terminals.renders key {render_name!r} does not "
-                        f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
-                        "image-tag suffixes and path components)"
-                    ),
-                )
-            )
-    return findings
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.invalid_render_charset",
+            message=(
+                f"modules.web_terminals.renders key {render_name!r} does not "
+                f"match {USERNAME_CHARSET_RE.pattern!r} (tier and app names become "
+                "image-tag suffixes and path components)"
+            ),
+        )
+        for render_name in _render_catalog(web_terminals)
+        if isinstance(render_name, str) and not USERNAME_CHARSET_RE.fullmatch(render_name)
+    ]
 
 
 def _check_render_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
@@ -1490,8 +1594,8 @@ def _profile_app_layers(
         from osprey.cli.build_profile_document import _read_profile_document
         from osprey.cli.build_profile_merge import _resolve_extends, render_document
         from osprey.cli.profile_root import ProfileKind
+        from osprey.utils.workspace import PROFILE_FILENAME
         from osprey_connectors.errors import BuildProfileError
-        from osprey_connectors.workspace import PROFILE_FILENAME
 
         app_raw = _read_profile_document(app_file, build_profile)
         if not isinstance(app_raw, dict):
@@ -2140,14 +2244,14 @@ def _check_privileged_tier_exposure(
     # `access: any` to widen (see `_check_user_access` on why that is a carried
     # key rather than a finding), and the deployment-wide arm above already
     # names every privileged entry once.
-    for problem in shared_card_privileged_problems(resolved, absolute):
-        findings.append(
-            Finding(
-                severity="error",
-                code="web_terminals.shared_card_privileged",
-                message=problem,
-            )
+    findings.extend(
+        Finding(
+            severity="error",
+            code="web_terminals.shared_card_privileged",
+            message=problem,
         )
+        for problem in shared_card_privileged_problems(resolved, absolute)
+    )
     return findings
 
 
@@ -2322,7 +2426,8 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
 def _layer_writes(layer: Any) -> str | None:
     """The ``control_system.writes`` one config layer states, read as the build reads it.
 
-    The tier key's value when the layer spells it (any spelling, later wins);
+    ``never``, ``asked`` or ``allowed``, the words the parse admits: the tier
+    key's value when the layer spells it (any spelling, later wins);
     else what the layer's retired ``writes_enabled`` leaves amount to — the
     rewrite the normalizer applies to every parsed document, applied here too
     because a layer this module reads may be a raw mapping; else ``None``, a
@@ -2343,7 +2448,7 @@ def _check_readonly_tier_inherits_writes(
     rendered_project: bool,
     profile_root: Path | None,
 ) -> list[Finding]:
-    """A render whose own layer says ``control_system.writes: never`` must not render ``allowed``.
+    """A render whose own layer says ``control_system.writes: never`` must not render armed.
 
     ``control_system.writes`` is one deployment-wide key, so a tier layer that
     writes ``never`` — the line an operator scans for — overrides whatever the
@@ -2375,11 +2480,10 @@ def _check_readonly_tier_inherits_writes(
         if isinstance(layers, _UnreadableRender):
             continue  # reported by `_check_unreadable_tier_privileges`
 
-        # Not `== "never"`: only the literal `allowed` arms, so every other value
-        # the layer could carry is a layer whose author wrote down a read-only
-        # posture (an invalid one is refused at parse).
-        authored = _layer_writes(layers.authored)
-        if authored is None or authored == "allowed":
+        # Only the literal `never` is a read-only claim: `asked` over an `allowed`
+        # root is an arming author, and silence claims nothing. An invalid word
+        # is refused at parse.
+        if _layer_writes(layers.authored) != "never":
             continue
         if not _layers_allow_writes(*layers.layers):
             continue
@@ -2396,8 +2500,9 @@ def _check_readonly_tier_inherits_writes(
                 code="web_terminals.tier_inherits_armed_connector",
                 message=(
                     f"modules.web_terminals tier {render_name!r} sets "
-                    f"{WRITES_KEY}: {authored} in {layers.source!r}, but its render "
-                    f"resolves {WRITES_KEY}: allowed from {inherited_from}, so this tier "
+                    f"{WRITES_KEY}: never in {layers.source!r}, but its render resolves "
+                    f"{WRITES_KEY}: {_resolved_writes(*layers.layers)} from "
+                    f"{inherited_from}, so this tier "
                     f"would be served as a read-only tier while writes stay armed for it. "
                     f"Spell {WRITES_KEY} the same way (one dotted key) in this {layer_word} "
                     f"and in {inherited_from}"
@@ -2417,18 +2522,27 @@ def _fold_layers(*layers: Any) -> dict[str, Any]:
     return _nest_dotted(_config_leaves(*layers))
 
 
-def _layers_allow_writes(*layers: Any) -> bool:
-    """Whether a render's config layers resolve ``control_system.writes`` to ``allowed``.
+def _resolved_writes(*layers: Any) -> str | None:
+    """The ``control_system.writes`` a render's config layers resolve to, ``None`` if silent.
 
     Each layer read as the build reads it (:func:`_layer_writes`), a later
-    layer winning, silence ``never``; only the literal ``allowed`` arms.
+    layer winning.
     """
     resolved: str | None = None
     for layer in layers:
         stated = _layer_writes(layer)
         if stated is not None:
             resolved = stated
-    return resolved == "allowed"
+    return resolved
+
+
+def _layers_allow_writes(*layers: Any) -> bool:
+    """Whether a render's config layers resolve to a tier that arms: the word is not ``never``.
+
+    Read through :func:`~osprey_connectors.types.tier_allows`, so silence and any
+    value a raw layer carries that is not an arming word read ``never``.
+    """
+    return tier_allows({"writes": _resolved_writes(*layers)})
 
 
 def _live_writes_type(section: Any, *, tier_allows_writes: bool) -> str | None:
@@ -2505,14 +2619,14 @@ def _check_live_writer_without_control_identity(
         project_root=project_root,
         profile_root=profile_root,
     )
-    live_writers: dict[str, str] = {}
+    live_writers: dict[str, tuple[str, str | None]] = {}
     for render_name, layers in documents.items():
         live_type = _live_writes_type(
             as_dict(_fold_layers(*layers).get("control_system")),
             tier_allows_writes=_layers_allow_writes(*layers),
         )
         if live_type is not None:
-            live_writers[render_name] = live_type
+            live_writers[render_name] = (live_type, _resolved_writes(*layers))
     if not live_writers:
         return []
 
@@ -2525,14 +2639,15 @@ def _check_live_writer_without_control_identity(
         if entry.get("control_identity") or entry_is_shared(dict(entry)):
             continue
         name = entry.get("name")
+        live_type, word = live_writers[render]
         findings.append(
             Finding(
                 severity="warn",
                 code="web_terminals.live_writer_without_control_identity",
                 message=(
                     f"modules.web_terminals user {name!r} resolves to render "
-                    f"{render!r}, whose {WRITES_KEY}: allowed reaches the live machine "
-                    f"({live_writers[render]!r}), but sets no control_identity; its "
+                    f"{render!r}, whose {WRITES_KEY}: {word} reaches the live machine "
+                    f"({live_type!r}), but sets no control_identity; its "
                     f"writes reach the control system under the container's shared "
                     f"account, so the machine cannot tell who made them. Set "
                     f"control_identity on {name!r} to the account name that person "
@@ -2595,20 +2710,18 @@ def _check_unknown_tier_reference(
     if dispatch_tier in sources:
         sources[dispatch_tier].append("dispatch.tier")
 
-    findings: list[Finding] = []
-    for name in unknown:
-        for source in sources[name]:
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.unknown_tier_reference",
-                    message=(
-                        f"{source} references tier {name!r}, which names no tier: there "
-                        f"is no {_canonical_delta_reference(name, RENDER_KIND_TIER)}"
-                    ),
-                )
-            )
-    return findings
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.unknown_tier_reference",
+            message=(
+                f"{source} references tier {name!r}, which names no tier: there "
+                f"is no {_canonical_delta_reference(name, RENDER_KIND_TIER)}"
+            ),
+        )
+        for name in unknown
+        for source in sources[name]
+    ]
 
 
 # --- mode-coherence checks --------------------------------------------------
@@ -3299,20 +3412,20 @@ def _check_render_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
                 )
             )
             continue
-        for mount in raw:
-            if not _is_valid_mount_string(mount):
-                findings.append(
-                    Finding(
-                        severity="error",
-                        code="web_terminals.render_invalid_extra_mount",
-                        message=(
-                            f"modules.web_terminals.renders[{render_name!r}]."
-                            f"extra_mounts entry {mount!r} is not a valid compose volume "
-                            "string; expected 'source:target' or 'source:target:mode' "
-                            "with non-empty colon-separated parts"
-                        ),
-                    )
-                )
+        findings.extend(
+            Finding(
+                severity="error",
+                code="web_terminals.render_invalid_extra_mount",
+                message=(
+                    f"modules.web_terminals.renders[{render_name!r}]."
+                    f"extra_mounts entry {mount!r} is not a valid compose volume "
+                    "string; expected 'source:target' or 'source:target:mode' "
+                    "with non-empty colon-separated parts"
+                ),
+            )
+            for mount in raw
+            if not _is_valid_mount_string(mount)
+        )
     return findings
 
 
@@ -4960,12 +5073,14 @@ def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Fi
 
 
 def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
-    """A roster name may not be a service's own audit identity.
+    """A roster name may not be a service's own identity.
 
-    Every container writes its records under ``var/audit/<identity>/`` and binds
-    that one subdirectory read-write, so a user named ``sidecar`` (the auth
-    sidecar's fixed identity) or ``dispatch-worker-<n>`` (a worker's) would hold
-    a read-write mount onto the audit trail of the component that records them.
+    Every container writes under ``var/spool/<identity>/`` and
+    ``var/state/<identity>/`` and binds those subdirectories read-write, so a
+    user named ``sidecar`` (the auth sidecar's fixed identity) or
+    ``dispatch-worker-<n>`` (a worker's) would hold a read-write mount onto the
+    spool and state of the component that records them. ``operator`` is refused
+    for the same reason in the agent record's logins.
 
     render.py refuses this outright
     (:func:`~osprey.deployment.web_terminals.render._check_roster_audit_identities`,
@@ -4975,7 +5090,7 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
     is imported from there, so the two cannot drift.
 
     The neighbouring half of the same concern — a roster name that is not a
-    usable path segment at all, which still names an audit bind source under
+    usable path segment at all, which still names a spool bind source under
     ``auth.method: none`` — is already reported unconditionally by
     :func:`_check_username_charset`.
     """
@@ -4990,17 +5105,231 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
                 code="web_terminals.reserved_audit_identity",
                 message=(
                     f"modules.web_terminals.users entry {name!r} collides with a "
-                    "service's own audit identity (the auth sidecar writes "
-                    f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, dispatch worker <n> "
-                    f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a "
-                    "queueserver writes var/audit/[<lane>-]queueserver/) or with a "
-                    "name the telemetry store keeps for its own accounts "
-                    f"({RESERVED_ACCOUNT_PREFIX}*, "
-                    f"{', '.join(sorted(RESERVED_ACCOUNT_NAMES))}). Each "
-                    "user's container binds var/audit/<user>/ read-write, so this user "
-                    "could read and rewrite the audit trail of the component that "
-                    "records them. Rename the roster entry"
+                    "service's own identity (the auth sidecar writes "
+                    f"var/spool/{AUTH_SIDECAR_AUDIT_IDENTITY}/, dispatch worker <n> "
+                    f"writes var/spool/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a "
+                    "queueserver writes var/spool/[<lane>-]queueserver/, a bridge "
+                    f"writes var/spool/{{{','.join(sorted(BRIDGE_IDENTITIES.values()))}}}/), "
+                    f"the history page's {HISTORY_SERVICE!r}, or the agent record's "
+                    f"{OPERATOR_IDENTITY!r} credential. Each "
+                    "user's container binds var/spool/<user>/ and var/state/<user>/ "
+                    "read-write, so this user could read and write the spool and state "
+                    "of the component that records them. Rename the roster entry"
                 ),
             )
         )
     return findings
+
+
+# --- the history page --------------------------------------------------------
+#
+# The across-users history page is served on its own origin, a second server of
+# this nginx, and scoped by each person's ``history`` value. Every rule below is
+# about that page, so each is asked only where it is deployed
+# (:func:`~osprey.agent_record.config.history_page_deployed`), except the value
+# check, which a typo deserves whatever the sign-in.
+
+_WEB = "modules.web_terminals"
+
+#: What a history scope may be: this person's sessions, or everyone's.
+HISTORY_VALUES = ("own", "all")
+
+#: The code of the start-blocking carrier-suffix collision.
+HISTORY_CARRIER_COLLISION = "web_terminals.history_carrier_collision"
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _roles(web_terminals: Mapping[str, Any]) -> Mapping[str, Any]:
+    return _mapping(_mapping(web_terminals.get("authorization")).get("roles"))
+
+
+def _check_history_values(web_terminals: Mapping[str, Any], users: list[Any]) -> list[Finding]:
+    """``history`` on a roster entry or a role is ``own`` or ``all``."""
+    stated = [
+        (f"{_WEB}.users entry {user.get('name')!r}", user["history"])
+        for user in users
+        if isinstance(user, Mapping) and "history" in user
+    ]
+    stated += [
+        (f"{_WEB}.authorization.roles.{role}", entry["history"])
+        for role, entry in _roles(web_terminals).items()
+        if isinstance(entry, Mapping) and "history" in entry
+    ]
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.invalid_history",
+            message=(
+                f"{where} has history {value!r}; it is 'own' (this person's "
+                "sessions, the default) or 'all' (everyone's)"
+            ),
+        )
+        for where, value in stated
+        if value not in HISTORY_VALUES
+    ]
+
+
+def _origin_host(value: Any) -> str | None:
+    """The host of a ``scheme://host[:port]`` string, or ``None`` if it is not one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises on a port that is not one
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    if parts.path or parts.query or parts.fragment or parts.username or parts.password:
+        return None
+    return parts.hostname.lower()
+
+
+def _check_history_port(root: Mapping[str, Any]) -> list[Finding]:
+    """``history_port``, when set, is a port the history page's origin can listen on."""
+    try:
+        history_origin_port(root)
+    except ValueError as exc:
+        return [
+            Finding(severity="error", code="web_terminals.invalid_history_port", message=str(exc))
+        ]
+    return []
+
+
+def _check_history_origin(web_terminals: Mapping[str, Any]) -> list[Finding]:
+    """``history_origin`` mirrors ``external_origin``, on the same host.
+
+    When a load balancer is what browsers reach, nothing here can derive the
+    history page's origin either, so it has to be stated beside
+    ``external_origin``. And the sign-in cookie crosses ports on one host only:
+    a history page's origin on another host would never see it.
+    """
+    external = web_terminals.get("external_origin")
+    stated = web_terminals.get("history_origin")
+    has_external = isinstance(external, str) and bool(external.strip())
+    if stated is None:
+        if not has_external:
+            return []
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.history_origin_required",
+                message=HISTORY_ORIGIN_REQUIRED,
+            )
+        ]
+    stated_host = _origin_host(stated)
+    if stated_host is None:
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_history_origin",
+                message=invalid_history_origin(stated),
+            )
+        ]
+    external_host = _origin_host(external) if has_external else None
+    if external_host is not None and external_host != stated_host:
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.history_origin_host",
+                message=(
+                    f"{_WEB}.history_origin is on host {stated_host!r} and "
+                    f"{_WEB}.external_origin on {external_host!r}. The sign-in cookie "
+                    "crosses ports on one host only, so the history page on another "
+                    "host would never see a signed-in person. Serve both from one "
+                    "host, on two ports"
+                ),
+            )
+        ]
+    return []
+
+
+def history_carrier_collision_problems(config: Any) -> list[tuple[str, str]]:
+    """Named readers that would share one set of the sidecar's carriers.
+
+    The sidecar's reader carriers are keyed by the ``agent_record.readers``
+    names: ``jean-luc`` and ``jean_luc`` both key ``..._JEAN_LUC``, so one
+    reader's subject would be read as the other's.
+
+    Returns:
+        One ``(problem, remedy)`` pair per shared suffix, naming both readers.
+    """
+    names = [entry["name"] for entry in reader_entries(as_dict(config))]
+    return [
+        (
+            f"agent_record.readers {' and '.join(repr(name) for name in names)} share "
+            f"the environment-variable suffix {suffix} (a name is upper-cased and '-' "
+            "becomes '_'), so the sign-on settings of one would be read as the other's",
+            "Rename one of them",
+        )
+        for suffix, names in env_var_suffix_collisions(names).items()
+    ]
+
+
+def history_preflight_problems(config: Any) -> list[tuple[str, str]]:
+    """What ``osprey up`` refuses a start over for the history page.
+
+    Readers sharing a carrier suffix, when the page that reads those carriers
+    is deployed: the running page cannot tell them apart. Pure: reads the config
+    and nothing else.
+    """
+    if not history_page_deployed(as_dict(config)):
+        return []
+    return history_carrier_collision_problems(config)
+
+
+def _check_unbound_history_roles(
+    web_terminals: Mapping[str, Any], users: list[Any]
+) -> list[Finding]:
+    """``history: all`` on a role nobody can hold widens nobody's view."""
+    # Strings only: a wrong-typed role or claim target is another check's
+    # finding, and binds nothing here.
+    bound = {
+        role
+        for user in users
+        if isinstance(user, Mapping) and isinstance(role := user.get("role"), str)
+    }
+    claims = _mapping(_mapping(web_terminals.get("authorization")).get("claims"))
+    claimed = {role for role in _mapping(claims.get("map")).values() if isinstance(role, str)}
+    return [
+        Finding(
+            severity="warn",
+            code="web_terminals.unbound_history_role",
+            message=(
+                f"{_WEB}.authorization.roles.{role} has history 'all', but no roster "
+                "entry carries that role and no authorization.claims.map entry grants "
+                "it, so it widens nobody's view. Bind the role, or remove the key"
+            ),
+        )
+        for role, entry in _roles(web_terminals).items()
+        if isinstance(entry, Mapping)
+        and entry.get("history") == "all"
+        and role not in bound
+        and role not in claimed
+    ]
+
+
+def host_identity_advisories(config: Any, runtime_user: str | None) -> list[str]:
+    """What a command about to start the deployment says about who is running it.
+
+    Host launches send to the agent record and are recorded under the account
+    that BUILT the deployment (``deployment.host_identity``), so a start from
+    another account is said once. About the invoking account rather than the
+    config, so it is asked where something is launched and nowhere else. Empty
+    when no account name is known, when the config records no identity, and
+    when the account is the one the build recorded.
+    """
+    if runtime_user is None:
+        return []
+    identity = host_identity(as_dict(config))
+    if identity is None or identity == runtime_user:
+        return []
+    return [
+        f"deployment.host_identity is {identity!r} and this command runs as "
+        f"{runtime_user!r}. Sessions started from this account are recorded as "
+        f"{identity!r}, the account that built the deployment. Run `osprey build` as "
+        "the account that will launch them, or set deployment.host_identity"
+    ]

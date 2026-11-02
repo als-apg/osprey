@@ -49,6 +49,7 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
 from osprey_connectors import yaml_loader
+from tests.cli._lifecycle_build import rendered_config
 from tests.fixtures.mml._trees import names
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -173,11 +174,14 @@ def clear_authored(runner: CliRunner, repo: Path, exports: Sequence[str]) -> tup
     """Obey the stop ``facility import mml`` makes over a preset's authored sources.
 
     The verb stops before it reads an export while an authored record source is
-    present, and prints the ``rm`` line of each. Every path removed here was
-    named by one of those lines, one path per line.
+    present, and prints the ``rm`` line of each. Every path returned here was
+    named by one of those lines, one path per line. The preset's knowledge
+    pages link the records of the machine it ships, which the import replaces,
+    so they are removed with that machine; the ``knowledge`` directory stays,
+    empty, because the profile binds it.
 
     Returns:
-        The removed paths, in the order they were printed.
+        The paths the stop named and this removed, in the order they were printed.
     """
     stopped = runner.invoke(
         cli, ["facility", "import", "mml", *exports, "--repo", str(repo)], catch_exceptions=False
@@ -191,6 +195,10 @@ def clear_authored(runner: CliRunner, repo: Path, exports: Sequence[str]) -> tup
     for line in lines[1:]:
         (named,) = remove_named(repo, line)
         removed.append(named)
+    knowledge = repo / FACILITY_DIR / "knowledge"
+    if knowledge.is_dir():
+        shutil.rmtree(knowledge)
+        knowledge.mkdir()
     return tuple(removed)
 
 
@@ -406,10 +414,6 @@ def remove_named(repo: Path, line: str) -> list[str]:
         else:
             target.unlink()
     return named
-
-
-def rendered_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")

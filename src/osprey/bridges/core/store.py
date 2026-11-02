@@ -1,9 +1,8 @@
-"""Lock-guarded, crash-safe JSON file store shared by the bridges' state stores.
+"""Lock-guarded, crash-safe JSON file store behind a bridge's local state.
 
-Both :class:`~osprey.bridges.core.dedup.DedupStore` and
-:class:`~osprey.bridges.core.history.HistoryStore` persist a small dict to a JSON file
-on the bridge-owned volume. The durability pattern is identical and subtle
-enough to keep in ONE place:
+:class:`~osprey.bridges.core.dedup.DedupStore` persists a small dict to a JSON file
+on the bridge-owned volume. The durability pattern is subtle enough to keep
+in ONE place:
 
   * a bridge dispatches callbacks on a thread pool (e.g. google-cloud-pubsub),
     so a single shared store is mutated by many threads. Every read/modify/write

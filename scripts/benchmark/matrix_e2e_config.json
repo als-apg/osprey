@@ -75,6 +75,10 @@
       "reason": "Exercises the dispatch pipeline (webhook -> dispatcher -> worker -> SDK round-trip -> persistence), not model capability — the agent task is hello-world level (one-sentence reply, summarize a payload, save a stub report), so any responding model passes and it measures nothing about the model-under-test. Compounding this, its build fixture is pinned to als-apg/haiku and ignores OSPREY_E2E_FORCE_MODEL; under CBORG cells the als-apg key is shimmed to CBORG, so the worker agent hits the real als-apg endpoint with a wrong credential and hangs to the 300s worker timeout — a fixed ~3-test infra penalty per cell."
     },
     {
+      "path": "tests/e2e/test_agent_record_e2e.py",
+      "reason": "Real-container deploy of the agent record (embedded and ClickHouse backends) that replays captured transcript and spool fixtures and reads them back through the record's API; no agent session runs and nothing contacts a model, so it measures nothing about the model-under-test. Also needs Docker, which the bench box lacks."
+    },
+    {
       "path": "tests/e2e/test_archiver_world_e2e.py",
       "reason": "Full-stack Docker deploy (VA + mongodb store + recorder) asserting seed duration, store size, a setpoint round-trip and document counts; no LLM call anywhere, so it measures nothing about the model-under-test. Also needs Docker, which the bench box lacks."
     },
@@ -131,6 +135,14 @@
       "reason": "Own hardcoded provider/model axis (als-apg/cborg/anthropic env-key preference with fixed haiku wire ids) — bypasses OSPREY_E2E_FORCE_MODEL."
     },
     {
+      "path": "tests/e2e/test_jev_live.py",
+      "reason": "Owner-run live Jev checks that spend real money on a Jev account (direct or OpenRouter route); no call goes through the model-under-test, and with no Jev key on the bench box every test skips."
+    },
+    {
+      "path": "tests/e2e/test_watchdog_live.py",
+      "reason": "Opt-in live proof of the watchdog engines: it needs a Jev key the bench box does not hold, and it fails rather than skips without one. The latency half reaches no model at all, and the agent half measures the watchdog's read-only run on one fixed pair rather than the capability of the model-under-test."
+    },
+    {
       "path": "tests/e2e/test_nextcloud_talk_bridge_e2e.py",
       "reason": "Runs against a pinned, PRIVATE ghcr Nextcloud + Talk fixture image; the module never builds or pulls it and skips outright when it is absent from the local store, so on the bench box this file contributes nothing but skips. Its substance is the two-party wire contract with a real Talk server (room-type rules, mention filter, poll cursor, restart recovery), asserted through the dispatch engine's persisted run_id rather than through anything the model says — an adapter-integrity proof, not a model-capability signal."
     },
@@ -139,16 +151,12 @@
       "reason": "Non-agentic ORM round-trip: the test constructs the orm plan request over HTTP and cross-checks the response matrix against the lattice model oracle — no LLM call anywhere."
     },
     {
-      "path": "tests/e2e/test_telemetry_access_e2e.py",
-      "reason": "Model-free: telemetry store accounts, row policies and limits proved with synthetic rows over SQL — no LLM call anywhere."
-    },
-    {
       "path": "tests/e2e/test_telemetry_contract_live.py",
       "reason": "Wire-contract check: one fixed turn of the pinned CLI compared structurally with the recorded OTLP fixture (event names and attribute keys); what the model says is never judged, so it measures nothing about the model-under-test."
     },
     {
-      "path": "tests/e2e/test_telemetry_store_e2e.py",
-      "reason": "Model-free: telemetry gateway and store deploy with synthetic ledger lines and OTLP — no LLM call anywhere."
+      "path": "tests/e2e/test_thinking_display_live.py",
+      "reason": "Launch-wiring check: the pinned CLI on each launch route (interactive settings, `osprey chat --print`, SDK) is asked to record thinking, and the transcripts are checked for thinking text; the answers are never judged, so it measures nothing about the model-under-test."
     },
     {
       "path": "tests/e2e/test_tiled_roundtrip.py",

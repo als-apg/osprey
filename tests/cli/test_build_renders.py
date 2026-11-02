@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.deployment.web_terminals.render_images import (
     render_build_profile_shape_problem,
     verify_renders,
 )
 from osprey.deployment.web_terminals.roster import resolve_cards
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
+from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -60,9 +60,7 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> dict:
     try:
         with pytest.MonkeyPatch.context() as patch, preserved_environ():
             patch.chdir(outside)
-            result = CliRunner().invoke(
-                build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-            )
+            result = invoke_build(repo)
     finally:
         root.removeHandler(records)
         root.setLevel(previous_level)
@@ -160,8 +158,8 @@ def test_a_tier_render_is_stamped_with_the_deployment_preset(built, name):
     assert tier["build_args"]["profile_path"] == str(repo / "tiers" / f"{name}.yml")
 
 
-#: The write ceiling each bundled tier pins over the exemplar's ``allowed``.
-_TIER_WRITES = {"readonly": "never", "readwrite": "allowed", "admin": "allowed"}
+#: The write ceiling each bundled tier pins over the exemplar's ``asked``.
+_TIER_WRITES = {"readonly": "never", "readwrite": "asked", "admin": "allowed"}
 
 
 @pytest.mark.parametrize("name", TIERS)

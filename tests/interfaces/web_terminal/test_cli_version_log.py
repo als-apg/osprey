@@ -19,7 +19,7 @@ import pytest
 from osprey.agent_runner import launcher
 from osprey.interfaces.web_terminal import app as web_app
 
-PIN = "2.1.146"
+PIN = "2.1.300"
 INSTALLED = "/usr/local/bin/claude"
 
 APP_LOGGER = web_app.logger.name

@@ -20,8 +20,8 @@ Two properties are under test throughout, and both are load-bearing:
   file-existence oracle, and making the refusal contingent on state that has
   nothing to do with what makes the key protected.
 
-The refusal also has to leave a trace: one record per attempt on the
-``setup_patch`` ledger, and one activity emit, so a refused edit is visible to
+The refusal also has to leave a trace: one ``setup_patch`` audit entry per
+attempt in the agent record, and one activity emit, so a refused edit is visible to
 the operator afterwards and not only to the agent that saw the error.
 """
 
@@ -32,11 +32,10 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.audit import protected, writer
+from osprey.audit import protected
 from osprey.audit.protected import SURFACE_SETUP_PATCH
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
-from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
-from tests._audit_ledger import ledger_records
+from osprey.utils.workspace import RUNTIME_WRITE_PATH_KEYS
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
@@ -53,13 +52,12 @@ def _get_setup_patch():
 
 
 @pytest.fixture
-def render(tmp_path, monkeypatch):
-    """A render holding both patchable files, with config and audit zone pinned.
+def render(tmp_path):
+    """A render holding both patchable files, with the config path pinned.
 
     ``resolve_config_path`` is patched in the tool's own namespace (the tool
-    resolves the project root as its parent), and the audit zone is redirected
-    through :func:`osprey.audit.writer.audit_dir` — the single seam the writer
-    documents for exactly this, so the test never has to stand up a real repo.
+    resolves the project root as its parent), so the test never has to stand up
+    a real repo. Audit entries land in the test's own spool.
     """
     (tmp_path / "config.yml").write_text(
         yaml.dump(
@@ -81,7 +79,6 @@ def render(tmp_path, monkeypatch):
         )
         + "\n"
     )
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
     with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
@@ -95,9 +92,10 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
-def _audit_records(root: Path) -> list[dict]:
-    """Every record on this identity's ``setup_patch`` ledger."""
-    return ledger_records(root / "var" / "audit", SURFACE_SETUP_PATCH)
+def _audit_records(recorded_entries) -> list[dict]:
+    """Every ``setup_patch`` audit entry in the record, oldest first."""
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_SETUP_PATCH]
 
 
 def _notify():
@@ -168,13 +166,14 @@ async def test_refusal_leaves_both_files_byte_identical(render, file, key_path):
     assert _snapshot(render) == before
 
 
-async def test_refusal_writes_one_audit_record(render):
-    """One ledger line, naming the surface, the key and the owning channel."""
+@pytest.mark.usefixtures("render")
+async def test_refusal_writes_one_audit_record(recorded_entries):
+    """One audit entry, naming the surface, the key and the owning channel."""
     fn = _get_setup_patch()
     with _notify(), assert_raises_error(error_type="protected_key"):
         await fn(file="config.yml", key_path="control_system.writes_enabled", value=SENTINEL)
 
-    (record,) = _audit_records(render)
+    (record,) = _audit_records(recorded_entries)
     assert record["surface"] == "setup_patch"
     assert record["subject"] == "control_system.writes_enabled"
     assert "target=config.yml" in record["detail"]
@@ -186,14 +185,15 @@ async def test_refusal_writes_one_audit_record(render):
     assert SENTINEL not in json.dumps(record), "the audit trail is not a place for the value"
 
 
-async def test_each_refusal_appends_its_own_record(render):
-    """The log counts attempts — a retried refusal is a second line, not an overwrite."""
+@pytest.mark.usefixtures("render")
+async def test_each_refusal_appends_its_own_record(recorded_entries):
+    """The log counts attempts — a retried refusal is a second entry, not an overwrite."""
     fn = _get_setup_patch()
     for key_path in ("control_system.writes_enabled", "agent_data.base_dir"):
         with _notify(), assert_raises_error(error_type="protected_key"):
             await fn(file="config.yml", key_path=key_path, value="x")
 
-    assert [r["subject"] for r in _audit_records(render)] == [
+    assert [r["subject"] for r in _audit_records(recorded_entries)] == [
         "control_system.writes_enabled",
         "agent_data.base_dir",
     ]
@@ -217,7 +217,7 @@ async def test_refusal_emits_activity():
         assert SENTINEL not in piece, f"value leaked into the activity feed: {piece!r}"
 
 
-async def test_an_unprotected_key_still_patches(render):
+async def test_an_unprotected_key_still_patches(render, recorded_entries):
     """The gate is a gate, not a wall: an ordinary key goes through untouched."""
     fn = _get_setup_patch()
     with _notify() as notify:
@@ -228,7 +228,7 @@ async def test_an_unprotected_key_still_patches(render):
     assert result["before"] == "light"
     assert result["after"] == "dark"
     assert yaml.safe_load((render / "config.yml").read_text())["ui"]["theme"] == "dark"
-    assert _audit_records(render) == [], "a landed patch is not a refusal"
+    assert _audit_records(recorded_entries) == [], "a landed patch is not a refusal"
     assert notify.call_args.kwargs["detail"] == "config.yml: ui.theme"
 
 
@@ -245,7 +245,7 @@ async def test_an_unprotected_mcp_key_still_patches(render):
     assert on_disk["mcpServers"]["demo"]["disabled"] is True
 
 
-async def test_a_protected_key_is_refused_even_when_the_file_is_missing(render):
+async def test_a_protected_key_is_refused_even_when_the_file_is_missing(render, recorded_entries):
     """Existence-independence: no ``not_found`` oracle in front of the gate."""
     (render / ".mcp.json").unlink()
 
@@ -254,7 +254,7 @@ async def test_a_protected_key_is_refused_even_when_the_file_is_missing(render):
         await fn(file=".mcp.json", key_path="mcpServers.demo.env.API_KEY", value=SENTINEL)
 
     assert not (render / ".mcp.json").exists(), "a refusal must not create the file either"
-    assert len(_audit_records(render)) == 1
+    assert len(_audit_records(recorded_entries)) == 1
 
 
 async def test_a_protected_key_is_refused_even_when_the_file_is_unparseable(render):
@@ -269,23 +269,25 @@ async def test_a_protected_key_is_refused_even_when_the_file_is_unparseable(rend
     assert _snapshot(render) == before
 
 
-async def test_the_file_allowlist_still_answers_first(render):
+@pytest.mark.usefixtures("render")
+async def test_the_file_allowlist_still_answers_first(recorded_entries):
     """A file no writer may patch is a validation error, whatever the key says."""
     fn = _get_setup_patch()
     with _notify(), assert_raises_error(error_type="validation_error"):
         await fn(file=".claude/settings.json", key_path="permissions.deny", value="[]")
 
-    assert _audit_records(render) == []
+    assert _audit_records(recorded_entries) == []
 
 
+@pytest.mark.usefixtures("render")
 @pytest.mark.parametrize("key_path", ["", "control_system..writes_enabled", "/control_system"])
-async def test_key_path_validation_still_answers_first(render, key_path):
+async def test_key_path_validation_still_answers_first(key_path, recorded_entries):
     """A malformed path is not a protected key — it is not a key at all."""
     fn = _get_setup_patch()
     with _notify(), assert_raises_error(error_type="validation_error"):
         await fn(file="config.yml", key_path=key_path, value="x")
 
-    assert _audit_records(render) == []
+    assert _audit_records(recorded_entries) == []
 
 
 async def test_a_broken_audit_recorder_does_not_rescue_the_write(render):
@@ -313,7 +315,7 @@ async def test_a_broken_audit_recorder_does_not_rescue_the_write(render):
     assert _snapshot(render) == before
 
 
-async def test_a_broken_activity_emit_does_not_rescue_the_write(render):
+async def test_a_broken_activity_emit_does_not_rescue_the_write(render, recorded_entries):
     """Same for the feed: an unreachable Web Terminal must not mask the refusal."""
     before = _snapshot(render)
     fn = _get_setup_patch()
@@ -324,4 +326,6 @@ async def test_a_broken_activity_emit_does_not_rescue_the_write(render):
         await fn(file="config.yml", key_path="control_system.writes_enabled", value=SENTINEL)
 
     assert _snapshot(render) == before
-    assert len(_audit_records(render)) == 1, "the durable record is written before the alert"
+    assert len(_audit_records(recorded_entries)) == 1, (
+        "the durable record is written before the alert"
+    )

@@ -344,6 +344,14 @@ def test_helpers_are_the_rows_something_requires():
     }
 
 
+def test_the_code_review_row_leaves_the_memory_guard_selectable():
+    """Requiring the memory guard would make it a helper, which a profile may not select."""
+    catalog = BuildArtifactCatalog.default()
+    assert catalog.get("hooks/code-review").requires == ("hooks/hook-log",)
+    assert "hooks/memory-guard" not in catalog.helpers()
+    assert "hooks/code-review" not in catalog.helpers()
+
+
 def test_a_requires_entry_naming_no_row_is_refused():
     hook = BuildArtifact("hooks/mine", "mine.py", "mine.py", "x", requires=("hooks/nope",))
     with pytest.raises(ValueError) as excinfo:

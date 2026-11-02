@@ -117,9 +117,18 @@ def test_empty_themes_rejected():
         validate_registry([_standalone("s", themes=())])
 
 
-def test_stage_requires_hermetic_hub():
+def _probe_stage(monkeypatch) -> None:
+    """Register a no-op ``probe`` stage for the length of one test."""
+    from docs.screenshots import contact_sheet
+
+    probe = contact_sheet.Stage("probe", lambda _page: None)
+    monkeypatch.setitem(contact_sheet.STAGES, "probe", probe)
+
+
+def test_stage_requires_hermetic_hub(monkeypatch):
+    _probe_stage(monkeypatch)
     with pytest.raises(ValueError, match="hermetic_hub"):
-        validate_registry([_standalone(stage="customize_sheet")])
+        validate_registry([_standalone(stage="probe")])
 
 
 def test_unknown_stage_rejected():
@@ -127,16 +136,9 @@ def test_unknown_stage_rejected():
         validate_registry([_hub(stage="nope")])
 
 
-def test_hermetic_hub_with_a_known_stage_is_valid():
-    validate_registry([_hub(stage="customize_sheet")])
-
-
-def test_the_customize_sheet_recipe_is_an_expert_hub_capture():
-    (shot,) = [s for s in recipes.REGISTRY if s.name == "customize_sheet"]
-    assert shot.environment == "hermetic_hub"
-    assert shot.hub_mode == "expert"
-    assert shot.stage == "customize_sheet"
-    assert set(shot.themes) == {"light", "dark"}
+def test_hermetic_hub_with_a_known_stage_is_valid(monkeypatch):
+    _probe_stage(monkeypatch)
+    validate_registry([_hub(stage="probe")])
 
 
 def test_output_names_single_vs_subviews():

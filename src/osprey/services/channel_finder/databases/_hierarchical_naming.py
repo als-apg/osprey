@@ -102,9 +102,7 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
 
         # AUTOMATIC LEAF DETECTION: Node has no children (only metadata)
         # This eliminates the need for explicit _is_leaf on obvious leaf nodes
-        has_children = any(
-            not key.startswith("_") and isinstance(node[key], dict) for key in node.keys()
-        )
+        has_children = any(not key.startswith("_") and isinstance(node[key], dict) for key in node)
         if not has_children:
             return True
 
@@ -128,16 +126,15 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                     # Look for instance container matching next level name
                     has_next_level_container = any(
                         key.upper() == next_level.upper()
-                        for key in node.keys()
+                        for key in node
                         if isinstance(node[key], dict) and not key.startswith("_")
                     )
                     # Only a leaf if there's NO container for the next instance level
                     return not has_next_level_container
-                elif next_config["type"] == "tree":
+                if next_config["type"] == "tree":
                     # Look for any tree children (non-meta keys)
                     has_tree_children = any(
-                        not key.startswith("_") and isinstance(node[key], dict)
-                        for key in node.keys()
+                        not key.startswith("_") and isinstance(node[key], dict) for key in node
                     )
                     # Only a leaf if there are NO tree children
                     return not has_tree_children
@@ -186,9 +183,7 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
 
         # Mixed consecutive separators (e.g., ":_" when both parts empty)
         # Keep the first separator type
-        channel = re.sub(r"[:_-]([:_-])+", lambda m: m.group(0)[0], channel)
-
-        return channel
+        return re.sub(r"[:_-]([:_-])+", lambda m: m.group(0)[0], channel)
 
     def _build_channel_with_separators(
         self, path: dict[str, str], separator_overrides: dict[tuple[str, str], str]
@@ -562,12 +557,15 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                 child_node = node  # Stay at same node
 
                 for key, value in node.items():
-                    if key.upper() == current_level.upper() and isinstance(value, dict):
-                        if "_expansion" in value:
-                            expansion_def = value["_expansion"]
-                            # Navigate past the expansion container
-                            child_node = value
-                            break
+                    if (
+                        key.upper() == current_level.upper()
+                        and isinstance(value, dict)
+                        and "_expansion" in value
+                    ):
+                        expansion_def = value["_expansion"]
+                        # Navigate past the expansion container
+                        child_node = value
+                        break
 
                 if expansion_def:
                     instances = self._get_instance_names(expansion_def)
@@ -611,9 +609,8 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                 if is_optional:
                     # Optional level - skip it and continue
                     continue
-                else:
-                    # Required level missing - can't navigate further
-                    break
+                # Required level missing - can't navigate further
+                break
 
             selection = self._get_single_value(selections[level])
             if not selection:
@@ -621,9 +618,8 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                 if is_optional:
                     # Optional level with empty selection - skip it
                     continue
-                else:
-                    # Required level with empty selection - can't navigate further
-                    break
+                # Required level with empty selection - can't navigate further
+                break
 
             # Handle different level types
             if level_config["type"] == "tree":

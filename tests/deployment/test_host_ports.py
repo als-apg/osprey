@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import socket
 
 import pytest
 
+from osprey.agent_record.config import history_page_deployed
 from osprey.deployment import host_ports
 from osprey.deployment.compose_generator import repo_identity
 from osprey.deployment.graphdb_service import (
@@ -19,8 +19,8 @@ from osprey.deployment.graphdb_service import (
 from osprey.deployment.host_ports import (
     HostPortBinding,
     PortConflict,
+    derive_history_origin_bindings,
     derive_host_network_bindings,
-    derive_reader_origin_bindings,
     derive_web_terminal_bindings,
     find_port_conflicts,
     format_conflict_report,
@@ -37,6 +37,7 @@ from osprey.port_layout import (
     block_range,
     default_port,
 )
+from osprey_connectors_tests._harness._ports import bound_socket
 
 #: A second base, far from the default, for the two-deployments-on-one-host
 #: scenario. Every expectation below is derived from it rather than written out,
@@ -94,15 +95,9 @@ def _write_compose(tmp_path, name, services):
 @pytest.fixture
 def listening_port():
     """Bind, listen, and yield a loopback ``(socket, port)``; close on teardown."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen(1)
-    port = sock.getsockname()[1]
-    try:
-        yield sock, port
-    finally:
-        sock.close()
+    with bound_socket() as sock:
+        sock.listen(1)
+        yield sock, sock.getsockname()[1]
 
 
 class TestParsing:
@@ -186,7 +181,7 @@ class TestDuplicateDetection:
     def test_distinct_ports_no_conflict(self):
         bindings = [
             HostPortBinding("postgresql", "127.0.0.1", 5432, 5432, "a.yml"),
-            HostPortBinding("telemetry_store", "127.0.0.1", 5080, 8123, "a.yml"),
+            HostPortBinding("mongodb", "127.0.0.1", 27017, 27017, "a.yml"),
         ]
         assert find_port_conflicts(bindings, project_name="proj") == []
 
@@ -247,18 +242,18 @@ class TestExternalConflict:
         ps_json = json.dumps(
             [
                 {
-                    "Names": ["other-telemetry_store"],
-                    "Ports": [{"host_ip": "127.0.0.1", "host_port": port, "container_port": 5080}],
+                    "Names": ["other-mongodb"],
+                    "Ports": [{"host_ip": "127.0.0.1", "host_port": port, "container_port": 27017}],
                     "Labels": {"com.docker.compose.project": "other"},
                 }
             ]
         )
         monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
-        binding = HostPortBinding("telemetry_store", "127.0.0.1", port, 8123, "a.yml")
+        binding = HostPortBinding("mongodb", "127.0.0.1", port, 27017, "a.yml")
 
         conflicts = find_port_conflicts([binding], project_name="proj")
         assert len(conflicts) == 1
-        assert "other-telemetry_store" in conflicts[0].holder
+        assert "other-mongodb" in conflicts[0].holder
 
 
 class TestReport:
@@ -701,9 +696,6 @@ class TestRemedyResolution:
         cases = [
             ("postgresql", "postgres"),
             ("mongodb", "mongo"),
-            ("telemetry_store", "telemetry_store"),
-            ("telemetry_gateway", "telemetry_gateway"),
-            ("telemetry_gateway", "telemetry_metrics"),
             ("history", "history"),
             ("event-dispatcher", "dispatcher"),
             ("bluesky-bridge", "bluesky"),
@@ -751,8 +743,6 @@ class TestRemedyResolution:
         cases = [
             ("postgresql", "services.postgresql.port_host"),
             ("mongodb", "services.mongodb.port_host"),
-            ("telemetry_store", "services.telemetry_store.port"),
-            ("telemetry_gateway", "services.telemetry_gateway.port"),
             ("event-dispatcher", "services.event_dispatcher.port"),
             ("dispatch-worker-1", "dispatch.worker_port_base"),
             ("dispatch-worker-7", "dispatch.worker_port_base"),
@@ -967,7 +957,7 @@ class TestRemedyResolution:
         appearing on some other service changes nothing about that service."""
         cases = [
             ("postgresql", "services.postgresql.port_host"),
-            ("telemetry_store", "services.telemetry_store.port"),
+            ("mongodb", "services.mongodb.port_host"),
             ("virtual-accelerator", "services.virtual_accelerator.port"),
             ("my_ioc_gw", "services.my_ioc_gw.port"),
         ]
@@ -1044,7 +1034,7 @@ class TestHostNetworkConflicts:
         monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
 
     def test_published_port_wins_and_the_worker_is_told_to_move(self, _no_external_listeners):
-        published = HostPortBinding("telemetry_store", "127.0.0.1", 9190, 8123, "a.yml")
+        published = HostPortBinding("mongodb", "127.0.0.1", 9190, 27017, "a.yml")
         config = _host_config(dispatch_worker={"network": "host", "worker_port_base": 9190})
 
         conflicts = find_port_conflicts([published], project_name="proj", config=config)
@@ -1054,7 +1044,7 @@ class TestHostNetworkConflicts:
         assert conflict.kind == "duplicate"
         assert conflict.service == "dispatch-worker-1"
         assert conflict.host_network is True
-        assert "telemetry_store" in conflict.holder
+        assert "mongodb" in conflict.holder
         # One key moves the whole worker block, so the index is not in it.
         assert conflict.remedy == "dispatch.worker_port_base"
 
@@ -1491,9 +1481,6 @@ class TestTwoDeploymentsOnOneHost:
             for service, slot, container in (
                 ("postgresql", "postgres", 5432),
                 ("mongodb", "mongo", 27017),
-                ("telemetry_store", "telemetry_store", 8123),
-                ("telemetry_gateway", "telemetry_gateway", 4318),
-                ("telemetry_gateway", "telemetry_metrics", 8888),
                 ("history", "history", 8000),
                 ("graphdb", "graphdb_bolt", CONTAINER_BOLT_PORT),
                 ("graphdb", "graphdb_http", CONTAINER_HTTP_PORT),
@@ -1788,57 +1775,86 @@ def test_the_port_preflight_attributes_a_holder_by_the_one_ownership_rule(
     )
 
 
-class TestReaderOriginSlot:
-    """The readers' origin is a listener of the host-network nginx: no compose
-    file publishes it, so the preflight has to derive it from the config."""
+class TestHistoryOriginSlot:
+    """The history page's origin is a listener of the host-network nginx: no
+    compose file publishes it, so the preflight has to derive it from the config."""
 
     @staticmethod
     def _config(web=None, **top):
         return {
-            "deployed_services": ["telemetry_store"],
-            "modules": {"web_terminals": {"enabled": True, **(web or {})}},
+            "modules": {
+                "web_terminals": {"enabled": True, "auth": {"method": "password"}, **(web or {})}
+            },
             **top,
         }
 
-    def test_the_slot_is_derived_when_the_store_and_the_web_tier_are_both_there(self):
-        (binding,) = derive_reader_origin_bindings(self._config())
+    def test_the_slot_is_derived_when_the_history_page_is_deployed(self):
+        (binding,) = derive_history_origin_bindings(self._config())
         assert binding.service == "nginx"
-        assert binding.host_port == default_port("reader")
+        assert binding.host_port == default_port("history_origin")
         assert binding.host_network is True
         assert binding.remedy == PORT_BASE_CONFIG_KEY
 
     def test_the_slot_moves_with_the_port_base(self):
-        (binding,) = derive_reader_origin_bindings(
+        (binding,) = derive_history_origin_bindings(
             self._config(deployment={"port_base": SECOND_BASE})
         )
-        assert binding.host_port == default_port("reader", base=SECOND_BASE)
+        assert binding.host_port == default_port("history_origin", base=SECOND_BASE)
         assert binding.remedy == PORT_BASE_CONFIG_KEY
 
     def test_a_stated_port_is_probed_and_names_its_own_key(self):
-        (binding,) = derive_reader_origin_bindings(self._config(web={"reader_port": 18443}))
+        (binding,) = derive_history_origin_bindings(self._config(web={"history_port": 18443}))
         assert binding.host_port == 18443
-        assert binding.remedy == "modules.web_terminals.reader_port"
-        assert SLOTS_BY_NAME["reader"].config_key == "modules.web_terminals.reader_port"
+        assert binding.remedy == "modules.web_terminals.history_port"
+        assert SLOTS_BY_NAME["history_origin"].config_key == "modules.web_terminals.history_port"
+
+    def test_a_port_that_is_not_one_derives_nothing(self):
+        assert derive_history_origin_bindings(self._config(web={"history_port": "x"})) == []
 
     @pytest.mark.parametrize(
-        "config",
+        ("config", "deployed"),
         [
-            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
-            {"deployed_services": ["telemetry_store"]},
-            {
-                "deployed_services": ["telemetry_store"],
-                "modules": {"web_terminals": {"enabled": False}},
-            },
-            None,
+            pytest.param(
+                {"modules": {"web_terminals": {"enabled": True, "auth": {"method": m}}}},
+                True,
+                id=f"signed-in-{m}",
+            )
+            for m in ("password", "oidc")
+        ]
+        + [
+            pytest.param(
+                {"modules": {"web_terminals": {"enabled": True, "auth": {"method": m}}}},
+                False,
+                id=f"no-page-{m}",
+            )
+            for m in ("token", "none")
+        ]
+        + [
+            pytest.param(
+                {"modules": {"web_terminals": {"enabled": False, "auth": {"method": "password"}}}},
+                False,
+                id="web-tier-off",
+            ),
+            pytest.param({"deployed_services": ["mongodb"]}, False, id="no-web-tier"),
+            pytest.param(
+                {
+                    "deployed_services": [],
+                    "modules": {"web_terminals": {"enabled": True, "auth": {"method": "oidc"}}},
+                },
+                True,
+                id="no-store-needed",
+            ),
+            pytest.param(None, False, id="no-config"),
         ],
     )
-    def test_no_store_or_no_web_tier_derives_nothing(self, config):
-        assert derive_reader_origin_bindings(config) == []
+    def test_the_binding_exists_iff_the_history_page_is_deployed(self, config, deployed):
+        assert bool(derive_history_origin_bindings(config)) is deployed
+        assert deployed is history_page_deployed(config)
 
     def test_a_listener_already_on_the_slot_stops_the_deploy(self, monkeypatch, listening_port):
         monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: "")
         _, port = listening_port
-        config = self._config(web={"reader_port": port})
+        config = self._config(web={"history_port": port})
 
         conflicts = find_port_conflicts([], project_name="proj", config=config)
 
@@ -1846,12 +1862,12 @@ class TestReaderOriginSlot:
         assert conflict.kind == "external"
         assert conflict.service == "nginx"
         assert conflict.host_network is True
-        assert conflict.remedy == "modules.web_terminals.reader_port"
+        assert conflict.remedy == "modules.web_terminals.history_port"
 
     def test_a_published_port_on_the_slot_is_a_duplicate(self, monkeypatch):
         monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
-        (derived,) = derive_reader_origin_bindings(self._config())
-        port = default_port("reader")
+        (derived,) = derive_history_origin_bindings(self._config())
+        port = default_port("history_origin")
         published = HostPortBinding("my-service", derived.host_ip, port, 80, "a.yml")
 
         conflicts = find_port_conflicts([published], project_name="proj", config=self._config())
@@ -1860,3 +1876,62 @@ class TestReaderOriginSlot:
         assert conflict.kind == "duplicate"
         assert conflict.service == "nginx"
         assert "my-service" in conflict.holder
+
+
+class TestTheHostLocalRecordIsTakenOver:
+    """A host session's record holds the port the stack's agent-record publishes.
+
+    ``up`` stops that process before the stack starts, so while it runs its port
+    is this deployment's own and no conflict; anything else on it still is.
+    """
+
+    PORT = 19953
+
+    @staticmethod
+    def _config(tmp_path):
+        return {
+            "project_name": "proj",
+            "project_root": str(tmp_path),
+            "deployment": {"host_identity": "builder"},
+            "agent_record": {"port": TestTheHostLocalRecordIsTakenOver.PORT},
+        }
+
+    @staticmethod
+    def _host_record(monkeypatch, pid):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: False)
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: "")
+        monkeypatch.setattr("osprey.agent_record.host.running_record_pid", lambda state_dir: pid)
+
+    def _binding(self, service):
+        return HostPortBinding(service, "127.0.0.1", self.PORT, 8000, "a.yml")
+
+    def test_the_running_host_record_on_the_record_port_is_not_a_conflict(
+        self, monkeypatch, tmp_path
+    ):
+        self._host_record(monkeypatch, 4242)
+
+        conflicts = find_port_conflicts(
+            [self._binding("agent-record")], project_name="proj", config=self._config(tmp_path)
+        )
+
+        assert conflicts == []
+
+    def test_with_no_host_record_running_the_holder_is_a_conflict(self, monkeypatch, tmp_path):
+        self._host_record(monkeypatch, None)
+
+        conflicts = find_port_conflicts(
+            [self._binding("agent-record")], project_name="proj", config=self._config(tmp_path)
+        )
+
+        assert [(c.service, c.holder) for c in conflicts] == [
+            ("agent-record", "an unknown host process")
+        ]
+
+    def test_another_service_on_that_port_is_still_a_conflict(self, monkeypatch, tmp_path):
+        self._host_record(monkeypatch, 4242)
+
+        conflicts = find_port_conflicts(
+            [self._binding("postgresql")], project_name="proj", config=self._config(tmp_path)
+        )
+
+        assert [c.service for c in conflicts] == ["postgresql"]

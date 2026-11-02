@@ -52,8 +52,8 @@ changed paths map to. A path the mapping cannot place widens that runner to its
 whole selection; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
 that directory when it holds a test module and widens otherwise. A base also arms the
-checks that judge a range. Paths after ``--`` are test files added to what the
-range selects.
+checks that judge a range. Paths after ``--`` are test files, pytest node ids
+or test directories added to what the range selects.
 
 ``list --changed BASE`` adds which checks and CI lanes the range ``BASE...HEAD``
 touches, read as a tier reads it; it runs nothing.
@@ -69,6 +69,10 @@ check, a flag that is not an execution flag. Every check of the run is attempted
 even after an earlier one failed, and the last line is the verdict. A failed
 test check names its failing tests, read from the report its runner writes for
 the command. A refusal names every check it cannot judge and what to install.
+
+Before any check runs, the needs put the tree's pins in place: the pinned
+Claude Code first on PATH, and node_modules reinstalled when it differs from
+package-lock.json.
 
 What cannot run here is named, never counted as passed: a check bound to a venue
 this machine is not, a check whose install is absent, a check that needs a base
@@ -309,10 +313,7 @@ def touched(base: str, worktree: bool = False, *, scope: bool = False) -> list[s
     takes a file out of a scope touches that scope. A runner can be handed
     only a file that is there, so its selection reads the default form.
     """
-    if scope:
-        listing = ("--name-only", "--no-renames")
-    else:
-        listing = ("--name-only", "--diff-filter=d")
+    listing = ("--name-only", "--no-renames") if scope else ("--name-only", "--diff-filter=d")
     paths = set(kit.git_paths("diff", *listing, _range(base, worktree)))
     if worktree:
         paths.update(kit.git_paths("ls-files", "--others", "--exclude-standard"))
@@ -333,17 +334,63 @@ def _paths(chosen: Iterable[str]) -> Selection:
 
 
 def _route_named(named: Sequence[str]) -> dict[str, list[str]]:
-    """Send each named test file to the check whose test suffixes it carries."""
-    takers = [check for check in CHECKS if check.named_suffixes]
+    """Send each named path to the check that can take it.
+
+    A file goes to the check whose test suffixes it carries. A node id
+    (``file::node``) goes there only when that check takes node ids, and its
+    file must exist. A directory goes, as the directory, to a check that takes
+    directories and has a test file in it.
+    """
+    takers = [check for check in CHECKS if check.named_suffixes or check.named_dirs]
     routed: dict[str, list[str]] = {check.id: [] for check in takers}
     for path in named:
+        file, sep, _ = path.partition("::")
+        if sep:
+            routed[_node_id_taker(path, file, takers).id].append(path)
+            continue
         taker = next((c for c in takers if path.endswith(c.named_suffixes)), None)
+        if taker is None and any(c.named_dirs for c in takers) and (ROOT / path).is_dir():
+            taker = _directory_taker(path, takers)
+            path = path.rstrip("/")
         if taker is None:
-            suffixes = [suffix for c in takers for suffix in c.named_suffixes]
-            spelled = ", ".join(suffixes[:-1]) + f" or {suffixes[-1]}"
-            raise Refused(f"{path}: not a test file; name a {spelled} path")
+            raise Refused(f"{path}: not a test file; name {_spelled(_named_forms(takers))}")
         routed[taker.id].append(path)
     return routed
+
+
+def _spelled(items: Sequence[str]) -> str:
+    return ", ".join(items[:-1]) + f" or {items[-1]}" if len(items) > 1 else items[0]
+
+
+def _named_forms(takers: Sequence[Check]) -> list[str]:
+    """Every form of path *takers* accept after ``--``, spelled for a refusal."""
+    forms = [f"a {suffix} file" for c in takers for suffix in c.named_suffixes]
+    forms += [
+        f"a {suffix}::node id" for c in takers if c.named_node_ids for suffix in c.named_suffixes
+    ]
+    if any(c.named_dirs for c in takers):
+        forms.append("a test directory")
+    return forms
+
+
+def _node_id_taker(path: str, file: str, takers: Sequence[Check]) -> Check:
+    taker = next((c for c in takers if c.named_node_ids and file.endswith(c.named_suffixes)), None)
+    if taker is None:
+        suffixes = [s for c in takers if c.named_node_ids for s in c.named_suffixes]
+        takes = f"only a {_spelled(suffixes)} file takes" if suffixes else "no check takes"
+        raise Refused(f"{path}: {takes} a node id; name the file")
+    if not (ROOT / file).is_file():
+        raise Refused(f"{path}: {file} is not a file")
+    return taker
+
+
+def _directory_taker(path: str, takers: Sequence[Check]) -> Check:
+    takes = [(c, c.named_dirs) for c in takers if c.named_dirs]
+    names = [found.name for found in (ROOT / path).rglob("*") if found.is_file()]
+    taker = next((c for c, is_test in takes if any(map(is_test, names))), None)
+    if taker is None:
+        raise Refused(f"{path}: holds no {_spelled([c.id for c, _ in takes])} file")
+    return taker
 
 
 def tier_checks(tier: str) -> list[Check]:
@@ -402,8 +449,9 @@ def _is_exec_flag(flag: str) -> bool:
     return (
         flag in ("-v", "-q")
         or re.fullmatch(r"-n(\d+|auto|logical)", flag) is not None
-        or flag.startswith(("--tb=", "--durations=", "--timeout=", "--timeout-method="))
-        or flag.startswith(("--maxfail=", "--cov"))
+        or flag.startswith(
+            ("--tb=", "--durations=", "--timeout=", "--timeout-method=", "--maxfail=", "--cov")
+        )
     )
 
 
@@ -585,7 +633,8 @@ def unmet_needs(checks: Iterable[Check]) -> list[tuple[str, str]]:
 def _hosts_over(paths: Sequence[str]) -> list[str]:
     """The checks with a derived scope and the CI lanes whose scope holds one of
     *paths*, a file or a directory, or lies beneath one of the directories: what
-    runs the tests the sweep deselects."""
+    runs the tests the sweep deselects. A node id is read as its file."""
+    paths = [path.partition("::")[0] for path in paths]
     inside = [candidate for path in paths for candidate in (path, path.rstrip("/") + "/")]
     above = tuple(path.rstrip("/") + "/" for path in paths)
 
@@ -846,7 +895,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
     for tier in TIERS:
-        verb = verbs.add_parser(tier, help=f"run the {tier} tier; test files may follow --")
+        verb = verbs.add_parser(tier, help=f"run the {tier} tier; tests may follow --")
         verb.add_argument(
             "--changed", metavar="BASE", help="scope the tier to BASE...HEAD; implies --base BASE"
         )

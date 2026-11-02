@@ -1,8 +1,8 @@
 """Tests for the bundled tier and app presets and the control-assistant roster.
 
 A bundled tier (``presets/tiers/<name>.yml``) is a small delta over the
-deployment's own profile: write pins, ``web.ui_mode``, and the panels, skills
-and privilege lifts that differ from the host. It carries no deployment fact
+deployment's own profile: write pins, and the panels, skills and privilege
+lifts that differ from the host. It carries no deployment fact
 and never subtracts, so its top-level keys stay within the tier-kind key set:
 the root set minus every deployment key, plus the per-render image keys.
 
@@ -15,14 +15,13 @@ everyone on the roster may open beside it.
 Three tiers ship in ``presets/tiers/``, each a small delta laid over the
 deployment's own profile:
 
-* ``readonly`` — simple chat-first surface; every write surface refuses on
-  every target; built without the EVENTS/BLUESKY panels.
-* ``readwrite`` — expert workspace; ``control_system.writes: allowed``, so a
+* ``readonly`` — every write surface refuses on every target; built without the EVENTS/BLUESKY panels.
+* ``readwrite`` — ``control_system.writes: asked``, so a
   session may write to every machine the deployment configures; channel writes
   pass the ordinary safety chain (writes-check, limits, human approval); adds
   the EVENTS/BLUESKY panels.
-* ``admin`` — readwrite's write posture over the MACHINE and its operator
-  panels, plus the privileges the deployment floors off: the ``setup_patch``
+* ``admin`` — readwrite's MACHINE and operator panels at the ceiling above it,
+  ``control_system.writes: allowed``, plus the privileges the deployment floors off: the ``setup_patch``
   tool, the web Config panel, the scaffold gallery's editors, and the
   ``setup-mode`` skill that drives them.
 
@@ -36,7 +35,7 @@ owns its own lists and runs on the deployment's services:
 
 The tier contract has two halves, and both are asserted wholesale below rather
 than key-by-key. The MACHINE axes separate readonly from readwrite: enforcement
-(``control_system.writes``, ``never`` against ``allowed``), surface (``web.ui_mode``), and the
+(``control_system.writes``, ``never`` against ``asked``) and the
 write-oriented panels (EVENTS + BLUESKY, added by every write-armed tier and
 absent from readonly). The DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
@@ -66,7 +65,6 @@ from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.cli.build_profile_document import retired_write_answer
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.build_profile_presets import _presets_dir, list_apps, list_presets, list_tiers
-from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
@@ -86,8 +84,10 @@ from osprey.port_layout import (
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import configured_targets, tier_writes
-from tests._preset_data import bundle_data_root
+from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.cli._template_projects import graph_permission_entries
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 TIER_NAMES = ("readonly", "readwrite", "admin")
@@ -196,17 +196,15 @@ def test_tier_opens_with_its_preset_comment(tier: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("tier", "writes", "ui_mode"),
+    ("tier", "writes"),
     [
-        ("readonly", "never", "simple"),
-        ("readwrite", "allowed", "expert"),
-        ("admin", "allowed", "expert"),
+        ("readonly", "never"),
+        ("readwrite", "asked"),
+        ("admin", "allowed"),
     ],
 )
-def test_tier_pins_write_posture_and_ui_mode(tier: str, writes: str, ui_mode: str) -> None:
-    config = _load_tier(tier)["config"]
-    assert _stated_writes(config) == writes
-    assert config["web.ui_mode"] == ui_mode
+def test_tier_pins_write_posture(tier: str, writes: str) -> None:
+    assert _stated_writes(_load_tier(tier)["config"]) == writes
 
 
 def test_readonly_tier_adds_no_panels_skills_or_privileges() -> None:
@@ -215,7 +213,7 @@ def test_readonly_tier_adds_no_panels_skills_or_privileges() -> None:
     assert "skills" not in document
     config = document["config"]
     assert _posture_keys(config)
-    assert set(config) - _posture_keys(config) == {"web.ui_mode"}
+    assert set(config) == _posture_keys(config)
 
 
 def test_readwrite_tier_adds_the_write_panels_only() -> None:
@@ -224,7 +222,7 @@ def test_readwrite_tier_adds_the_write_panels_only() -> None:
     assert "skills" not in document
     config = document["config"]
     assert _posture_keys(config)
-    assert set(config) - _posture_keys(config) == {"web.ui_mode"}
+    assert set(config) == _posture_keys(config)
 
 
 def test_admin_tier_lifts_the_three_deployment_privileges() -> None:
@@ -505,43 +503,12 @@ def test_no_stem_is_both_a_tier_and_an_app() -> None:
     assert not (set(TIER_NAMES) & set(APP_NAMES))
 
 
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
 # The enforcement axis the control-system tiers differ on: the tier key, one
-# deployment-wide word (``allowed`` or ``never``) a render holds for every
+# deployment-wide word (``never``, ``asked`` or ``allowed``) a render holds for every
 # machine. A loaded layer carries it whichever spelling the shipped file is on,
 # because the normalizer rewrites the retired ``writes_enabled`` leaves to it.
 WRITES_KEY = TIER_WRITES_KEY
@@ -550,7 +517,6 @@ WRITES_KEY = TIER_WRITES_KEY
 EXEMPLAR_TIERS_DIR = (
     Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile" / "tiers"
 )
-UI_MODE_KEY = "web.ui_mode"
 # The agent's deployment-editing tool: denied by the deployment for every tier,
 # and subtracted back by the admin tier alone. A deny rather than an ask because
 # string lists only ever UNION when a tier is laid over the profile — see the
@@ -691,8 +657,7 @@ def _render_config_overrides(
         yaml.safe_dump(seed, fh)
     overrides = resolve_preset(preset).config if config is None else config
     config_update_fields(config_path, overrides)
-    with config_path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
 def _render_deployable_config(
@@ -718,8 +683,7 @@ def _render_deployable_config(
         config_path,
         {"project_name": preset, **derived_renders(resolved.config, preset, repo)},
     )
-    with config_path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
 def _errors(findings: list[Finding]) -> list[Finding]:
@@ -743,11 +707,8 @@ def _build_layered_stack(repo: Path) -> Path:
     Returns:
         The repo root; the renders live under ``<repo>/build/``.
     """
-    from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
-
-    built = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    built = invoke_build(repo)
     assert built.exit_code == 0, built.output
     return repo
 
@@ -776,19 +737,8 @@ def _build_render_stack(repo: Path) -> Path:
 
 def _render_dir(stack: Path, name: str) -> Path:
     """The render of tier or app *name* in a built *stack*."""
-    host = yaml.safe_load((stack / "build" / "config.yml").read_text(encoding="utf-8"))
+    host = rendered_config(stack)
     return stack / "build" / f"{host['project_name']}-{name}"
-
-
-def _graph_permission_entries() -> list[str]:
-    """The four rendered permission strings, derived from the registry.
-
-    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
-    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
-    qualification happens here rather than being restated where it could drift
-    from what the render emits.
-    """
-    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
 
 
 def _graph_entries(values) -> list[str]:
@@ -1132,7 +1082,7 @@ class TestControlAssistantTiersAndApps:
     three apps: agents of their own on the deployment's services.
 
     Over the MACHINE, readonly and readwrite differ on enforcement
-    (``writes_enabled``), surface (``ui_mode``) and the write-oriented panels
+    (``writes_enabled``) and the write-oriented panels
     (write-armed tiers only). Over the DEPLOYMENT, admin differs from readwrite
     on the three keys the deployment floors off — ``remove_deny`` for
     ``setup_patch``, the Config panel, the gallery's write surfaces — plus the
@@ -1162,14 +1112,14 @@ class TestControlAssistantTiersAndApps:
         profile = layers["tiers/readwrite"]
         assert profile.name == "Control Assistant (Read-Write)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) == "allowed"
+        assert profile.config.get(WRITES_KEY) == "asked"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         assert "control_system" not in _own_config("tiers", "readwrite")
 
     def test_admin_lifts_the_deployment_floor(self, layers: dict[str, BuildProfile]) -> None:
-        """The admin tier is readwrite plus deployment editing, not a fourth
-        write posture: it holds the same ``control_system.writes`` and
-        ``ui_mode: expert``, and adds the three keys that lift the floor.
+        """The admin tier is readwrite plus deployment editing at the ceiling
+        above it: it holds ``control_system.writes: allowed`` and adds the
+        three keys that lift the floor.
 
         ``remove_deny`` rather than a bare absence of the deny is the whole
         mechanism — string lists UNION when a tier is laid over the profile, so
@@ -1181,7 +1131,6 @@ class TestControlAssistantTiersAndApps:
         assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) == "allowed"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
-        assert profile.config.get(UI_MODE_KEY) == "expert"
         assert "control_system" not in _own_config("tiers", "admin")
 
         assert profile.config.get(DENY_KEY) == [SETUP_PATCH_TOOL]
@@ -1223,25 +1172,24 @@ class TestControlAssistantTiersAndApps:
             assert layer.config.get(GALLERY_WRITE_KEY) is False, key
             assert ADMIN_ONLY_SKILL not in layer.skills, key
 
-    def test_admin_differs_from_readwrite_only_on_the_deployment_axis(
+    def test_admin_differs_from_readwrite_only_on_the_ceiling_and_the_deployment_axis(
         self, layers: dict[str, BuildProfile]
     ) -> None:
-        """Admin sits directly on top of readwrite: same machine posture, plus
-        deployment editing. Asserted wholesale so a fourth difference cannot
+        """Admin sits directly on top of readwrite: the ceiling above it, plus
+        deployment editing. Asserted wholesale so a further difference cannot
         creep in unnoticed.
 
-        The deployment axes — subtracted before the comparison — are the whole
-        difference. The EVENTS/BLUESKY panels are deliberately NOT among them:
+        The ceiling and the deployment axes — subtracted before the comparison —
+        are the whole difference. The EVENTS/BLUESKY panels are deliberately NOT among them:
         the admin tier is a full operator desk plus deployment editing, so it
         adds the same write-oriented panels readwrite does (asserted with the
         artifact lists — ``web_panels`` is a list, not config, so it never
         appears in the config comparison below)."""
         rw_cfg = dict(layers["tiers/readwrite"].config)
         ad_cfg = dict(layers["tiers/admin"].config)
-        # Shared machine posture: both tiers are expert desks armed on the
-        # simulator and read-only on both hardware-shaped targets.
-        assert rw_cfg[WRITES_KEY] == "allowed" and ad_cfg[WRITES_KEY] == "allowed"
-        assert rw_cfg[UI_MODE_KEY] == "expert" and ad_cfg[UI_MODE_KEY] == "expert"
+        # The ceiling: only admin offers the position that does not prompt.
+        # Both tiers are otherwise the same desk over the same machines.
+        assert rw_cfg.pop(WRITES_KEY) == "asked" and ad_cfg.pop(WRITES_KEY) == "allowed"
         # Deployment axis 1 — the agent's tool. The deployment's deny reaches
         # BOTH tiers identically; what makes admin different is the subtraction.
         assert rw_cfg[DENY_KEY] == [SETUP_PATCH_TOOL]
@@ -1282,16 +1230,13 @@ class TestControlAssistantTiersAndApps:
         ro_cfg = dict(layers["tiers/readonly"].config)
         rw_cfg = dict(layers["tiers/readwrite"].config)
         # Axis 1 — enforcement: the write posture, one word on the tier key,
-        # `never` against `allowed`. No retired per-type leaf survives the
+        # `never` against `asked`. No retired per-type leaf survives the
         # load, so nothing else about the posture can differ. The deployment's
         # per-type limits block rides along on every tier by design.
         assert ro_cfg.pop(WRITES_KEY) == "never"
-        assert rw_cfg.pop(WRITES_KEY) == "allowed"
+        assert rw_cfg.pop(WRITES_KEY) == "asked"
         assert not _posture_keys(ro_cfg) and not _posture_keys(rw_cfg)
-        # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
-        assert ro_cfg.pop(UI_MODE_KEY) == "simple"
-        assert rw_cfg.pop(UI_MODE_KEY) == "expert"
-        # Axis 3 — write-oriented panels — is not a config axis at all: the
+        # Axis 2 — write-oriented panels — is not a config axis at all: the
         # tabs ride the write-armed tiers' `web_panels` lists (asserted in
         # test_tiers_share_every_artifact_list_except_panels_and_the_admin_skill),
         # and their URLs are projected from the hosting deployment's render
@@ -1445,9 +1390,7 @@ class TestControlAssistantTiersAndApps:
         assert project.is_dir(), f"{tier} was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
         # The store's address, projected from the host, beside the corpus the
         # tier stages for itself (render-local, never stripped).
         assert (config.get("services") or {}).get("graphdb") == {
@@ -1456,7 +1399,7 @@ class TestControlAssistantTiersAndApps:
         }
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions["allow"]) == graph_permission_entries()
         assert _graph_entries(permissions.get("ask") or []) == []
 
         graph_server = json.loads((project / ".mcp.json").read_text())["mcpServers"]["graph"]
@@ -1522,9 +1465,7 @@ class TestControlAssistantTiersAndApps:
         """
         project = _render_dir(built_layered_stack, tier)
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
 
         assert config["services"] == {
             "qmd": {"port": host["services"]["qmd"]["port"]},
@@ -1537,7 +1478,6 @@ class TestControlAssistantTiersAndApps:
                 "username": host["services"]["postgresql"]["username"],
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
-            "telemetry_gateway": {"port": host["services"]["telemetry_gateway"]["port"]},
             # The single lane declares no `target`: it is addressed by the
             # fallback, the simulator the baseline names.
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
@@ -1560,9 +1500,7 @@ class TestControlAssistantTiersAndApps:
                 encoding="utf-8"
             )
         )
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
         for panel in ("events", "bluesky"):
             told = config["web"]["panels"][panel]
             hosts = host["web"]["panels"][panel]
@@ -1629,7 +1567,7 @@ class TestControlAssistantTiersAndApps:
         assert graphdb.get("port_host") == default_port("graphdb_bolt"), graphdb
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions["allow"]) == graph_permission_entries()
 
         agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
         assert "facility-knowledge-graph" in agents
@@ -1763,14 +1701,15 @@ def _pinned_rows_match_the_shipped_set(pinned: dict) -> None:
 #: Every shipped deployment, tier and app appears, so a new one has to state
 #: its posture here before it ships rather than inheriting a silent one.
 PINNED_WRITE_POSTURE: dict[str, str] = {
-    # The hosting preset arms writes; the read-only tier is what takes them
-    # back, and this row is what makes that tier's `never` load-bearing.
-    "control-assistant": "allowed",
+    # The hosting preset arms writes at the prompting position; the read-only
+    # tier is what takes them back, and this row is what makes that tier's
+    # `never` load-bearing.
+    "control-assistant": "asked",
     # No `control_system:` posture of its own; nothing has a write path to lose.
     "hello-world": "never",
     # The write-capable tiers.
     "tiers/admin": "allowed",
-    "tiers/readwrite": "allowed",
+    "tiers/readwrite": "asked",
     "tiers/readonly": "never",
     # Every app renders `never`, whatever its host or its file says: the
     # composer pins it.
@@ -1841,20 +1780,19 @@ class TestWritePostureMatrix:
 
         assert configured_targets(section) == configured_targets(hosting)
 
-    def test_the_write_capable_tiers_state_the_posture_the_same_way(
-        self, tmp_path: Path, layers: dict[str, BuildProfile]
+    @pytest.mark.parametrize(("tier", "ceiling"), [("readwrite", "asked"), ("admin", "allowed")])
+    def test_the_write_capable_tiers_state_their_ceiling_and_render_it(
+        self, tmp_path: Path, layers: dict[str, BuildProfile], tier: str, ceiling: str
     ) -> None:
-        """readwrite and admin differ on deployment editing and on nothing about
-        the machine: both state ``allowed`` and both render it."""
+        """Only admin offers the position that does not prompt: readwrite's
+        ceiling is ``asked``, and each states its word in the tier key."""
         assert layers["tiers/readwrite"].name == "Control Assistant (Read-Write)"
-        for tier in ("readwrite", "admin"):
-            own = _own_config("tiers", tier)
-            assert _stated_writes(own) == "allowed", tier
-            assert "control_system" not in own, tier
+        own = _own_config("tiers", tier)
+        assert _stated_writes(own) == ceiling
+        assert "control_system" not in own
 
-            (tmp_path / tier).mkdir()
-            section = _rendered_section(tmp_path / tier, f"tiers/{tier}", layers, "control_system")
-            assert tier_writes(section) == "allowed", tier
+        section = _rendered_section(tmp_path, f"tiers/{tier}", layers, "control_system")
+        assert tier_writes(section) == ceiling
 
     @pytest.mark.parametrize("tier", ["readonly", "readwrite"])
     def test_the_reference_deployments_tiers_carry_the_bundled_posture(self, tier: str) -> None:
@@ -1947,7 +1885,7 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = _create_project(
+        project_dir = create_project_as_built(
             TemplateManager(),
             project_name="ctx-ship-test",
             output_dir=tmp_path,
@@ -1974,7 +1912,7 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = _create_project(
+        project_dir = create_project_as_built(
             TemplateManager(),
             project_name="ctx-ship-hello",
             output_dir=tmp_path,
@@ -2004,7 +1942,7 @@ class TestWebTerminalContextShipped:
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        rendered = _create_project(
+        rendered = create_project_as_built(
             TemplateManager(),
             project_name="ctx-seed-hello",
             output_dir=tmp_path,

@@ -1,6 +1,6 @@
 """The chat child's approval gates, proved on the Claude Code the project pins.
 
-The Simple view launches its child with the project's own hooks, no hooks of
+The chat launches its child with the project's own hooks, no hooks of
 its own and no bypass, and puts every tool ask the child raises in front of the
 operator as an approval card. These scripted runs drive that real launch
 (:class:`~osprey.interfaces.web_terminal.operator_session.OperatorSession`)
@@ -20,6 +20,11 @@ making the calls, and prove six things:
 (f) a session allow rule for the tool, installed as "Allow for this session" would,
     does not skip the hook's ask: the CLI ranks the ask above the rule, and suggests
     no such rule for a hook ask in the first place.
+(h) the write switch's position decides a governed call: at ``asked`` a write is carded on
+    a human's record; at ``allowed`` it runs with no card on a ``write_switch`` record the
+    server accepts, with an audit entry naming the switch and the position; moving back to
+    ``asked`` makes the very next write prompt; code naming the posture store is carded at
+    ``allowed`` too; and a readonly run still refuses the write at ``allowed``.
 
 In (a) and (b) the operator approves everything, so an approval the hooks did
 not earn would run the write, and the test would see it executed.
@@ -28,11 +33,17 @@ The approval hook tells the model, in the request that carries an approved call'
 that the operator approved it (APPROVAL_NOTE). That note reaches the request after (c) and
 (e), and no request at all after (a), (b) or (d).
 
+With code review on, the scripted model answers the reviewer too, and two more runs prove
+the review comes first: (j) a passed execute is carded with its verdict, runs on an allow and
+is reviewed once, the executor taking the review from the ask stamp; (k) a blocked execute is
+denied with its reasons and never carded. A third proves the review with no prompt: (l) with the
+switch at ``allowed`` the executor's review refuses a blocked run.
+
 Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
 it reads "ran" in (c), "not run" in (d), and "failed" in (e).
 
-Each gate's own decision for each call is read from the render's hook log, which
-records every decision a hook makes, denials included. The transcript is not the
+Each gate's own decision for each call is read from the agent record's hook debug
+lines, which record every decision a hook makes, denials included. The transcript is not the
 witness: it keeps a hook's output when the hook asks or allows, and nothing when
 the hook denies.
 """
@@ -40,6 +51,7 @@ the hook denies.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from dataclasses import dataclass, field, replace
@@ -55,6 +67,8 @@ from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.interfaces.web_terminal.operator_session import OperatorSession
 from osprey.stores.artifact_store import ArtifactStore
+from osprey_connectors import control_context
+from osprey_connectors.identity import acting_identity
 from osprey_connectors.workspace import resolve_shared_data_root
 from tests.e2e import sdk_helpers
 from tests.e2e.claude_code._chat_turn import (
@@ -90,7 +104,7 @@ EXECUTE = "mcp__python__execute"
 EXECUTE_CODE = "x = 1 + 1\nprint(x)\n"
 #: The description the python tool requires on every call.
 EXECUTE_DESCRIPTION = "Scripted proof: approval review notebook"
-REVIEW_TITLE = "Pre-Execution Review"
+REVIEW_TITLE = "Approval preview"
 REVIEW_NOT_RUN = "Not run: declined or interrupted at the prompt"
 
 
@@ -621,3 +635,320 @@ async def test_an_interrupted_approved_execute_is_settled_not_run_at_the_next_st
         REVIEW_NOT_RUN,
         "Code not run: declined or interrupted at the prompt (mode: readwrite)",
     )
+
+
+# ---------------------------------------------------------------------------
+# (h) the switch's position decides: `asked` prompts, `allowed` runs on a write_switch record
+# ---------------------------------------------------------------------------
+
+#: The approval hook's audit surface (``hook_`` plus the hook's own name).
+APPROVAL_SURFACE = "hook_approval"
+
+
+@contextlib.contextmanager
+def switch_at(repo, position: sdk_helpers.SwitchPosition):
+    """Move this process's switch for *repo*'s baseline target to *position*, then back.
+
+    The module's deployment is armed at ``asked`` (the fixture's narrowest arming word),
+    so every proof above runs there; this puts it back whatever the proof inside did.
+    """
+    sdk_helpers.set_switch_in_record(repo, owner=acting_identity(), position=position)
+    try:
+        yield
+    finally:
+        sdk_helpers.set_switch_in_record(repo, owner=acting_identity(), position="asked")
+
+
+def _approval_gates(run: ChatRun, call: dict[str, Any]) -> list[Any]:
+    """The approval hook's own records for *call*, each with its logged ``detail``."""
+    return [gate for gate in run.statuses(call) if gate[0] == "approval"]
+
+
+def store_naming_execute() -> ScriptedCall:
+    """A read-only execute whose code spells the posture store's file name in a string."""
+    code = f'print("{control_context.RECORD_FILENAME}")\n'
+    return ScriptedCall(
+        EXECUTE,
+        {"code": code, "description": EXECUTE_DESCRIPTION, "execution_mode": "readonly"},
+    )
+
+
+async def test_at_asked_a_write_prompts_and_its_human_record_is_accepted(
+    safety_project, scripted_model
+):
+    """(h1): at ``asked`` the write is carded, the stamp the card waits on names a human
+    and the position, and the server accepts that record: the write runs."""
+    stamps: list[dict[str, Any] | None] = []
+
+    def reads_the_stamp_and_approves(card: dict[str, Any]) -> Answer:
+        stamps.append(sdk_helpers.approval_trail(safety_project, card["tool_use_id"]).stamp)
+        return Answer(allow=True)
+
+    started = sdk_helpers.record_now()
+    with switch_at(safety_project, "asked"):
+        _model, run = await drive_chat(
+            safety_project,
+            scripted_model,
+            [[write(SETPOINT, 40.0)], [read(SETPOINT)]],
+            operator=reads_the_stamp_and_approves,
+        )
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    trail = sdk_helpers.approval_trail(safety_project, call["tool_use_id"], since=started)
+    print(f"chat-gates (h1) {facts} stamp={stamps} entries={trail.entries}")
+
+    assert run.was_carded(call), f"a write at asked was not put to the operator: {facts}"
+    (gate,) = [g for g in _approval_gates(run, call) if g == ("approval", "ask")]
+    assert "position=asked" in gate.detail, gate
+    (stamp,) = stamps
+    assert stamp is not None, "the card was shown with no ask stamp on disk"
+    assert stamp["approver"] == "human" and stamp["position"] == "asked", stamp
+    assert not run.results[call["tool_use_id"]]["is_error"], f"the server refused it: {facts}"
+    assert any(
+        "approver=human" in str(line.get("detail"))
+        for line in trail.entries
+        if not str(line.get("surface")).startswith("hook_")
+    ), f"no server audit entry accepted the human record: {trail.entries}"
+
+
+async def test_at_allowed_a_write_runs_unprompted_on_a_write_switch_record(
+    safety_project, scripted_model
+):
+    """(h2): at ``allowed`` the same write runs with no prompt and no card. The hook files a
+    ``write_switch`` record, the server accepts it, and the hook's audit entry names the
+    switch and the position."""
+    started = sdk_helpers.record_now()
+    with switch_at(safety_project, "allowed"):
+        _model, run = await drive_chat(
+            safety_project,
+            scripted_model,
+            [[write(SETPOINT, 45.0)], [read(SETPOINT)]],
+            operator=declines_everything,
+        )
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    trail = sdk_helpers.approval_trail(safety_project, call["tool_use_id"], since=started)
+    print(f"chat-gates (h2) {facts} entries={trail.entries}")
+
+    assert not run.cards, f"a write at allowed reached the operator: {facts}"
+    assert ("approval", "ask") not in run.statuses(call), facts
+    (gate,) = [g for g in _approval_gates(run, call) if g == ("approval", "allow")]
+    assert "position=allowed" in gate.detail, gate
+    assert not run.results[call["tool_use_id"]]["is_error"], f"the server refused it: {facts}"
+
+    switch_lines = [
+        line
+        for line in trail.lines(APPROVAL_SURFACE)
+        if line.get("decision") == "approved" and line.get("reason") == "switch"
+    ]
+    assert len(switch_lines) == 1, f"no single switch approval on the record: {trail.entries}"
+    assert switch_lines[0].get("detail") == "approver=write_switch position=allowed", switch_lines
+    assert any(
+        "approver=write_switch" in str(line.get("detail"))
+        for line in trail.entries
+        if not str(line.get("surface")).startswith("hook_")
+    ), f"no server audit entry accepted the write_switch record: {trail.entries}"
+
+
+async def test_moving_back_to_asked_makes_the_very_next_write_prompt(
+    safety_project, scripted_model
+):
+    """(h3): the first write runs unprompted at ``allowed``; the switch moves back to
+    ``asked`` before the model answers with the second, and the second is carded."""
+    model = scripted_model([[write(SETPOINT, 50.0)], [write(SETPOINT, 55.0)], [read(SETPOINT)]])
+    conversations = record_conversations(model)
+    answer = model.answer
+    moved: list[bool] = []
+
+    def move_back_after_the_first_result(body: dict[str, Any], credential: str | None):
+        messages = [m for m in body.get("messages") or [] if isinstance(m, dict)]
+        if not moved and any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for m in messages
+            if m.get("role") == "user" and isinstance(m.get("content"), list)
+            for block in m["content"]
+        ):
+            sdk_helpers.set_switch_in_record(
+                safety_project, owner=acting_identity(), position="asked"
+            )
+            moved.append(True)
+        return answer(body, credential)
+
+    model.answer = move_back_after_the_first_result
+    with switch_at(safety_project, "allowed"):
+        frames, cards, gates = await drive_turn(safety_project, TASK, approves_everything)
+    model.assert_script_consumed()
+    calls, results = calls_and_results(frames)
+    run = ChatRun(calls=calls, results=results, cards=cards, gates=gates)
+    run.conversations = conversations
+    first, second = [c for c in run.calls if c["tool_name_raw"] == WRITE]
+    print(f"chat-gates (h3) first={run.describe(first)} second={run.describe(second)}")
+
+    assert moved, "the switch was never moved back"
+    assert not run.was_carded(first), run.describe(first)
+    assert ("approval", "allow") in run.statuses(first), run.describe(first)
+    assert not run.results[first["tool_use_id"]]["is_error"], run.describe(first)
+    assert run.was_carded(second), f"the write after the move was not put: {run.describe(second)}"
+    (gate,) = [g for g in _approval_gates(run, second) if g == ("approval", "ask")]
+    assert "position=asked" in gate.detail, gate
+    assert not run.results[second["tool_use_id"]]["is_error"], run.describe(second)
+
+
+async def test_at_allowed_a_store_naming_execute_still_prompts(safety_project, scripted_model):
+    """(h4): code that names the posture store is put to a person in every position, so at
+    ``allowed`` it is still carded; the operator's decline blocks it."""
+    with switch_at(safety_project, "allowed"):
+        _model, run = await drive_chat(
+            safety_project,
+            scripted_model,
+            [[store_naming_execute()], [read(SETPOINT)]],
+            operator=declines_everything,
+        )
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (h4) {facts}")
+
+    assert run.was_carded(execute), f"a store-naming execute ran unprompted at allowed: {facts}"
+    (gate,) = [g for g in _approval_gates(run, execute) if g == ("approval", "ask")]
+    assert "position=asked" in gate.detail, gate
+    blocked = run.results[execute["tool_use_id"]]
+    assert blocked["is_error"] and OPERATOR_DECLINED in blocked["preview"], facts
+
+
+async def test_at_allowed_a_readonly_run_still_refuses_the_write(safety_project, scripted_model):
+    """(h5): ``OSPREY_EXECUTION_MODE=readonly`` refuses the write at writes-check whatever
+    the switch says; the approval hook defers and nobody is shown it."""
+    with switch_at(safety_project, "allowed"):
+        _model, run = await drive_chat(
+            safety_project,
+            scripted_model,
+            [[write(SETPOINT, 60.0)], [read(SETPOINT)]],
+            operator=approves_everything,
+            env={"OSPREY_EXECUTION_MODE": "readonly"},
+        )
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    print(f"chat-gates (h5) {facts}")
+
+    assert ("writes-check", "deny") in run.statuses(call), facts
+    assert ("approval", "defer") in run.statuses(call), facts
+    assert ("approval", "allow") not in run.statuses(call), facts
+    assert not run.was_carded(call), facts
+    refused = run.results[call["tool_use_id"]]
+    assert refused["is_error"] and WRITES_OFF_REASON in refused["preview"], facts
+
+
+# ---------------------------------------------------------------------------
+# (j)/(k) code review on: the review comes before the prompt, and the executor trusts it
+# ---------------------------------------------------------------------------
+
+#: What the scripted reviewer blocks: code that names this call. Nothing else is read.
+BLOCKED_CALL = "write_channel"
+#: The reason the scripted reviewer gives for a block.
+BLOCK_REASON = "Calls write_channel under a description that says it only reads."
+BLOCKED_CODE = (
+    'from osprey.runtime import write_channel as wc\nwc("SR:MAG:HCM:01:CURRENT:SP", 1.0)\n'
+)
+
+
+def scripted_reviewer(message: str) -> str:
+    """Block code that names :data:`BLOCKED_CALL`; pass everything else."""
+    if BLOCKED_CALL in message:
+        return json.dumps({"verdict": "block", "reasons": [BLOCK_REASON]})
+    return json.dumps({"verdict": "pass", "reasons": []})
+
+
+def _review_header(repo, before: dict[str, tuple[str, str]]) -> str:
+    """The header cell of the one review notebook added since *before*."""
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    store = ArtifactStore(workspace_root=resolve_shared_data_root(config), auto_launch=False)
+    (entry,) = [e for e in store.list_entries() if e.title == REVIEW_TITLE and e.id not in before]
+    return nbformat.read(store.get_file_path(entry.id), as_version=4).cells[0].source
+
+
+async def _drive_reviewed(repo, scripted_model, turns) -> tuple[Any, ChatRun]:
+    """Run *turns* as :func:`drive_chat` does, the scripted reviewer answering each review."""
+    model = scripted_model(turns, scripted_reviewer)
+    frames, cards, gates = await drive_turn(repo, TASK, approves_everything)
+    model.assert_script_consumed()
+    calls, results = calls_and_results(frames)
+    return model, ChatRun(calls=calls, results=results, cards=cards, gates=gates)
+
+
+async def test_a_reviewed_execute_shows_its_verdict_and_is_not_reviewed_twice(
+    safety_project_code_review, scripted_model
+):
+    """(j): the reviewer passes the execute before the prompt. The card and the review
+    notebook carry the verdict, the allow runs the code, and the reviewer is asked once:
+    the executor takes the review the ask stamp carries instead of reading the code again.
+    """
+    repo = safety_project_code_review
+    before = _review_notebooks(repo)
+    model, run = await _drive_reviewed(
+        repo, scripted_model, [[execute_readwrite()], [read(SETPOINT)]]
+    )
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (j) {facts} reviews={len(model.reviews)}")
+
+    assert len(model.reviews) == 1, f"the code was reviewed {len(model.reviews)} times: {facts}"
+    assert EXECUTE_CODE in model.reviews[0]
+    assert run.was_carded(execute), f"the reviewed execute never reached the operator: {facts}"
+    (card,) = [c for c in run.cards if c["tool_use_id"] == execute["tool_use_id"]]
+    assert "Code review: pass" in (card["reason"] or ""), card["reason"]
+    assert not run.results[execute["tool_use_id"]]["is_error"], facts
+    assert "Code review" in _review_header(repo, before)
+    assert _new_review(repo, before)[0] == "Ran after operator approval"
+
+
+async def test_a_blocked_execute_is_denied_before_the_operator_is_asked(
+    safety_project_code_review, scripted_model
+):
+    """(k): the reviewer blocks the execute. The approval hook denies it with the reasons,
+    the operator is never shown it although they would approve anything, and it never runs.
+    """
+    repo = safety_project_code_review
+    before = _review_notebooks(repo)
+    blocked = ScriptedCall(
+        EXECUTE,
+        {"code": BLOCKED_CODE, "description": "Read the corrector.", "execution_mode": "readwrite"},
+    )
+    model, run = await _drive_reviewed(repo, scripted_model, [[blocked], [read(SETPOINT)]])
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (k) {facts} reviews={len(model.reviews)}")
+
+    assert len(model.reviews) == 1, f"the code was reviewed {len(model.reviews)} times: {facts}"
+    assert ("approval", "refused") in run.statuses(execute), facts
+    assert not run.was_carded(execute), f"the operator was shown a blocked execute: {facts}"
+    refused = run.results[execute["tool_use_id"]]
+    assert refused["is_error"], facts
+    assert refused["preview"].startswith(f"PreToolUse:{EXECUTE} hook error"), facts
+    assert BLOCK_REASON in refused["preview"], facts
+    assert _review_notebooks(repo) == before, "a blocked execute left a review notebook"
+
+
+async def test_at_allowed_the_executor_reviews_what_no_prompt_saw(
+    safety_project_code_review, scripted_model
+):
+    """(l): at ``allowed`` the hook asks nobody and reviews nothing, so the executor's review is
+    the only one. A block there refuses the run in the tool, past the hook that let it through.
+    """
+    repo = safety_project_code_review
+    blocked = ScriptedCall(
+        EXECUTE,
+        {"code": BLOCKED_CODE, "description": "Read the corrector.", "execution_mode": "readwrite"},
+    )
+    with switch_at(repo, "allowed"):
+        model, run = await _drive_reviewed(repo, scripted_model, [[blocked], [read(SETPOINT)]])
+    execute = run.only_call(EXECUTE)
+    facts = run.describe(execute)
+    print(f"chat-gates (l) {facts} reviews={len(model.reviews)}")
+
+    assert len(model.reviews) == 1, f"the code was reviewed {len(model.reviews)} times: {facts}"
+    assert not run.cards, f"a run at allowed reached the operator: {facts}"
+    assert ("approval", "allow") in run.statuses(execute), facts
+    refused = run.results[execute["tool_use_id"]]
+    assert refused["is_error"], facts
+    assert not refused["preview"].startswith("PreToolUse:"), facts
+    assert BLOCK_REASON in refused["preview"], facts

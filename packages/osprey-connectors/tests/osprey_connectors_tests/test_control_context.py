@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,6 +24,14 @@ from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
 
 # --- fixtures --------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def proc_root(tmp_path_factory, monkeypatch):
+    """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
+    root = tmp_path_factory.mktemp("proc")
+    monkeypatch.setattr(control_context, "_PROC_ROOT", str(root))
+    return root
 
 
 @pytest.fixture
@@ -177,7 +186,7 @@ def test_the_stored_mirror_follows_the_switch():
         return json.loads(control_context.record_path().read_text(encoding="utf-8"))
 
     epoch = stored()["switch_epoch"]
-    control_context.set_switch(["live"], "on", epoch=epoch)
+    control_context.set_switch(["live"], "asked", epoch=epoch)
     assert stored()["posture"] == {"va": "sandbox", "standin": "sandbox"}
 
     control_context.set_switch(["live"], "off")
@@ -647,6 +656,166 @@ def test_nothing_but_a_positive_int_names_a_process(monkeypatch, value):
     assert control_context.is_process_alive(value) is False
 
 
+def _status(root, pid, tgid):
+    """Lay down ``<root>/<pid>/status`` as the kernel words the two lines read."""
+    directory = root / str(pid)
+    directory.mkdir()
+    (directory / "status").write_bytes(
+        f"Name:\tosprey\nUmask:\t0022\nTgid:\t{tgid}\nNgid:\t0\nPid:\t{pid}\n".encode()
+    )
+
+
+def test_a_thread_of_a_process_is_not_a_process(proc_root, monkeypatch):
+    """``os.kill`` answers for any thread id; the deployment's record named one."""
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    _status(proc_root, 424, tgid=193)
+
+    assert control_context.is_process_alive(424) is False
+
+
+def test_a_thread_group_leader_is_a_process(proc_root, monkeypatch):
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    _status(proc_root, 193, tgid=193)
+
+    assert control_context.is_process_alive(193) is True
+
+
+def test_a_thread_we_may_not_signal_is_not_a_process(proc_root, monkeypatch):
+    def denied(pid, _sig):
+        raise PermissionError(pid)
+
+    monkeypatch.setattr(os, "kill", denied)
+    _status(proc_root, 424, tgid=193)
+
+    assert control_context.is_process_alive(424) is False
+
+
+@pytest.mark.parametrize(
+    "status",
+    [b"", b"Name:\tosprey\n", b"Tgid:\n", b"Tgid:\tnot-a-number\n", b"\xff\xfe\n"],
+    ids=["empty", "no-tgid-line", "no-value", "not-a-number", "not-text"],
+)
+def test_a_status_that_says_nothing_leaves_the_kernels_answer(proc_root, monkeypatch, status):
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    (proc_root / "424").mkdir()
+    (proc_root / "424" / "status").write_bytes(status)
+
+    assert control_context.is_process_alive(424) is True
+
+
+def test_a_record_naming_a_thread_has_no_live_owner(proc_root, monkeypatch):
+    """The nine terminals of the report: each followed a thread of itself."""
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    _status(proc_root, 424, tgid=193)
+    owner = {"kind": "web_terminal", "pid": 424, "port": 19101}
+    record = control_context.parse_record(json.dumps(_payload(owner=owner)))
+
+    assert record is not None
+    assert record.owner is not None and record.owner.pid == 424
+    assert control_context.live_owner(record) is None
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs a Linux /proc")
+def test_a_real_thread_id_passes_the_kernel_check_and_is_no_process(monkeypatch):
+    monkeypatch.setattr(control_context, "_PROC_ROOT", "/proc")
+    named = threading.Event()
+    release = threading.Event()
+    tids = []
+
+    def run():
+        tids.append(threading.get_native_id())
+        named.set()
+        release.wait(30)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    try:
+        assert named.wait(30)
+        os.kill(tids[0], 0)  # the kernel's answer, which is what misled the owner check
+        assert tids[0] != os.getpid()
+        assert control_context.is_process_alive(tids[0]) is False
+        assert control_context.is_process_alive(os.getpid()) is True
+    finally:
+        release.set()
+        thread.join(30)
+
+
+# --- the record's owner ----------------------------------------------------
+
+
+def _kill_denied_for(foreign_pids):
+    """An ``os.kill`` under which *foreign_pids* run as another user."""
+
+    def fake_kill(pid, _sig):
+        if pid in foreign_pids:
+            raise PermissionError(pid)
+        return None
+
+    return fake_kill
+
+
+def _owned_record(pid):
+    return control_context.ControlContext(
+        target="va",
+        generation=3,
+        owner=control_context.Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=pid, port=8090),
+    )
+
+
+def test_a_running_owner_of_this_user_is_the_live_owner(monkeypatch):
+    monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
+    record = _owned_record(4321)
+    assert control_context.live_owner(record) == record.owner
+
+
+def test_an_exited_owner_is_no_live_owner(monkeypatch):
+    monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
+    assert control_context.live_owner(_owned_record(4321)) is None
+
+
+def test_another_users_process_under_the_owners_pid_is_no_live_owner(monkeypatch):
+    """The upgrade that put an init process in front of the terminal.
+
+    The record on the bind mount still names PID 1, which the previous
+    container's terminal was. In the new container PID 1 is root's init and
+    the terminal runs unprivileged beside it: alive, not ours to signal, and
+    not the owner of anything in this directory.
+    """
+    monkeypatch.setattr(os, "kill", _kill_denied_for({1}))
+    assert control_context.is_process_alive(1) is True
+    assert control_context.live_owner(_owned_record(1)) is None
+
+
+def test_no_record_and_no_owner_have_no_live_owner():
+    assert control_context.live_owner(None) is None
+    ownerless = control_context.ControlContext(target="va", generation=0)
+    assert control_context.live_owner(ownerless) is None
+
+
+def test_only_a_refused_signal_says_another_users_process(monkeypatch):
+    monkeypatch.setattr(os, "kill", _kill_denied_for({1}))
+    assert control_context.is_foreign_process(1) is True
+    assert control_context.is_foreign_process(4321) is False
+
+    monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
+    assert control_context.is_foreign_process(4321) is False
+
+    def odd(_pid, _sig):
+        raise OSError("platform oddity")
+
+    monkeypatch.setattr(os, "kill", odd)
+    assert control_context.is_foreign_process(4321) is False
+
+
+@pytest.mark.parametrize("value", [0, -1, True, False, "4321", 4321.0, None, [4321]])
+def test_nothing_but_a_positive_int_is_another_users_process(monkeypatch, value):
+    def explode(pid, _sig):  # pragma: no cover - must not be called
+        raise AssertionError(f"os.kill called with {pid!r}")
+
+    monkeypatch.setattr(os, "kill", explode)
+    assert control_context.is_foreign_process(value) is False
+
+
 # --- the claim rule --------------------------------------------------------
 
 
@@ -726,7 +895,7 @@ def _report_payload(pid, **overrides):
 
 
 def _write_report(root: Path, pid, payload=None) -> Path:
-    path = control_context._report_path_under(root, pid)
+    path = control_context.report_path_under(root, pid)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_text(text, encoding="utf-8")
@@ -738,14 +907,14 @@ def test_reports_live_beside_the_record(data_root):
     expected = control_context.state_dir() / "server_4321.json"
     assert control_context.REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
-    assert control_context._report_path(4321) == expected
-    assert control_context._report_path_under(data_root, 4321) == expected
+    assert control_context.report_path(4321) == expected
+    assert control_context.report_path_under(data_root, 4321) == expected
     assert expected.parent == control_context.record_path().parent
 
 
 @pytest.mark.usefixtures("rootless")
 def test_report_path_is_none_without_a_root():
-    assert control_context._report_path(4321) is None
+    assert control_context.report_path(4321) is None
     assert control_context.report_paths() == []
 
 
@@ -803,11 +972,11 @@ def test_a_degraded_report_field_degrades_alone(field, value, expected):
 
 
 def test_an_absent_or_degraded_report_file_reads_as_none(data_root):
-    assert control_context.read_report(control_context._report_path(4321)) is None
+    assert control_context.read_report(control_context.report_path(4321)) is None
     _write_report(data_root, 4322, "{not json")
-    assert control_context.read_report(control_context._report_path(4322)) is None
+    assert control_context.read_report(control_context.report_path(4322)) is None
     _write_report(data_root, 4323, "[1, 2, 3]")
-    assert control_context.read_report(control_context._report_path(4323)) is None
+    assert control_context.read_report(control_context.report_path(4323)) is None
 
 
 def test_an_unchanged_report_signature_is_not_re_parsed(data_root):
@@ -836,7 +1005,7 @@ def test_caching_a_report_does_not_evict_the_record(data_root):
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     record = control_context.read_record()
     _write_report(data_root, 4321, _report_payload(4321))
-    control_context.read_report(control_context._report_path(4321))
+    control_context.read_report(control_context.report_path(4321))
     assert control_context.read_record() is record
 
 
@@ -858,7 +1027,7 @@ def test_live_reports_ask_the_liveness_predicate_they_are_given(data_root):
 def test_live_report_payloads_keep_the_keys_this_version_does_not_know(data_root):
     _write_report(data_root, os.getpid(), _report_payload(os.getpid(), owner_ppid=os.getppid()))
 
-    payloads = control_context._live_report_payloads(control_context.report_paths())
+    payloads = control_context.live_report_payloads(control_context.report_paths())
 
     assert [p["owner_ppid"] for p in payloads] == [os.getppid()]
 
@@ -871,7 +1040,191 @@ def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
-    assert control_context._live_report_payloads(control_context.report_paths()) == []
+    assert control_context.live_report_payloads(control_context.report_paths()) == []
+
+
+# --- display-only reports --------------------------------------------------
+
+
+_STATEMENT = {
+    "reachable": {"state": "yes", "since": None, "reason": None},
+    "writes": {"allowed": False, "position": None, "reason": "switch_off", "kind": "simulator"},
+}
+
+
+def _display_payload(pid, **overrides):
+    """The report a display process (the CANOPY panel backend) writes: binding and statement only."""
+    payload = {
+        "server_pid": pid,
+        "session": None,
+        "applied_target": "va",
+        "applied_generation": 7,
+        "children": [],
+        "reachability": {},
+        "last_switch": None,
+        "last_posture_realign": None,
+        "targets": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "statement": _STATEMENT,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_a_display_only_report_round_trips_eleven_fields():
+    payload = _display_payload(4321)
+    report = control_context.parse_report(payload)
+
+    assert report.display_only is True
+    assert report.statement == _STATEMENT
+    assert report.to_payload() == payload
+    assert len(report.to_payload()) == 11
+    assert control_context.parse_report(report.to_payload()) == report
+
+
+def test_a_controls_server_report_stays_ten_fields_and_not_display_only():
+    report = control_context.parse_report(_report_payload(4321))
+
+    assert report.display_only is False
+    assert report.statement is None
+    assert "statement" not in report.to_payload()
+    assert len(report.to_payload()) == 10
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        None,
+        "on",
+        [],
+        {},
+        {"reachable": {"state": "yes"}},
+        {"writes": _STATEMENT["writes"]},
+        {"reachable": "yes", "writes": _STATEMENT["writes"]},
+        {"reachable": {"state": "yes"}, "writes": 1},
+        {"reachable": {"state": "unknown"}, "writes": None},
+        {"reachable": {"state": "no", "since": 7}, "writes": None},
+        {"reachable": None, "writes": {"state": "on", "reason": None, "cause": None}},
+        {"reachable": None, "writes": {"allowed": "yes", "position": None, "reason": None}},
+        {"reachable": None, "writes": {"allowed": True, "position": "on", "kind": "real"}},
+        {"reachable": None, "writes": {"allowed": True, "position": "asked", "kind": "live"}},
+        {"reachable": None, "writes": {"allowed": False, "reason": 3, "kind": "real"}},
+    ],
+)
+def test_a_statement_of_another_shape_states_nothing(statement):
+    """A malformed statement never marks a report display-only (it reads as a controls server's)."""
+    report = control_context.parse_report(_display_payload(4321, statement=statement))
+
+    assert report is not None
+    assert report.statement is None
+    assert report.display_only is False
+    assert "statement" not in report.to_payload()
+    assert control_context.parse_report(report.to_payload()).display_only is False
+
+
+def test_a_statement_not_yet_stated_on_either_axis_is_well_formed():
+    report = control_context.parse_report(
+        _display_payload(4321, statement={"reachable": None, "writes": None})
+    )
+    assert report.statement == {"reachable": None, "writes": None}
+    assert report.display_only is True
+
+
+@pytest.mark.parametrize("state", control_context.REACHABLE_STATES)
+def test_reachable_is_stated_as_one_of_the_two_roots(state):
+    statement = {
+        "reachable": {"state": state, "since": "2026-01-01T00:00:00+00:00"},
+        "writes": None,
+    }
+    report = control_context.parse_report(_display_payload(4321, statement=statement))
+    assert report.statement["reachable"] == {
+        "state": state,
+        "since": "2026-01-01T00:00:00+00:00",
+        "reason": None,
+    }
+
+
+def test_write_statement_carries_the_verdicts_terms_and_nothing_else():
+    verdict = posture_store.WriteVerdict(
+        allowed=False,
+        reason="session_held",
+        target="va",
+        kind="simulator",
+        position=None,
+        detail="a watchdog flagged the session",
+    )
+    writes = control_context.write_statement(verdict)
+
+    assert tuple(writes) == control_context.WRITES_STATEMENT_KEYS
+    assert writes == {
+        "allowed": False,
+        "position": None,
+        "reason": "session_held",
+        "kind": "simulator",
+    }
+    report = control_context.parse_report(
+        _display_payload(4321, statement={"reachable": None, "writes": writes})
+    )
+    assert report.statement["writes"] == writes
+
+    allowed = posture_store.WriteVerdict(
+        allowed=True, reason=None, target="live", kind="real", position="asked"
+    )
+    assert control_context.write_statement(allowed) == {
+        "allowed": True,
+        "position": "asked",
+        "reason": None,
+        "kind": "real",
+    }
+
+
+def test_fleet_readers_leave_out_a_display_only_report(data_root):
+    _write_report(data_root, 4321, _report_payload(4321))
+    _write_report(data_root, 4322, _display_payload(4322))
+    alive = {"is_alive": lambda pid: True}
+
+    assert [r.server_pid for r in control_context.live_reports(**alive)] == [4321]
+    payloads = control_context.live_report_payloads(control_context.report_paths(), **alive)
+    assert [p["server_pid"] for p in payloads] == [4321]
+    statements = control_context.live_statement_reports(**alive)
+    assert [r.server_pid for r in statements] == [4322]
+    assert statements[0].display_only is True
+
+
+def test_a_report_with_a_malformed_statement_is_read_as_a_controls_server(data_root):
+    _write_report(data_root, 4322, _display_payload(4322, statement="malformed"))
+    alive = {"is_alive": lambda pid: True}
+
+    assert [r.server_pid for r in control_context.live_reports(**alive)] == [4322]
+    payloads = control_context.live_report_payloads(control_context.report_paths(), **alive)
+    assert [p["server_pid"] for p in payloads] == [4322]
+    assert control_context.live_statement_reports(**alive) == []
+
+
+def test_live_statement_reports_skip_dead_display_processes(data_root):
+    _write_report(data_root, 4322, _display_payload(4322))
+    assert control_context.live_statement_reports(is_alive=lambda pid: False) == []
+    paths = control_context.report_paths()
+    assert len(control_context.live_statement_reports(paths, is_alive=lambda pid: True)) == 1
+
+
+def test_live_statement_reports_is_exported():
+    assert "live_statement_reports" in control_context.__all__
+
+
+@pytest.mark.parametrize("session", [None, "", "sess-1", "sess-other", "kernel:abc"])
+@pytest.mark.parametrize(
+    ("target", "generation"), [("va", 7), ("live", 6), (None, None), ("va", 8)]
+)
+def test_blocking_pids_passes_over_a_display_only_report(session, target, generation):
+    """A display process states no session and no switch, so it never holds anybody up."""
+    data = control_context.parse_report(
+        _display_payload(4322, applied_target=target, applied_generation=generation)
+    )
+    record = _context()
+
+    assert control_context.blocking_pids(record, [data], session) == ()
+    assert control_context.converged(record, [data], session) is True
 
 
 # --- sweeping --------------------------------------------------------------
@@ -1347,7 +1700,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         updated_at="2026-01-01T00:00:01Z",
     )
 
-    assert path == control_context._report_path(4321)
+    assert path == control_context.report_path(4321)
     report = control_context.read_report(path)
     assert report == control_context.ServerReport(
         server_pid=4321,
@@ -1369,7 +1722,7 @@ def test_the_report_fixture_defaults_to_a_server_that_has_answered_nothing(data_
 
     write_server_report(data_root, 4321)
 
-    report = control_context.read_report(control_context._report_path(4321))
+    report = control_context.read_report(control_context.report_path(4321))
     assert report is not None
     assert report.applied_target is None
     assert report.applied_generation is None
@@ -1440,17 +1793,20 @@ def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ({"live": "on", "va": "on"}, {"live": "on", "va": "on"}),
-        ({"live": "on", "va": "off"}, {"live": "on"}),
+        ({"live": "on", "va": "on"}, {"live": "asked", "va": "asked"}),
+        ({"live": "on", "va": "off"}, {"live": "asked"}),
         ({"live": True, "va": "ON", "standin": 1}, {}),
-        ({"unknown_target": "on"}, {"unknown_target": "on"}),
+        ({"unknown_target": "on"}, {"unknown_target": "asked"}),
         ("on", {}),
         (["live"], {}),
         (None, {}),
     ],
 )
-def test_only_on_survives_in_the_switch(value, expected):
-    """Rule 2: a degraded switch degrades to off, alone; the identity stands."""
+def test_only_a_position_survives_in_the_switch(value, expected):
+    """Rule 2: a degraded switch degrades to off, alone; the identity stands.
+
+    The legacy ``"on"`` is a position: it reads as ``"asked"``.
+    """
     record = control_context.parse_record(_payload(switch=value))
     assert record is not None
     assert record.switch == expected
@@ -1475,10 +1831,10 @@ def test_a_record_without_switch_fields_reads_switched_off_and_epoch_less():
 
 def test_the_switch_fields_round_trip_through_the_payload():
     record = control_context.ControlContext(
-        target="live", generation=3, switch={"live": "on"}, switch_epoch=42
+        target="live", generation=3, switch={"live": "asked"}, switch_epoch=42
     )
     payload = record.to_payload()
-    assert payload["switch"] == {"live": "on"} and payload["switch_epoch"] == 42
+    assert payload["switch"] == {"live": "asked"} and payload["switch_epoch"] == 42
     mirrored = replace(record, posture=control_context.posture_mirror(record.switch))
     assert control_context.parse_record(payload) == mirrored
     assert control_context.parse_record(json.dumps(payload)) == mirrored
@@ -1589,10 +1945,10 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
         data_root,
         target="standin",
         generation=5,
-        switch={"standin": "on"},
+        switch={"standin": "asked"},
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["switch"] == {"standin": "on"}
+    assert payload["switch"] == {"standin": "asked"}
     assert isinstance(payload["switch_epoch"], int)
     # The mirror: every machine not turned on reads as narrowed to an older reader.
     mirror = {"live": "sandbox", "va": "sandbox"}
@@ -1615,15 +1971,15 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
 def test_the_record_fixture_writes_a_switch_on_request(data_root):
     from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
-    path = write_control_context(data_root, switch={"va": "on"})
+    path = write_control_context(data_root, switch={"va": "asked"})
     first_epoch = control_context.read_record().switch_epoch
-    assert control_context.read_record().switch == {"va": "on"}
+    assert control_context.read_record().switch == {"va": "asked"}
     assert isinstance(first_epoch, int) and first_epoch > 0
 
     # A rewrite without switch= keeps what is on disk, the production rule;
     # a turn-on never moves the epoch.
     write_control_context(data_root, generation=2)
-    assert control_context.read_record().switch == {"va": "on"}
+    assert control_context.read_record().switch == {"va": "asked"}
     write_control_context(data_root, generation=3, switch={})
     assert control_context.read_record().switch == {}
     assert control_context.read_record().switch_epoch == first_epoch

@@ -1,6 +1,6 @@
 """The example artifact the gallery seeds into an empty workspace.
 
-A first visit to WORKSPACE otherwise shows nothing. The gallery writes one
+A first visit to the Artifacts panel otherwise shows nothing. The gallery writes one
 shipped, interactive Plotly page into the store the first time it starts
 against a workspace, when ``artifact_server.example_artifact`` is on. The
 bytes ship inside the package (``examples/interactive-plot.html``, made by

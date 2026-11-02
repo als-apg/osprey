@@ -83,8 +83,7 @@ def _hook_short_name(stem: str) -> str:
         osprey_hook_log     → hook-log
         osprey_writes_check → writes-check
     """
-    if stem.startswith("osprey_"):
-        stem = stem[len("osprey_") :]
+    stem = stem.removeprefix("osprey_")
     return stem.replace("_", "-")
 
 
@@ -180,26 +179,25 @@ def _short_name_from_path(path: Path, artifact_type: str) -> str | None:
         if path.is_dir():
             return path.name
         return None
+    # All other types are files
+    if not path.is_file():
+        return None
+    if artifact_type == "hooks":
+        # Hook Python scripts: strip osprey_ prefix and convert underscores
+        # to hyphens so profiles use readable short names (e.g. "approval").
+        if path.suffix == ".py":
+            return _hook_short_name(path.stem)
+        # Hook JSON config template: hook_config.json.j2 → hook-config
+        if path.name.endswith(".json.j2"):
+            stem = path.name[: -len(".json.j2")]
+            return stem.replace("_", "-")
     else:
-        # All other types are files
-        if not path.is_file():
-            return None
-        if artifact_type == "hooks":
-            # Hook Python scripts: strip osprey_ prefix and convert underscores
-            # to hyphens so profiles use readable short names (e.g. "approval").
-            if path.suffix == ".py":
-                return _hook_short_name(path.stem)
-            # Hook JSON config template: hook_config.json.j2 → hook-config
-            if path.name.endswith(".json.j2"):
-                stem = path.name[: -len(".json.j2")]
-                return stem.replace("_", "-")
-        else:
-            # rules, agents, output_styles: .md or .md.j2
-            name = path.name
-            if name.endswith(".md.j2"):
-                return name[: -len(".md.j2")]
-            if name.endswith(".md"):
-                return name[: -len(".md")]
+        # rules, agents, output_styles: .md or .md.j2
+        name = path.name
+        if name.endswith(".md.j2"):
+            return name[: -len(".md.j2")]
+        if name.endswith(".md"):
+            return name[: -len(".md")]
     return None
 
 

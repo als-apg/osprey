@@ -4,11 +4,10 @@
  * SR01:HCM1:SP"). Single-slot, latest-wins; populated by activity-strip.js
  * through panel-manager's setActivityStripHandler seam.
  *
- * Layout stability: in the hub (index.html) the strip is the flexible middle
- * region of the fixed-height footer status bar — text appears and disappears
- * inside space the bar already reserves, never shifting the left/right item
- * groups or the page. The floating variant (session.html, which has no status
- * bar) is a fixed overlay, out of normal flow entirely.
+ * Layout stability: the strip is a fixed overlay on pages that have no footer,
+ * out of normal flow entirely, so text appearing and disappearing never shifts
+ * the page. The hub shows no strip any more: its activity lives in the Activity
+ * log and on the sidebar row badges.
  *
  * Design tokens only — correct across dark/light/retro/high-contrast.
  */
@@ -121,10 +120,10 @@
   border-radius: var(--radius-sm);
 }
 
-/* Body-level and fixed — the hub's strip lives in the footer status bar,
- * which is one row tall and overflow:hidden, so an in-place popover would be
- * clipped away. Coordinates come from JS (placeHistory()); everything here is
- * appearance only. Not scoped under the status bar: it is a child of <body>. */
+/* Body-level and fixed — the strip sits in a container that can clip
+ * (overflow:hidden), so an in-place popover would be clipped away. Coordinates
+ * come from JS (placeHistory()); everything here is appearance only. Not scoped
+ * under the strip: it is a child of <body>. */
 .activity-history-popover {
   position: fixed;
   z-index: var(--z-dropdown);

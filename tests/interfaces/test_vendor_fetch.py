@@ -37,22 +37,18 @@ _FAKE_MANIFEST = {
 
 
 class TestIsRetryable:
-    def test_generic_httpexception_is_retryable(self):
-        assert vendor._is_retryable(http.client.BadStatusLine("x")) is True
-
-    def test_oserror_is_retryable(self):
-        assert vendor._is_retryable(OSError("boom")) is True
-
-    def test_429_is_retryable(self):
-        err = urllib.error.HTTPError("u", 429, "Too Many", {}, None)
-        assert vendor._is_retryable(err) is True
-
-    def test_404_is_not_retryable(self):
-        err = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
-        assert vendor._is_retryable(err) is False
-
-    def test_cert_error_is_not_retryable(self):
-        assert vendor._is_retryable(ssl.SSLCertVerificationError("bad")) is False
+    @pytest.mark.parametrize(
+        ("error", "retryable"),
+        [
+            pytest.param(http.client.BadStatusLine("x"), True, id="generic-httpexception"),
+            pytest.param(OSError("boom"), True, id="oserror"),
+            pytest.param(urllib.error.HTTPError("u", 429, "Too Many", {}, None), True, id="429"),
+            pytest.param(urllib.error.HTTPError("u", 404, "Not Found", {}, None), False, id="404"),
+            pytest.param(ssl.SSLCertVerificationError("bad"), False, id="cert-error"),
+        ],
+    )
+    def test_is_retryable(self, error: BaseException, retryable: bool):
+        assert vendor._is_retryable(error) is retryable
 
 
 class TestSslContext:

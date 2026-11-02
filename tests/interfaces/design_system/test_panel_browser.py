@@ -39,8 +39,8 @@ from starlette.responses import FileResponse
 
 import osprey.interfaces.design_system.panels as _panels_pkg
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -83,7 +83,7 @@ def _launch_reference_panel() -> Iterator[str]:
 
     configure_interface_app(app, static_dir=_REFERENCE_DIR)
 
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 

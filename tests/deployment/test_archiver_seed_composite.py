@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import math
+import sys
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,10 +37,18 @@ from osprey_connectors.simulation.state import write_active_state
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.workspace import resolve_simulation_state_dir
+from tests._archive_composites import archives_closed
 from tests._simulator_view import write_texture_view
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
+
+
+@pytest.fixture(autouse=True)
+def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    with archives_closed(monkeypatch, sys.modules[__name__]):
+        yield
+
 
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 

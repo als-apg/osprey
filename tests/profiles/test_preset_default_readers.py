@@ -1,8 +1,10 @@
-"""Every shipped preset that deploys the telemetry store names one default reader.
+"""Every shipped root preset keeps its agent record where it says, read by whom it says.
 
-The reader is the deployment's admin roster user where the preset has a roster,
-and ``operator`` where it has none, so a fresh deployment always has someone
-who may query the store, and nobody else.
+hello-world keeps the record in the embedded backend and names no reader: it
+has no roster and no history page. control-assistant keeps it in ClickHouse for
+90 days and names one reader, the deployment's admin roster user, so a fresh
+deployment has someone who may read every session, and nobody else. Neither
+states a key of the telemetry store the record replaced.
 """
 
 from __future__ import annotations
@@ -13,24 +15,42 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.agent_record.config import (
+    BACKEND_CLICKHOUSE,
+    BACKEND_EMBEDDED,
+    RETIRED_CONFIG_KEYS,
+    RETIRED_DEPLOYED_SERVICES,
+    history_page_deployed,
+    parse_agent_record_block,
+    reader_errors,
+)
 from osprey.cli.build_profile_archiver import _expand_dotted
-from osprey.deployment import telemetry_config as tc
-from osprey.deployment.telemetry_lint import lint_telemetry
 
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
 #: The documents an operator starts from; bundled tiers and apps are laid over them.
 ROOT_PRESETS = ("control-assistant", "hello-world")
 
-#: The reader a roster-less preset declares.
-ROSTERLESS_READER = "operator"
+#: Each root preset's backend and retention.
+EXPECTED_RECORD = {
+    "control-assistant": (BACKEND_CLICKHOUSE, 90),
+    "hello-world": (BACKEND_EMBEDDED, 14),
+}
+
 #: The roster tier whose user is the default reader.
 ADMIN_TIER = "admin"
 
+#: Config prefixes the record replaced — the telemetry store, its feeds and
+#: the rest — which no preset states.
+RETIRED_PREFIXES = tuple(RETIRED_CONFIG_KEYS)
+
+
+def _document(preset: str) -> dict[str, Any]:
+    return yaml.safe_load((PRESET_DIR / f"{preset}.yml").read_text(encoding="utf-8"))
+
 
 def _config(preset: str) -> dict[str, Any]:
-    document = yaml.safe_load((PRESET_DIR / f"{preset}.yml").read_text())
-    return _expand_dotted(document.get("config"))
+    return _expand_dotted(_document(preset).get("config"))
 
 
 def _roster(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -38,37 +58,56 @@ def _roster(config: dict[str, Any]) -> list[dict[str, Any]]:
     return [user for user in users or [] if isinstance(user, dict)]
 
 
-def _expected_reader(config: dict[str, Any]) -> str:
+def _record(preset: str):
+    return parse_agent_record_block(_document(preset))
+
+
+@pytest.mark.parametrize("preset", ROOT_PRESETS)
+def test_a_root_preset_states_its_record_block(preset: str) -> None:
+    assert isinstance(_document(preset).get("agent_record"), dict)
+    record = _record(preset)
+    assert (record.backend, record.retention_days) == EXPECTED_RECORD[preset]
+
+
+@pytest.mark.parametrize("preset", ROOT_PRESETS)
+def test_a_root_preset_names_exactly_its_default_reader(preset: str) -> None:
+    config = _config(preset)
+    readers = [dict(entry) for entry in _record(preset).readers]
     roster = _roster(config)
     if not roster:
-        return ROSTERLESS_READER
+        assert readers == []
+        return
     admins = [user["name"] for user in roster if user.get("tier") == ADMIN_TIER]
     assert len(admins) == 1, f"expected one {ADMIN_TIER} roster user, got {admins}"
-    return admins[0]
-
-
-def test_the_store_presets_are_the_ones_named() -> None:
-    deploying = {preset for preset in ROOT_PRESETS if tc.store_deployed(_config(preset))}
-    assert deploying == {"control-assistant", "hello-world"}
+    assert readers == [{"name": admins[0]}]
 
 
 @pytest.mark.parametrize("preset", ROOT_PRESETS)
-def test_a_store_preset_names_exactly_its_default_reader(preset: str) -> None:
-    config = _config(preset)
-    if not tc.store_deployed(config):
-        assert tc.readers(config) == []
-        return
-    assert tc.readers(config) == [{"name": _expected_reader(config)}]
+def test_the_default_reader_passes_the_reader_checks(preset: str) -> None:
+    assert reader_errors(_record(preset), _config(preset)) == []
+
+
+def test_only_control_assistant_serves_the_history_page() -> None:
+    serving = {preset for preset in ROOT_PRESETS if history_page_deployed(_config(preset))}
+    assert serving == {"control-assistant"}
 
 
 @pytest.mark.parametrize("preset", ROOT_PRESETS)
-def test_the_default_reader_passes_the_reader_lint(preset: str) -> None:
+def test_no_root_preset_states_a_telemetry_store_key(preset: str) -> None:
+    def paths(node: Any, prefix: str = "") -> list[str]:
+        if not isinstance(node, dict):
+            return [prefix]
+        found = [prefix] if prefix else []
+        for key, value in node.items():
+            found += paths(value, f"{prefix}.{key}" if prefix else str(key))
+        return found
+
     config = _config(preset)
-    if not tc.store_deployed(config):
-        pytest.skip("deploys no store")
-    errors = [
-        finding
-        for finding in lint_telemetry(config)
-        if finding.severity == "error" and "reader" in finding.code
+    stated = [
+        path
+        for path in paths(config)
+        if any(path == p or path.startswith(f"{p}.") for p in RETIRED_PREFIXES)
     ]
-    assert errors == []
+    assert stated == []
+    services = config.get("deployed_services") or []
+    assert RETIRED_DEPLOYED_SERVICES.isdisjoint(services)

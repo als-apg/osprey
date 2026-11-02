@@ -426,8 +426,8 @@ def test_launch_token_is_granted_per_user_and_never_through_the_shared_env_file(
     compose_text = (tmp_path / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
     assert compose_text.count(_LAUNCH_TOKEN_LINE) == 1
     services = _rendered_services(tmp_path / "build")
-    assert services["web-alice"]["env_file"] == ".env.users"
-    assert services["web-bob"]["env_file"] == services["web-alice"]["env_file"]
+    assert services["web-alice"]["env_file"] == [".env.users", ".env.agent-record.login.alice"]
+    assert services["web-bob"]["env_file"] == [".env.users", ".env.agent-record.login.bob"]
     assert not (tmp_path / ".env.users").exists()
 
 

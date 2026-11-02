@@ -15,6 +15,7 @@ from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_SETUP,
     FAILURE_KIND_SWITCH_IN_PROGRESS,
     FAILURE_KIND_TIMEOUT,
+    FAILURE_KIND_UNREVIEWED,
     ExecutionResult,
 )
 from osprey.stores.artifact_manifest import read_collected_file
@@ -61,6 +62,10 @@ _GUARDED_RUN_BUSY_SUGGESTIONS = [
     "Nothing ran: another guarded run holds this control target. Run it again once the "
     "holder named in the message (pid, since) has ended.",
 ]
+_UNREVIEWED_SUGGESTIONS = [
+    "Nothing ran: the code review had not read this code. Call the tool again; the review "
+    "runs on the next call.",
+]
 
 
 def _note_writes(exec_result: ExecutionResult) -> None:
@@ -97,12 +102,19 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
     A run declined because another guarded run holds its control target
     (:data:`FAILURE_KIND_GUARDED_RUN_BUSY`) is the fifth: nothing ran, and the
     answer is to run it again once the holder the message names has ended.
+    A run refused because its code review was skipped on a decline that did
+    not hold at the launch (:data:`FAILURE_KIND_UNREVIEWED`) is the sixth:
+    nothing ran, and calling again reviews it.
 
     ``details`` carries the response the success path would have returned, so
     a failed run still surfaces its artifacts, plus :data:`SUBSYSTEM` and the
     ``kind`` — the same "one shared error_type, identity in details" contract
-    the graph server documents on ``GraphStoreError``.
+    the graph server documents on ``GraphStoreError``. A code review note goes
+    there too, in every shape and for every ``kind``: the concern was raised
+    about code that ran, so the run failing does not settle it.
     """
+    if exec_result.code_review is not None:
+        payload = {**payload, "code_review": exec_result.code_review}
     if exec_result.failure_kind == FAILURE_KIND_SETUP:
         make_error(
             "service_unavailable",
@@ -121,6 +133,8 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
         suggestions = _APPROVAL_CONFIG_INVALID_SUGGESTIONS
     elif exec_result.failure_kind == FAILURE_KIND_GUARDED_RUN_BUSY:
         kind, suggestions = FAILURE_KIND_GUARDED_RUN_BUSY, _GUARDED_RUN_BUSY_SUGGESTIONS
+    elif exec_result.failure_kind == FAILURE_KIND_UNREVIEWED:
+        kind, suggestions = FAILURE_KIND_UNREVIEWED, _UNREVIEWED_SUGGESTIONS
     else:
         kind, suggestions = "script_error", _SCRIPT_ERROR_SUGGESTIONS
     make_error(
@@ -237,7 +251,7 @@ async def build_execution_response(
         nb = create_notebook_from_code(code, description, stdout_text, stderr_text)
         nb_bytes = nbformat.writes(nb).encode()
 
-        from osprey.stores.artifact_store import get_artifact_store
+        from osprey.stores.artifact_store import RUN_RECORD_KEY, get_artifact_store
 
         store = get_artifact_store()
         nb_entry = store.save_file(
@@ -248,6 +262,7 @@ async def build_execution_response(
             description=description,
             mime_type="application/x-ipynb+json",
             tool_source=tool_source,
+            metadata={RUN_RECORD_KEY: True},
         )
         notebook_artifact_id = nb_entry.id
         artifact_ids.append(notebook_artifact_id)
@@ -267,6 +282,8 @@ async def build_execution_response(
         }
         if artifact_ids:
             result["artifact_ids"] = artifact_ids
+        if exec_result.code_review is not None:
+            result["code_review"] = exec_result.code_review
         if has_errors:
             _raise_failure(exec_result, stderr_text, result)
         return json.dumps(result, default=str)
@@ -283,6 +300,8 @@ async def build_execution_response(
     if artifact_ids:
         summary["artifact_ids"] = artifact_ids
         summary["artifact_count"] = len(artifact_ids)
+    if exec_result.code_review is not None:
+        summary["code_review"] = exec_result.code_review
     access_details = {
         "execution_mode": execution_mode,
         "execution_method": exec_result.execution_method_used,
@@ -292,7 +311,7 @@ async def build_execution_response(
     }
 
     # Save via ArtifactStore (unified)
-    from osprey.stores.artifact_store import get_artifact_store
+    from osprey.stores.artifact_store import RUN_RECORD_KEY, get_artifact_store
 
     store = get_artifact_store()
     entry = store.save_data(
@@ -303,6 +322,7 @@ async def build_execution_response(
         summary=summary,
         access_details=access_details,
         category="code_output",
+        metadata={RUN_RECORD_KEY: True},
     )
 
     response = entry.to_tool_response()

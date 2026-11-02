@@ -1,6 +1,6 @@
 """Two-anchor resolver-equality tests, against a real rendered project.
 
-The audit ledger and the hook config each have exactly one intended read path,
+The audit trail and the hook config each have exactly one intended read path,
 but each is *resolved* independently in three or two different places, none of
 which imports another (a hook cannot import ``osprey`` at all — see
 ``osprey_hook_log.py``'s module docstring — and the writer/registry/reset
@@ -12,19 +12,22 @@ functions against a project this test actually renders with
 
 Two anchors, two groups of tests:
 
-1. **The audit dir anchors on the REPO root.** :func:`osprey.audit.writer.audit_dir`,
-   :attr:`osprey.deployment.reset.ResetPlan.audit_dir`, and the hook's own
-   ``get_repo_root() / AUDIT_DIR_RELPATH`` must all name the same directory.
-   ``ResetPlan.audit_dir`` does not import
-   :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — it is spelled as
-   ``STATE_DIR_NAME / "audit"`` — so this is the test that would catch the two
-   spellings drifting apart; it is included in the equality on purpose.
+1. **The audit trail anchors on the REPO root.** The audit writer records into
+   the agent record through :func:`osprey.agent_record.writer.spool_dir`, whose
+   default is ``<repo root>/var/spool/<acting identity>``;
+   :attr:`osprey.deployment.reset.ResetPlan.record_dirs` names the same spool
+   root; and the hook's own ``audit_spool_dir()`` (``get_repo_root() /
+   SPOOL_DIR_RELPATH / <identity>``) must name the writer's directory exactly.
+   ``ResetPlan.audit_dir`` is the pre-upgrade audit tree the purge still
+   deletes, which must be
+   :data:`~osprey.utils.workspace.PRE_UPGRADE_AUDIT_RELPATH` under the
+   same repo root; it is included in the equality on purpose.
 
 2. **``hook_config.json`` anchors on the RENDER zone**, one level below the
    repo root: the path the MCP audit middleware reads it from
    (:func:`osprey.mcp_server.audit_middleware.hook_config_path`) must be the
    exact path ``osprey build`` wrote it to. That anchor is deliberately
-   different from the audit dir's — see the middleware's own module docstring
+   different from the audit trail's — see the middleware's own module docstring
    ("Never a project-root resolver... a server started with no OSPREY_CONFIG
    gets the degraded floor") — and the second class below asserts the two
    anchors are not just conceptually different but numerically different
@@ -35,11 +38,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from osprey.audit import writer
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.contract import SPOOL_DIR_ENV
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.reset import ResetPlan
 from osprey.mcp_server import audit_middleware as am
-from osprey_connectors import workspace
+from osprey.utils import workspace
 from tests._preset_data import create_project_as_built
 from tests.hooks.conftest import import_hook
 
@@ -74,31 +78,43 @@ def _render_two_zone_project(tmp_path: Path) -> tuple[Path, Path]:
     return repo_root, build_dir
 
 
-class TestAuditDirResolverEquality:
-    """``audit_dir()`` / ``ResetPlan.audit_dir`` / the hook's own resolver agree."""
+def _default_spool_dir(monkeypatch) -> Path:
+    """Where the audit writer's entries land when no spool is configured."""
+    monkeypatch.delenv(SPOOL_DIR_ENV, raising=False)
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "tester")
+    return record_writer.spool_dir()
 
-    def test_writer_resetplan_and_hook_name_the_same_audit_dir(self, tmp_path, monkeypatch):
+
+def _reset_plan(repo_root: Path) -> ResetPlan:
+    return ResetPlan(
+        repo_root=repo_root,
+        project="deployment",
+        identity="tester",
+        project_name_source="test",
+    )
+
+
+class TestAuditDirResolverEquality:
+    """The writer's spool, ``ResetPlan``'s dirs and the hook's own resolver agree."""
+
+    def test_writer_resetplan_and_hook_name_the_same_audit_dirs(self, tmp_path, monkeypatch):
         repo_root, build_dir = _render_two_zone_project(tmp_path)
         monkeypatch.setenv("OSPREY_CONFIG", str(build_dir / "config.yml"))
 
-        from_writer = writer.audit_dir()
-
-        from_reset_plan = ResetPlan(
-            repo_root=repo_root,
-            project="deployment",
-            identity="tester",
-            project_name_source="test",
-        ).audit_dir
+        from_writer = _default_spool_dir(monkeypatch)
+        plan = _reset_plan(repo_root)
+        _record, from_reset_plan_spool = plan.record_dirs
 
         osprey_hook_log = import_hook("osprey_hook_log")
-        from_hook = Path(osprey_hook_log.get_repo_root()) / osprey_hook_log.AUDIT_DIR_RELPATH
+        from_hook = osprey_hook_log.audit_spool_dir(identity="tester")
 
-        expected = repo_root / workspace.AUDIT_DIR_RELPATH
-        assert from_writer == expected
-        assert from_reset_plan == expected
-        assert from_hook == expected
+        spool_root = repo_root / workspace.SPOOL_DIR_RELPATH
+        assert from_writer == spool_root / "tester"
+        assert from_reset_plan_spool == spool_root
+        assert plan.audit_dir == repo_root / workspace.PRE_UPGRADE_AUDIT_RELPATH
+        assert from_hook == from_writer
 
-    def test_the_audit_dir_is_anchored_on_the_repo_root_not_the_render_zone(
+    def test_the_audit_dirs_are_anchored_on_the_repo_root_not_the_render_zone(
         self, tmp_path, monkeypatch
     ):
         """Same three resolvers, asserted against the render zone as a negative.
@@ -113,18 +129,12 @@ class TestAuditDirResolverEquality:
         monkeypatch.setenv("OSPREY_CONFIG", str(build_dir / "config.yml"))
 
         assert build_dir != repo_root
-        wrong = build_dir / workspace.AUDIT_DIR_RELPATH
+        wrong_spool = build_dir / workspace.SPOOL_DIR_RELPATH
 
-        assert writer.audit_dir() != wrong
-        assert (
-            ResetPlan(
-                repo_root=repo_root,
-                project="deployment",
-                identity="tester",
-                project_name_source="test",
-            ).audit_dir
-            != wrong
-        )
+        assert _default_spool_dir(monkeypatch).parent != wrong_spool
+        plan = _reset_plan(repo_root)
+        assert plan.record_dirs[1] != wrong_spool
+        assert plan.audit_dir != build_dir / workspace.PRE_UPGRADE_AUDIT_RELPATH
         osprey_hook_log = import_hook("osprey_hook_log")
         assert Path(osprey_hook_log.get_repo_root()) != build_dir
 
@@ -134,7 +144,7 @@ class TestHookConfigPathResolverEquality:
 
     The two zones ``osprey build`` produces are the render (``build/``, holding
     ``config.yml`` and ``.claude/``) and the repo root one level up (holding
-    ``var/audit``). ``hook_config.json`` and the audit dir anchor on different
+    ``var/spool``). ``hook_config.json`` and the audit spool anchor on different
     ones of the two — stated explicitly, and checked below, because a resolver
     that quietly swapped one anchor for the other would still resolve to some
     existing directory rather than fail loudly.
@@ -154,20 +164,20 @@ class TestHookConfigPathResolverEquality:
         assert read_site == write_site
         am.reset_audit_state()
 
-    def test_hook_config_and_the_audit_dir_anchor_on_different_zones(self, tmp_path, monkeypatch):
+    def test_hook_config_and_the_audit_spool_anchor_on_different_zones(self, tmp_path, monkeypatch):
         repo_root, build_dir = _render_two_zone_project(tmp_path)
         config_path = build_dir / "config.yml"
         monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
         am.reset_audit_state()
 
         hook_config_site = am.hook_config_path()
-        audit_site = writer.audit_dir()
+        audit_site = _default_spool_dir(monkeypatch).parent
 
         # hook_config.json is anchored on the RENDER zone (build/)...
         assert hook_config_site == build_dir / am.HOOK_CONFIG_RELPATH
-        # ...the audit dir is anchored on the REPO root, one level up...
-        assert audit_site == repo_root / workspace.AUDIT_DIR_RELPATH
+        # ...the audit spool is anchored on the REPO root, one level up...
+        assert audit_site == repo_root / workspace.SPOOL_DIR_RELPATH
         # ...and the two do not coincide in this real two-zone render.
-        assert audit_site != build_dir / workspace.AUDIT_DIR_RELPATH
+        assert audit_site != build_dir / workspace.SPOOL_DIR_RELPATH
         assert hook_config_site != repo_root / am.HOOK_CONFIG_RELPATH
         am.reset_audit_state()

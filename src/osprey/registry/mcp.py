@@ -56,10 +56,16 @@ class HookEntry:
 
 @dataclass
 class HookRule:
-    """A matcher + list of hooks for PreToolUse / PostToolUse."""
+    """A matcher + list of hooks for PreToolUse / PostToolUse.
+
+    ``keeps_policy`` takes a rule that carries both write hooks out of the
+    governed set (:func:`governed_write_tools`): its tool follows the switch
+    only as armed or not, and its ``approval.*`` policy still decides the prompt.
+    """
 
     matcher: str
     hooks: list[HookEntry] = field(default_factory=list)
+    keeps_policy: bool = False
 
 
 @dataclass
@@ -301,6 +307,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             HookRule(
                 matcher=f"mcp__{SERVER_TEMPLATE}__{DRIVE_TOOL}",
                 hooks=[_WRITES_CHECK, _APPROVAL],
+                keeps_policy=True,
             ),
         ],
         hooks_post=[_post_error("mcp__phoebus__.*")],
@@ -699,7 +706,12 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # the one credential this entry can present is the panel token every
         # child already carries — which is exactly what the proxy on the other
         # end of the loopback hop checks.
-        headers={"Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}"},
+        # The session header names who is calling, so the proxy can refuse a job
+        # fired from a held session.
+        headers={
+            "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
+            "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+        },
         # Conditional on the EVENTS panel, read through the same predicate that
         # grants the dispatcher token itself (see the ctx key's own comment in
         # cli/templates/claude_code.py). A deployment without the panel serves
@@ -988,6 +1000,39 @@ def facility_write_tools(servers: list[dict]) -> list[str]:
     return tools
 
 
+def governed_write_tools(servers: list[dict]) -> list[str]:
+    """The tools the write switch's position decides for in one render, fully qualified.
+
+    The only producer of the governed set: the rendered hook config, the
+    approval hook, ``ask_capable`` and the posture floor all take it from here.
+    A tool is governed exactly when its rule carries both write hooks
+    (:func:`rule_carries_both_write_hooks`) and is not flagged ``keeps_policy``,
+    so a facility tool's membership follows its server's own rule, and an
+    ``extends`` clone's tools are governed under the clone's name.
+
+    Args:
+        servers: Output of :func:`resolve_servers`. Disabled servers are
+            skipped: a tool nobody can call is decided by nothing.
+
+    Returns:
+        Deduplicated, in resolved-server then hook order, so every render's
+        diff stays quiet. A whole-server rule contributes its ``mcp__<srv>__.*``
+        matcher, which readers honour as a wildcard.
+    """
+    tools: list[str] = []
+    for server in servers:
+        if not server.get("enabled"):
+            continue
+        for rule in server.get("hooks_pre", []):
+            if (
+                rule_carries_both_write_hooks(rule["hooks"])
+                and not rule.get("keeps_policy")
+                and rule["matcher"] not in tools
+            ):
+                tools.append(rule["matcher"])
+    return tools
+
+
 def rule_carries_writes_check(hooks: list[dict]) -> bool:
     """Whether a resolved hook rule's ``hooks`` run the writes-check preset.
 
@@ -996,6 +1041,19 @@ def rule_carries_writes_check(hooks: list[dict]) -> bool:
     tools from ``ask`` with it, so the two classify alike.
     """
     return any(h.get("command") == _WRITES_CHECK.command for h in hooks)
+
+
+def rule_carries_both_write_hooks(hooks: list[dict]) -> bool:
+    """Whether a resolved hook rule's ``hooks`` run writes-check and an approval hook.
+
+    The one test for "the hooks answer this tool's write": both hooks mean the
+    tool needs no static ``ask``, so the settings render pulls it from there
+    with this test, and :func:`governed_write_tools` builds the governed set on
+    it. The approval entry counts in either budget (:data:`_APPROVAL`,
+    :data:`_APPROVAL_PREFLIGHT`); the commands differ by ``--budget``.
+    """
+    approval = {_APPROVAL.command, _APPROVAL_PREFLIGHT.command}
+    return rule_carries_writes_check(hooks) and any(h.get("command") in approval for h in hooks)
 
 
 # ---------------------------------------------------------------------------
@@ -1174,13 +1232,6 @@ TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 #: and its reader.
 LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
 
-#: Names the maintenance writer for records made by the root maintenance
-#: heredoc. Assigned ONLY as a per-command env prefix on that invocation, and
-#: must stay absent everywhere else — an inherited value would misroute every
-#: app-side record. Reserved here so the spec path already refuses it before
-#: the writer that assigns it exists.
-AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
-
 #: The stamped owner of the work a process is doing — the rung
 #: :func:`~osprey_connectors.posture_store.current_owner` reads from the
 #: environment, and therefore the name whose narrowing an owned write is judged
@@ -1251,7 +1302,6 @@ DISPATCH_RUN_ENV = DISPATCH_RUN_ENV_VAR
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
-    AUDIT_WRITER_ENV,
     POSTURE_SOURCE_ENV,
     POSTURE_SESSION_ENV,
     TERMINAL_SESSION_ENV,
@@ -2006,7 +2056,7 @@ def write_window_tools(name: str, writes: tuple[str, ...], perms: dict) -> list[
     for entry in [*perms.get("ask", []), *perms.get("allow", [])]:
         if not isinstance(entry, str):
             continue
-        tool = entry[len(prefix) :] if entry.startswith(prefix) else entry
+        tool = entry.removeprefix(prefix)
         if not tool or tool in seen or _TOOL_PATTERN_CHARS & set(tool):
             continue
         asked = entry in perms.get("ask", [])
@@ -2108,6 +2158,7 @@ def _hook_rule_to_dict(rule: HookRule) -> dict:
     return {
         "matcher": rule.matcher,
         "hooks": [{"type": h.type, "command": h.command, "timeout": h.timeout} for h in rule.hooks],
+        "keeps_policy": rule.keeps_policy,
     }
 
 

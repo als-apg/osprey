@@ -25,10 +25,10 @@ from osprey.cli.build_cmd import (
     _bundled_service_names,
     _render_compose_files,
     _service_existence_errors,
-    build,
 )
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _stage(root: Path, config: dict[str, Any]) -> SimpleNamespace:
@@ -57,8 +57,8 @@ def test_a_deployed_service_nobody_declares_is_refused_before_the_render(tmp_pat
     zones = _stage(
         tmp_path,
         {
-            "deployed_services": ["telemetry_store", "openobserve"],
-            "services": {"telemetry_store": {"path": "./services/telemetry_store"}},
+            "deployed_services": ["qmd", "openobserve"],
+            "services": {"qmd": {"path": "./services/qmd"}},
         },
     )
 
@@ -67,7 +67,7 @@ def test_a_deployed_service_nobody_declares_is_refused_before_the_render(tmp_pat
 
     message = str(caught.value)
     assert "deployed_services name(s) the service 'openobserve'" in message
-    assert "telemetry_store" in message  # the bundled set is listed
+    assert "qmd" in message  # the bundled set is listed
     assert "services.openobserve.path" in message
 
 
@@ -113,9 +113,9 @@ def test_a_custom_service_with_a_template_directory_passes(tmp_path: Path) -> No
 
 
 def test_a_close_misspelling_names_the_bundled_service(tmp_path: Path) -> None:
-    errors = _service_existence_errors({"deployed_services": ["telemetry_stor"]}, tmp_path)
+    errors = _service_existence_errors({"deployed_services": ["postgresq"]}, tmp_path)
 
-    assert "(did you mean 'telemetry_store'?)" in errors[0]
+    assert "(did you mean 'postgresql'?)" in errors[0]
 
 
 def test_an_undeployed_block_of_a_bundled_service_passes(tmp_path: Path) -> None:
@@ -130,7 +130,7 @@ def test_an_undeployed_block_of_a_bundled_service_passes(tmp_path: Path) -> None
 def test_every_bundled_service_passes_by_name(tmp_path: Path) -> None:
     bundled = _bundled_service_names()
     # live_standin is a second instance of the bundled virtual accelerator.
-    assert {"telemetry_store", "telemetry_gateway", "postgresql", "live_standin"} <= bundled
+    assert {"qmd", "graphdb", "postgresql", "live_standin"} <= bundled
     assert "openobserve" not in bundled
 
     config = {
@@ -160,13 +160,13 @@ def test_the_refusal_is_an_ordinary_build_error_not_an_unexpected_one(
             "hello-world",
             "--no-git",
             "--set",
-            "config.deployed_services=[telemetry_store,telemetry_gateway,openobserve]",
+            "config.deployed_services=[qmd,graphdb,openobserve]",
         ],
     )
     assert created.exit_code == 0, created.output
 
     with caplog.at_level(logging.ERROR):
-        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
 
     assert result.exit_code != 0
     text = caplog.text

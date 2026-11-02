@@ -13,14 +13,14 @@ import io
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.api.attachment_response import attachment_response
+from tests.interfaces.ariel._attachments import ATT_ID, jpeg_bytes, viewable_row
+from tests.interfaces.ariel._routes_app import routes_app
 
 CSP = "sandbox; default-src 'none'"
-ATT_ID = "att-0123456789ab"
 HTML = b"<!doctype html><html><body><script>alert(1)</script></body></html>"
 PDF = b"%PDF-1.4\n%fake pdf body\n%%EOF\n"
 
@@ -31,30 +31,6 @@ def _png() -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", (8, 6), (200, 30, 30)).save(buf, "PNG")
     return buf.getvalue()
-
-
-def _jpeg() -> bytes:
-    from PIL import Image
-
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 6), (30, 200, 30)).save(buf, "JPEG")
-    return buf.getvalue()
-
-
-def _viewable_row(**overrides) -> dict:
-    row = {
-        "attachment_id": ATT_ID,
-        "entry_id": "e-1",
-        "filename": "beam.png",
-        "mime_type": "image/png",
-        "copy_status": "copied",
-        "skip_reason": None,
-        "rendition_mime": "image/jpeg",
-        "rendition_sha256": "ab" * 32,
-        "rendition_bytes": _jpeg(),
-    }
-    row.update(overrides)
-    return row
 
 
 @pytest.fixture
@@ -68,10 +44,7 @@ def service():
 
 @pytest.fixture
 def client(service):
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     return TestClient(app)
 
 
@@ -94,7 +67,7 @@ class TestAttachmentResponse:
         _assert_hardened(resp)
 
     def test_sniffed_type_wins_over_the_filename(self) -> None:
-        resp = attachment_response(_jpeg(), "beam.png")
+        resp = attachment_response(jpeg_bytes(), "beam.png")
         assert resp.headers["content-type"] == "image/jpeg"
         assert resp.headers["content-disposition"].startswith("inline;")
 
@@ -232,7 +205,7 @@ class TestOriginalRoute:
 
 class TestRenditionRoute:
     def test_viewable_rendition_is_served_inline_with_hardening(self, client, service) -> None:
-        row = _viewable_row()
+        row = viewable_row()
         service.repository.get_rendition.return_value = row
 
         resp = client.get(f"/api/attachments/{ATT_ID}/rendition")
@@ -246,7 +219,7 @@ class TestRenditionRoute:
         service.repository.get_attachment_original.assert_not_called()
 
     def test_rendition_bytes_are_sniffed_not_trusted(self, client, service) -> None:
-        service.repository.get_rendition.return_value = _viewable_row(
+        service.repository.get_rendition.return_value = viewable_row(
             rendition_bytes=memoryview(HTML)
         )
 
@@ -261,11 +234,11 @@ class TestRenditionRoute:
         "row",
         [
             None,
-            _viewable_row(skip_reason="reserved_format", mime_type="application/pdf"),
-            _viewable_row(copy_status="pending"),
-            _viewable_row(rendition_sha256=None),
-            _viewable_row(mime_type="application/pdf"),
-            _viewable_row(skip_reason="too_large"),
+            viewable_row(skip_reason="reserved_format", mime_type="application/pdf"),
+            viewable_row(copy_status="pending"),
+            viewable_row(rendition_sha256=None),
+            viewable_row(mime_type="application/pdf"),
+            viewable_row(skip_reason="too_large"),
         ],
         ids=["no-row", "pdf", "pending", "no-rendition", "non-image", "skipped"],
     )
@@ -295,7 +268,7 @@ class TestWorkspaceArtifactRoute:
     def test_viewable_picture_is_copied_using_the_shared_helper(
         self, client, service, monkeypatch
     ) -> None:
-        row = _viewable_row()
+        row = viewable_row()
         entry = {"entry_id": "e-1"}
         summary = {"attachment_id": ATT_ID, "filename": "beam.png"}
         copied = {"artifact_id": "artifact-1", "created": True, "attachment_id": ATT_ID}
@@ -361,7 +334,7 @@ def test_serving_spawns_no_child_process(client, service, monkeypatch) -> None:
     monkeypatch.setattr(prepare_module, "prepare_picture", forbidden_async)
     monkeypatch.setattr("subprocess.Popen", forbidden)
 
-    service.repository.get_rendition.return_value = _viewable_row()
+    service.repository.get_rendition.return_value = viewable_row()
     service.repository.get_attachment_original.return_value = {
         "filename": "beam.png",
         "mime_type": "image/png",

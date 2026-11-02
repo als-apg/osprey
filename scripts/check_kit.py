@@ -31,6 +31,10 @@ FULL = frozenset({"full"})
 
 WHOLE, PATHS, NOT_TOUCHED = "whole", "paths", "not touched"
 
+#: Every uv run a check or need starts carries --frozen: a plain uv run rewrites
+#: a stale uv.lock, and the lockfile check must judge it as the tree left it.
+UV_RUN = ("uv", "run", "--frozen")
+
 #: Marks a field of a record that is behaviour, not declaration: ``list
 #: --json`` prints the declaration and leaves the hooks out, and two records
 #: that declare the same are equal.
@@ -153,6 +157,11 @@ class Check:
     shards: tuple[str, ...] = field(default=(), compare=False, metadata=HOOK)
     #: The suffixes of the test files a caller may add to it after ``--``.
     named_suffixes: tuple[str, ...] = field(default=(), compare=False, metadata=HOOK)
+    #: A caller may add a node id (``file::node``) of such a file after ``--``.
+    named_node_ids: bool = field(default=False, compare=False, metadata=HOOK)
+    #: Whether a file name is one of its test files; a caller may then add,
+    #: after ``--``, a directory that holds one at any depth.
+    named_dirs: Callable[[str], bool] | None = field(default=None, compare=False, metadata=HOOK)
     #: Picks the tests a range selects; without one the check runs whole or
     #: not at all, by ``scope``. The selected paths follow ``argv``.
     selector: Selector | None = field(default=None, compare=False, metadata=HOOK)
@@ -230,7 +239,7 @@ def git_paths(subcommand: str, *args: str) -> list[str]:
 
 def bounded(seconds: int, argv: Sequence[str]) -> list[str]:
     """*argv* stopped at *seconds* by ``run_bounded.py``."""
-    return ["uv", "run", "python", "scripts/run_bounded.py", str(seconds), "--", *argv]
+    return [*UV_RUN, "python", "scripts/run_bounded.py", str(seconds), "--", *argv]
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,11 @@
+{
+  "about": "Shared parity cases for the session hold record. Each case names a hold root (<case>/root, relative to this file) and the session key to ask about; every reader of the record (osprey_connectors.session_hold and the hooks' stdlib twin) must answer `held` and list exactly `open_flag_ids` under that root. With no root at all, every case answers held=false.",
+  "cases": {
+    "open": {"session_key": "s-open", "held": true, "open_flag_ids": ["f-open"]},
+    "closed": {"session_key": "s-closed", "held": false, "open_flag_ids": []},
+    "corrupt": {"session_key": "s-corrupt", "held": true, "open_flag_ids": ["hold-record-unreadable"]},
+    "dir-only": {"session_key": "s-dir-only", "held": true, "open_flag_ids": ["hold-record-unreadable"]},
+    "absent": {"session_key": "s-absent", "held": true, "open_flag_ids": ["hold-record-unreadable"]},
+    "unsafe-key": {"session_key": "../escape", "held": true, "open_flag_ids": null}
+  }
+}

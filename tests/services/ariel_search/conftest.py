@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
 logger = logging.getLogger(__name__)
 
@@ -903,6 +904,21 @@ def seed_entry_factory():
         }
 
     return _create_entry
+
+
+@pytest.fixture
+def search_calls() -> Iterator[SearchCallPool]:
+    """A search-call pool of the service's type, for tests that call a search module directly.
+
+    Closed at teardown, so no queued call outlives the test.
+    """
+    from osprey.services.ariel_search.search._offload import SearchCallPool
+
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        pool.close()
 
 
 @pytest.fixture

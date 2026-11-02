@@ -96,9 +96,18 @@ guides are the better starting point.
       :link-type: doc
       :shadow: md
 
-      Which file under ``var/audit/`` each safety decision lands in, the
-      fields of every record, who can read the files, and what the trail does
-      not promise.
+      How each safety decision lands in the agent record and its archive, the
+      fields of every entry, who can read them, and what the trail does not
+      promise.
+
+   .. grid-item-card:: Watchdog Contract
+      :link: watchdog
+      :link-type: doc
+      :shadow: md
+
+      The session hold record and where it lives, the routes and frames of the
+      flag dialog, where the hold refuses a write, and what a verdict's audit
+      entry holds.
 
    .. grid-item-card:: Dock Engine Contract
       :link: dock-engine
@@ -120,5 +129,6 @@ guides are the better starting point.
    facility-graph
    guarded-run
    audit-trail
+   watchdog
    bridge-dispatch
    dock-engine

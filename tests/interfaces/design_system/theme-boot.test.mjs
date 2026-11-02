@@ -16,12 +16,13 @@
  * than importing it, each scenario sets up
  * window.location/localStorage/data-theme and then re-executes the exact
  * on-disk source against those happy-dom globals, exactly as the sibling
- * mode-boot.test.mjs does. Pure DOM/logic guard, happy-dom environment
+ * sidebar-boot.test.mjs does. Pure DOM/logic guard, happy-dom environment
  * (configured globally in vitest.config.js):
  *   npx vitest run tests/interfaces/design_system/theme-boot.test.mjs
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import { stubOSPreference } from './js/os-preference.mjs';
 import { runBootScript } from './js/boot-harness.mjs';
 
 const STORAGE_KEY = 'osprey-theme';
@@ -44,23 +45,6 @@ function storePreference(preference) {
     STORAGE_KEY,
     typeof preference === 'string' ? preference : JSON.stringify(preference)
   );
-}
-
-/**
- * Force the OS preference so 'auto' resolution can be asserted in both
- * directions. Without this the assertions would pass for the wrong reason
- * whenever the host's own OS preference happened to agree.
- * @param {boolean} prefersDark
- */
-function stubOSPreference(prefersDark) {
-  vi.stubGlobal('matchMedia', (/** @type {string} */ query) => ({
-    matches: query.includes('dark') ? prefersDark : !prefersDark,
-    media: query,
-    addEventListener() {},
-    removeEventListener() {},
-    addListener() {},
-    removeListener() {},
-  }));
 }
 
 describe('theme-boot.js resolution ladder', () => {

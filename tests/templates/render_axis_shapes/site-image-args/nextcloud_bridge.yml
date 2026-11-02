@@ -38,6 +38,14 @@ services:
     container_name: golden-project-nextcloud-bridge
     command: ["python", "-m", "osprey.bridges.nextcloud_talk"]
     restart: unless-stopped
+    labels:
+      # Recreates the container when its agent-record login file changes:
+      # the file is read once, at start.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_NEXTCLOUD_BRIDGE:-}"
+    # Its agent-record login and nothing else, written by `osprey build`: the
+    # one file this service reads whole, never the bulk .env below.
+    env_file:
+      - .env.agent-record.login.nextcloud-bridge
     # Deliberately NO bulk .env passthrough. The project .env carries the
     # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
     # service — the one component that talks to an external Nextcloud instance —
@@ -139,21 +147,35 @@ services:
       # test_nextcloud_bridge_state_paths_match_their_code_defaults binds the
       # two sides so neither can drift alone.
       DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
-      HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
+      # ── Agent record ────────────────────────────────────────────────────
+      # Where the record's API answers from this container's network: the
+      # compose service on the bridge network, its loopback publish from the
+      # host namespace.
+      OSPREY_AGENT_RECORD_URL: http://agent-record:8000
+      # This bridge's own spool and state directories, bound below. The image
+      # runs from /app with no project of its own and no entrypoint, so both
+      # are absolute and plain config the writer reads.
+      OSPREY_SPOOL_DIR: /app/var/spool/nextcloud-bridge
+      OSPREY_STATE_DIR: /app/var/state/nextcloud-bridge
       OFFSETS_PATH: "${OFFSETS_PATH:-/data/offsets.json}"
       TZ: UTC
     volumes:
       # Bridge state, and the ONLY stateful thing this service owns: the dedup
-      # store (message_id -> run, the crash-safety ledger), the per-conversation
-      # history store, and the adapter's per-room poll offsets, whose
-      # DEDUP_PATH/HISTORY_PATH/OFFSETS_PATH defaults above all sit under /data,
-      # making it the single state root. Without a persisted volume every
+      # store (message_id -> run, the crash-safety ledger) and the adapter's
+      # per-room poll offsets, whose DEDUP_PATH/OFFSETS_PATH defaults above both
+      # sit under /data, making it the single state root. Conversation history
+      # lives in the agent record, not here. Without a persisted volume every
       # restart would lose the in-flight ledger (re-answering or dropping
       # questions) and reset the poll offsets (replaying or skipping room
       # history), so this volume is required, not an optimization. Named (not a
       # bind mount) so it is namespaced per compose project and survives
       # `osprey down`.
       - nextcloud_bridge_data:/data
+      # Its spool and state directories, and only its own: binds the host
+      # provisions group-shared before the container starts, so agent-record
+      # can ingest and delete what this bridge appends.
+      - ./var/spool/nextcloud-bridge:/app/var/spool/nextcloud-bridge
+      - ./var/state/nextcloud-bridge:/app/var/state/nextcloud-bridge
     networks:
       - osprey-network
 

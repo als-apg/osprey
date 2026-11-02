@@ -41,7 +41,11 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 
-from .build_profile_document import _read_profile_document, normalize_retired_write_keys
+from .build_profile_document import (
+    _read_profile_document,
+    normalize_retired_web_keys,
+    normalize_retired_write_keys,
+)
 from .build_profile_load import (
     CONNECTOR_CONFIG_KEY,
     CONNECTOR_PROFILE_KEY,
@@ -52,7 +56,6 @@ from .build_profile_load import (
     _parse_profile,
 )
 from .build_profile_merge import (
-    _deep_merge,
     _resolve_extends,
     resolve_profile_document,
     seal_app_render,
@@ -375,15 +378,19 @@ def cli_edit_layer(set_pairs: tuple[str, ...]) -> dict[str, Any]:
     (:func:`~osprey.cli.build_profile_document.normalize_retired_write_keys`,
     as a root named ``--set``): a retired-key pair states a
     ``control_system.writes`` value, and pairs spelling both forms are refused.
+    The retired ``web:`` keys are handled there too
+    (:func:`~osprey.cli.build_profile_document.normalize_retired_web_keys`).
 
     Raises:
         BuildProfileError: On an unparseable pair, an invalid ``connector``
             value, pairs naming both ``connector`` and
             ``config.control_system.type``, or pairs spelling both a retired
-            write-posture key and ``config.control_system.writes``.
+            write-posture key and ``config.control_system.writes``, or a
+            ``config.web.expert_view`` pair.
     """
     layer = _parse_set_pairs(set_pairs)
     normalize_retired_write_keys(layer, _CLI_LAYER_SOURCE)
+    normalize_retired_web_keys(layer, _CLI_LAYER_SOURCE)
     _reject_connector_type_conflict([layer])
     return _apply_port_base_shorthand(_apply_connector_shorthand(layer))
 
@@ -524,9 +531,11 @@ def resolve_build_document(
     they are mutually exclusive and exactly one is required.
 
     ``overlays`` are the host-variant profiles ``osprey build`` selects
-    (:mod:`osprey.cli.variant_selection`): inheritance layers, merged over the
-    file through :func:`_deep_merge` before ``extends:`` is resolved, so string
-    lists union and ``exclude:`` subtracts, as in any other layer. ``set_pairs``
+    (:mod:`osprey.cli.variant_selection`): inheritance layers over the
+    deployment's ``profile.yml``, merged through :func:`~osprey.cli.build_profile_merge._deep_merge` before its
+    ``extends:`` is resolved, so string lists union and ``exclude:`` subtracts,
+    as in any other layer. For a tier or app file they lay over the root it
+    merges over, not over the file itself. ``set_pairs``
     are edits, applied by :func:`apply_cli_edits` AFTER resolution: each
     replaces the value at the key it names.
 
@@ -591,17 +600,23 @@ def resolve_build_document(
         raw = _read_profile_document(profile_path)
         if not isinstance(raw, dict):
             raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
-        for overlay_path in overlays:
-            overlay = _read_overlay(overlay_path)
-            if overlay is not None:
-                raw = _deep_merge(raw, overlay)
+        read_overlays = [
+            overlay
+            for overlay in (_read_overlay(overlay_path) for overlay_path in overlays)
+            if overlay is not None
+        ]
         # Resolution goes through the one call that decides what a profile file
         # *means* — the same one the loader and the content hash make. A file
         # under `tiers/` is a delta merged over the `profile.yml` beside it
         # and anchors at that root; resolving `extends` here instead, against
         # the file's own parent, would build a hollow project from the delta
-        # alone and read its data tree from `tiers/`.
-        document = resolve_profile_document(raw, profile_path.resolve())
+        # alone and read its data tree from `tiers/`. The host variant is
+        # handed over rather than merged here: it overlays that root, so a
+        # tier or app sees it through the deployment it merges over and is
+        # never refused for a key only the variant spells.
+        document = resolve_profile_document(
+            raw, profile_path.resolve(), root_overlays=read_overlays
+        )
         raw, profile_dir = document.raw, document.root_dir
         is_layer = document.is_layer
         excluded_artifacts = document.excluded_artifacts

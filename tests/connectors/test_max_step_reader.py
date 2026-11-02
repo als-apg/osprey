@@ -12,9 +12,7 @@ tests hold each one to reading through its OWN client, and hold the simulator
 limit for real.
 """
 
-import sys
-from datetime import UTC
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,18 +27,9 @@ from osprey_connectors.control_system._limits_validator import (
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors_tests._epics_fakes import FakeChannel, ca_connector, ca_reading
-from osprey_connectors_tests._write_fakes import arm_switch
-from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
-
-_DOOCS_LIMITS_PATCH = (
-    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
-)
-_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
-_TANGO_LIMITS_PATCH = (
-    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
-)
-_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 CURRENT = 10.0
 
@@ -75,7 +64,7 @@ def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
 
 
 async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
@@ -121,11 +110,7 @@ async def test_the_doocs_connector_reads_with_doocs4py():
     doocs4py.names.return_value = [("FACILITY", "XFEL")]
     doocs4py.get.return_value = eq_data
 
-    with (
-        patch.dict(sys.modules, {"doocs4py": doocs4py}),
-        patch(_DOOCS_LIMITS_PATCH, return_value=None),
-        patch(_DOOCS_TZ_PATCH, return_value=UTC),
-    ):
+    with driven_through("doocs4py", doocs4py):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
@@ -148,11 +133,7 @@ async def test_the_tango_connector_reads_with_its_device_proxy():
     tango.DeviceProxy.return_value = proxy
     tango.Database.return_value.get_info.return_value = "TANGO Database sys/database/2"
 
-    with (
-        patch.dict(sys.modules, {"tango": tango}),
-        patch(_TANGO_LIMITS_PATCH, return_value=None),
-        patch(_TANGO_TZ_PATCH, return_value=UTC),
-    ):
+    with driven_through("tango", tango):
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
@@ -175,7 +156,7 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     No Channel Access read could ever answer for a simulated channel, so this
     write used to be refused as unverifiable however small the step was.
     """
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
@@ -193,7 +174,7 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
 
 
 async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, tmp_path):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
         in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)

@@ -6,10 +6,12 @@
  */
 
 import { test, expect, describe, beforeEach } from 'vitest';
+import { marked } from 'marked';
 
 import {
   STRUCTURE_MARKER,
   el,
+  facilityLinkView,
   hashChangeTarget,
   isFallback,
   readPanelParams,
@@ -172,5 +174,70 @@ describe('hashChangeTarget', () => {
 
   test('any id while the tree has not loaded yields that id', () => {
     expect(hashChangeTarget(paramsFor('#some-heading'), null, null)).toBe('some-heading');
+  });
+});
+
+describe('facilityLinkView', () => {
+  /** @typedef {import('../../../src/osprey/interfaces/okf_panel/static/js/helpers.js').FacilityRecordView} RecordView */
+  /**
+   * @param {string} target
+   * @param {RecordView[] | null} records
+   */
+  const span = (target, records) => ({ start: 0, end: 1, target, kinds: [], label: 'x', records });
+  const references = [
+    span('SR:DIAG:BPM:01:POSITION:X', [
+      { kind: 'channel', id: 'SR:DIAG:BPM:01:POSITION:X', unit: 'mm', description: 'Beam X.' },
+    ]),
+    span('TWIN', [
+      { kind: 'channel', id: 'TWIN', unit: 'A' },
+      { kind: 'device', id: 'TWIN' },
+    ]),
+    span('SR GAUGE 1', [{ kind: 'device', id: 'SR GAUGE 1' }]),
+    span('NO/SUCH', []),
+  ];
+
+  test('a held channel shows its kind, unit and description', () => {
+    expect(facilityLinkView('facility:SR:DIAG:BPM:01:POSITION:X', references)).toEqual({
+      text: 'SR:DIAG:BPM:01:POSITION:X',
+      title: 'channel · mm · Beam X.',
+      dangling: false,
+    });
+  });
+
+  test('a target held as channel and device names both records', () => {
+    expect(facilityLinkView('facility:TWIN', references).title).toBe('channel · A\ndevice');
+  });
+
+  test('an empty list is a dangling link', () => {
+    const view = facilityLinkView('facility:NO/SUCH', references);
+    expect(view.dangling).toBe(true);
+    expect(view.title).toBe('NO/SUCH · not in the facility file');
+  });
+
+  test('without a facility file the link is unresolved, not dangling', () => {
+    expect(facilityLinkView('facility:NO/SUCH', null)).toEqual({
+      text: 'NO/SUCH',
+      title: 'NO/SUCH · facility file not loaded',
+      dangling: false,
+    });
+    expect(facilityLinkView('facility:TWIN', [span('TWIN', null)]).dangling).toBe(false);
+  });
+
+  test('a percent-encoded space is decoded before the lookup', () => {
+    expect(facilityLinkView('facility:SR%20GAUGE%201', references)).toEqual({
+      text: 'SR GAUGE 1',
+      title: 'device',
+      dangling: false,
+    });
+  });
+
+  test('marked keeps the facility href and percent-encodes an angle-bracket target', () => {
+    const holder = document.createElement('div');
+    holder.innerHTML = /** @type {string} */ (
+      marked.parse('[x](facility:SR:DIAG:BPM:01:POSITION:X) [g](<facility:SR GAUGE 1>)')
+    );
+    const hrefs = Array.from(holder.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['facility:SR:DIAG:BPM:01:POSITION:X', 'facility:SR%20GAUGE%201']);
+    expect(facilityLinkView(hrefs[1] || '', references).text).toBe('SR GAUGE 1');
   });
 });

@@ -45,10 +45,7 @@ let currentSessionId = null;
 let showAllSessions = false;
 /** @type {string|null} */
 let nextCursor = null; // the cursor the next page needs; null when none is left
-let total = 0; // how many entries the current filters admit
 let lastSearch = ''; // the search the current page sequence was fetched with
-/** @type {Set<string>} */
-let heldUncounted = new Set(); // entries held on their own that the held total may not count yet
 /** @type {object|null} */
 let loadingMore = null; // the next-page call in flight; only the call that set it clears it
 let fetchGeneration = 0; // bumped by every first-page fetch; a stale page is dropped
@@ -127,14 +124,6 @@ export function setShowAllSessions(v) {
   showAllSessions = v;
 }
 
-/** @returns {number} how many entries the current filters admit, fetched or not */
-export function getArtifactTotal() {
-  return total;
-}
-/** @returns {string} the search the held list was fetched with */
-export function getListSearch() {
-  return lastSearch;
-}
 /** @returns {boolean} whether the server holds a page not yet fetched */
 export function hasMoreArtifacts() {
   return nextCursor !== null;
@@ -224,7 +213,7 @@ function listingUrl(search, cursor = null) {
 /**
  * Fetch the first page of the artifact list, filtered by `search` and scoped
  * to the current session unless `showAllSessions` is set. Replaces the shared
- * `artifacts` state with that page, records the total and the next-page
+ * `artifacts` state with that page, records the next-page
  * cursor, and drives the error banner directly; render effects (header count,
  * filter chips, sidebar) are the caller's job, via `callbacks`.
  * @param {FetchArtifactsOptions} [callbacks]
@@ -245,10 +234,8 @@ export async function fetchArtifacts(callbacks = {}) {
     const data = await resp.json();
     if (generation !== fetchGeneration) return;
     artifacts = data.artifacts || [];
-    total = data.total ?? artifacts.length;
     nextCursor = data.next_cursor ?? null;
     lastSearch = search;
-    heldUncounted = new Set();
     // A new search or scope is a new list: nothing in it is picked yet.
     picked = new Set();
     pickAnchor = null;
@@ -293,8 +280,6 @@ export async function fetchMoreArtifacts(callbacks = {}) {
     const held = new Set(artifacts.map((a) => a.id));
     const fresh = (data.artifacts || []).filter((/** @type {any} */ a) => !held.has(a.id));
     artifacts = [...artifacts, ...fresh];
-    total = data.total ?? total;
-    heldUncounted = new Set();
     nextCursor = data.next_cursor ?? null;
     // Cleared before the callbacks, so one of them may request the next page.
     loadingMore = null;
@@ -313,32 +298,22 @@ export async function fetchMoreArtifacts(callbacks = {}) {
 /**
  * Add an artifact the server announced, without a request.
  * @param {any} entry
- * @param {{counted?: boolean}} [options] - `counted`: the entry was fetched
- *   on its own and the held total may already include it (an older
- *   artifact), so it is held without raising the total. If its save event
- *   arrives while it is held that way, the artifact is new, and that event
- *   raises the total once.
  * @returns {boolean} whether the held list now reflects that artifact: false
  *   while a search is active, because only the server can say whether the
  *   artifact matches it; true without adding when it is outside the session
  *   scope, because it is correctly absent.
  */
-export function addArtifact(entry, { counted = false } = {}) {
+export function addArtifact(entry) {
   if (lastSearch) return false;
   if (!inCurrentScope(entry)) return true;
-  if (artifacts.some((a) => a.id === entry.id)) {
-    if (!counted && heldUncounted.delete(entry.id)) total += 1;
-    return true;
-  }
+  if (artifacts.some((a) => a.id === entry.id)) return true;
   artifacts = [...artifacts, entry];
-  if (counted) heldUncounted.add(entry.id);
-  else total += 1;
   return true;
 }
 
 /**
- * Drop an artifact from the held list, the picks and the total. An id the list does
- * not hold leaves both alone: it may be out of scope as much as on a page not yet fetched.
+ * Drop an artifact from the held list and the picks. An id the list does
+ * not hold leaves the list alone: it may be out of scope as much as on a page not yet fetched.
  * @param {string} id
  * @returns {void}
  */
@@ -347,7 +322,6 @@ export function removeArtifact(id) {
   const kept = artifacts.filter((a) => a.id !== id);
   if (kept.length === artifacts.length) return;
   artifacts = kept;
-  if (!heldUncounted.delete(id)) total = Math.max(0, total - 1);
 }
 
 /**
@@ -397,20 +371,4 @@ export function getFilteredArtifacts(searchQuery = '') {
   });
 
   return filtered;
-}
-
-/**
- * The pages fetched so far, sorted newest-first, independent of the
- * pinned-first ordering getFilteredArtifacts() applies.
- * Simple mode's "latest result" + "Results from this session" list read this.
- *
- * Session scoping is unchanged: `artifacts` already holds exactly what the
- * last fetch returned — the current session's artifacts when a session scope
- * has been received, or (when none has) the most-recent set across sessions,
- * because fetchArtifacts() adds no `session_id` filter without a
- * currentSessionId. So this is never empty when any artifacts exist.
- * @returns {any[]}
- */
-export function getRecentArtifacts() {
-  return [...artifacts].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 }

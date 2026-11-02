@@ -46,11 +46,6 @@ def _make_result(text_blocks: list[str]) -> SDKWorkflowResult:
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture
 def deployment(lifecycle_repo: Path) -> Path:
     """A clean deployment whose render declares one MCP server."""
     build = stub_build(lifecycle_repo, config="api:\n  providers: {}\n")

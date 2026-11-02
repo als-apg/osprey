@@ -11,6 +11,7 @@ inside a list item, and a Markdown page the guard cannot read.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -79,6 +80,21 @@ See :doc:`other` for the rest of the story.
 
 
 checker = load_module("check_directional_refs", _SCRIPT)
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_trees_sit_outside_the_repo(request, monkeypatch):
+    """Name a synthetic tree's pages the way a tree outside this checkout is named.
+
+    The checker shows a page under the repository root by its repo-relative
+    path and any other page as ``<docs-root-name>/<page>``. A ``tmp_path`` tree
+    lands under the root whenever the run's base temp does, so the root is
+    pointed at a directory no synthetic tree is inside. Only a test that takes
+    ``tmp_path`` itself builds a tree; the shipped-tree test keeps the real root.
+    """
+    if "tmp_path" in inspect.signature(request.function).parameters:
+        tmp_path = request.getfixturevalue("tmp_path")
+        monkeypatch.setattr(checker, "REPO_ROOT", tmp_path / "not-the-docs-tree")
 
 
 def _tree(root: Path, **pages: str) -> Path:

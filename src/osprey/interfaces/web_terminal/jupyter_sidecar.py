@@ -35,11 +35,14 @@ The runtime directory holds ``jpserver-<pid>.json`` (the port) and every
 kernel's connection file (its signing key); the config directory holds nothing
 the shared root should keep. The override file is where a pinned web theme
 reaches JupyterLab: ``jupyterlab_server`` reads it through
-``ConfigManager("labconfig")``, and a user's own theme pick, which lands in
+``ConfigManager("labconfig")``, and a stored theme pick, which lands in
 ``JUPYTERLAB_SETTINGS_DIR`` on the shared root, still wins and still persists.
+A pick is the operator's own, or the one the Jupyter tile makes when it
+follows the hub's theme (``static/js/lab-theme-follow.js``).
 ``page_config.json`` is read the same way; it switches off the JupyterLab
 plugins that make no sense inside an embedded panel (see
-:data:`LAB_DISABLED_EXTENSIONS`).
+:data:`LAB_DISABLED_EXTENSIONS`), and has Lab publish the application object
+that theme follower drives (:func:`lab_page_config`).
 
 A sidecar that exits on its own — outside :meth:`JupyterSidecar.stop` — is
 reported once, with its last stderr lines, and :attr:`JupyterSidecar.on_exit`
@@ -70,6 +73,7 @@ from typing import IO, Any
 
 import nbformat
 
+from osprey.deployment import subprocess_capture
 from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
@@ -96,6 +100,8 @@ _SHARED_SUBTREE = Path(JUPYTER_SHARED_SUBTREE)
 
 #: The settings plugin JupyterLab reads its theme from, and the two theme
 #: names it ships. A pinned web theme is written as an override for this key.
+#: ``static/js/lab-theme-follow.js`` switches the Jupyter tile between the same
+#: two names, by the hub theme's mode; keep the two lists equal.
 _THEME_PLUGIN = "@jupyterlab/apputils-extension:themes"
 _THEME_NAMES = {"dark": "JupyterLab Dark", "light": "JupyterLab Light"}
 
@@ -242,15 +248,27 @@ def lab_theme_override(pinned_mode: str | None) -> dict[str, dict[str, str]] | N
     return {_THEME_PLUGIN: {"theme": theme}} if theme is not None else None
 
 
-def lab_page_config() -> dict[str, dict[str, bool]]:
+def lab_page_config() -> dict[str, bool | dict[str, bool]]:
     """Return the labconfig ``page_config`` document the sidecar is seeded with.
 
     ``jupyterlab_server`` merges this document into the page config it embeds
     in the ``/lab`` page. ``disabledExtensions`` must be the mapping form
     here: the list form is accepted only from the application settings
     directory, and a list from labconfig breaks the merge.
+
+    ``exposeAppInBrowser`` has JupyterLab publish its application object as
+    ``window.jupyterapp``. The Jupyter tile's theme follower
+    (``static/js/lab-theme-follow.js``) runs Lab's ``apputils:change-theme``
+    command through it, so Lab inside the hub takes the hub's light or dark.
+    It gives a script on the page nothing new: anything that runs there
+    already holds the operator's session and Lab's REST API, and the page's
+    script policy (``routes/proxy.py``, ``_lab_page_csp``) is what keeps
+    kernel output from running there at all.
     """
-    return {"disabledExtensions": dict.fromkeys(LAB_DISABLED_EXTENSIONS, True)}
+    return {
+        "disabledExtensions": dict.fromkeys(LAB_DISABLED_EXTENSIONS, True),
+        "exposeAppInBrowser": True,
+    }
 
 
 def seed_starter_notebook(notebooks_dir: Path, example_channel: str | None = None) -> Path | None:
@@ -654,15 +672,15 @@ class JupyterSidecar:
         logger.info("%s launched (pid %s)", _NAME, self._process.pid)
 
     def _watch_exit(self, process: subprocess.Popen[bytes], tail: _StderrTail) -> None:
-        """Reap *process*; report an exit that :meth:`stop` did not cause.
+        """Observe *process*'s exit without reaping it; report one :meth:`stop` did not cause.
 
-        The stderr pipe is inherited by every kernel, so its end of stream
-        cannot stand in for the exit: an orphaned kernel keeps it open.
-        ``wait()`` is what says the sidecar is gone. The report is skipped
-        while the sidecar was still coming up, because :meth:`wait_ready`
-        raises with the same tail and its caller logs that.
+        :meth:`stop` reaps. The stderr pipe is inherited by every kernel, so
+        its end of stream cannot stand in for the exit: an orphaned kernel
+        keeps it open. The observed exit is what says the sidecar is gone. The
+        report is skipped while the sidecar was still coming up, because
+        :meth:`wait_ready` raises with the same tail and its caller logs that.
         """
-        status = process.wait()
+        status = subprocess_capture.observe_exit(process, within=None)
         if self._stopping.is_set():
             return
         tail.join(timeout=1)
@@ -717,7 +735,7 @@ class JupyterSidecar:
         while True:
             if self._stopping.is_set():
                 raise RuntimeError(f"{_NAME} was stopped before it was ready")
-            status = process.poll()
+            status = subprocess_capture.observe_exit(process)
             if status is not None:
                 if self._tail is not None:
                     self._tail.join(timeout=1)
@@ -742,13 +760,11 @@ class JupyterSidecar:
         runtime_dir = self._runtime_dir
         process, self._process = self._process, None
         if process is not None:
-            if process.poll() is None:
-                _signal_group(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(_STOP_GRACE)
-                except subprocess.TimeoutExpired:
-                    _signal_group(process.pid, signal.SIGKILL)
-                    process.wait()
+            # The sidecar leads its group, so its pid names it; the stop is the
+            # one reaper of the sidecar, whether it is running or has exited.
+            outcome = subprocess_capture.stop_child(process, grace=_STOP_GRACE)
+            if not outcome.gone:
+                logger.warning("%s: %s", _NAME, outcome.describe())
             # The stderr pipe is left to the tail thread: closing it here
             # blocks on the reader, and a kernel the group signal did not
             # reach (kernels start their own session) can hold the write end
@@ -834,9 +850,3 @@ def _signal_pid(pid: int, signum: signal.Signals) -> None:
     """Send *signum* to *pid*; a process already gone is fine."""
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signum)
-
-
-def _signal_group(pid: int, signum: signal.Signals) -> None:
-    """Send *signum* to the process group led by *pid*; a gone group is fine."""
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(pid, signum)

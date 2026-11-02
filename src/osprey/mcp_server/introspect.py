@@ -108,24 +108,26 @@ async def introspect_server(
             cwd=cwd,
         )
 
-        async with asyncio.timeout(timeout):
-            async with stdio_client(params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    init_result = await session.initialize()
-                    base_info["description"] = getattr(init_result, "instructions", None) or ""
-                    result = await session.list_tools()
+        async with (
+            asyncio.timeout(timeout),
+            stdio_client(params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            init_result = await session.initialize()
+            base_info["description"] = getattr(init_result, "instructions", None) or ""
+            result = await session.list_tools()
 
-                    tools = [
-                        {
-                            "name": tool.name,
-                            "description": tool.description or "",
-                        }
-                        for tool in result.tools
-                    ]
+            tools = [
+                {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                }
+                for tool in result.tools
+            ]
 
-                    base_info["tools"] = tools
-                    base_info["tool_count"] = len(tools)
-                    logger.debug("introspect %s: %d tools discovered", name, len(tools))
+            base_info["tools"] = tools
+            base_info["tool_count"] = len(tools)
+            logger.debug("introspect %s: %d tools discovered", name, len(tools))
 
     except TimeoutError:
         logger.warning("introspect %s: timed out after %.1fs", name, timeout)

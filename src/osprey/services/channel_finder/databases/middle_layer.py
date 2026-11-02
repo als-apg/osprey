@@ -261,8 +261,10 @@ class MiddleLayerDatabase(BaseDatabase):
                 for channel_key in present_keys:
                     names = value[channel_key]
                     # Normalize string to list (MML exports may use string for single channels)
-                    for name in [names] if isinstance(names, str) else names:
-                        channel_names.append((name, key_protocols[channel_key]))
+                    channel_names.extend(
+                        (name, key_protocols[channel_key])
+                        for name in ([names] if isinstance(names, str) else names)
+                    )
                 field_path = path + [key]
 
                 # Extract metadata if present (preserve from MML exports)
@@ -350,15 +352,13 @@ class MiddleLayerDatabase(BaseDatabase):
             Dict with statistics (total_channels, systems, families, etc.)
         """
         # Count systems
-        systems = [s for s in self.data.keys() if isinstance(self.data[s], dict)]
+        systems = [s for s in self.data if isinstance(self.data[s], dict)]
 
         # Count families across all systems
         all_families = set()
         for system in systems:
             if isinstance(self.data[system], dict):
-                families = [
-                    f for f in self.data[system].keys() if isinstance(self.data[system][f], dict)
-                ]
+                families = [f for f in self.data[system] if isinstance(self.data[system][f], dict)]
                 all_families.update(families)
 
         return {
@@ -378,11 +378,11 @@ class MiddleLayerDatabase(BaseDatabase):
             List of dicts with 'name' and 'description' keys.
             Description is empty string if not provided in database.
         """
-        systems = []
-        for s in self.data.keys():
-            if isinstance(self.data[s], dict):
-                systems.append({"name": s, "description": self.data[s].get("_description", "")})
-        return systems
+        return [
+            {"name": s, "description": self.data[s].get("_description", "")}
+            for s in self.data
+            if isinstance(self.data[s], dict)
+        ]
 
     def list_families(self, system: str) -> list[dict[str, str]]:
         """
@@ -403,7 +403,7 @@ class MiddleLayerDatabase(BaseDatabase):
             raise ValueError(f"System '{system}' not found. Available systems: {available}")
 
         families = []
-        for f in self.data[system].keys():
+        for f in self.data[system]:
             if f.startswith("_"):  # Skip metadata keys
                 continue
             if isinstance(self.data[system][f], dict):
@@ -447,7 +447,7 @@ class MiddleLayerDatabase(BaseDatabase):
         if field:
             if field not in family_data:
                 available = [
-                    k for k in family_data.keys() if not k.startswith("_") and k.lower() != "setup"
+                    k for k in family_data if not k.startswith("_") and k.lower() != "setup"
                 ]
                 raise ValueError(
                     f"Field '{field}' not found in '{system}:{family}'. "

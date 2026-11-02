@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e._facility_select import lane_monitors
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     e2e_budget_scale,
     find_html_files,
     init_project,
+    print_run_summary,
     run_sdk_query,
 )
 
@@ -56,14 +58,15 @@ class TestDataVisualizerAgent:
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
         repo = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'SR:DIAG:BPM:18:POSITION:X', 'SR:DIAG:BPM:19:POSITION:X', "
-            "'SR:DIAG:BPM:20:POSITION:X' over the last 24 hours with "
+            f"'{first}', '{second}', "
+            f"'{third}' over the last 24 hours with "
             "processing 'mean' and bin_size 60. "
             "Then delegate to the data-visualizer agent to create an "
-            "interactive Plotly scatter plot of BPM18 vs BPM19, colored by "
+            f"interactive Plotly scatter plot of {first} vs {second}, colored by "
             "time. The data-visualizer should use the data_source parameter "
             "of create_interactive_plot to load the archiver data — do NOT "
             "hardcode file paths in the plotting code."
@@ -77,18 +80,7 @@ class TestDataVisualizerAgent:
         )
 
         # -- Debug output --
-        print("\n--- data-visualizer data_source regression test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        for trace in result.tool_traces:
-            error_flag = " [ERROR]" if trace.is_error else ""
-            parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
-            )
-            print(f"  tool: {trace.name}{error_flag}{parent_flag}")
-            if trace.is_error and trace.result:
-                print(f"    error: {trace.result[:300]}")
+        print_run_summary("data-visualizer data_source regression test", result)
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"
@@ -176,10 +168,11 @@ class TestDataVisualizerAgent:
         are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
         repo = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
+        first, second = lane_monitors(repo, 2)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'SR:DIAG:BPM:18:POSITION:X' and 'SR:DIAG:BPM:19:POSITION:X' "
+            f"'{first}' and '{second}' "
             "over the last 4 hours with processing 'mean' and bin_size 300. "
             "Then delegate to the data-visualizer agent to create an "
             "interactive Plotly line chart of both BPMs over time."
@@ -193,15 +186,7 @@ class TestDataVisualizerAgent:
         )
 
         # -- Debug output --
-        print("\n--- archiver_read → interactive plot test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        for trace in result.tool_traces:
-            error_flag = " [ERROR]" if trace.is_error else ""
-            print(f"  tool: {trace.name}{error_flag}")
-            if trace.is_error and trace.result:
-                print(f"    error: {trace.result[:300]}")
+        print_run_summary("archiver_read → interactive plot test", result)
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"

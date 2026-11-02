@@ -33,7 +33,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { makeDockApi as makeApi, addTerminal } from './_dock-fake.mjs';
+import { makeDockApi as makeApi, addTerminal, FakeResizeObserver } from './_dock-fake.mjs';
 
 const ADAPTER = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
 
@@ -52,13 +52,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   },
   onDragGesture: () => [],
 }));
-
-/** The adapter's live-follow observer; geometry itself is browser-suite turf. */
-class FakeResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
 
 beforeEach(() => {
   vi.resetModules();
@@ -176,6 +169,14 @@ describe('setPanelReachable — the tile body says its backend stopped answering
       width: frame.style.width,
       height: frame.style.height,
     }).toEqual(before);
+  });
+
+  test("the notice is rounded at the card's bottom corners, like its iframe", async () => {
+    const { mod, frame } = await arielDown();
+    mod.setPanelReachable('ariel', false, SINCE);
+    const [el] = noticeEls();
+    expect(el.style.borderRadius).toContain('var(--radius-xl)');
+    expect(frame.style.borderRadius).toContain('var(--radius-xl)');
   });
 
   test('the notice exists before it has anything to say', async () => {

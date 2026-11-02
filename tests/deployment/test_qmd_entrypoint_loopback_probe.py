@@ -16,17 +16,15 @@ a port nothing listens on, and runs ``start_daemon`` with real curl.
 
 from __future__ import annotations
 
-import os
 import shutil
 import socket
-import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
-ENTRYPOINT = Path(__file__).resolve().parents[2] / "src/osprey/templates/services/qmd/entrypoint.sh"
+from tests.deployment._qmd_entrypoint import run_entrypoint
 
 pytestmark = pytest.mark.skipif(
     shutil.which("curl") is None or shutil.which("sh") is None,
@@ -54,30 +52,10 @@ def _serve_health(family: socket.AddressFamily, host: str) -> ThreadingHTTPServe
     return server
 
 
-def _dead_port() -> int:
-    """A loopback port nothing listens on: a proxy there refuses every request."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "qmd"
-    stub.write_text("#!/bin/sh\nexec sleep 30 >/dev/null 2>&1\n")
-    stub.chmod(0o755)
-
-    lines = ENTRYPOINT.read_text().splitlines()
-    assert lines[-1] == 'main "$@"', "the entrypoint no longer ends with its main call"
-    library = tmp_path / "entrypoint-lib.sh"
-    library.write_text("\n".join(lines[:-1]) + "\n")
-
-    proxy = f"http://127.0.0.1:{_dead_port()}"
+def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str, proxy_port: int):
+    """Start the daemon with every proxy pointed at *proxy_port*, where nothing listens."""
+    proxy = f"http://127.0.0.1:{proxy_port}"
     env = {
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "HOME": str(tmp_path),
-        "OSPREY_QMD_PORT": "1",
         "OSPREY_QMD_INTERNAL_PORT": str(internal_port),
         "OSPREY_QMD_HEALTH_TIMEOUT": "2",
         "http_proxy": proxy,
@@ -88,8 +66,9 @@ def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str):
         "NO_PROXY": no_proxy,
     }
     # The stub daemon is stopped through the entrypoint's own shutdown helper, which waits for it, so the shell has no child left to reap when it writes the result line.
-    script = f'. "{library}"; start_daemon; stop_child "$QMD_PID"; echo "TARGET=$DAEMON_TARGET"'
-    return subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True, timeout=60)
+    script = 'start_daemon; stop_child "$QMD_PID"; echo "TARGET=$DAEMON_TARGET"'
+    stub = "#!/bin/sh\nexec sleep 30 >/dev/null 2>&1\n"
+    return run_entrypoint(tmp_path, stub=stub, script=script, env=env)
 
 
 @pytest.mark.parametrize(
@@ -102,11 +81,11 @@ def _run_start_daemon(tmp_path: Path, internal_port: int, no_proxy: str):
     ],
 )
 def test_the_health_probe_reaches_the_daemon_whatever_the_proxy_env_says(
-    tmp_path, family, host, target, no_proxy
+    tmp_path, family, host, target, no_proxy, reserve_port
 ):
     server = _serve_health(family, host)
     try:
-        result = _run_start_daemon(tmp_path, server.server_address[1], no_proxy)
+        result = _run_start_daemon(tmp_path, server.server_address[1], no_proxy, reserve_port())
     finally:
         server.shutdown()
         server.server_close()

@@ -24,7 +24,7 @@ import difflib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAULT_TIER_KEY
 from osprey_connectors.connection import ENV_NAME_RE
@@ -41,6 +41,9 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     retired_type_message,
 )
+
+if TYPE_CHECKING:
+    from osprey.agent_record.config import AgentRecordConfig
 
 #: CI platforms with a shipped pipeline template. ``deploy.ci`` selects one of
 #: these by name; the scaffolding verbs key their template lookup off the same
@@ -406,6 +409,7 @@ def deploy_aware_config_errors(
     profile_root: Path | None = None,
     project_name: str | None = None,
     dispatch_tier: str | None = None,
+    agent_record: AgentRecordConfig | None = None,
 ) -> list[str]:
     """Lint a profile's web stack against the config the BUILD will render.
 
@@ -446,13 +450,17 @@ def deploy_aware_config_errors(
             :func:`build_lint_view` for what is derived from it.
         dispatch_tier: The profile's ``dispatch.tier``; see
             :func:`build_lint_view`.
+        agent_record: The profile's parsed ``agent_record:`` block. Its named
+            readers are judged here, against the roster and the sign-in method
+            of the merged view. ``None`` is a profile with no block, whose
+            defaults name no reader.
 
     Returns:
         The lint messages that must fail the command, empty when it passes.
     """
     # Imported in-function: this module is on `BuildProfile`'s import chain, and
     # the lint engine pulls in the whole web-terminals package behind it.
-    from osprey.deployment.telemetry_lint import telemetry_errors
+    from osprey.agent_record.config import reader_errors
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
     from .build_profile_schema import login_tiers_key_errors
@@ -460,12 +468,13 @@ def deploy_aware_config_errors(
     view = build_lint_view(
         deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
+    nested = _nest_dotted(view)
     return [
         # The view carries what the profile spells, so the key the build stages
         # is refused on the same view the lint judges.
         *login_tiers_key_errors(view),
         *profile_config_errors(view, profile_root=profile_root),
-        *telemetry_errors(_nest_dotted(view)),
+        *(reader_errors(agent_record, nested) if agent_record is not None else []),
     ]
 
 
@@ -476,6 +485,7 @@ def deploy_aware_config_warnings(
     profile_root: Path | None = None,
     project_name: str | None = None,
     dispatch_tier: str | None = None,
+    agent_record: AgentRecordConfig | None = None,
     mcp_servers: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
@@ -492,7 +502,7 @@ def deploy_aware_config_warnings(
     ``config:`` block does not carry; the facility write lint reads it beside
     the ``claude_code.servers`` the block may persist.
     """
-    from osprey.deployment.telemetry_lint import telemetry_warnings
+    from osprey.agent_record.config import reader_warnings
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
 
     view = build_lint_view(
@@ -501,7 +511,7 @@ def deploy_aware_config_warnings(
     nested = _nest_dotted(view)
     return [
         *profile_config_warnings(view, profile_root=profile_root),
-        *telemetry_warnings(nested),
+        *(reader_warnings(agent_record, nested) if agent_record is not None else []),
         *write_gateway_only_warnings(nested),
         *facility_write_warnings(nested, mcp_servers),
     ]
@@ -818,9 +828,12 @@ def _control_system_value_errors(config: Mapping[str, Any]) -> list[str]:
     retired_blocks: dict[str, str] = {}
     for written, rendered, _value in _rendered_leaf_paths(config):
         below = rendered[len(_CONNECTOR_SEGMENTS) :]
-        if tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) == _CONNECTOR_SEGMENTS and below:
-            if below[0] in RETIRED_CONTROL_SYSTEM_TYPES:
-                retired_blocks.setdefault(below[0], written)
+        if (
+            tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) == _CONNECTOR_SEGMENTS
+            and below
+            and below[0] in RETIRED_CONTROL_SYSTEM_TYPES
+        ):
+            retired_blocks.setdefault(below[0], written)
     for spelling, value in spelled_values(config, _CONNECTOR_PREFIX):
         if isinstance(value, dict):
             for key in value:
@@ -992,14 +1005,14 @@ def _reject_relocated_keys(block: dict[str, Any], problems: list[str]) -> None:
                 f"Remove it from the deploy block."
             )
 
-    for key in _ENV_CHANNEL_KEYS:
-        if key in block:
-            problems.append(
-                f"'{key}' is not a deploy key — a profile declares every variable "
-                f"through `env.required` / `env.defaults`, including deploy-scoped "
-                f"ones. The deploy block names variables (`registry.token_env_var`) "
-                f"but never declares them."
-            )
+    problems.extend(
+        f"'{key}' is not a deploy key — a profile declares every variable "
+        f"through `env.required` / `env.defaults`, including deploy-scoped "
+        f"ones. The deploy block names variables (`registry.token_env_var`) "
+        f"but never declares them."
+        for key in _ENV_CHANNEL_KEYS
+        if key in block
+    )
 
     if "gitlab" in block:
         problems.append(

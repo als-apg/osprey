@@ -175,10 +175,8 @@ _TABLE_SEP_RE = re.compile(r"^\s*\|?[ \t:|-]*-[ \t:|-]*\|?\s*$")
 def _split_row(line: str) -> list[str]:
     """Split a table row on unescaped ``|``, dropping optional outer pipes."""
     s = line.strip()
-    if s.startswith("|"):
-        s = s[1:]
-    if s.endswith("|"):
-        s = s[:-1]
+    s = s.removeprefix("|")
+    s = s.removesuffix("|")
     return [c.strip() for c in s.split("|")]
 
 
@@ -309,8 +307,7 @@ def _convert_emphasis(text: str, bolds: list[str]) -> str:
     text = _BOLD_ITALIC_US_RE.sub(lambda m: _stash(bolds, _BOLD, f"_{m.group(1)}_"), text)
     text = _BOLD_STAR_RE.sub(lambda m: _stash(bolds, _BOLD, m.group(1)), text)
     text = _BOLD_US_RE.sub(lambda m: _stash(bolds, _BOLD, m.group(1)), text)
-    text = _ITALIC_STAR_RE.sub(lambda m: f"_{m.group(1)}_", text)
-    return text
+    return _ITALIC_STAR_RE.sub(lambda m: f"_{m.group(1)}_", text)
 
 
 # Links. Reference definition line ``[ref]: url``; inline ``[text](url)`` (not an
@@ -360,8 +357,7 @@ def _convert_inline(text: str, bolds: list[str]) -> str:
     """Inline span transforms. Order: links, math, then emphasis."""
     text = _convert_links(text)
     text = _convert_math(text)
-    text = _convert_emphasis(text, bolds)
-    return text
+    return _convert_emphasis(text, bolds)
 
 
 def markdown_to_chat(text: str) -> str:

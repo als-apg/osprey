@@ -101,13 +101,9 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
-    resolved: list[str] = []
     output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
 
-    for aid in artifact_ids:
-        resolved.append(await resolve_artifact_path(store, aid, output_dir))
-
-    return resolved
+    return [await resolve_artifact_path(store, aid, output_dir) for aid in artifact_ids]
 
 
 @mcp.tool()
@@ -166,7 +162,7 @@ async def entry_get(
         # TypedDict -- dict access, not attribute access. Localize the three
         # timestamp fields through the shared egress helper so single-entry get
         # matches search/browse (serialize_entry) instead of emitting raw UTC.
-        from osprey_connectors.config import to_facility_iso
+        from osprey.utils.facility import to_facility_iso
 
         result: dict[str, Any] = {
             "entry_id": entry["entry_id"],

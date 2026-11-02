@@ -59,7 +59,6 @@ def test_preserves_every_telemetry_switch():
     switches = {
         "CLAUDE_CODE_ENABLE_TELEMETRY",
         "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
-        "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH",
     }
     result = strip_claude_code_env(
         {**dict.fromkeys(switches, "1"), "CLAUDE_CODE_ENTRYPOINT": "cli"}
@@ -126,14 +125,12 @@ def test_build_pty_env_retains_the_tracing_switches(monkeypatch):
     """The interactive PTY path keeps the switches that turn tracing on."""
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     monkeypatch.setenv("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
-    monkeypatch.setenv("CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH", "262144")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 
     env = build_pty_env()
 
     assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
     assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
-    assert env["CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH"] == "262144"
     assert "CLAUDE_CODE_ENTRYPOINT" not in env
 
 

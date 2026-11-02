@@ -32,25 +32,9 @@ from osprey_connectors.simulation.view import (
     SimulatorView,
 )
 from tests._builds import BuiltProject
+from tests._simulator_view import view_channel
 
 STATUS = "T:SIM:M:STATUS"
-
-
-def _channel(address: str, **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": address if role == "setpoint" else None,
-        "value_type": fields.pop("value_type", "float"),
-        "unit": None,
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": fields.pop("value_range", None),
-        "owner": fields.pop("owner", "texture"),
-        "on": None,
-        **fields,
-    }
 
 
 def _binding(record: dict[str, Any], role: str, plane: str | None, refresh: str) -> dict[str, Any]:
@@ -146,11 +130,11 @@ VIEW: dict[str, Any] = {
         },
     ],
     "channels": [
-        _channel("M:BPM:X", owner="M"),
-        _channel("M:CHROM", owner="M", value_type="waveform", shape=[2]),
-        _channel("M:CHROM:X", owner="M"),
-        _channel("M:CHROM:Y", owner="M"),
-        _channel(
+        view_channel("M:BPM:X", owner="M"),
+        view_channel("M:CHROM", owner="M", value_type="waveform", shape=[2]),
+        view_channel("M:CHROM:X", owner="M"),
+        view_channel("M:CHROM:Y", owner="M"),
+        view_channel(
             "M:HCM:SP",
             owner="M",
             role="setpoint",
@@ -158,12 +142,12 @@ VIEW: dict[str, Any] = {
             value_range=[-2.0, 2.0],
             precision=4,
         ),
-        _channel("T:COUNT", value_type="int", precision=2),
-        _channel("M:SLICED", owner="M"),
-        _channel("M:TUNE:X", owner="M"),
-        _channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
-        _channel("T:OPEN:SP", role="setpoint", writable=True),
-        _channel("T:RB"),
+        view_channel("T:COUNT", value_type="int", precision=2),
+        view_channel("M:SLICED", owner="M"),
+        view_channel("M:TUNE:X", owner="M"),
+        view_channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
+        view_channel("T:OPEN:SP", role="setpoint", writable=True),
+        view_channel("T:RB"),
     ],
 }
 

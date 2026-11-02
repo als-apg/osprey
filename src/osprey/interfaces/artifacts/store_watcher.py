@@ -13,7 +13,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +34,6 @@ from osprey.interfaces.fs_watch import (
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
 
-#: ``origin`` of an audit spill (``osprey.stores.artifact_store.AUDIT_ORIGIN``),
-#: kept literal so watching an index does not import the store module.
-_AUDIT_ORIGIN = "tool_call"
-
 
 class _IndexFileHandler(FileSystemEventHandler):
     """Watchdog handler that reacts to modifications of known index files."""
@@ -54,7 +50,8 @@ class _IndexFileHandler(FileSystemEventHandler):
                 - ``id_attr``: Attribute name for the entry ID (e.g. ``"id"``)
                 - ``event_type``: SSE event type for new entries (e.g. ``"context"``)
                 - ``delete_type``: SSE event type for deleted entries
-                - ``to_dict``: Whether entries have a ``.to_dict()`` method
+                - ``payload``: Callable turning an entry into the dict of
+                  fields its SSE event carries after ``type``
             broadcaster: ``_SSEBroadcaster`` instance with ``.broadcast(data)``
         """
         self._index_configs = index_configs
@@ -237,13 +234,10 @@ class _IndexFileHandler(FileSystemEventHandler):
         added = new_ids - old_ids
         for entry in store._entries:
             if getattr(entry, id_attr) in added:
-                if getattr(entry, "origin", "") == _AUDIT_ORIGIN:
-                    # An audit spill is a record, not an artifact: never live.
-                    continue
                 self._broadcaster.broadcast(
                     {
                         "type": event_type,
-                        **entry.to_dict(),
+                        **cfg["payload"](entry),
                     }
                 )
 
@@ -269,6 +263,7 @@ class StoreIndexWatcher:
         broadcaster: Any,
         artifact_store: Any,
         *,
+        payload: Callable[[Any], dict[str, Any]],
         observer_factory: ObserverFactory = Observer,
     ) -> None:
         """
@@ -278,8 +273,12 @@ class StoreIndexWatcher:
             artifact_store: Store whose index this watcher reloads.
             observer_factory: Builds the watchdog observer — see
                 :data:`ObserverFactory`.
+            payload: Turns an added entry into the fields its SSE frame carries
+                after ``type``. The gallery passes the same function its
+                same-process frames use, so an entry another process saved
+                reaches the browser with the same fields, ``run_record``
+                included, as one this process saved.
         """
-        self._workspace_root = workspace_root
         self._broadcaster = broadcaster
         self._observer_factory = observer_factory
         self._observer: BaseObserver | None = None
@@ -292,6 +291,7 @@ class StoreIndexWatcher:
                 "id_attr": "id",
                 "event_type": "artifact",
                 "delete_type": "artifact_deleted",
+                "payload": payload,
             },
         }
 
@@ -313,7 +313,7 @@ class StoreIndexWatcher:
 
         # Schedule a watch on each directory that contains an index file
         watched = set()
-        for _filename, dir_path in self._watch_dirs.items():
+        for dir_path in self._watch_dirs.values():
             dir_str = str(dir_path)
             if dir_str not in watched:
                 dir_path.mkdir(parents=True, exist_ok=True)

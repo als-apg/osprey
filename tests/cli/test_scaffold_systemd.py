@@ -60,11 +60,6 @@ from tests.fixtures.lifecycle_repo import build_exemplar_repo
 FROZEN_BIN = "/opt/osprey/bin/osprey"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 @pytest.fixture(autouse=True)
 def frozen_osprey_bin(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the executable the unit is rendered against.

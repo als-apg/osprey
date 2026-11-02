@@ -254,7 +254,7 @@ describe('writes enabled — the shipped posture', () => {
   const postures = [
     ['never applied (fresh boot)', undefined],
     ['explicit true', { scaffold_write_enabled: true }],
-    ['payload without the key', { ui_mode: 'expert' }],
+    ['payload without the key', { allow_runtime_panels: true }],
     ['null payload (failed /api/panels)', null],
   ];
 

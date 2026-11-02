@@ -1,8 +1,8 @@
 """The write-switch reader — one field of one record, one verdict.
 
-An operator turns one control target's writes on or off from the header chip:
-"writes on for the stand-in, leave the virtual accelerator alone". That switch
-is one field of the control-context record
+An operator sets one control target's writes to off, asked or allowed from the
+header chip: "writes on for the stand-in, leave the virtual accelerator alone".
+That switch is one field of the control-context record
 (:mod:`osprey_connectors.control_context`) and is enforced at *write* time
 rather than delivered by respawning the agent, which is what lets a flip land
 on a session already mid-conversation.
@@ -38,10 +38,12 @@ There is no third path and no fallback. A root that resolves to nothing makes
 rather than quietly writing somewhere a reader will never look, and which
 :func:`write_verdict` refuses as ``record_unavailable``.
 
-**2. What the shapes mean.** The record's ``switch`` field is a per-target map;
-a machine is armed only where it reads ``"on"``. Everything else — no record, a
-record that does not name the machine, any other value — is that machine's
-writes off. The record's ``posture`` field is a mirror of the switch
+**2. What the shapes mean.** The record's ``switch`` field is a per-target map
+of positions, and :func:`~osprey_connectors.control_context.switch_position` is
+its one reader: a machine is armed only at ``"asked"`` or ``"allowed"``, and a
+stored ``"on"`` from an older release reads as ``"asked"``. Everything else — no
+record, a record that does not name the machine, any other value — is that
+machine's writes off. The record's ``posture`` field is a mirror of the switch
 (:func:`~osprey_connectors.control_context.posture_mirror`) kept for readers
 that predate it, and no verdict reads it. :func:`parse_posture_value` is the
 grammar of that mirror, applied by
@@ -52,8 +54,17 @@ there.
 total order of terms — read-only run, tier, target, owner, owner tier, record,
 switch, launch pin — and the first that refuses names the reason. Its order is
 shared with the hook's stdlib twin, so a write is refused for the same reason
-on both sides. :func:`backstop_verdict` is the floor for a write no target or
-owner can be named for: its first two terms and nothing else.
+on both sides. An allowed verdict carries the effective position: the stored
+one, capped by the ceiling the environment's verdict already evaluates — the
+section's tier on a host, the owner's rung under a bound tree. A position above
+the ceiling refuses nothing and stays on disk. :func:`backstop_verdict` is the
+floor for a write no target or owner can be named for: its first two terms and
+nothing else, so it reports no position.
+
+Both are blind to a session's hold, because they also choose the gateway a
+connector child connects on. The hold is decided where a write executes:
+:func:`session_hold_refusal` asks it alone, and :func:`execution_verdict` is
+:func:`write_verdict` with the hold placed after its first two terms.
 
 The switch is a property of one OWNER's record, not of a process tree: no
 session key indexes it, and a process that belongs to no session — a dispatch
@@ -121,19 +132,23 @@ import errno
 import logging
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Final, Literal, NamedTuple
+from typing import Any, Final, Literal, NamedTuple, cast
 
+from osprey_connectors import session_hold
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     CONTROL_TARGETS,
+    TIER_WORDS,
     machine_kind,
     published_machine_kind,
     resolve_target,
     tier_allows,
+    tier_writes,
 )
 from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -163,12 +178,15 @@ __all__ = [
     "bound_owner",
     "bound_state_dir",
     "current_owner",
+    "execution_verdict",
     "invalidate_cache",
     "launch_posture_stamp",
     "owner_tier_term",
     "parse_posture_value",
+    "session_hold_refusal",
     "stamped_agent_data_root",
     "state_dir",
+    "write_ceiling",
     "write_verdict",
 ]
 
@@ -699,7 +717,7 @@ class _TreeContext(NamedTuple):
     Attributes:
         record: The parsed record — its ``switch`` already filtered by
             :mod:`~osprey_connectors.control_context`'s parser to the targets
-            switched ``"on"`` — or ``None`` when the tree holds no record for
+            at ``"asked"`` or ``"allowed"`` — or ``None`` when the tree holds no record for
             this owner or the record could not be read.
         unavailable: ``None`` when the read reached an answer — a record, or
             a provisioned tree holding none for this owner — and otherwise the
@@ -1022,14 +1040,14 @@ def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadabl
         return "unreadable"
     if launch_posture != POSTURE_SANDBOX:
         return "none"
-    if stamped == LAUNCH_POSTURE_ALL_TARGETS or not target or stamped == target:
+    if stamped in (LAUNCH_POSTURE_ALL_TARGETS, target) or not target:
         return "pinned"
     return "none"
 
 
 # -- the owner rung ---------------------------------------------------------
 
-#: The build-rendered login→tier map: ``{<login>: "allowed" | "never"}``,
+#: The build-rendered login→tier map: ``{<login>: "never" | "asked" | "allowed"}``,
 #: each value the resolved render's ``tier_writes`` for that login. A process
 #: that reads other logins' records (a shared container) cannot use its own
 #: section's tier for the record's owner, so it reads the owner's entry here.
@@ -1038,13 +1056,13 @@ LOGIN_TIERS_KEY = "control_system.login_tiers"
 #: The leaf under the ``control_system`` section that :data:`LOGIN_TIERS_KEY` names.
 _LOGIN_TIERS_LEAF: Final = "login_tiers"
 
-#: The two values a map entry may carry — the same two :func:`tier_writes` answers.
-_LOGIN_TIERS: Final = frozenset({"allowed", "never"})
+#: The three values a map entry may carry — the same three :func:`tier_writes` answers.
+_LOGIN_TIERS: Final = TIER_WORDS
 
 
 def owner_tier_term(
     section: Any, owner: str | NoOwner | None
-) -> Literal["skip", "allowed", "never", "unknown"]:
+) -> Literal["skip", "never", "asked", "allowed", "unknown"]:
     """The owner's tier out of :data:`LOGIN_TIERS_KEY` — the verdict's owner rung.
 
     *section* is the ``control_system`` section; *owner* the login whose record
@@ -1053,10 +1071,10 @@ def owner_tier_term(
     one marker of a process that reads other logins' records). Answers:
 
     * ``"skip"`` — the rung does not apply: no map and no tree;
-    * ``"allowed"`` / ``"never"`` — the owner's entry;
+    * ``"never"`` / ``"asked"`` / ``"allowed"`` — the owner's entry;
     * ``"unknown"`` — the rung applies and the owner's tier cannot be read: a
       tree with no map, a map that is not a mapping, a map with any key that is
-      not a non-empty string or any value other than ``"allowed"``/``"never"``
+      not a non-empty string or any value other than the three tier words
       (unreadable as a whole — it is one render's output), an owner that is not
       a non-empty string, or an owner the map does not name. The verdict refuses
       it as ``owner_unknown``; ``never`` refuses as ``tier_never``.
@@ -1078,14 +1096,30 @@ def owner_tier_term(
         tier = login_tiers.get(owner)
     except Exception:  # a rung that cannot read the map refuses; it never raises
         return "unknown"
-    if tier == "allowed":
-        return "allowed"
-    if tier == "never":
-        return "never"
-    return "unknown"
+    return tier if tier in _LOGIN_TIERS else "unknown"
+
+
+def write_ceiling(
+    section: Any, owner: str | NoOwner | None, *, tree_bound: bool | None = None
+) -> Literal["never", "asked", "allowed", "unknown"]:
+    """The highest position a write by *owner* runs at: the verdict's ceiling.
+
+    Under a bound tree the owner's rung (:func:`owner_tier_term`), otherwise
+    :func:`~osprey_connectors.types.tier_writes` of *section*. The ceiling caps
+    an allowed verdict's ``position`` and refuses nothing itself; the tier and
+    rung terms of :func:`write_verdict` do that. *tree_bound* answers for a
+    process other than this one (``None``: :func:`_tree_is_bound`). Never raises.
+    """
+    if not (_tree_is_bound() if tree_bound is None else tree_bound):
+        return tier_writes(section)
+    rung = owner_tier_term(section, owner)
+    return "unknown" if rung == "skip" else rung
 
 
 # -- the write verdict ------------------------------------------------------
+
+#: The environment variable naming the web terminal's session, the hold's key.
+_SESSION_KEY_ENV_VAR: Final = "OSPREY_SESSION_ID"
 
 
 @dataclass(frozen=True)
@@ -1102,12 +1136,20 @@ class WriteVerdict:
             a string, else ``None``.
         kind: The kind of machine *target* names here — ``real``, ``rehearsal``
             or ``simulator`` — or ``None`` when the target does not resolve.
+        position: The effective switch position when *allowed* — ``asked`` or
+            ``allowed``, the stored position capped by the environment's
+            ceiling — and ``None`` on every refusal and from
+            :func:`backstop_verdict`.
+        detail: Words the refusal adds after its phrase, such as what raised a
+            session's hold. Not part of the decision, so verdicts compare without it.
     """
 
     allowed: bool
     reason: str | None
     target: str | None
     kind: Literal["real", "rehearsal", "simulator"] | None
+    position: Literal["asked", "allowed"] | None = None
+    detail: str | None = field(default=None, compare=False)
 
 
 def write_verdict(
@@ -1146,14 +1188,20 @@ def write_verdict(
        host's own record, through the status reader, which fails closed too: a
        corrupt file, a foreign schema or an unresolvable root refuses. A record
        that is simply absent is not unavailable — it is every switch off.
-    7. ``switch_off`` — the record's switch is not ``"on"`` for *target*. The
-       record's ``posture`` field is not read: it mirrors the switch, and an
-       old ``sandbox`` value left in a file does not refuse.
+    7. ``switch_off`` — the record's stored position for *target*
+       (:func:`~osprey_connectors.control_context.switch_position`) is ``off``.
+       The record's ``posture`` field is not read: it mirrors the switch, and
+       an old ``sandbox`` value left in a file does not refuse.
     8. ``launch_pinned`` — the launch pin (:func:`_launch_pin_term`) is
        ``pinned`` or ``unreadable`` for *target*; skipped when
        *ignore_launch_pin*, for a caller that reports the pin on its own.
 
-    Tier and owner rung come before the record, so a demoted login's ``"on"``
+    An allowed verdict's ``position`` is the lower of the stored position and
+    :func:`write_ceiling`: :func:`~osprey_connectors.types.tier_writes` of
+    *section* on a host (term 2), the owner's rung under a bound tree (term 5).
+    The ceiling adds no refusal.
+
+    Tier and owner rung come before the record, so a demoted login's position
     stays on disk, inert, and arms again if the tier is restored. This function
     reads and never writes. It never answers ``switching`` or ``stopped_since``:
     those belong to the callers that hold the record's lock.
@@ -1178,12 +1226,15 @@ def write_verdict(
     except Exception:  # the kind is a word in a refusal; it must not decide one
         logger.debug("Could not name the machine kind of %r", target, exc_info=True)
         kind = None
+    position: Literal["asked", "allowed"] | None = None
     try:
-        reason = _write_refusal(section, target, owner, ignore_launch_pin)
+        reason, position = _write_refusal(section, target, owner, ignore_launch_pin)
     except Exception:  # a verdict that cannot be reached refuses; it never raises
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
         reason = "record_unavailable"
-    return WriteVerdict(allowed=reason is None, reason=reason, target=named, kind=kind)
+    return WriteVerdict(
+        allowed=reason is None, reason=reason, target=named, kind=kind, position=position
+    )
 
 
 def backstop_verdict(section: Any) -> WriteVerdict:
@@ -1194,19 +1245,16 @@ def backstop_verdict(section: Any) -> WriteVerdict:
     (:func:`~osprey_connectors.types.tier_allows`), in the same order as the
     first two terms of :func:`write_verdict`, and otherwise allows. It is blind
     by design — it resolves no target, asks no owner and opens no record, so a
-    switch, on or off, never changes its answer.
+    switch position never changes its answer and it reports none.
 
     Args:
         section: The ``control_system`` section of the resolved config.
 
     Returns:
-        A :class:`WriteVerdict` whose ``target`` and ``kind`` are always
-        ``None``. Never raises: a tier that cannot be read refuses as
+        A :class:`WriteVerdict` whose ``target``, ``kind`` and ``position`` are
+        always ``None``. Never raises: a tier that cannot be read refuses as
         ``tier_never``.
     """
-    # Imported here, not at module scope: ``control_system._base`` imports this module.
-    from osprey_connectors.control_system._base import is_readonly_run
-
     if is_readonly_run():
         reason: str | None = "readonly_run"
     else:
@@ -1218,63 +1266,160 @@ def backstop_verdict(section: Any) -> WriteVerdict:
     return WriteVerdict(allowed=reason is None, reason=reason, target=None, kind=None)
 
 
+def session_hold_refusal(
+    *, root: Path | str | None = None, session_keys: Sequence[str] | None = None
+) -> WriteVerdict | None:
+    """The ``session_held`` refusal for this process's session, or ``None``.
+
+    The session is :data:`_SESSION_KEY_ENV_VAR`; a process without one belongs to
+    no session and is never held. A process that serves several sessions at
+    once — a panel's data process, which starts before any conversation exists
+    and answers a terminal's every session — names them in *session_keys*
+    instead, and is held while any one of them is. The store is *root*, else
+    the stamped :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`;
+    without either nothing is held. Under a store, a record that cannot be
+    read refuses.
+
+    Args:
+        root: The hold root, for a caller that resolved it itself.
+        session_keys: The sessions to ask about, in place of the environment's
+            one key. An empty sequence belongs to no session; an empty key in it
+            names none. ``None`` reads the environment.
+
+    Returns:
+        ``None`` when no named session is held; otherwise the first held
+        session's refusal, in the order given: ``target`` and ``kind`` are
+        ``None`` and ``detail`` names that session's open flags' sources, each
+        once in the order opened. An unsafe session key has no flags to name.
+        Never raises.
+    """
+    for key in _session_keys(session_keys):
+        refusal = _hold_refusal(key, root)
+        if refusal is not None:
+            return refusal
+    return None
+
+
+def _session_keys(session_keys: Sequence[str] | None) -> list[str]:
+    """The session keys a hold is asked about: *session_keys* as given, else the environment's."""
+    if session_keys is None:
+        key = os.environ.get(_SESSION_KEY_ENV_VAR, "")
+        return [key] if key else []
+    return [key for key in session_keys if key]
+
+
+def _hold_refusal(key: str, root: Path | str | None) -> WriteVerdict | None:
+    """The ``session_held`` refusal for one session *key*, or ``None`` (see :func:`session_hold_refusal`)."""
+    detail = None
+    try:
+        # One read: the decision and the words it is refused in come from one answer.
+        flags = session_hold.open_flags(key, root=root)
+        if not flags:
+            return None
+        sources = ", ".join(dict.fromkeys(flag.source for flag in flags))
+        detail = f"Raised by: {sources}."
+    except ValueError:  # the key is not a safe file name, which holds
+        logger.warning("Session key %r is unsafe; held", key)
+    except Exception:  # a hold that cannot be read refuses; it never raises
+        logger.warning("Session hold for %r could not be read; held", key, exc_info=True)
+    return WriteVerdict(allowed=False, reason="session_held", target=None, kind=None, detail=detail)
+
+
+def execution_verdict(
+    section: Any,
+    target: str | None,
+    *,
+    owner: str | NoOwner | None = None,
+    ignore_launch_pin: bool = False,
+    session_keys: Sequence[str] | None = None,
+) -> WriteVerdict:
+    """The verdict on one write about to execute: :func:`write_verdict` plus the hold.
+
+    The terms are ``readonly_run``, ``tier_never``, ``session_held``
+    (:func:`session_hold_refusal`), then the rest of :func:`write_verdict` in its
+    order, so a held session with its switch off refuses ``session_held``. Its
+    order is shared with the hook's stdlib twin.
+
+    Args:
+        section: The ``control_system`` section of the resolved config.
+        target: The control target the write lands on.
+        owner: As for :func:`write_verdict`.
+        ignore_launch_pin: As for :func:`write_verdict`.
+        session_keys: As for :func:`session_hold_refusal`: the sessions the
+            write belongs to, held while any one is; ``None`` is the
+            environment's session.
+
+    Returns:
+        A :class:`WriteVerdict` with the ``target`` and ``kind`` of
+        :func:`write_verdict`. Never raises.
+    """
+    verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
+    if not backstop_verdict(section).allowed:
+        return verdict
+    held = session_hold_refusal(session_keys=session_keys)
+    if held is None:
+        return verdict
+    return replace(held, target=verdict.target, kind=verdict.kind)
+
+
 def _write_refusal(
     section: Any, target: Any, owner: str | NoOwner | None, ignore_launch_pin: bool
-) -> str | None:
-    """The first term of :func:`write_verdict` that refuses, or ``None``. May raise."""
-    # Imported here, not at module scope: ``control_system._base`` imports this
-    # module, and ``control_context`` does too.
+) -> tuple[str | None, Literal["asked", "allowed"] | None]:
+    """The first term of :func:`write_verdict` that refuses, else the position.
+
+    Answers ``(reason, None)`` or ``(None, position)``. May raise.
+    """
+    # Imported here, not at module scope: ``control_context`` imports this module.
     from osprey_connectors import control_context
-    from osprey_connectors.control_system._base import is_readonly_run
 
     if is_readonly_run():
-        return "readonly_run"
+        return "readonly_run", None
     if not tier_allows(section):
-        return "tier_never"
+        return "tier_never", None
     try:
         resolve_target(section, target)
     except Exception:  # ValueError by contract; anything else is no resolution either
-        return "target_unknown"
+        return "target_unknown", None
 
     resolved = current_owner(owner)
     if resolved is NO_OWNER and _is_dispatch_run():
-        return "owner_unscheduled"
+        return "owner_unscheduled", None
     if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
-        return "owner_unknown"
+        return "owner_unknown", None
     # A host holds one login's switch: an owner other than that login is refused
     # before its tier or any record is read (a tree bind reads each owner's own).
     if not _tree_is_bound() and resolved.strip() != acting_identity():
-        return "owner_foreign"
+        return "owner_foreign", None
 
     rung = owner_tier_term(section, resolved)
     if rung == "unknown":
-        return "owner_unknown"
+        return "owner_unknown", None
     if rung == "never":
-        return "tier_never"
+        return "tier_never", None
 
     if _tree_is_bound():
         tree = _control_context_tree()
         if tree is None:
             logger.warning("Write record unreadable for %r: %s", resolved, _tree_bind_unusable())
-            return "record_unavailable"
+            return "record_unavailable", None
         read = _read_tree_context(tree, resolved)
         if read.unavailable is not None:
             logger.warning("Write record unreadable for %r: %s", resolved, read.unavailable)
-            return "record_unavailable"
+            return "record_unavailable", None
         record = read.record
     else:
         record, status = control_context.read_record_status()
         if status == "unreadable":
             logger.warning("Write record unreadable on this host; refusing")
-            return "record_unavailable"
+            return "record_unavailable", None
         if status != "ok":
             record = None
 
-    if record is None:
-        return "switch_off"
-    if record.switch.get(target) != "on":
-        return "switch_off"
+    stored = control_context.switch_position(record, target)
+    if stored == "off":
+        return "switch_off", None
 
     if not ignore_launch_pin and _launch_pin_term(target) != "none":
-        return "launch_pinned"
-    return None
+        return "launch_pinned", None
+    ceiling = write_ceiling(section, resolved)
+    return None, cast("Literal['asked', 'allowed']", min(stored, ceiling, key=_LOGIN_TIERS.index))

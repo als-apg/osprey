@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.interfaces.test_load_smokes import _launch_web_terminal
+from tests.interfaces._launchers import launch_web_terminal
 
 try:
     from playwright.sync_api import expect
@@ -62,7 +62,7 @@ def _facility_web_terminal(tmp_path, monkeypatch):
         "osprey.interfaces.web_terminal.app.get_facility_timezone",
         return_value=ZoneInfo(FACILITY_ZONE),
     ):
-        with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+        with launch_web_terminal(tmp_path, monkeypatch) as base_url:
             yield base_url
 
 

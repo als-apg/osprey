@@ -13,8 +13,9 @@ The leading underscore keeps the module out of pytest collection.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from pathlib import Path
+from typing import TypeVar
 
 #: The extensions shipped prose, code and configuration are written in — the
 #: default admission rule of the repository text sweeps.
@@ -84,6 +85,10 @@ def text_files(
     return files
 
 
+#: The key a caller of :func:`matching_lines_each` names each pattern by.
+_Key = TypeVar("_Key")
+
+
 def matching_lines(
     repo_root: Path, files: Iterable[Path], pattern: re.Pattern[str]
 ) -> list[tuple[str, int, str]]:
@@ -101,16 +106,41 @@ def matching_lines(
         ``(path relative to repo_root in POSIX form, line number, line)``
         triples, the line as written.
     """
-    found: list[tuple[str, int, str]] = []
+    return matching_lines_each(repo_root, files, {None: pattern})[None]
+
+
+def matching_lines_each(
+    repo_root: Path, files: Iterable[Path], patterns: Mapping[_Key, re.Pattern[str]]
+) -> dict[_Key, list[tuple[str, int, str]]]:
+    """:func:`matching_lines` for each of ``patterns``, reading each file once.
+
+    A sweep with several patterns over the same files spends most of its time
+    reading them, so it asks for all its patterns in one pass.
+
+    Args:
+        repo_root: The root the reported paths are relative to.
+        files: The files to read, typically from :func:`text_files`.
+        patterns: Each searched in each line, by a key of the caller's.
+
+    Returns:
+        For each key, what :func:`matching_lines` returns for its pattern.
+    """
+    found: dict[_Key, list[tuple[str, int, str]]] = {key: [] for key in patterns}
     for path in files:
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if not pattern.search(content):
-            continue
-        relative = path.relative_to(repo_root).as_posix()
-        for number, line in enumerate(content.splitlines(), start=1):
-            if pattern.search(line):
-                found.append((relative, number, line))
+        lines: list[str] | None = None
+        for key, pattern in patterns.items():
+            if not pattern.search(content):
+                continue
+            if lines is None:
+                lines = content.splitlines()
+            relative = path.relative_to(repo_root).as_posix()
+            found[key] += (
+                (relative, number, line)
+                for number, line in enumerate(lines, start=1)
+                if pattern.search(line)
+            )
     return found

@@ -30,6 +30,7 @@ _SERVICE_ARTIFACTS = [
     "services/mongodb",
     "services/archiver_recorder",
     "services/qmd",
+    "services/agent_record",
 ]
 
 
@@ -91,7 +92,8 @@ class TestBuildRefreshHonorsClaims:
 
         count = _copy_service_templates(project_path)
 
-        assert count == 1
+        # postgresql, and agent_record, which every deployment renders.
+        assert count == 2
         assert "locally edited" not in stale.read_text(encoding="utf-8")
 
     def test_claimed_service_is_left_untouched(self, tmp_path: Path) -> None:
@@ -104,7 +106,8 @@ class TestBuildRefreshHonorsClaims:
 
         count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only agent_record, which every deployment renders.
+        assert count == 1
         assert claimed.read_text(encoding="utf-8") == "# locally edited\n"
 
     def test_claim_of_one_service_does_not_shield_another(self, tmp_path: Path) -> None:
@@ -117,7 +120,8 @@ class TestBuildRefreshHonorsClaims:
 
         count = _copy_service_templates(project_path)
 
-        assert count == 1
+        # postgresql, and agent_record, which every deployment renders.
+        assert count == 2
         assert "locally edited" not in edited.read_text(encoding="utf-8")
 
 

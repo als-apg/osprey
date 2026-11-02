@@ -96,8 +96,7 @@ class OKFDocument:
             raise OKFDocumentError("Frontmatter must be a YAML mapping")
 
         body = "\n".join(lines[end_idx + 1 :])
-        if body.startswith("\n"):
-            body = body[1:]
+        body = body.removeprefix("\n")
         return cls(frontmatter=fm, body=body)
 
     # ------------------------------------------------------------------

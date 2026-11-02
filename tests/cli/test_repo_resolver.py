@@ -22,7 +22,7 @@ from osprey.cli.repo_resolver import (
     is_repo_free,
     repo_option,
 )
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 
 def make_repo(root: Path) -> Path:
@@ -337,7 +337,7 @@ def test_import_stays_off_heavy_machinery() -> None:
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
 
     assert result.stdout.strip() == "[]"

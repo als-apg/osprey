@@ -56,17 +56,27 @@ class TestSessionReportSkillStructure:
         for phase in ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]:
             assert phase in skill_text, f"Missing {phase}"
 
-    def test_phase1_intent(self, skill_text):
-        assert "Intent" in skill_text
-
-    def test_phase2_inventory(self, skill_text):
-        assert "Inventory" in skill_text
-
-    def test_phase3_delegate(self, skill_text):
-        assert "Delegate" in skill_text
-
-    def test_phase4_register(self, skill_text):
-        assert "Register" in skill_text
+    @pytest.mark.parametrize(
+        "needle",
+        [
+            pytest.param("Intent", id="phase1_intent"),
+            pytest.param("Inventory", id="phase2_inventory"),
+            pytest.param("Delegate", id="phase3_delegate"),
+            pytest.param("Register", id="phase4_register"),
+            # The tools the phases name.
+            pytest.param("session_summary", id="references_session_summary"),
+            pytest.param("archiver_downsample", id="references_archiver_downsample"),
+            pytest.param("artifact_register", id="references_artifact_register"),
+            pytest.param("reference.md", id="references_reference_file"),
+            # Mermaid diagrams, offered as block types.
+            pytest.param("Mermaid event timeline", id="mentions_mermaid_event_timeline"),
+            pytest.param("Mermaid state diagram", id="mentions_mermaid_state_diagram"),
+            pytest.param("Anti-Pattern", id="has_anti_patterns_section"),
+        ],
+    )
+    def test_names(self, skill_text, needle):
+        """Each phase, tool, diagram type and section the skill depends on is named."""
+        assert needle in skill_text
 
     # --- Intent modes ---
 
@@ -102,30 +112,6 @@ class TestSessionReportSkillStructure:
         """Exception for operator-stated action items as attributed quotes."""
         assert "attributed quote" in skill_text.lower()
 
-    # --- Tool references ---
-
-    def test_references_session_summary(self, skill_text):
-        assert "session_summary" in skill_text
-
-    def test_references_archiver_downsample(self, skill_text):
-        assert "archiver_downsample" in skill_text
-
-    def test_references_artifact_register(self, skill_text):
-        assert "artifact_register" in skill_text
-
-    def test_references_reference_file(self, skill_text):
-        assert "reference.md" in skill_text
-
-    # --- Mermaid diagram guidance ---
-
-    def test_mentions_mermaid_event_timeline(self, skill_text):
-        """Skill must mention Mermaid event timeline as a block type option."""
-        assert "Mermaid event timeline" in skill_text
-
-    def test_mentions_mermaid_state_diagram(self, skill_text):
-        """Skill must mention Mermaid state diagram as a block type option."""
-        assert "Mermaid state diagram" in skill_text
-
     # --- No hardcoded section list ---
 
     def test_no_fixed_eight_sections(self, skill_text):
@@ -135,9 +121,6 @@ class TestSessionReportSkillStructure:
         assert "Scope the Report" not in skill_text
 
     # --- Anti-patterns ---
-
-    def test_has_anti_patterns_section(self, skill_text):
-        assert "Anti-Pattern" in skill_text
 
     def test_anti_pattern_no_recommendations(self, skill_text):
         """Anti-patterns section must mention not generating recommendations."""
@@ -161,23 +144,26 @@ class TestSessionReportReferenceStructure:
         path = TEMPLATE_ROOT / "claude" / "skills" / "session-report" / "reference.md"
         return path.read_text()
 
-    def test_has_custom_properties(self, reference_text):
-        assert "--font-body" in reference_text
-        assert "--font-mono" in reference_text
-        assert "--accent" in reference_text
-
-    def test_has_depth_tiers(self, reference_text):
-        assert "node--hero" in reference_text
-        assert "node--elevated" in reference_text
-        assert "node--recessed" in reference_text
-
-    def test_has_kpi_pattern(self, reference_text):
-        assert "kpi-card" in reference_text
-        assert "countUp" in reference_text
-
-    def test_has_data_table_pattern(self, reference_text):
-        assert "data-table" in reference_text
-        assert "sticky" in reference_text
+    @pytest.mark.parametrize(
+        "needles",
+        [
+            pytest.param(("--font-body", "--font-mono", "--accent"), id="custom_properties"),
+            pytest.param(("node--hero", "node--elevated", "node--recessed"), id="depth_tiers"),
+            pytest.param(("kpi-card", "countUp"), id="kpi_pattern"),
+            pytest.param(("data-table", "sticky"), id="data_table_pattern"),
+            pytest.param(("fadeUp", "fadeScale", "prefers-reduced-motion"), id="animations"),
+            pytest.param(("min-width: 0", "overflow-wrap"), id="overflow_protection"),
+            pytest.param(("collapsible",), id="collapsible_pattern"),
+            pytest.param(("prefers-color-scheme: dark",), id="dark_mode"),
+            pytest.param(("severity-card",), id="severity_cards"),
+            pytest.param(("timeline",), id="timeline_pattern"),
+            pytest.param(("diff-panel",), id="diff_panels"),
+        ],
+    )
+    def test_has_pattern(self, reference_text, needles):
+        """Each CSS/JS pattern the skill tells the agent to reach for is spelled out."""
+        for needle in needles:
+            assert needle in reference_text
 
     def test_has_mermaid_section(self, reference_text):
         assert "mermaid" in reference_text.lower()
@@ -202,35 +188,14 @@ class TestSessionReportReferenceStructure:
         # Enum/status channels can't share the numeric y-axis.
         assert "d.numeric" in reference_text
 
-    def test_has_animations(self, reference_text):
-        assert "fadeUp" in reference_text
-        assert "fadeScale" in reference_text
-        assert "prefers-reduced-motion" in reference_text
-
     def test_has_font_pairing_table(self, reference_text):
         assert "Outfit" in reference_text
         assert "Space Mono" in reference_text
         assert "Inter" in reference_text  # mentioned as "never use"
 
-    def test_has_overflow_protection(self, reference_text):
-        assert "min-width: 0" in reference_text
-        assert "overflow-wrap" in reference_text
-
-    def test_has_collapsible_pattern(self, reference_text):
-        assert "collapsible" in reference_text
-
     def test_has_responsive_nav(self, reference_text):
         assert "toc" in reference_text
         assert "scroll-spy" in reference_text.lower() or "Scroll-Spy" in reference_text
-
-    def test_has_dark_mode(self, reference_text):
-        assert "prefers-color-scheme: dark" in reference_text
-
-    def test_has_severity_cards(self, reference_text):
-        assert "severity-card" in reference_text
-
-    def test_has_timeline_pattern(self, reference_text):
-        assert "timeline" in reference_text
 
     def test_has_mermaid_event_timeline(self, reference_text):
         """Reference must include Mermaid timeline diagram syntax."""
@@ -241,6 +206,3 @@ class TestSessionReportReferenceStructure:
         """Reference must include Mermaid state diagram syntax."""
         assert "stateDiagram-v2" in reference_text
         assert "Mermaid State Diagram" in reference_text
-
-    def test_has_diff_panels(self, reference_text):
-        assert "diff-panel" in reference_text

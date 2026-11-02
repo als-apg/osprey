@@ -269,7 +269,7 @@ def _first_difference(expected: str, found: str) -> str:
         if i >= len(lines):
             return "<end of file>"
         line = lines[i]
-        return line[:-1] if line.endswith("\n") else line
+        return line.removesuffix("\n")
 
     i = 0
     while i < len(exp_lines) and i < len(got_lines) and exp_lines[i] == got_lines[i]:
@@ -293,18 +293,20 @@ def check_indexes(bundle_root: Path) -> list[IndexDrift]:
         indexes the regenerator would delete.  Empty when the bundle passes.
     """
     rendered = render_indexes(Path(bundle_root))
-    drifts: list[IndexDrift] = []
-    for path in rendered.texts:
-        if not path.is_file():
-            drifts.append(IndexDrift(path, "missing; this directory holds pages"))
+    drifts: list[IndexDrift] = [
+        IndexDrift(path, "missing; this directory holds pages")
+        for path in rendered.texts
+        if not path.is_file()
+    ]
     for path, text in rendered.texts.items():
         if not path.is_file():
             continue
         found = path.read_text(encoding="utf-8")
         if found != text:
             drifts.append(IndexDrift(path, _first_difference(text, found)))
-    for path in rendered.stale:
-        drifts.append(IndexDrift(path, "lists pages this directory no longer holds"))
+    drifts.extend(
+        IndexDrift(path, "lists pages this directory no longer holds") for path in rendered.stale
+    )
     return drifts
 
 

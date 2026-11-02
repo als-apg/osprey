@@ -9,14 +9,13 @@ exists-check it (CI is expected to have produced it). Called from
 
 import os
 import re
-from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
-from osprey.build.claude_code_telemetry import telemetry_auth_token_env
 from osprey.cli.output import report_fact
+from osprey.deployment.dotenv import ENV_USERS_BANNER, compose_unsafe_vars, format_env_line
 from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.web_terminals.roster import (
     ServedRender,
@@ -26,10 +25,7 @@ from osprey.deployment.web_terminals.roster import (
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
-    ENV_USERS_BANNER,
     chain_files,
-    compose_unsafe_vars,
-    format_env_line,
     merge_chain,
     parse_dotenv_file,
 )
@@ -174,19 +170,7 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
 #: depends on. The unbraced ``$NAME`` spelling is deliberately NOT matched:
 #: nothing this module reads is written that way, and treating it as a
 #: reference would make any value containing a bare ``$`` look like one.
-_ENV_REFERENCE_PATTERN = r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}"
-_ENV_REFERENCE_RE = re.compile(rf"\A{_ENV_REFERENCE_PATTERN}\Z")
-
-#: Every ``${NAME}`` / ``${NAME:-default}`` occurrence inside a string, in the
-#: :data:`_ENV_REFERENCE_RE` dialect but unanchored. The telemetry walk reads
-#: values that are not reference literals: ``Authorization: Bearer
-#: ${OTLP_TOKEN}`` depends on ``OTLP_TOKEN`` exactly as a whole-value reference
-#: does, because the config loader expands a reference anywhere in a string
-#: (:func:`osprey_connectors.config.resolve_env_vars`).
-_ENV_REFERENCES_IN_RE = re.compile(_ENV_REFERENCE_PATTERN)
-
-#: Where a project's telemetry block lives in its own ``config.yml``.
-_TELEMETRY_BLOCK_PATH = ("claude_code", "telemetry")
+_ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\Z")
 
 
 def _env_reference(value: object) -> tuple[str, bool] | None:
@@ -214,118 +198,6 @@ def _env_reference(value: object) -> tuple[str, bool] | None:
     if match is None:
         return None
     return match.group(1), match.group(2) is not None
-
-
-def _telemetry_block(cfg: dict) -> dict:
-    """The ``claude_code.telemetry`` block of one project's config."""
-    node: object = cfg
-    for key in _TELEMETRY_BLOCK_PATH:
-        if not isinstance(node, dict):
-            return {}
-        node = node.get(key)
-    return node if isinstance(node, dict) else {}
-
-
-@dataclass(frozen=True)
-class _TelemetryReference:
-    """One env-var reference found in a telemetry block.
-
-    Attributes:
-        var: The referenced variable's name.
-        origin: The key path and the config that holds it, for messages.
-        has_default: Whether the reference names its own ``:-default``.
-    """
-
-    var: str
-    origin: str
-    has_default: bool
-
-
-def _block_references(
-    node: object, path: tuple[str, ...] = ()
-) -> Iterator[tuple[tuple[str, ...], str, bool]]:
-    """``(path, var, has_default)`` for every reference under ``node``.
-
-    Recurses through mappings (the path element is the key) and lists (the path
-    element is ``[i]``); every reference inside a string counts, whole value or
-    embedded.
-    """
-    if isinstance(node, dict):
-        for key, value in node.items():
-            yield from _block_references(value, (*path, str(key)))
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            yield from _block_references(value, (*path, f"[{index}]"))
-    elif isinstance(node, str):
-        for match in _ENV_REFERENCES_IN_RE.finditer(node):
-            yield path, match.group(1), match.group(2) is not None
-
-
-def _telemetry_enabled(cfg: dict) -> bool:
-    """Whether one project's config asks for telemetry at all.
-
-    The master switch, read exactly the way the builder reads it
-    (:func:`osprey.build.claude_code_telemetry._build_telemetry_env`, whose first
-    act is to return an empty env for a falsy or absent ``enabled``). Same rule
-    on both sides on purpose: a block this module treats as live while the
-    builder discards it would have an operator hunting for a credential nothing
-    was ever going to send.
-
-    Absent reads as OFF, not on. A config with no ``enabled`` key exports
-    nothing, so the credentials underneath it are decoration.
-    """
-    return bool(_telemetry_block(cfg).get("enabled"))
-
-
-def telemetry_delivered_vars(cfg: dict) -> tuple[str, ...]:
-    """The variables a terminal running this config needs for its telemetry.
-
-    The collector's bearer token first (the variable
-    ``claude_code.telemetry.auth.token_env`` names), then every variable the
-    telemetry block references, in walk order, each once. A render's
-    ``config.yml`` keeps those references verbatim and the loader resolves them
-    inside the container, so a variable that never reaches the container leaves
-    a bare reference unresolved and a defaulted one silently on its default.
-
-    :param cfg: One project's config.
-    :return: The names, or ``()`` when the config's telemetry is off.
-    :raises TelemetryConfigError: For an ``auth`` block the collector cannot
-        use (a :class:`ValueError`, reported by the deploy gate like any other
-        config refusal).
-    """
-    if not _telemetry_enabled(cfg):
-        return ()
-    block = _telemetry_block(cfg)
-    names: list[str] = []
-    token_env = telemetry_auth_token_env(block)
-    if token_env is not None:
-        names.append(token_env)
-    for _path, var, _has_default in _block_references(block):
-        if var in names:
-            continue
-        names.append(var)
-    return tuple(names)
-
-
-def renders_needing_telemetry_vars(
-    config: dict, project_root: str | Path
-) -> dict[str, tuple[str, ...]]:
-    """``{render_name: names}`` for every render whose terminal needs telemetry variables.
-
-    The referenced renders are walked as :func:`_telemetry_references` walks
-    them; a render whose project cannot be read contributes nothing, and one
-    whose :func:`telemetry_delivered_vars` is empty is left out.
-
-    :param config: Raw deploy config.
-    :param project_root: Project root the render projects resolve against.
-    :return: The map the web-terminal render emits per-user lines from.
-    """
-    needing: dict[str, tuple[str, ...]] = {}
-    for render_name, render_config in _readable_render_configs(config, Path(project_root)):
-        names = telemetry_delivered_vars(render_config)
-        if names:
-            needing[render_name] = names
-    return needing
 
 
 def _render_config_yml(project_root: Path, render: ServedRender) -> Path | None:
@@ -371,122 +243,6 @@ def _readable_render_configs(config: dict, project_root: Path) -> list[tuple[str
         if render_config is not None:
             configs.append((render_name, render_config))
     return configs
-
-
-def _telemetry_references(
-    config: dict, project_root: Path, *, enabled_only: bool
-) -> list[_TelemetryReference]:
-    """Every env-var reference in the telemetry block of every config in play.
-
-    The whole block is read — endpoint, auth, resource attributes — so a credential cannot hide under a key this module does not
-    name. The deploy config and each referenced render project's rendered
-    ``config.yml`` are read the same way :func:`_claude_code_auth_secret_vars`
-    reads them, since a per-user container runs its render's project and it is
-    that project's telemetry block which decides what the agent inside presents
-    to the observability backend.
-
-    :param enabled_only: When true, skip a config whose telemetry master switch
-        is off. Each config answers for itself, since a roster can mix a render
-        that exports with one that does not.
-    :return: Render configs first, then the deploy config, each in walk order.
-    """
-    references: list[_TelemetryReference] = []
-
-    def _record(cfg: dict, source: str) -> None:
-        if enabled_only and not _telemetry_enabled(cfg):
-            return
-        for path, var, has_default in _block_references(_telemetry_block(cfg)):
-            dotted = ".".join(path).replace(".[", "[")
-            references.append(
-                _TelemetryReference(
-                    var=var,
-                    origin=f"claude_code.telemetry.{dotted} {source}",
-                    has_default=has_default,
-                )
-            )
-
-    for render_name, render_config in _readable_render_configs(config, project_root):
-        _record(render_config, f"(render {render_name!r})")
-
-    _record(config, "(deploy config)")
-    return references
-
-
-def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict[str, str]:
-    """``{var: origin}`` for telemetry variables a config REQUIRES from the env chain.
-
-    A bare ``${VAR}`` reference in the telemetry block — no ``:-default`` — is
-    a config asserting that the variable is set: unset, it is left in the
-    rendered config verbatim and the agent presents a literal ``${VAR}`` string
-    to the observability backend. This reports those variables so
-    :func:`ensure_env_production` can refuse a deploy that would ship one,
-    exactly as it refuses a missing provider auth secret.
-
-    Nothing here is bound to one variable spelling or one key: every bare
-    reference in the block is reported, whichever key holds it — a header
-    value, a resource attribute, the endpoint.
-
-    The result feeds the missing-variable gate ONLY. It must never reach
-    :func:`_build_env_production_subset`: ``.env.users`` is handed to every
-    render alike, so a credential copied there would reach every terminal,
-    read-only ones included.
-
-    A config whose telemetry master switch is OFF is not asked for anything
-    either, and that gate comes first. ``enabled: false`` means the builder
-    exports no OTLP env at all, so nothing ever presents the credential and no
-    literal ``${VAR}`` can reach a store — the failure this gate exists to
-    prevent cannot happen. Refusing there would block a deploy over a block the
-    deploy already declared inert, and send the operator to obtain a token that
-    would go unused.
-    """
-    return {
-        var: ref.origin for var, ref in _telemetry_secret_requirements(config, project_root).items()
-    }
-
-
-def _telemetry_token_requirements(config: dict, project_root: Path) -> dict[str, str]:
-    """``{var: origin}`` for the collector bearer tokens the configs in play name.
-
-    Read from ``claude_code.telemetry.auth.token_env`` of each referenced
-    render's rendered ``config.yml`` and of the deploy config, walked as
-    :func:`_telemetry_references` walks them; a config whose telemetry is off
-    names none. The token reaches every exporting terminal through its own
-    compose environment, so the chain must carry it; it is never copied into
-    ``.env.users``.
-
-    :raises TelemetryConfigError: For an ``auth`` block the collector cannot
-        use.
-    """
-    required: dict[str, str] = {}
-
-    def _record(cfg: dict, source: str) -> None:
-        if not _telemetry_enabled(cfg):
-            return
-        token_env = telemetry_auth_token_env(_telemetry_block(cfg))
-        if token_env is not None:
-            required.setdefault(token_env, f"claude_code.telemetry.auth.token_env {source}")
-
-    for render_name, render_config in _readable_render_configs(config, project_root):
-        _record(render_config, f"(render {render_name!r})")
-
-    _record(config, "(deploy config)")
-    return required
-
-
-def _telemetry_secret_requirements(
-    config: dict, project_root: Path
-) -> dict[str, _TelemetryReference]:
-    """``{var: reference}`` behind :func:`_telemetry_credential_requirements`.
-
-    The first reference to a variable wins, render configs before the deploy
-    config.
-    """
-    required: dict[str, _TelemetryReference] = {}
-    for ref in _telemetry_references(config, project_root, enabled_only=True):
-        if ref.has_default:
-            continue
-        required.setdefault(ref.var, ref)
-    return required
 
 
 def _copy_named_env_var(var_name: str | None, source: dict[str, str], dest: dict[str, str]) -> None:
@@ -801,11 +557,6 @@ def _build_env_production_subset(
     - ``TZ`` — always, from ``system.timezone`` (default ``"UTC"``), the zone
       every deployed service runs in; likewise a literal config value.
 
-    No telemetry variable is here. A bare reference in a telemetry block is
-    reported by :func:`_telemetry_credential_requirements` rather than
-    satisfied, and the gateway login reaches each sending container through its
-    own credential file, never through a file every render reads.
-
     NEVER included, by construction (this function never reads them at all):
     build-time credentials — the CI provider token, the container-registry
     login, every external-project pull token — and the tokens OSPREY's own
@@ -923,19 +674,10 @@ class _MissingRequiredVars:
         endpoints: The subset of ``missing`` naming a gateway endpoint — a
             provider that resolves no URL without it, so the container exits
             during startup and compose restarts it forever.
-        telemetry: The subset of ``missing`` named by a telemetry block, which
-            the chain must carry and ``.env.users`` may not (see
-            :func:`_telemetry_credential_requirements`).
-        collector_tokens: The subset of ``missing`` that is a telemetry
-            collector's bearer token (see :func:`_telemetry_token_requirements`),
-            which every exporting terminal receives from the chain through its
-            own compose environment.
     """
 
     missing: dict[str, str]
     endpoints: frozenset[str]
-    telemetry: frozenset[str]
-    collector_tokens: frozenset[str]
 
 
 def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _MissingRequiredVars:
@@ -965,22 +707,9 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
         config, project_root
     )
     required_url_vars, _extra_url_vars = _provider_endpoint_vars(config, project_root)
-    # Reported, never copied: these are variables a telemetry block depends on
-    # that this file is not allowed to carry, so they join the gate and nothing
-    # else. Keeping them out of the {**required, **extra} pair handed to
-    # _build_env_production_subset is what stops a telemetry secret from
-    # being written into a file every render reads.
-    telemetry_refs = _telemetry_secret_requirements(config, project_root)
-    telemetry_vars = {var: ref.origin for var, ref in telemetry_refs.items()}
-    # Reported, never copied, for the same reason: compose hands the collector's
-    # token to each exporting terminal from the chain, so the chain must carry it.
-    collector_tokens = _telemetry_token_requirements(config, project_root)
-
     missing = {
         var: origin
         for var, origin in {
-            **collector_tokens,
-            **telemetry_vars,
             **required_cc_vars,
             **required_url_vars,
         }.items()
@@ -989,8 +718,6 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
     return _MissingRequiredVars(
         missing=missing,
         endpoints=frozenset(var for var in missing if var in required_url_vars),
-        telemetry=frozenset(var for var in missing if var in telemetry_vars),
-        collector_tokens=frozenset(var for var in missing if var in collector_tokens),
     )
 
 
@@ -1057,39 +784,6 @@ def _required_vars_refusal(
             "(generation never reads the ambient environment). Copy it in "
             f"with: {copy_cmds}"
         )
-    # Named separately because the remedy is only half the usual one: the chain
-    # is where these belong, but this file will still not carry them, so an
-    # operator who adds one and expects it to reach the terminals has to be
-    # told what actually happens instead.
-    telemetry_missing = [
-        var for var in gap.missing if var in gap.telemetry and var not in gap.collector_tokens
-    ]
-    telemetry_note = ""
-    if telemetry_missing:
-        telemetry_names = ", ".join(telemetry_missing)
-        telemetry_verb = "are" if len(telemetry_missing) > 1 else "is"
-        telemetry_note = (
-            f" Note: {telemetry_names} {telemetry_verb} referenced from the telemetry block "
-            "with no default of its own, so it is handled as a credential. One "
-            ".env.users is handed to every render alike, so this file never "
-            "carries it; the env chain is still where it belongs, but a web "
-            "terminal will not receive it from here."
-        )
-
-    # The collector's token is the one telemetry secret a terminal DOES receive
-    # from the chain, so its note says so rather than reusing the notes above.
-    collector_missing = [var for var in gap.missing if var in gap.collector_tokens]
-    collector_note = ""
-    if collector_missing:
-        collector_names = ", ".join(collector_missing)
-        collector_verb = "are" if len(collector_missing) > 1 else "is"
-        collector_note = (
-            f" Note: {collector_names} {collector_verb} the telemetry collector's bearer "
-            f"token (claude_code.telemetry.auth.token_env). Set it in {env_path}: every "
-            "terminal that exports telemetry receives it from there through its own "
-            "compose environment, never through .env.users."
-        )
-
     if existing:
         opening = (
             f"{users_env_path} exists, but {sources_desc} would leave its web "
@@ -1109,7 +803,7 @@ def _required_vars_refusal(
             "yourself (an existing file is never regenerated) if this deploy "
             "authenticates another way."
         )
-    return f"{opening}{telemetry_note}{collector_note}{shell_hint}"
+    return f"{opening}{shell_hint}"
 
 
 def users_env_required_problem(config: dict, project_root: str | Path) -> str | None:
@@ -1511,11 +1205,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       of generating: the resulting file would produce healthy-looking terminals
       that fail authentication on their first prompt (authoring
       ``.env.users`` directly remains the bypass for deploys that
-      authenticate another way). Every bare reference in the telemetry block
-      — one that carries no default of its own (see
-      :func:`_telemetry_credential_requirements`) — joins the same gate: the
-      variable it names is reported when the chain does not set it, and is
-      never written into the generated file either way. So does
+      authenticate another way). So does
       the gateway endpoint of a provider that ships no default host (see
       :func:`_provider_endpoint_vars`), whose absence is a container that exits
       during startup rather than one that fails on its first prompt.

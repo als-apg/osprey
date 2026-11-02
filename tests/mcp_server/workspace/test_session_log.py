@@ -4,8 +4,8 @@ Validates filtering by agent, tool, errors_only, event_type, last_n,
 agent_id, since/before, list_agents, and agent_id-based attribution
 that attributes tool_calls to subagents.
 
-Fixtures create synthetic event lists that match the output schema of
-TranscriptReader, then mock read_current_session() to return them.
+Fixtures create synthetic event lists in the shape the record read converts
+the session to, and stand them in for ``read_session_events``.
 """
 
 import json
@@ -37,11 +37,13 @@ def _zulu(hour: int) -> str:
     return f"2026-02-19T{hour:02d}:00:00.000Z"
 
 
-def _patch_transcript_reader(events: list[dict]):
-    """Return a context manager that patches TranscriptReader.read_current_session."""
+def _patch_transcript_reader(events: list[dict], record: str = "complete", reason: str = ""):
+    """Return a context manager standing *events* in for the session's record read."""
+    from osprey.mcp_server.workspace.tools.session_log import SessionEvents
+
     return patch(
-        "osprey.mcp_server.workspace.tools.session_log.TranscriptReader",
-        **{"return_value.read_current_session.return_value": events},
+        "osprey.mcp_server.workspace.tools.session_log.read_session_events",
+        return_value=SessionEvents(events, record, reason, "sess-1"),
     )
 
 
@@ -531,21 +533,11 @@ async def test_offset_bound_applies_in_list_agents_mode(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_transcript_is_read_from_the_agents_render_dir(tmp_path, monkeypatch):
-    """The reader is pointed at the RENDER — the directory the agent runs in.
+async def test_session_is_resolved_from_the_agents_render_dir(tmp_path, monkeypatch):
+    """The current transcript is looked up in the RENDER — the directory the agent runs in.
 
-    TranscriptReader encodes the directory it is given into the
-    ``~/.claude/projects/<encoded>/`` name, so a wrong directory does not raise:
-    the lookup finds nothing and the tool reports an empty session log. That is
-    the failure this pins, and it is why the assertion is on the CONSTRUCTOR
-    ARGUMENT rather than on the returned events — every other test in this file
-    stubs the class wholesale, which cannot see where it was aimed.
-
-    The anchor must also be independent of the agent-data root: with
-    OSPREY_SESSION_ID set, ``resolve_agent_data_root`` moves to
-    ``<root>/sessions/<id>``, so anything derived by walking up from it changes
-    per session. Setting the variable here holds that property, not just the
-    directory.
+    Not the repo root, and not the session-isolated agent-data root, which
+    moves to ``<root>/sessions/<id>`` with OSPREY_SESSION_ID set.
     """
     render_dir = tmp_path / "repo" / "build"
     render_dir.mkdir(parents=True)
@@ -553,12 +545,11 @@ async def test_transcript_is_read_from_the_agents_render_dir(tmp_path, monkeypat
 
     seen: list = []
 
-    class _RecordingReader:
-        def __init__(self, project_dir):
-            seen.append(Path(project_dir))
+    def _recording(project_dir):
+        from osprey.mcp_server.workspace.tools.session_log import SessionEvents
 
-        def read_current_session(self):
-            return []
+        seen.append(Path(project_dir))
+        return SessionEvents()
 
     fn = _get_session_log()
     with (
@@ -566,14 +557,43 @@ async def test_transcript_is_read_from_the_agents_render_dir(tmp_path, monkeypat
             "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=render_dir,
         ),
-        patch(
-            "osprey.mcp_server.workspace.tools.session_log.TranscriptReader",
-            _RecordingReader,
-        ),
+        patch("osprey.mcp_server.workspace.tools.session_log.read_session_events", _recording),
     ):
         json.loads(await fn())
 
     assert seen == [render_dir]
-    # Not the repo root, and not the session-isolated agent-data root.
-    assert seen[0] != render_dir.parent
     assert "agent_data" not in str(seen[0])
+
+
+@pytest.mark.asyncio
+async def test_an_unavailable_record_is_an_error_not_an_empty_log(tmp_path):
+    """With the record down the tool says so; it never answers an empty, complete log."""
+    fn = _get_session_log()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
+            return_value=tmp_path,
+        ),
+        _patch_transcript_reader([], record="unavailable", reason="connection refused"),
+    ):
+        with assert_raises_error(error_type="record_unavailable") as _exc_ctx:
+            await fn()
+    assert "connection refused" in _exc_ctx["envelope"]["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_an_incomplete_read_is_marked_incomplete(basic_events, tmp_path):
+    result = await _call_session_log(basic_events, tmp_path)
+    assert result["record"] == "complete"
+    fn = _get_session_log()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
+            return_value=tmp_path,
+        ),
+        _patch_transcript_reader(basic_events, record="incomplete", reason="wait mark not passed"),
+    ):
+        partial = json.loads(await fn())
+    assert partial["record"] == "incomplete"
+    assert partial["record_reason"] == "wait mark not passed"
+    assert partial["total_events"] == result["total_events"]

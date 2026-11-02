@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Iterator, Mapping
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -78,7 +77,7 @@ from tests.services.auth_sidecar._helpers import (
     SESSION_LIFETIME,
     SESSION_SECRET,
     STATE_SECRET,
-    ledger_records,
+    SidecarZone,
 )
 from tests.services.auth_sidecar._oidc import (
     ALICE_SUBJECT,
@@ -227,7 +226,7 @@ class TestTheNoneRow:
             recheck_login(method="none", user="alice", roster_roles=RosterRoles())
         assert refused.value.reason == recheck.REASON_UNSUPPORTED_METHOD
 
-    def test_no_login_event_is_recorded(self, zone: Path) -> None:
+    def test_no_login_event_is_recorded(self, zone: SidecarZone) -> None:
         """The single-user install's identity comes from ``acting_identity()``,
         not from a login — so a deployment with no login method has no login
         events, and this service must not invent any."""
@@ -235,7 +234,7 @@ class TestTheNoneRow:
         env["OSPREY_AUTH_METHOD"] = "none"
         with TestClient(create_app(env), base_url="https://testserver") as client:
             assert _login(client).status_code == 503
-        assert ledger_records(zone) == []
+        assert zone.records() == []
 
 
 class TestThePasswordRow:
@@ -271,12 +270,12 @@ class TestThePasswordRow:
         assert _minted_entry(cookie, "alice").role_source == ROLE_SOURCE_ROSTER
 
     def test_the_ledger_reports_the_role_the_login_granted(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _bind_roster_roles(monkeypatch, alice="operator")
         with TestClient(create_app(PASSWORD_ENV), base_url="https://testserver") as client:
             assert _login(client).status_code == 303
-        assert [(r["decision"], r["subject"], r.get("role")) for r in ledger_records(zone)] == [
+        assert [(r["decision"], r["subject"], r.get("role")) for r in zone.records()] == [
             ("allowed", "alice", "operator")
         ]
 
@@ -319,7 +318,7 @@ class TestTheOidcRowWithoutAClaimsMap:
         assert grant == LoginGrant(subject=ALICE_SUBJECT, role="", role_source="")
 
     def test_the_session_carries_the_roster_role(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """End to end, through the callback: alice's roster ``role: observer``
         is what the render built her terminal from, and with no claim binding to
@@ -327,12 +326,12 @@ class TestTheOidcRowWithoutAClaimsMap:
         _bind_roster_roles(monkeypatch, alice="observer")
         response = callback(_oidc_app())
         assert response.status_code == 303
-        assert [record.get("role") for record in ledger_records(zone)] == ["observer"]
+        assert [record.get("role") for record in zone.records()] == ["observer"]
         assert _minted_entry(_issued_cookie(response), "alice").role_source == ROLE_SOURCE_ROSTER
 
-    def test_the_login_is_recorded(self, zone: Path) -> None:
+    def test_the_login_is_recorded(self, zone: SidecarZone) -> None:
         assert callback(_oidc_app()).status_code == 303
-        assert [(r["decision"], r["reason"]) for r in ledger_records(zone)] == [
+        assert [(r["decision"], r["reason"]) for r in zone.records()] == [
             ("allowed", audit.REASON_OIDC_LOGIN)
         ]
 
@@ -421,7 +420,7 @@ class TestTheOidcRowWithAClaimsMap:
         assert refused.value.reason == recheck.REASON_AMBIGUOUS_ROLE_CLAIM
 
     def test_a_mapped_group_becomes_the_session_role(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _bind_roster_roles(monkeypatch, alice="operator")
         app = _oidc_app(
@@ -430,18 +429,16 @@ class TestTheOidcRowWithAClaimsMap:
         )
         response = callback(app)
         assert response.status_code == 303
-        assert [record.get("role") for record in ledger_records(zone)] == ["operator"]
+        assert [record.get("role") for record in zone.records()] == ["operator"]
         assert _minted_entry(_issued_cookie(response), "alice").role_source == ROLE_SOURCE_CLAIM
 
-    def test_an_unmapped_group_fails_closed(self, zone: Path) -> None:
+    def test_an_unmapped_group_fails_closed(self, zone: SidecarZone) -> None:
         app = _oidc_app(
             userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: ["nobody-maps-this"]},
             binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
         )
         assert callback(app).status_code == 403
-        assert [record["reason"] for record in ledger_records(zone)] == [
-            audit.REASON_UNMAPPED_ROLE_CLAIM
-        ]
+        assert [record["reason"] for record in zone.records()] == [audit.REASON_UNMAPPED_ROLE_CLAIM]
 
 
 class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
@@ -465,14 +462,14 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         )
 
     def test_a_login_into_someone_elses_role_is_refused_and_filed(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _bind_roster_roles(monkeypatch, alice="observer")
 
         result = callback(self._app(OPERATOR_GROUP))
 
         assert result.status_code == 403
-        assert [(r["decision"], r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+        assert [(r["decision"], r["subject"], r["reason"]) for r in zone.records()] == [
             ("refused", "alice", audit.REASON_ROLE_MISMATCH)
         ]
 
@@ -486,7 +483,7 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         ]
 
     def test_the_matching_claim_is_admitted_and_carries_that_role(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The control: the same deployment, the same user, the group that maps
         to the role her terminal was actually built from.
@@ -509,13 +506,11 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         result = callback(self._app("als-observers"))
 
         assert result.status_code == 303
-        assert [(r["decision"], r.get("role")) for r in ledger_records(zone)] == [
-            ("allowed", "observer")
-        ]
+        assert [(r["decision"], r.get("role")) for r in zone.records()] == [("allowed", "observer")]
         assert [(g.role, g.role_source) for g in grants] == [("observer", ROLE_SOURCE_CLAIM)]
 
     def test_a_person_in_both_groups_opens_the_card_built_for_one(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _bind_roster_roles(monkeypatch, alice="observer")
         app = _oidc_app(
@@ -532,9 +527,7 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         entry = _minted_entry(_issued_cookie(result), "alice")
         assert entry.role == "observer"
         assert entry.role_source == ROLE_SOURCE_CLAIM
-        assert [(r["decision"], r.get("role")) for r in ledger_records(zone)] == [
-            ("allowed", "observer")
-        ]
+        assert [(r["decision"], r.get("role")) for r in zone.records()] == [("allowed", "observer")]
 
     def test_the_admitted_role_reaches_the_verify_subrequest(
         self, monkeypatch: pytest.MonkeyPatch
@@ -634,13 +627,13 @@ class TestFailClosed:
         assert refused.value.reason == audit.REASON_UNSAFE_ROLE
 
     def test_an_uncarryable_roster_role_is_a_403_and_not_a_500(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _bind_roster_roles(monkeypatch, alice="öps")
         with TestClient(create_app(PASSWORD_ENV), base_url="https://testserver") as client:
             response = _login(client)
         assert response.status_code == 403
-        assert [(r["decision"], r["reason"]) for r in ledger_records(zone)] == [
+        assert [(r["decision"], r["reason"]) for r in zone.records()] == [
             ("refused", audit.REASON_UNSAFE_ROLE)
         ]
 
@@ -678,7 +671,7 @@ class TestTheAntiLookupInvariant:
         assert grant.role == ""
         assert table.iterations == 0
 
-    def test_an_identity_mapped_to_another_user_unlocks_nobody(self, zone: Path) -> None:
+    def test_an_identity_mapped_to_another_user_unlocks_nobody(self, zone: SidecarZone) -> None:
         """Bob's subject arriving on alice's handshake is refused, not resolved
         into bob's session: the card that was clicked is the only user a login
         can unlock."""
@@ -689,12 +682,12 @@ class TestTheAntiLookupInvariant:
             for header in response.headers.get_list("set-cookie")
             if header.startswith(f"{SESSION_COOKIE_NAME}=")
         ]
-        assert [(r["subject"], r["reason"]) for r in ledger_records(zone)] == [
+        assert [(r["subject"], r["reason"]) for r in zone.records()] == [
             ("alice", audit.REASON_IDENTITY_MISMATCH)
         ]
 
     def test_a_shared_card_is_the_one_deliberate_reverse_match(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+        self, zone: SidecarZone, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The exception the test above is stated against — and it lives in
         ``oidc.py``, not in this module. On a card whose rendered access rule
@@ -712,7 +705,7 @@ class TestTheAntiLookupInvariant:
         assert entry.opener == "bob"
         assert entry.role == "operator"
         assert entry.role_source == ROLE_SOURCE_ROSTER
-        record = ledger_records(zone)[-1]
+        record = zone.records()[-1]
         assert record["subject"] == "alice"
         assert record["detail"] == "opener=bob"
 

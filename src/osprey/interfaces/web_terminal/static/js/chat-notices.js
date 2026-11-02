@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the copy for refusals and failures.
+ * OSPREY Web Terminal — operator chat: the copy for refusals and failures.
  *
  * What the operator reads when the chat endpoint or the hand-off refuses a
  * request, or the transport fails. Each lookup is keyed on the endpoint's
@@ -46,10 +46,28 @@ const TRANSPORT_NOTICES = {
 /** Fallback copy for a transport failure with no recognised slug or status. */
 const TRANSPORT_FALLBACK = 'The connection to the agent failed.';
 
+/** The commands that sign the CLI in or out; the notice for them says who does that. */
+const SIGN_IN_COMMANDS = new Set(['login', 'logout']);
+
+/**
+ * The notice for a slash command the chat does not offer (`command_not_available`).
+ * The server names the command in `detail.command`; the notice repeats it as
+ * plain text, and says less when the name did not come back.
+ * @param {unknown} command
+ * @returns {string}
+ */
+function commandNotice(command) {
+  if (typeof command !== 'string' || !command) {
+    return 'This command is not available in this chat.';
+  }
+  const notice = `/${command} is not available in this chat.`;
+  return SIGN_IN_COMMANDS.has(command) ? `${notice} Your administrator sets sign-in.` : notice;
+}
+
 /**
  * What the operator may do about a refused hand-off, keyed on the endpoint's
  * `detail.error` slug. A refusal is not a transport failure: it is the other
- * view still holding the session, so it belongs on the overlay that already
+ * surface still holding the session, so it belongs on the overlay that already
  * has the operator's attention rather than as a line in a log they cannot use.
  *
  * `interrupt` re-sends the same request with the operator's consent to cut a
@@ -63,7 +81,7 @@ const HANDOFF_REFUSALS = {
     action: null,
   },
   handoff_needs_interrupt: {
-    message: 'The other view may still be working.',
+    message: 'The agent may still be working.',
     action: 'interrupt',
   },
   handoff_started_commands: {
@@ -129,7 +147,8 @@ function statusFromError(err) {
  * @returns {string}
  */
 export function transportNotice(err) {
-  const slug = /** @type {{ slug?: unknown }} */ (err ?? {}).slug;
+  const { slug, command } = /** @type {{ slug?: unknown, command?: unknown }} */ (err ?? {});
+  if (slug === 'command_not_available') return commandNotice(command);
   if (typeof slug === 'string' && slug in TRANSPORT_NOTICES_BY_SLUG) {
     return TRANSPORT_NOTICES_BY_SLUG[slug];
   }

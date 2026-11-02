@@ -1,0 +1,12 @@
+{
+ "captured_at": "2026-10-27T02:06:01.744739Z",
+ "cli_version": "2.1.300",
+ "command": "osprey chat --print",
+ "holds": [
+  "subagent",
+  "thinking"
+ ],
+ "identity": "e2e-builder",
+ "launch": "host-chat",
+ "terminal_session_prefix": "chat-"
+}

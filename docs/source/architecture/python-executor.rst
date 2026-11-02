@@ -46,6 +46,11 @@ The ``execute``, ``execute_file``, ``pyaml_measure`` and
 ``model_response_matrix`` tool parameters and the JSON they return are
 documented in :doc:`/reference/contracts/python-executor`.
 
+A deployment can also turn on code review: a second AI agent reads the code before the
+operator is asked to approve it, following instructions the deployment writes, and can stop
+it. That review is not one of the layers on this page, which hold whatever it says: see
+:ref:`Code review <architecture-safety-chain-code-review>`.
+
 Where Code Runs
 ===============
 
@@ -130,9 +135,9 @@ Ten safety layers are applied in sequence:
    rejection.
 
 5. **Approved-call check** (``_check_approved_call``)---before it spawns a
-   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``,
-   ``pyaml_measure``) whose approval policy asks, the executor reads the
-   record the approval prompt left for this tool call. The call's
+   ``readwrite`` run of a governed tool (``execute``, ``execute_file``,
+   ``pyaml_measure``), the executor reads the record the approval hook left
+   for this tool call, a person's or the switch's. The call's
    ``approved_target`` must equal what the prompt recorded and name the
    run's own control target; for ``pyaml_measure`` the call's ``approved_view_sha256``
    must equal the recorded view digest as well. Without a record,
@@ -142,8 +147,7 @@ Ten safety layers are applied in sequence:
    mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
    Nothing of the record reaches the subprocess, which evaluates no approval
    policy itself. A call that reaches the server without passing the
-   approval hook gets no read-write run on a deployment whose policy asks; such a
-   deployment states ``approval.enabled: false``.
+   approval hook gets no read-write run, whatever ``approval.enabled`` says.
 
 6. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
@@ -318,7 +322,7 @@ constructed; a channel it holds no record for is refused rather than trusted.
 The connector reads PVAccess but does not write it yet, so a raw put is the
 one PVAccess write route a ``readwrite`` run has, and refusing it would take
 PVAccess writes away from every deployment. These keep the posture they had
-before the raw-put block: the approval hook asks for the run, and in an
+before the raw-put block: the approval hook gates the run, and in an
 executor run with the limits database on each put is validated before it
 reaches the network (a ``parsePut`` or a builder callable carries no value to
 check and is refused). A run with limits off lets them through. They move to
@@ -445,7 +449,7 @@ What executed code may not change
 
 Refusing control-system writes is one boundary; this is a different one. Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Three locations are protected:
+Four locations are protected:
 
 - **The render zone** (``build/``) --- rebuilt wholesale by every
   ``osprey build``, and the rendered ``config.yml`` inside it is where the next
@@ -458,8 +462,14 @@ Three locations are protected:
   directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
   ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
   ``services/``) and the ``project/`` mirror.
-- **The audit ledger** (``var/audit/``) --- the record of what was refused. A
-  run that could rewrite it could erase the evidence of its own refusal.
+- **The agent record's directories** (``var/spool/``, ``var/agent_record/``,
+  ``var/state/`` and ``var/archive/``) --- the spool the record is read from,
+  the record itself, the services' own state and the daily archive, which
+  together hold the record of what was refused. A run that could rewrite them
+  could erase or forge the evidence of its own refusal.
+- **The pre-upgrade audit files** --- the files a deployment kept before the
+  agent record. Nothing writes them, and they stay protected for the
+  same reason.
 
 A protected entry that does not exist yet is protected all the same: in a repo
 with no ``apps/`` directory, creating one is exactly the write to refuse.
@@ -567,8 +577,8 @@ run. A refused run gets the verdict's phrase and its trailer, for example::
 
 A run whose target cannot be identified is refused ``target_unknown`` rather
 than granted the most permissive answer. The agent is told to re-run as
-``readonly`` --- reads are untouched --- or to ask the operator to turn writes
-on from the chip. The phrase names no config key: the deployment's
+``readonly`` --- reads are untouched --- or to ask the operator to move the
+switch from the chip. The phrase names no config key: the deployment's
 ``config.yml`` is not what the operator changes here.
 
 A run that has already started cannot be *widened*: it keeps the launch pin it
@@ -590,15 +600,14 @@ Three things happen, at whichever layer catches it:
 1. The agent gets an error naming the mode and what to do instead.
 2. The operator is alerted --- the Web Terminal reports that a write was
    attempted and blocked, not merely that a script failed.
-3. The attempt is recorded in the audit trail, at
-   ``var/audit/<identity>/executor.jsonl`` --- one JSON object per line, with a
-   timestamp, who was acting, the write posture in force, the layer that refused
-   (the record's ``reason``), and the offending source kept verbatim. That
-   directory is durable: builds never touch it, and ``osprey reset`` keeps
-   it unless you pass ``--purge-audit``.
+3. The attempt is recorded in the audit trail, as one ``audit`` entry in the
+   agent record --- with a timestamp, who was acting, the write posture in
+   force, the layer that refused (the entry's ``reason``), and the offending
+   source kept verbatim. Builds never touch the record, and ``osprey reset``
+   keeps it unless you pass ``--purge-audit``.
 
-The record is filed under the identity that was acting, so on a multi-user
-deployment each person's refusals sit in their own file. The pre-run pass
+The entry is filed under the identity that was acting, so on a multi-user
+deployment each person's refusals are their own. The pre-run pass
 records in both execution modes --- the path policy refuses a write into the
 protected set whether the run asked for ``readonly`` or ``readwrite``, and the
 record's ``detail`` says which mode the run was submitted under, so a readwrite
@@ -613,12 +622,12 @@ and the operator alert are what is missing.
 
 .. note::
 
-   **This is the one ledger that holds a payload.** Everywhere else OSPREY
+   **This is the one audit surface that holds a payload.** Everywhere else OSPREY
    records identifiers and config keys only --- never a value, a prompt or an
    agent message. Here the refused code *is* what the record is about, so it is
    kept whole (up to 8000 characters, flagged as truncated beyond that). Give
-   ``executor.jsonl`` the same care you would give the code itself, and expect
-   it to be the file that grows. See :ref:`the audit trail <reference-audit-trail>`
+   the ``executor`` entries the same care you would give the code itself, and
+   expect them to be what grows. See :ref:`the audit trail <reference-audit-trail>`
    for what the rest of it contains.
 
 .. admonition:: Control system operations in user code
@@ -636,9 +645,9 @@ and the operator alert are what is missing.
 
 .. note::
 
-   Write approval is handled by the ``execution_mode`` parameter. The OSPREY agent
-   requests user confirmation before calling ``execute`` with
-   ``execution_mode="readwrite"``---there is no separate approval API.
+   Write approval is handled by the ``execution_mode`` parameter. At *asked*, a
+   call to ``execute`` with ``execution_mode="readwrite"`` prompts the user
+   first---there is no separate approval API.
 
 .. seealso::
 

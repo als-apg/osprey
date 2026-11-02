@@ -51,6 +51,7 @@ def _run(payload, cwd=None):
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,
+        timeout=120,
     )
     return result.returncode, _strip(result.stdout)
 

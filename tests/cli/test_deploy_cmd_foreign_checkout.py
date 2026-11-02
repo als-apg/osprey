@@ -21,6 +21,7 @@ from osprey.deployment.container_ownership import (
     Resource,
     host_claim,
 )
+from tests._text import flat
 
 
 @pytest.fixture
@@ -59,10 +60,6 @@ def _refusal(other: Path):
     return claim.refusal(START_REFUSAL, extra_remedy=rename)
 
 
-def _flowed(text: str) -> str:
-    return " ".join(text.split())
-
-
 def test_up_prints_the_refusal_and_says_nothing_was_deployed(repo, monkeypatch):
     from osprey.deployment import container_lifecycle
 
@@ -77,7 +74,7 @@ def test_up_prints_the_refusal_and_says_nothing_was_deployed(repo, monkeypatch):
     result = CliRunner().invoke(cli, ["up", "-d"])
 
     assert result.exit_code != 0
-    flowed = _flowed(result.output)
+    flowed = flat(result.output)
     assert "osprey up will not start over containers from another copy of this repo" in flowed
     assert "2 containers are named 'uitf'" in flowed
     assert f"{other} (still on disk)" in flowed
@@ -100,7 +97,7 @@ def test_restart_prints_the_refusal_and_says_nothing_was_stopped(repo, monkeypat
     result = CliRunner().invoke(cli, ["restart", "-d"])
 
     assert result.exit_code != 0
-    flowed = _flowed(result.output)
+    flowed = flat(result.output)
     assert "osprey restart will not start over containers from another copy" in flowed
     assert "no such directory on this host now" in flowed
     assert (

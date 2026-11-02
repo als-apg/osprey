@@ -213,33 +213,6 @@ def e2e_config_file():
     return str(CONFIG_FILE_PATH)
 
 
-@pytest.fixture
-def rag_config_env(e2e_config_file):
-    """Function-scoped fixture to set CONFIG_FILE for RAG tests.
-
-    This runs AFTER the autouse reset_registry_between_tests fixture
-    in tests/e2e/conftest.py which clears CONFIG_FILE.
-
-    Must be used by RAG tests that need LLM access.
-    """
-    os.environ["CONFIG_FILE"] = e2e_config_file
-
-    # Clear config cache to force reload with new CONFIG_FILE
-    from osprey_connectors import config as config_module
-
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-
-    # Reset and initialize the registry with new config
-    from osprey.registry import initialize_registry, reset_registry
-
-    reset_registry()
-    initialize_registry()
-
-    yield e2e_config_file
-
-
 @pytest.fixture(scope="module")
 async def seeded_ariel_db(
     require_ollama,  # noqa: ARG001 - the embedding service is reachable
@@ -330,13 +303,25 @@ async def seeded_ariel_db(
 # =============================================================================
 
 
+@pytest.fixture
+def search_calls():
+    """A search-call pool for the direct ``semantic_search`` calls, closed after the test."""
+    from osprey.services.ariel_search.search._offload import SearchCallPool
+
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        pool.close()
+
+
 class TestSemanticSearchE2E:
     """Semantic search with deterministic assertions.
 
     Note: LLM judge evaluation is optional - tests skip judge if config unavailable.
     """
 
-    async def test_conceptual_search(self, seeded_ariel_db):
+    async def test_conceptual_search(self, seeded_ariel_db, search_calls):
         """Search 'electrical failure' finds power-related entries."""
         from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -349,6 +334,7 @@ class TestSemanticSearchE2E:
             embedder=embedder,
             max_results=5,
             similarity_threshold=0.3,  # Lower threshold for conceptual match
+            search_calls=search_calls,
         )
 
         # Deterministic: we got results
@@ -361,7 +347,7 @@ class TestSemanticSearchE2E:
         found = power_related & set(entry_ids)
         assert len(found) > 0, f"Expected power-related entries in results, got: {entry_ids}"
 
-    async def test_rephrased_query(self, seeded_ariel_db):
+    async def test_rephrased_query(self, seeded_ariel_db, search_calls):
         """Search 'accelerator shutdown' finds trip/failure entries."""
         from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -374,6 +360,7 @@ class TestSemanticSearchE2E:
             embedder=embedder,
             max_results=5,
             similarity_threshold=0.3,
+            search_calls=search_calls,
         )
 
         # Deterministic: we got results
@@ -386,7 +373,7 @@ class TestSemanticSearchE2E:
         found = incident_entries & set(entry_ids)
         assert len(found) > 0, f"Expected incident entries in results, got: {entry_ids}"
 
-    async def test_domain_concept_search(self, seeded_ariel_db):
+    async def test_domain_concept_search(self, seeded_ariel_db, search_calls):
         """Search 'cold equipment problems' finds cryogenic issues."""
         from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -399,6 +386,7 @@ class TestSemanticSearchE2E:
             embedder=embedder,
             max_results=5,
             similarity_threshold=0.3,
+            search_calls=search_calls,
         )
 
         # Deterministic: we got results
@@ -443,7 +431,7 @@ class TestSearchIntegration:
 
             assert dim == 768, f"Expected 768 dimensions, got {dim}"
 
-    async def test_keyword_and_semantic_consistency(self, seeded_ariel_db):
+    async def test_keyword_and_semantic_consistency(self, seeded_ariel_db, search_calls):
         """Keyword and semantic search both find the same entry for exact terms."""
         from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.keyword import keyword_search
@@ -466,6 +454,7 @@ class TestSearchIntegration:
             embedder=embedder,
             max_results=5,
             similarity_threshold=0.3,
+            search_calls=search_calls,
         )
 
         keyword_ids = {entry["entry_id"] for entry, score, highlights in keyword_results}
@@ -805,6 +794,7 @@ def readonly_role(e2e_database_url: str, tmp_path):
         },
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
 

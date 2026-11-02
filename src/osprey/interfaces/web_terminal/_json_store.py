@@ -22,10 +22,8 @@ must degrade to the deployment default; a damaged record must not hide the
 undamaged ones beside it.
 
 The module is deliberately free of application imports (the standard library
-and the standard-library-only ``osprey_connectors.safety_file``):
-:mod:`~osprey.interfaces.web_terminal.feedback_store` holds that contract
-because the CLI reads feedback stores out of container volumes with no
-web-terminal app in scope, and a helper it imports has to hold it too.
+and the standard-library-only ``osprey_connectors.safety_file``), so any store
+may import it without pulling the web-terminal app into scope.
 """
 
 from __future__ import annotations

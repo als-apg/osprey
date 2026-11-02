@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e._facility_select import lane_monitors
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
     find_png_files,
     init_project,
+    print_run_summary,
     run_sdk_query,
 )
 from tests.e2e.test_preset_agentic import _to_workflow_result
@@ -70,17 +72,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         # -- Debug output --
-        print("\n--- SDK smoke test ---")
-        print(f"  tools called: {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        print(f"  is_error: {result.result.is_error}" if result.result else "  result: N/A")
-        for trace in result.tool_traces:
-            print(f"  tool: {trace.name}")
-            print(f"    input keys: {list(trace.input.keys())}")
-            print(f"    is_error: {trace.is_error}")
-            result_preview = (trace.result or "")[:200]
-            print(f"    result preview: {result_preview}")
+        print_run_summary("SDK smoke test", result)
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received from SDK"
@@ -136,11 +128,12 @@ class TestClaudeCodeSDKIntegration:
           3. Cost: under $1.00 budget.
         """
         repo = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
-            "'SR:DIAG:BPM:01:POSITION:X', 'SR:DIAG:BPM:02:POSITION:X', "
-            "'SR:DIAG:BPM:03:POSITION:X' over the last 24 hours. "
+            f"'{first}', '{second}', "
+            f"'{third}' over the last 24 hours. "
             "Then create a timeseries plot of the data and save it as a "
             "PNG file."
         )
@@ -153,14 +146,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         # -- Debug output --
-        print("\n--- SDK archiver+plot test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        for trace in result.tool_traces:
-            print(f"  tool: {trace.name}")
-            print(f"    input keys: {list(trace.input.keys())}")
-            print(f"    is_error: {trace.is_error}")
+        print_run_summary("SDK archiver+plot test", result)
 
         # -- Deterministic assertions (cheap, catch gross regressions) --
         assert result.result is not None, "No ResultMessage received"
@@ -255,18 +241,8 @@ class TestClaudeCodeSDKIntegration:
         )
 
         # -- Debug output --
-        print("\n--- SDK full BPM pipeline test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+        print_run_summary("SDK full BPM pipeline test", result)
         print(f"  system messages: {len(result.system_messages)}")
-        for trace in result.tool_traces:
-            error_flag = " [ERROR]" if trace.is_error else ""
-            parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
-            )
-            print(f"  tool: {trace.name}{error_flag}{parent_flag}")
-            print(f"    input keys: {list(trace.input.keys())}")
 
         # -- Deterministic assertions --
         assert result.result is not None, "No ResultMessage received"
@@ -363,14 +339,15 @@ class TestClaudeCodeSDKIntegration:
         Cost budget: $2.00
         """
         repo = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
+        first, second, third = lane_monitors(repo, 3)
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'SR:DIAG:BPM:18:POSITION:X', 'SR:DIAG:BPM:19:POSITION:X', "
-            "'SR:DIAG:BPM:20:POSITION:X' over the last 24 hours with "
+            f"'{first}', '{second}', "
+            f"'{third}' over the last 24 hours with "
             "processing 'mean' and bin_size 60. "
-            "Then create a 3D scatter plot with BPM18 on X-axis, BPM19 on "
-            "Y-axis, BPM20 on Z-axis, colored by time. "
+            f"Then create a 3D scatter plot with {first} on X-axis, {second} on "
+            f"Y-axis, {third} on Z-axis, colored by time. "
             "Use the data-visualizer agent to create the plot."
         )
 
@@ -382,16 +359,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         # -- Debug output --
-        print("\n--- SDK 3D scatter plot test ---")
-        print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
-        print(f"  num_turns: {result.num_turns}")
-        print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
-        for trace in result.tool_traces:
-            error_flag = " [ERROR]" if trace.is_error else ""
-            parent_flag = (
-                f" (sub-agent: {trace.parent_tool_use_id})" if trace.parent_tool_use_id else ""
-            )
-            print(f"  tool: {trace.name}{error_flag}{parent_flag}")
+        print_run_summary("SDK 3D scatter plot test", result)
 
         # -- Assertions --
         assert result.result is not None, "No ResultMessage received"

@@ -1,7 +1,8 @@
 """Browser tests: the control-target header chip, end to end.
 
-The chip in the page header — ``● Simulator · writes on ▾`` — and the popover
-behind it are the operator's only route between writes on and writes off, and
+The chip in the page header — ``● Simulator · writes asked ▾`` — and the
+popover behind it are the operator's only route between a machine's write
+positions, and
 the only route onto another control target. Every interesting part of that is
 client-side behavior a FastAPI TestClient cannot observe: the card, the rows
 and both confirms are built in the DOM by ``control-target-popover.js``, and
@@ -15,48 +16,62 @@ no session id to paint, sends none on its read, and shows the same answer in
 every tab. That is why the arrangement below is a *file written before the
 server starts* rather than a record addressed to some process's pid.
 
+Every machine's write switch has three positions — ``off``, ``asked`` (each
+write prompts first) and ``allowed`` (writes run with no prompt) — rendered as
+one ``role="radiogroup"`` of three ``role="radio"`` options whose
+``aria-checked`` is the STORED position. A move down (a narrowing) applies at
+once; a move up (a widening) confirms.
+
 Coverage (one test each):
 
   (a) the chip names the machine the deployment stands on by its display name,
       and the popover renders that machine as the card and every other
       configured target as a row, the server's own label demoted to tooltips.
-  (b) turning a target's writes off asks nothing, lands in the login's switch
-      where every write path reads it, and respawns nothing — the switch is
-      read live, so the PTY the operator is talking to is the same process.
-  (c) turning writes back on is the direction that confirms: the dialog names
-      the machine, Cancel is a true no-op on the row *and* in the record, and
-      only a confirmed dialog turns the switch on.
+  (a2) a row per position: off, asked and allowed each render as the checked
+      option, the row's word and the group's accessible name, under the
+      ``allowed`` ceiling where nothing is held.
+  (a3) under an ``asked`` ceiling the ``allowed`` option is disabled with the
+      tier's sentence, and a stored ``allowed`` is the capped row: checked,
+      disabled, reading ``asked``; the route refuses ``allowed`` with
+      ``tier_caps``.
+  (b) narrowing to off asks nothing, lands in the login's switch where every
+      write path reads it, and respawns nothing.
+  (c) every widening confirms — off→asked and asked→allowed, each in its own
+      words — Cancel is a true no-op on the row *and* in the record, and a
+      narrowing allowed→asked applies with no dialog.
   (c2) turning off moves the endpoint the row's tooltip names off the write
-      gateway and onto the read one, and the confirm that would turn writes
-      on again names no endpoint at all.
+      gateway and onto the read one, and the widening confirm names no
+      endpoint at all.
+  (c3) the keyboard: arrows, Home and End move focus among the options and
+      never POST; Space and Enter commit — a narrowing at once, a widening
+      into its confirm.
   (d) Switch confirms, is accepted as ``202``, moves the record's target and
-      generation — the terminal runs the gate itself now — and holds the chip
-      and the row in ``switching…`` for exactly as long as a live controls
-      server is still reporting the generation before it.
-  (e) a refusal raised from a confirm stays inside the dialog, which stays up
-      to carry it: a deployment already mid-swap answers ``409`` and the chip
-      must not fall into ``switching…`` for a switch nobody made.
-  (f) both UI modes render the SAME popover DOM and show all of it: the
-      redesign leaves no popover node for the density stylesheet to gate —
-      endpoints and the server's label are hover vocabulary in both modes.
+      generation, and holds the chip and the row in ``switching…`` for as long
+      as a live controls server still reports the generation before it.
+  (e) a refusal raised from a confirm stays inside the dialog, which stays up.
+  (f) the popover shows all of a target.
 
 The chip criteria, end to end — each one closed against the write verdict
-itself (``posture_store.write_verdict``, the rule every write path applies), and
-each one asserting that every machine's ``data-state`` and the chip's own equal
-what that verdict and the record say (:func:`_assert_chip_matches_verdict`):
+itself (``posture_store.write_verdict``), and each one asserting that every
+machine's ``data-state`` and the chip's own equal what that verdict and the
+record say (:func:`assert_chip_matches_verdict`):
 
-  (g) a rehearsal turn-on confirms once — the waiver is offered and taken —
-      and applies directly after; the verdict then allows this login on that
-      machine and refuses the other machines and any other login.
-  (h) a real-machine turn-on confirms every time and never offers a waiver.
+  (g) a rehearsal off→asked confirms once — the waiver is offered and taken —
+      and applies directly after (Shift re-shows it); a move to ``allowed``
+      offers no waiver even there. The verdict allows this login on that
+      machine only.
+  (h) the real machine confirms every widening, every time, with no waiver.
   (i) "Turn all writes off" works from a terminal that follows another, and
       afterwards every machine refuses with ``switch_off``.
   (j) a stop the store cannot record, on a readable record, says it was not
-      taken and the machine stays on.
-  (k) an unreadable record shows the verdict's refusal on every machine and
-      never shows one off.
-  (l) a readonly login and an app render cannot turn writes on: every toggle
-      is disabled and the verdict's sentence — who can lift it — is on the row.
+      taken and the machine stays armed.
+  (j2) a widening a stop overtook answers ``409``: its confirm closes, the row
+      says so, nothing is armed — and the next click, on a fresh read, lands.
+  (k) an unreadable record shows the verdict's refusal on every machine, checks
+      no option and never shows one off; off stays selectable.
+  (l) a readonly login and an app render show nothing armed as selectable:
+      both armed options are disabled with the verdict's sentence, and the
+      route refuses them.
 
 Session bootstrapping. The chip needs no session id, but the page still mints
 one and case (b) reads it back to name the PTY it asserts was not respawned. It
@@ -66,17 +81,17 @@ command line) and confirms it in a ``session_info`` frame — no Claude binary
 and no session discovery involved. ``terminal.js`` writes it to
 ``localStorage['osprey-pty-session']`` on that same frame. The PTY command is a
 long-lived ``sleep`` because the route appends ``--session-id``/``--resume``
-arguments that ``echo`` would choke on. In the Simple view the terminal
+arguments that ``echo`` would choke on. In the chat the terminal
 deliberately does not connect — the console holds that view's session — and the
 chip paints either way, which is the point of it no longer being a session
 surface.
 
-The record is seeded with this login's switch ON for every machine unless a
-test asks otherwise (``_chip_hub(switch=...)``), so the first gesture a test
-can make is the one that asks nothing.
+The record is seeded with this login's switch at ``asked`` for every machine
+unless a test asks otherwise (``chip_hub(switch=...)``), so the first gesture a
+test can make is the narrowing that asks nothing.
 
 One fact has to be true before any toggle in the popover can move, and
-:func:`_chip_hub` arranges it: **a control-context record exists under the
+:func:`chip_hub` arranges it: **a control-context record exists under the
 stamped root, owned by this process, before ``create_app`` runs.** Without a
 record the roster is read-only (``store_available: false``) and every toggle is
 locked; without ownership this terminal follows another and the write routes
@@ -105,159 +120,65 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import os
-import re
-import sys
-from contextlib import contextmanager, suppress
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
+from contextlib import suppress
+from typing import Any
 
 import pytest
 import requests
-import yaml
 
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.write_target import KIND_BANNERS
-from osprey_connectors_tests._harness import (
-    owner,
-    write_control_context,
-    write_payload,
-    write_server_report,
+from osprey_connectors_tests._harness import owner, write_payload
+from tests.interfaces.web_terminal._control_context import read_record
+from tests.interfaces.web_terminal._posture_chip import (
+    ACTIVE_TARGET,
+    ALL_ALLOWED,
+    CARD,
+    CHIP,
+    CHIP_SHORT,
+    CHIP_STATE,
+    ENDPOINT_TARGET,
+    FOOT_NOTE,
+    HOST_PORT,
+    KINDS,
+    LABELS,
+    MODAL_CANCEL,
+    MODAL_CONFIRM,
+    MODAL_ERROR,
+    MODAL_TITLE,
+    NAMES,
+    OPEN_MODAL,
+    POPOVER,
+    POSITIONS,
+    POSTURE_TARGET,
+    READ_ENDPOINT,
+    RECORD_GENERATION,
+    SWITCH_TARGET,
+    TIMEOUT,
+    WRITE_ENDPOINT,
+    assert_chip_matches_verdict,
+    assert_options,
+    chip_hub,
+    open_popover,
+    popover_machine,
+    popover_row,
+    publish_report,
+    recorded_position,
+    settled_chip,
+    write_verdict_for,
+    writes_option,
+    writes_switch,
 )
-from osprey_connectors_tests._harness._control_context_fixtures import SELF_OWNER
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from pathlib import Path
 
 # without playwright, the chromium_browser fixture skips the suite
 with suppress(ImportError):
-    from playwright.sync_api import Browser, Page, expect
+    from playwright.sync_api import Page, expect
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 
-# Every wait in this file uses one generous bound rather than a tuned-per-step
-# one. These suites run under parallel load where a step that normally takes
-# milliseconds can take seconds, and a tight bound buys nothing: a state that
-# is never going to arrive fails the assertion either way, only later. It also
-# has to cover one full idle poll of the chip (5 s), which is how the record
-# published mid-test reaches the page.
-TIMEOUT = 15_000
-
-CHIP = "#control-target-chip"
-CHIP_SHORT = f"{CHIP} .ctc-short"
-CHIP_STATE = f"{CHIP} .ctc-state"
-POPOVER = ".ctc-popover.open"
-CARD = f"{POPOVER} .ctc-card"
-FOOT_NOTE = f"{POPOVER} .ctc-foot-note"
-
-# `:not([data-closing])` is the contract for "the dialog is OPEN". Dismissal is
-# marked by the attribute and the node is only detached after the fade (~300ms),
-# so asserting on detachment would be asserting on an animation.
-OPEN_MODAL = ".posture-modal-overlay:not([data-closing])"
-MODAL_TITLE = f"{OPEN_MODAL} .posture-modal-title"
-MODAL_CONFIRM = f"{OPEN_MODAL} .posture-modal-confirm"
-MODAL_CANCEL = f"{OPEN_MODAL} .posture-modal-cancel"
-MODAL_ERROR = f"{OPEN_MODAL} .posture-modal-error"
-
-# A PTY command that outlives the test AND tolerates the arguments the
-# websocket route appends (``--session-id <uuid>`` on a new session,
-# ``--resume <uuid>`` on a reconnect). ``echo``/``sleep`` would exit or error on
-# those, and an exit inside the resume-failover window makes terminal.js
-# discard the session id the chip is pointed at.
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
-
-#: The Channel Access port the co-deployed stand-in serves on.
-STANDIN_PORT = 5074
-
-#: The facility machine's two gateway ports, deliberately distinct. Which of
-#: them a row names is the whole observable of the posture-aware render: under
-#: writes the row is talking to :data:`WRITE_PORT`, and a session that has given
-#: up writes is talking to :data:`READ_PORT`.
-READ_PORT = 5064
-WRITE_PORT = 5065
-
-#: The endpoints those two ports spell on the row, on the host both roles share.
-READ_ENDPOINT = f"gw:{READ_PORT}"
-WRITE_ENDPOINT = f"gw:{WRITE_PORT}"
-
-#: Anything shaped like a gateway address. Used to assert an ABSENCE: the
-#: turn-writes-on confirm names no endpoint at all, because the one the roster
-#: carries is where reads go under the current posture and not where the write
-#: this dialog allows would land.
-_HOST_PORT = re.compile(r"\b\S+:\d{2,5}\b")
-
-#: The target the record puts the deployment on. Chosen so the roster carries
-#: all three interesting rows at once: ``va`` is active (no Switch), ``live``
-#: is switchable, and ``standin`` is a real machine that is not.
-ACTIVE_TARGET = "va"
-
-#: The generation the record is seeded at. Deliberately not 0, so a test that
-#: asserts a switch moved it can tell the new value from "never set".
-RECORD_GENERATION = 1
-
-#: The row every posture gesture below is made on. Deliberately not the active
-#: one: narrowing the target the deployment stands on also raises the "applies
-#: after the running execution finishes" line when a realign is pending, which
-#: is a different contract from the one these tests pin.
-POSTURE_TARGET = "standin"
-
-#: The row Switch is exercised on — the only one this render offers it for.
-SWITCH_TARGET = "live"
-
-#: The row the endpoint case is made on. The facility's own machine is the only
-#: target here whose two gateway roles sit on different ports, so it is the only
-#: row whose named endpoint can be seen to move when a session gives up writes.
-ENDPOINT_TARGET = "live"
-
-#: The machine kind each target reads as when no controls server vouches for
-#: anything (C-KIND): ``va`` is the simulator, ``live`` the real machine, and
-#: ``standin`` the real machine too — a stand-in is only the rehearsal once a
-#: live server's report says so (:data:`REHEARSAL_STANDIN`). The chip's
-#: ``data-target-kind`` speaks in these words, never in target names.
-KINDS = {
-    "live": "real",
-    "va": "simulator",
-    "standin": "real",
-}
-
-#: The server's own labels: each target's C-WORDS banner (D4,
-#: :data:`osprey_connectors.write_target.KIND_BANNERS`), read off its kind so
-#: the label and the published kind cannot describe different machines — the
-#: stand-in reads as the real machine until a live server vouches for it. The
-#: controls server mints these once, and this render keeps them where the
-#: machine vocabulary now lives: on tooltips.
-LABELS = {target: KIND_BANNERS[kind] for target, kind in KINDS.items()}
-
-#: What the popover and the chip NAME each target: the render's default display
-#: name per target, since this render configures no
-#: ``control_system.target_display_names``. A name is per TARGET and does not
-#: follow the kind — the stand-in is "Rehearsal" whether or not a live server
-#: vouches for it, while its ``data-target-kind`` (and so its colour and its
-#: confirm's waiver) follows :data:`KINDS`. The confirm titles quote these —
-#: never the labels above.
-NAMES = {
-    "live": "Real machine",
-    "va": "Simulator",
-    "standin": "Rehearsal",
-}
-
-#: The per-target display block a live controls server publishes to make the
-#: stand-in the rehearsal (C-KIND). Planted by ``_chip_hub(rehearsal=True)``.
-REHEARSAL_STANDIN = {POSTURE_TARGET: {"machine_kind": "rehearsal"}}
-
-#: Every configured target with this login's switch on. The default record:
-#: every row starts at ``writes on``, so a turn-off asks nothing and is the
-#: first gesture a test can make.
-ALL_ON = dict.fromkeys(KINDS, "on")
-
-#: The sentence a turn-on carries — in its confirm, or once on the popover's
+#: The sentence a widening carries — in its confirm, or once on the popover's
 #: status line when the confirm was waived (control-target-facts.js).
 TURN_ON_SENTENCE = (
     "Runs already going — a sandbox run or a notebook cell — keep the state they "
@@ -267,354 +188,17 @@ TURN_ON_SENTENCE = (
 #: What a stop the store could not record says (C-POST 503 on off).
 STOP_NOT_TAKEN = "The stop did not take effect — writes are still on."
 
+#: What a widening a stop overtook says (C-POST 409 stopped_since).
+STOPPED_SINCE = (
+    "Writes were turned off after this turn-on began — nothing was turned on. "
+    "Click again to turn them on."
+)
 
-# ---------------------------------------------------------------------------
-# The deployment under test
-# ---------------------------------------------------------------------------
+#: The tier's ceiling, as the held ``allowed`` option and the capped row say it.
+TIER_CAPS = "your tier caps writes at asked"
 
-
-def _write_config(
-    path: Path,
-    *,
-    writes: str = "allowed",
-    login_tiers: dict[str, str] | None = None,
-) -> Path:
-    """A render carrying all three control targets, with writes armed.
-
-    ``writes="never"`` is the app render: its tier never writes, so every
-    verdict answers ``tier_never`` before the record is read. *login_tiers*
-    lands at ``control_system.login_tiers`` verbatim — ``{login: "never"}`` is a
-    readonly login on an otherwise writable deployment.
-
-    Mirrors the render ``test_posture_get_contract.py`` pins the route's own
-    answers against: ``epics`` is the facility's own machine, ``live_standin``
-    the co-deployed stand-in, ``virtual_accelerator`` the simulator — three
-    connector blocks, therefore three targets and three rows.
-
-    The keys beyond the gateways are what make a switch judgeable at all: a
-    channel to probe and the
-    operator's acknowledgement of the live gateway. Without them every row
-    would carry an eligibility refusal and no Switch would be offered anywhere.
-
-    The ``epics`` block is the one target here whose two roles sit on DIFFERENT
-    ports, which is what makes a narrowing observable at all: a block whose
-    ``read_only`` and ``write_access`` name one gateway renders the same
-    endpoint under either posture, so a test asserting the endpoint moved would
-    pass on a render that never consulted the posture. The host stays ``gw`` in
-    both roles — a loopback address is the stand-in predicate's own signal, and
-    moving the write role off it would rename the machine mid-test.
-    """
-    gateway = {"address": "gw", "port": READ_PORT, "use_name_server": True}
-    write_gateway = {"address": "gw", "port": WRITE_PORT, "use_name_server": True}
-    standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
-    section: dict[str, Any] = {
-        "type": "live_standin",
-        # The deployment's write tier (PR-3): only ``"allowed"`` arms.
-        "writes": writes,
-        "limits_checking": {"enabled": True, "mode": "exclusive"},
-        "target_switch": {"live_gateway_acknowledged": "operator@example"},
-    }
-    if login_tiers is not None:
-        section["login_tiers"] = dict(login_tiers)
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "control_system": {
-                    **section,
-                    "connector": {
-                        "epics": {
-                            "probe_channel": "SR:PROBE",
-                            "gateways": {
-                                "read_only": dict(gateway),
-                                "write_access": dict(write_gateway),
-                            },
-                        },
-                        "live_standin": {
-                            "probe_channel": "SR:PROBE",
-                            "gateways": {
-                                "read_only": dict(standin_gateway),
-                                "write_access": dict(standin_gateway),
-                            },
-                        },
-                        "virtual_accelerator": {
-                            "probe_channel": "SIM:PROBE",
-                            "gateways": {"read_only": dict(gateway)},
-                        },
-                    },
-                },
-                "services": {"live_standin": {"port": STANDIN_PORT}},
-                "deployed_services": ["virtual_accelerator", "live_standin"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path
-
-
-# ---------------------------------------------------------------------------
-# Live-server helpers
-# ---------------------------------------------------------------------------
-
-
-@contextmanager
-def _chip_hub(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    ui_mode: str = "expert",
-    switch: dict[str, str] | None = None,
-    owned_by: Any = SELF_OWNER,
-    writes: str = "allowed",
-    login_tiers: dict[str, str] | None = None,
-    rehearsal: bool = False,
-) -> Iterator[tuple[str, Any, Path]]:
-    """Launch a real web-terminal hub wired for the control-target chip.
-
-    The companion-backend patches are the ones every hub browser suite uses.
-    What is specific to this feature is the environment rather than a patch:
-
-    * ``posture_store.AGENT_DATA_ROOT_ENV_VAR`` — the ONE stamp both the
-      control-context record reader and ``posture_store`` resolve through, and
-      the stamp this feature puts in every session child's environment. Pinning
-      it to *tmp_path* keeps every write off the real agent-data tree. Patching
-      ``resolve_shared_data_root`` instead is a no-op on the store —
-      ``posture_store`` reads this stamp first and binds the resolver at import
-      — so it would redirect one half and leave the other writing into the
-      repository's own ``var/agent_data``.
-    * ``OSPREY_EXECUTION_MODE`` is cleared: a read-only *run* is a
-      deployment-wide fact this process must not inherit from whatever ran
-      before it, and it would zero every row's ``effective``.
-    * ``OSPREY_POSTURE_SESSION`` is cleared for the same reason: it names
-      whichever session happened to spawn this test process, and no read here
-      may be answered for that stranger's key.
-    * ``snapshot_session_ids`` answers an empty set. No session file is ever
-      written here and nothing on the posture or target routes gates on one;
-      pinning it empty keeps that a property rather than an accident.
-
-    The **record is written before ``create_app``**, at :data:`ACTIVE_TARGET`
-    and owned by this process. That is what makes the lifespan's claim a merge
-    instead of a mint from ``load_osprey_config``, and what makes this terminal
-    the owner — the two conditions behind ``data-enforceable="true"``.
-
-    ``web.ui_mode`` reaches the page through ``app.state.web_ui_mode``, which
-    the ``GET /`` handler reads per request; it is overridden post-startup, the
-    same seam ``test_ui_mode_browser.py`` uses.
-
-    The keyword arguments are the states the chip criteria are about, all of
-    them planted before ``create_app`` so the lifespan's claim merges them:
-
-    * *switch* — this login's write switch, ``{target: "on"}``; ``None`` is
-      :data:`ALL_ON`, and ``{}`` every machine off. Written through the
-      production ``set_switch``, so the epoch is the one it stamps.
-    * *owned_by* — :data:`SELF_OWNER`, or an ``owner(...)`` naming a live
-      process that is not this one: a follower terminal, which may still turn
-      its login's switch but can no longer switch the target.
-    * *writes* / *login_tiers* — the app render and the readonly login
-      (:func:`_write_config`).
-    * *rehearsal* — a live controls server (this process) publishes the
-      stand-in as the rehearsal, with a reachability sweep so the switch gate
-      still has something to read.
-
-    Yields:
-        (base_url, app, root) — the hub's address, its app (how a test reaches
-        the PTY registry) and the stamped agent-data root (how a test plants a
-        controls server's report or reads the record back).
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir(exist_ok=True)
-    root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    config = _write_config(tmp_path / "config.yml", writes=writes, login_tiers=login_tiers)
-
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    _reset_process_memos()
-    write_control_context(
-        root,
-        target=ACTIVE_TARGET,
-        generation=RECORD_GENERATION,
-        owned_by=owned_by,
-        switch=ALL_ON if switch is None else switch,
-    )
-    if rehearsal:
-        _publish_report(root, targets=REHEARSAL_STANDIN)
-
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
-            ".snapshot_session_ids",
-            side_effect=lambda *_args, **_kwargs: set(),
-        ),
-    ]
-    try:
-        with _apply_all(patches):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
-            with _run_app_server(app) as base_url:
-                app.state.web_ui_mode = ui_mode
-                yield base_url, app, root
-    finally:
-        _reset_process_memos()
-
-
-def _reset_process_memos() -> None:
-    """Drop every cross-request memo this route family keeps.
-
-    All three are keyed on a file signature or a path, and a tmp directory
-    reused across tests could otherwise serve one test's record, render or
-    narrowing to the next.
-    """
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
-
-
-#: A sweep in which every configured target answered. The switch gate refuses
-#: ``reachability_unknown`` when a controls server is live but has published no
-#: probe for the target being asked for — "nobody has looked yet" — so a report
-#: planted without this would refuse every switch for a reason no test here is
-#: about. The shape is the prober's own: a ``targets`` table under the block,
-#: then one row per gateway role.
-def _reachability_sweep() -> dict[str, Any]:
-    probed_at = datetime.now(UTC).isoformat()
-    return {
-        "published_at": probed_at,
-        "targets": {
-            target: {"write_access": {"state": "reached", "probed_at": probed_at}}
-            for target in (SWITCH_TARGET, ACTIVE_TARGET, POSTURE_TARGET)
-        },
-    }
-
-
-def _publish_report(
-    root: Path,
-    *,
-    applied_target: str = ACTIVE_TARGET,
-    applied_generation: int | None = RECORD_GENERATION,
-    last_switch: dict | None = None,
-    server_pid: int | None = None,
-    targets: dict[str, Any] | None = None,
-) -> Path:
-    """Publish one controls server's report under the stamped root.
-
-    *server_pid* defaults to this test process, which is unambiguously alive —
-    ``live_reports`` filters out a report whose writer is gone, so a report
-    addressed to a corpse would be invisible and every assertion resting on it
-    would pass for the wrong reason.
-
-    ``applied_generation`` is what makes a report interesting: a row still on
-    the generation before the record's is a server that has not caught up, and
-    that lag is the whole of what keeps the chip in ``switching…``. The row
-    publishes a connector-host child for the same reason — the chip's wait is
-    scoped to servers holding a connector, and a report bound at a generation
-    with nothing serving would be passed over instead of waited on.
-
-    *targets* is the per-target display block (C-KIND):
-    :data:`REHEARSAL_STANDIN` is what makes the stand-in the rehearsal.
-    """
-    return write_server_report(
-        root,
-        os.getpid() if server_pid is None else server_pid,
-        applied_target=applied_target,
-        applied_generation=applied_generation,
-        children=[4242],
-        last_switch=last_switch,
-        reachability=_reachability_sweep(),
-        targets=targets,
-    )
-
-
-def _recorded_switch() -> dict[str, str]:
-    """This login's write switch on disk, as every write path reads it."""
-    record = _read_record()
-    assert record is not None, "the control-context record disappeared"
-    return dict(record.switch)
-
-
-def _section(app: Any) -> dict[str, Any]:
-    """The ``control_system`` section of the render this hub serves."""
-    config = yaml.safe_load(app.state.config_path.read_text(encoding="utf-8"))
-    return config["control_system"]
-
-
-def _verdict(app: Any, target: str, login: str | None = None) -> posture_store.WriteVerdict:
-    """The write verdict a new call by *login* to *target* meets, read fresh.
-
-    The same call the route makes for each row (``ignore_launch_pin``: the pin
-    is a fact about a run already going). *login* defaults to the signed-in
-    one, which is this process's acting identity — no test here pins another.
-    """
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    return posture_store.write_verdict(
-        _section(app),
-        target,
-        owner=acting_identity() if login is None else login,
-        ignore_launch_pin=True,
-    )
-
-
-def _verdict_word(app: Any, target: str) -> str:
-    """The state word the server's own facts give *target*: ``on``/``off``/``locked``.
-
-    Derived here from the record and the verdict, not from anything the page
-    sent: ``on`` is a switch that is on and a write that would pass, ``off`` a
-    switch that is off, and ``locked`` a switch that is on and still refused —
-    or one nobody can read, which must never be shown as off.
-    """
-    control_context.invalidate_cache()
-    record, status = control_context.read_record_status()
-    if status == "unreadable":
-        return "locked"
-    on = record is not None and record.switch.get(target) == "on"
-    if not on:
-        return "off"
-    return "on" if _verdict(app, target).allowed else "locked"
-
-
-def _machine(page: Page, target: str) -> Any:
-    """The popover node for *target*, card or row alike."""
-    return page.locator(f'{POPOVER} :is(.ctc-card, .ctc-row)[data-target="{target}"]')
-
-
-def _assert_chip_matches_verdict(page: Page, app: Any) -> None:
-    """Every machine the popover shows says what the verdict says, and so does the chip.
-
-    The popover must be open. Each configured target's ``data-state`` is
-    compared with :func:`_verdict_word` for it, and the chip's own
-    ``data-state`` with the word of the machine the card names — the chip
-    speaks for that one. A page that agreed with what it last POSTed rather
-    than with the server would drift here first.
-    """
-    for target in KINDS:
-        expect(_machine(page, target)).to_have_attribute(
-            "data-state", _verdict_word(app, target), timeout=TIMEOUT
-        )
-    active = page.locator(CARD).get_attribute("data-target")
-    assert active in KINDS, active
-    expect(page.locator(CHIP)).to_have_attribute(
-        "data-state", _verdict_word(app, active), timeout=TIMEOUT
-    )
-
-
-def _read_record():
-    """The deployment's control-context record, re-read from disk."""
-    control_context.invalidate_cache()
-    return control_context.read_record()
+#: The route every switch gesture POSTs to.
+POSTURE_ROUTE = "/api/terminal/posture"
 
 
 def _pty_pid(app: Any, session_id: str) -> int:
@@ -626,101 +210,51 @@ def _pty_pid(app: Any, session_id: str) -> int:
     return pid
 
 
-def _row(page: Page, target: str) -> Any:
-    """The popover row for *target*.
+def _widen_title(target: str, position: str) -> str:
+    return f"Set writes to {position} on {NAMES[target]}?"
 
-    Always re-resolved from the page: the popover subtree is REPLACED on every
-    render (a 5 s idle poll, 500 ms while a switch is out), so an element
-    handle held across a wait would be detached by the time it is used.
+
+def _move(page: Page, target: str, position: str, **click: Any) -> None:
+    """Click *target*'s *position* option (re-resolved: the popover is rebuilt)."""
+    writes_option(page, target, position).click(**click)
+
+
+def _narrow(page: Page, target: str, position: str = "off") -> None:
+    """Narrow *target* through the popover, and wait for the row to say so.
+
+    Applies on click — a narrowing only ever removes reach, so no confirm is in
+    the way, and the row's ``data-state`` flipping is the re-read landing.
     """
-    return page.locator(f'{POPOVER} .ctc-row[data-target="{target}"]')
+    _move(page, target, position)
+    expect(popover_machine(page, target)).to_have_attribute("data-state", position, timeout=TIMEOUT)
+    expect(page.locator(OPEN_MODAL)).to_have_count(0)
 
 
-def _toggle(page: Page, target: str) -> Any:
-    """The machine's writes switch, card or row — ``aria-checked`` is the readout."""
-    return _machine(page, target).locator(".ctc-toggle")
+def _widen(page: Page, target: str, position: str) -> None:
+    """Widen *target* through its confirm, and wait for the row to say so."""
+    _move(page, target, position)
+    expect(page.locator(MODAL_TITLE)).to_have_text(_widen_title(target, position), timeout=TIMEOUT)
+    page.locator(MODAL_CONFIRM).click()
+    expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+    expect(popover_machine(page, target)).to_have_attribute("data-state", position, timeout=TIMEOUT)
 
 
-def _settled_chip(
-    browser: Browser,
-    base_url: str,
-    *,
-    init_script: str | None = None,
-    enforceable: bool = True,
-) -> tuple[Page, str]:
-    """Open the hub and wait until the chip speaks for a writable deployment.
-
-    A visible chip already means the whole chain ran: the module mounted and
-    ``GET /api/terminal/posture`` answered — the chip stays hidden until a read
-    succeeds, and it no longer waits for a session to exist first.
-
-    ``data-enforceable="true"`` is the second half, and it is a fact about the
-    *deployment*: it is fed by ``contextWritable(state)``, which is false when
-    the record has no location and false when another terminal owns it. Both
-    conditions are arranged in :func:`_chip_hub` before the server starts, so
-    reaching this line proves the record is there and this terminal may write
-    it — while it is false the popover locks every toggle.
-
-    Args:
-        browser: The chromium instance the suite runs against; one page is
-            opened on it per call.
-        base_url: The hub this page loads.
-        init_script: An optional probe, seeded at document start — before
-            ``goto`` — rather than evaluated once the page is settled. A probe
-            that has to see the page's FIRST socket, fetch or frame cannot be
-            installed after ``goto``: by then the module graph has already run
-            and the thing it meant to count has already happened. Default
-            ``None``, which is every call site that only wants a settled chip.
-        enforceable: The ``data-enforceable`` value to wait for. ``False`` for
-            a follower terminal, whose switches still work but whose target
-            switches would be refused.
-
-    Returns:
-        (page, session_id) — the id the owning surface settled on: the
-        terminal's confirmation in the Expert view, the console's key in the
-        Simple one. Both views write it and this helper waits for it, so a
-        missing id is a timeout here, never an empty return. Nothing the chip
-        does needs it; case (b) uses it to name the PTY it asserts was not
-        respawned.
-    """
-    page = browser.new_page()
-    if init_script:
-        page.add_init_script(init_script)
-    page.goto(base_url, wait_until="domcontentloaded")
-
-    expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
-    expect(page.locator(CHIP)).to_have_attribute(
-        "data-enforceable", str(enforceable).lower(), timeout=TIMEOUT
+def _switch_posts(page: Page) -> list[str]:
+    """Collect every POST this page makes to the switch route, as it happens."""
+    posts: list[str] = []
+    page.on(
+        "request",
+        lambda request: (
+            posts.append(request.url)
+            if request.method == "POST" and request.url.endswith(POSTURE_ROUTE)
+            else None
+        ),
     )
-
-    # The pointer is written by the surface that owns the session — the
-    # terminal's own confirmation in the Expert view, the console's key in the
-    # Simple one — and the chip settles on two local reads, ahead of either. A
-    # single read here would be a read of whatever had happened by then.
-    page.wait_for_function(
-        "() => Boolean(localStorage.getItem('osprey-pty-session'))", timeout=TIMEOUT
-    )
-
-    session_id = page.evaluate("() => localStorage.getItem('osprey-pty-session')")
-    return page, session_id
+    return posts
 
 
-def _open_popover(page: Page) -> None:
-    """Click the chip open and wait for the card to be on screen."""
-    page.locator(CHIP).click()
-    expect(page.locator(POPOVER)).to_be_visible(timeout=TIMEOUT)
-    expect(page.locator(CHIP)).to_have_attribute("aria-expanded", "true", timeout=TIMEOUT)
-    expect(page.locator(CARD)).to_be_visible(timeout=TIMEOUT)
-
-
-def _turn_off(page: Page, target: str) -> None:
-    """Turn *target*'s writes off through the popover, and wait for the row.
-
-    Applies on click — turning off only ever removes reach, so no confirm is
-    in the way, and the row's ``data-state`` flipping is the re-read landing.
-    """
-    _toggle(page, target).click()
-    expect(_row(page, target)).to_have_attribute("data-state", "off", timeout=TIMEOUT)
+def _focused_position(page: Page) -> str | None:
+    return page.evaluate("() => document.activeElement?.dataset?.position ?? null")
 
 
 # ---------------------------------------------------------------------------
@@ -734,98 +268,197 @@ def test_the_chip_names_the_recorded_target_and_lists_every_row(
     """The chip speaks for the machine the deployment stands on; the popover lists all.
 
     The record puts the deployment on the simulator, so the chip reads
-    ``Simulator · writes on`` — the display name the render minted, not the
+    ``Simulator · writes asked`` — the display name the render minted, not the
     target name — and the popover renders that machine as the card ("The agent
     is on") and each other configured target as a row named the same way, the
     server's own label demoted to the identity tooltip. The card offers no
     Switch; switching to the target you are on is a no-op.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            # The chip's home is the global header, and the terminal card's own
-            # header is back to what it was before the badge: LED, label,
-            # selector, + New. The badge module is deleted on this branch, so
-            # this is the guard against a second control-target affordance
-            # reappearing in the card rather than a live check.
-            expect(page.locator(f".header-actions {CHIP}")).to_have_count(1)
+            # The chip's home is the sidebar's control-system block, and the
+            # terminal card's own header carries no control-target affordance.
+            # The badge module is deleted on this branch, so this is the guard
+            # against a second control-target affordance reappearing in the
+            # card rather than a live check.
+            expect(page.locator(f"#sidebar-target {CHIP}")).to_have_count(1)
             expect(page.locator(".terminal-header .posture-badge")).to_have_count(0)
             expect(page.locator(f".terminal-header {CHIP}")).to_have_count(0)
 
             expect(page.locator(CHIP_SHORT)).to_have_text(NAMES[ACTIVE_TARGET], timeout=TIMEOUT)
-            expect(page.locator(CHIP_STATE)).to_have_text("writes on", timeout=TIMEOUT)
+            expect(page.locator(CHIP_STATE)).to_have_text("writes asked", timeout=TIMEOUT)
+            expect(page.locator(CHIP)).to_have_attribute("data-state", "asked")
             expect(page.locator(CHIP)).to_have_attribute("data-target-kind", KINDS[ACTIVE_TARGET])
             expect(page.locator(CHIP)).to_have_attribute("aria-expanded", "false")
 
-            _open_popover(page)
+            open_popover(page)
 
-            # The machine the agent is on is the card; every other machine a row.
             card = page.locator(CARD)
             expect(card).to_have_attribute("data-target", ACTIVE_TARGET)
-            expect(card.locator(".ctc-card-eyebrow")).to_have_text("The agent is on")
+            expect(page.locator(f"{POPOVER} > .osprey-popover-title").first).to_have_text(
+                "The agent is on"
+            )
             expect(card.locator(".ctc-name")).to_have_text(NAMES[ACTIVE_TARGET])
             expect(page.locator(f"{POPOVER} .ctc-row")).to_have_count(2, timeout=TIMEOUT)
             for target in (SWITCH_TARGET, POSTURE_TARGET):
-                row = _row(page, target)
+                row = popover_row(page, target)
                 expect(row.locator(".ctc-name")).to_have_text(NAMES[target])
-                expect(row.locator(".ctc-switch-state")).to_have_text("on")
-                # The server's own label lives inside the ⓘ tooltip, not at rest.
+                expect(row.locator(".ctc-switch-state")).to_have_text("asked")
                 tip = row.locator(".ctc-tip").text_content()
                 assert tip and LABELS[target] in tip, tip
 
             expect(card.locator(".ctc-switch")).to_have_count(0)
-            # The one target this render will switch onto.
-            expect(_row(page, SWITCH_TARGET).locator(".ctc-switch")).to_be_visible()
+            expect(popover_row(page, SWITCH_TARGET).locator(".ctc-switch")).to_be_visible()
         finally:
             page.close()
 
 
 # ---------------------------------------------------------------------------
-# (b) turning writes off
+# (a2) one row per position, under the top ceiling
+# ---------------------------------------------------------------------------
+
+
+def test_each_position_renders_as_its_checked_option_and_its_word(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """off, asked and allowed each read the same on the option, the row and the group.
+
+    One machine per position: the card (the simulator) off, the stand-in at
+    ``asked``, the real machine at ``allowed``. The render's ceiling is
+    ``allowed`` and no login tier is set, so nothing is held: every option of
+    every machine is enabled, and the stored one is the checked radio. The
+    tab stop is that checked option and only it, and the group's accessible
+    name says the word and the machine — what a screen reader announces.
+    """
+    switch = {POSTURE_TARGET: "asked", SWITCH_TARGET: "allowed"}
+    with chip_hub(tmp_path, monkeypatch, switch=switch) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
+        try:
+            expect(page.locator(CHIP_STATE)).to_have_text("writes off", timeout=TIMEOUT)
+            open_popover(page)
+            expected = {ACTIVE_TARGET: "off", **switch}
+            for target, position in expected.items():
+                node = popover_machine(page, target)
+                expect(node).to_have_attribute("data-state", position, timeout=TIMEOUT)
+                expect(node.locator(".ctc-switch-state")).to_have_text(position)
+                group = writes_switch(page, target)
+                expect(group).to_have_attribute(
+                    "aria-label", f"writes {position} for {NAMES[target]}"
+                )
+                assert_options(page, target, checked=position)
+                for option in POSITIONS:
+                    expect(writes_option(page, target, option)).to_have_attribute(
+                        "tabindex", "0" if option == position else "-1"
+                    )
+                    expect(writes_option(page, target, option)).to_have_text(option)
+                assert recorded_position(target) == position
+            assert_chip_matches_verdict(page, app)
+            assert write_verdict_for(app, SWITCH_TARGET).position == "allowed"
+            assert write_verdict_for(app, POSTURE_TARGET).position == "asked"
+        finally:
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# (a3) an asked ceiling: allowed held, and the capped row
+# ---------------------------------------------------------------------------
+
+
+def test_an_asked_ceiling_holds_allowed_and_caps_a_stored_allowed(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """Under an ``asked`` tier, ``allowed`` is disabled with its sentence.
+
+    The deployment's tier is ``asked`` (``writes: asked`` in the render — the
+    ceiling the write verdict itself applies on a host), so every machine's
+    ``allowed`` option is
+    disabled and its hover carries the tier's sentence; ``off`` and ``asked``
+    stay selectable — the tier caps a position, it does not lock the switch.
+
+    The stand-in's switch was stored at ``allowed`` before the tier applied.
+    That is the capped row: the stored option stays checked (and disabled),
+    while the word beside it says what writes actually do — ``asked`` — with
+    the sentence on its hover. The route behind the disabled option refuses the
+    move too, with ``tier_caps`` and the ceiling: a disabled button is a
+    courtesy, the 403 is the rule.
+    """
+    switch = {SWITCH_TARGET: "asked", POSTURE_TARGET: "allowed"}
+    with chip_hub(tmp_path, monkeypatch, switch=switch, writes="asked") as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
+        try:
+            open_popover(page)
+            # A machine at asked: allowed held, with the tier's sentence.
+            assert_options(page, SWITCH_TARGET, checked="asked", disabled=("allowed",))
+            expect(writes_option(page, SWITCH_TARGET, "allowed")).to_have_attribute(
+                "title", TIER_CAPS
+            )
+            # A machine at off: the same hold, and asked still selectable.
+            assert_options(page, ACTIVE_TARGET, checked="off", disabled=("allowed",))
+
+            # The capped row.
+            capped = popover_row(page, POSTURE_TARGET)
+            expect(capped).to_have_attribute("data-state", "asked", timeout=TIMEOUT)
+            assert_options(page, POSTURE_TARGET, checked="allowed", disabled=("allowed",))
+            expect(writes_option(page, POSTURE_TARGET, "asked")).to_have_attribute("tabindex", "0")
+            word = capped.locator(".ctc-switch-state")
+            expect(word).to_have_text("asked")
+            expect(word).to_have_attribute("title", TIER_CAPS)
+            assert recorded_position(POSTURE_TARGET) == "allowed"
+            assert write_verdict_for(app, POSTURE_TARGET).position == "asked"
+            assert_chip_matches_verdict(page, app)
+
+            answer = requests.post(
+                f"{base_url}{POSTURE_ROUTE}",
+                json={"session_id": None, "target": SWITCH_TARGET, "state": "allowed"},
+                timeout=60,
+            )
+            assert answer.status_code == 403, answer.text
+            detail = answer.json()["detail"]
+            assert detail["reason"] == "tier_caps", detail
+            assert detail["ceiling"] == "asked", detail
+            assert recorded_position(SWITCH_TARGET) == "asked"
+        finally:
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# (b) narrowing to off
 # ---------------------------------------------------------------------------
 
 
 def test_turning_off_asks_nothing_lands_in_the_record_and_respawns_nothing(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """Writes off applies on click, is written where the connector reads, and is free.
+    """Off applies on click, is written where the connector reads, and is free.
 
-    Three separate claims, and each is load-bearing:
-
-    * no confirm — turning off only ever removes reach, so asking would be
-      ceremony over a gesture one click undoes;
+    * no confirm — a narrowing only ever removes reach;
     * the record agrees, because the login's ``switch`` in that file is what
-      the write verdict consults on every path — a row that agreed with
-      nothing would be a machine the operator believes is off and the agent
-      can still write to. The switch is keyed by TARGET and by nothing else:
-      one per login, not one per session;
-    * the PTY is the same process afterwards (FR17). The posture is read live
-      on every write, so a respawn would cost the operator their session for
-      nothing.
+      the write verdict consults on every path, keyed by TARGET alone;
+    * the PTY is the same process afterwards (FR17): the switch is read live
+      on every write, so a respawn would cost the operator their session.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
-        page, session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
+        page, session_id = settled_chip(chromium_browser, base_url)
         assert session_id, "the terminal card never settled on a session id"
         pty_pid = _pty_pid(app, session_id)
         try:
-            _open_popover(page)
-            row = _row(page, POSTURE_TARGET)
-            expect(row).to_have_attribute("data-state", "on")
-            expect(_toggle(page, POSTURE_TARGET)).to_have_attribute("aria-checked", "true")
+            open_popover(page)
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "asked")
+            assert_options(page, POSTURE_TARGET, checked="asked")
 
-            _turn_off(page, POSTURE_TARGET)
+            _narrow(page, POSTURE_TARGET)
 
-            # Nothing asked, and the switch is the readout as well as the
-            # control: it flipped to off.
-            expect(page.locator(OPEN_MODAL)).to_have_count(0)
-            expect(_row(page, POSTURE_TARGET).locator(".ctc-switch-state")).to_have_text("off")
-            expect(_toggle(page, POSTURE_TARGET)).to_have_attribute("aria-checked", "false")
-            # The card is untouched: a posture is per target.
-            expect(page.locator(CARD)).to_have_attribute("data-state", "on")
+            expect(popover_row(page, POSTURE_TARGET).locator(".ctc-switch-state")).to_have_text(
+                "off"
+            )
+            assert_options(page, POSTURE_TARGET, checked="off")
+            # The card is untouched: a position is per target.
+            expect(page.locator(CARD)).to_have_attribute("data-state", "asked")
 
-            assert POSTURE_TARGET not in _recorded_switch(), _recorded_switch()
-            assert _verdict(app, POSTURE_TARGET).reason == "switch_off"
-            _assert_chip_matches_verdict(page, app)
+            assert recorded_position(POSTURE_TARGET) == "off"
+            assert write_verdict_for(app, POSTURE_TARGET).reason == "switch_off"
+            assert_chip_matches_verdict(page, app)
 
             assert _pty_pid(app, session_id) == pty_pid, "the session was respawned"
         finally:
@@ -833,50 +466,77 @@ def test_turning_off_asks_nothing_lands_in_the_record_and_respawns_nothing(
 
 
 # ---------------------------------------------------------------------------
-# (c) turning writes on
+# (c) widening confirms; narrowing does not
 # ---------------------------------------------------------------------------
 
 
-def test_turning_on_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, chromium_browser):
-    """Only turning on asks — and Cancel leaves the row and the record as they were.
+def test_every_widening_confirms_and_cancel_changes_nothing(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """off→asked and asked→allowed each ask in their own words; allowed→asked does not.
 
-    Turning on is the gesture after which a write the agent makes can land, so it
-    is the one direction that confirms. The dialog names the target it is
-    about; the popover deliberately stays open beneath it, so the row the
-    question is about is still on screen. A toggle that fired on the way to the
-    dialog would be the worst possible failure of a confirm step, which is why
-    the record is asserted on both sides of the cancellation.
+    A widening is the gesture after which a write can land, or land with no
+    prompt, so it is the direction that confirms. The dialog names the machine
+    and the position; the popover stays open beneath it, the option that raised
+    it is marked pending, and nothing is applied until it is confirmed — which
+    is why the record is asserted on both sides of the cancellation.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch, switch={}) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
-            _turn_off(page, POSTURE_TARGET)
-
-            # --- turning on, cancelled ---
-            _toggle(page, POSTURE_TARGET).click()
-            expect(page.locator(MODAL_TITLE)).to_have_text(
-                f"Turn writes on for {NAMES[POSTURE_TARGET]}?", timeout=TIMEOUT
+            open_popover(page)
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "off", timeout=TIMEOUT
             )
-            # The rows stay readable underneath: the confirm is a layer above
-            # the popover, not a replacement for it.
+
+            # --- off -> asked, cancelled ---
+            _move(page, POSTURE_TARGET, "asked")
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                _widen_title(POSTURE_TARGET, "asked"), timeout=TIMEOUT
+            )
+            expect(page.locator(MODAL_CONFIRM)).to_have_text("Set writes to asked")
+            expect(page.locator(f"{OPEN_MODAL} .posture-modal-body")).to_contain_text(
+                "still prompt"
+            )
             expect(page.locator(POPOVER)).to_be_visible()
+            expect(writes_option(page, POSTURE_TARGET, "asked")).to_have_attribute(
+                "data-pending", "true", timeout=TIMEOUT
+            )
+            assert recorded_position(POSTURE_TARGET) == "off"
             page.locator(MODAL_CANCEL).click()
 
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "off")
-            assert POSTURE_TARGET not in _recorded_switch(), _recorded_switch()
-
-            # --- turning on, confirmed ---
-            _toggle(page, POSTURE_TARGET).click()
-            expect(page.locator(MODAL_CONFIRM)).to_have_text("Turn writes on", timeout=TIMEOUT)
-            page.locator(MODAL_CONFIRM).click()
-
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute(
-                "data-state", "on", timeout=TIMEOUT
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "off")
+            expect(writes_option(page, POSTURE_TARGET, "asked")).not_to_have_attribute(
+                "data-pending", "true", timeout=TIMEOUT
             )
+            assert recorded_position(POSTURE_TARGET) == "off"
+
+            # --- off -> asked, confirmed ---
+            _widen(page, POSTURE_TARGET, "asked")
+            assert recorded_position(POSTURE_TARGET) == "asked"
+            assert write_verdict_for(app, POSTURE_TARGET).position == "asked"
+
+            # --- asked -> allowed: its own words, and the waiver on offer ---
+            _move(page, POSTURE_TARGET, "allowed")
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                _widen_title(POSTURE_TARGET, "allowed"), timeout=TIMEOUT
+            )
+            expect(page.locator(MODAL_CONFIRM)).to_have_text("Set writes to allowed")
+            expect(page.locator(f"{OPEN_MODAL} .posture-modal-body")).to_contain_text("no prompt")
+            expect(page.locator(f"{OPEN_MODAL} .posture-modal-skip")).to_have_count(1)
+            assert recorded_position(POSTURE_TARGET) == "asked"
+            page.locator(MODAL_CONFIRM).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            assert _recorded_switch().get(POSTURE_TARGET) == "on", _recorded_switch()
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "allowed", timeout=TIMEOUT
+            )
+            assert recorded_position(POSTURE_TARGET) == "allowed"
+
+            # --- allowed -> asked: a narrowing, so no dialog ---
+            _narrow(page, POSTURE_TARGET, "asked")
+            assert recorded_position(POSTURE_TARGET) == "asked"
+            assert_chip_matches_verdict(page, app)
         finally:
             page.close()
 
@@ -886,54 +546,110 @@ def test_turning_off_moves_the_tooltip_onto_the_read_gateway(
 ):
     """A row with writes off names the gateway it is actually talking to.
 
-    The endpoint on a row is where control *reads* go under the recorded
-    posture. Armed, that is the write gateway; give the writes up and it is the
-    read gateway — and the tooltip an operator hovers has to say so, because the
-    render answering from the deployment ceiling would keep naming a gateway
-    the deployment can no longer reach.
-
-    The narrowing is made the way an operator makes it, through the popover's
-    own toggle and therefore through the real POST: a record written from the
-    test instead would prove the renderer reads a file, not that the round trip
-    an operator drives ends on screen. The row is re-read from the page after
-    the gesture — the popover subtree is replaced wholesale on every refetch.
-
-    The confirm that would widen again is checked for the opposite: it names no
-    endpoint whatsoever. The one the roster carries describes reads under the
-    posture the dialog is about to leave, so quoting it in the question would
-    name the wrong gateway at the one moment an operator is deciding about
-    writes.
+    Armed, the endpoint a row names is the write gateway; narrowed to off it is
+    the read gateway, and the tooltip has to say so. The narrowing is made
+    through the popover's own option and therefore the real POST. The widening
+    confirm names no endpoint whatsoever: the one the roster carries describes
+    reads under the posture the dialog is about to leave.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
+            open_popover(page)
 
-            # Armed: the write gateway, and only it.
-            ident = _row(page, ENDPOINT_TARGET).locator(".ctc-tip-ident")
+            ident = popover_row(page, ENDPOINT_TARGET).locator(".ctc-tip-ident")
             expect(ident).to_contain_text(WRITE_ENDPOINT, timeout=TIMEOUT)
             assert READ_ENDPOINT not in (ident.text_content() or "")
 
-            _turn_off(page, ENDPOINT_TARGET)
+            _narrow(page, ENDPOINT_TARGET)
 
-            # Narrowed: the read gateway. Re-resolved from the page, since the
-            # refetch that carried the new posture replaced the node above.
-            ident = _row(page, ENDPOINT_TARGET).locator(".ctc-tip-ident")
+            ident = popover_row(page, ENDPOINT_TARGET).locator(".ctc-tip-ident")
             expect(ident).to_contain_text(READ_ENDPOINT, timeout=TIMEOUT)
             tip = ident.text_content() or ""
             assert WRITE_ENDPOINT not in tip
-            # Identity is derived from the ceiling and does not move with the
-            # posture: the operator is standing in front of the same machine.
             assert LABELS[ENDPOINT_TARGET] in tip
 
-            # The confirm that widens again names no gateway at all.
-            _toggle(page, ENDPOINT_TARGET).click()
+            _move(page, ENDPOINT_TARGET, "asked")
             expect(page.locator(MODAL_TITLE)).to_have_text(
-                f"Turn writes on for {NAMES[ENDPOINT_TARGET]}?", timeout=TIMEOUT
+                _widen_title(ENDPOINT_TARGET, "asked"), timeout=TIMEOUT
             )
             body = page.locator(f"{OPEN_MODAL} .posture-modal-body").text_content() or ""
             assert body.strip(), "the confirm rendered an empty body"
-            assert not _HOST_PORT.search(body), body
+            assert not HOST_PORT.search(body), body
+        finally:
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# (c3) the keyboard
+# ---------------------------------------------------------------------------
+
+
+def test_arrows_move_focus_without_posting_and_space_or_enter_commits(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """Arrow keys, Home and End only move focus; Space and Enter commit.
+
+    The radiogroup's keyboard contract: an operator walking the options must
+    not move a machine's writes by walking. So every movement key is pressed
+    and the page is shown to have POSTed nothing, then Space commits the
+    focused narrowing at once and Enter raises the focused widening's confirm
+    — and the focus survives the rebuild the narrowing's re-read causes.
+    """
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
+        posts = _switch_posts(page)
+        try:
+            open_popover(page)
+            group = writes_switch(page, POSTURE_TARGET)
+            expect(group).to_have_attribute(
+                "aria-label", f"writes asked for {NAMES[POSTURE_TARGET]}"
+            )
+            expect(group.locator('[tabindex="0"]')).to_have_count(1)
+            writes_option(page, POSTURE_TARGET, "asked").focus()
+            assert _focused_position(page) == "asked"
+
+            for key, lands in (
+                ("ArrowRight", "allowed"),
+                ("ArrowRight", "off"),
+                ("ArrowLeft", "allowed"),
+                ("ArrowDown", "off"),
+                ("ArrowUp", "allowed"),
+                ("Home", "off"),
+                ("End", "allowed"),
+            ):
+                page.keyboard.press(key)
+                page.wait_for_function(
+                    "(p) => document.activeElement?.dataset?.position === p", arg=lands
+                )
+            page.wait_for_timeout(300)
+            assert posts == [], posts
+            expect(page.locator(OPEN_MODAL)).to_have_count(0)
+            assert recorded_position(POSTURE_TARGET) == "asked"
+
+            # Space on off: a narrowing, committed at once.
+            page.keyboard.press("Home")
+            page.keyboard.press(" ")
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "off", timeout=TIMEOUT
+            )
+            expect(page.locator(OPEN_MODAL)).to_have_count(0)
+            assert recorded_position(POSTURE_TARGET) == "off"
+            assert len(posts) == 1, posts
+            page.wait_for_function(
+                "() => document.activeElement?.dataset?.position === 'off'", timeout=TIMEOUT
+            )
+
+            # Enter on allowed: a widening, so it asks.
+            page.keyboard.press("End")
+            page.keyboard.press("Enter")
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                _widen_title(POSTURE_TARGET, "allowed"), timeout=TIMEOUT
+            )
+            assert len(posts) == 1, posts
+            page.locator(MODAL_CANCEL).click()
+            expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+            assert recorded_position(POSTURE_TARGET) == "off"
         finally:
             page.close()
 
@@ -948,53 +664,35 @@ def test_switch_confirms_moves_the_record_and_waits_for_the_fleet(
 ):
     """Switch asks, moves the record, and the chip waits out loud for the fleet.
 
-    The terminal runs the switch gate itself now: an accepted gesture writes
-    the new target, the next generation and an ``applied`` terminus into the
-    record in one mutation — there is no request file and no reconciler in the
-    middle. So the record is the first assertion.
-
-    Landing in the record is not landing on the machine, though, and that gap
-    is what ``switching…`` names. A live controls server is planted here still
-    reporting the generation BEFORE the switch, which is a server that has not
-    rebuilt its connector yet; while any live row lags, the chip and the card
-    both say so. Without that planted report the fleet would be empty, the
-    record's own terminus would answer for it, and the chip would settle
-    immediately — a different (and also correct) story, told by the unit tests.
-
-    The chip names the machine the RECORD is on from the moment it moves. That
-    is deliberate: ``data-state`` still describes the posture there, and
-    ``switching…`` is the whole of what has not finished.
+    An accepted gesture writes the new target, the next generation and an
+    ``applied`` terminus into the record in one mutation, so the record is the
+    first assertion. A live controls server planted still reporting the
+    generation BEFORE the switch is a server that has not rebuilt its
+    connector yet; while it lags, the chip and the card say ``switching…``.
+    The dialog names the position held on the machine being switched TO,
+    because a position is per machine and does not travel.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
-        # A server that is up and reporting the pre-switch generation. It is
-        # not blocking anything (no `applying` block), so the switch is
-        # allowed; it simply has not caught up once the record moves.
-        _publish_report(root)
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
+        publish_report(root)
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
-            _row(page, SWITCH_TARGET).locator(".ctc-switch").click()
+            open_popover(page)
+            popover_row(page, SWITCH_TARGET).locator(".ctc-switch").click()
 
             expect(page.locator(MODAL_TITLE)).to_have_text(
                 f"Switch to {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
             )
-            # The write state named is the one held on the machine being
-            # switched TO, because writes on/off is per machine and does not
-            # follow — and only the real machine carries the hardware sentence.
             expect(page.locator(f"{OPEN_MODAL} .posture-modal-body")).to_contain_text(
-                "Writes are on there"
+                "Writes are asked there"
             )
             expect(page.locator(f"{OPEN_MODAL} .posture-modal-live")).to_have_text(
-                "Real machine — writes move hardware"
+                "Live — writes move hardware"
             )
             page.locator(MODAL_CONFIRM).click()
 
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
             expect(page.locator(CHIP)).to_have_attribute("data-pending", "true", timeout=TIMEOUT)
             expect(page.locator(CHIP_STATE)).to_have_text("switching…", timeout=TIMEOUT)
-            # The card is the machine the record now names, and it carries the
-            # wait — the target being switched to stops being a row the moment
-            # the record moves.
             expect(page.locator(CARD)).to_have_attribute(
                 "data-target", SWITCH_TARGET, timeout=TIMEOUT
             )
@@ -1003,7 +701,7 @@ def test_switch_confirms_moves_the_record_and_waits_for_the_fleet(
             )
             expect(page.locator(CHIP)).to_have_attribute("data-target-kind", KINDS[SWITCH_TARGET])
 
-            record = _read_record()
+            record = read_record()
             assert record is not None, "the record disappeared"
             assert record.target == SWITCH_TARGET, record
             assert record.generation == RECORD_GENERATION + 1, record
@@ -1025,20 +723,15 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
 ):
     """A refusal raised from a confirm stays in the confirm, which stays up.
 
-    One swap crosses the deployment at a time, and one is planted here before
-    the operator clicks: a live controls server reporting ``applying`` for the
-    record's current generation is a server between two targets, and while it
-    is there nobody switches anywhere. The route answers 409 naming its pid,
-    and the dialog is where the operator is looking, so the sentence goes there
-    and the dialog is kept up to carry it — dismissing it to put the reason on
-    a row behind would hide the answer to the question they had just been
-    asked. Nothing was written, so the chip must not fall into ``switching…``
-    and the record must still name the target it started on.
+    A live controls server reporting ``applying`` for the record's current
+    generation is a server between two targets; the route answers 409 naming
+    its pid, and the sentence goes into the dialog the operator is looking at.
+    Nothing was written, so the chip must not fall into ``switching…``.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _publish_report(
+            publish_report(
                 root,
                 last_switch={
                     "status": "applying",
@@ -1048,8 +741,8 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
                 },
             )
 
-            _open_popover(page)
-            _row(page, SWITCH_TARGET).locator(".ctc-switch").click()
+            open_popover(page)
+            popover_row(page, SWITCH_TARGET).locator(".ctc-switch").click()
             expect(page.locator(MODAL_CONFIRM)).to_be_visible(timeout=TIMEOUT)
             page.locator(MODAL_CONFIRM).click()
 
@@ -1059,7 +752,7 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
             expect(page.locator(OPEN_MODAL)).to_have_count(1)
             expect(page.locator(CHIP)).not_to_have_attribute("data-pending", "true")
 
-            record = _read_record()
+            record = read_record()
             assert record is not None
             assert record.target == ACTIVE_TARGET, record
             assert record.generation == RECORD_GENERATION, record
@@ -1072,52 +765,38 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("ui_mode", ["expert", "simple"])
-def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
-    tmp_path, monkeypatch, chromium_browser, ui_mode
-):
-    """The popover renders one DOM and shows the whole of it in either mode.
-
-    ``html[data-ui-mode]`` stays a CSS concern and only a CSS concern — and
-    this design leaves it nothing in the popover to gate. The endpoint and the
-    server's own label are hover vocabulary in BOTH modes, reachability only
-    speaks when a machine is not answering, and what remains at rest — the
-    name, its ⓘ, the writes switch, Switch — is what an
-    operator acts on and is shown in either density. So the invariant pinned
-    here is the stronger one: same DOM, same visibility, and the confirms
-    identical, whichever mode the deployment renders.
-
-    The mode is driven the way the deployment drives it — ``web.ui_mode``
-    reaching the page as the server-rendered ``<html data-ui-mode>`` attribute
-    — not by poking the attribute from the test.
-    """
-    with _chip_hub(tmp_path, monkeypatch, ui_mode=ui_mode) as (base_url, _app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+def test_the_popover_row_shows_the_whole_of_a_target(tmp_path, monkeypatch, chromium_browser):
+    """The name, its ⓘ, the three-position switch and Switch are all shown."""
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            expect(page.locator("html")).to_have_attribute("data-ui-mode", ui_mode)
-            _open_popover(page)
+            open_popover(page)
 
-            row = _row(page, SWITCH_TARGET)
+            row = popover_row(page, SWITCH_TARGET)
 
-            # --- what an operator acts on, at rest, in either density ---
             expect(row.locator(".ctc-name")).to_have_text(NAMES[SWITCH_TARGET])
             assert row.locator(".ctc-tip-what").text_content() == "Writes move hardware"
-            expect(row.locator(".ctc-switch-state")).to_have_text("on")
-            expect(row.locator(".ctc-toggle")).to_be_visible()
+            expect(row.locator(".ctc-switch-state")).to_have_text("asked")
+            expect(writes_switch(page, SWITCH_TARGET)).to_be_visible()
+            for position in POSITIONS:
+                expect(writes_option(page, SWITCH_TARGET, position)).to_be_visible()
             expect(row.locator(".ctc-switch")).to_be_visible()
             expect(page.locator(FOOT_NOTE)).to_have_text("Applies to every session of this login")
 
-            # --- the machine vocabulary stays behind the ⓘ, in either density ---
             tip = row.locator(".ctc-tip").text_content()
             assert tip and LABELS[SWITCH_TARGET] in tip, tip
-            # No endpoint/role line exists at rest for a stylesheet to gate.
             assert row.locator(".ctc-meta").count() == 0
 
-            # Both confirms are identical in either mode: a safety gesture does
-            # not get a density.
             row.locator(".ctc-switch").click()
             expect(page.locator(MODAL_TITLE)).to_have_text(
                 f"Switch to {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
+            )
+            page.locator(MODAL_CANCEL).click()
+            expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+
+            _move(page, SWITCH_TARGET, "allowed")
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                _widen_title(SWITCH_TARGET, "allowed"), timeout=TIMEOUT
             )
             page.locator(MODAL_CANCEL).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
@@ -1126,44 +805,42 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
 
 
 # ---------------------------------------------------------------------------
-# (g) the rehearsal: one confirm, then the verdict for this login and machine
+# (g) the rehearsal: one confirm for asked, then the verdict
 # ---------------------------------------------------------------------------
 
-#: A login that is not the one signed in. With no per-login tree bound, the
-#: verdict refuses any owner but this host's own (``owner_foreign``): a switch is
-#: one person's and is never lent.
+#: A login that is not the one signed in: the switch is one person's.
 OTHER_LOGIN = "someone-else"
 
 
-def test_a_rehearsal_turn_on_confirms_once_and_arms_only_that_login_and_machine(
+def test_a_rehearsal_widening_to_asked_confirms_once_and_arms_only_that_login(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """The rehearsal asks once; its turn-on reaches this login on this machine only.
+    """The rehearsal's off→asked asks once; ``allowed`` asks every time, even there.
 
     A live controls server publishes the stand-in as the rehearsal, and every
-    switch starts off. The first turn-on confirms — the dialog carries the
-    rehearsal's kind and offers the waiver, which the operator takes. From then
-    on a turn-on of that machine applies directly, and the sentence the skipped
-    confirm would have carried is said once on the popover's status line.
+    switch starts off. The first off→asked confirms with the waiver offered,
+    which the operator takes; from then on that move applies directly and the
+    skipped confirm's sentence is said once on the status line, while Shift
+    re-shows the dialog. A move to ``allowed`` removes the prompt, so its
+    confirm offers no waiver on any machine.
 
-    What it unlocked is read from the verdict itself, the one rule every write
-    path applies: a write by this login to the rehearsal passes; the same login
-    on the other two machines meets ``switch_off``; and another login on the
-    rehearsal is refused, because the switch is this login's alone.
+    What the move unlocked is read from the verdict: this login on the
+    rehearsal passes at ``asked``; the other machines meet ``switch_off``;
+    another login is refused.
     """
-    with _chip_hub(tmp_path, monkeypatch, switch={}, rehearsal=True) as (base_url, app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch, switch={}, rehearsal=True) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
-            row = _row(page, POSTURE_TARGET)
+            open_popover(page)
+            row = popover_row(page, POSTURE_TARGET)
             expect(row).to_have_attribute("data-target-kind", "rehearsal", timeout=TIMEOUT)
             expect(row).to_have_attribute("data-state", "off")
             expect(row.locator(".ctc-name")).to_have_text(NAMES[POSTURE_TARGET])
 
             # --- the one confirm, with the waiver taken ---
-            _toggle(page, POSTURE_TARGET).click()
+            _move(page, POSTURE_TARGET, "asked")
             expect(page.locator(MODAL_TITLE)).to_have_text(
-                f"Turn writes on for {NAMES[POSTURE_TARGET]}?", timeout=TIMEOUT
+                _widen_title(POSTURE_TARGET, "asked"), timeout=TIMEOUT
             )
             expect(page.locator(f"{OPEN_MODAL} .posture-modal")).to_have_attribute(
                 "data-target-kind", "rehearsal"
@@ -1176,81 +853,97 @@ def test_a_rehearsal_turn_on_confirms_once_and_arms_only_that_login_and_machine(
             skip.check()
             page.locator(MODAL_CONFIRM).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute(
-                "data-state", "on", timeout=TIMEOUT
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "asked", timeout=TIMEOUT
             )
 
             # --- the verdict, for this login and machine and no other ---
-            assert _verdict(app, POSTURE_TARGET).allowed, _verdict(app, POSTURE_TARGET)
+            verdict = write_verdict_for(app, POSTURE_TARGET)
+            assert verdict.allowed and verdict.position == "asked", verdict
             for other in (SWITCH_TARGET, ACTIVE_TARGET):
-                verdict = _verdict(app, other)
+                verdict = write_verdict_for(app, other)
                 assert not verdict.allowed and verdict.reason == "switch_off", verdict
-            foreign = _verdict(app, POSTURE_TARGET, login=OTHER_LOGIN)
+            foreign = write_verdict_for(app, POSTURE_TARGET, login=OTHER_LOGIN)
             assert not foreign.allowed, foreign
-            _assert_chip_matches_verdict(page, app)
+            assert_chip_matches_verdict(page, app)
 
-            # --- off, then on again: the waiver holds, so nothing asks ---
-            _turn_off(page, POSTURE_TARGET)
-            _toggle(page, POSTURE_TARGET).click()
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute(
-                "data-state", "on", timeout=TIMEOUT
+            # --- off, then asked again: the waiver holds, so nothing asks ---
+            _narrow(page, POSTURE_TARGET)
+            _move(page, POSTURE_TARGET, "asked")
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "asked", timeout=TIMEOUT
             )
             expect(page.locator(OPEN_MODAL)).to_have_count(0)
             expect(page.locator(f"{POPOVER} .ctc-outcome.ctc-status")).to_have_text(
                 TURN_ON_SENTENCE, timeout=TIMEOUT
             )
-            assert _verdict(app, POSTURE_TARGET).allowed
-            _assert_chip_matches_verdict(page, app)
+            assert write_verdict_for(app, POSTURE_TARGET).allowed
+            assert_chip_matches_verdict(page, app)
+
+            # --- Shift re-shows the waived dialog ---
+            _narrow(page, POSTURE_TARGET)
+            _move(page, POSTURE_TARGET, "asked", modifiers=["Shift"])
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                _widen_title(POSTURE_TARGET, "asked"), timeout=TIMEOUT
+            )
+            page.locator(MODAL_CANCEL).click()
+            expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+            assert recorded_position(POSTURE_TARGET) == "off"
         finally:
             page.close()
 
 
 # ---------------------------------------------------------------------------
-# (h) the real machine: a confirm every time, and no waiver
+# (h) the live machine: a confirm until it is waived
 # ---------------------------------------------------------------------------
 
 
-def test_a_real_machine_turn_on_confirms_every_time_and_offers_no_waiver(
+def test_a_live_widening_confirms_until_the_operator_waives_it(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """Turning the real machine's writes on asks every single time.
+    """A widening of the live machine's writes asks until the waiver is ticked.
 
-    It is the one confirm that must not be muted: a write there moves hardware.
-    So the dialog offers no "don't ask again", carries the hardware banner, and
-    is raised again on the second turn-on exactly as on the first. Both rounds
-    end in the record and the verdict, so a dialog that stopped asking because
-    the gesture had quietly been applied would fail here too.
+    The dialog carries the hardware banner and is raised again on the second
+    asked exactly as on the first; the waiver, ticked last, silences the next
+    one. Every round ends in the record and the verdict.
     """
-    with _chip_hub(tmp_path, monkeypatch, switch={}) as (base_url, app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch, switch={}) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
-            expect(_row(page, SWITCH_TARGET)).to_have_attribute(
+            open_popover(page)
+            expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
                 "data-target-kind", "real", timeout=TIMEOUT
             )
-            for round_ in (1, 2):
-                expect(_row(page, SWITCH_TARGET)).to_have_attribute(
+            for round_, position in enumerate(("asked", "asked", "allowed"), start=1):
+                expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
                     "data-state", "off", timeout=TIMEOUT
                 )
-                _toggle(page, SWITCH_TARGET).click()
+                _move(page, SWITCH_TARGET, position)
                 expect(page.locator(MODAL_TITLE)).to_have_text(
-                    f"Turn writes on for {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
+                    _widen_title(SWITCH_TARGET, position), timeout=TIMEOUT
                 )
-                expect(page.locator(f"{OPEN_MODAL} .posture-modal-skip")).to_have_count(0)
                 expect(page.locator(f"{OPEN_MODAL} .posture-modal-live")).to_contain_text(
                     "writes move hardware"
                 )
-                # Nothing is applied while the question is up.
-                assert SWITCH_TARGET not in _recorded_switch(), (round_, _recorded_switch())
+                assert recorded_position(SWITCH_TARGET) == "off", round_
+                if position == "allowed":
+                    page.locator(f"{OPEN_MODAL} .posture-modal-skip input").check()
                 page.locator(MODAL_CONFIRM).click()
                 expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-                expect(_row(page, SWITCH_TARGET)).to_have_attribute(
-                    "data-state", "on", timeout=TIMEOUT
+                expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
+                    "data-state", position, timeout=TIMEOUT
                 )
-                assert _verdict(app, SWITCH_TARGET).allowed, round_
-                _assert_chip_matches_verdict(page, app)
-                _turn_off(page, SWITCH_TARGET)
-                assert _verdict(app, SWITCH_TARGET).reason == "switch_off", round_
+                verdict = write_verdict_for(app, SWITCH_TARGET)
+                assert verdict.allowed and verdict.position == position, (round_, verdict)
+                assert_chip_matches_verdict(page, app)
+                _narrow(page, SWITCH_TARGET)
+                assert write_verdict_for(app, SWITCH_TARGET).reason == "switch_off", round_
+
+            _move(page, SWITCH_TARGET, "asked")
+            expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
+                "data-state", "asked", timeout=TIMEOUT
+            )
+            expect(page.locator(OPEN_MODAL)).to_have_count(0)
         finally:
             page.close()
 
@@ -1266,41 +959,42 @@ _HOLDER_PORT = 8999
 def test_all_off_from_a_follower_turns_every_machine_off(tmp_path, monkeypatch, chromium_browser):
     """A follower cannot switch the target, but it can stop its login's writes.
 
-    The record is owned by another live terminal (the parent process stands in
-    for it), so this hub follows: ``data-enforceable`` is false and no row
-    offers Switch. The switch, though, is the person's and not the terminal's,
-    and no follower lock refuses a stop — so "Turn all writes off" works here
-    exactly as it does on the holder. Afterwards every machine refuses with
-    ``switch_off``, the record still names the holder, and the chip agrees.
+    The record is owned by another live terminal, so this hub follows and no
+    row offers Switch. The switch is the person's, not the terminal's, and no
+    follower lock refuses a stop — so "Turn all writes off" works here from
+    both armed positions at once. Afterwards every machine refuses with
+    ``switch_off`` and the record still names the holder.
     """
     holder = owner(control_context.OWNER_WEB_TERMINAL, os.getppid(), _HOLDER_PORT)
-    with _chip_hub(tmp_path, monkeypatch, owned_by=holder) as (base_url, app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url, enforceable=False)
+    switch = {**ALL_ALLOWED, POSTURE_TARGET: "asked"}
+    with chip_hub(tmp_path, monkeypatch, owned_by=holder, switch=switch) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url, enforceable=False)
         try:
-            _open_popover(page)
+            open_popover(page)
             expect(page.locator(f"{POPOVER} .ctc-switch")).to_have_count(0)
-            for target in KINDS:
-                expect(_machine(page, target)).to_have_attribute(
-                    "data-state", "on", timeout=TIMEOUT
+            for target, position in switch.items():
+                expect(popover_machine(page, target)).to_have_attribute(
+                    "data-state", position, timeout=TIMEOUT
                 )
             all_off = page.locator(f"{POPOVER} .ctc-all-off")
             expect(all_off).to_be_enabled()
             all_off.click()
 
             for target in KINDS:
-                expect(_machine(page, target)).to_have_attribute(
+                expect(popover_machine(page, target)).to_have_attribute(
                     "data-state", "off", timeout=TIMEOUT
                 )
+                assert_options(page, target, checked="off")
             expect(page.locator(f"{POPOVER} .ctc-all-off")).to_be_disabled(timeout=TIMEOUT)
 
-            record = _read_record()
+            record = read_record()
             assert record is not None
             assert dict(record.switch) == {}, record.switch
             assert record.owner is not None and record.owner.pid == os.getppid(), record.owner
             for target in KINDS:
-                verdict = _verdict(app, target)
+                verdict = write_verdict_for(app, target)
                 assert not verdict.allowed and verdict.reason == "switch_off", verdict
-            _assert_chip_matches_verdict(page, app)
+            assert_chip_matches_verdict(page, app)
         finally:
             page.close()
 
@@ -1310,24 +1004,23 @@ def test_all_off_from_a_follower_turns_every_machine_off(tmp_path, monkeypatch, 
 # ---------------------------------------------------------------------------
 
 
-def test_a_stop_the_store_cannot_record_says_not_taken_and_stays_on(
+def test_a_stop_the_store_cannot_record_says_not_taken_and_stays_armed(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """A stop that did not land says so, and the machine is still shown on.
+    """A stop that did not land says so, and the machine is still shown armed.
 
     The record is readable, so the route gets as far as the write — and the
-    write fails (``set_switch`` raises, as a full disk or a lost lock would).
-    The answer is ``503 not_taken``, and the operator must read that writes are
-    STILL on: a row that painted off here would be the most dangerous lie this
-    surface could tell. So the row carries the stop sentence, its switch stays
-    on, and the record and the verdict both still allow the write.
+    write fails (``set_switch`` raises, as a full disk would). The answer is
+    ``503 not_taken``, and the operator must read that writes are STILL on: a
+    row that painted off here would be the most dangerous lie this surface
+    could tell.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute(
-                "data-state", "on", timeout=TIMEOUT
+            open_popover(page)
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "asked", timeout=TIMEOUT
             )
 
             def _cannot_record(*_args: Any, **_kwargs: Any) -> Any:
@@ -1335,17 +1028,77 @@ def test_a_stop_the_store_cannot_record_says_not_taken_and_stays_on(
 
             monkeypatch.setattr(control_context, "set_switch", _cannot_record)
 
-            _toggle(page, POSTURE_TARGET).click()
-            refused = _row(page, POSTURE_TARGET).locator('.ctc-outcome[data-status="refused"]')
+            _move(page, POSTURE_TARGET, "off")
+            refused = popover_row(page, POSTURE_TARGET).locator(
+                '.ctc-outcome[data-status="refused"]'
+            )
             expect(refused).to_contain_text(STOP_NOT_TAKEN, timeout=TIMEOUT)
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "on")
-            expect(_toggle(page, POSTURE_TARGET)).to_have_attribute("aria-checked", "true")
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "asked")
+            assert_options(page, POSTURE_TARGET, checked="asked")
 
             _record, status = control_context.read_record_status()
             assert status == "ok", status
-            assert _recorded_switch().get(POSTURE_TARGET) == "on", _recorded_switch()
-            assert _verdict(app, POSTURE_TARGET).allowed
-            _assert_chip_matches_verdict(page, app)
+            assert recorded_position(POSTURE_TARGET) == "asked"
+            assert write_verdict_for(app, POSTURE_TARGET).allowed
+            assert_chip_matches_verdict(page, app)
+        finally:
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# (j2) a widening a stop overtook
+# ---------------------------------------------------------------------------
+
+
+def test_a_widening_a_stop_overtook_is_refused_and_the_next_click_lands(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """A stop between the click and the confirm wins: ``409``, then a fresh retry.
+
+    The confirm is raised on the switch epoch the page read. While it is up,
+    a stop lands from elsewhere — every machine off, which moves the epoch — so
+    the widening it confirms was begun before a stop it never saw. The route
+    answers ``409 stopped_since``; the dialog's question no longer holds, so it
+    closes, the row says nothing was turned on, and the record arms nothing.
+    The next click is made on the re-read, carries the new epoch, and lands.
+    """
+    with chip_hub(tmp_path, monkeypatch, switch={SWITCH_TARGET: "asked"}) as (
+        base_url,
+        app,
+        _root,
+    ):
+        page, _session_id = settled_chip(chromium_browser, base_url)
+        try:
+            open_popover(page)
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "off", timeout=TIMEOUT
+            )
+            epoch_before = read_record().switch_epoch
+
+            _move(page, POSTURE_TARGET, "asked")
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                _widen_title(POSTURE_TARGET, "asked"), timeout=TIMEOUT
+            )
+            # The stop, out of band: the same writer every surface uses.
+            control_context.set_switch("all", "off")
+            control_context.invalidate_cache()
+            assert read_record().switch_epoch != epoch_before
+            page.locator(MODAL_CONFIRM).click()
+
+            expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+            refused = popover_row(page, POSTURE_TARGET).locator(
+                '.ctc-outcome[data-status="refused"]'
+            )
+            expect(refused).to_contain_text(STOPPED_SINCE, timeout=TIMEOUT)
+            expect(popover_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "off")
+            assert recorded_position(POSTURE_TARGET) == "off"
+            expect(popover_row(page, SWITCH_TARGET)).to_have_attribute(
+                "data-state", "off", timeout=TIMEOUT
+            )
+
+            _widen(page, POSTURE_TARGET, "asked")
+            assert recorded_position(POSTURE_TARGET) == "asked"
+            assert_chip_matches_verdict(page, app)
         finally:
             page.close()
 
@@ -1360,22 +1113,14 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
 ):
     """A record that cannot be read is a refusal on every machine, never "off".
 
-    Every switch was on. Then the file stops parsing. Nobody can say whether a
-    machine is on, so the verdict refuses every write (``record_unavailable``),
-    and the page has to say THAT — the verdict's own sentence, with the switch
-    shown as one that may be on, so its stop control stays live. Painting the
-    machines off would tell the operator writes are stopped when nothing has
-    recorded a stop.
-
-    The record's directory is made read-only once the garbage is in place. A
-    holder that CAN write replaces an unparseable record with a fresh one on
-    its next owner tick — every switch off, a record that is then readable and
-    true — so without this the unreadable state would last under a second and
-    the page would be asserted against whichever of the two it caught. A store
-    that can neither be read nor repaired is the state this lane is about.
+    Nobody can say where a machine's switch stands, so the verdict refuses
+    every write (``record_unavailable``) and the page says THAT: no option is
+    checked, both armed options are held, and ``off`` stays selectable — a
+    stop is never refused. The record's directory is made read-only once the
+    garbage is in place so the holder cannot repair it mid-assertion.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, app, root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch) as (base_url, app, root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         record_path = control_context._record_path_under(root)
         try:
             write_payload(record_path, "not a control context")
@@ -1383,22 +1128,22 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
             control_context.invalidate_cache()
             assert control_context.read_record_status()[1] == "unreadable"
 
-            _open_popover(page)
+            open_popover(page)
             for target in KINDS:
-                node = _machine(page, target)
+                node = popover_machine(page, target)
                 expect(node).to_have_attribute("data-state", "locked", timeout=TIMEOUT)
-                verdict = _verdict(app, target)
+                verdict = write_verdict_for(app, target)
                 assert verdict.reason == "record_unavailable", verdict
+                phrase = refusal_phrase(verdict.reason, verdict.kind)
                 expect(node.locator(".ctc-switch-state")).to_have_text("locked")
-                expect(node.locator(".ctc-write-phrase")).to_have_text(
-                    refusal_phrase(verdict.reason, verdict.kind)
-                )
-                expect(node.locator(".ctc-toggle")).to_be_enabled()
+                expect(node.locator(".ctc-write-phrase")).to_have_text(phrase)
+                assert_options(page, target, checked=None, disabled=("asked", "allowed"))
+                for position in ("asked", "allowed"):
+                    title = writes_option(page, target, position).get_attribute("title")
+                    assert title in (phrase, "the write switch cannot be read"), title
             expect(page.locator(CHIP_STATE)).to_have_text("writes locked", timeout=TIMEOUT)
             expect(page.locator(f"{POPOVER} [data-state='off']")).to_have_count(0)
-            _assert_chip_matches_verdict(page, app)
-            # Still unreadable at the end, so every assertion above was taken
-            # against the state this lane names and not a repaired record.
+            assert_chip_matches_verdict(page, app)
             control_context.invalidate_cache()
             assert control_context.read_record_status()[1] == "unreadable"
         finally:
@@ -1407,55 +1152,59 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
 
 
 # ---------------------------------------------------------------------------
-# (l) a readonly login, and an app render: no turn-on, and who can lift it
+# (l) a readonly login, and an app render: nothing armed is selectable
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("lock", ["readonly_login", "app_render"])
-def test_a_readonly_login_or_an_app_render_cannot_turn_on(
+def test_a_readonly_login_or_an_app_render_offers_nothing_armed(
     tmp_path, monkeypatch, chromium_browser, lock
 ):
-    """No chip gesture turns writes on where the tier never writes.
+    """No chip gesture arms a machine where the tier never writes.
 
-    Two ways to arrive at ``tier_never``: a login the render maps to ``never``
-    on an otherwise writable deployment, and an app render whose tier never
-    writes for anyone. Either way every switch is off and must stay off, so
-    each machine's toggle is disabled and the verdict's own sentence — which
-    names who can lift the lock — stands on the row and on the toggle's hover.
-    The route behind it refuses the turn-on too, with the same phrase: a
-    disabled button is a courtesy, the 403 is the rule.
+    Two ways to arrive at ``tier_never``: a login the render maps to ``never``,
+    and an app render whose tier never writes for anyone. Every switch is off
+    and must stay off, so on every machine both ``asked`` and ``allowed`` are
+    disabled with the verdict's own sentence — which names who can lift the
+    lock — on their hover and on the row. The route refuses both positions
+    too, with the same phrase.
     """
     login = acting_identity()
     hub_args: dict[str, Any] = (
         {"login_tiers": {login: "never"}} if lock == "readonly_login" else {"writes": "never"}
     )
-    with _chip_hub(tmp_path, monkeypatch, switch={}, **hub_args) as (base_url, app, _root):
-        page, _session_id = _settled_chip(chromium_browser, base_url)
+    with chip_hub(tmp_path, monkeypatch, switch={}, **hub_args) as (base_url, app, _root):
+        page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            _open_popover(page)
+            open_popover(page)
             for target in KINDS:
-                verdict = _verdict(app, target)
+                verdict = write_verdict_for(app, target)
                 assert verdict.reason == "tier_never", (target, verdict)
                 phrase = refusal_phrase(verdict.reason, verdict.kind)
-                node = _machine(page, target)
+                node = popover_machine(page, target)
                 expect(node).to_have_attribute("data-state", "off", timeout=TIMEOUT)
-                toggle = node.locator(".ctc-toggle")
-                expect(toggle).to_be_disabled()
-                expect(toggle).to_have_attribute("aria-checked", "false")
-                expect(toggle).to_have_attribute("title", phrase)
+                assert_options(page, target, checked="off", disabled=("asked", "allowed"))
+                for position in ("asked", "allowed"):
+                    expect(writes_option(page, target, position)).to_have_attribute("title", phrase)
                 expect(node.locator(".ctc-write-phrase")).to_have_text(phrase)
 
-                answer = requests.post(
-                    f"{base_url}/api/terminal/posture",
-                    json={"session_id": None, "target": target, "state": "on", "epoch": None},
-                    timeout=60,
-                )
-                assert answer.status_code == 403, answer.text
-                detail = answer.json()["detail"]
-                assert detail["reason"] == "tier_never", detail
-                assert detail["phrase"] == phrase, detail
+                for position in ("asked", "allowed"):
+                    answer = requests.post(
+                        f"{base_url}{POSTURE_ROUTE}",
+                        json={
+                            "session_id": None,
+                            "target": target,
+                            "state": position,
+                            "epoch": None,
+                        },
+                        timeout=60,
+                    )
+                    assert answer.status_code == 403, (position, answer.text)
+                    detail = answer.json()["detail"]
+                    assert detail["reason"] == "tier_never", (position, detail)
+                    assert detail["phrase"] == phrase, (position, detail)
 
-            assert _recorded_switch() == {}, _recorded_switch()
-            _assert_chip_matches_verdict(page, app)
+            assert read_record().switch == {}, read_record().switch
+            assert_chip_matches_verdict(page, app)
         finally:
             page.close()

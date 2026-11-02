@@ -216,10 +216,9 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
 
             if response.status_code == 200:
                 return True, "API accessible and authenticated"
-            elif response.status_code == 401:
+            if response.status_code == 401:
                 return False, "Authentication failed (invalid API key?)"
-            else:
-                return False, f"API returned status {response.status_code}"
+            return False, f"API returned status {response.status_code}"
 
         except requests.Timeout:
             return False, "Connection timeout"

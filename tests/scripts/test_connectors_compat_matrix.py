@@ -214,16 +214,20 @@ def test_tags_that_are_not_framework_releases_are_ignored() -> None:
 def test_a_shallow_checkout_is_refused(tmp_path: Path) -> None:
     source = tmp_path / "source"
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-    subprocess.run([*git, "init", "-q", str(source)], check=True)
+    subprocess.run([*git, "init", "-q", str(source)], check=True, timeout=60)
     for message in ("one", "two"):
         subprocess.run(
-            [*git, "-C", str(source), "commit", "-q", "--allow-empty", "-m", message], check=True
+            [*git, "-C", str(source), "commit", "-q", "--allow-empty", "-m", message],
+            check=True,
+            timeout=60,
         )
-    subprocess.run([*git, "-C", str(source), "tag", "v2026.10.0"], check=True)
+    subprocess.run([*git, "-C", str(source), "tag", "v2026.10.0"], check=True, timeout=60)
     assert compat.reachable_tags(source) == ["v2026.10.0"]
     shallow = tmp_path / "shallow"
     subprocess.run(
-        ["git", "clone", "-q", "--depth", "1", f"file://{source}", str(shallow)], check=True
+        ["git", "clone", "-q", "--depth", "1", f"file://{source}", str(shallow)],
+        check=True,
+        timeout=60,
     )
     with pytest.raises(ValueError, match="shallow"):
         compat.reachable_tags(shallow)
@@ -270,12 +274,17 @@ def test_the_pyaml_backend_declares_the_framework_floor() -> None:
     assert compat.connectors_floor(member) == compat.connectors_floor()
 
 
+def _today_with_the_floor_tag() -> list[str]:
+    """``TODAY`` plus the tag of the repository's real floor, which ``main`` reads."""
+    return [*TODAY, f"osprey-connectors-v{compat.connectors_floor()}"]
+
+
 def test_the_plan_job_output_names_every_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     output = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    monkeypatch.setattr(compat, "reachable_tags", lambda: TODAY)
+    monkeypatch.setattr(compat, "reachable_tags", _today_with_the_floor_tag)
     assert compat.main(["github-output"]) == 0
     pairs = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert set(pairs) == {"matrix", "floor", "floor-applicable"}
@@ -290,7 +299,7 @@ def test_a_dispatched_framework_is_the_one_cell(
 ) -> None:
     output = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
-    monkeypatch.setattr(compat, "reachable_tags", lambda: TODAY)
+    monkeypatch.setattr(compat, "reachable_tags", _today_with_the_floor_tag)
     assert compat.main(["github-output", "--framework", "2026.9.0b3"]) == 0
     pairs = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert json.loads(pairs["matrix"]) == {"include": [{"framework": "2026.9.0b3"}]}

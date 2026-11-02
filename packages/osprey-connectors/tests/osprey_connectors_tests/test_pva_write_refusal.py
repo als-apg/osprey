@@ -124,6 +124,21 @@ class TestPvaWriteRefusal:
         _assert_nothing_downstream_ran(connector)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "spelling",
+        [f" {PVA_ADDRESS}", f"{PVA_ADDRESS} ", f"\t{PVA_ADDRESS}\n", f"ca://{PVA_ADDRESS}"],
+        ids=["leading-space", "trailing-space", "tab-newline", "ca-scheme"],
+    )
+    async def test_another_spelling_of_a_pva_address_is_refused_the_same(self, spelling):
+        """Padding or a scheme never carries a PVA-routed record past the refusal."""
+        connector = _connector()
+
+        result = await connector.write_channel(spelling, 1.5)
+
+        _assert_refusal(result, PVA_ADDRESS, 1.5)
+        _assert_nothing_downstream_ran(connector)
+
+    @pytest.mark.asyncio
     async def test_array_write_to_a_pva_address_is_refused(self):
         """The array case is the one the ordering exists for."""
         connector = _connector()

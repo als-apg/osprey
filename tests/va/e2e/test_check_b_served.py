@@ -20,14 +20,19 @@ The lanes:
   by group, and the chromaticity monitor. The measurement file the import
   seeded names the kinds its groups and instruments allow from a first look;
   the lane lists all five in the deployment, as an operator does.
-* **The example's transport line.** ``LINE`` takes the orbit response alone;
-  a dispersion measurement on it is refused naming the instrument it lacks.
+* **The example's transport line.** The second model
+  (``conftest.SECOND_MODEL``) takes the orbit response alone; a dispersion
+  measurement on it is refused naming the instrument it lacks.
 
 Each deployment starts in the built-in ``still`` scenario, and before
 measuring, each lane asserts that every reading of the model carries no
-motion (:func:`tests.va._still.assert_readings_still`). The deployments state
-``approval.enabled: false``: what is proven here is the measurement, and the
-approved path is ``test_pyaml_measure_guarded.py``'s subject.
+motion (:func:`tests.va._still.assert_readings_still`). The deployments ask
+nobody: the build states the write tier ``allowed`` and each session sets its
+switch to ``allowed``, so the build's own approval hook lets each measurement
+through without a prompt, binding it and filing a ``write_switch`` stamp,
+and the tool runs on that record (:func:`gm.decided` with ``expect="allow"``).
+What is proven here is the measurement; the asked path is
+``test_pyaml_measure_guarded.py``'s subject.
 
 The whole directory is opt-in behind ``OSPREY_VA_E2E_ENABLE=1``; the skip is
 applied by ``conftest.pytest_collection_modifyitems``.
@@ -48,8 +53,10 @@ from typing import Any
 import pytest
 
 from tests.fixtures.mml._trees import exports_taking
+from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm
+from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
@@ -72,8 +79,8 @@ MEASUREMENTS: dict[str, dict[str, Any]] = {
 }
 
 #: The example facility's transport line, and the channel its deployment probes.
-LINE = "LINE"
-EXAMPLE_PROBE = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
+SECOND_MODEL = e2e_conftest.SECOND_MODEL
+EXAMPLE_PROBE = e2e_conftest.READINESS_ADDRESS
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -109,7 +116,7 @@ def _measured_model(repo: Path) -> str:
 def harvested(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[Served]:
-    """One harvested tree, every kind listed, built and served with approval off."""
+    """One harvested tree, every kind listed, built and served asking nobody."""
     from tests.cli import test_mml_build_recipes as recipes
     from tests.va.e2e import test_mml_trees_boot as boot
 
@@ -123,13 +130,14 @@ def harvested(
         lambda port, pva_port: gm.isolation_settings(port, pva_port, probe, approval=False),
         prefix=f"osprey-va-e2e-check-b-{tree}",
         probe=probe,
+        writes="allowed",
     ) as served:
         yield Served(deployment=served, model=model)
 
 
 @pytest.fixture(scope="module")
 def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
-    """The example facility's deployment, built and served with approval off."""
+    """The example facility's deployment, built and served asking nobody."""
     from tests._builds import init_project
 
     repo = init_project(tmp_path_factory.mktemp("check-b-example"), "control-assistant", "example")
@@ -138,8 +146,9 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
         lambda port, pva_port: gm.isolation_settings(port, pva_port, EXAMPLE_PROBE, approval=False),
         prefix="osprey-va-e2e-check-b-example",
         probe=EXAMPLE_PROBE,
+        writes="allowed",
     ) as served:
-        yield Served(deployment=served, model=LINE)
+        yield Served(deployment=served, model=SECOND_MODEL)
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +235,10 @@ async def _measure_and_compare(
     deployment = served.deployment
     assert_readings_still(deployment.view(), _readings(served), deployment.active_scenarios())
 
-    with gm.acting_in(deployment, tmp_path / "agent_data"):
-        answer = await gm.call("pyaml_measure", {"model": served.model, **arguments})
+    with gm.acting_in(deployment, tmp_path / "agent_data", position="allowed"):
+        _decision, answer = await gm.decided(
+            deployment, "pyaml_measure", {"model": served.model, **arguments}, expect="allow"
+        )
         assert answer.error is None, answer.text
         assert answer.result is not None and answer.result["completed"] is True, answer.text
         measured = (_saved(answer.result), answer.result)
@@ -257,11 +268,13 @@ async def test_the_lines_orbit_response_meets_pyat_at_the_same_steps(
 async def test_a_dispersion_on_the_line_is_refused_naming_its_instrument(
     example: Served, tmp_path: Path
 ) -> None:
-    with gm.acting_in(example.deployment, tmp_path / "agent_data"):
-        answer = await gm.call("pyaml_measure", {"kind": "dispersion", "model": LINE})
+    with gm.acting_in(example.deployment, tmp_path / "agent_data", position="allowed"):
+        answer = await gm.call("pyaml_measure", {"kind": "dispersion", "model": SECOND_MODEL})
 
     assert answer.error is not None and answer.error["error_type"] == "validation_error"
-    assert answer.error["error_message"] == f"dispersion needs rf, which {LINE} does not have"
+    assert (
+        answer.error["error_message"] == f"dispersion needs rf, which {SECOND_MODEL} does not have"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -269,10 +282,4 @@ async def test_a_dispersion_on_the_line_is_refused_naming_its_instrument(
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_check_b_served.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

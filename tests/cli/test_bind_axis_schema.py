@@ -22,7 +22,7 @@ import pytest
 from osprey.cli.build_profile import BuildProfile, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import bind_env_errors, listens_errors
 from osprey.deployment.host_binding import HostBinding
-from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
 _FACILITY = "site_poller"
 
@@ -36,18 +36,9 @@ def _facility_tree(tmp_path: Path) -> None:
     (service_dir / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
 
 
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
-
-
 def _bind_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Return only the failures that mention a ``listens`` or ``bind_env`` key."""
-    return [e for e in _errors(profile, profile_dir) if "listens" in e or "bind_env" in e]
+    return [e for e in validation_errors(profile, profile_dir) if "listens" in e or "bind_env" in e]
 
 
 def _profile(**raw: Any) -> BuildProfile:

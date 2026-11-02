@@ -41,21 +41,19 @@ either half alone would be satisfiable by breaking the other.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.deployment import status_display
 from osprey.deployment.reach import reach_errors
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
@@ -64,8 +62,6 @@ from tests.fixtures.lifecycle_repo import (
 
 #: Every test here renders a deployment and its renders for real.
 pytestmark = pytest.mark.slow
-
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 STANDIN_PORT = 5074
 
@@ -79,7 +75,7 @@ STANDIN_LABEL = "Rehearsal — nothing moves"
 #: The words only this deployment's own stand-in may carry.
 NOTHING_MOVES = "nothing moves"
 #: The real machine's published label (C-WORDS, D4): its kind's banner.
-LIVE_LABEL = "Real machine — writes move hardware"
+LIVE_LABEL = "Live — writes move hardware"
 
 
 def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
@@ -99,8 +95,7 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     repo = build_exemplar_repo(dest / EXEMPLAR_DIRNAME, seed_env=True)
     ruamel = YAML(typ="rt")
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = ruamel.load(handle)
+    profile = ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if standin is None:
         block.pop("live_standin", None)
@@ -108,16 +103,10 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     else:
         block["live_standin"] = standin
         profile["config"]["control_system.type"] = "live_standin"
-    with profile_path.open("w", encoding="utf-8") as handle:
-        ruamel.dump(profile, handle)
+    ruamel.dump(profile, profile_path)
 
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 
@@ -414,7 +403,7 @@ def test_status_prints_the_words_beside_the_key(tmp_path, monkeypatch) -> None:
     status_display._print_writes_section({}, tmp_path)
 
     assert [row[2] for row in printed] == [
-        "live (Real machine — writes move hardware)",
-        "standin (Real machine — writes move hardware)",
+        "live (Live — writes move hardware)",
+        "standin (Live — writes move hardware)",
         "—",
     ]

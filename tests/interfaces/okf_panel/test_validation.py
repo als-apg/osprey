@@ -125,3 +125,17 @@ def test_validate_bundle_never_raises_on_missing_root(tmp_path):
 def test_validation_warning_is_frozen():
     w = ValidationWarning(concept_id="x", kind="frontmatter", detail="d")
     assert (w.concept_id, w.kind, w.detail) == ("x", "frontmatter", "d")
+
+
+def test_facility_links_are_not_broken_concept_links(tmp_path):
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body=(
+            "Read [X](facility:SR:DIAG:BPM:01:POSITION:X), [gauge](<facility:SR GAUGE 1>) "
+            "and [pump](facility:SR/ION-PUMP01)."
+        ),
+    )
+
+    assert validate_bundle(OKFBundle(tmp_path)) == []

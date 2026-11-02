@@ -1,1 +1,4 @@
-"""The across-users history page: its view contract lives in :mod:`osprey.history.queries`."""
+"""The across-users history page.
+
+It reads the agent record through :class:`~osprey.agent_record.client.RecordClient`.
+"""

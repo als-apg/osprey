@@ -30,7 +30,7 @@ Three properties are load-bearing on both paths and each is asserted directly:
   once the render is root-owned -- so these pins look for it there.
 * **All-or-nothing.** One protected key refuses the whole body. A mixed request
   does not get to land its cosmetic half.
-* **It leaves a trace.** One ``http_config`` ledger record per refused key
+* **It leaves a trace.** One ``http_config`` audit entry per refused key
   and one activity frame, so the attempt is visible to the operator afterwards
   and not only to whoever saw the 403. The frame is stamped in-process, which is
   the point: no ``OSPREY_PANEL_TOKEN`` is needed to publish it.
@@ -55,7 +55,6 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
-from pathlib import Path
 
 import pytest
 import yaml
@@ -73,40 +72,8 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.identity import acting_identity
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._builds import copy_build
+from tests._preset_data import create_project_as_built
 
 #: An unprotected key the Config panel may still write. ``claude_code`` is an
 #: agent-relevant section, but only its ``permissions``/``hooks``/``servers``
@@ -121,20 +88,33 @@ COSMETIC_KEY = "claude_code.default_model"
 RENDER_SHAPING_KEY = ("channel_finder", "pipeline_mode")
 
 
-@pytest.fixture
-def built_project(tmp_path):
-    """A real OSPREY project on a ``never`` tier (channel_write baked into deny)."""
+@pytest.fixture(scope="module")
+def _rendered_project(tmp_path_factory):
+    """A real OSPREY project on a ``never`` tier (channel_write baked into deny).
+
+    Rendered once for the module; tests get a private copy via ``built_project``.
+    """
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="route-regen",
-        output_dir=tmp_path,
+        output_dir=tmp_path_factory.mktemp("config-routes"),
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
     config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})
     manager.regenerate_claude_code(project_dir)
     return project_dir
+
+
+@pytest.fixture
+def built_project(_rendered_project, tmp_path):
+    """A private copy of the module's render, re-anchored by :func:`copy_build`.
+
+    The render records its own absolute path, so a plain copy would resolve
+    back to the shared one; the copy is the test's to mutate.
+    """
+    return copy_build(_rendered_project, tmp_path)
 
 
 @pytest.fixture
@@ -156,12 +136,10 @@ def _deny(project_dir):
     return settings["permissions"]["deny"]
 
 
-def _audit_records(zone):
-    """Every ``http_config`` record this identity filed, oldest first."""
-    path = zone / acting_identity() / f"{SURFACE_HTTP_CONFIG}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+def _audit_records(recorded_entries):
+    """Every ``http_config`` audit body the test recorded, oldest first."""
+    entries = sorted(recorded_entries("audit"), key=lambda entry: entry.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_HTTP_CONFIG]
 
 
 def _refusal_frames(client):
@@ -411,7 +389,7 @@ class TestPatchProtectedKeys:
         assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
         assert "mcp__controls__channel_write" in _deny(built_project)
 
-    def test_patch_protected_refusal_leaks_no_value(self, client, audit_zone_path):
+    def test_patch_protected_refusal_leaks_no_value(self, client, recorded_entries):
         """Config values are secrets; a refusal reports the key, never the value."""
         sentinel = "qqzzSENTINELvalue77"
 
@@ -419,7 +397,7 @@ class TestPatchProtectedKeys:
 
         assert resp.status_code == 403
         assert sentinel not in resp.text
-        assert sentinel not in json.dumps(_audit_records(audit_zone_path))
+        assert sentinel not in json.dumps(_audit_records(recorded_entries))
         assert sentinel not in json.dumps(_refusal_frames(client))
 
 
@@ -589,7 +567,7 @@ class TestPutProtectedDocument:
         # The operator is pointed at the channel that *can* carry the change.
         assert "`config:` block" in detail
 
-    def test_put_protected_refusal_leaks_no_value(self, client, built_project, audit_zone_path):
+    def test_put_protected_refusal_leaks_no_value(self, client, built_project, recorded_entries):
         """Config values are secrets; a refusal reports the key, never the value."""
         sentinel = "qqzzSENTINELvalue77"
 
@@ -600,7 +578,7 @@ class TestPutProtectedDocument:
 
         assert resp.status_code == 403
         assert sentinel not in resp.text
-        assert sentinel not in json.dumps(_audit_records(audit_zone_path))
+        assert sentinel not in json.dumps(_audit_records(recorded_entries))
         assert sentinel not in json.dumps(_refusal_frames(client))
 
     def test_put_unprotected_edit_passes_the_protected_gate_and_regenerates(
@@ -693,13 +671,13 @@ class TestPutProtectedDocument:
         assert "claude_code.servers.evil.srv.command" in resp.json()["detail"]
 
     def test_put_protected_refusal_caps_the_message_but_not_the_audit(
-        self, client, built_project, audit_zone_path
+        self, client, built_project, recorded_entries
     ):
         """The cap trims what an operator reads, never what the audit keeps.
 
         Emptying the document changes every protected key the file carries at
         once -- far more than a refusal can name and stay readable. The message
-        names the first ten and counts the rest; the ``http_config`` ledger gets
+        names the first ten and counts the rest; the ``http_config`` audit entries get
         all of them, because the trail is what a later investigation reads and a
         summarized trail is a missing one.
         """
@@ -716,7 +694,7 @@ class TestPutProtectedDocument:
         assert re.findall(r"`([^`]+)`", head) == sorted(".".join(k) for k in current)[:10]
         assert f"and {len(current) - 10} more" in head
 
-        records = _audit_records(audit_zone_path)
+        records = _audit_records(recorded_entries)
         assert len(records) == len(current)
         assert {r["subject"] for r in records} == {".".join(k) for k in current}
         assert all(r["surface"] == "http_config" for r in records)
@@ -775,15 +753,11 @@ class TestPutProtectedDocumentDiff:
         descends past it and the children come back unprotected. Adding one from
         nothing therefore compares equal.
 
-        It is inert, and the route's own note spells out why for each of the two
-        keys in this shape, because the mechanism is not the same for both. This
-        one is the tidy case: ``simulation.state_dir`` is read through
-        ``dotted_config_str``, which answers ``None`` for anything that is not a
-        non-empty string, so a block there reads as unset and the runtime takes
-        the default the absent key already gave. (The channel-finder
-        ``...feedback.store_path`` is *not* read that way -- it is read raw,
-        raises inside the initialization, and leaves the feedback store disabled
-        rather than defaulted. Also inert for this gate, by a different route.)
+        It is inert, and the route's own note spells out why:
+        ``simulation.state_dir`` is read through ``dotted_config_str``, which
+        answers ``None`` for anything that is not a non-empty string, so a block
+        there reads as unset and the runtime takes the default the absent key
+        already gave.
 
         What makes the residual a dead end rather than a first step is that it
         does not ratchet: putting a real value back is caught, which is the
@@ -797,24 +771,19 @@ class TestPutProtectedDocumentDiff:
         ]
 
     def test_put_protected_families_are_descent_safe_or_known_inert(self):
-        """Tripwire: a fourth exact-depth pattern must re-open the judgement above.
+        """Tripwire: a third exact-depth pattern must re-open the judgement above.
 
         A pattern is *descent-safe* when a hypothetical child of it is protected
         too -- true for every ``family.*`` pattern, and for ``artifacts.hooks``
         because ``artifacts.*`` sits beside it. The ones that are not are the
-        ones whose subtree the flatten can lose, and each of today's names a
-        path value that cannot be made to point anywhere by planting a block
-        there -- ``simulation.state_dir`` because its reader treats a block as
-        unset, the feedback store because its reader chokes on it and leaves
-        the store off. A new pattern gets neither guarantee for
-        free, so if this fails the PUT gate's note needs re-deciding, not
-        extending.
+        ones whose subtree the flatten can lose. Today that is only
+        ``simulation.state_dir``, a path value that cannot be made to point
+        anywhere by planting a block there, because its reader treats a block
+        as unset. A new pattern does not get that guarantee for free, so if
+        this fails the PUT gate's note needs re-deciding, not extending.
         """
         probe = "\x00-not-a-real-key"
-        known_inert = {
-            "simulation.state_dir",
-            "services.channel_finder.pipelines.hierarchical.feedback.store_path",
-        }
+        known_inert = {"simulation.state_dir"}
 
         leaky = {
             pattern
@@ -848,6 +817,8 @@ class TestConfigBackupLocation:
         assert backup.is_file()
         # It is the *pre-write* config, which is the only thing a backup is for.
         assert backup.read_bytes() == before
+        assert not (built_project / "config.yml.bak").exists()
+        assert [p.name for p in built_project.iterdir() if p.suffix == ".bak"] == []
 
     def test_patch_writes_its_backup_into_the_state_zone(self, client, built_project):
         before = (built_project / "config.yml").read_bytes()
@@ -859,35 +830,8 @@ class TestConfigBackupLocation:
         backup = _backup_path(built_project)
         assert backup.is_file()
         assert backup.read_bytes() == before
-
-    @pytest.mark.parametrize(
-        "save",
-        [
-            pytest.param(
-                lambda client, project: client.patch(
-                    "/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}}
-                ),
-                id="patch",
-            ),
-            pytest.param(
-                lambda client, project: client.put(
-                    "/api/config", json={"raw": _put_raw(project, _switch_pipeline)}
-                ),
-                id="put",
-            ),
-        ],
-    )
-    def test_config_backup_is_never_written_beside_the_render(self, client, built_project, save):
-        """The whole point: no backup file is created next to config.yml.
-
-        Stated as "no ``.bak`` lands directly in the project directory" rather
-        than "the directory is unchanged", because in the default flat layout the
-        state zone is itself *inside* the project (``var/agent_data``) and gets
-        created on first use. That is fine and is not the thing the split breaks:
-        what breaks is creating a new file in the *render*, beside the config.
-        """
-        assert save(client, built_project).status_code == 200
-
+        # Never beside the render: no ``.bak`` lands directly in the project
+        # directory (the flat layout's state zone is inside it, which is fine).
         assert not (built_project / "config.yml.bak").exists()
         assert [p.name for p in built_project.iterdir() if p.suffix == ".bak"] == []
 

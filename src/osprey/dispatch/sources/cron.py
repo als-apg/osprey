@@ -71,7 +71,7 @@ class CronSource:
 
     def register_routes(self, mcp_app: FastMCP) -> None:  # noqa: ARG002 - trigger-source lifecycle signature; a source with no routes registers nothing
         """Cron has no HTTP routes."""
-        return None
+        return
 
     def _resolve_zone(self) -> tzinfo:
         if self._zone is None:

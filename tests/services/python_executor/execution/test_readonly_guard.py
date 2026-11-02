@@ -19,6 +19,7 @@ import asyncio
 import ctypes
 import importlib
 import json
+import os
 import platform
 import re
 import subprocess
@@ -30,6 +31,7 @@ import pytest
 from osprey.services.python_executor.execution import wrapper as wrapper_module
 from osprey.services.python_executor.execution.wrapper import (
     _READONLY_WRITE_TARGETS,
+    READONLY_LOAD_REFUSAL,
     READONLY_REFUSAL,
     READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
@@ -39,6 +41,8 @@ from tests.services.python_executor.execution._write_targets import resolve_targ
 
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
+# A load of the process itself (``CDLL(None)``), as pyepics makes it.
+_PROCESS_LOAD_REFUSAL = re.escape(READONLY_LOAD_REFUSAL.format(library="<process>"))
 
 # Bound before any guard is installed, as a script can hold the loader class
 # from before the guard ran.
@@ -712,20 +716,41 @@ def test_framework_write_targets_stay_importable():
             id="os-posix_spawn",
         ),
         pytest.param(lambda: __import__("posix").system("caput PV 1"), id="posix-system"),
-        pytest.param(lambda: __import__("ctypes").CDLL("libca.so"), id="ctypes-CDLL"),
-        pytest.param(
-            lambda: __import__("ctypes").cdll.LoadLibrary("libca.so"), id="ctypes-LoadLibrary"
-        ),
-        pytest.param(lambda: __import__("ctypes").cdll.libca, id="ctypes-cdll-attribute"),
-        pytest.param(lambda: __import__("_ctypes").dlopen("libca.so"), id="_ctypes-dlopen"),
-        pytest.param(lambda: __import__("ctypes")._dlopen("libca.so"), id="ctypes-_dlopen"),
-        pytest.param(lambda: cdll_before("libca.so"), id="ctypes-CDLL-captured-before"),
     ],
 )
 def test_readonly_refuses_routes_out_of_python(call):
     _run_guard("readonly")
     with pytest.raises(RuntimeError, match=_REFUSAL):
         call()
+
+
+@pytest.mark.parametrize(
+    ("call", "library"),
+    [
+        pytest.param(lambda: __import__("ctypes").CDLL("libca.so"), "libca.so", id="ctypes-CDLL"),
+        pytest.param(
+            lambda: __import__("ctypes").cdll.LoadLibrary("libca.so"),
+            "libca.so",
+            id="ctypes-LoadLibrary",
+        ),
+        pytest.param(lambda: __import__("ctypes").cdll.libca, "libca", id="ctypes-cdll-attribute"),
+        pytest.param(
+            lambda: __import__("_ctypes").dlopen("libca.so"), "libca.so", id="_ctypes-dlopen"
+        ),
+        pytest.param(
+            lambda: __import__("ctypes")._dlopen("libca.so"), "libca.so", id="ctypes-_dlopen"
+        ),
+        pytest.param(lambda: cdll_before("libca.so"), "libca.so", id="ctypes-CDLL-captured-before"),
+    ],
+)
+def test_readonly_refuses_shared_library_loads_by_name(call, library):
+    """A refused load names the library and the mode, and no write."""
+    _run_guard("readonly")
+    with pytest.raises(RuntimeError) as refused:
+        call()
+    assert str(refused.value) == READONLY_LOAD_REFUSAL.format(library=library)
+    assert READONLY_REFUSAL_MARKER in str(refused.value)
+    assert "writes are refused" not in str(refused.value)
 
 
 def test_readonly_prewarms_platform_processor(monkeypatch):
@@ -741,6 +766,22 @@ def test_readonly_prewarms_platform_processor(monkeypatch):
     monkeypatch.setattr(platform, "_uname_cache", None)
     _run_guard("readonly")
     assert isinstance(platform.processor(), str)
+
+
+def test_readonly_prewarms_ctypes_util(monkeypatch):
+    """Importing ``ctypes.util`` must survive the loader refusal.
+
+    On some platforms ``ctypes.util`` loads the C library while it is imported,
+    and threadpoolctl imports it on the way into scipy — so a script importing
+    a simulation library would die on the refusal of a load that is not a
+    control-system client. The guard imports it before refusing loads; with
+    the module forced out of the import cache here, a guard without that
+    pre-import raises the refusal out of this import.
+    """
+    monkeypatch.delitem(sys.modules, "ctypes.util", raising=False)
+    _run_guard("readonly")
+    util = importlib.import_module("ctypes.util")
+    assert callable(util.find_library)
 
 
 def test_readonly_leaves_fork_alone():
@@ -806,7 +847,7 @@ def test_readonly_refuses_the_load_pyepics_makes(monkeypatch):
     ca = _install_fake_pyepics_loader(monkeypatch)
     _run_guard("readonly")
 
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(RuntimeError, match=_PROCESS_LOAD_REFUSAL):
         ca.initialize_libca()
 
 
@@ -816,11 +857,11 @@ def test_readonly_refuses_user_loads_while_pyepics_is_present(monkeypatch):
     _run_guard("readonly")
     import _ctypes
 
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(RuntimeError, match=_PROCESS_LOAD_REFUSAL):
         ctypes.CDLL(None)
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(RuntimeError, match=_PROCESS_LOAD_REFUSAL):
         ctypes.cdll.LoadLibrary(None)
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(RuntimeError, match=_PROCESS_LOAD_REFUSAL):
         _ctypes.dlopen(None)
 
 
@@ -890,8 +931,11 @@ def test_readonly_refuses_the_put_symbols_on_the_cadef_libca_handle(spelling, sy
 )
 def test_readonly_refuses_every_spelling_of_the_loader_class(load):
     lib = _guarded_libca()
+    library = os.path.basename(lib._name)
 
-    with pytest.raises(RuntimeError, match=_REFUSAL):
+    with pytest.raises(
+        RuntimeError, match=re.escape(READONLY_LOAD_REFUSAL.format(library=library))
+    ):
         load(lib)
 
 

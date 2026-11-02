@@ -1,8 +1,8 @@
 """CLI command that serves the history page.
 
 Provides ``osprey history``: the entry of the ``history`` service the
-deployment renders when it runs the telemetry store and its web terminals sign
-people in. The page is reached only through the readers' origin, whose nginx
+deployment renders when its web terminals sign people in. The page is reached
+only through the history page's origin, whose nginx
 asks the auth sidecar who the browser is and forwards the answer with the
 page's gate secret; this command takes everything it needs from the
 environment the compose file sets, and acts on no deployment repo.
@@ -24,10 +24,10 @@ import click
 def history(host: str, port: int) -> None:
     """Serve the history page (the history service's entry).
 
-    Reads the telemetry store as the store's ``history`` account and runs every
-    query as the viewer's own store view user. It expects the environment the
-    deployment renders for it: the store's address and the account's password,
-    and the gate secret nginx presents on every request it forwards.
+    Reads the agent record through its service on the viewer's behalf. It
+    expects the environment the deployment renders for it: the record's
+    address and the page's login, and the gate secret nginx presents on every
+    request it forwards.
 
     Example:
 

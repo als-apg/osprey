@@ -11,20 +11,22 @@ The Example Research Facility has six experimental stations (ES1–ES6).  Each
 station operates independently and may be in beam, setup, or maintenance mode
 while other stations continue running.
 
-## Per-Station Channels
+The example facility file holds no records for the experimental stations:
+their status, motors, detectors and shutters are run from each station's own
+controls, not through the control tools.  What the stations need from the
+machine is stored beam, for example the current
+[SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB).
 
-Channels follow the pattern `ES{N}:<subsystem>:<parameter>`:
+## Per-Station Controls
 
-| Channel pattern | Description |
-|----------------|-------------|
-| `ES{N}:Status` | Station readiness: `READY`, `SETUP`, `MAINT` |
-| `ES{N}:MOT:{Axis}:Position` | Motor axis position (mm or degrees) |
-| `ES{N}:MOT:{Axis}:Position:SP` | Motor position setpoint |
-| `ES{N}:MOT:{Axis}:Status` | Motor status: `MOVING`, `DONE`, `FAULT` |
-| `ES{N}:DET:Counts` | Detector count rate (counts/s) |
-| `ES{N}:DET:Enable` | Detector enable gate (`0`=off, `1`=on) |
-| `ES{N}:SHUTTER:State` | Photon shutter state (`OPEN`/`CLOSED`) |
-| `ES{N}:SHUTTER:Cmd` | Shutter command (`OPEN`/`CLOSE`) |
+| Control | Description |
+|---------|-------------|
+| Station status | Station readiness: `READY`, `SETUP`, `MAINT` |
+| Motor position and setpoint | Motor axis position (mm or degrees) |
+| Motor status | `MOVING`, `DONE`, `FAULT` |
+| Detector counts | Detector count rate (counts/s) |
+| Detector enable | Detector enable gate (off / on) |
+| Photon shutter state and command | `OPEN` / `CLOSED` |
 
 ## Motion Control
 
@@ -34,18 +36,12 @@ Each station has a set of motorized axes:
 - **Theta / Chi / Phi** — Sample rotations (range ±180°, resolution 0.001°)
 - **Det_Arm** — Detector arm angle (range 0–180°, resolution 0.01°)
 
-Motors are driven via the EPICS motor record.  The OSPREY agent must use
-`write_channel` for all motor moves — never direct EPICS PV access.
+Motors are driven via the EPICS motor record.
 
 ## Shutters
 
 Each station has an independent photon shutter.  Opening the shutter without
 a `READY` status triggers a Personnel Safety System fault.
-
-```
-ES3:SHUTTER:State     # Current shutter state
-ES3:SHUTTER:Cmd       # Issue OPEN or CLOSE command
-```
 
 See [Personnel Safety System](/subsystems/pss.md) for the interlock hierarchy.
 

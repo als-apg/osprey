@@ -97,10 +97,8 @@ import asyncio
 import contextlib
 import json
 import os
-import socket
 import subprocess
 import sys
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -127,18 +125,17 @@ from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The image under test, and the simulation data both containers serve.
-IMAGE = e2e_conftest.IMAGE
-
-#: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
+#: Container-name prefixes; ``_serving`` appends the run's own reserved port.
 #: Named for the *target* each instance backs, since that is what the deployment
 #: below calls them and what every assertion is phrased in.
 CONTAINER_VA = "osprey-va-e2e-posture-va"
@@ -155,16 +152,16 @@ MIN_COLLECTED_TESTS = 28
 # -- the namespace both containers serve ------------------------------------
 
 #: What each target's switch reads to prove itself reachable, and what the
-#: readiness probe below waits for. A pyat-coupled corrector readback, served
+#: readiness probe waits for. A pyat-coupled corrector readback, served
 #: identically by both instances and never written by anything in this file.
-PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
+PROBE_CHANNEL = e2e_conftest.READINESS_ADDRESS
 
 #: The setpoint every write leg in this module attempts. Listed in the shipped
-#: limits database (``[-12, 12]``), which is what lets this module run the
-#: exclusive limits mode and still have a
-#: write that reaches the machine: an unlisted channel would be refused by the
+#: limits database with a band at both ends (``conftest.LANE.band``), which is
+#: what lets this module run the exclusive limits mode and still have a write
+#: that reaches the machine: an unlisted channel would be refused by the
 #: limits validator, which is a different gate from the one under test.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
 
 #: The gateway port the facility's own machine is described on. Nothing serves
 #: it and nothing in this module dials it — see :func:`raw_config` for why the
@@ -207,86 +204,6 @@ SANDBOX_TIMEOUT_S = 300.0
 # ---------------------------------------------------------------------------
 # Containers
 # ---------------------------------------------------------------------------
-#
-# Copied from ``test_live_standin.py`` rather than imported from it, as that
-# module copies them from ``test_target_switch.py``: a test module defines
-# fixtures and is not an importable helper library. The copies are small, and
-# each suite's ``_serving`` differs in what it boots.
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _require_image() -> None:
-    """Fail loudly unless the image can serve on a port other than 5064.
-
-    A precondition, not a nicety: the Channel Access *server* library reads
-    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
-    variable, so an image whose entry point does not derive one from the other
-    keeps binding its build-time default while telling this suite's clients some
-    other port. The symptom would be an unexplained boot timeout; this turns it
-    into a sentence naming the fix.
-    """
-    inspected = _docker(
-        "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
-    )
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-    architecture, _, command = inspected.stdout.strip().partition("|")
-    if "EPICS_CAS_SERVER_PORT" not in command:
-        pytest.fail(
-            f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
-            f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
-            f"{e2e_conftest.IMAGE_REMEDY} Its entry point is: {command}"
-        )
-
-
-def _served(port: int) -> bool:
-    """Whether a virtual accelerator is answering on *port*, asked out of process.
-
-    In a subprocess for the reason ``conftest.py`` gives: Channel Access reads
-    ``EPICS_CA_*`` once, when a process's context is created, and this probe
-    points it at *port*, so it cannot share a process with a client pointed
-    anywhere else.
-
-    It leaves through ``os._exit`` for that file's other reason: aioca's exit
-    hook destroys the CA context, and that blocks for as long as a name-server
-    circuit is still retrying a port nothing serves yet -- the very case a
-    readiness probe polls through. The word is written and flushed before the
-    exit.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({PROBE_CHANNEL!r}, timeout=2.0, throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
 
 
 @contextlib.contextmanager
@@ -304,51 +221,23 @@ def _serving(prefix: str):
     instances that were not identical would leave a reader wondering whether
     something else told them apart.
     """
-    port = _free_port()
-    name = f"{prefix}-{port}"
-    # Stale-cleanup only. The port is this run's alone, so this can name nothing
-    # a concurrent run is using -- which is the point of the suffix.
-    _docker("rm", "-f", name, timeout=60)
-
-    started = _docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        IMAGE,
-    )
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
-
-    try:
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = _docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {PROBE_CHANNEL} within {BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
-        yield port
-    finally:
-        _docker("rm", "-f", name, timeout=60)
+    with reserved_port() as port:
+        with e2e_conftest.serving_container(
+            f"{prefix}-{port}",
+            port,
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            boot_timeout=BOOT_TIMEOUT_S,
+        ):
+            yield port
 
 
 @pytest.fixture(scope="module")
 def endpoints():
     """Both instances, up and serving, for the life of this module."""
-    _require_image()
+    e2e_conftest.require_image_serving_any_port()
     with _serving(CONTAINER_VA) as va_port, _serving(CONTAINER_STANDIN) as standin_port:
         yield {TARGET_VA: va_port, TARGET_STANDIN: standin_port}
 
@@ -515,7 +404,7 @@ def module_environment(tmp_path_factory, endpoints):
             target=TARGET_VA,
             generation=0,
             owned_by=None,
-            switch={TARGET_VA: "on", TARGET_STANDIN: "on"},
+            switch={TARGET_VA: "asked", TARGET_STANDIN: "asked"},
         )
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
@@ -577,11 +466,11 @@ def web(tmp_path_factory, config_path, module_environment):  # noqa: ARG001 - th
 def post_switch(client, target: str, state: str):
     """The chip's switch gesture for *target*, as the chip sends it.
 
-    A turn-on names the ``switch_epoch`` the chip read, which is the GET's
-    answer at that moment; a turn-off needs none.
+    A move to an armed position names the ``switch_epoch`` the chip read, which
+    is the GET's answer at that moment; a turn-off needs none.
     """
     body: dict = {"session_id": SESSION_ID, "target": target, "state": state}
-    if state == "on":
+    if state != "off":
         posture_view = client.get("/api/terminal/posture", params={"session_id": SESSION_ID})
         body["epoch"] = posture_view.json()["switch_epoch"]
     return client.post("/api/terminal/posture", json=body)
@@ -1069,7 +958,7 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
             await move_session(TARGET_VA)
             journal["pin_narrow_status"] = post_switch(web, TARGET_VA, "off").status_code
             journal["narrow_stamps"] = launch_stamps()
-            widen = post_switch(web, TARGET_VA, "on")
+            widen = post_switch(web, TARGET_VA, "asked")
             journal["widen_status"] = widen.status_code
             journal["widen_body"] = widen.json()
             journal["switch_after_widen"] = switch_now()
@@ -1128,7 +1017,7 @@ class TestTheNarrowingLandsWithoutARespawn:
         assert session["narrow_body"]["target"] == TARGET_STANDIN
         assert session["narrow_body"]["state"] == "off"
         # Per target: the stand-in went off and the virtual accelerator stayed on.
-        assert session["switch_after_narrow"] == {TARGET_VA: "on"}
+        assert session["switch_after_narrow"] == {TARGET_VA: "asked"}
 
     def test_no_child_was_respawned_to_apply_it(self, session) -> None:
         """The whole point of enforcing at write time.
@@ -1505,8 +1394,8 @@ class TestARunLaunchedNarrowStaysNarrow:
         """
         assert session["pin_narrow_status"] == 200
         assert session["widen_status"] == 200
-        assert session["widen_body"]["state"] == "on"
-        assert session["switch_after_widen"].get(TARGET_VA) == "on"
+        assert session["widen_body"]["state"] == "asked"
+        assert session["switch_after_widen"].get(TARGET_VA) == "asked"
         assert session["narrow_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=sandbox"
         assert session["wide_stamps"][host_executor.ENV_LAUNCH_POSTURE] == f"{TARGET_VA}=writes"
 
@@ -1539,10 +1428,4 @@ class TestARunLaunchedNarrowStaysNarrow:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_per_target_posture.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

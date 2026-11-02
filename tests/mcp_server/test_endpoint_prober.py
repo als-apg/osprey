@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import socket
 from datetime import UTC, datetime
 from typing import Any
 
@@ -42,6 +41,7 @@ from osprey.mcp_server.control_system.endpoint_prober import (
     STATUS_UNREACHABLE,
     EndpointProber,
 )
+from tests._live import async_wait_until
 
 LIVE = "live"
 VA = "va"
@@ -116,16 +116,6 @@ def _both_targets_config(va_port: Any, live_port: Any) -> dict[str, Any]:
     }
 
 
-def _closed_port() -> int:
-    """A port that was bound long enough to be sure nothing else has it, then freed."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-    finally:
-        sock.close()
-
-
 @pytest.fixture
 async def listener():
     """A real TCP listener on an ephemeral port; yields its port."""
@@ -173,8 +163,8 @@ async def test_listening_name_server_reports_ok(listener):
     assert row["probed_at"]
 
 
-async def test_closed_port_reports_unreachable_with_detail():
-    port = _closed_port()
+async def test_closed_port_reports_unreachable_with_detail(reserve_port):
+    port = reserve_port()
     prober = _prober(_va_config(port), targets=(VA,))
 
     await prober.sweep_once()
@@ -350,11 +340,12 @@ async def test_loop_keeps_sweeping_after_the_first(listener):
         first = prober.snapshot()[VA]["read_only"]["probed_at"]
         clock.advance(1.0)
 
-        async def _refreshed() -> None:
-            while prober.snapshot()[VA]["read_only"]["probed_at"] == first:
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(_refreshed(), timeout=5.0)
+        await async_wait_until(
+            lambda: prober.snapshot()[VA]["read_only"]["probed_at"] != first,
+            timeout=5.0,
+            interval=0.01,
+            what="a refreshed probe",
+        )
     finally:
         await prober.stop()
 
@@ -399,8 +390,8 @@ async def test_a_target_that_becomes_derivable_fills_in_on_a_later_sweep(listene
     assert prober.snapshot()[LIVE]["read_only"]["endpoint_tcp"] == STATUS_OK
 
 
-async def test_both_targets_are_probed_in_one_sweep(listener):
-    closed = _closed_port()
+async def test_both_targets_are_probed_in_one_sweep(reserve_port, listener):
+    closed = reserve_port()
     prober = _prober(_both_targets_config(listener, closed), targets=(LIVE, VA))
 
     await prober.sweep_once()
@@ -464,12 +455,9 @@ async def test_every_sweep_of_the_loop_publishes(listener, monkeypatch):
     prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
     await prober.start()
     try:
-
-        async def _three() -> None:
-            while len(published) < 3:
-                await asyncio.sleep(0.01)
-
-        await asyncio.wait_for(_three(), timeout=5.0)
+        await async_wait_until(
+            lambda: len(published) >= 3, timeout=5.0, interval=0.01, what="three sweeps"
+        )
     finally:
         await prober.stop()
 
@@ -479,9 +467,9 @@ async def test_every_sweep_of_the_loop_publishes(listener, monkeypatch):
     assert stamps[0] < stamps[1] < stamps[2]
 
 
-async def test_published_rows_speak_the_readers_vocabulary(listener):
+async def test_published_rows_speak_the_readers_vocabulary(reserve_port, listener):
     """``ok``/``unreachable`` are the prober's words; the file carries FR-5's."""
-    closed = _closed_port()
+    closed = reserve_port()
     prober = _prober(_both_targets_config(listener, closed), targets=(LIVE, VA))
 
     await prober.sweep_once()
@@ -561,12 +549,9 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()
         try:
-
-            async def _twice() -> None:
-                while len(calls) < 2:
-                    await asyncio.sleep(0.01)
-
-            await asyncio.wait_for(_twice(), timeout=5.0)
+            await async_wait_until(
+                lambda: len(calls) >= 2, timeout=5.0, interval=0.01, what="two probe calls"
+            )
             assert prober.running is True
             assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
         finally:

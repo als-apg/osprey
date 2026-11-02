@@ -59,6 +59,18 @@ notices ship beside the binaries in that directory's OFL.txt.
   Syne Mono        Copyright 2019 The Syne Project Authors
 
 
+Third-party icons
+-----------------
+
+Osprey Framework redistributes two icons from Lucide as inline path data in
+src/osprey/interfaces/web_terminal/static/js/chat-icons.js, which its web
+terminal serves. They are not covered by the BSD 3-Clause License above: Lucide
+is licensed under the ISC License, whose full text and copyright notice ship
+beside the module in that directory's LUCIDE-LICENSE.txt.
+
+  Lucide           Copyright (c) 2025 Lucide Contributors; portions Copyright (c) 2013-2023 Cole Bemis (Feather, MIT)
+
+
 Contact
 -------
 

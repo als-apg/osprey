@@ -75,12 +75,16 @@ _CLAUDE_MD_TARGET = "/data/claude-config/CLAUDE.md"
 # it must be writable by the runtime user. A volume that outlived an image
 # whose entrypoint still ran as root keeps root-owned subtrees a top-level
 # chown never reaches: every SessionStart hook then fails with EACCES, no
-# transcript is written, and each page load spawns a fresh session (#785).
-# Idempotent on an already-owned volume.
+# transcript is written, and each page load spawns a fresh session.
+# Idempotent on an already-owned volume. The transcripts volume nested at
+# `projects/` is handed back the same way, on its own line: `chown -R` crosses
+# into it anyway, and naming it keeps that from being the only reason it is
+# writable. A container without that mount has none to hand back.
 _CLAUDE_MD_SH = (
     "set -e\n"
     'owner="$1"\n'
     'chown -R "$owner" /data/claude-config\n'
+    '[ ! -d /data/claude-config/projects ] || chown -R "$owner" /data/claude-config/projects\n'
     f"cat > {_CLAUDE_MD_TARGET}\n"
     f'chown "$owner" {_CLAUDE_MD_TARGET}\n'
 )

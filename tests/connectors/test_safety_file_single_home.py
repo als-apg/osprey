@@ -13,7 +13,7 @@ reason; an entry with no matching call fails too, so the list cannot rot.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+import functools
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -34,6 +34,19 @@ ALLOWED: dict[tuple[str, str], str] = {
     ): "the one way a file is replaced whole",
     (f"{_HOOKS}/osprey_safety_file.py", "atomic_replace"): (
         "the hooks' byte-identical copy of the one way"
+    ),
+    (f"{_HOOKS}/osprey_hook_log.py", "_spool_write_sealed"): (
+        "seals a fresh spool segment under a new name, as the record's writer does; "
+        "never over an existing file"
+    ),
+    ("src/osprey/agent_record/ingest/spool.py", "_quarantine"): (
+        "moves a hostile spool entry aside as evidence"
+    ),
+    ("src/osprey/agent_record/writer.py", "_seal"): (
+        "renames an open spool segment to its sealed name, never over an existing file"
+    ),
+    ("src/osprey/agent_record/writer.py", "write_batch"): (
+        "seals a fresh spool segment under a new name, never over an existing file"
     ),
     ("src/osprey/cli/build_cmd.py", "_clear_leftover"): "sets an existing build entry aside",
     ("src/osprey/cli/build_cmd.py", "_repair_interrupted_swap"): (
@@ -61,12 +74,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ),
     ("src/osprey/deployment/container_lifecycle.py", "_generate_bluesky_curve_certs"): (
         "moves files a library minted in a scratch directory"
-    ),
-    ("src/osprey/deployment/telemetry_credentials.py", "_withdraw"): (
-        "sets a key file aside under a dated name"
-    ),
-    ("src/osprey/deployment/telemetry_gateway.py", "quarantine_hostile_ledgers"): (
-        "moves a non-regular ledger aside as evidence"
     ),
     ("src/osprey/deployment/web_terminals/env_production.py", "migrate_users_env"): (
         "renames an existing secrets file"
@@ -129,15 +136,30 @@ class _RenameFinder(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def _rename_calls() -> Iterator[tuple[str, str, int]]:
-    """Every rename call in the scanned trees, as (path, qualname, line)."""
+#: The attribute names a rename call reaches through. A call spells its
+#: attribute in the source, and an identifier has no escape sequence, so a module
+#: that spells none of them holds no rename call and is passed over unparsed.
+_RENAME_ATTRIBUTES = ("replace", "rename", "move")
+
+
+@functools.cache
+def _rename_calls() -> tuple[tuple[str, str, int], ...]:
+    """Every rename call in the scanned trees, as (path, qualname, line).
+
+    Both tests read the same scan, and the tree does not change while the suite
+    runs, so its parse of every module is done once.
+    """
+    found: list[tuple[str, str, int]] = []
     for root in SCANNED_ROOTS:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if not any(attribute in source for attribute in _RENAME_ATTRIBUTES):
+                continue
             relative = path.relative_to(REPO_ROOT).as_posix()
             finder = _RenameFinder()
-            finder.visit(ast.parse(path.read_text(encoding="utf-8"), filename=relative))
-            for qualname, line in finder.found:
-                yield relative, qualname, line
+            finder.visit(ast.parse(source, filename=relative))
+            found += ((relative, qualname, line) for qualname, line in finder.found)
+    return tuple(found)
 
 
 def test_no_file_is_replaced_by_a_hand_rolled_rename() -> None:

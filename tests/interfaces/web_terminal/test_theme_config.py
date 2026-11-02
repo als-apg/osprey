@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 from osprey.interfaces.design_system.theme_config import (
@@ -28,8 +28,7 @@ from osprey.interfaces.design_system.theme_config import (
     resolve_pinned_mode,
     resolve_theme_id,
 )
-from osprey.interfaces.web_terminal.app import create_app
-from tests.interfaces.web_terminal._started_app import started_client
+from tests.interfaces.web_terminal._started_app import started_client, terminal_client
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
 # `main` family (dark/light) plus a `high-contrast` family (dark/light).
@@ -89,13 +88,6 @@ class TestResolveWebThemeId:
 # ---- Render path: GET "/" server-renders the resolved data-theme ----
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
 class TestRenderedDataTheme:
     @pytest.mark.parametrize(
         ("env", "configured", "theme", "mode"),
@@ -135,35 +127,35 @@ class TestRenderedDataTheme:
 
     def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):
         """No config.yml at all (FileNotFoundError from get_config_value) -> fallback 'dark'."""
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace_dir)},
-            ),
+        with terminal_client(
+            workspace_dir,
             patch(
                 "osprey_connectors.config.get_config_value",
                 side_effect=FileNotFoundError("no config.yml found"),
             ),
-            TestClient(create_app(shell_command=["echo"])) as client,
-        ):
+        ) as client:
             body = client.get("/").text
             assert 'data-theme="dark"' in body
 
-    def test_display_menu_mounted(self, workspace_dir):
-        """The hub header mounts the shared ``<osprey-display-menu>``.
+    def test_more_menu_holds_the_theme_controls(self, workspace_dir):
+        """The hub's appearance controls are radios in the sidebar's ☰ More menu.
 
         The always-visible ``<osprey-theme-switcher>`` and the old binary
-        ``#theme-toggle`` button are both gone from the hub page — theme
-        controls live inside the component's popover card (session.html keeps
-        the shared switcher component). The hub projects its own Settings row
-        into the card, so that id is still rendered.
+        ``#theme-toggle`` button are gone from the hub page (session.html keeps
+        the shared switcher component). The More menu renders one
+        ``menuitemradio`` row per appearance and the Settings row beside them.
         """
         with started_client(workspace_dir) as client:
             body = client.get("/").text
 
-        assert '<osprey-display-menu id="display-menu">' in body
-        assert 'id="display-menu-settings"' in body
-        assert 'id="display-menu-btn"' not in body
+        assert 'id="more-menu"' in body
+        for appearance in ("auto", "light", "dark"):
+            assert re.search(
+                rf'<button[^>]*role="menuitemradio"[^>]*data-appearance="{appearance}"'
+                rf'|<button[^>]*data-appearance="{appearance}"[^>]*role="menuitemradio"',
+                body,
+            ), f"no {appearance!r} appearance radio in the More menu"
+        assert 'id="more-settings"' in body
         assert "<osprey-theme-switcher>" not in body
         assert 'id="theme-toggle"' not in body
 

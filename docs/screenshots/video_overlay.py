@@ -1,8 +1,8 @@
-"""On-page overlay for the landing-page demo video: cursor dot and caption bar.
+"""On-page overlay for the docs videos: cursor dot, caption bar and spotlight.
 
 ``OVERLAY_JS`` is registered with ``context.add_init_script`` so it runs in every
 document before the page's own scripts. It only acts in the top frame, so panel
-iframes never draw a second cursor. The three ``window.__demo*`` functions exist
+iframes never draw a second cursor. The ``window.__demo*`` functions exist
 from the first instant; ``document.body`` does not, so calls made before the
 elements mount are queued and replayed once they do.
 
@@ -37,6 +37,17 @@ function apply(call) {
       els.caption.textContent = "";
       els.caption.style.display = "none";
     }
+  } else if (kind === "spotlight") {
+    if (a) {
+      const pad = 6;
+      Object.assign(els.spotlight.style, {
+        left: (a.x - pad) + "px", top: (a.y - pad) + "px",
+        width: (a.width + 2 * pad) + "px", height: (a.height + 2 * pad) + "px",
+        display: "block",
+      });
+    } else {
+      els.spotlight.style.display = "none";
+    }
   }
 }
 
@@ -46,6 +57,7 @@ function dispatch(call) {
 
 window.__demoCursor = (x, y) => dispatch(["cursor", x, y]);
 window.__demoCaption = (text) => dispatch(["caption", text]);
+window.__demoSpotlight = (box) => dispatch(["spotlight", box]);
 
 function el(id, css) {
   const node = document.createElement("div");
@@ -70,8 +82,12 @@ function mount() {
     + "padding:10px 22px;border-radius:10px;background:rgba(17,17,17,0.88);"
     + "color:#fff;font:600 22px/1.35 system-ui,-apple-system,sans-serif;"
     + "text-align:center;box-shadow:0 4px 18px rgba(0,0,0,0.35)");
-  document.body.append(cursor, caption);
-  els = { cursor, caption };
+  // An outline round one element, the rest of the page dimmed by its shadow.
+  const spotlight = el("__demo-spotlight",
+    "border:3px solid rgba(255,196,0,0.95);border-radius:8px;box-sizing:border-box;"
+    + "box-shadow:0 0 0 9999px rgba(0,0,0,0.45)");
+  document.body.append(spotlight, cursor, caption);
+  els = { cursor, caption, spotlight };
   while (queue.length) apply(queue.shift());
 }
 
@@ -82,6 +98,15 @@ if (document.readyState === "loading") {
 }
 })();
 """
+
+
+def set_spotlight(page: Page | Any, box: dict[str, float] | None) -> None:
+    """Outline *box*, a viewport rectangle as Playwright's ``bounding_box`` gives it.
+
+    ``None`` clears the outline.
+    """
+    page.evaluate("(b) => window.__demoSpotlight(b)", box)
+
 
 # Position of the overlay cursor per page, so each move starts where the last ended.
 _cursor_positions: dict[int, tuple[float, float]] = {}

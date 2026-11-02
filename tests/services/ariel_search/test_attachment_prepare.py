@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from pathlib import Path
 
 import pytest
 
@@ -136,8 +137,7 @@ async def test_render_unavailable_propagates(monkeypatch):
 
 
 def test_module_holds_no_database_state():
-    with open(prepare.__file__, encoding="utf-8") as fh:
-        text = fh.read()
+    text = Path(prepare.__file__).read_text(encoding="utf-8")
     assert "enhanced_entries" not in text
     assert "ariel_search.database" not in text
     assert "psycopg" not in text

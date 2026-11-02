@@ -12,7 +12,7 @@ withdraws the gallery's whole WRITE surface on the server:
   browser can stop painting controls for a surface that refuses them.
 
 The route half is the load-bearing one. A client-only guard is undone by typing
-the URL or by ``curl`` — the same cosmetic-gate failure ``ui_mode: simple`` was.
+the URL or by ``curl`` — a cosmetic gate.
 
 Three properties are asserted directly, because each can regress on its own:
 
@@ -42,11 +42,11 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
-    create_app,
     register_scaffold_conflict_handlers,
     unreadable_config_refusal,
 )
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import bare_route_app
 
@@ -229,13 +229,6 @@ class TestEnabledServesWrites:
 # ---- Startup: the lifespan resolves the key once, onto app.state ----
 
 
-@pytest.fixture
-def workspace_dir(tmp_path):
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-    return workspace
-
-
 def _started_app(
     workspace_dir, configured, *, raises=False, no_config_file=False, monkeypatch=None
 ):
@@ -271,16 +264,12 @@ def _started_app(
         config_path = root / "config.yml"
         config_path.write_text(yaml.safe_dump({"project_name": "scaffold-tier-gate"}))
 
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with terminal_client(
+        workspace_dir,
         patch("osprey_connectors.config.get_config_value", fake_get_config_value),
-    ):
-        app = create_app(config_path=config_path, shell_command="echo")
-        with TestClient(app) as client:
-            yield client
+        config_path=config_path,
+    ) as client:
+        yield client
 
 
 @pytest.mark.parametrize(

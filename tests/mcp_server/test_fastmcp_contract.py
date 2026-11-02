@@ -60,7 +60,6 @@ from fastmcp.server.middleware.middleware import Middleware
 from mcp.types import CallToolRequestParams
 
 import osprey
-from osprey.audit import writer
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager
 from osprey.mcp_server import audit_middleware as am
@@ -68,7 +67,6 @@ from osprey.mcp_server import startup
 from osprey.registry.mcp import FRAMEWORK_SERVERS, TOOL_PREFIX_ENV, resolve_servers
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-from tests._audit_ledger import ledger_records
 from tests._preset_data import bundle_data_root
 
 
@@ -205,8 +203,8 @@ def cloned_render(tmp_path_factory) -> dict:
 
 
 @pytest.fixture
-def audited(cloned_render, tmp_path, monkeypatch):
-    """Point the audit middleware at the rendered project, writing to *tmp_path*.
+def audited(cloned_render, recorded_entries, monkeypatch):
+    """Point the audit middleware at the rendered project; yields ``recorded_entries``.
 
     Clears every marker the middleware and the identity ladder read, so a test
     that does not set one is really exercising the absent case rather than
@@ -215,7 +213,6 @@ def audited(cloned_render, tmp_path, monkeypatch):
     for marker in (
         TERMINAL_USER_ENV,
         AUDIT_IDENTITY_ENV,
-        writer.AUDIT_WRITER_ENV,
         am.POSTURE_ENV,
         am.POSTURE_SOURCE_ENV,
         am.POSTURE_SESSION_ENV,
@@ -224,10 +221,8 @@ def audited(cloned_render, tmp_path, monkeypatch):
         monkeypatch.delenv(marker, raising=False)
     monkeypatch.setenv(am.CONFIG_ENV, str(cloned_render["config"]))
 
-    audit_root = tmp_path / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: audit_root)
     am.reset_audit_state()
-    yield audit_root
+    yield recorded_entries
     am.reset_audit_state()
 
 
@@ -273,6 +268,12 @@ async def _refused(tool: str) -> ToolError:
         await am.AuditMiddleware().on_call_tool(_context(tool), call_next)
     assert seen == [], f"{tool} was refused but the tool still ran"
     return excinfo.value
+
+
+def _records(recorded_entries, surface: str) -> list[dict]:
+    """Every audit entry the record holds for *surface*, oldest first."""
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == surface]
 
 
 def _base_ctx() -> dict:
@@ -325,7 +326,7 @@ class TestFastmcpFloorDependency:
 
         A rename on fastmcp's side turns ``AuditMiddleware.on_call_tool`` into a
         method nothing ever calls: the class still installs, every call is still
-        served, and neither the ledger nor the clamp does anything at all.
+        served, and neither the audit record nor the clamp does anything at all.
         """
         assert issubclass(am.AuditMiddleware, Middleware)
         assert hasattr(Middleware, "on_call_tool")
@@ -485,7 +486,7 @@ class TestExtendsCloneClamps:
         error = await _refused("channel_write")
         assert json.loads(str(error))["error_type"] == "safety_error"
 
-        records = ledger_records(audited, clone)
+        records = _records(audited, clone)
         assert [r["subject"] for r in records] == [f"mcp__{clone}__channel_write"]
         assert records[0]["decision"] == "refused"
         assert records[0]["reason"] == am.REASON_POSTURE
@@ -508,7 +509,7 @@ class TestExtendsCloneClamps:
         await _refused("channel_write")
 
         # The backstop detail is ``clamp=<source> reason=<r>[ target=<t>]``.
-        detail = ledger_records(audited, clone)[0]["detail"].split()
+        detail = _records(audited, clone)[0]["detail"].split()
         assert detail[0] == am.CLAMP_SOURCE_LOADED
         assert detail[1] == "reason=readonly_run"
 
@@ -519,7 +520,7 @@ class TestExtendsCloneClamps:
         _as_server(monkeypatch, CLONE)
 
         assert await _call("channel_read") == ["channel_read"]
-        assert ledger_records(audited, CLONE)[0]["decision"] == "allowed"
+        assert _records(audited, CLONE)[0]["decision"] == "allowed"
 
     @pytest.mark.usefixtures("audited")
     async def test_a_mixed_clone_tool_still_runs_under_the_sandbox_posture(self, monkeypatch):
@@ -583,7 +584,7 @@ class TestMissingHookConfigFloor:
 
         await _refused("channel_write")
 
-        detail = ledger_records(no_hook_config, CLONE)[0]["detail"].split()
+        detail = _records(no_hook_config, CLONE)[0]["detail"].split()
         assert detail[0] == am.CLAMP_SOURCE_FLOOR
         assert detail[1] == "reason=readonly_run"
 

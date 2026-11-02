@@ -22,8 +22,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 # Facility-specific *source identifiers* that must never leak into the shared,
 # facility-agnostic core prompts (SC7). ``concept_id`` / ``texkey`` are literal
@@ -44,10 +44,7 @@ def _build_preset(preset: str, dest: Path) -> Path:
     init_result = runner.invoke(init, [str(repo_dir), "--preset", preset, "--no-git"])
     assert init_result.exit_code == 0, init_result.output
 
-    result = runner.invoke(
-        build,
-        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
-    )
+    result = invoke_build(repo_dir)
     assert result.exit_code == 0, result.output
     return repo_dir / "build"
 

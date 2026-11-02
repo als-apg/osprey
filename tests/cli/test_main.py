@@ -12,15 +12,8 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.main import LazyGroup, cli, main
-
-
-@pytest.fixture
-def runner():
-    """Provide a Click CLI runner for testing."""
-    return CliRunner()
 
 
 class TestLazyGroup:
@@ -448,6 +441,7 @@ class TestConsoleScriptWiring:
             [sys.executable, "-c", program, "boom"],
             capture_output=True,
             text=True,
+            timeout=120,
         )
 
         assert "Traceback (most recent call last)" not in result.stderr

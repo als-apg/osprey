@@ -76,13 +76,17 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials
+from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
+from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.refusals import refusal_text
+from osprey_connectors.session_hold import is_held, is_safe_session_key
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +170,7 @@ def _resolve_panel_url(scope: Request | WebSocket, panel_id: str) -> str | None:
     for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             url = cp.get("url", "")
-            return url if url else None
+            return url or None
 
     return None
 
@@ -233,6 +237,76 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
         path: The path segment below the panel id, without a leading slash.
     """
     return panel_id == _EVENTS_PANEL_ID and f"/{path}" == DISPATCHER_MCP_PATH
+
+
+#: The dispatcher tools that start a job; its other tools only read.
+_JOB_FIRING_TOOLS = frozenset({"manual_fire"})
+
+#: The header naming the calling session on the dispatcher's MCP server entry. The
+#: panel token is shared, so it is honest-path: it answers which session is asking,
+#: and is no proof of it.
+_SESSION_HEADER = "x-osprey-session"
+
+#: JSON-RPC's implementation-defined server error, for a call refused before it left.
+_JSONRPC_REFUSED = -32000
+
+
+def _job_firing_messages(body: bytes) -> list[dict] | None:
+    """The JSON-RPC requests of *body*, when one of them fires a job; else ``None``.
+
+    A body that does not parse is the transport's to answer.
+    """
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    messages = payload if isinstance(payload, list) else [payload]
+    requests = [message for message in messages if isinstance(message, dict)]
+    for message in requests:
+        params = message.get("params")
+        if (
+            message.get("method") == "tools/call"
+            and isinstance(params, dict)
+            and params.get("name") in _JOB_FIRING_TOOLS
+        ):
+            return requests
+    return None
+
+
+async def _refuse_job_firing(request: Request) -> Response | None:
+    """Refuse a job-firing call from a held session; ``None`` lets the request through.
+
+    Under a hold store the session must be named and live, so a key nobody runs
+    cannot fire past a hold it has no record of. With no store nothing is read.
+    A JSON-RPC error rather than an HTTP status, because the agent's client reads
+    the words of one and reports only a transport failure for the other. A batch
+    with a firing call in it is refused whole.
+    """
+    root = session_hold_root_of(request.app)
+    if root is None:
+        return None
+    messages = _job_firing_messages(await request.body())
+    if messages is None:
+        return None
+    key = request.headers.get(_SESSION_HEADER, "")
+    if not is_safe_session_key(key) or not session_is_live(request.app, key):
+        text = "Firing a job needs a live session; this call names none."
+    elif await asyncio.to_thread(is_held, key, root=root):
+        text = refusal_text("session_held", detail="Firing a job is refused while held.")
+    else:
+        return None
+    logger.warning("Refused a job-firing call on the dispatcher hop")
+    errors = [
+        {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "error": {"code": _JSONRPC_REFUSED, "message": text},
+        }
+        for message in messages
+        if "id" in message
+    ]
+    answer = errors[0] if len(messages) == 1 and errors else errors
+    return Response(content=json.dumps(answer), media_type="application/json")
 
 
 #: Request headers that are never forwarded to a panel backend.
@@ -647,9 +721,7 @@ def _same_origin(parsed: ParseResult, other_url: str) -> bool:
     other = urlparse(other_url)
     if parsed.netloc.lower() != other.netloc.lower():
         return False
-    if parsed.scheme and other.scheme and parsed.scheme.lower() != other.scheme.lower():
-        return False
-    return True
+    return not (parsed.scheme and other.scheme and parsed.scheme.lower() != other.scheme.lower())
 
 
 def _rewrite_redirect_location(
@@ -712,11 +784,7 @@ def _rewrite_redirect_location(
         # so the re-base is idempotent: a path already carrying the prefix is
         # relayed as it stands. Segment-boundary comparison, so a panel id
         # that is a prefix of another (``x`` vs ``x-2``) is never conflated.
-        return (
-            path == panel_prefix
-            or path.startswith(panel_prefix + "/")
-            or path.startswith(panel_prefix + "?")
-        )
+        return path == panel_prefix or path.startswith((panel_prefix + "/", panel_prefix + "?"))
 
     try:
         parsed = urlparse(location)
@@ -916,9 +984,7 @@ def _rewrite_content(
 
     # Rewrite href="/" to href="/panel/{id}/"
     body = body.replace('href="/"', f'href="{prefix}/"')
-    body = body.replace("href='/'", f"href='{prefix}/'")
-
-    return body
+    return body.replace("href='/'", f"href='{prefix}/'")
 
 
 #: The hub's own copy of the shared design system — the same directory
@@ -1183,10 +1249,11 @@ def _control_target_bar_markup(
        path: the chip reads the *hub's* ``/api/terminal/posture``, and a prefix
        of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
        none of them.
-    2. **A scoped import map**, for the one root-absolute module specifier in
-       the bar's import closure (``confirm-skip.js`` imports
-       ``/design-system/js/storage-scope.js``). The hub's own page retargets
-       that with a document-wide import map; here the mapping is confined to a
+    2. **A scoped import map**, for the root-absolute module specifiers in the
+       bar's import closure, both under ``/design-system/`` (``confirm-skip.js``
+       imports ``storage-scope.js``, ``lab-theme-follow.js`` imports
+       ``tokens.js``). The hub's own page retargets that prefix with a
+       document-wide import map; here the mapping is confined to a
        ``scopes`` entry keyed on the bar's own directory, so nothing the panel
        itself imports can be redirected by it. With an empty prefix the mapping
        is the identity, which is what the hub's map is there too.
@@ -1709,6 +1776,10 @@ async def _forward_to_panel(
     # same path literally and are held to the constant by tests. A hop that
     # rebuilt the path from the request would answer to none of them.
     dispatcher_mcp = _is_dispatcher_mcp_hop(panel_id, path)
+    if dispatcher_mcp and request.method == "POST":
+        refusal = await _refuse_job_firing(request)
+        if refusal is not None:
+            return refusal
     if dispatcher_mcp:
         target = f"{backend_url.rstrip('/')}{DISPATCHER_MCP_PATH}"
     else:
@@ -1805,7 +1876,7 @@ async def _forward_to_panel(
                     method=request.method,
                     url=target,
                     headers=fwd_headers,
-                    content=body if body else None,
+                    content=body or None,
                     # SSE streams idle between events — disable the read
                     # timeout so quiet periods don't kill the connection.
                     timeout=httpx.Timeout(None, connect=5.0),
@@ -1857,7 +1928,7 @@ async def _forward_to_panel(
             method=request.method,
             url=target,
             headers=fwd_headers,
-            content=body if body else None,
+            content=body or None,
         )
         if _is_redirect(resp):
             return _relay_redirect(
@@ -1896,7 +1967,7 @@ async def _forward_to_panel(
             content=resp.content,
             status_code=resp.status_code,
             headers=resp_headers,
-            media_type=content_type if content_type else None,
+            media_type=content_type or None,
         )
 
     # Rewrite root-absolute paths in HTML/JS/CSS — skip vendor assets
@@ -1984,7 +2055,7 @@ async def _forward_to_panel(
         content=resp.content,
         status_code=resp.status_code,
         headers=resp_headers,
-        media_type=content_type if content_type else None,
+        media_type=content_type or None,
     )
 
 

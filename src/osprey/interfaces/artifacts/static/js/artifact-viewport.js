@@ -4,42 +4,38 @@
  *
  * One artifact in, one rendered viewport out. This is the single answer to
  * "how does an artifact of type X render?", and it is deliberately the *only*
- * one: both surfaces that show an artifact full-size call these two functions.
+ * one: the preview pane (preview.js's `renderPreview`) calls these two
+ * functions for every artifact it shows, standalone inside its header/meta/
+ * action chrome, and embedded as the hub's single-artifact viewer, where the
+ * hub renders the header.
  *
- *   - Expert's preview pane (preview.js's `renderPreview`) — inside its
- *     header/meta/action chrome
- *   - Simple's latest-result card (simple-view.js's `render`) — inside its
- *     own friendlier header (title, NEW badge, Open full size / Save)
+ * The chrome stays with the pane and only this dispatch decides what the
+ * viewport holds. A full-size surface once borrowed types.js's
+ * `thumbnailHtml()` instead — the *sidebar card* builder, which knows only
+ * the `<img>`/`<iframe>` types and drops markdown/JSON/text/PDF/timeseries to
+ * a summary dump or a type-icon placeholder. Two dispatch tables cannot stay
+ * in parity; there is now one. `thumbnailHtml` is back to meaning only what
+ * its name says.
  *
- * The two panes differ in the chrome around the viewport, never in the
- * viewport itself, so the chrome stays with each pane and only this dispatch
- * is shared. Simple previously borrowed types.js's `thumbnailHtml()` for its
- * card — the *sidebar card* builder, which knows only the `<img>`/`<iframe>`
- * types and drops markdown/JSON/text/PDF/timeseries to a summary dump or a
- * type-icon placeholder. Two dispatch tables cannot stay in parity; there is
- * now one. `thumbnailHtml` is back to meaning only what its name says.
- *
- * Split in two because the call sites need the halves at different moments:
+ * Split in two because the caller needs the halves at different moments:
  * `renderPreview` interpolates the markup into a larger `innerHTML` template
- * (header + meta strip + viewport in one assignment), so it needs the markup
- * as a string before anything is in the DOM, and the post-mount step after.
- * Simple's card writes the markup straight into its own slot and mounts
- * immediately. Hence `artifactViewportHtml()` (pure, returns a string) and
+ * (the pane's chrome and the viewport in one assignment), so it needs the
+ * markup as a string before anything is in the DOM, and the post-mount step
+ * after. Hence `artifactViewportHtml()` (pure, returns a string) and
  * `mountArtifactViewport()` (effects, takes the now-live container).
  *
- * **The markup carries classes, no ids.** Both panes exist in the DOM at once
- * — `renderPreview` still runs while Simple is on screen (SSE focus/update
- * events call it) — so a `document.getElementById('md-viewport')` lookup would
- * resolve *both* mounts to whichever pane came first in document order. Every
- * post-mount lookup below is therefore scoped to the container passed in. The
+ * **The markup carries classes, no ids.** Every post-mount lookup below is
+ * scoped to the container passed in, never `document`, so the dispatch never
+ * assumes its viewport is the only one in the document: a second mounted
+ * viewport can never pull the first one's renderer into its element. The
  * classes were already carrying all the CSS; the ids only ever served as
  * lookup handles.
  *
  * Timeseries rendering arrives as an injected callback rather than a direct
  * import, preserving the seam preview.js already had: timeseries.js pulls in
- * the lazy Plotly loader and the theme bridge, which neither pane should drag
+ * the lazy Plotly loader and the theme bridge, which the pane should not drag
  * into its import graph just to dispatch a type. gallery.js wires the real
- * `renderTimeseriesView` at both call sites.
+ * `renderTimeseriesView` through the preview renderer's callbacks.
  *
  * @module artifact-viewport
  */
@@ -120,7 +116,7 @@ export function artifactViewportHtml(a) {
 
 /**
  * @typedef {object} MountOptions
- * @property {(container: HTMLElement, artifact: any) => void} [onTimeseriesNeeded] - called with the mounted `.ts-viewport-container` for a timeseries artifact; both panes wire this to timeseries.js's `renderTimeseriesView` (see this module's docstring for why it is injected rather than imported). Omitting it simply leaves the container empty.
+ * @property {(container: HTMLElement, artifact: any) => void} [onTimeseriesNeeded] - called with the mounted `.ts-viewport-container` for a timeseries artifact; the preview pane wires this to timeseries.js's `renderTimeseriesView` (see this module's docstring for why it is injected rather than imported). Omitting it simply leaves the container empty.
  */
 
 /**
@@ -128,9 +124,8 @@ export function artifactViewportHtml(a) {
  * produced: the three types whose content is fetched asynchronously rather
  * than named by a `src` attribute. A no-op for every other type.
  *
- * Every lookup is scoped to `container` — never `document` — so the Expert
- * pane and the Simple card can hold a mounted viewport simultaneously without
- * either one's renderer landing in the other's element.
+ * Every lookup is scoped to `container` — never `document` — so two mounted
+ * viewports can never land one's renderer in the other's element.
  *
  * @param {HTMLElement} container - the element `artifactViewportHtml`'s markup was written into
  * @param {any} a - the same artifact that markup was built from

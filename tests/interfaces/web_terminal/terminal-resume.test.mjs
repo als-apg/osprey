@@ -25,110 +25,23 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import {
+  FakeTerminal,
+  FakeWebSocket,
+  openSocket,
+  press,
+  receive,
+  stubSessionProbe,
+  stubTerminalGlobals,
+} from './_terminal-fake.mjs';
+
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js')} */
 let terminal;
 
 const STORAGE_KEY = 'osprey-pty-session';
 
-/** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
-class FakeTerminal {
-  constructor() {
-    this.cols = 80;
-    this.rows = 24;
-    this.options = {};
-    /** Everything written to the screen, concatenated. */
-    this.written = '';
-    /** @type {((data: string) => void)|null} */
-    this.dataHandler = null;
-    FakeTerminal.last = this;
-  }
-  loadAddon() {}
-  open() {}
-  /** @param {(data: string) => void} fn */
-  onData(fn) {
-    this.dataHandler = fn;
-  }
-  onResize() {}
-  /** @param {string} text */
-  write(text) {
-    this.written += text;
-  }
-  reset() {}
-  focus() {}
-  attachCustomKeyEventHandler() {}
-}
-/** @type {FakeTerminal|null} */
-FakeTerminal.last = null;
-
-/** Type into the terminal as the operator would. @param {string} data */
-function press(data) {
-  const t = /** @type {FakeTerminal} */ (FakeTerminal.last);
-  if (!t.dataHandler) throw new Error('onData handler not set');
-  t.dataHandler(data);
-}
-
-class FakeAddon {
-  fit() {}
-}
-
-/**
- * Minimal fake WebSocket. happy-dom does implement a real WebSocket, but it
- * dials out for real; this captures the most recently constructed instance
- * so a test can drive onopen/onmessage directly instead.
- */
-class FakeWebSocket {
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = FakeWebSocket.CONNECTING;
-    /** @type {any[]} */
-    this.sent = [];
-    /** @type {((ev?: any) => void)|null} */
-    this.onopen = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onmessage = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onclose = null;
-    FakeWebSocket.last = this;
-    FakeWebSocket.created += 1;
-  }
-  /** @param {any} data */
-  send(data) {
-    this.sent.push(data);
-  }
-  close() {
-    this.readyState = FakeWebSocket.CLOSED;
-    if (this.onclose) this.onclose({});
-  }
-}
-FakeWebSocket.CONNECTING = 0;
-FakeWebSocket.OPEN = 1;
-FakeWebSocket.CLOSING = 2;
-FakeWebSocket.CLOSED = 3;
-/** @type {FakeWebSocket|null} */
-FakeWebSocket.last = null;
-/** How many have been constructed — a reconnect is a new one. */
-FakeWebSocket.created = 0;
-
-/** Flip the most recently created fake socket to OPEN and fire its onopen. */
-function openSocket() {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  ws.readyState = FakeWebSocket.OPEN;
-  if (!ws.onopen) throw new Error('onopen handler not set');
-  ws.onopen();
-}
-
-/**
- * Deliver a JSON control message from the "server" on the current socket.
- * @param {any} msg
- */
-function receive(msg) {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  if (!ws.onmessage) throw new Error('onmessage handler not set');
-  ws.onmessage({ data: JSON.stringify(msg) });
-}
-
 beforeEach(async () => {
+  document.documentElement.setAttribute('data-agent-surface', 'terminal');
   vi.resetModules();
   localStorage.clear();
 
@@ -138,35 +51,19 @@ beforeEach(async () => {
   // @ts-expect-error -- test stub, not a full FontFaceSet
   document.fonts = { ready: Promise.resolve() };
 
-  vi.stubGlobal('Terminal', FakeTerminal);
-  vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
-  vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
-  vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
-  vi.stubGlobal('WebSocket', FakeWebSocket);
-  // api.js probes `/api/session` whenever a channel closes, to tell an expired
-  // session from a dropped connection. Nothing serves this environment, so the
-  // probe is answered here with the signed-in status every test below assumes.
-  // Any other URL is a dependency this file has not declared, and fails loudly.
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, json: async () => ({}) };
-    })
-  );
+  stubTerminalGlobals();
+  stubSessionProbe();
   // xtermPalette() logs a console.error when the CSS custom properties it
   // reads are absent, which they are in this bare happy-dom document — this
   // suite doesn't touch theming and the noise isn't a signal here.
   vi.spyOn(console, 'error').mockImplementation(() => {});
 
-  FakeWebSocket.last = null;
-  FakeWebSocket.created = 0;
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
 });
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-osprey-storage-scope');
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -204,7 +101,7 @@ describe('per-user pointer scope', () => {
 });
 
 describe('the session key outlives the connection', () => {
-  // A view flip tears this terminal's socket down so the other surface can
+  // A surface change tears this terminal's socket down so the other surface can
   // take the session over. Both halves of the pointer have to survive that:
   // the stored key, so a reload still resumes it, and the answer to "which
   // session is this card on?", which the chat asks while nothing is attached.
@@ -348,74 +245,61 @@ describe('auto-resume failover window', () => {
   });
 });
 
-describe('transcript missing: an explicit state, never a dead PTY', () => {
-  // routes/websocket.py refuses to resume an id whose transcript is gone and
-  // says so with a `transcript_missing` frame (before spawning, or after a
-  // `--resume` child reports `No conversation found` and exits). The client
-  // must render that state, drop the stale pointer, and hand the operator a
-  // way to start fresh — deliberately, not by silently respawning.
+describe('transcript missing: a new session, never a dead PTY', () => {
+  // routes/websocket.py refuses to resume an id with no live PTY, no chat and no
+  // transcript, and says so with a `transcript_missing` frame (before spawning,
+  // or after a `--resume` child reports `No conversation found` and exits). The
+  // usual cause is a terminal opened and never prompted, since the CLI writes
+  // the transcript on the first prompt, whose PTY did not survive a restart:
+  // nothing was lost. So the client drops the stale pointer and starts a
+  // session; there is nothing for the operator to decide or read.
 
-  test('auto-resume: the stale pointer is dropped and the socket is not reconnected', () => {
+  test('auto-resume: a new session starts with no key press', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
     terminal.initTerminal('terminal-container');
     openSocket();
     const socketsBefore = FakeWebSocket.created;
-    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+    const refused = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
 
     receive({ type: 'transcript_missing', session_id: 'gone-id' });
 
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
-    expect(terminal.getCurrentSessionId()).toBeNull();
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
-  });
-
-  test('the state is written to the terminal with the way forward', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-
-    const written = /** @type {FakeTerminal} */ (FakeTerminal.last).written;
-    expect(written).toContain('gone-id');
-    expect(written).toMatch(/transcript/i);
-    expect(written).toMatch(/Enter/);
-    expect(written).not.toContain('[Process exited');
-  });
-
-  test('Enter starts a fresh session; other keys do not', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    const socketsBefore = FakeWebSocket.created;
-
-    press('x');
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-
-    press('\r');
+    expect(refused.readyState).toBe(FakeWebSocket.CLOSED);
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
     const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
     expect(url).not.toContain('session_id=');
     expect(url).not.toContain('mode=resume');
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  test('Enter is one-shot: keystrokes after the fresh start reach the new socket', () => {
+  test('the new session starts silently and asks nothing', () => {
+    localStorage.setItem(STORAGE_KEY, 'gone-id');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+
+    receive({ type: 'transcript_missing', session_id: 'gone-id' });
+    openSocket();
+
+    const written = /** @type {FakeTerminal} */ (FakeTerminal.last).written;
+    expect(written).not.toContain('gone-id');
+    expect(written).not.toMatch(/transcript|Enter/i);
+    expect(written).not.toContain('[Process exited');
+  });
+
+  test('keystrokes reach the new session, and Enter starts nothing else', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');
     terminal.initTerminal('terminal-container');
     openSocket();
     receive({ type: 'transcript_missing', session_id: 'gone-id' });
-    press('\r');
     openSocket();
+    const socketsBefore = FakeWebSocket.created;
 
     press('ls\r');
 
-    const sent = /** @type {FakeWebSocket} */ (FakeWebSocket.last).sent;
-    expect(sent).toContain('ls\r');
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('ls\r');
   });
 
-  test('an explicit resume (sessions.js resumeSession) gets the same state', () => {
+  test('an explicit resume (sessions.js resumeSession) gets the same answer', () => {
     terminal.initTerminal('terminal-container');
     openSocket();
     receive({ type: 'session_info', session_id: 'first-id' });
@@ -427,76 +311,65 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
     receive({ type: 'transcript_missing', session_id: 'gone-explicit-id' });
 
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
-    expect(terminal.getCurrentSessionId()).toBeNull();
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    press('\r');
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).url).not.toContain('session_id=');
   });
 
-  test.each([['expert'], ['simple']])(
-    'a refused switch leaves the live session untouched (%s view)',
-    (mode) => {
-      // The server answers a switch_session to a missing id with the same frame
-      // but keeps the current PTY attached; the operator is still on it, in
-      // either view. The Simple view only reaches a connected terminal through
-      // the flip, so it connects the way the flip does.
-      document.documentElement.setAttribute('data-ui-mode', mode);
-      terminal.initTerminal('terminal-container');
-      if (mode === 'simple') terminal.startExpert();
-      openSocket();
-      receive({ type: 'session_info', session_id: 'live-id' });
-      const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-
-      receive({ type: 'transcript_missing', session_id: 'other-id' });
-
-      expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
-      expect(terminal.getCurrentSessionId()).toBe('live-id');
-      expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
-      expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
-      // Enter is ordinary input here, forwarded to the live PTY.
-      press('\r');
-      expect(socket.sent).toContain('\r');
-    }
-  );
-
-  test('a fresh start from elsewhere disarms Enter', () => {
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
+  test('a reconnect refused after a restart gets the same answer', () => {
+    // A terminal left open across a restart reconnects to its own session URL.
     terminal.initTerminal('terminal-container');
     openSocket();
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-
-    // The picker's "New session" (sessions.js) ends in startTerminal().
-    terminal.startTerminal();
+    receive({ type: 'session_info', session_id: 'never-prompted' });
+    terminal.stopTerminal();
+    terminal.startTerminal('never-prompted', 'resume');
     openSocket();
     const socketsBefore = FakeWebSocket.created;
-    press('\r');
 
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).sent).toContain('\r');
+    receive({ type: 'transcript_missing', session_id: 'never-prompted' });
+
+    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    expect(terminal.getCurrentSessionId()).toBeNull();
+  });
+
+  test('a refused switch leaves the live session untouched', () => {
+    // The server answers a switch_session to a missing id with the same frame
+    // but keeps the current PTY attached; the operator is still on it.
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'live-id' });
+    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+
+    receive({ type: 'transcript_missing', session_id: 'other-id' });
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
+    expect(terminal.getCurrentSessionId()).toBe('live-id');
+    expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
+    expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
+    // Enter is ordinary input here, forwarded to the live PTY.
+    press('\r');
+    expect(socket.sent).toContain('\r');
   });
 });
 
-describe('a refused own-resume in Simple view', () => {
-  // The block above pins the Expert answer to this same frame: say what
-  // happened, then wait for Enter. Simple view hides the terminal entirely, so
-  // both halves of that answer would land in a window nobody can see or reach.
-  // Nor is anything started in its place: the chat is the surface there, it is
+describe('a refused own-resume in chat', () => {
+  // The block above pins the terminal surface's answer to this same frame: say
+  // what happened and start a new session. The chat hides the terminal entirely,
+  // so neither half of that answer applies. The note would land in a window
+  // nobody can see, and nothing is started: the chat is the surface there, it is
   // bound to the same key, and a hidden terminal spawning the session's agent
   // would take the conversation away from it. The pointer is that shared key,
   // so it survives too — clearing it is how this client says "this
   // conversation is gone", which is not what a terminal that never got to
   // attach knows.
   //
-  // The terminal only reaches this state in Simple view by being flipped
-  // mid-connect, so these start it the way the flip does (startExpert), not
-  // through initTerminal — which no longer connects in Simple view at all.
+  // The terminal only reaches this state in chat by the operator going back
+  // mid-connect, so these connect it on the terminal surface and then leave.
 
   test('the shared pointer survives, because the chat is bound to it', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
     openSocket();
+    document.documentElement.removeAttribute('data-agent-surface');
 
     receive({ type: 'transcript_missing', session_id: 'shared-key' });
 
@@ -505,11 +378,10 @@ describe('a refused own-resume in Simple view', () => {
   });
 
   test('nothing is started in the hidden terminal, and nothing is asked of the operator', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
     localStorage.setItem(STORAGE_KEY, 'shared-key');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
     openSocket();
+    document.documentElement.removeAttribute('data-agent-surface');
     const socketsBefore = FakeWebSocket.created;
 
     receive({ type: 'transcript_missing', session_id: 'shared-key' });
@@ -522,15 +394,32 @@ describe('a refused own-resume in Simple view', () => {
   test('a pointer that has moved on is left alone too', () => {
     // The chat minted a new key while this connect was in flight. The refused
     // id is not the one in storage, so there is nothing here to correct.
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
     localStorage.setItem(STORAGE_KEY, 'old-key');
     terminal.initTerminal('terminal-container');
-    terminal.startExpert();
     openSocket();
+    document.documentElement.removeAttribute('data-agent-surface');
     localStorage.setItem(STORAGE_KEY, 'newer-key');
 
     receive({ type: 'transcript_missing', session_id: 'old-key' });
 
     expect(localStorage.getItem(STORAGE_KEY)).toBe('newer-key');
+  });
+});
+
+describe('the header label', () => {
+  test('reads Agent, with the session id as its tooltip and data attribute', () => {
+    const label = document.createElement('span');
+    label.id = 'terminal-label';
+    document.body.append(label);
+
+    terminal.setSessionLabel('abcdef12-3456-4789-8abc-def012345678');
+    expect(label.textContent).toBe('Agent');
+    expect(label.title).toBe('Session abcdef12-3456-4789-8abc-def012345678');
+    expect(label.dataset.sessionId).toBe('abcdef12-3456-4789-8abc-def012345678');
+
+    terminal.setSessionLabel(null);
+    expect(label.textContent).toBe('Agent');
+    expect(label.hasAttribute('title')).toBe(false);
+    expect(label.hasAttribute('data-session-id')).toBe(false);
   });
 });

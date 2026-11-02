@@ -19,10 +19,10 @@ from osprey.profiles.providers import (
 )
 from osprey_connectors.errors import BuildProfileError
 
-# The eleven providers the packaged catalog ships: the ten chat providers the
-# control-assistant app template carried under `api.providers`, plus the
-# embeddings-only llama-cpp. Frozen here so a dropped entry is a test failure,
-# not a silently smaller catalog.
+# The providers the packaged catalog ships: the ten chat providers the
+# control-assistant app template carried under `api.providers`, the
+# embeddings-only llama-cpp, and openrouter. Frozen here so a dropped entry is a
+# test failure, not a silently smaller catalog.
 EXPECTED_PROVIDERS = {
     "als-apg",
     "amsc-i2",
@@ -34,6 +34,7 @@ EXPECTED_PROVIDERS = {
     "llama-cpp",
     "ollama",
     "openai",
+    "openrouter",
     "stanford",
 }
 
@@ -60,7 +61,7 @@ class TestPackagedCatalog:
         assert path.is_file()
         assert path.parent.name == "profiles"
 
-    def test_packaged_catalog_holds_the_eleven_providers(self):
+    def test_packaged_catalog_holds_the_expected_providers(self):
         catalog = load_provider_catalog(None)
         assert set(catalog.entries) == EXPECTED_PROVIDERS
         assert catalog.source == "packaged"

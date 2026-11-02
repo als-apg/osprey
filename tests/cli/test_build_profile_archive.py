@@ -15,9 +15,8 @@ import stat
 from pathlib import Path
 
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 _PROFILE = """\
 extends: hello-world
@@ -36,15 +35,16 @@ def test_declared_service_renders_its_compose_and_registers(tmp_path: Path) -> N
     (repo / "data").mkdir()
     (repo / "profile.yml").write_text(_PROFILE, encoding="utf-8")
 
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     compose = yaml.safe_load(
         (repo / "build" / "services" / "archive" / "docker-compose.yml").read_text(encoding="utf-8")
     )
     assert compose["services"]["archive"]["entrypoint"] == ["osprey", "archive", "--watch"]
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
     assert "archive" in config["deployed_services"]
     archive_root = repo / "var" / "archive"
     assert archive_root.is_dir()
-    assert stat.S_IMODE(archive_root.stat().st_mode) == 0o700
+    # Group-shared with the record: setgid, group rwx, no world access.
+    assert stat.S_IMODE(archive_root.stat().st_mode) == 0o2770

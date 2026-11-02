@@ -270,7 +270,7 @@ async def _spawn() -> _Worker:
         # Cancelled while waiting: the fresh worker is owned by nobody, so end it.
         await worker.reap()
         raise
-    exit_code = await worker.close(kill=True if problem.startswith("wrote") else False)
+    exit_code = await worker.close(kill=problem.startswith("wrote"))
     raise RenderUnavailable(f"render worker {problem} (exit code {exit_code})", exit_code)
 
 

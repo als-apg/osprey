@@ -77,14 +77,23 @@
                                         #   `phoebus.require_handle: false`; emits
                                         #   PHOEBUS_REQUIRE_HANDLE=1. Resolved by render.py
                                         #   from the render set or the deploy config.
-          "audit_identity": str,        # WHO this container's audit records are written as —
+          "audit_identity": str,        # WHO this container's records are written as —
                                         #   the roster user name (OSPREY_AUDIT_IDENTITY).
-          "container_audit_dir": str,   # where those records are written inside the container
-                                        #   (`<container_project_dir>/var/audit/<identity>`,
-                                        #   render._container_audit_dir()).
-          "audit_mount_source": str,    # the host directory backing it, spelled as a compose
-                                        #   bind source (`./var/audit/<identity>`,
-                                        #   render._audit_mount_source()).
+          "container_spool_dir": str,   # where this container appends its agent-record
+                                        #   events (`<container_project_dir>/var/spool/<identity>`,
+                                        #   OSPREY_SPOOL_DIR, render._zone_mounts()).
+          "spool_mount_source": str,    # the host directory backing it (`./var/spool/<identity>`).
+          "container_state_dir": str,   # where this container keeps its own state
+                                        #   (`<container_project_dir>/var/state/<identity>`,
+                                        #   OSPREY_STATE_DIR, render._zone_mounts()).
+          "state_mount_source": str,    # the host directory backing it (`./var/state/<identity>`).
+          "agent_record_login_file": str,
+                                        # this terminal's agent-record login file
+                                        #   (`.env.agent-record.login.<identity>`), one
+                                        #   `env_file` entry of its own.
+          "agent_record_login_digest": str | None,
+                                        # its sha256, the `agent_record_digest_label` label;
+                                        #   None (a render outside the deploy path) emits none.
           "extra_mounts": [str, ...],   # resolved by resolve_cards() from the render's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
@@ -567,7 +576,7 @@ services:
 {%- if nginx_history_gate_file %}
       {#- Recreates nginx when the history page's gate secret is minted anew: a
          container reads its `env_file` once, when it is created. #}
-      {{ telemetry_cred_digest_label }}: "${{ "{" }}{{ nginx_cred_digest_env }}:-}"
+      {{ agent_record_digest_label }}: "${{ "{" }}{{ nginx_cred_digest_env }}:-}"
     {#- The history page's gate secret, the one value nginx presents to the
        history app on every request it forwards there. The variable passes the
        envsubst filter below, which writes it into the history location's
@@ -732,24 +741,19 @@ services:
       {%- if web_app_name %}
       - {{ ("OSPREY_WEB_APP_NAME=" ~ web_app_name) | tojson }}
       {%- endif %}
-      {#- The sidecar's audit identity and the directory it writes to. It is one
-         service rather than one per user, so the identity is the FIXED name
-         `sidecar` (render.AUTH_SIDECAR_AUDIT_IDENTITY) — the users its login and
-         denial events name are their SUBJECTS, never their writers, and a
-         record filed under a username here would read as that user having
-         written it.
-
-         The directory arrives under the auth-specific name because this
-         container reads it that way: it is not an OSPREY project (WORKDIR
-         /app, one uvicorn app), it resolves no project root, and an unset
-         value degrades to a log line rather than a guess. It is also the one
-         service excluded from the entrypoint's group step — it runs as root
-         with no entrypoint and no `user:`, so it needs no supplementary group
-         and writes root-owned records. The generic OSPREY_AUDIT_DIR is
-         deliberately NOT emitted here: it is the variable that step is to
-         iterate, and this image has no root phase to read it. #}
+      {#- The sidecar's identity. It is one service rather than one per user,
+         so the identity is the FIXED name `sidecar`
+         (render.AUTH_SIDECAR_AUDIT_IDENTITY) — the users its login and denial
+         events name are their SUBJECTS, never their writers, and a record
+         filed under a username here would read as that user having written
+         it. #}
       - OSPREY_AUDIT_IDENTITY={{ auth_audit_identity }}
-      - OSPREY_AUTH_AUDIT_DIR={{ auth_audit_dir }}
+      {#- Where the sidecar appends its agent-record events, and where it keeps
+         the state it must not lose across a restart — the revoked sessions.
+         Plain config this app reads; there is no entrypoint here to join
+         their groups. #}
+      - OSPREY_SPOOL_DIR={{ auth_container_spool_dir }}
+      - OSPREY_STATE_DIR={{ auth_container_state_dir }}
       - OSPREY_AUTH_METHOD={{ auth_method }}
       - OSPREY_AUTH_SESSION_LIFETIME={{ auth_session_lifetime }}
 {%- if auth_throttle.initial_delay is defined %}
@@ -922,11 +926,12 @@ services:
       - {{ (svc.role_env ~ "=" ~ svc.role) | tojson }}
 {%- endif %}
 {%- endfor %}
-{#- The history page's carriers (render.history_carriers): the readers' origin,
-   each roster entry's `history`, the roles marked `history: all`, and the
-   readers with their tables and IdP identities. Empty unless the page is
-   deployed. Inline rather than in `.env.auth` because none is a secret, and a
-   changed line is a changed service definition, which recreates the sidecar.
+{#- The history page's carriers (render.history_carriers): the history page's
+   origin, each roster entry's `history`, the roles marked `history: all`, and
+   the agent record's named readers with their IdP identities. Empty
+   unless the page is deployed. Inline rather than in `.env.auth` because none
+   is a secret, and a changed line is a changed service definition, which
+   recreates the sidecar.
    tojson quotes each whole `KEY=value`, as the role table above does. #}
 {%- for line in history_carriers %}
       - {{ line | tojson }}
@@ -975,12 +980,14 @@ services:
 {%- endif %}
 {%- endfor %}
     volumes:
-      {#- The sidecar's own audit subdirectory, mount-isolated exactly like
-         every user's: it holds the LOGIN half of the trail (who authenticated,
-         who was refused), and no terminal container has a mount through which
-         it could read or edit it. Provisioned host-side before this mount
-         exists, for the usual root-owned-bind-source reason. #}
-      - {{ auth_audit_mount_source }}:{{ auth_audit_dir }}
+      {#- The sidecar's own spool and state directories, mount-isolated
+         exactly like every user's: they carry the LOGIN half of the trail (who
+         authenticated, who was refused) and the revoked sessions, and no
+         terminal container has a mount through which it could read or edit
+         them. Provisioned host-side before this mount exists, for the usual
+         root-owned-bind-source reason. #}
+      - {{ auth_spool_mount_source }}:{{ auth_container_spool_dir }}
+      - {{ auth_state_mount_source }}:{{ auth_container_state_dir }}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://{{ bind_host }}:{{ auth_port }}/health').status==200 else 1)\""]
       interval: 15s
@@ -1007,28 +1014,23 @@ services:
     security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
-{%- if telemetry_sender_file_prefix and telemetry_cred_digests.get(svc.audit_identity) %}
-      {#- The sha256 of this terminal's telemetry login file, for the reason
-         the login service carries one for `.env.auth`: a container reads an
-         `env_file` when it is created, so a login minted anew reaches the
-         terminal only if its definition changed. One file per terminal, so
-         one terminal is recreated. Absent on a render outside the deploy
+{%- if svc.agent_record_login_digest %}
+      {#- The sha256 of this terminal's agent-record login file, for the
+         reason the login service carries one for `.env.auth`: a container
+         reads an `env_file` when it is created, so a login minted anew reaches
+         the terminal only if its definition changed. One file per terminal,
+         so one terminal is recreated. Absent on a render outside the deploy
          path, which has no repo root to read. #}
-      {{ telemetry_cred_digest_label }}: "{{ telemetry_cred_digests[svc.audit_identity] }}"
+      {{ agent_record_digest_label }}: "{{ svc.agent_record_login_digest }}"
 {%- endif %}
-{%- if telemetry_sender_file_prefix %}
-    {#- The terminal's telemetry login rides beside the shared runtime
-       secrets as a file of its own: one login and nothing else, named after
-       this terminal's audit identity, so the name the gateway stamps on what
-       it sends is the name its ledger is filed under. Listed whenever the
-       gateway is deployed — `osprey build` and `osprey up` both create the
-       file before any compose command reads this document. #}
+    {#- The terminal's agent-record login rides beside the shared runtime
+       secrets, a file of its own holding that one login and nothing else,
+       named after this terminal's audit identity. Always listed, because the
+       record is always deployed. `osprey build` and `osprey up` both create
+       the file before any compose command reads this document. #}
     env_file:
       - .env.users
-      - {{ telemetry_sender_file_prefix }}{{ svc.audit_identity }}
-{%- else %}
-    env_file: .env.users
-{%- endif %}
+      - {{ svc.agent_record_login_file }}
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -1049,33 +1051,39 @@ services:
       - {{ proxy_env }}={{ "${" ~ proxy_env ~ ":-}" }}
       - {{ proxy_env | lower }}={{ "${" ~ proxy_env ~ ":-}" }}
 {%- endfor %}
-      {#- WHO this container's audit records are written as, and WHERE. Both
-         rendered from the same roster name that names the mount below
-         (render._audit_mount_source / _container_audit_dir), so the identity
-         stamped into a record and the directory the record lands in can never
-         name two different users — an audit trail that attributes alice's
-         actions to bob is worse than no trail at all.
+      {#- WHO this container's records are written as. Rendered from the same
+         roster name that names the spool and state mounts below
+         (render._zone_mounts), so the identity stamped into a record and the
+         directory the record lands in can never name two different users — an
+         audit trail that attributes alice's actions to bob is worse than no
+         trail at all.
 
-         Unconditional, and deliberately so: the audit mount follows the
+         Unconditional, and deliberately so: the identity follows the
          MIDDLEWARE, not the login wall. This container hosts an interface app
          and launches framework MCP servers whatever `auth.method` says, so it
          records under its own identity on an unauthenticated deployment
-         exactly as it does behind a login.
+         exactly as it does behind a login. #}
+      - OSPREY_AUDIT_IDENTITY={{ svc.audit_identity }}
+      {#- WHERE this terminal appends its agent-record events and keeps its own
+         state, from the same roster name as the binds below.
 
-         OSPREY_AUDIT_DIR is also the CONTRACT this file offers the image's
-         entrypoint: the render names the directories, and the entrypoint's root
-         phase is to join their groups before dropping privileges — compose
+         These are also the CONTRACT this file offers the image's entrypoint:
+         the render names the directories, and the entrypoint's root phase is
+         to join their groups before dropping privileges — compose
          `group_add:` alone does not survive `gosu`, and the script reads no
          config, so a directory it is not told about is one it cannot join. The
          value is the CONTAINER path, never the host one: the entrypoint stats
          the directory it can actually see. #}
-      - OSPREY_AUDIT_IDENTITY={{ svc.audit_identity }}
-      - OSPREY_AUDIT_DIR={{ svc.container_audit_dir }}
+      - OSPREY_SPOOL_DIR={{ svc.container_spool_dir }}
+      - OSPREY_STATE_DIR={{ svc.container_state_dir }}
+      {#- WHERE this terminal reads the agent record: the API's loopback
+         publish, because the terminal shares the host's network namespace. #}
+      - OSPREY_AGENT_RECORD_URL={{ agent_record_url }}
       {#- WHERE this terminal writes its control-context record — the chip
          every lane and the dispatch worker read to decide whether a write
          this user owns is narrowed. Named explicitly rather than left to the
          ladder's `<agent_data_root>/control_target/<identity>` fallback, for
-         the same entrypoint CONTRACT OSPREY_AUDIT_DIR above is named for: the
+         the same entrypoint CONTRACT OSPREY_SPOOL_DIR above is named for: the
          root phase joins the group of exactly the directories this file
          names, and hands the state zone back to the container account while
          pruning exactly those directories. A group-shared bind the entrypoint
@@ -1084,14 +1092,14 @@ services:
          terminal can flip the chip but no lane can read what it wrote.
 
          The CONTAINER path, never the host one — the entrypoint stats the
-         directory it can actually see. Unconditional, like the audit pair:
+         directory it can actually see. Unconditional, like the spool pair:
          every terminal here can narrow, whatever `auth.method` says. #}
       - {{ control_context_dir_env }}={{ svc.container_control_context_dir }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- The bundle mount's target, named for the same entrypoint contract: the
          root phase is to iterate exactly the directories these two variables
          name, so the group the bundle is shared through is granted the same way
-         the audit group is, and neither is guessed. Gated on the same pair as
+         the spool group is, and neither is guessed. Gated on the same pair as
          the mount itself — a service with no bundle bound has no second
          directory to name, and the step skips what is unset. #}
       - OSPREY_FACILITY_BUNDLE_DIR={{ svc.container_bundle_dir }}
@@ -1175,17 +1183,6 @@ services:
          entry: it is not a secret. #}
       - PHOEBUS_REQUIRE_HANDLE=1
 {%- endif %}
-{%- if telemetry_gateway_address %}
-      {#- Where the telemetry gateway is from inside this container. Under
-         `network_mode: host` the gateway answers where it PUBLISHES — the
-         interface `deployment.bind_address` names (loopback for a wildcard),
-         on the published port — never at its compose service name. The pair
-         declares the shape; nothing in the container sniffs for it
-         (`telemetry_config.runtime_gateway_url`). Same macro arm as the
-         dispatch worker's host-networked compose. #}
-      - OSPREY_OTEL_GATEWAY_HOST={{ telemetry_gateway_address[0] }}
-      - OSPREY_OTEL_GATEWAY_PORT={{ telemetry_gateway_address[1] }}
-{%- endif %}
       {#- This user's operator secret, in the container-shape variable the app
          pops at construction (web_auth.OPERATOR_SECRET_ENV). The per-user
          variable it is interpolated FROM is the same one nginx exports and this
@@ -1222,16 +1219,6 @@ services:
          same reason OSPREY_TERMINAL_LANDING_URL above is not — a URL holds no
          `": "` and so is a plain YAML scalar. #}
       - OSPREY_TERMINAL_EXTERNAL_ORIGIN={{ svc.external_origin }}
-{%- for name in svc.telemetry_vars %}
-      {#- The variables this render's telemetry block needs: the collector's
-         bearer token (`claude_code.telemetry.auth.token_env`) plus every
-         variable the block references. Per-user because the names are the render's
-         own. `${VAR:-}` keeps every value in the deploy `.env`, out of this
-         rendered file. An empty token is refused at agent start by name, and a
-         defaulted reference falls back to its default inside the container
-         exactly as it would on the host. #}
-      - {{ name }}={{ "${" ~ name ~ ":-}" }}
-{%- endfor %}
 {%- if svc.display_name %}
       {#- Human-facing window/tab title. tojson quotes the WHOLE `KEY=value` as
          one double-quoted YAML scalar (never just the value — the compose
@@ -1401,6 +1388,11 @@ services:
 {%- endfor %}
     volumes:
       - {{ svc.claude_config_volume }}:/data/claude-config
+      {#- The transcripts, on a volume of their own nested over the
+         claude-config one, so a reader can mount them read-only without the
+         credentials and session state beside them. Listed after its parent:
+         the nested mount is made inside the parent's. #}
+      - {{ svc.claude_projects_volume }}:/data/claude-config/projects
       {#- Mount target comes from render.py's _container_agent_data_dir, which
          reads `agent_data.base_dir` — the same key the agent inside this
          container resolves its own agent-data root from. Never a literal: a
@@ -1408,28 +1400,28 @@ services:
          mounted over an empty directory, while memory, sessions and artifacts
          accumulate in the writable layer and vanish at the next recreate. #}
       - {{ svc.user }}-agent-data:{{ svc.container_agent_data_dir }}
-      {#- This user's audit subdirectory, and ONLY this user's. A bind, not a
-         volume: the records are for the operator to read, grep and purge on the
-         host, which a named volume would bury inside the runtime's storage.
+      {#- This user's spool and state directories, and ONLY this user's. Binds,
+         not volumes: agent-record binds the spool root whole and ingests what
+         lands here, and the host reads the state.
 
          The isolation is the MOUNT, not a permission: alice's container is
-         handed `var/audit/alice` and nothing else under `var/audit`, so bob's
-         records are not merely unreadable to it — they are not in its
-         filesystem to read. Widening this to the audit root would hand every
-         terminal the whole deployment's trail.
+         handed `var/spool/alice` and `var/state/alice` and nothing else under
+         either zone, so bob's files are not merely unreadable to it — they are
+         not in its filesystem to read.
 
          Read-WRITE, and provisioned host-side before this mount is ever created
-         (compose_generator.ensure_audit_dir, called from the deploy path):
-         left to the container runtime, a rootful daemon creates the missing
-         source owned by root and the dropped `osprey` process inside can write
-         nothing. That helper also makes it setgid + group-writable, which is
-         what keeps the records the container writes purgeable on the host by
-         the operator who deployed it. #}
-      - {{ svc.audit_mount_source }}:{{ svc.container_audit_dir }}
+         (compose_generator.ensure_spool_dir and ensure_state_dir, called from
+         the deploy path): left to the container runtime, a rootful daemon
+         creates the missing source owned by root and the dropped `osprey`
+         process inside can write nothing. Those helpers also make each setgid
+         + group-writable, which is what lets agent-record delete what it
+         ingested across uids. #}
+      - {{ svc.spool_mount_source }}:{{ svc.container_spool_dir }}
+      - {{ svc.state_mount_source }}:{{ svc.container_state_dir }}
       {#- This user's control-context record directory, and ONLY this user's.
 
          Both ends arrive finished from render.py — `control_context_mount_source`
-         and `container_control_context_dir`, derived there beside the audit
+         and `container_control_context_dir`, derived there beside the spool
          pair from the one `agent_data.base_dir` the deploy path provisions
          under and the container resolves its own agent-data root from. No path
          decision is made here, so the directory the bind covers and the
@@ -1461,7 +1453,7 @@ services:
          as a directory anyway, root-owned, which is the next paragraph.
 
          Provisioned host-side before this mount is ever created, exactly as
-         the audit bind is: `deploy_up_web_terminals` makes
+         the spool bind is: `deploy_up_web_terminals` makes
          `var/agent_data/control_target/<user>/` at 2770 on the way up, and
          the build writes the tree it sits in. Left to the container runtime a
          rootful daemon creates the missing source owned by root, the dropped
@@ -1470,7 +1462,7 @@ services:
          that mode carries is what lets the lanes' read-only view of the same
          tree read what this container wrote across uids.
 
-         Deliberately NOT in the `group_add` list below, for the audit bind's
+         Deliberately NOT in the `group_add` list below, for the spool bind's
          reason: membership is granted inside the container by the entrypoint,
          which stats the mounted directory itself, so no gid is read back for
          it at render time. #}
@@ -1603,8 +1595,8 @@ services:
     Collected into one list so one `group_add:` is emitted per service, with
     each gid once — the deploy creates both as the same user, so they usually
     share a group, and compose rejects nothing for a repeat, but a list that
-    says the same thing twice reads like two groups. This user's audit
-    subdirectory is deliberately NOT in the list: its membership is granted
+    says the same thing twice reads like two groups. This user's spool and
+    state subdirectories are deliberately NOT in the list: its membership is granted
     inside the container by the entrypoint, which stats the mounted directory
     itself, so no gid is read back for it at render time. #}
 {%- set shared_gids = [] %}
@@ -1663,6 +1655,7 @@ services:
 volumes:
 {% for svc in services %}
   {{ svc.claude_config_volume }}:
+  {{ svc.claude_projects_volume }}:
   {{ svc.user }}-agent-data:
 {% endfor %}
 {% endif %}

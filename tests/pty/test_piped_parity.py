@@ -47,9 +47,9 @@ normalised, each for a measured reason:
   alike.
 * **The clock.** A rendered log record is stamped with the wall clock and a
   phase line carries its own elapsed. Both are normalised to placeholders.
-* **A measured wait.** The deploy dials the telemetry store it publishes, on
-  the copy's own free port where nothing listens, and reports how long it
-  waited for a connection before giving up. That figure is wall-clock too, and
+* **A measured wait.** The deploy dials the agent record's service it publishes,
+  on the copy's own free port where nothing listens, and reports how long it
+  waited for an answer before giving up. That figure is wall-clock too, and
   is normalised to a placeholder.
 * **Sub-second laps.** A lap under 50 ms prints with no duration at all
   (``phase_reporter.Phase.step``), so against the instant stub the *presence* of a
@@ -145,7 +145,7 @@ WAITED = re.compile(r"\bwithin \d+s\b")
 
 #: The variable the arming disagreement is about. Interpolated by the exemplar's
 #: compose files, which is what makes the start path compare it at all.
-ARMED_VARIABLE = "OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE"
+ARMED_VARIABLE = "OSPREY_AGENT_RECORD_DIGEST_AGENT_RECORD"
 
 #: The value pinned in the repository's own chain, and the different one exported
 #: into the run. Values are never printed by the warning, so neither is a secret

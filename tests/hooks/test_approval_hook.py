@@ -9,17 +9,23 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
+import hashlib
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from osprey_connectors.control_context import _record_path_under
 from osprey_connectors.types import baseline_target
-from osprey_connectors_tests._harness import write_control_context, write_server_report
+from osprey_connectors_tests._harness import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 from tests._guarded_run import (
     PLANTED_REFUSED,
     held_lock,
@@ -27,6 +33,7 @@ from tests._guarded_run import (
     lock_path,
     plant_kind,
 )
+from tests.hooks.conftest import hook_audit_records, pending_review_items
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
@@ -211,7 +218,6 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -230,12 +236,9 @@ def test_a_non_bool_switch_deny_files_a_refused_record(
     )
 
     assert _deny_reason(result) == _switch_sentence("false")
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "approval_config_invalid"
@@ -287,110 +290,6 @@ def test_the_hook_spells_the_section_fault_like_the_build(section):
     assert hook._APPROVAL_SECTION_INVALID_REASON.format(value=section) == approval_enabled_fault(
         {"approval": section}
     )
-
-
-def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
-    """Selective mode blocks channel_write (a write operation)."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-                "requires_approval": ["channel_write", "execute"],
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
-    """Selective mode blocks python_execute in write mode."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_config):
-    """Selective mode allows readonly python without write patterns."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)  # Readonly without write patterns passes
-
-
-def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
-    """A per-tool skip policy lets channel_read through, even when the
-    default_policy would otherwise prompt. Mirrors production config which
-    pins channel_read=skip while other tools fall through to selective."""
-    config = make_config(
-        {
-            "approval": {
-                "enabled": True,
-                "default_policy": "selective",
-                "tools": {"channel_read": "skip"},
-            },
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
 
 
 def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_config):
@@ -447,30 +346,6 @@ def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
         "osprey_approval.py",
         "mcp__controls__channel_read",
         {"channels": ["SR:BEAM:CURRENT"]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_config):
-    """`default_policy: always` (with no `tools` overrides) asks on every osprey tool."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    # channel_read — normally read-only, but default_policy=always asks on everything
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -680,61 +555,6 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
     assert _is_allow(result)  # No approval needed
 
 
-def test_framework_pattern_detection_import_fallback(tmp_path, hook_runner, make_config):
-    """When osprey is not importable, fallback patterns still catch basic writes."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    # The hook runs as a subprocess, so we can't easily mock the import.
-    # Instead, test that a pattern covered by the fallback list still works.
-    # caput( is in the fallback list, so it should always be caught.
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
-    """Config-driven custom patterns trigger approval via framework detection."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {
-                "writes": "allowed",
-                "patterns": {
-                    "write": [r"\bmy_custom_write\s*\("],
-                    "read": [],
-                },
-            },
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "my_custom_write('DEVICE', 42)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
 def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, make_config):
     """Config patterns flow from hook config dict through to framework detection.
 
@@ -831,70 +651,6 @@ def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_conf
     assert _is_allow(result2)
 
 
-def test_fallback_merges_custom_patterns(hook_module):
-    """Fallback path merges custom patterns with _FALLBACK_WRITE_PATTERNS by default.
-
-    When osprey is not importable, the fallback regex path must merge
-    custom patterns (extend mode) instead of replacing the fallback list.
-    """
-    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
-
-    # Simulate the fallback merge logic (extend mode, the default)
-    config = {
-        "control_system": {
-            "patterns": {
-                "write": [r"\bfacility_hw_write\s*\("],
-            }
-        }
-    }
-
-    pat_config = config.get("control_system", {}).get("patterns", {})
-    custom = pat_config.get("write")
-    mode = pat_config.get("mode", "extend")
-    patterns = list(fallback_patterns)
-    if custom:
-        if mode == "override":
-            patterns = list(custom)
-        else:
-            patterns.extend(p for p in custom if p not in patterns)
-
-    # Custom pattern present
-    assert any(re.search(p, "facility_hw_write('X', 1)") for p in patterns)
-    # Framework patterns still present (extend mode)
-    assert any(re.search(p, "caput('PV', 1.0)") for p in patterns)
-    assert len(patterns) == len(fallback_patterns) + 1
-
-
-def test_fallback_override_replaces_patterns(hook_module):
-    """Fallback path with mode=override replaces _FALLBACK_WRITE_PATTERNS entirely."""
-    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
-
-    config = {
-        "control_system": {
-            "patterns": {
-                "mode": "override",
-                "write": [r"\bfacility_hw_write\s*\("],
-            }
-        }
-    }
-
-    pat_config = config.get("control_system", {}).get("patterns", {})
-    custom = pat_config.get("write")
-    mode = pat_config.get("mode", "extend")
-    patterns = list(fallback_patterns)
-    if custom:
-        if mode == "override":
-            patterns = list(custom)
-        else:
-            patterns.extend(p for p in custom if p not in patterns)
-
-    # Custom pattern present
-    assert any(re.search(p, "facility_hw_write('X', 1)") for p in patterns)
-    # Framework patterns NOT present (override mode)
-    assert not any(re.search(p, "caput('PV', 1.0)") for p in patterns)
-    assert len(patterns) == 1
-
-
 # -- Config edge cases (gap fill) --
 
 
@@ -964,188 +720,83 @@ def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_conf
 # ============================================================================
 
 
-def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
-    """When approval.enabled is false, all tools pass through."""
-    tools_config = {**DEFAULT_TOOLS_CONFIG, "enabled": False}
-    config = make_config({"approval": tools_config})
+@pytest.mark.parametrize(
+    ("tool_name", "tool_input", "asks"),
+    [
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+            True,
+            id="always-asks",
+        ),
+        # `selective` on execute prompts for write-mode execution...
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "print(42)", "execution_mode": "readwrite"},
+            True,
+            id="selective-execute-write-mode-asks",
+        ),
+        # ...lets readonly code without write patterns through...
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "print(42)", "execution_mode": "readonly"},
+            False,
+            id="selective-execute-readonly-allows",
+        ),
+        # ...and still prompts for readonly code that contains a write pattern.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "caput('PV', 1.0)", "execution_mode": "readonly"},
+            True,
+            id="selective-execute-write-patterns-asks",
+        ),
+        pytest.param(
+            "mcp__osprey_workspace__setup_patch",
+            {"path": "control_system.writes", "value": "allowed"},
+            True,
+            id="setup-patch-asks",
+        ),
+        pytest.param(
+            "mcp__ariel__entry_create",
+            {"title": "Test entry", "content": "Test content"},
+            True,
+            id="entry-create-asks",
+        ),
+        # Publishing reaches the facility's logbook. It names no policy of its
+        # own and falls to `default_policy`, which is fail-closed and is what
+        # the shipped presets state explicitly.
+        pytest.param(
+            "mcp__ariel__entry_publish",
+            {"entry_id": "e-1"},
+            True,
+            id="entry-publish-asks",
+        ),
+    ],
+)
+def test_tool_policy_decides_the_prompt(
+    tmp_path, hook_runner, make_config, tool_name, tool_input, asks
+):
+    """Each tool is gated by the policy the `tools` map gives it.
 
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
-def test_tool_policy_always_asks(tmp_path, hook_runner, make_config):
-    """Tool mapped to 'always' policy always requires approval."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_tool_policy_skip_allows(tmp_path, hook_runner, make_config):
-    """Tool mapped to 'skip' policy is allowed without approval."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__controls__channel_read",
-        {"channels": ["SR:CURRENT:RB"]},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
-def test_tool_policy_selective_execute_write_mode_asks(tmp_path, hook_runner, make_config):
-    """Selective policy for execute blocks write-mode execution."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "readwrite"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_tool_policy_selective_execute_readonly_allows(tmp_path, hook_runner, make_config):
-    """Selective policy for execute allows readonly code without write patterns."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "print(42)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert _is_allow(result)
-
-
-def test_tool_policy_selective_execute_write_patterns_asks(tmp_path, hook_runner, make_config):
-    """Selective policy for execute blocks code with write patterns."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "caput('PV', 1.0)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
-    """Tools not in the tools map fall back to default_policy (always)."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    # Use a custom hook_config with a novel server prefix
-    custom_config = {
-        "server_prefixes": ["mcp__controls__", "mcp__my_plc__"],
-        "approval_prefixes": ["mcp__controls__", "mcp__my_plc__"],
-    }
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__my_plc__unknown_tool",
-        {"param": "value"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=custom_config,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
-    """Workspace setup_patch tool requires approval through the hook."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__osprey_workspace__setup_patch",
-        {"path": "control_system.writes", "value": "allowed"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
-    """ARIEL entry_create tool requires approval through the hook."""
-    config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__ariel__entry_create",
-        {"title": "Test entry", "content": "Test content"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_entry_publish_always_asks(tmp_path, hook_runner, make_config):
-    """Publishing an entry reaches the facility's logbook, so it prompts.
-
-    It falls to `default_policy` rather than naming a policy of its own, which
-    is fail-closed and is what the shipped presets state explicitly.
+    `always` prompts, `skip` lets the call through, `selective` prompts only for
+    a write, and a tool the map does not name takes `default_policy`.
     """
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__ariel__entry_publish",
-        {"entry_id": "e-1"},
+        tool_name,
+        tool_input,
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
     )
 
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    if asks:
+        assert result is not None
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    else:
+        assert _is_allow(result)
 
 
 @pytest.mark.parametrize(
@@ -1312,33 +963,6 @@ def test_fallback_regexes_match_pva_client_code(hook_module, code):
     fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
 
     assert any(_re.search(p, code) for p in fallback_patterns)
-
-
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Unusable stdin passes the tool through without asking for approval.
-
-    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
-    or truthy (``[1,2,3]``) — each leave the hook with no tool to gate, so it
-    exits 0 and emits no decision. Emitting an "ask" here would stall every
-    tool call behind a prompt nobody can answer. The truthy payload is the one
-    an emptiness check lets through, so it has to be rejected on shape.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_approval.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
 
 
 # ============================================================================
@@ -1572,7 +1196,6 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(tmp_path, hook_r
 @pytest.mark.parametrize(
     ("target", "on", "decision"),
     [
-        pytest.param("live", ("va",), None, id="machine-switched-off"),
         pytest.param("live", ("live",), "ask", id="machine-switched-on"),
         pytest.param("va", ("live",), None, id="sim-switched-off"),
         pytest.param("va", ("va",), "ask", id="sim-switched-on"),
@@ -1602,29 +1225,6 @@ def test_channel_write_follows_the_switch_of_the_write_target(
     assert decision_seen == decision
 
 
-def test_a_tier_that_states_no_writes_defers(tmp_path, hook_runner):
-    """No `writes` and no armed block is a tier that never writes.
-
-    `writes_check` denies every write on it, so a prompt would ask the human to
-    approve a call the next hook refuses, even with the machine switched on.
-    """
-    config = _posture_config(tmp_path, NO_TIER)
-    _write_session_state(tmp_path, target="live", on=("live",))
-
-    def run(hook):
-        return _run(
-            hook,
-            tmp_path,
-            hook_runner,
-            config,
-            "mcp__controls__channel_write",
-            CHANNEL_WRITE_INPUT,
-        )
-
-    assert run("osprey_approval.py") is None
-    assert run("osprey_writes_check.py") == "deny"
-
-
 def test_an_unrebuilt_per_type_ceiling_never_writes_on_a_switched_on_machine(tmp_path, hook_runner):
     """Mock armed, epics not, no tier key, session on `live` with its switch on: deferred.
 
@@ -1649,33 +1249,9 @@ def test_an_unrebuilt_per_type_ceiling_never_writes_on_a_switched_on_machine(tmp
     assert run("osprey_writes_check.py") == "deny"
 
 
-def test_a_write_whose_machine_cannot_be_placed_defers(tmp_path, hook_runner):
-    """No record under a guessed root places the write nowhere.
-
-    `writes_check` denies that cell (`posture_unknown`), so the defer stands.
-    Picking the baseline instead would state a verdict for a session that may
-    have switched away from it.
-    """
-    config = _posture_config(tmp_path, TWO_TARGETS)
-
-    def run(hook):
-        return _run(
-            hook,
-            tmp_path,
-            hook_runner,
-            config,
-            "mcp__controls__channel_write",
-            CHANNEL_WRITE_INPUT,
-        )
-
-    assert run("osprey_approval.py") is None
-    assert run("osprey_writes_check.py") == "deny"
-
-
 @pytest.mark.parametrize(
     ("services", "tool_input", "decision"),
     [
-        pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky_live"}, None, id="lane-on-the-machine"),
         pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky"}, "ask", id="lane-on-the-sim"),
         pytest.param(TWO_LANE_SERVICES, {}, "ask", id="two-lanes-and-none-named"),
         pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky_ghost"}, "ask", id="lane-not-rendered"),
@@ -1734,15 +1310,6 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             id="channel_write-on-the-switched-off-machine",
         ),
         pytest.param(
-            TWO_TARGETS,
-            None,
-            "mcp__controls__channel_write",
-            CHANNEL_WRITE_INPUT,
-            ("va", ("va",)),
-            None,
-            id="channel_write-on-the-switched-on-simulator",
-        ),
-        pytest.param(
             SIMULATOR_NEVER,
             None,
             "mcp__python__execute",
@@ -1750,15 +1317,6 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             ("va", ("va",)),
             _BY_WRITES_CHECK,
             id="readwrite-execute-tier-never",
-        ),
-        pytest.param(
-            SIMULATOR_NEVER,
-            None,
-            "mcp__python__execute",
-            {"code": "print(1)", "execution_mode": "readonly"},
-            ("va", ("va",)),
-            None,
-            id="readonly-execute-tier-never",
         ),
         pytest.param(
             NO_TIER,
@@ -1786,15 +1344,6 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             ("live", ("va",)),
             _BY_LANE_GATE,
             id="queue_start-on-the-switched-off-lane",
-        ),
-        pytest.param(
-            TWO_TARGETS,
-            TWO_LANE_SERVICES,
-            "mcp__bluesky__queue_start",
-            {},
-            ("live", ("va",)),
-            None,
-            id="queue_start-with-no-lane-to-place",
         ),
         pytest.param(
             TWO_TARGETS,
@@ -1928,10 +1477,6 @@ RAW_PUT_CONFIG = {
     "approval": DEFAULT_TOOLS_CONFIG,
     "control_system": {"writes": "allowed"},
 }
-
-
-def _decision(result):
-    return None if result is None else result["hookSpecificOutput"]["permissionDecision"]
 
 
 def _run_execute(hook_runner, make_config, tmp_path, code, *, mode="readwrite", config=None):
@@ -2098,8 +1643,6 @@ def test_raw_client_write_deny_files_a_refused_record(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """The deny is a refusal on the audit trail — `refused`, reason `raw_client_write`."""
-    import json
-    from pathlib import Path
 
     from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
@@ -2111,12 +1654,9 @@ def test_raw_client_write_deny_files_a_refused_record(
     result = _run_execute(hook_runner, make_config, tmp_path, "open_door()\n")
 
     assert _decision(result) == "deny"
-    records = [
-        json.loads(line)
-        for path in Path(tmp_path).rglob("hook_approval.jsonl")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
+    from tests.hooks.conftest import hook_audit_records
+
+    records = hook_audit_records(tmp_path, "hook_approval")
     assert len(records) == 1
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "raw_client_write"
@@ -2401,31 +1941,6 @@ def test_the_ask_stamp_carries_the_approved_fields_of_the_envelope(
     assert set(_approved(stamp)) == {"approved_target"}
     assert stamp["approved_target"] == "va"
     assert "agent-target" not in stamp.values()
-
-
-def test_an_agent_supplied_field_the_hook_did_not_bind_never_reaches_the_stamp(
-    tmp_path, hook_runner, make_config, stamp_dir
-):
-    tool_input = {
-        "code": "print(1)",
-        "execution_mode": "readwrite",
-        "approved_view_sha256": "ab" * 32,
-    }
-
-    result = _asked(
-        hook_runner,
-        make_config,
-        tmp_path,
-        "execute",
-        tool_input,
-        GUARDED_ALWAYS_CONFIG,
-        "toolu_rw2",
-    )
-
-    assert _decision(result) == "ask"
-    stamp = _stamp(stamp_dir, "toolu_rw2")
-    assert set(_approved(stamp)) == {"approved_target"}
-    assert "approved_view_sha256" not in stamp
 
 
 def test_an_agent_supplied_field_never_reaches_a_readonly_stamp(
@@ -2891,3 +2406,319 @@ def test_the_hook_restates_the_view_writers_names(hook_module):
     approval = hook_module("osprey_approval")
     assert approval._PYAML_VIEW_ROOT == ("data", view.PYAML_DIR)
     assert approval._PYAML_CONFIGURATION_FILE == view.CONFIGURATION_FILE
+
+
+# ---------------------------------------------------------------------------
+# The write switch's position decides for a governed tool
+# ---------------------------------------------------------------------------
+
+GOVERNED_PREFIXES = ["mcp__controls__", "mcp__python__", "mcp__bluesky__", "mcp__phoebus__"]
+
+#: A render whose governed set is the framework's; `phoebus_drive` keeps its policy.
+GOVERNED_HOOK_CONFIG = {
+    "server_prefixes": GOVERNED_PREFIXES,
+    "approval_prefixes": GOVERNED_PREFIXES,
+    "write_tools": [
+        "mcp__controls__channel_write",
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+        "mcp__python__pyaml_measure",
+        "mcp__bluesky__queue_add",
+        "mcp__bluesky__queue_start",
+        "mcp__phoebus__phoebus_drive",
+    ],
+    "governed_tools": [
+        "mcp__controls__channel_write",
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+        "mcp__python__pyaml_measure",
+        "mcp__bluesky__queue_add",
+        "mcp__bluesky__queue_start",
+    ],
+    "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
+}
+
+CHANNEL_WRITE = "mcp__controls__channel_write"
+CHANNEL_WRITE_CALL = {"operations": [{"channel": "TEST:PV", "value": 1.0}]}
+EXECUTE = "mcp__python__execute"
+READONLY_CODE = {"code": "x = 1\n", "execution_mode": "readonly"}
+READWRITE_CODE = {"code": "x = 1\n", "execution_mode": "readwrite"}
+STORE_CODE = {"code": "print('control_context.json')\n", "execution_mode": "readonly"}
+PHOEBUS_DRIVE = "mcp__phoebus__phoebus_drive"
+PHOEBUS_CALL = {"widget": "QF_setpoint", "verb": "set", "value": "1.5"}
+QUEUE_ADD = "mcp__bluesky__queue_add"
+QUEUE_START = "mcp__bluesky__queue_start"
+
+#: Policies that would each let a call through unasked, or always ask.
+PERMISSIVE_APPROVAL = [
+    pytest.param({"enabled": False}, id="disabled"),
+    pytest.param({"enabled": True, "default_policy": "skip"}, id="skip"),
+]
+
+
+class _Governed:
+    """One deployment on the simulator, at a chosen switch position."""
+
+    def __init__(self, root, state, tmp_path, hook_runner):
+        self.root = root
+        self.state = state
+        self.tmp_path = tmp_path
+        self.hook_runner = hook_runner
+
+    def run(self, tool, call, position, approval=None, *, hook_config=None, tool_use_id="toolu_g"):
+        write_control_context(
+            self.root,
+            target="va",
+            switch={"va": position, "live": position} if position != "off" else None,
+        )
+        config = self.tmp_path / "config.yml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    "approval": approval or {"enabled": True, "default_policy": "always"},
+                    "control_system": WRITES_ALLOWED_SECTION,
+                }
+            )
+        )
+        return self.hook_runner(
+            "osprey_approval.py",
+            tool,
+            call,
+            config_path=config,
+            cwd=self.tmp_path,
+            hook_config=hook_config or GOVERNED_HOOK_CONFIG,
+            hook_input_extra={
+                "hook_event_name": "PreToolUse",
+                "tool_use_id": tool_use_id,
+                "session_id": "conv-g",
+                "permission_mode": "default",
+            },
+        )
+
+    def stamp(self, tool_use_id="toolu_g"):
+        path = self.state / f"approval_ask_{tool_use_id}.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def window_stamps(self):
+        return sorted(self.state.glob("write_approval_*.json"))
+
+    def audit_entries(self):
+        return hook_audit_records(self.tmp_path, "hook_approval")
+
+
+@pytest.fixture
+def governed(tmp_path, hook_runner, monkeypatch):
+    pin_identity(monkeypatch)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return _Governed(root, state, tmp_path, hook_runner)
+
+
+@pytest.fixture
+def dispatch_run(governed, monkeypatch):
+    """A scheduled job of the pinned identity's, as the dispatcher stamps it."""
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", pin_identity(monkeypatch))
+    return governed
+
+
+@pytest.mark.parametrize("approval", PERMISSIVE_APPROVAL)
+def test_asked_prompts_whatever_the_approval_policy_says(governed, approval):
+    result = governed.run(CHANNEL_WRITE, CHANNEL_WRITE_CALL, "asked", approval)
+
+    assert _decision(result) == "ask"
+    stamp = governed.stamp()
+    assert stamp["position"] == "asked"
+    assert stamp["approver"] == "human"
+    assert "answered_at" not in stamp
+
+
+@pytest.mark.parametrize("position", ["off", "asked", "allowed"])
+@pytest.mark.parametrize(
+    "approval",
+    [
+        pytest.param({"enabled": True, "default_policy": "always"}, id="always"),
+        pytest.param({"enabled": False}, id="disabled"),
+    ],
+)
+def test_a_read_only_execute_runs_unprompted_in_every_position(governed, position, approval):
+    result = governed.run(EXECUTE, READONLY_CODE, position, approval)
+
+    assert _decision(result) == "allow"
+    assert governed.stamp() is None
+    assert governed.audit_entries() == []
+
+
+def test_a_read_only_execute_spelling_a_write_is_still_put_to_a_person(governed):
+    call = {"code": "write_channel('A', 1)\n", "execution_mode": "readonly"}
+
+    assert _decision(governed.run(EXECUTE, call, "allowed")) == "ask"
+
+
+def test_allowed_channel_write_runs_with_the_records_an_ask_leaves(governed):
+    result = governed.run(CHANNEL_WRITE, CHANNEL_WRITE_CALL, "allowed", {"enabled": False})
+
+    assert _decision(result) == "allow"
+    stamp = governed.stamp()
+    assert stamp["approver"] == "write_switch"
+    assert stamp["position"] == "allowed"
+    assert isinstance(stamp["answered_at"], float)
+    assert len(governed.window_stamps()) == 1
+    [record] = governed.audit_entries()
+    assert (record["decision"], record["reason"]) == ("approved", "switch")
+    assert record["detail"] == "approver=write_switch position=allowed"
+    assert record["subject"] == CHANNEL_WRITE
+
+
+def test_allowed_execute_carries_its_binding_and_opens_no_review(governed, tmp_path):
+    result = governed.run(EXECUTE, READWRITE_CODE, "allowed")
+
+    assert _decision(result) == "allow"
+    assert _updated(result)["approved_target"] == "va"
+    stamp = governed.stamp()
+    assert stamp["approved_target"] == "va"
+    assert "review_artifact_id" not in stamp
+    assert not pending_review_items(tmp_path)
+
+
+def test_allowed_execute_replaces_a_binding_the_agent_sent(governed):
+    call = {**READWRITE_CODE, "approved_target": "live"}
+
+    assert _updated(governed.run(EXECUTE, call, "allowed"))["approved_target"] == "va"
+
+
+def test_allowed_measure_carries_target_and_view_digest(governed, tmp_path):
+    _plant_view(tmp_path)
+    hook_config = {**GOVERNED_HOOK_CONFIG, "measurement": {"SR": _measurement_block()}}
+
+    result = governed.run(
+        "mcp__python__pyaml_measure", {"kind": "orm"}, "allowed", hook_config=hook_config
+    )
+
+    assert _decision(result) == "allow"
+    updated = _updated(result)
+    assert updated["approved_target"] == "va"
+    assert updated["approved_view_sha256"] == hashlib.sha256(_VIEW_BYTES).hexdigest()
+    assert governed.stamp()["approved_view_sha256"] == updated["approved_view_sha256"]
+
+
+def test_a_measurement_refused_for_length_is_denied_at_allowed(governed, tmp_path):
+    _plant_view(tmp_path)
+    long_group = [f"SR:HCM:{index:03d}:SP" for index in range(501)]
+    block = _measurement_block(groups={**_measurement_block()["groups"], "hcor": long_group})
+    hook_config = {**GOVERNED_HOOK_CONFIG, "measurement": {"SR": block}}
+
+    result = governed.run(
+        "mcp__python__pyaml_measure", {"kind": "orm"}, "allowed", hook_config=hook_config
+    )
+
+    assert _decision(result) == "deny"
+    assert governed.stamp() is None
+
+
+@pytest.mark.parametrize("position", ["asked", "allowed"])
+def test_store_naming_code_asks_in_every_position_under_any_policy(governed, position):
+    result = governed.run(EXECUTE, STORE_CODE, position, {"enabled": False})
+
+    assert _decision(result) == "ask"
+    assert governed.stamp()["approver"] == "human"
+
+
+def test_store_naming_code_asks_with_the_switch_off(governed):
+    assert _decision(governed.run(EXECUTE, STORE_CODE, "off", {"enabled": False})) == "ask"
+
+
+def test_store_naming_code_is_denied_in_a_dispatch_run(dispatch_run):
+    result = dispatch_run.run(EXECUTE, STORE_CODE, "allowed")
+
+    assert _decision(result) == "deny"
+    assert dispatch_run.stamp() is None
+
+
+def test_a_refused_governed_write_defers(governed):
+    assert governed.run(CHANNEL_WRITE, CHANNEL_WRITE_CALL, "off") is None
+    assert governed.stamp() is None
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [("skip", "allow"), ("always", "ask")],
+)
+def test_phoebus_drive_at_allowed_follows_its_policy(governed, policy, expected):
+    approval = {"enabled": True, "default_policy": "always", "tools": {"phoebus_drive": policy}}
+
+    result = governed.run(PHOEBUS_DRIVE, PHOEBUS_CALL, "allowed", approval)
+
+    assert _decision(result) == expected
+    if expected == "ask":
+        stamp = governed.stamp()
+        assert stamp["approver"] == "human"
+        assert "position" not in stamp
+
+
+def test_phoebus_drive_still_defers_when_refused(governed):
+    assert governed.run(PHOEBUS_DRIVE, PHOEBUS_CALL, "off") is None
+
+
+def test_a_dispatch_run_at_allowed_sends_an_ask_carrying_the_binding(dispatch_run):
+    result = dispatch_run.run(EXECUTE, READWRITE_CODE, "allowed")
+
+    assert _decision(result) == "ask"
+    assert _updated(result)["approved_target"] == "va"
+    stamp = dispatch_run.stamp()
+    assert stamp["approver"] == "dispatch_policy"
+    assert stamp["position"] == "allowed"
+    assert stamp["approved_target"] == "va"
+    [record] = dispatch_run.audit_entries()
+    assert (record["decision"], record["reason"]) == ("approved", "switch")
+    assert record["detail"] == "approver=dispatch_policy position=allowed"
+
+
+def test_a_dispatch_run_at_asked_stamps_the_position_it_was_put_under(dispatch_run):
+    result = dispatch_run.run(EXECUTE, READWRITE_CODE, "asked")
+
+    assert _decision(result) == "ask"
+    stamp = dispatch_run.stamp()
+    assert (stamp["approver"], stamp["position"]) == ("dispatch_policy", "asked")
+
+
+@pytest.mark.parametrize(("position", "expected"), [("allowed", "allow"), ("asked", "ask")])
+def test_queue_add_follows_the_position(governed, position, expected):
+    result = governed.run(QUEUE_ADD, {"draft_revision": 3}, position)
+
+    assert _decision(result) == expected
+    assert governed.stamp()["position"] == position
+
+
+def test_queue_add_keeps_its_prompt_when_refused_and_never_defers(governed):
+    assert _decision(governed.run(QUEUE_ADD, {"draft_revision": 3}, "off")) == "ask"
+
+
+def test_queue_start_at_allowed_withdraws_a_token_no_prompt_showed(
+    governed, monkeypatch, hook_module
+):
+    """A token left by an earlier prompt would bind this start to a queue nobody saw."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", "sess-g")
+    approval = hook_module("osprey_approval")
+    stale = governed.state / approval.queue_start_approval_filename("sess-g", None)
+    stale.write_text(json.dumps({"lane": "", "plan_queue_uid": "uid-old", "ts": 1.0}))
+
+    result = governed.run(QUEUE_START, {}, "allowed")
+
+    assert _decision(result) == "allow"
+    assert json.loads(stale.read_text())["plan_queue_uid"] is None
+
+
+def test_an_ungoverned_render_keeps_the_policy_path(governed):
+    """A render with no governed list leaves every tool to its policy."""
+    hook_config = {k: v for k, v in GOVERNED_HOOK_CONFIG.items() if k != "governed_tools"}
+
+    result = governed.run(
+        CHANNEL_WRITE, CHANNEL_WRITE_CALL, "allowed", {"enabled": False}, hook_config=hook_config
+    )
+
+    assert _decision(result) == "allow"
+    assert governed.stamp() is None

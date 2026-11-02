@@ -20,9 +20,10 @@ downloads one.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
+
+from tests._playwright import chromium_available
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -30,21 +31,8 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 _MIN_DISTINCT_COLOURS = 10
 
 
-def _chromium_available() -> bool:
-    """Whether Playwright's Chromium binary is present on this host."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return False
-    p = sync_playwright().start()
-    try:
-        return Path(p.chromium.executable_path).exists()
-    finally:
-        p.stop()
-
-
 def test_saved_scatter3d_artifact_exports_a_drawn_plot(tmp_path, monkeypatch):
-    if not _chromium_available():
+    if not chromium_available():
         pytest.skip("Playwright Chromium is not installed")
 
     go = pytest.importorskip("plotly.graph_objects")

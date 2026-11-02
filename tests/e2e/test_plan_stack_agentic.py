@@ -162,6 +162,7 @@ from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from osprey_connectors import posture_store
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._deploy_support import wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
@@ -217,9 +218,9 @@ QUEUE_CONTROL = frozenset(
 # Ports + names for the live stack (the deploy scaffold at the end of this
 # module). Every published port is deliberately outside BOTH the thousand-port
 # block a deployment claims from ``deployment.port_base`` (10000-10999 at the
-# default base — bridge, tiled, panels and the telemetry gateway in the
-# services band, postgres, mongodb and the telemetry store in the stores band; the VA's Channel Access 5064 is the
-# one port the base does not move) and every sibling e2e module's pinned port,
+# default base — bridge, tiled and panels in the services band, postgres and
+# mongodb in the stores band; the VA's Channel Access 5064 is the one port the
+# base does not move) and every sibling e2e module's pinned port,
 # so this module can run on a shared dev machine beside an already-deployed
 # tutorial stack —
 # and beside any sibling suite — without touching, or being blocked by,
@@ -239,9 +240,6 @@ QUEUE_CONTROL = frozenset(
 #               (5064 is _orm_stack's default, which the tutorial holds)
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
 #               25434 test_bluesky_web_deploy
-#   telemetry   gateway 24318 / store 28123 test_bluesky_queue_e2e
-#               24319 / 28124 test_bluesky_deploy · 24320 / 28125 test_tiled_roundtrip
-#               24321 / 28126 test_bluesky_web_deploy
 #   mongodb     no sibling pins one — the archiver's Mongo published the
 #               service default, and a tutorial stack deployed on this host
 #               holds it. The preflight refuses to touch any container when a
@@ -256,8 +254,6 @@ PANELS_PORT = 18097
 TILED_PORT = 18193
 VA_CA_PORT = 15066
 POSTGRES_PORT = 25435
-TELEMETRY_GATEWAY_PORT = 24322
-TELEMETRY_STORE_PORT = 28127
 MONGODB_PORT = 27117
 
 #: Compose project this module deploys under. Container names and locally-built
@@ -1262,9 +1258,9 @@ def assert_restart_reprompted(events: list[HookEvent], traces: list[ToolTrace]) 
     asked twice for one consent-worthy action — refusal recovery, which this
     module never punishes. What must hold instead: the gate fired at least
     once, every arming prompt was answered allow (this test's operator wants
-    the restart), no OTHER queue-control tool prompted (same configuration
-    caveat as :func:`assert_one_approval_per_plan_version` — add and remove are
-    hook-disarmed on this deployment), and exactly one start SUCCEEDED.
+    the restart), no OTHER queue-control tool prompted except the re-staging
+    add, which the switch at ``asked`` asks on too (remove is hook-disarmed on
+    this deployment), and exactly one start SUCCEEDED.
     """
     prompts = [e for e in events if e.tool_name == QUEUE_START]
     assert prompts, (
@@ -1274,19 +1270,23 @@ def assert_restart_reprompted(events: list[HookEvent], traces: list[ToolTrace]) 
         f"  every approval prompt, in order: "
         f"{[(e.tool_name, e.decision) for e in events] or '(none)'}"
     )
-    denied = [e for e in prompts if e.decision != "allow"]
+    denied = [
+        e for e in events if e.tool_name in (QUEUE_START, QUEUE_ADD) and e.decision != "allow"
+    ]
     assert not denied, (
         f"{len(denied)} arming prompt(s) were answered deny — this test's "
         "operator approves the restart, so a denial means the policy matched "
         f"a call it should not have (inputs: {[e.tool_input for e in denied]})"
     )
     other = [
-        e.tool_name for e in events if e.tool_name in QUEUE_CONTROL and e.tool_name != QUEUE_START
+        e.tool_name
+        for e in events
+        if e.tool_name in QUEUE_CONTROL and e.tool_name not in (QUEUE_START, QUEUE_ADD)
     ]
     assert not other, (
         f"queue-control tools other than the arming step prompted for consent "
-        f"on the way to the restart: {other}. Clearing the interruption and "
-        "re-staging are hook-disarmed on this deployment; a new consent "
+        f"on the way to the restart: {other}. Clearing the interruption is "
+        "hook-disarmed on this deployment; a new consent "
         "appearing there is a gate this test did not arm"
     )
     successful = [t for t in traces if t.name == QUEUE_START and not t.is_error]
@@ -3116,9 +3116,9 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
 #:
-#: - ``services.postgresql.port_host`` / ``services.telemetry_gateway.port`` /
-#:   ``services.telemetry_store.port`` are CONFIG keys — those services are in the preset's config template, so a
-#:   dotted key under ``config:`` edits them in place.
+#: - ``services.postgresql.port_host`` is a CONFIG key — that service is in the
+#:   preset's config template, so a dotted key under ``config:`` edits it in
+#:   place.
 #: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
 #:   (see ``profiles/presets/control-assistant.yml``). Their ``services.*``
@@ -3141,9 +3141,14 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: dropping those flags there would silently take the Tiled sidecar out of this
 #: stack rather than fail loudly.
 #:
-#: The queue ``approval.tools`` keys disarm the approval hook for exactly the
-#: queue tools the agent needs (``_REQUIRED_TOOLS``, ``_RENDERED_UNASKED``), and only in this rendered
-#: test project. They are a SECOND gate, independent of the ``settings.json``
+#: ``queue_add`` and ``queue_start`` are machine writes, so no ``approval.tools``
+#: key reaches them: the login's switch decides whether they ask, and the stack
+#: arms it at ``allowed`` (see :func:`deployed_scan_stack`). ``queue_remove``
+#: keeps its policy.
+#:
+#: The queue ``approval.tools`` key disarms the approval hook for the queue tool
+#: the agent needs that the switch does not govern, and only in this rendered
+#: test project. It is a SECOND gate, independent of the ``settings.json``
 #: promotion below: ``promote_ask_to_allow`` moves a tool between
 #: ``permissions.ask`` and ``permissions.allow``, while
 #: ``.claude/hooks/osprey_approval.py`` reads its per-tool policy from
@@ -3163,10 +3168,9 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 _EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
-        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
-        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
-        "approval.tools.queue_add": "skip",
-        "approval.tools.queue_start": "skip",
+        # The admin tier's ceiling: the preset ships `asked`, which caps the
+        # switch at the position that prompts, and the stack arms `allowed`.
+        "control_system.writes": "allowed",
         "approval.tools.queue_remove": "skip",
         # The authoring pair, for the hysteresis test only in practice: this
         # disarms the HOOK gate stack-wide, but ``settings.json`` still lists
@@ -3334,22 +3338,17 @@ def _describe_queue_deployment(repo: Path) -> None:
 
     limits = _orm_stack.channel_limits(repo)
     view = SimulatorView.open(SimulatorView.path_for_project(repo.parent / f"{repo.name}.limits"))
-    bounded = next(
-        (
-            address
-            for address in sorted(_facility_select.corrector_addresses(view))
-            if view.channel(address).value_range is not None
-        ),
-        None,
-    )
-    assert bounded is not None, "the facility's limits.yaml bounds no corrector"
-    (binding,) = (b for b in view.bindings(role="setpoint") if b.address == bounded)
+    found = _facility_select.bounded_corrector_of(view)
+    assert found is not None, "the facility's limits.yaml bounds no corrector"
+    bounded, _readback, model = found
+    binding = view.binding(bounded)
+    assert binding is not None, f"corrector {bounded} has no served binding"
     other_plane = sorted(
         b.address
-        for b in view.bindings(role="setpoint", model=binding.model)
+        for b in view.bindings(role="setpoint", model=model)
         if b.plane is not None and b.plane != binding.plane
     )
-    assert other_plane, f"model {binding.model} wires no corrector of a second plane"
+    assert other_plane, f"model {model} wires no corrector of a second plane"
 
     limits_file = repo / "data" / "facility" / "limits.yaml"
     document = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
@@ -3421,8 +3420,10 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # `osprey up` refuses to start without.
     _orm_stack.seed_repo_env(repo)
     # The plans write, and the worker's writes follow the add's owner's switch:
-    # this login's switch on in the deployment's record, before `up`.
-    arm_deployed_queue_owner(repo)
+    # this login's switch in the deployment's record, before `up`. At `allowed`
+    # the queue steps run with nobody asked, which a headless measurement needs;
+    # the gate tests move it to `asked` (approval_hook_armed_for).
+    arm_deployed_queue_owner(repo, position="allowed")
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
@@ -3462,7 +3463,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         # HTTP readiness is not enqueue readiness -- the worker namespace an
@@ -4031,52 +4032,39 @@ def _one_action_approval_policy(tool_name: str, _tool_input: dict[str, Any]) -> 
 
 @contextmanager
 def approval_hook_armed_for(repo: Path, tool: str) -> Iterator[None]:
-    """Restore the SHIPPED approval gate on one queue tool for one test.
+    """Restore the SHIPPED approval gate on the queue's arming call for one test.
 
     ``tool`` is the bare tool name (``queue_start``, ``queue_add``) — the
-    arming call for the posture the test found the queue in. ``_EXTRA_CONFIG``
-    pins ``approval.tools.<tool>: skip`` on this deployment so the headless
-    measurement tests can run at all (an "ask" they cannot answer is a hard
-    denial). A gate test needs the opposite: the prompt has to fire so there
-    is a transcript to count. Dropping the key puts the tool back on
-    ``approval.default_policy``, which ships ``always`` — the same gate a real
-    deployment has, reached the same way, rather than a gate this test
-    invented.
+    arming call for the posture the test found the queue in. Both are machine
+    writes, so the login's switch decides whether they ask, and the stack arms
+    it at ``allowed`` so the headless measurement tests can run at all (an
+    "ask" they cannot answer is a hard denial). A gate test needs the opposite:
+    the prompt has to fire so there is a transcript to count. Moving the switch
+    to ``asked`` puts every governed write back on a person's answer — the gate
+    a real deployment has at ``asked``, reached the same way, rather than a
+    gate this test invented. It is the position, not one tool: at ``asked`` a
+    staging ``queue_add`` asks too.
 
-    Edits the RENDER's ``config.yml``, which is what the host-side
-    ``.claude/hooks/osprey_approval.py`` reads (no ``OSPREY_CONFIG`` is
-    exported for an SDK session, so the hook falls back to the config beside
-    the ``.claude/`` directory the session obeys). Nothing in the deployed
-    containers reads it — they were configured at ``osprey up`` — and no MCP
-    server reads the ``approval`` block, so this moves one gate and nothing
-    else.
-
-    The original TEXT is restored, not a re-serialization: this file is shared
-    with every other test in the module and with two more attempts of this one
-    under ``flaky``, and a round-tripped YAML would quietly reformat it.
+    Moves this login's switch in the deployment's record, which the host-side
+    ``.claude/hooks/osprey_approval.py`` and the bridge worker both read; both
+    positions arm the machine, so the worker's writes are unchanged. The switch
+    is put back at ``allowed`` afterwards: the record is shared with every other
+    test in the module and with two more attempts of this one under ``flaky``.
 
     Raises:
-        AssertionError: if the key is not there to remove — the module's
-            ``_EXTRA_CONFIG`` changed, and this context manager would
-            otherwise be a silent no-op that leaves the test asserting a
+        AssertionError: if ``tool`` is not one of the queue's arming calls, for
+            which the switch would decide nothing and the test would assert a
             prompt that can never fire.
     """
-    config_path = render_dir(repo) / "config.yml"
-    original = config_path.read_text(encoding="utf-8")
-    config = yaml.safe_load(original) or {}
-    tools = (config.get("approval") or {}).get("tools") or {}
-    assert tool in tools, (
-        f"{config_path} has no approval.tools.{tool} to remove (approval "
-        f"tools: {sorted(tools)}). This test arms the {tool} prompt by "
-        "dropping the module's `skip` override; with the override already "
-        "gone it would be arming nothing"
+    assert tool in (bluesky_tool_names.QUEUE_ADD, bluesky_tool_names.QUEUE_START), (
+        f"{tool!r} is not a queue arming call, so the switch does not decide "
+        "whether it asks and moving it would arm nothing"
     )
-    del config["approval"]["tools"][tool]
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    arm_deployed_queue_owner(repo, position="asked")
     try:
         yield
     finally:
-        config_path.write_text(original, encoding="utf-8")
+        arm_deployed_queue_owner(repo, position="allowed")
 
 
 def _trace_version(trace: ToolTrace) -> Any:
@@ -4186,12 +4174,10 @@ def assert_one_approval_per_plan_version(
     The closing clause reads every queue-control tool, not just the arming one,
     so a consent appearing anywhere else on the way to motion — a stop, a
     confirmation-shaped step — fails here rather than passing as "still one per
-    version". Note what it does NOT prove on a stopped queue: ``queue_add`` is
-    ask-gated in the shipped posture too, and its prompt is absent from that
-    transcript only because this deployment pins
-    ``approval.tools.queue_add: skip`` (see ``_EXTRA_CONFIG``). Composing a plan
-    and arming the queue are separate consents by design; the count this feature
-    moved is the arming one.
+    version". On a stopped queue the switch at ``asked`` also asks on the
+    staging ``queue_add``: composing a plan and arming the queue are separate
+    consents by design, so those prompts are held to an allow answer and left
+    out of the count, which is the arming one.
     """
     assert arming_tool in (QUEUE_ADD, QUEUE_START), (
         f"{arming_tool!r} is not a call that arms a queue, so there is no plan "
@@ -4262,7 +4248,16 @@ def assert_one_approval_per_plan_version(
         f"matched a tool it should not have (inputs: {[e.tool_input for e in denied]})"
     )
 
-    queue_prompts = [e.tool_name for e in events if e.tool_name in QUEUE_CONTROL]
+    # At `asked` the switch asks on every governed write, so on a stopped queue
+    # the staging add is a consent of its own before the start.
+    staging = [e for e in events if arming_tool == QUEUE_START and e.tool_name == QUEUE_ADD]
+    assert all(e.decision == "allow" for e in staging), (
+        f"a staging queue_add prompt was answered {[e.decision for e in staging]!r} — "
+        "this test's operator approves staging the plan"
+    )
+    queue_prompts = [
+        e.tool_name for e in events if e.tool_name in QUEUE_CONTROL and e not in staging
+    ]
     assert queue_prompts == [arming_tool] * len(arming), (
         f"the run stopped for a human on {queue_prompts}. The arming step is the "
         "only consent this flow leaves, one per plan version. A consent anywhere "

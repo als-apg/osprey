@@ -29,10 +29,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
@@ -41,6 +39,7 @@ from osprey_connectors.factory import (
 )
 from osprey_connectors_tests._harness import isolated_connector_registries
 from tests._builds import BuiltProject, copy_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.facility.served_tree import in_process_config
 
 # The epics block a scaffolded Control Assistant renders: the app template's
@@ -59,14 +58,9 @@ from tests.facility.served_tree import in_process_config
 SCAFFOLDED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _build(runner: CliRunner, repo: Path) -> None:
+def _build(repo: Path) -> None:
     """Render *repo*'s build/ zone, failing the test if it does not."""
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
 
@@ -95,11 +89,11 @@ def _serve_in_process(runner: CliRunner, repo: Path) -> None:
     """
     result = runner.invoke(set_cmd, ["--repo", str(repo), SERVE_IN_PROCESS])
     assert result.exit_code == 0, result.output
-    _build(runner, repo)
+    _build(repo)
 
 
 def _load_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    return rendered_config(repo)
 
 
 @pytest.fixture(scope="module")

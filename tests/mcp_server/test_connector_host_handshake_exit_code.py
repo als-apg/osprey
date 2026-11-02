@@ -67,7 +67,7 @@ async def test_a_child_error_frame_during_init_is_a_spawn_refusal():
             await _launch_request("live", process, proxy, "init", {}, 10.0, "spawn", 2.0)
     finally:
         await proxy.disconnect(ack_timeout=0.0)
-        await process.wait()
+        await asyncio.wait_for(process.wait(), 10.0)
 
     assert caught.value.reason == REASON_SPAWN_FAILED
     assert "failed 'init':" in caught.value.detail

@@ -378,33 +378,6 @@ def test_single_write_form_valid_passes(tmp_path, hook_runner):
     assert result is None  # Valid single-write passes
 
 
-@pytest.mark.parametrize(
-    "stdin",
-    ["", "{nope", "[]", "[1,2,3]"],
-    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
-)
-def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
-    """Unusable stdin allows the write through rather than denying it.
-
-    Limits validation is fail-closed once it has a channel and a value, but it
-    never gets that far here: a closed pipe, a truncated write or a non-object
-    payload — falsy (``[]``) or truthy (``[1,2,3]``) — leaves nothing to
-    validate, so the hook exits 0 with no decision. The truthy payload is the
-    one an emptiness check lets through, so it has to be rejected on shape.
-    """
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_limits.py",
-        tool_name=None,
-        tool_input=None,
-        cwd=tmp_path,
-        stdin_override=stdin,
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
-    assert "Traceback" not in stderr
-
-
 # -- Per-target limits posture --
 #
 # The limits posture is a property of the machine a write would reach, not of

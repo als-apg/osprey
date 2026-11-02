@@ -44,7 +44,7 @@ def _get_configured_provider_names() -> set[str] | None:
         for role_config in model_configs.values():
             if isinstance(role_config, dict) and "provider" in role_config:
                 providers.add(role_config["provider"])
-        return providers if providers else None
+        return providers or None
     except Exception:
         return None
 

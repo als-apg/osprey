@@ -330,3 +330,54 @@ def test_a_deferred_call_leaves_no_record_for_the_tool_to_accept(
     refusal = _record_check("channel_write", "toolu_deferred")
     assert refusal is not None
     assert refusal.error_type == APPROVAL_MISSING
+
+
+# ---------------------------------------------------------------------------
+# Governed render: the position changes the prompt, never the agreement
+# ---------------------------------------------------------------------------
+
+GOVERNED_HOOK_CONFIG = {
+    **HOOK_CONFIG,
+    "governed_tools": ["mcp__controls__channel_write", "mcp__python__execute"],
+}
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "tool_input"),
+    [
+        pytest.param("mcp__controls__channel_write", CHANNEL_WRITE_INPUT, id="channel_write"),
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "write_channel('RING:QF:SP', 1.5)", "execution_mode": "readwrite"},
+            id="execute",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("position", "expected"), [(None, None), ("asked", "ask"), ("allowed", "allow")]
+)
+def test_a_governed_write_is_denied_exactly_where_it_defers(
+    tmp_path, hook_runner, tool_name, tool_input, position, expected
+):
+    config = _config(tmp_path, TWO_TARGETS)
+    write_control_context(
+        tmp_path / "var" / "agent_data",
+        target="va",
+        generation=3,
+        switch={"va": position} if position else None,
+    )
+
+    def run(hook):
+        return _decision(
+            hook_runner(
+                hook,
+                tool_name,
+                tool_input,
+                config_path=config,
+                cwd=tmp_path,
+                hook_config=GOVERNED_HOOK_CONFIG,
+            )
+        )
+
+    assert (run("osprey_writes_check.py") == "deny") == (position is None)
+    assert run("osprey_approval.py") == expected

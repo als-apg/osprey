@@ -347,9 +347,11 @@ def _code_spans(text: str) -> list[tuple[int, int]]:
     if start is not None:
         fences.append((start, len(text)))
     spans = list(fences)
-    for m in _INLINE_CODE_RE.finditer(text):
-        if not any(a <= m.start() < b for a, b in fences):
-            spans.append(m.span())
+    spans.extend(
+        m.span()
+        for m in _INLINE_CODE_RE.finditer(text)
+        if not any(a <= m.start() < b for a, b in fences)
+    )
     return sorted(spans)
 
 

@@ -73,8 +73,42 @@ for the ones that answered and names the unknown address under ``missing``
 ``refused`` row beside the rows that were written.
 
 A Channel Access connector cannot tell an unknown name from an unreachable one
--- a search that finds nothing times out -- so it reports a connection error
-for both.
+-- a search that finds nothing times out -- so it reports
+``ChannelUnreachableError`` for both.
+
+Connection Failures
+-------------------
+
+A connector separates a failure about one channel from the loss of the
+connector itself, and the supervisor that owns the connector's lifetime acts
+on the difference:
+
+- ``ChannelUnreachableError`` -- one channel could not be reached, or did not
+  answer in time. It names the channel under ``channel_address`` and is no
+  ``ConnectionError``: the connector keeps serving every other channel, and
+  nothing is restarted. The controls tools report it as error type
+  ``channel_unreachable``, naming the channel under ``details.channel``.
+- ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
+  context, its service or its connector-host child. It is a
+  ``ConnectionError``. Its supervisor replaces the connector once per
+  instance or child, however many calls saw it fail, and attaches what it did
+  as the error's ``recovery``. A bare ``ConnectionError`` from a connector that
+  does not say which is treated the same way.
+
+A child that misses a call's deadline is pinged: one that answers is kept, one
+that does not is replaced. The controls tools report a lost connector as
+``connection_error`` and a missed deadline as ``timeout_error``, with the
+supervisor's records under ``details.recovery`` (see :doc:`partial-answers`).
+A call that finds the connector-host child already dead is refused, the
+refusal names the fresh child the supervisor started on the same target, and
+the next call is served by it.
+
+Every failure about one channel -- an unreachable or unknown channel, a
+refused, failed or limits-violating write -- is a ``ChannelError`` whose
+``channel_address`` names the channel, in process or across the connector
+host. The registry that carries failures across the host is derived from
+``osprey_connectors.errors``: each public class there crosses as itself, and a
+connector's own subclass crosses as the nearest public class it extends.
 
 Write Confirmation
 ------------------
@@ -132,7 +166,9 @@ there to be shown, not parsed.
 ``unconfirmed``; the mismatch message names both the value sent and the value
 observed. The ``channel_write`` MCP tool reports the outcome for every channel
 instead of raising, so the agent can describe a batch in which some channels
-took the value and others did not.
+took the value and others did not. A call where no value reached any channel is
+refused, with the same rows under ``details.results`` (see
+:doc:`partial-answers`).
 
 Switching confirmation off
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -184,27 +220,34 @@ Who May Write
 Three facts decide a write. This section is the contract every other page
 points to.
 
-**The tier key** says whether a login may write at all:
+**The tier key** is the furthest position a login may put its switch at:
 
 .. code-block:: yaml
 
    control_system:
-     writes: allowed          # or never; silence is never
+     writes: asked            # never | asked | allowed; silence is never
 
 It is spelled in ``tiers/*.yml``, in the deployment root for the root or
 single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
-overrides the root. Only the string ``allowed`` arms; any other value, and no
-key at all, reads ``never``. The tier is a ceiling, not a selection: an
-``allowed`` tier may write to every machine the deployment configures, and the
-switch picks which. Connector blocks carry transport facts only. On a
-``never`` render the build denies the write tools outright, so they are
-refused before any per-call check.
+overrides the root. Only ``asked`` and ``allowed`` arm; any other value, and no
+key at all, reads ``never``. The tier is a ceiling, not a selection: an armed
+tier may write to every machine the deployment configures, and the switch picks
+which and how. Connector blocks carry transport facts only. On a ``never``
+render the build denies the write tools outright, so they are refused before
+any per-call check.
 
-**The switch** is one login's, per machine, and off until that login turns it
-on from :ref:`the control-target chip <web-terminal-session-posture>`. It is
-read on every write, so a flip reaches a session already running. Turning it
-off is never refused. A demoted login's "on" stays on disk and does nothing
-while its tier is ``never``.
+**The switch** is one login's, per machine, set from :ref:`the control-target
+chip <web-terminal-session-posture>` to *off* (writes refused, the default),
+*asked* (every governed write prompts a person) or *allowed* (governed writes
+run unprompted). It is read on every write, so a move reaches a session already
+running. Moving it to off is never refused. A position past the tier acts as
+the tier, and arms again when the tier is restored.
+
+**The governed set** is the tools the position decides for: ``channel_write``,
+write-mode ``execute`` and ``execute_file``, ``pyaml_measure``, ``queue_add``,
+``queue_start``, and every declared facility write tool wired to both the
+writes check and the approval hook. ``approval.*`` keys have no say over them;
+every other tool keeps its ``approval.tools.<tool>`` policy.
 
 **The verdict** combines them. One total order of terms; the first that
 refuses names the reason:
@@ -221,32 +264,37 @@ refuses names the reason:
      - the run is read-only.
    * - 2
      - ``tier_never``
-     - the render's tier is not ``allowed``.
+     - the render's tier is ``never``.
    * - 3
+     - ``session_held``
+     - the session has an unanswered hold (:ref:`reference-watchdog`). A write
+       about to execute meets this term through ``execution_verdict``; a process
+       with no session or no hold store is never held.
+   * - 4
      - ``target_unknown``
      - the machine does not resolve in this deployment.
-   * - 4
+   * - 5
      - ``owner_unknown`` / ``owner_unscheduled`` / ``owner_foreign``
      - no login can be named for the write; a scheduled or triggered job runs
        for no login; or the owner is not the login this process acts for.
-   * - 5
+   * - 6
      - ``owner_unknown`` / ``tier_never``
      - in a shared container, the owner is missing from the login→tier map,
        or mapped ``never``.
-   * - 6
+   * - 7
      - ``record_unavailable``
      - the owner's switch record cannot be read. An absent record is not
-       unavailable: it is every switch off.
-   * - 7
-     - ``switch_off``
-     - the owner's switch is not on for this machine.
+       unavailable: it is every switch at ``off``.
    * - 8
+     - ``switch_off``
+     - the owner's switch is at ``off`` for this machine.
+   * - 9
      - ``launch_pinned``
      - the run was started with writes held off for this machine.
 
 Two reasons come from outside the verdict: the EPICS connector refuses
 ``switching`` while its write gateway has not yet followed the switch, and the
-chip refuses a turn-on with ``stopped_since`` when a stop landed after it
+chip refuses a widening with ``stopped_since`` when a stop landed after it
 began. The package's verdict, the connector and the stdlib hook twin share the
 order above, so a write is refused for the same reason on every side.
 
@@ -288,10 +336,10 @@ Earlier releases armed writes per connector type, with
   refused from 2026.11.0.
 - **A render built before this release** is not reread with the old rule: at
   run time it has no tier key and reads ``never`` until it is rebuilt.
-- **Every switch starts off.** After the rebuild, nothing writes until a login
-  turns a machine on from the chip. A scheduled dispatch job or a queue item
-  with no owner no longer writes at all.
-- **A shell on a write tier is refused at build.** On an ``allowed`` render, a
+- **Every machine starts at off.** After the rebuild, nothing writes until a
+  login moves a machine's switch from the chip. A scheduled dispatch job or a
+  queue item with no owner no longer writes at all.
+- **A shell on a write tier is refused at build.** On an armed render, a
   ``claude_code.permissions.remove_deny`` that lifts ``Bash`` or ``Monitor``
   fails the build: a shell reaches the switch and the connectors around every
   gate. On a ``never`` render it stays a warning.
@@ -304,7 +352,7 @@ Earlier releases armed writes per connector type, with
   ``mcp_servers.<server>.writes``.
 - **Shared containers read a login→tier map.** The Bluesky queue and dispatch
   workers carry every login's job, so the build renders
-  ``control_system.login_tiers`` (``{login: allowed | never}``) into their
+  ``control_system.login_tiers`` (``{login: never | asked | allowed}``) into their
   config from the roster. A write there needs the container's tier, the
   owner's mapped tier and the owner's switch; an owner the map does not name
   is refused ``owner_unknown``. Nothing at run time writes the map: rebuild

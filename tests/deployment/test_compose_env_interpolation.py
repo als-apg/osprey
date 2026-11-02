@@ -44,9 +44,9 @@ from __future__ import annotations
 import pytest
 
 from osprey.deployment import container_lifecycle, service_tokens
+from osprey.deployment.dotenv import compose_unsafe_vars
 from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.web_terminals import auth_credentials, env_production, provision
-from osprey_connectors.dotenv import compose_unsafe_vars
 
 # ---------------------------------------------------------------------------
 # The detection helper

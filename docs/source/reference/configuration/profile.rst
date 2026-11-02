@@ -209,9 +209,9 @@ the framework reads and what it falls back to when no line spells it.
      # Control system: which backend the deployment talks to. Required — see
      # the posture floor below.
      control_system.type: virtual_accelerator
-     # The tier key: may this render write at all. `allowed` or `never`
-     # (silence is `never`); each login still turns a machine on from the chip.
-     control_system.writes: allowed
+     # The tier key: how far a login's switch may go. `never`, `asked` or
+     # `allowed` (silence is `never`); each login still arms a machine from the chip.
+     control_system.writes: asked
      # Limits checking. This pair is the deployment's, and every type
      # inherits it: `exclusive` = only channels in the limits file can be
      # written, `optional` = channels in the file are held to their limits and
@@ -233,7 +233,7 @@ the framework reads and what it falls back to when no line spells it.
      # just a display label.
      system.timezone: America/Los_Angeles
 
-     # Approval policy
+     # Approval policy for the tools the write switch does not govern
      approval.enabled: true
      approval.default_policy: always
 
@@ -393,7 +393,7 @@ Three rules follow from the catalog being the one home for these facts:
 The posture floor
 =================
 
-Six config keys have no safe unstated answer, so ``osprey build`` refuses a
+Five config keys have no safe unstated answer, so ``osprey build`` refuses a
 deployment that leaves one of them silent rather than letting a reader's
 fallback decide. The refusal names the dotted key and ``profile.yml``. The gate
 reads the *rendered* config, so a key a preset's ``config:`` block spelled, an
@@ -413,18 +413,49 @@ injector wrote, or a tier inherited counts as stated.
        archiver factory picks the history the deployment reports
    * - ``approval.enabled``
      - the ``approval`` hook is in the profile's ``hooks:`` list; this key is
-       whether it prompts at all
+       whether it prompts for a tool the write switch does not govern
    * - ``approval.default_policy``
      - the ``approval`` hook is in the profile's ``hooks:`` list; this key is
-       what it does with a tool nothing named
-   * - ``claude_code.telemetry.enabled``
-     - always
+       what it does with an ungoverned tool nothing named
    * - ``hooks.debug``
      - always
 
 A render that switches the controls server off — every bundled app
 does — is asked for neither control-system key: it has no
 control system to state a type for.
+
+.. _profile-code-review:
+
+Code review
+===========
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 25 45
+
+   * - Key
+     - Default
+     - Value
+   * - ``code_review.enabled``
+     - ``false``
+     - ``true`` or ``false``; a present section with no ``enabled`` key reads as off
+   * - ``code_review.level``
+     - ``block``
+     - ``flag`` or ``block``
+   * - ``code_review.prompt``
+     - ``data/code_review/reviewer.md``
+     - The reviewer's prompt file; a relative path is anchored at the repository root
+   * - ``code_review.modes``
+     - ``[readwrite]``
+     - The execution modes reviewed on a Python run
+   * - ``code_review.time_limit``
+     - ``60``
+     - Seconds one review may take
+
+The feature requires the ``code-review`` and ``memory-guard`` hooks in the profile's ``hooks:``
+list. A change in the rendered ``config.yml`` applies on the next call, and only ``time_limit``
+needs ``osprey build`` and a session reload. :doc:`/how-to/control-systems/code-review` sets
+it up; :ref:`architecture-safety-chain-code-review` says what it does.
 
 .. _profile-preset-drift:
 
@@ -664,11 +695,11 @@ writes-check hook instead.) A ``never`` profile that also writes
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.
 
-An ``allowed`` tier renders differently. The login's switch decides each write
+An armed tier renders differently. The login's switch decides each write
 at run time, so nothing is denied up front. A write tool whose rule carries
 both the writes-check hook and an approval hook leaves ``ask``: with the switch
 off, writes-check refuses it before any operator is offered an approval for a
-write the switch forbids; with it on, the approval hook asks. A tool missing
+write the switch forbids; at *asked*, the approval hook asks. A tool missing
 either hook keeps its static ``ask``. The boundary is carried per call by the
 safety hook and by the connector behind it (:ref:`write-safety-config`). The
 static deny is the stronger of the two, so reach for a ``never`` tier whenever
@@ -897,7 +928,7 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
      services.graphdb.path: ./services/graphdb
      services.graphdb.image: neo4j:5.26-community
      # ... the JVM and query-bound keys the preset also ships
-     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]
+     deployed_services: [postgresql, qmd, graphdb]
 
 The mode reads the same ``services.graphdb`` block when the store is one the
 facility already runs and this deployment only connects to. The keys that
@@ -914,7 +945,7 @@ taking away:
      services.graphdb.uri: bolt://graph.facility.org:7687
      services.graphdb.username: neo4j
      # DEVIATION: graphdb is the facility's store, so deployed_services drops it
-     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd]
+     deployed_services: [postgresql, qmd]
 
 Those are structural differences from the preset — two added keys and a dropped
 list member — which is why the marker comments are there. Without them
@@ -956,8 +987,8 @@ DSN).
 
 An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,
-the graph store's bolt port, the Postgres the logbook lives in, the telemetry
-store's port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
+the graph store's bolt port, the Postgres the logbook lives in, the Bluesky
+bridge, the EVENTS and BLUESKY tab URLs — is copied
 from the hosting deployment's own render into each tier and app built beside
 it, so a service moved on the hosting profile moves every render with it, and
 the bundled tier and app files pin none of them. A tier or app that spells one

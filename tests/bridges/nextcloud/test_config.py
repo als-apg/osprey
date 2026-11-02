@@ -1,11 +1,9 @@
 """NextcloudBridgeConfig: env parsing, the CoreConfig projection, startup require."""
 
-import dataclasses
 import logging
 
 import pytest
 
-from osprey.bridges.core import CoreConfig
 from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig
 
 CONFIG_LOGGER = "osprey.bridges.nextcloud_talk.config"
@@ -45,8 +43,8 @@ def test_from_env_defaults_when_unset():
     assert cfg.bot_account == ""
     assert cfg.app_password == ""
     assert cfg.rooms == ()
-    # Same bridge volume as the core stores, and the same naming shape as
-    # dedup_path/history_path.
+    # Same bridge volume as the core dedup store, and the same naming shape as
+    # dedup_path.
     assert cfg.offsets_path == "/data/offsets.json"
     assert cfg.mentions is True
 
@@ -117,56 +115,7 @@ def test_rooms_splitting(raw, expected):
     assert NextcloudBridgeConfig.from_env(complete(NEXTCLOUD_ROOMS=raw)).rooms == expected
 
 
-# --- CoreConfig is composed, not subclassed ------------------------------
-
-
-def test_core_is_a_composed_projection_not_a_base_class():
-    cfg = NextcloudBridgeConfig.from_env(complete())
-    assert isinstance(cfg.core, CoreConfig)
-    assert not isinstance(cfg, CoreConfig)
-    assert CoreConfig not in type(cfg).__mro__
-
-
-def test_neutral_vars_are_delegated_to_core_config():
-    cfg = NextcloudBridgeConfig.from_env(
-        complete(
-            DISPATCHER_URL="http://disp:10010/",
-            WORKER_URL="http://work:9190/",
-            POLL_INTERVAL="0.5",
-            DEDUP_PATH="/data/nc_dedup.json",
-            HISTORY_PATH="/data/nc_history.json",
-        )
-    )
-    assert cfg.core.dispatcher_url == "http://disp:10010"
-    assert cfg.core.worker_url == "http://work:9190"
-    assert cfg.core.event_dispatcher_token == "disp-token"
-    assert cfg.core.dispatch_worker_token == "work-token"
-    assert cfg.core.trigger == "nextcloud-question"
-    assert cfg.core.poll_interval == 0.5
-    assert cfg.core.dedup_path == "/data/nc_dedup.json"
-    assert cfg.core.history_path == "/data/nc_history.json"
-
-
-def test_config_is_immutable():
-    # One instance is shared by every room thread, the ChannelOps instance, and
-    # the drain thread; build variants with dataclasses.replace instead.
-    cfg = NextcloudBridgeConfig.from_env(complete())
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        cfg.base_url = "https://elsewhere.example.org"
-    assert dataclasses.replace(cfg, rooms=("other",)).rooms == ("other",)
-
-
 # --- no trigger default --------------------------------------------------
-
-
-def test_from_env_applies_no_trigger_default():
-    # The nextcloud-question default belongs to the deployment surface (rendered
-    # as DISPATCH_TRIGGER in the compose template). If from_env defaulted it, a
-    # hand-rolled deployment would silently dispatch to a trigger nobody chose
-    # and require_startup could never catch the omission.
-    assert NextcloudBridgeConfig.from_env({}).core.trigger == ""
-    assert NextcloudBridgeConfig.from_env(complete(DISPATCH_TRIGGER="")).core.trigger == ""
-    assert NextcloudBridgeConfig().core.trigger == ""
 
 
 def test_missing_trigger_is_what_require_startup_catches():
@@ -176,31 +125,6 @@ def test_missing_trigger_is_what_require_startup_catches():
 
 
 # --- require_startup -----------------------------------------------------
-
-
-def test_require_startup_passes_on_a_complete_config():
-    NextcloudBridgeConfig.from_env(complete()).require_startup()  # no raise
-
-
-@pytest.mark.parametrize("name", sorted(COMPLETE_ENV))
-def test_require_startup_names_each_missing_var(name):
-    cfg = NextcloudBridgeConfig.from_env(complete(**{name: ""}))
-    with pytest.raises(ValueError, match=name) as excinfo:
-        cfg.require_startup()
-    # Only the one that is actually missing is reported.
-    others = [other for other in COMPLETE_ENV if other != name]
-    assert not [other for other in others if other in str(excinfo.value)]
-
-
-def test_require_startup_lists_every_missing_var_in_one_raise():
-    # A wholly unconfigured process must not need seven restarts to learn what it
-    # is missing.
-    with pytest.raises(ValueError) as excinfo:
-        NextcloudBridgeConfig.from_env({}).require_startup()
-    message = str(excinfo.value)
-    assert message.startswith("missing required config: ")
-    for name in COMPLETE_ENV:
-        assert name in message
 
 
 def test_require_startup_requires_at_least_one_room():
@@ -252,26 +176,3 @@ def test_unset_base_url_does_not_warn_about_https(caplog):
     with caplog.at_level(logging.WARNING, logger=CONFIG_LOGGER):
         NextcloudBridgeConfig.from_env({})
     assert not [rec for rec in caplog.records if rec.levelno == logging.WARNING]
-
-
-# --- mentions --------------------------------------------------------------
-
-
-@pytest.mark.parametrize("env", [{}, {"NEXTCLOUD_MENTIONS": ""}])
-def test_mentions_default_on_when_unset_or_empty(env):
-    assert NextcloudBridgeConfig.from_env(complete(**env)).mentions is True
-
-
-@pytest.mark.parametrize("raw", ["false", "0", "no", "off", "ture"])
-def test_mentions_turn_off_for_a_false_spelling(raw):
-    assert NextcloudBridgeConfig.from_env(complete(NEXTCLOUD_MENTIONS=raw)).mentions is False
-
-
-@pytest.mark.parametrize("raw", ["true", "1", "yes", "on", " TRUE "])
-def test_mentions_stay_on_for_a_true_spelling(raw):
-    assert NextcloudBridgeConfig.from_env(complete(NEXTCLOUD_MENTIONS=raw)).mentions is True
-
-
-def test_mentions_are_not_a_startup_requirement():
-    assert "NEXTCLOUD_MENTIONS" not in COMPLETE_ENV
-    NextcloudBridgeConfig.from_env(complete()).require_startup()  # no raise

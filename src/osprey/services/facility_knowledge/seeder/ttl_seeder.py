@@ -218,8 +218,9 @@ def _render_schema_table(channels: list[ChannelRow]) -> str:
         "| Channel | PV | Signal | Direction |",
         "| ------- | -- | ------ | --------- |",
     ]
-    for row in channels:
-        lines.append(f"| {row.channel} | {row.pv} | {row.signal} | {row.direction} |")
+    lines.extend(
+        f"| {row.channel} | {row.pv} | {row.signal} | {row.direction} |" for row in channels
+    )
     return "\n".join(lines) + "\n"
 
 

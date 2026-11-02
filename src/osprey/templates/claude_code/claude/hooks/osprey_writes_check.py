@@ -42,7 +42,7 @@ stdin ──► Parse JSON
            (hook_write_target) framework tool ──► session target
               │
               ▼
-         write_verdict
+         execution_verdict
          allows?          ──YES──► EXIT (allow)
               │
              NO
@@ -65,8 +65,8 @@ order:
    session's target, and a facility write tool (a whole-server `writes_check`
    custom server, or a `control_system.write_tools` entry) writes to `live`,
    because only the real machine's switch covers a tool the deployment
-   declared. The twin's `write_verdict` then decides, term for term with the
-   connector's reference monitor. A whole-server facility server is gated
+   declared. The twin's `execution_verdict` then decides: the session's hold,
+   and `write_verdict` term for term with the connector's reference monitor. A whole-server facility server is gated
    whole, reads included: nothing in the render tells its reads from its
    writes.
 
@@ -120,6 +120,14 @@ try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
+
+#: The read-only run, restated from ``osprey_connectors.posture_env``: the
+#: variable and the one value of it that sandboxes. Spelled here rather than
+#: taken from the reader above, because stage 1 must answer even where that
+#: sibling is missing. ``tests/hooks/test_posture_store_parity.py`` holds both
+#: equal to the connector module's.
+EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
+SANDBOX_MODE = "readonly"
 
 #: The hook_config key naming the tools stage 2 leaves to their own lane gate.
 #: Short names, so an `extends` clone of the server — which renames only the
@@ -280,10 +288,28 @@ def _stage_two(hook_input, tool_name, short_name):
             # The verdict on no machine refuses: `target_unknown`, unless an
             # earlier term (the tier) refuses first.
             target = None
-        verdict = _target_state.write_verdict(section, target, hook_input=hook_input)
+        verdict = _target_state.execution_verdict(section, target, hook_input=hook_input)
         return verdict.allowed, verdict.reason, verdict.target, verdict.kind
     except Exception:
         return refused
+
+
+def _lane_tool_held(hook_input):
+    """Whether the session's hold refuses a lane-addressed tool at this hook.
+
+    A lane says which machine a call reaches, and a hold covers every machine
+    of the session, so the lane carve-out does not apply to it. This answer only
+    spares the operator a prompt for a write that cannot run: the audit clamp and
+    the tool's own gate refuse it regardless, so a failure here answers ``False``.
+    """
+    if _target_state is None:
+        return False
+    try:
+        config = load_osprey_config(hook_input)
+        section = config.get("control_system") if isinstance(config, dict) else None
+        return _target_state.hold_applies(section)
+    except Exception:
+        return False
 
 
 def _emit_deny(reason, kind=None):
@@ -383,11 +409,13 @@ def main():
     # It sits *after* the execute-readonly exit above: a readonly execution is
     # exactly what a read-only run is for. It sits *before* the queue exit
     # below, so a read-only run cannot arm a Bluesky lane either.
-    if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
+    if os.environ.get(EXECUTION_MODE_ENV_VAR) == SANDBOX_MODE:
         _deny(hook_input, tool_name, "readonly_run")
 
     # -- Stage 2: the write verdict, for the machine the call writes to ---
     if _is_lane_addressed(short_name):
+        if _lane_tool_held(hook_input):
+            _deny(hook_input, tool_name, "session_held")
         log_hook("writes-check", hook_input, status="allow", detail="lane_addressed")
         sys.exit(0)
 

@@ -34,9 +34,10 @@ from osprey.deployment.container_lifecycle import (
     _env_file_args,
     _write_env_merged_for_compose,
 )
+from osprey.deployment.dotenv import ENV_MERGED_BANNER
 from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.runtime_helper import ComposeProvider
-from osprey_connectors.dotenv import ENV_MERGED_BANNER, parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 
 def write_chain(repo: Path, shared: str | None = None, local: str | None = None) -> Path:

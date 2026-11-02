@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
@@ -289,18 +288,17 @@ def test_readonly_imports_syntax_error_is_not_an_issue_here():
 # ---------------------------------------------------------------------------
 
 
-def _audit_records(root):
+def _audit_records(recorded_entries):
+    """Every ``executor`` audit entry in the record, oldest first."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
 
-    return ledger_records(root / "var" / "audit", SURFACE_EXECUTOR)
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_EXECUTOR]
 
 
-async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
+async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch, recorded_entries):
     """The import denylist refusal names the layer and keeps the offending code."""
-    from osprey.audit import writer
-
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
 
     code = "import epics\nepics.caput('SR:CORR:SP', 1.0)\n"
     fn = _get_python_execute()
@@ -309,19 +307,16 @@ async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
         with assert_raises_error(error_type="safety_error"):
             await fn(code=code, description="import a client", execution_mode="readonly")
 
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "import_denylist"
     assert record["source"] == code
     assert "description=import a client" in record["detail"]
     assert "epics" in record["detail"]
 
 
-async def test_a_clean_readonly_run_writes_no_audit_record(tmp_path, monkeypatch):
+async def test_a_clean_readonly_run_writes_no_audit_record(tmp_path, monkeypatch, recorded_entries):
     """The log must stay a record of refusals, not of executions."""
-    from osprey.audit import writer
-
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
 
     fn = _get_python_execute()
     with patch(
@@ -335,7 +330,7 @@ async def test_a_clean_readonly_run_writes_no_audit_record(tmp_path, monkeypatch
             save_output=False,
         )
 
-    assert _audit_records(tmp_path) == []
+    assert _audit_records(recorded_entries) == []
 
 
 def _clean_result():
@@ -366,12 +361,10 @@ def _raw_refusal_stderr():
     )
 
 
-async def _report(tmp_path, monkeypatch, *, stderr, execution_mode):
-    from osprey.audit import writer
+async def _report(tmp_path, monkeypatch, recorded_entries, *, stderr, execution_mode):
     from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
     alerts: list[str] = []
 
     async def _alert(_tool, _kind, *, detail):
@@ -385,17 +378,23 @@ async def _report(tmp_path, monkeypatch, *, stderr, execution_mode):
         description="nudge a corrector",
         execution_mode=execution_mode,
     )
-    return reported, _audit_records(tmp_path), alerts
+    return reported, _audit_records(recorded_entries), alerts
 
 
-async def test_a_raw_client_write_refusal_is_recorded_and_alerted_once(tmp_path, monkeypatch):
+async def test_a_raw_client_write_refusal_is_recorded_and_alerted_once(
+    tmp_path, monkeypatch, recorded_entries
+):
     """Marker present in a readwrite run: exactly one record and one alert."""
     import pwd
 
     from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 
     reported, records, alerts = await _report(
-        tmp_path, monkeypatch, stderr=_raw_refusal_stderr(), execution_mode="readwrite"
+        tmp_path,
+        monkeypatch,
+        recorded_entries,
+        stderr=_raw_refusal_stderr(),
+        execution_mode="readwrite",
     )
 
     assert reported is True
@@ -409,11 +408,14 @@ async def test_a_raw_client_write_refusal_is_recorded_and_alerted_once(tmp_path,
     assert alerts == ["BLOCKED a control-system write in readwrite mode (raw_client_write)"]
 
 
-async def test_a_readwrite_run_without_the_marker_reports_nothing(tmp_path, monkeypatch):
+async def test_a_readwrite_run_without_the_marker_reports_nothing(
+    tmp_path, monkeypatch, recorded_entries
+):
     """Marker absent: neither a record nor an alert — an ordinary error is not a refusal."""
     reported, records, alerts = await _report(
         tmp_path,
         monkeypatch,
+        recorded_entries,
         stderr="Traceback (most recent call last):\nValueError: bad value\n",
         execution_mode="readwrite",
     )
@@ -423,13 +425,16 @@ async def test_a_readwrite_run_without_the_marker_reports_nothing(tmp_path, monk
     assert alerts == []
 
 
-async def test_readonly_runtime_guard_reporting_is_unchanged(tmp_path, monkeypatch):
+async def test_readonly_runtime_guard_reporting_is_unchanged(
+    tmp_path, monkeypatch, recorded_entries
+):
     """The readonly guard still reports as ``runtime_guard``, without a ``ca_user`` stamp."""
     from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
 
     reported, records, alerts = await _report(
         tmp_path,
         monkeypatch,
+        recorded_entries,
         stderr=f"RuntimeError: {READONLY_REFUSAL_MARKER}: refused a write to SR:CORR:SP\n",
         execution_mode="readonly",
     )
@@ -443,11 +448,15 @@ async def test_readonly_runtime_guard_reporting_is_unchanged(tmp_path, monkeypat
 
 
 async def test_a_raw_client_marker_in_a_readonly_run_is_not_filed_as_a_raw_write(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, recorded_entries
 ):
     """Only readwrite runs arm the raw-put block, so only they match its marker."""
     reported, records, alerts = await _report(
-        tmp_path, monkeypatch, stderr=_raw_refusal_stderr(), execution_mode="readonly"
+        tmp_path,
+        monkeypatch,
+        recorded_entries,
+        stderr=_raw_refusal_stderr(),
+        execution_mode="readonly",
     )
 
     assert reported is False

@@ -35,10 +35,10 @@ from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
     PROJECT_LABEL,
     REPO_ID_LABEL,
-    audit_identity_dir,
     repo_identity,
-    resolve_project_name,
+    resolve_user_projects_volume_name,
     resolve_user_volume_names,
+    state_identity_dir,
 )
 from osprey.deployment.container_ownership import (
     ClaimBasis,
@@ -47,12 +47,18 @@ from osprey.deployment.container_ownership import (
     deployment_containers,
     first_container_name,
 )
-from osprey.deployment.errors import NoComposeFilesError
-from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
+from osprey.deployment.deployment_record import (
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    read_deployment_record,
+)
+from osprey.deployment.errors import DeploymentError, DeploymentRecordError, NoComposeFilesError
+from osprey.deployment.runtime_helper import get_ps_command
 from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
+from osprey_connectors.types import TIER_WORDS
 
 logger = get_logger("deployment.status")
 
@@ -160,7 +166,7 @@ def _parse_container_time(raw):
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _container_started_at(container, config):
+def _container_started_at(container, runtime):
     """When this container's CURRENT incarnation started, or ``None``.
 
     Free when the runtime already said so: podman's ``ps --format json`` carries
@@ -170,7 +176,7 @@ def _container_started_at(container, config):
     marker. A healthy deployment therefore pays nothing for this.
 
     :param container: One decoded ``ps`` record
-    :param config: Rendered config, for runtime selection; may be ``None``
+    :param runtime: The runtime the last start recorded
     :return: The start instant in UTC, or ``None`` when it could not be read
     """
     started = _parse_container_time(container.get("StartedAt"))
@@ -181,9 +187,8 @@ def _container_started_at(container, config):
     if name == "unknown":
         return None
     try:
-        runtime_bin = get_runtime_command(config)[0]
         result = subprocess.run(
-            [runtime_bin, "inspect", "-f", "{{.State.StartedAt}}", name],
+            [runtime, "inspect", "-f", "{{.State.StartedAt}}", name],
             capture_output=True,
             text=True,
             timeout=10,
@@ -196,11 +201,11 @@ def _container_started_at(container, config):
         return None
 
 
-def _preflight_refusal_reason(repo_root, identity, container, config):
+def _preflight_refusal_reason(repo_root, identity, container, runtime):
     """Why *identity*'s web terminal refused to start, when it just did.
 
     The read half of the contract ``osprey web`` writes: on a pre-flight refusal
-    it writes ``<audit dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
+    it writes ``<state dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
     line 1 and the findings, ``- `` prefixed, below it. Under
     ``restart: unless-stopped`` the container is then restarted forever, and a
     status table that says only "Restarting" makes an operator go read logs to
@@ -213,14 +218,14 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     that did not refuse. A marker whose timestamp cannot be parsed is treated as
     no marker at all.
 
-    Every failure — an unreadable audit zone, an identity that is not a legal
+    Every failure — an unreadable state zone, an identity that is not a legal
     path segment, a runtime that will not answer — degrades to ``None``. This is
     an annotation on a read-only report and must never be able to take it down.
 
-    :param repo_root: The deployment repo root, which the audit zone hangs off
-    :param identity: The roster username, which is also its audit identity
+    :param repo_root: The deployment repo root, which the state zone hangs off
+    :param identity: The roster username, which is also its state identity
     :param container: The user's decoded ``ps`` record
-    :param config: Rendered config, for runtime selection; may be ``None``
+    :param runtime: The runtime the last start recorded
     :return: The reason, truncated to :data:`PREFLIGHT_REASON_MAX_CHARS`, or ``None``
     :rtype: str | None
     """
@@ -230,14 +235,14 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 
     try:
-        marker = audit_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
+        marker = state_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
         if not marker.is_file():
             return None
         lines = marker.read_text(encoding="utf-8").splitlines()
         written = _parse_container_time(lines[0]) if lines else None
         if written is None:
             return None
-        started = _container_started_at(container, config)
+        started = _container_started_at(container, runtime)
         if started is not None and written < started:
             return None
 
@@ -286,7 +291,7 @@ def _container_display_name(container):
     return first_container_name(container) or "unknown"
 
 
-def _query_containers(config):
+def _query_containers(config, runtime):
     """Every container on this host, or ``None`` when the runtime could not say.
 
     ``ps -a``, so a stopped container is part of the answer: "the database
@@ -298,12 +303,16 @@ def _query_containers(config):
     list. A runtime that is not running would otherwise render as a tidy
     "nothing is deployed", which is the one wrong answer that looks right.
 
-    :param config: Rendered config, for runtime selection; may be ``None``
+    :param config: Rendered config, for the services it declares; may be ``None``
+    :param runtime: The runtime the last start recorded
     :return: Decoded ``ps`` records, or ``None`` when the query failed
     """
     try:
         result = subprocess.run(
-            get_ps_command(config, all_containers=True), capture_output=True, text=True, timeout=10
+            get_ps_command(config, all_containers=True, runtime=runtime),
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode != 0:
             output.fail(
@@ -359,15 +368,16 @@ def _no_runtime_and_none_needed(config):
     return no_container_runtime_installed()
 
 
-def _existing_volume_names(config):
+def _existing_volume_names(runtime):
     """Names of every volume the runtime has, or ``None`` when it could not say.
 
     Read-only: volumes are listed, never created or removed.
+
+    :param runtime: The runtime the last start recorded
     """
     try:
-        runtime_bin = get_runtime_command(config)[0]
         result = subprocess.run(
-            [runtime_bin, "volume", "ls", "--format", "{{.Name}}"],
+            [runtime, "volume", "ls", "--format", "{{.Name}}"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -385,6 +395,26 @@ def _existing_volume_names(config):
 # ---------------------------------------------------------------------------
 # Tables
 # ---------------------------------------------------------------------------
+
+
+def _recorded_deployment(repo_root):
+    """The deployment record status reports on, or ``None`` after saying why not.
+
+    With no record nothing has been deployed from this repo, and a record that
+    cannot be read names no deployment either; each is printed once, and the
+    caller then asks the runtime nothing.
+
+    :param repo_root: The deployment repo
+    :return: The record, or ``None`` when there is none to report on
+    """
+    try:
+        record = read_deployment_record(Path(repo_root))
+    except DeploymentRecordError as exc:
+        output.fail("The deployment record is unreadable", str(exc), "osprey up rewrites it")
+        return None
+    if record is None:
+        output.fail(NOTHING_DEPLOYED)
+    return record
 
 
 def _create_status_table():
@@ -450,7 +480,7 @@ def _container_table(containers):
     return table
 
 
-def _show_web_terminal_users(config, all_containers, repo_root=None):
+def _show_web_terminal_users(config, all_containers, repo_root, record: DeploymentRecord):
     """Print the per-user web terminal table, when this deployment has one.
 
     One row per rostered user: whether their container exists and what state it
@@ -460,9 +490,10 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     Silently does nothing when web terminals are off or the roster is empty:
     there is no table to draw, and an empty one would suggest otherwise.
 
-    :param repo_root: The deployment repo, whose ``var/audit/<user>`` holds the
-        pre-flight refusal markers. ``None`` means "not known here", and the
-        state cells are then exactly what they have always been.
+    :param repo_root: The deployment repo, whose ``var/state/<user>`` holds the
+        pre-flight refusal markers.
+    :param record: The deployment record: the project whose containers and
+        volumes are looked up, and the runtime they are asked of.
     """
     modules_cfg = config.get("modules", {})
     web_terminals_cfg = (
@@ -474,14 +505,14 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     if not (web_terminals_cfg.get("enabled") and user_names):
         return
 
-    project = resolve_project_name(config)
+    project = record.compose_project
 
-    by_name = {}
+    by_name: dict[str, dict] = {}
     for container in all_containers:
         for name in container_names(container):
             by_name.setdefault(name, container)
 
-    existing_volumes = _existing_volume_names(config)
+    existing_volumes = _existing_volume_names(record.runtime)
 
     def _format_volume_status(volume_name):
         """One volume cell, pre-styled -- see :func:`_format_state` on markup."""
@@ -495,19 +526,23 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     table.add_column("User", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Container", style=Styles.PRIMARY)
     table.add_column("Claude Config Volume", style=Styles.INFO)
+    table.add_column("Transcripts Volume", style=Styles.INFO)
     table.add_column("Agent Data Volume", style=Styles.INFO)
 
     output.report("")
     output.section("Web Terminal Users:", ())
     for user in user_names:
         container = by_name.get(web_container_name(project, user))
-        claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
+        claude_config_volume, agent_data_volume = resolve_user_volume_names(
+            {"project_name": project}, user
+        )
+        transcripts_volume = resolve_user_projects_volume_name({"project_name": project}, user)
         # Only for a container that EXISTS: a marker names why a launch refused,
         # and there is no launch to explain for a user whose container was never
         # created — nor any start time to date the marker against.
         preflight_reason = (
-            _preflight_refusal_reason(repo_root, user, container, config)
-            if (container is not None and repo_root is not None)
+            _preflight_refusal_reason(repo_root, user, container, record.runtime)
+            if container is not None
             else None
         )
         table.add_row(
@@ -516,6 +551,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
             if container is None
             else _format_state(container.get("State", "unknown"), preflight_reason),
             _format_volume_status(claude_config_volume),
+            _format_volume_status(transcripts_volume),
             _format_volume_status(agent_data_volume),
         )
     output.table(table)
@@ -555,14 +591,20 @@ def show_status(
         [str(service) for service in deployed_services] if deployed_services else []
     )
 
-    # The same resolver the deploy path pins as COMPOSE_PROJECT_NAME and stamps
-    # into container labels. Status compares that label against this value, so
-    # anything less than the shared resolver mis-classifies a project whose name
-    # compose normalized (e.g. "Demo_Project!" is labelled "demo_project"), and
-    # its own containers show up under "other Osprey containers".
-    current_project = resolve_project_name(config)
+    # This legacy verb is handed the project's own config.yml; the repo root,
+    # the record and the state zone all hang off the directory holding it.
+    repo_root = Path(config_path).resolve().parent
+    record = _recorded_deployment(repo_root)
+    if record is None:
+        return
 
-    all_containers = _query_containers(config)
+    # The project the last start pinned as COMPOSE_PROJECT_NAME and stamped into
+    # container labels. Status compares that label against this value, so a
+    # project a later rebuild renamed still finds its own containers instead of
+    # listing them under "other Osprey containers".
+    current_project = record.compose_project
+
+    all_containers = _query_containers(config, record.runtime)
     if all_containers is None:
         return
 
@@ -588,10 +630,7 @@ def show_status(
         output.section("Other Osprey Containers:", ())
         output.table(_container_table(other_containers))
 
-    # Same derivation of the repo root as the staleness check above: this legacy
-    # verb is handed the project's own config.yml, and the audit zone hangs off
-    # the directory holding it.
-    _show_web_terminal_users(config, all_containers, Path(config_path).resolve().parent)
+    _show_web_terminal_users(config, all_containers, repo_root, record)
 
     output.report("")
 
@@ -729,27 +768,28 @@ def _partition_by_checkout(containers, identity, project_name, services):
 def _print_containers_section(repo_root, config):
     """Print what is running for this deployment, and what else is on the host.
 
-    Returns every container the runtime reported, so the caller can answer the
-    per-user web-terminal questions from the same single ``ps`` rather than
-    querying twice.
+    Returns every container the runtime reported, with the record that named
+    the project and runtime, so the caller can answer the per-user web-terminal
+    questions from the same single ``ps`` rather than querying twice.
 
-    Without a build there is no rendered config to read the project name out of,
-    so it falls back to the directory name — which is what compose itself would
-    derive, and is stated as a derivation rather than presented as the recorded
-    name. The label match does not depend on it either way.
+    The project and runtime are the ones the last start recorded. With no
+    record, or one that cannot be read, that is said and nothing is queried.
 
-    :return: All containers, or ``None`` when the runtime could not be queried
+    :return: ``(containers, record)``, or ``None`` when there is no record or
+        the runtime could not be queried
     """
+    output.report("")
+    record = _recorded_deployment(repo_root)
+    if record is None:
+        return None
     identity = repo_identity(repo_root)
-    project_name = resolve_project_name(config) if config else Path(repo_root).name
+    project_name = record.compose_project
     # Without a build there is no deployed service list, so nothing is claimed
     # by name.
     services = [str(s) for s in config.get("deployed_services", []) or []] if config else ()
-    provenance = "project" if config else "project, from the directory name"
 
-    output.report("")
-    output.section("Containers", [(provenance, project_name)])
-    all_containers = _query_containers(config)
+    output.section("Containers", [("project", project_name)])
+    all_containers = _query_containers(config, record.runtime)
     if all_containers is None:
         return None
 
@@ -805,7 +845,7 @@ def _print_containers_section(repo_root, config):
         output.section("Other OSPREY containers on this host:", ())
         output.table(_container_table(others))
 
-    return all_containers
+    return all_containers, record
 
 
 def _absolute_compose_files(compose_files, repo_root):
@@ -961,7 +1001,7 @@ def _artifact_drift(repo_root, build_dir, config):
 # the content-capture gates are exactly the facts an operator opens ``osprey
 # status`` to read, and a blanket mask over the block would leave the section
 # with nothing to say. One entry is different — the OTLP headers block carries
-# the observability store's authorization header, a directly decodable
+# the launch's agent-record login as a Basic authorization header, a directly decodable
 # credential — and a status report is read on a shared terminal and pasted into
 # tickets.
 #
@@ -1029,7 +1069,6 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
         dropped_alias_key_facts,
         load_provider_spec,
     )
-    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
     from osprey.cli.validate_claude_artifacts import agent_file_models
     from osprey.models.display import display_model_name
     from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
@@ -1056,30 +1095,6 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # ``_auth_availability`` below, which looks for the credential in
             # the same env chain this expansion reads.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
-        except ObservabilityCredentialError:
-            # Ahead of the broad handler on purpose, and load-bearing: resolving
-            # the provider also resolves the telemetry block, so a missing
-            # observability credential arrives here as a failure to read the
-            # provider. Reported as one, an operator goes and checks a provider
-            # that was never wrong. Behind the ``except Exception`` below this
-            # branch would never run while still reading as if it did.
-            #
-            # Names only — the exception text can carry the credential field's
-            # value, and a status report is printed to a shared terminal and
-            # pasted into tickets. The remedy is the name of the setting and
-            # the file it belongs in.
-            spec = None
-            troubles.append(
-                (
-                    "telemetry: the observability backend's credentials are missing or "
-                    "unresolved, so the provider could not be resolved",
-                    "Run `osprey build` to write each sender's gateway login "
-                    "(.env.telemetry-sender.<identity>), or set the variable "
-                    "claude_code.telemetry.auth.token_env names in "
-                    f"{repo_root / '.env'}, then rerun. The provider configuration "
-                    "itself is not the problem.",
-                )
-            )
         except Exception as exc:
             spec = None
             troubles.append(
@@ -1126,8 +1141,9 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # the spec this section already holds, because the resolver's own
             # records for them are INFO and the drift check below resolves the
             # provider a second time: one report, one sentence per fact.
-            for sentence in dropped_alias_key_facts(spec):
-                troubles.append((sentence, DROPPED_ALIAS_KEY_REMEDY))
+            troubles.extend(
+                (sentence, DROPPED_ALIAS_KEY_REMEDY) for sentence in dropped_alias_key_facts(spec)
+            )
             substitution = alias_substitution(spec)
             if substitution:
                 troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))
@@ -1209,9 +1225,13 @@ TIER_NOT_IN_ROSTER = "not in the roster — cannot write"
 #: refuses every write it governs, so this is never shown as "off".
 RECORD_UNREADABLE = "record unreadable — writes refused"
 
-#: The suffix on a login's switched-on machines while its tier is ``never``:
-#: the "on" stays recorded and arms again only if the tier is lifted (O-3).
-INERT_UNDER_NEVER = "on — tier never, inert"
+#: The suffix on a login's armed machines while its tier is ``never``: the
+#: positions stay recorded and arm again only if the tier is lifted (O-3).
+INERT_UNDER_NEVER = "— tier never, inert"
+
+#: The mark on a machine stored at ``allowed`` under an ``asked`` ceiling: writes
+#: there still prompt, and the position is live again if the ceiling is lifted.
+CAPPED_AT_ASKED = "(capped: asked)"
 
 
 def _staged_login_tiers(repo_root):
@@ -1244,19 +1264,19 @@ def _staged_login_tiers(repo_root):
 
 
 def _mapped_tier(section, login):
-    """*login*'s entry in the staged map *section*: ``allowed``, ``never`` or ``unknown``.
+    """*login*'s entry in the staged map *section*: a tier word, or ``unknown``.
 
-    Read as the write verdict reads it
-    (:func:`~osprey_connectors.posture_store.owner_tier_term`), so a malformed
-    map is unreadable as a whole; no staged map (*section* ``None``) is
-    ``unknown`` too.
+    The ceiling a shared container's write verdict applies, under its bound
+    tree (:func:`~osprey_connectors.posture_store.write_ceiling`), so a
+    malformed map is unreadable as a whole; no staged map (*section* ``None``)
+    is ``unknown`` too.
     """
-    from osprey_connectors.posture_store import owner_tier_term
+    from osprey_connectors.posture_store import write_ceiling
 
     if section is None:
         return "unknown"
-    tier = owner_tier_term(section, login)
-    return tier if tier in ("allowed", "never") else "unknown"
+    tier = write_ceiling(section, login, tree_bound=True)
+    return tier if tier in TIER_WORDS else "unknown"
 
 
 def _login_tiers(config, repo_root, section=None):
@@ -1316,8 +1336,19 @@ def _recorded_identities(tree):
         return []
 
 
+def _position_entry(target, position, tier):
+    """One armed machine as ``target:position``, marked when *tier* caps it at ``asked``.
+
+    *tier* is the login's ceiling (:func:`_mapped_tier`, or the deployment's
+    own tier); ``never`` is marked on the whole list instead.
+    """
+    if tier == "asked" and TIER_WORDS.index(position) > TIER_WORDS.index(tier):
+        return f"{target}:{position} {CAPPED_AT_ASKED}"
+    return f"{target}:{position}"
+
+
 def writes_rows(config, repo_root):
-    """The Writes section's rows: ``(login, tier, target, writes on)``, all strings.
+    """The Writes section's rows: ``(login, tier, target, writes)``, all strings.
 
     One row per person in the roster (in roster order), then one per identity
     that holds a record and is not in the roster (sorted): at its tier in the
@@ -1325,9 +1356,18 @@ def writes_rows(config, repo_root):
     web terminals lists every identity that holds a record, each at the
     deployment's own tier. Never raises on a malformed record: a record that
     exists and cannot be used reads :data:`RECORD_UNREADABLE`, never ``off``.
+
+    The writes cell lists the machines at ``asked`` or ``allowed`` as
+    ``target:position``, ``off`` when there are none. Under a ``never`` tier the
+    list carries :data:`INERT_UNDER_NEVER`; under ``asked``, a stored ``allowed``
+    carries :data:`CAPPED_AT_ASKED`.
     """
     from osprey.deployment.compose_generator import control_target_tree_dir
-    from osprey_connectors.control_context import RECORD_FILENAME, read_record_status
+    from osprey_connectors.control_context import (
+        RECORD_FILENAME,
+        read_record_status,
+        switch_position,
+    )
     from osprey_connectors.types import tier_writes
 
     try:
@@ -1362,13 +1402,18 @@ def writes_rows(config, repo_root):
         if record is None:
             rows.append((login, tier, "—", "off"))
             continue
-        on = sorted(target for target, state in record.switch.items() if state == "on")
-        if not on:
+        positions = {target: switch_position(record, target) for target in sorted(record.switch)}
+        armed = ", ".join(
+            _position_entry(target, position, tier)
+            for target, position in positions.items()
+            if position != "off"
+        )
+        if not armed:
             writes = "off"
         elif tier == "never":
-            writes = f"{', '.join(on)} {INERT_UNDER_NEVER}"
+            writes = f"{armed} {INERT_UNDER_NEVER}"
         else:
-            writes = ", ".join(on)
+            writes = armed
         rows.append((login, tier, record.target, writes))
     return rows
 
@@ -1473,7 +1518,7 @@ def _login_state_dir(config, repo_root, login):
 
 
 def _print_writes_section(config, repo_root):
-    """Print who may write, at which machine each login points, and what is on.
+    """Print who may write, at which machine each login points, and each switch position.
 
     Read straight off each identity's control-context record; nothing is
     written, and no record is created for a login that has none. The Target
@@ -1491,13 +1536,13 @@ def _print_writes_section(config, repo_root):
     table.add_column("Login", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Tier", style=Styles.PRIMARY)
     table.add_column("Target", style=Styles.INFO)
-    table.add_column("Writes on", style=Styles.PRIMARY)
+    table.add_column("Writes (off, asked, allowed)", style=Styles.PRIMARY)
     for login, tier, target, writes in rows:
         if writes == RECORD_UNREADABLE:
             writes_cell = Text(writes, style=Styles.ERROR)
         elif writes == "off":
             writes_cell = Text(writes, style=Styles.DIM)
-        elif writes.endswith(INERT_UNDER_NEVER):
+        elif writes.endswith(INERT_UNDER_NEVER) or CAPPED_AT_ASKED in writes:
             writes_cell = Text(writes, style=Styles.WARNING)
         else:
             writes_cell = Text(writes, style=Styles.SUCCESS)
@@ -1530,9 +1575,10 @@ def show_repo_status(
       another checkout's.
     * **Endpoints** — where this deployment's services are declared to answer.
     * **Writes** — per login its tier, the target its record points at, and
-      which machines it has switched writes on for; an "on" its ``never`` tier
-      makes inert, an identity not in the roster, and a record that cannot be
-      read are each named as such.
+      each armed machine's position (``asked`` or ``allowed``, any other machine
+      is ``off``); a position its ``never`` tier makes inert, an ``allowed``
+      capped by an ``asked`` tier, an identity not in the roster, and a record
+      that cannot be read are each named as such.
     * **Agent** — the provider, whether its credential is findable, and whether
       the rendered agent artifacts still match the config.
 
@@ -1563,7 +1609,7 @@ def show_repo_status(
     output.report(str(repo_root), style=Styles.BOLD)
 
     _print_build_section(repo_root)
-    all_containers = _print_containers_section(repo_root, config)
+    observed = _print_containers_section(repo_root, config)
 
     if config is None:
         # Both remaining sections are read out of build/config.yml. Saying that
@@ -1580,8 +1626,9 @@ def show_repo_status(
         )
         if compose_files:
             _print_endpoints_section(config, compose_files, repo_root)
-        if all_containers is not None:
-            _show_web_terminal_users(config, all_containers, repo_root)
+        if observed is not None:
+            all_containers, record = observed
+            _show_web_terminal_users(config, all_containers, repo_root, record)
         _print_writes_section(config, repo_root)
         _print_agent_section(repo_root, build_dir, config, show_agents=show_agents)
 
@@ -1620,11 +1667,16 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
     containers and print nothing, which is indistinguishable here from a
     deployment whose services log nothing.
 
+    The runtime and the pinned project are the ones the last start recorded,
+    so the logs read are those of the stack that start drove.
+
     :param repo_root: The deployment repo
     :param service: One compose service name, or ``None`` for all of them
     :param follow: Pass ``-f``, so the runtime streams until interrupted
     :param tail: Pass ``--tail N``; ``None`` leaves compose's own default alone
     :return: ``(argv, env)``
+    :raises DeploymentError: When nothing has been deployed from this repo
+    :raises DeploymentRecordError: When the deployment record is unreadable
     :raises NoComposeFilesError: When ``build/`` holds no compose files to read
     :raises UnsupportedComposeProviderError: The host's compose provider is not
         one OSPREY can invoke correctly
@@ -1646,6 +1698,9 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
     from osprey.deployment.web_terminals.artifacts import web_compose_file
 
     repo_root = Path(repo_root)
+    record = read_deployment_record(repo_root)
+    if record is None:
+        raise DeploymentError(NOTHING_DEPLOYED)
     config_path = as_built_config_path(repo_root)
     if not config_path.is_file():
         raise NoComposeFilesError(
@@ -1667,7 +1722,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
             remedy="Render them:\n    osprey build",
         )
 
-    provider = _compose_provider(config)
+    provider = _compose_provider(config, runtime=record.runtime)
 
     # The shared resolver answers `[]` for a missing `.env` and warns that
     # "services will start with default/empty environment variables" on its way
@@ -1681,7 +1736,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
         _env_file_args(repo_root, provider) if (repo_root / COMPOSE_ENV_FILENAME).exists() else []
     )
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config), provider=provider),
+        with_plain_progress([record.runtime, "compose"], provider=provider),
         compose_files,
         repo_root,
         env_file_args,
@@ -1694,7 +1749,11 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
         cmd.extend(("--tail", str(tail)))
     if service:
         cmd.append(service)
-    return cmd, runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
+    return cmd, runtime_env(
+        config,
+        {**os.environ, **compose_provider_env(provider, repo_root)},
+        project=record.compose_project,
+    )
 
 
 def follow_logs(repo_root, *, service=None, follow=False, tail=None):

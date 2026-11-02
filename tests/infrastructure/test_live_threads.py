@@ -32,6 +32,7 @@ from osprey_connectors_tests._harness._live_threads import (
     registered_exit_callbacks,
     report_live_threads,
 )
+from tests._live import wait_until
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest, with_harness_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +44,13 @@ _INNER_PLUGINS = (
     "osprey_connectors_tests._harness._live_threads",
     "no:cacheprovider",
 )
+
+#: Under ``--cov`` coverage's subprocess patch hands every child process a key
+#: with this prefix, and each inner process then saves its coverage data at
+#: exit, inside the 0.5 s exit bound the inner modules set and, on a busy
+#: runner, past it. The inner run executes only pytest and test code, which
+#: coverage does not measure.
+_COVERAGE_HANDOFF_PREFIX = "COVERAGE_PROCESS_"
 
 
 def _hold(release: threading.Event) -> None:
@@ -61,7 +69,7 @@ def _already_running() -> int:
 def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
-    env = with_harness_path(outer_run_free_env())
+    env = with_harness_path(outer_run_free_env(also_drop=(_COVERAGE_HANDOFF_PREFIX,)))
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
     return run_nested_pytest(
@@ -141,14 +149,15 @@ def test_a_thread_that_finishes_within_the_grace_is_not_reported():
 
 def _wait_until_idle(name: str) -> None:
     """Return once the executor worker *name* is parked on its empty queue."""
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
+
+    def idle() -> bool:
         frames = sys._current_frames()
-        for thread in threading.enumerate():
-            if thread.name == name and _live_threads._idle_executor_worker(thread, frames):
-                return
-        time.sleep(0.01)
-    raise AssertionError(f"executor worker {name!r} never went idle")
+        return any(
+            thread.name == name and _live_threads._idle_executor_worker(thread, frames)
+            for thread in threading.enumerate()
+        )
+
+    wait_until(idle, timeout=30.0, interval=0.01, what=f"executor worker {name!r} going idle")
 
 
 def test_an_idle_executor_worker_is_not_counted():

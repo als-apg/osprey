@@ -10,11 +10,11 @@ import pytest
 
 from osprey.dispatch.worker_client import (
     WorkerAuthRejectedError,
+    WorkerRecordUnavailableError,
     WorkerRejectedRequestError,
     WorkerUnavailableError,
     WorkerUnreachableError,
     cancel_worker_run,
-    clear_worker_history,
     dispatch_to_worker,
     fetch_worker_runs,
     proxy_worker_stream,
@@ -364,43 +364,41 @@ async def test_cancel_worker_run_404_raises_dispatch_error():
 
 
 # ---------------------------------------------------------------------------
-# clear_worker_history
+# fetch_worker_runs — a worker that answers but cannot list its runs
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_clear_worker_history_success():
-    transport = _mock_transport(200, body={"cleared": 3, "records_deleted": 3})
+async def test_fetch_worker_runs_503_names_the_record_outage():
+    transport = _mock_transport(503, body={"detail": "record unavailable: connection refused"})
     with _patched_client(transport):
-        result = await clear_worker_history("http://worker:9190", token="tok")
-    assert result["cleared"] == 3
+        with pytest.raises(WorkerRecordUnavailableError, match="connection refused") as raised:
+            await fetch_worker_runs("http://worker:9190", token="tok")
+    assert isinstance(raised.value, WorkerUnavailableError)
 
 
 @pytest.mark.asyncio
-async def test_clear_worker_history_sends_delete_with_the_age_floor():
-    """The horizon rides in the body, not the URL — DELETE /dispatch/runs."""
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["method"] = request.method
-        seen["url"] = str(request.url)
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"cleared": 0}, request=request)
-
-    with _patched_client(httpx.MockTransport(handler)):
-        await clear_worker_history("http://worker:9190/", token="tok", older_than_days=7)
-
-    assert seen["method"] == "DELETE"
-    assert seen["url"] == "http://worker:9190/dispatch/runs"
-    assert seen["body"] == {"older_than_days": 7}
+async def test_fetch_worker_runs_other_5xx_is_a_typed_unavailable_error():
+    transport = _mock_transport(500, body={"detail": "boom"})
+    with _patched_client(transport):
+        with pytest.raises(WorkerUnavailableError) as raised:
+            await fetch_worker_runs("http://worker:9190", token="tok")
+    assert not isinstance(raised.value, WorkerRecordUnavailableError)
+    assert "boom" not in str(raised.value)
 
 
 @pytest.mark.asyncio
-async def test_clear_worker_history_401_raises_auth_error():
+async def test_fetch_worker_runs_401_raises_auth_error():
     transport = _mock_transport(401, body={"detail": "no"})
     with _patched_client(transport):
         with pytest.raises(WorkerAuthRejectedError):
-            await clear_worker_history("http://worker:9190", token="bad")
+            await fetch_worker_runs("http://worker:9190", token="bad")
+
+
+def test_the_client_has_no_clear_history_call():
+    from osprey.dispatch import worker_client
+
+    assert not hasattr(worker_client, "clear_worker_history")
 
 
 # ---------------------------------------------------------------------------

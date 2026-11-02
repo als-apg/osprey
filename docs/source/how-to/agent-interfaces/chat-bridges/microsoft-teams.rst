@@ -239,10 +239,10 @@ the missing variables at once.
           parenthesis. When it is unset the bridge uses the version of the
           Osprey package it is running, and drops the parenthesis only if even
           that is unavailable.
-      * - ``DEDUP_PATH``, ``HISTORY_PATH``
-        - Where the bridge keeps what it remembers. Both default to files under
-          ``/data``, its own volume; change them only if you deliberately
-          relocate that state.
+      * - ``DEDUP_PATH``
+        - Where the bridge keeps the questions it has answered. It defaults to
+          a file under ``/data``, its own volume; change it only if you
+          deliberately relocate that state.
       * - ``TZ``
         - Timezone, taken from your project configuration so timestamps match
           the rest of the stack.

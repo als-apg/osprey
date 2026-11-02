@@ -22,81 +22,26 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-import uuid as uuid_mod
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import anyio
 import pytest
 from starlette.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.websocket import _TerminalChannel
-from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from tests.interfaces.web_terminal._fakes import FakePtySession
-from tests.interfaces.web_terminal._ws import recv_json
+from tests.interfaces.web_terminal._ws import (
+    new_session_id,
+    patch_spawn,
+    recv_json,
+    resume_url,
+    seed_session_file,
+    send_resize,
+    sync_session,
+)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _uuid() -> str:
-    return str(uuid_mod.uuid4())
-
-
-def _resume_url(session_id: str) -> str:
-    """Build WS URL in resume mode (avoids session-discovery task)."""
-    return f"/ws/terminal?session_id={session_id}&mode=resume"
-
-
-def _send_resize(ws, cols: int = 80, rows: int = 24):
-    """Send the initial resize the handler waits for before spawning."""
-    ws.send_json({"type": "resize", "cols": cols, "rows": rows})
-
-
-def _sync_after_connect(ws, session_id: str):
-    """Round-trip to ensure the handler finished initial connect processing."""
-    ws.send_json({"type": "switch_session", "session_id": session_id})
-    recv_json(ws, "session_switched")
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def app(tmp_path):
-    """Create a web terminal app pointed at a temp project dir."""
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(tmp_path / "ws")},
-    ):
-        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
-
-
-@pytest.fixture()
-def sessions_dir(tmp_path, monkeypatch):
-    """Point ``SessionDiscovery`` at a tmp dir and return it.
-
-    Seed a session id's file here (see ``_seed_session_file``) before an
-    initial resume connect so ``terminal_ws``'s resume confirmation takes
-    its trusted synchronous path — the id already exists on disk — instead
-    of polling discovery, which these tests have no interest in exercising.
-    """
-    d = tmp_path / "claude_sessions"
-    d.mkdir()
-    monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: d)
-    return d
-
-
-def _seed_session_file(sessions_dir, session_id: str) -> None:
-    """Create an (empty) on-disk session file for *session_id*."""
-    (sessions_dir / f"{session_id}.jsonl").write_text("")
 
 
 # ---------------------------------------------------------------------------
@@ -107,34 +52,16 @@ def _seed_session_file(sessions_dir, session_id: str) -> None:
 class TestSessionSwitchingProtocol:
     """L1 — tests the WebSocket message protocol end-to-end."""
 
-    @staticmethod
-    def _patch_spawn(app):
-        """Replace ``_spawn_session`` so no real PTY is created.
-
-        Returns ``(registry, spawned_list)`` where *spawned_list* tracks
-        every FakePtySession created by the registry.
-        """
-        reg = app.state.pty_registry
-        spawned: list[FakePtySession] = []
-
-        def tracked_spawn(*_args, **_kwargs):
-            s = FakePtySession()
-            spawned.append(s)
-            return s
-
-        reg._spawn_session = tracked_spawn
-        return reg, spawned
-
     # -- switch_session no-op --
 
-    def test_switch_same_session_is_noop(self, app, sessions_dir):
+    def test_switch_same_session_is_noop(self, ws_app, sessions_dir):
         """Switching to the current session confirms without respawning."""
-        sid = _uuid()
-        _seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
-            _, spawned = self._patch_spawn(app)
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
+        sid = new_session_id()
+        seed_session_file(sessions_dir, sid)
+        with TestClient(ws_app) as client:
+            _, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(sid)) as ws:
+                send_resize(ws)
                 ws.send_json({"type": "switch_session", "session_id": sid})
                 msg = recv_json(ws, "session_switched")
                 assert msg["session_id"] == sid
@@ -142,14 +69,14 @@ class TestSessionSwitchingProtocol:
 
     # -- switch_session error paths --
 
-    def test_switch_invalid_uuid_returns_error(self, app, sessions_dir):
+    def test_switch_invalid_uuid_returns_error(self, ws_app, sessions_dir):
         """A non-UUID switch target is refused with an error frame and spawns nothing."""
-        sid = _uuid()
-        _seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
-            _, spawned = self._patch_spawn(app)
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
+        sid = new_session_id()
+        seed_session_file(sessions_dir, sid)
+        with TestClient(ws_app) as client:
+            _, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(sid)) as ws:
+                send_resize(ws)
                 ws.send_json({"type": "switch_session", "session_id": "not-a-uuid"})
                 msg = recv_json(ws, "error")
                 assert "Invalid" in msg["message"]
@@ -161,20 +88,20 @@ class TestSessionSwitchingProtocol:
         ["0" * 36, "-" * 36, "AAAAAAAA-1111-2222-3333-444444444444"],
         ids=["zeros-36", "dashes-36", "uppercase"],
     )
-    def test_switch_outside_the_key_grammar_spawns_nothing(self, app, sessions_dir, bad):
+    def test_switch_outside_the_key_grammar_spawns_nothing(self, ws_app, sessions_dir, bad):
         """A switch target with a transcript but outside the key grammar is refused.
 
         The operator stays on the current session: a later switch to it is the
         no-op ``session_switched``, and no second PTY was spawned or pooled.
         """
-        initial = _uuid()
-        _seed_session_file(sessions_dir, initial)
-        _seed_session_file(sessions_dir, bad)
-        with TestClient(app) as client:
-            reg, spawned = self._patch_spawn(app)
-            with client.websocket_connect(_resume_url(initial)) as ws:
-                _send_resize(ws)
-                _sync_after_connect(ws, initial)
+        initial = new_session_id()
+        seed_session_file(sessions_dir, initial)
+        seed_session_file(sessions_dir, bad)
+        with TestClient(ws_app) as client:
+            reg, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(initial)) as ws:
+                send_resize(ws)
+                sync_session(ws, initial)
                 ws.send_json({"type": "switch_session", "session_id": bad})
                 assert recv_json(ws, "error")["message"] == "Invalid session ID format"
                 ws.send_json({"type": "switch_session", "session_id": initial})
@@ -189,16 +116,16 @@ class TestSessionSwitchingProtocol:
         ids=["int", "null", "list", "object"],
     )
     def test_a_non_string_switch_target_is_refused_and_the_connection_survives(
-        self, app, sessions_dir, value
+        self, ws_app, sessions_dir, value
     ):
         """A switch frame is decoded JSON; a non-string id is an error, not a crash."""
-        initial = _uuid()
-        _seed_session_file(sessions_dir, initial)
-        with TestClient(app) as client:
-            _, spawned = self._patch_spawn(app)
-            with client.websocket_connect(_resume_url(initial)) as ws:
-                _send_resize(ws)
-                _sync_after_connect(ws, initial)
+        initial = new_session_id()
+        seed_session_file(sessions_dir, initial)
+        with TestClient(ws_app) as client:
+            _, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(initial)) as ws:
+                send_resize(ws)
+                sync_session(ws, initial)
                 ws.send_json({"type": "switch_session", "session_id": value})
                 assert recv_json(ws, "error")["message"] == "Invalid session ID format"
                 ws.send_json({"type": "switch_session", "session_id": initial})
@@ -207,16 +134,16 @@ class TestSessionSwitchingProtocol:
 
     # -- warm session reuse --
 
-    def test_switch_back_reuses_warm_session(self, app, sessions_dir):
+    def test_switch_back_reuses_warm_session(self, ws_app, sessions_dir):
         """A → B → A reuses session A from the pool (no extra spawn)."""
-        a, b = _uuid(), _uuid()
-        _seed_session_file(sessions_dir, a)
-        _seed_session_file(sessions_dir, b)
-        with TestClient(app) as client:
-            _, spawned = self._patch_spawn(app)
-            with client.websocket_connect(_resume_url(a)) as ws:
-                _send_resize(ws)
-                _sync_after_connect(ws, a)
+        a, b = new_session_id(), new_session_id()
+        seed_session_file(sessions_dir, a)
+        seed_session_file(sessions_dir, b)
+        with TestClient(ws_app) as client:
+            _, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(a)) as ws:
+                send_resize(ws)
+                sync_session(ws, a)
                 assert len(spawned) == 1  # initial A
 
                 ws.send_json({"type": "switch_session", "session_id": b})
@@ -229,7 +156,7 @@ class TestSessionSwitchingProtocol:
 
     # -- the resume boundary on the switch path --
 
-    def test_switch_to_an_id_without_transcript_is_refused_in_place(self, app, sessions_dir):
+    def test_switch_to_an_id_without_transcript_is_refused_in_place(self, ws_app, sessions_dir):
         """No warm PTY and no transcript for the target: refused, nothing torn down.
 
         The picker lists only ids with a transcript, so this is the race where
@@ -239,13 +166,13 @@ class TestSessionSwitchingProtocol:
         answers ``transcript_missing`` for the target and keeps the operator on
         the session they were on.
         """
-        initial, missing = _uuid(), _uuid()
-        _seed_session_file(sessions_dir, initial)
-        with TestClient(app) as client:
-            reg, spawned = self._patch_spawn(app)
-            with client.websocket_connect(_resume_url(initial)) as ws:
-                _send_resize(ws)
-                _sync_after_connect(ws, initial)
+        initial, missing = new_session_id(), new_session_id()
+        seed_session_file(sessions_dir, initial)
+        with TestClient(ws_app) as client:
+            reg, spawned = patch_spawn(ws_app)
+            with client.websocket_connect(resume_url(initial)) as ws:
+                send_resize(ws)
+                sync_session(ws, initial)
 
                 ws.send_json({"type": "switch_session", "session_id": missing})
                 msg = recv_json(ws, "transcript_missing")
@@ -259,20 +186,20 @@ class TestSessionSwitchingProtocol:
                 assert reg.get_session(missing) is None
                 assert reg.get_session(initial) is spawned[0]
 
-    def test_switch_to_a_warm_session_without_transcript_is_allowed(self, app, sessions_dir):
+    def test_switch_to_a_warm_session_without_transcript_is_allowed(self, ws_app, sessions_dir):
         """A pooled live PTY is a session whether or not its transcript exists yet."""
-        a, never_prompted = _uuid(), _uuid()
-        _seed_session_file(sessions_dir, a)
-        with TestClient(app) as client:
-            _, spawned = self._patch_spawn(app)
+        a, never_prompted = new_session_id(), new_session_id()
+        seed_session_file(sessions_dir, a)
+        with TestClient(ws_app) as client:
+            _, spawned = patch_spawn(ws_app)
             # Open a fresh session (no transcript until the first prompt) and
             # leave it warm in the pool.
             with client.websocket_connect("/ws/terminal") as ws:
-                _send_resize(ws)
+                send_resize(ws)
                 never_prompted = recv_json(ws, "session_info")["session_id"]
 
-            with client.websocket_connect(_resume_url(a)) as ws:
-                _send_resize(ws)
+            with client.websocket_connect(resume_url(a)) as ws:
+                send_resize(ws)
                 ws.send_json({"type": "switch_session", "session_id": never_prompted})
                 assert recv_json(ws, "session_switched")["session_id"] == never_prompted
                 assert len(spawned) == 2  # a + the warm one, reused
@@ -287,7 +214,7 @@ class TestSessionSwitchingContract:
     """L2 — verifies handler → registry call sequences."""
 
     @staticmethod
-    def _mock_registry(app, fake_session=None):
+    def _mock_registry(ws_app, fake_session=None):
         """Replace the registry with a MagicMock over a real pool dict.
 
         ``get_or_create_session`` hands out *fake_session* first, then
@@ -322,20 +249,20 @@ class TestSessionSwitchingContract:
         mock_reg.attached_owner.return_value = None
         mock_reg.pool = pool
         mock_reg.hand_out = hand_out
-        app.state.pty_registry = mock_reg
+        ws_app.state.pty_registry = mock_reg
         return mock_reg, fake_session
 
     # -- disconnect contract --
 
-    def test_disconnect_terminates_dead_session(self, app, sessions_dir):
+    def test_disconnect_terminates_dead_session(self, ws_app, sessions_dir):
         """On WS close with dead session: detach AND terminate."""
-        sid = _uuid()
-        _seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
+        sid = new_session_id()
+        seed_session_file(sessions_dir, sid)
+        with TestClient(ws_app) as client:
             dead = FakePtySession()
-            mock_reg, _ = self._mock_registry(app, fake_session=dead)
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
+            mock_reg, _ = self._mock_registry(ws_app, fake_session=dead)
+            with client.websocket_connect(resume_url(sid)) as ws:
+                send_resize(ws)
                 # Door-completion barrier: session_info goes out only
                 # after the hand-off door has attached the key.
                 recv_json(ws, "session_info")
@@ -350,7 +277,7 @@ class TestSessionSwitchingContract:
         # test_disconnect_leaves_a_replacement_session_alone.
         mock_reg.terminate_session_if_owner.assert_called_with(sid, dead)
 
-    def test_disconnect_leaves_a_replacement_session_alone(self, app, sessions_dir):
+    def test_disconnect_leaves_a_replacement_session_alone(self, ws_app, sessions_dir):
         """A stale handler's teardown must not touch a newer session.
 
         Two handlers meeting on one pool key is ordinary: a second tab (or a
@@ -359,13 +286,13 @@ class TestSessionSwitchingContract:
         Teardown keyed on the id alone would then terminate the replacement
         and clear its attachment, killing a terminal someone is looking at.
         """
-        sid = _uuid()
-        _seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
+        sid = new_session_id()
+        seed_session_file(sessions_dir, sid)
+        with TestClient(ws_app) as client:
             dead = FakePtySession()
-            mock_reg, _ = self._mock_registry(app, fake_session=dead)
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
+            mock_reg, _ = self._mock_registry(ws_app, fake_session=dead)
+            with client.websocket_connect(resume_url(sid)) as ws:
+                send_resize(ws)
                 # Door-completion barrier: session_info goes out only
                 # after the hand-off door has attached the key.
                 recv_json(ws, "session_info")
@@ -422,7 +349,7 @@ async def _park(ws: _MemoryWebSocket, task: asyncio.Task) -> None:
 def _switch_frame() -> dict:
     return {
         "type": "websocket.receive",
-        "text": json.dumps({"type": "switch_session", "session_id": _uuid()}),
+        "text": json.dumps({"type": "switch_session", "session_id": new_session_id()}),
     }
 
 

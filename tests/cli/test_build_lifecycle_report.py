@@ -26,8 +26,9 @@ import pytest
 
 from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
-from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import NullReporter, PhaseReporter
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._reporters import installed
 from tests.cli._scoped_subprocess import patch_subprocess
 
 _JUNIT_XML = """<?xml version="1.0" encoding="utf-8"?>
@@ -68,21 +69,15 @@ class _RecordingReporter(PhaseReporter):
 def recorder() -> Iterator[_RecordingReporter]:
     """Install a reporter that records the phase record for one test."""
     recording = _RecordingReporter()
-    previous = install_reporter(recording)
-    try:
+    with installed(recording):
         yield recording
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture
 def verbose_reporter() -> Iterator[None]:
     """Install the reporter global ``--verbose`` installs, for one test."""
-    previous = install_reporter(NullReporter(verbose=True))
-    try:
+    with installed(NullReporter(verbose=True)):
         yield
-    finally:
-        install_reporter(previous)
 
 
 def _echo_step(name: str, text: str = "all good", *, timeout: int = 30) -> LifecycleStep:

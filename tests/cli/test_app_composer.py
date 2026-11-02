@@ -60,7 +60,7 @@ _HOST = {
         "control_system.connector.epics.timeout_s": 5.0,
         "claude_code.servers.bluesky.enabled": True,
         "claude_code.permissions.deny": [_SETUP_PATCH],
-        "web.ui_mode": "simple",
+        "web.theme": "main",
         "modules.web_terminals.enabled": True,
     },
 }
@@ -81,7 +81,7 @@ _APP = {
     "config": {
         "claude_code.servers.controls.enabled": False,
         "control_system.writes_enabled": False,
-        "web.ui_mode": "expert",
+        "web.theme": "retro",
     },
 }
 
@@ -231,6 +231,75 @@ def test_other_top_level_keys_are_the_hosts_verbatim(tmp_path: Path) -> None:
         assert raw[key] == _HOST[key], key
 
 
+def test_an_app_model_replaces_the_hosts_and_keeps_the_hosts_provider(tmp_path: Path) -> None:
+    raw = _resolve(_repo(tmp_path, {**_APP, "model": "claude-sonnet-5"}))
+
+    assert raw["model"] == "claude-sonnet-5"
+    assert raw["provider"] == _HOST["provider"]
+
+
+def test_a_bundled_app_given_a_model_loads_with_it(tmp_path: Path) -> None:
+    repo = _materialized_repo(tmp_path / "repo", "control-assistant")
+    host = load_profile(repo / "profile.yml")
+    app_path = repo / "apps" / "logbook.yml"
+    app_path.write_text(
+        app_path.read_text(encoding="utf-8") + "\nmodel: claude-sonnet-5\n", encoding="utf-8"
+    )
+
+    app = load_profile(app_path)
+
+    assert app.model == "claude-sonnet-5" != host.model
+    assert app.provider == host.provider
+    assert load_profile(repo / "apps" / "knowledge.yml").model == host.model
+
+
+@pytest.mark.parametrize("spelled", [{}, {"model": None}], ids=["absent", "null"])
+def test_an_app_that_names_no_model_runs_the_hosts(tmp_path: Path, spelled: dict) -> None:
+    app = {k: v for k, v in _APP.items() if k != "model"} | spelled
+    assert _resolve(_repo(tmp_path, app))["model"] == _HOST["model"]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"claude_code.default_model": "claude-sonnet-5"},
+        {"claude_code": {"default_model": "claude-sonnet-5"}},
+    ],
+    ids=["dotted", "nested"],
+)
+def test_a_default_model_spelled_in_an_app_config_names_the_app_file(
+    tmp_path: Path, config: dict
+) -> None:
+    with pytest.raises(BuildProfileError) as excinfo:
+        _resolve(_repo(tmp_path, {**_APP, "config": config}))
+
+    message = str(excinfo.value)
+    assert "the top-level `model:` field sets it" in message
+    assert "Remove it from apps/logbook.yml." in message
+    assert "profile.yml" not in message
+
+
+def test_a_default_model_spelled_in_a_tier_config_names_the_tier_file(tmp_path: Path) -> None:
+    tier = _write_yaml(
+        tmp_path / "repo" / "tiers" / "readonly.yml",
+        {"name": "Read only", "config": {"claude_code.default_model": "claude-sonnet-5"}},
+    )
+    _repo(tmp_path, _APP)
+
+    with pytest.raises(BuildProfileError, match=r"Remove it from tiers/readonly\.yml\."):
+        _resolve(tier)
+
+
+def test_a_tier_model_still_replaces_the_hosts(tmp_path: Path) -> None:
+    _repo(tmp_path, _APP)
+    tier = _write_yaml(
+        tmp_path / "repo" / "tiers" / "readonly.yml",
+        {"name": "Read only", "model": "claude-sonnet-5"},
+    )
+
+    assert _resolve(tier)["model"] == "claude-sonnet-5"
+
+
 def test_provenance_is_the_hosts(tmp_path: Path) -> None:
     raw = _resolve(_repo(tmp_path, _APP))
     assert raw["provenance"] == {"preset": "control-assistant"}
@@ -263,7 +332,7 @@ def test_composing_does_not_mutate_the_app_document(tmp_path: Path) -> None:
 def test_config_is_host_facts_under_the_app_config(tmp_path: Path) -> None:
     leaves = _leaves(_resolve(_repo(tmp_path, _APP))["config"])
 
-    assert leaves["web.ui_mode"] == "expert"
+    assert leaves["web.theme"] == "retro"
     assert leaves["control_system.type"] == "virtual_accelerator"
     assert leaves["control_system.connector.epics.timeout_s"] == 5.0
     assert leaves["claude_code.servers.controls.enabled"] is False
@@ -278,7 +347,7 @@ def test_config_is_host_facts_under_the_app_config(tmp_path: Path) -> None:
     ],
 )
 def test_host_server_switches_are_dropped_in_every_spelling(tmp_path: Path, spelling: dict) -> None:
-    host = dict(_HOST, config={"web.ui_mode": "simple", **spelling})
+    host = dict(_HOST, config={"web.theme": "main", **spelling})
     leaves = _leaves(_resolve(_repo(tmp_path, _APP, host=host))["config"])
     assert not any(path.startswith("claude_code.servers.bluesky") for path in leaves)
 
@@ -319,7 +388,7 @@ def test_permissions_are_unioned_in_one_spelling(tmp_path: Path, spelling: dict)
     ],
 )
 def test_host_write_switches_never_reach_an_app(tmp_path: Path, host_writes: dict) -> None:
-    host = dict(_HOST, config={"web.ui_mode": "simple", **host_writes})
+    host = dict(_HOST, config={"web.theme": "main", **host_writes})
     leaves = _leaves(_resolve(_repo(tmp_path, _APP, host=host))["config"])
 
     assert leaves[_WRITES] == "never"
@@ -501,7 +570,7 @@ def test_a_lifting_host_is_capable_and_its_apps_are_not(tmp_path: Path) -> None:
 
 
 def test_a_host_without_the_floor_deny_still_yields_a_denying_app(tmp_path: Path) -> None:
-    host = dict(_HOST, config={"web.ui_mode": "simple"})
+    host = dict(_HOST, config={"web.theme": "main"})
     config = _resolve(_repo(tmp_path, _APP, host=host))["config"]
     assert config["claude_code.permissions.deny"] == [_SETUP_PATCH]
 

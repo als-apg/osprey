@@ -49,10 +49,10 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
-from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, STATE_DIR_NAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import BUILD_DIR_NAME, LAYER_DIRNAMES, STATE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
@@ -265,7 +265,7 @@ BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 # constant so the copy target and the emitted key cannot drift apart.
 PROFILE_TRIGGERS_FILENAME = "triggers.yml"
 
-#: The durable state zone (``var/agent_data``, ``var/audit``) — git-ignored,
+#: The durable state zone (``var/agent_data`` and the record's directories) — git-ignored,
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME
 
@@ -300,6 +300,10 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         *LAYER_DIRNAMES,
         "profiles",
         "scripts",
+        # The watchdogs' instructions and references. Source zone so executed
+        # code cannot rewrite what judges it; the build copies only the enabled
+        # watchdogs' directories.
+        "watchdogs",
         "ci-extra.yml",
         _SYSTEMD_UNIT_ENTRY,
     }
@@ -596,7 +600,7 @@ FACILITY_AUTHORING_ROUTE = "data/facility/"
 #: one level, and a trailing ``*`` covers the family prefix itself along with
 #: everything below it — see :func:`is_protected_key` for the full rule.
 #:
-#: :data:`~osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` is *imported and
+#: :data:`~osprey.utils.workspace.RUNTIME_WRITE_PATH_KEYS` is *imported and
 #: unpacked*, never restated: that tuple is already the single list of keys
 #: whose value names a path something writes at run time, and a second copy here
 #: would drift the moment a key is added there. Those keys qualify under the
@@ -626,6 +630,13 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         # where the path goes must not slip past the gate as a child key.
         "services.graphdb.ttl_path.*",
         "channel_finder.pipelines.*.database.path.*",
+        # What judges the session, and the keys its judge runs on: a watched
+        # agent that could reach either could disable or blind its own watchdog.
+        "watchdogs.*",
+        "api.jev.*",
+        # The review of the agent's own code gates writes: these keys switch it
+        # off, downgrade its verdict, repoint its prompt or shrink its modes.
+        "code_review.*",
         *RUNTIME_WRITE_PATH_KEYS,
     ),
     ".mcp.json": (
@@ -835,7 +846,7 @@ def is_reserved_write(project_rel: str) -> str | None:
         boolean, so a refusal can tell an operator the way in.
     """
     normalized = posixpath.normpath(PurePosixPath(project_rel).as_posix())
-    if normalized.startswith("/") or normalized == ".." or normalized.startswith("../"):
+    if normalized.startswith(("/", "../")) or normalized == "..":
         return NOT_PROJECT_RELATIVE_CHANNEL
     folded = normalized.casefold()
 
@@ -1267,7 +1278,7 @@ def ownership_name(dest_rel: str, *, is_directory: bool) -> str:
         The ownership name. Whether that destination's *class* is ownable at
         all is a separate question, answered by ``ownership_canonical``.
     """
-    name = dest_rel[len(".claude/") :] if dest_rel.startswith(".claude/") else dest_rel
+    name = dest_rel.removeprefix(".claude/")
     if not is_directory and name.endswith(".md"):
         name = name[: -len(".md")]
     return name
@@ -1828,9 +1839,12 @@ def declared_hooks(config: Mapping[str, Any]) -> dict[str, list[Any]]:
             if len(path) == 3 and path[:2] == _CLAUDE_CODE_HOOKS:
                 if isinstance(value, list):
                     found.setdefault(path[2], []).extend(value)
-            elif len(path) < 3 and path == _CLAUDE_CODE_HOOKS[: len(path)]:
-                if isinstance(value, Mapping):
-                    walk(value, path)
+            elif (
+                len(path) < 3
+                and path == _CLAUDE_CODE_HOOKS[: len(path)]
+                and isinstance(value, Mapping)
+            ):
+                walk(value, path)
 
     if isinstance(config, Mapping):
         walk(config, ())

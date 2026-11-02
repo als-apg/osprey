@@ -447,6 +447,7 @@ def benchmark(
         BenchmarkRunner,
     )
 
+    from .audit_cmd import unrecorded_run
     from .project_utils import project_config_path, resolve_project_path
 
     # The group's one resolution rule, not a third spelling of it: the repo
@@ -502,12 +503,15 @@ def benchmark(
                     f"\n--- Run {run_idx + 1}/{runs_per_query} ---",
                     style=Styles.INFO,
                 )
-            run = asyncio.run(
-                runner.run_queries(
-                    query_indices=indices if queries != "all" else None,
-                    output_dir=out_directory,
+            # Each run is tooling, not the agent's work: none of it reaches the
+            # agent record, and its Claude Code state lives in a directory of its own.
+            with unrecorded_run():
+                run = asyncio.run(
+                    runner.run_queries(
+                        query_indices=indices if queries != "all" else None,
+                        output_dir=out_directory,
+                    )
                 )
-            )
             all_runs.append(run)
 
         # Print summary

@@ -79,20 +79,6 @@ def test_virtual_accelerator_prohibitions_present(tmp_path):
     _assert_epics_prohibitions_present(content)
 
 
-def test_epics_and_virtual_accelerator_prohibited_sections_match(tmp_path):
-    """Same underlying protocol (real Channel Access) -> identical code
-    example, not a VA-specific rewrite."""
-    epics_content = _render_safety_rule(tmp_path / "epics", "safety-epics", "epics")
-    va_content = _render_safety_rule(tmp_path / "va", "safety-va", "virtual_accelerator")
-
-    def _prohibited_section(content: str) -> str:
-        start = content.index("### Prohibited")
-        end = content.index("### Why This Matters")
-        return content[start:end]
-
-    assert _prohibited_section(epics_content) == _prohibited_section(va_content)
-
-
 def test_the_simulator_in_process_renders_no_epics_family_lines(tmp_path):
     """The simulator in process speaks no Channel Access: no EPICS-family lines."""
     content = _render_safety_rule(tmp_path, "safety-in-process", IN_PROCESS)

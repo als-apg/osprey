@@ -22,6 +22,8 @@ from osprey.bridges.nextcloud_talk.roster import (
     SEEN_MAX_PER_ROOM,
     ParticipantRoster,
 )
+from tests.bridges.conftest import FakeClock, StubDispatcher
+from tests.bridges.nextcloud.conftest import ocs
 
 BOT = "osprey-bot"
 ROOM = "roomA"
@@ -32,14 +34,6 @@ CFG = NextcloudBridgeConfig(
 
 def user(ident: str, name: str = "", **over: Any) -> dict[str, Any]:
     return {"actorType": "users", "actorId": ident, "displayName": name, **over}
-
-
-class Clock:
-    def __init__(self) -> None:
-        self.t = 1000.0
-
-    def __call__(self) -> float:
-        return self.t
 
 
 class Lister:
@@ -95,14 +89,14 @@ def test_members_skip_guests_federated_users_the_bot_and_everyone():
 
 
 def test_members_are_cached_within_the_ttl_and_refetched_after():
-    clock = Clock()
+    clock = FakeClock()
     lister = Lister([user("alice", "Alice")])
     roster = ParticipantRoster(lister, BOT, now=clock)
     roster.members(ROOM)
-    clock.t += ROSTER_TTL_SECONDS - 1
+    clock.advance(ROSTER_TTL_SECONDS - 1)
     roster.members(ROOM)
     assert len(lister.calls) == 1
-    clock.t += 2
+    clock.advance(2)
     roster.members(ROOM)
     assert len(lister.calls) == 2
 
@@ -143,10 +137,6 @@ def test_the_cache_and_the_seen_maps_are_bounded():
 # --- through the adapter --------------------------------------------------------
 
 
-def _ocs(data: Any, status: int = 200) -> httpx.Response:
-    return httpx.Response(status, json={"ocs": {"meta": {"statuscode": status}, "data": data}})
-
-
 def talk(participants: Any, *, room_type: int = 2) -> Any:
     """A Talk that answers participants (a list, or an int status), room info and posts."""
 
@@ -155,10 +145,10 @@ def talk(participants: Any, *, room_type: int = 2) -> Any:
         if path.endswith("/participants"):
             if isinstance(participants, int):
                 return httpx.Response(participants, text="lobby")
-            return _ocs(participants)
+            return ocs(participants)
         if "/api/v4/room/" in path:
-            return _ocs({"type": room_type, "displayName": ROOM})
-        return _ocs({"id": 99})
+            return ocs({"type": room_type, "displayName": ROOM})
+        return ocs({"id": 99})
 
     return handler
 
@@ -244,21 +234,9 @@ def test_room_people_is_none_when_the_listing_fails():
     assert make_ops(412).room_people({NC_ROOM: ROOM}) is None
 
 
-class StubDispatcher:
-    def __init__(self) -> None:
-        self.extras: list[Any] = []
-
-    def run(self, question: str, extra: Any = None, *, on_run_id: Any = None) -> dict[str, Any]:
-        del question, on_run_id
-        self.extras.append(extra)
-        return {"status": "completed", "text_output": "done", "run_id": "run-1"}
-
-
 def test_the_room_reaches_the_dispatch_payload(tmp_path):
     ops = make_ops([user("alice"), user("carol")])
-    core = CoreConfig(
-        dedup_path=str(tmp_path / "dedup.json"), history_path=str(tmp_path / "history.json")
-    )
+    core = CoreConfig(dedup_path=str(tmp_path / "dedup.json"))
     dispatcher = StubDispatcher()
     deps = dataclasses.replace(
         build_deps(core, ops, dedup=DedupStore(core.dedup_path), dispatcher=dispatcher),  # type: ignore[arg-type]

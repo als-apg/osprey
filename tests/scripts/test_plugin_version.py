@@ -206,7 +206,7 @@ TREE_FILES = {
 def git(repo: Path, *args: str) -> str:
     """Run git in *repo*, failing the test on a non-zero exit; return stdout."""
     return subprocess.run(
-        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True, timeout=60
     ).stdout.strip()
 
 
@@ -227,7 +227,7 @@ def commit(repo: Path, message: str, files: dict[Path, str] | None = None) -> No
 def make_repo(path: Path, *, manifests: bool = True) -> Path:
     """A scratch repository on ``main`` whose first commit holds the plugin tree."""
     git_init = ["git", "init", "-q", "-b", "main", str(path)]
-    subprocess.run(git_init, check=True, capture_output=True)
+    subprocess.run(git_init, check=True, capture_output=True, timeout=60)
     git(path, "config", "user.email", "test@example.com")
     git(path, "config", "user.name", "Test")
     git(path, "config", "maintenance.auto", "false")

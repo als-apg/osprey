@@ -62,6 +62,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+from tests.e2e._deploy_support import find_osprey_console_script
+from tests.e2e._facility_select import LaneSelection, lane_selection, second_model
+
 # Re-exported: the modules of this directory read the image under test and its
 # remedy as ``e2e_conftest.IMAGE`` and ``e2e_conftest.IMAGE_REMEDY``.
 from tests.va.e2e._image import IMAGE as IMAGE
@@ -87,7 +92,7 @@ E2E_ENABLED = os.environ.get(ENV_FLAG) == "1"
 # removes the container uses this one name.
 CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
 # The CONTAINER serves Channel Access on the protocol default, which the image
-# fixes; the HOST side of the publish is an ephemeral free port, because 5064
+# fixes; the HOST side of the publish is a reserved port, because 5064
 # on this host belongs to whatever real deployment the operator is running
 # (`port_layout.CA_DEFAULT_PORT` keeps VA instance 1 there on purpose, so a
 # dev machine routinely holds it). Name-server mode (`use_name_server: true`,
@@ -99,23 +104,13 @@ CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
 CONTAINER_CA_PORT = 5064
 
 
-def _reserve_free_port() -> int:
-    """A host port that was free at reservation time.
-
-    The bind is released before docker publishes the port, so a racing process
-    could take it in between; per-process module state keeps every user of
-    ``CA_PORT`` in this run on the one reserved number.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 # import-time required because CA_PORT is per-process module state: every
 # fixture and helper in this package must agree on the one reserved number,
 # and a fixture-scoped reservation would hand xdist workers different ports
-# for constants already bound at collection.
-CA_PORT = _reserve_free_port()
+# for constants already bound at collection. The reservation is held until the
+# process exits, so no other test process on the host is handed the number
+# before docker publishes it.
+(CA_PORT,) = hold_ports(1)
 # Generous on purpose. Boot-to-first-served-answer measured 9-15 s across six
 # container boots on this host -- the VA images are pinned ``linux/amd64`` and
 # the host is Apple Silicon, so every local boot is emulated. A 30 s ceiling is
@@ -136,30 +131,77 @@ VIEW_CONFIG: dict[str, Any] = {
 }
 
 
-def _render_limits_view() -> Path:
-    """The limits view of the preset's ``data/facility``, rendered once per session.
+def _render_view(facility: Path, root: Path) -> tuple[Any, SimulatorView]:
+    """Build ``facility`` and render its simulator view under ``root``.
+
+    The view lands where a container mounts it, ``<root>/simulator/``, rendered
+    with :data:`VIEW_CONFIG`.
+
+    Returns:
+        The built facility document and the rendered view.
+    """
+    from osprey.facility.build import build_facility
+    from osprey.facility.served import resolve_served
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.simulator import write_simulator_view
+
+    doc = build_facility(facility, project_name="control_assistant")
+    write_simulator_view(
+        root / VIEW_RELPATH.name,
+        ViewInputs(
+            doc=doc,
+            rendered_config=VIEW_CONFIG,
+            facility_dir=facility,
+            served=resolve_served(VIEW_CONFIG, doc),
+            reported=None,
+        ),
+    )
+    return doc, SimulatorView.open(root / VIEW_RELPATH.name)
+
+
+def _render_preset() -> tuple[Any, SimulatorView]:
+    """The preset's ``data/facility``, built and rendered once per process.
+
+    The render lands in a per-process temp directory removed at exit.
+    """
+    root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-preset-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    return _render_view(PRESET_FACILITY_DIR, root)
+
+
+def _render_limits_view(document: Any) -> Path:
+    """The limits view of the built preset ``document``.
 
     The view is what a build writes as ``channel_limits.json``, so the suite's
     lanes read exactly the bands a built project carries. It lands in a
     per-process temp directory removed at exit.
     """
-    from osprey.facility.build import build_facility
     from osprey.facility.views.limits import LIMITS_FILE, limits_document
 
     root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-limits-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
-    document = limits_document(
-        build_facility(PRESET_FACILITY_DIR, project_name="control_assistant")
-    )
     target = root / LIMITS_FILE
-    target.write_text(json.dumps(document, indent=2), encoding="utf-8")
+    target.write_text(json.dumps(limits_document(document), indent=2), encoding="utf-8")
     return target
 
 
-# import-time required because lanes read the bands at import
-# (``LIMITS_OVERRIDES`` in test_limits_enforcement), before any fixture runs.
-LIMITS_DB_PATH = _render_limits_view()
-OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
+# import-time required because lanes read the bands and the lane's channels at
+# import (``LIMITS_OVERRIDES`` in test_limits_enforcement, the module constants
+# built from ``LANE``), before any fixture runs. The two share one build.
+PRESET_DOCUMENT, PRESET_VIEW = _render_preset()
+LIMITS_DB_PATH = _render_limits_view(PRESET_DOCUMENT)
+
+#: The lane model and the channels of it every lane of this suite reads and
+#: writes, selected from the preset's own view.
+LANE: LaneSelection = lane_selection(PRESET_VIEW)
+LANE_MODEL = LANE.model
+#: A channel harmless to read at boot time: the lane corrector's readback,
+#: coupled to the physics model and never written by a readiness probe.
+READINESS_ADDRESS = LANE.readback
+#: The lane model's corrector a limits record bounds at both ends.
+BOUNDED_SETPOINT = LANE.setpoint
+#: A model a lane tests beside the lane model on purpose.
+SECOND_MODEL = second_model(PRESET_VIEW, PRESET_DOCUMENT)
 
 #: The instance every container of this suite serves as, and the ``docker
 #: run`` arguments naming it. The entrypoint refuses a boot without one.
@@ -198,12 +240,6 @@ def stage_demo_data_dir(root: Path) -> Path:
     mount INTO a read-only mount cannot create its own mountpoint: the runtime
     refuses with EROFS.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
-    from osprey.facility.views import ViewInputs
-    from osprey.facility.views.simulator import write_simulator_view
-    from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
-
     with tempfile.TemporaryDirectory(prefix="osprey-va-e2e-facility-") as scratch:
         facility = Path(scratch) / "facility"
         shutil.copytree(PRESET_FACILITY_DIR, facility)
@@ -238,7 +274,7 @@ def stage_demo_data_dir(root: Path) -> Path:
                     "and gain, so a container booted with it reads that monitor differently "
                     "from one booted without it.",
                     "faults": {
-                        "SR": {
+                        LANE_MODEL: {
                             SEEDED_READOUT_BPM: {
                                 "offset": SEEDED_READOUT_OFFSET,
                                 "gain": SEEDED_READOUT_GAIN,
@@ -274,18 +310,11 @@ def stage_demo_data_dir(root: Path) -> Path:
             )
         with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
             seeds.write(yaml.safe_dump({STRING_CHANNEL: {"nominal": STRING_NOMINAL}}))
-        doc = build_facility(facility, project_name="control_assistant")
-        write_simulator_view(
-            root / VIEW_RELPATH.name,
-            ViewInputs(
-                doc=doc,
-                rendered_config=VIEW_CONFIG,
-                facility_dir=facility,
-                served=resolve_served(VIEW_CONFIG, doc),
-                reported=None,
-            ),
-        )
-    view = SimulatorView.open(root / VIEW_RELPATH.name)
+        _, view = _render_view(facility, root)
+    served_lane = lane_selection(view)
+    assert served_lane == LANE, (
+        f"the served view selects {served_lane}, the preset's own view {LANE}"
+    )
     moving = {
         address
         for address in monitors
@@ -387,7 +416,6 @@ def demo_state_dir() -> Path:
         scenario_targets,
         write_active_state,
     )
-    from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 
     global _DEMO_STATE_DIR
     if _DEMO_STATE_DIR is None:
@@ -405,9 +433,11 @@ def demo_state_dir() -> Path:
     return _DEMO_STATE_DIR
 
 
-# A channel harmless to read at boot time: pyat-coupled, never written by the
-# readiness probe itself.
-READINESS_ADDRESS = "SR:MAG:HCM:01:CURRENT:RB"
+# ---------------------------------------------------------------------------
+# The suite's scenario world: the addresses this suite's own scenarios and
+# operating points author, each named once here and vouched against the preset's
+# view by tests/va/test_suite_world.py.
+# ---------------------------------------------------------------------------
 
 # Synthetic scenario this suite adds to the rendered preset view, so
 # test_scenario_reload.py has a scenario with a real ``overrides`` entry to
@@ -416,13 +446,17 @@ READINESS_ADDRESS = "SR:MAG:HCM:01:CURRENT:RB"
 # module docstring for why).
 BURST_SCENARIO_NAME = "va-e2e-burst"
 BURST_CHANNEL = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
-BURST_VALUE = 3.0e-6  # nominal machine.json baseline is 5e-8 Torr (3% noise) -- unambiguous jump
+#: An unambiguous jump: above the gauge's seeded nominal by far more than its
+#: seeded noise.
+BURST_VALUE = 3.0e-6
 
 #: Synthetic scenario under which the physics model's closed-orbit solve
 #: fails: the quadrupole at twice its demo current has no stable orbit.
 UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
 UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
-UNSTABLE_CURRENT = 712.2
+_unstable_binding = PRESET_VIEW.binding(UNSTABLE_QUADRUPOLE)
+assert _unstable_binding is not None, f"no served model wires {UNSTABLE_QUADRUPOLE}"
+UNSTABLE_CURRENT = 2 * float(_unstable_binding.record["default"])
 
 #: Synthetic scenario that excites one vertical corrector, so the vertical
 #: closed orbit at :data:`KICK_MONITOR` is nonzero: at rest the demo's closed
@@ -440,6 +474,29 @@ SEEDED_READOUT_SCENARIO_NAME = "va-e2e-seeded-readout"
 SEEDED_READOUT_BPM = "SR:DIAG:BPM:11:POSITION:X"
 SEEDED_READOUT_OFFSET = 50e-6
 SEEDED_READOUT_GAIN = 1.05
+
+#: A texture setpoint whose write echoes into its readback: no model wires
+#: either, so a value written there is the value read back.
+TEXTURE_ECHO_SETPOINT = "SR:VAC:ION-PUMP:02:VOLTAGE:SP"
+TEXTURE_ECHO_READBACK = "SR:VAC:ION-PUMP:02:VOLTAGE:RB"
+_echo_seed = PRESET_VIEW.seed(TEXTURE_ECHO_SETPOINT)
+assert _echo_seed is not None, f"{TEXTURE_ECHO_SETPOINT} carries no seed"
+#: The value a planted journal writes to the echo setpoint: four fifths of its
+#: seed, away from its start value.
+TEXTURE_PLANTED_VALUE = 0.8 * float(_echo_seed["nominal"])
+
+#: The operating point the substrate comparison is taken at: a horizontal and
+#: a vertical corrector of the lane model no lane drives, so the closed orbit
+#: is nonzero at every monitor, and a texture setpoint whose write echoes into
+#: its readback.
+OPERATING_POINT: dict[str, float] = {
+    "SR:MAG:HCM:11:CURRENT:SP": 1.5,
+    "SR:MAG:VCM:11:CURRENT:SP": -0.75,
+    "SR:RF:CAVITY:01:VOLTAGE:SP": 2.6,
+}
+
+#: The lane model's chromaticity outputs.
+CHROMATICITY = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y"})
 
 #: Synthetic scenario that serves every monitor reading without its declared
 #: noise and drift, so a monitor reading is the solved orbit.
@@ -486,9 +543,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     # spellings of this directory are accepted so a symlinked checkout still
     # matches whichever one pytest collected through.
     here = Path(__file__).parent
-    these_dirs = {here, here.resolve()}
+    these_dirs = tuple(f"{directory}{os.sep}" for directory in {here, here.resolve()})
     for item in items:
-        if any(item.path.is_relative_to(directory) for directory in these_dirs):
+        if str(item.path).startswith(these_dirs):
             item.add_marker(skip)
 
 
@@ -619,7 +676,14 @@ class VaProject:
         baseline.
         """
         return subprocess.run(
-            [str(OSPREY_CLI), "sim", "apply", *SUITE_SCENARIOS, *scenario_names, "--no-seed"],
+            [
+                str(find_osprey_console_script()),
+                "sim",
+                "apply",
+                *SUITE_SCENARIOS,
+                *scenario_names,
+                "--no-seed",
+            ],
             cwd=self.project_dir,
             capture_output=True,
             text=True,
@@ -684,11 +748,12 @@ PUBLISH_ATTEMPTS = 5
 def run_on_free_port(
     container_for: Callable[[int], tuple[str, list[str]]],
 ) -> tuple[int, str]:
-    """``docker run`` a container published on a free port, retrying a lost race.
+    """``docker run`` a container published on a reserved port, retrying a lost race.
 
-    A reserved port is free only until the probe socket closes, and anything on
-    the host can take it before ``docker run`` binds it. Docker then refuses
-    the publish with "address already in use", and the answer is another port
+    The reservation is held until ``docker run`` returns, so no other test
+    process is handed the port in between; a process that binds explicit ports
+    without reserving them can still take it first. Docker then refuses the
+    publish with "address already in use", and the answer is another port
     rather than a failed boot.
 
     Args:
@@ -699,13 +764,13 @@ def run_on_free_port(
         The port the container is published on, and its name.
     """
     for _ in range(PUBLISH_ATTEMPTS):
-        port = _reserve_free_port()
-        name, arguments = container_for(port)
-        # Stale-cleanup only, of a container an earlier run left under this name.
-        _docker_rm(name)
-        started = subprocess.run(
-            ["docker", *arguments], capture_output=True, text=True, timeout=120
-        )
+        with reserved_port() as port:
+            name, arguments = container_for(port)
+            # Stale-cleanup only, of a container an earlier run left under this name.
+            _docker_rm(name)
+            started = subprocess.run(
+                ["docker", *arguments], capture_output=True, text=True, timeout=120
+            )
         if started.returncode == 0:
             return port, name
         # A refused publish still leaves the created container behind.
@@ -775,6 +840,63 @@ def _readiness_pv_served() -> bool:
     case a readiness probe polls through, and one seen to outlast this probe's
     timeout. The word is written and flushed before the exit.
     """
+    return ca_served(CA_PORT, timeout=10)
+
+
+def docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess[str]:
+    """``docker *args``, its output captured as text."""
+    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+
+
+def require_image() -> None:
+    """Fail loudly unless the image is present."""
+    inspected = docker("image", "inspect", IMAGE, "--format", "{{.Id}}", timeout=60)
+    if inspected.returncode != 0:
+        pytest.fail(f"image {IMAGE!r} is not present. {IMAGE_REMEDY}")
+
+
+def require_image_serving_any_port() -> None:
+    """Fail loudly unless the image can serve on a port other than 5064.
+
+    A precondition, not a nicety: the Channel Access *server* library reads
+    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
+    variable, so an image whose entry point does not derive one from the other
+    keeps binding its build-time default while telling this suite's clients some
+    other port. The symptom would be an unexplained boot timeout; this turns it
+    into a sentence naming the fix.
+    """
+    inspected = docker(
+        "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
+    )
+    if inspected.returncode != 0:
+        pytest.fail(f"image {IMAGE!r} is not present. {IMAGE_REMEDY}")
+    architecture, _, command = inspected.stdout.strip().partition("|")
+    if "EPICS_CAS_SERVER_PORT" not in command:
+        pytest.fail(
+            f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
+            f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
+            f"{IMAGE_REMEDY} Its entry point is: {command}"
+        )
+
+
+def ca_client_environment(port: int) -> dict[str, str]:
+    """This process's environment, with a Channel Access client pointed at *port* alone."""
+    environment = {
+        **os.environ,
+        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
+        "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    }
+    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
+        environment.pop(stale, None)
+    return environment
+
+
+def ca_served(port: int, *, timeout: float = 15.0) -> bool:
+    """Whether a virtual accelerator serves :data:`READINESS_ADDRESS` on *port*.
+
+    Asked in a subprocess that leaves through ``os._exit``, for the reasons
+    :func:`_readiness_pv_served` gives.
+    """
     code = (
         "import asyncio, os, sys, aioca\n"
         f"v = asyncio.run(aioca.caget({READINESS_ADDRESS!r}, timeout=2.0, throw=False))\n"
@@ -782,24 +904,65 @@ def _readiness_pv_served() -> bool:
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
     )
-    env = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{CA_PORT}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    env.pop("EPICS_CA_ADDR_LIST", None)
-    env.pop("EPICS_CA_SERVER_PORT", None)
     try:
-        proc = subprocess.run(
+        probe = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
-            timeout=10,
-            env=env,
+            timeout=timeout,
+            env=ca_client_environment(port),
         )
     except subprocess.TimeoutExpired:
         return False
-    return proc.stdout.strip() == "SERVED"
+    return probe.stdout.strip() == "SERVED"
+
+
+@contextmanager
+def serving_container(
+    name: str,
+    port: int,
+    *run_args: str,
+    boot_timeout: float,
+    served: Callable[[int], bool] = ca_served,
+) -> Iterator[None]:
+    """Run the image as *name* on *port* and wait until *served* says it answers.
+
+    The published port and the server's own port are the same number, since a
+    Channel Access search reply carries the server's own port and a remap would
+    hand every client an address nothing answers on. *run_args* are the
+    ``docker run`` arguments beyond those. The container is force-removed by
+    name on the way in, as stale-cleanup, and on the way out.
+    """
+    docker("rm", "-f", name, timeout=60)
+    started = docker(
+        "run",
+        "-d",
+        "--name",
+        name,
+        "-e",
+        f"EPICS_CA_SERVER_PORT={port}",
+        "-p",
+        f"127.0.0.1:{port}:{port}/tcp",
+        *run_args,
+        IMAGE,
+    )
+    if started.returncode != 0:
+        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+    try:
+        deadline = time.monotonic() + boot_timeout
+        while time.monotonic() < deadline:
+            if served(port):
+                break
+            time.sleep(1.0)
+        else:
+            logs = docker("logs", "--tail", "40", name, timeout=60)
+            raise RuntimeError(
+                f"{name} never served {READINESS_ADDRESS} within {boot_timeout}s.\n"
+                f"{logs.stdout}\n{logs.stderr}"
+            )
+        yield
+    finally:
+        docker("rm", "-f", name, timeout=60)
 
 
 @contextmanager
@@ -810,7 +973,7 @@ def boot_va_container(project: VaProject) -> Iterator[VaProject]:
     (containment rule); created, logged and torn down by that same name
     regardless of how the block exits, and by no other. On the way in, this
     process's Channel Access environment is pointed at the container's
-    published port.
+    published port, and on the way out it is put back.
 
     A plain context manager rather than the fixture body so a caller can boot
     the container without a pytest session.
@@ -847,33 +1010,35 @@ def boot_va_container(project: VaProject) -> Iterator[VaProject]:
     if result.returncode != 0:
         raise RuntimeError(f"docker run failed: {result.stdout}\n{result.stderr}")
 
-    os.environ["EPICS_CA_NAME_SERVERS"] = f"localhost:{CA_PORT}"
-    os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-    os.environ.pop("EPICS_CA_ADDR_LIST", None)
-    os.environ.pop("EPICS_CA_SERVER_PORT", None)
+    with patch.dict(
+        os.environ,
+        {"EPICS_CA_NAME_SERVERS": f"localhost:{CA_PORT}", "EPICS_CA_AUTO_ADDR_LIST": "NO"},
+    ):
+        os.environ.pop("EPICS_CA_ADDR_LIST", None)
+        os.environ.pop("EPICS_CA_SERVER_PORT", None)
 
-    deadline = time.monotonic() + CONTAINER_BOOT_TIMEOUT_S
-    served = False
-    while time.monotonic() < deadline:
-        if _readiness_pv_served():
-            served = True
-            break
-        time.sleep(0.5)
+        deadline = time.monotonic() + CONTAINER_BOOT_TIMEOUT_S
+        served = False
+        while time.monotonic() < deadline:
+            if _readiness_pv_served():
+                served = True
+                break
+            time.sleep(0.5)
 
-    if not served:
-        logs = subprocess.run(
-            ["docker", "logs", CONTAINER_NAME], capture_output=True, text=True, timeout=10
-        )
-        _docker_rm(CONTAINER_NAME)
-        raise RuntimeError(
-            f"VA container never came up (no value for {READINESS_ADDRESS} after "
-            f"{CONTAINER_BOOT_TIMEOUT_S}s). Container logs:\n{logs.stdout}\n{logs.stderr}"
-        )
+        if not served:
+            logs = subprocess.run(
+                ["docker", "logs", CONTAINER_NAME], capture_output=True, text=True, timeout=10
+            )
+            _docker_rm(CONTAINER_NAME)
+            raise RuntimeError(
+                f"VA container never came up (no value for {READINESS_ADDRESS} after "
+                f"{CONTAINER_BOOT_TIMEOUT_S}s). Container logs:\n{logs.stdout}\n{logs.stderr}"
+            )
 
-    try:
-        yield project
-    finally:
-        _docker_rm(CONTAINER_NAME)
+        try:
+            yield project
+        finally:
+            _docker_rm(CONTAINER_NAME)
 
 
 @pytest.fixture(scope="session")
@@ -920,10 +1085,21 @@ async def reconciling():
 
 @dataclass(frozen=True)
 class Corrector:
-    """One corrector of the served view: the address a lane writes and the one it reads back."""
+    """One corrector of the served view: the address a lane writes and the one it reads back.
+
+    Attributes:
+        setpoint_address: The address a lane writes a demand to.
+        readback_address: The address the same magnet reads its own field back on.
+        readback_band: The band two reads of a quiet readback keep within:
+            twice the motion the served tree declares for it under the suite's
+            scenarios, plus a float floor
+            (:func:`tests.facility.served_tree.unmoved_band` with
+            :data:`SUITE_SCENARIOS`).
+    """
 
     setpoint_address: str
     readback_address: str
+    readback_band: float
 
 
 def corrector_at_slot(slot: int) -> Corrector:
@@ -936,10 +1112,11 @@ def corrector_at_slot(slot: int) -> Corrector:
     file's record order, so one slot names one magnet on every run against a
     given tree.
 
-    The slots are the correctors of one model: the model whose corrector a
-    limits record bounds (``_facility_select.bounded_corrector_of``). A lane
-    then drives correctors that model holds at the lane's demands, and slot 0
-    is that bounded corrector when it is the model's first in wiring order.
+    The slots are the correctors of the lane model
+    (``_facility_select.lane_model``), the model whose corrector a limits
+    record bounds. A lane then drives correctors that model holds at the
+    lane's demands, and slot 0 is that bounded corrector when it is the
+    model's first in wiring order.
 
     A slot is owned by one lane for the life of the session container -- two
     lanes driving one corrector would read each other's writes -- so each lane
@@ -955,15 +1132,11 @@ def corrector_at_slot(slot: int) -> Corrector:
             requires, or if the corrector at ``slot`` is served with no
             readback of its own.
     """
-    from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
-    from tests.e2e._facility_select import bounded_corrector_of
+    from tests.e2e._facility_select import lane_model
+    from tests.facility.served_tree import unmoved_band
 
     view = SimulatorView.open(demo_data_dir() / VIEW_RELPATH.name)
-    bounded = bounded_corrector_of(view)
-    assert bounded is not None, (
-        "no corrector of the served view has a limits record with both min_value and max_value"
-    )
-    model = bounded[2]
+    model = lane_model(view)
     kicks = [
         binding.address
         for binding in view.bindings(role="setpoint", model=model)
@@ -979,4 +1152,8 @@ def corrector_at_slot(slot: int) -> Corrector:
         f"{setpoint} is served with no readback of its own, so a "
         f"lane cannot tell a magnet's reading from the demand written to it"
     )
-    return Corrector(setpoint_address=setpoint, readback_address=str(readback))
+    return Corrector(
+        setpoint_address=setpoint,
+        readback_address=str(readback),
+        readback_band=unmoved_band(view, str(readback), SUITE_SCENARIOS),
+    )

@@ -54,7 +54,7 @@ independently guards. A test that would break under behavior-preserving
 refactoring is asserting implementation, not behavior; rewrite it at the
 owning boundary before landing it. Also pass every item of the tests/README.md
 §7 checklist ("Adding a batch of new tests"), including: unique basename;
-reuse the shared helpers (`free_port()` in tests/fixtures/bench_ioc.py,
+reuse the shared helpers (the `reserve_port` fixture in tests/conftest.py,
 `patch_subprocess()` in tests/cli/_scoped_subprocess.py, `isolated_home` in
 tests/cli/conftest.py, the named reset seams); new global state gets a public reset seam plus an autouse
 fixture; no import-time side effects; no new `xdist_group`; almost no flaky

@@ -29,15 +29,6 @@ def _make_notebook_bytes() -> bytes:
 
 
 class TestNotebookRenderedAPI:
-    @pytest.fixture
-    def app_client(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        app = create_app(workspace_root=tmp_path)
-        return TestClient(app), tmp_path
-
     def _save_notebook(self, client, content: bytes | None = None):
         store = client.app.state.artifact_store
         return store.save_file(
@@ -52,10 +43,9 @@ class TestNotebookRenderedAPI:
 
     def test_renders_notebook_cells_to_html(self, app_client):
         """A notebook artifact renders its cell content to an HTML page."""
-        client, _ = app_client
-        entry = self._save_notebook(client)
+        entry = self._save_notebook(app_client)
 
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
         # Code cell content is present (the render actually happened, and the
@@ -70,10 +60,9 @@ class TestNotebookRenderedAPI:
         renders broken inside the gallery's sandboxed iframe.
         """
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
-        entry = self._save_notebook(client)
+        entry = self._save_notebook(app_client)
 
-        html = client.get(f"/api/notebooks/{entry.id}/rendered").text
+        html = app_client.get(f"/api/notebooks/{entry.id}/rendered").text
 
         # No src=/href= pointing at an external http(s) resource.
         external = re.findall(r'(?:src|href)\s*=\s*["\'](https?://[^"\']+)["\']', html)
@@ -90,16 +79,14 @@ class TestNotebookRenderedAPI:
         this notebook's markdown cell render as raw ``$x^2$``.
         """
         monkeypatch.setenv("OSPREY_OFFLINE", "0")
-        client, _ = app_client
-        entry = self._save_notebook(client)
+        entry = self._save_notebook(app_client)
 
-        html = client.get(f"/api/notebooks/{entry.id}/rendered").text
+        html = app_client.get(f"/api/notebooks/{entry.id}/rendered").text
 
         assert "cdnjs.cloudflare.com" in html
 
     def test_non_notebook_returns_400(self, app_client):
-        client, _ = app_client
-        store = client.app.state.artifact_store
+        store = app_client.app.state.artifact_store
         entry = store.save_file(
             file_content=b"# not a notebook",
             filename="x.md",
@@ -109,31 +96,28 @@ class TestNotebookRenderedAPI:
             mime_type="text/markdown",
             tool_source="test",
         )
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 400
 
     def test_missing_artifact_returns_404(self, app_client):
-        client, _ = app_client
-        resp = client.get("/api/notebooks/nonexistent-id/rendered")
+        resp = app_client.get("/api/notebooks/nonexistent-id/rendered")
         assert resp.status_code == 404
 
     def test_notebook_file_missing_on_disk_returns_404(self, app_client):
         """A registered entry whose .ipynb vanished from disk returns 404, not 500."""
-        client, _ = app_client
-        entry = self._save_notebook(client)
-        client.app.state.artifact_store.get_file_path(entry.id).unlink()
+        entry = self._save_notebook(app_client)
+        app_client.app.state.artifact_store.get_file_path(entry.id).unlink()
 
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
 
     def test_unparseable_notebook_returns_500_with_detail(self, app_client):
         """A file that nbformat cannot parse surfaces as a 500 with the render
         error in the detail, rather than an unhandled exception."""
-        client, _ = app_client
-        entry = self._save_notebook(client, content=b"this is not JSON at all {")
+        entry = self._save_notebook(app_client, content=b"this is not JSON at all {")
 
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 500
         assert "Notebook rendering failed" in resp.json()["detail"]
 
@@ -143,13 +127,8 @@ class TestNotebookPageIsOpaque:
     page runs on an opaque origin and carries the C-MSG print listener."""
 
     @pytest.fixture
-    def page(self, tmp_path):
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.artifacts.app import create_app
-
-        client = TestClient(create_app(workspace_root=tmp_path))
-        entry = client.app.state.artifact_store.save_file(
+    def page(self, app_client):
+        entry = app_client.app.state.artifact_store.save_file(
             file_content=_make_notebook_bytes(),
             filename="demo.ipynb",
             artifact_type="notebook",
@@ -158,7 +137,7 @@ class TestNotebookPageIsOpaque:
             mime_type="application/x-ipynb+json",
             tool_source="test",
         )
-        return client.get(f"/api/notebooks/{entry.id}/rendered")
+        return app_client.get(f"/api/notebooks/{entry.id}/rendered")
 
     def test_the_rendered_page_carries_the_opaque_sandbox(self, page):
         from osprey.interfaces.opaque_origin import OPAQUE_CSP

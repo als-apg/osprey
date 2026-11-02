@@ -4,7 +4,7 @@
 frontend highlighter::
 
     request:   {"tool": str, "target": {"kind": "panel"|"channel"|"run"|"artifact"
-                                                |"config"|"ui",
+                                                |"config"|"ui"|"review",
                                         "panel"?: str, "detail"?: str}}
     broadcast: {"type": "agent_activity", "tool": ..., "target": {...}, "ts": ...}
 
@@ -37,6 +37,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX, router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import bare_route_app
 
@@ -79,6 +80,10 @@ def _post(client: TestClient, tool: str = "open_panel", **target) -> None:
         ),
         ({"tool": "emit", "target": {"kind": "config"}}, {"kind": "config"}),
         ({"tool": "emit", "target": {"kind": "ui"}}, {"kind": "ui"}),
+        (
+            {"tool": "execute", "target": {"kind": "review", "detail": "blocked: writes to /etc"}},
+            {"kind": "review", "detail": "blocked: writes to /etc"},
+        ),
     ],
 )
 def test_valid_post_broadcasts_frame_and_returns_ok(body, expected_target):
@@ -122,6 +127,10 @@ def test_valid_post_broadcasts_frame_and_returns_ok(body, expected_target):
             {"tool": "write_channel", "target": {"kind": "channel", "detail": "d" * 1025}},
             id="long-detail",
         ),
+        pytest.param(
+            {"tool": "execute", "target": {"kind": "review", "detail": "d" * 1025}},
+            id="long-review-detail",
+        ),
     ],
 )
 def test_malformed_body_422_and_no_broadcast(body):
@@ -134,7 +143,7 @@ def test_malformed_body_422_and_no_broadcast(body):
     assert len(client.app.state.agent_activity_buffer) == 0
 
 
-@pytest.mark.parametrize("kind", ["widget", "Config", "UI", "", "settings"])
+@pytest.mark.parametrize("kind", ["widget", "Config", "UI", "Review", "", "settings"])
 def test_unknown_kinds_still_rejected(kind):
     """The kind Literal stays closed and case-sensitive: never a free-form string."""
     client = _make_client()
@@ -169,15 +178,8 @@ def test_routes_registered_on_composite_router(path, method):
 
 def test_app_lifespan_builds_a_bounded_ring(tmp_path):
     """The ring is created with its ``app.state`` peers when the app starts up."""
-    from osprey.interfaces.web_terminal.app import create_app
-
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(tmp_path)},
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app):
-            ring = app.state.agent_activity_buffer
+    with terminal_client(tmp_path) as client:
+        ring = client.app.state.agent_activity_buffer
 
     assert isinstance(ring, deque)
     assert ring.maxlen == ACTIVITY_BUFFER_MAX
@@ -235,6 +237,16 @@ def test_recent_returns_the_broadcast_frame_verbatim():
             "target": {"kind": "channel", "detail": "SR01C:BPM1:X"},
             "ts": frame["ts"],
         }
+    ]
+
+
+def test_recent_serves_a_review_frame_back():
+    """A review frame is buffered like any other, so a late browser still sees the notice."""
+    client = _make_client()
+    _post(client, tool="execute", kind="review", detail="blocked: writes to /etc")
+
+    assert [(event["tool"], event["target"]) for event in _get_recent(client)] == [
+        ("execute", {"kind": "review", "detail": "blocked: writes to /etc"})
     ]
 
 

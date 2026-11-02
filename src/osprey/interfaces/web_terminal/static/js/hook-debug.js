@@ -160,6 +160,14 @@ async function _loadLogEntries(logBody) {
 
   try {
     const data = await fetchJSON('/api/hooks/debug-log?limit=50'); // fetchJSON prefixes this internally
+    if (data.record === 'unavailable') {
+      // The record did not answer: say so, never show an empty feed as "No entries".
+      const unavailable = document.createElement('div');
+      unavailable.className = 'hook-debug-log-empty';
+      unavailable.textContent = 'record unavailable';
+      logBody.appendChild(unavailable);
+      return;
+    }
     if (!data.entries || data.entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'hook-debug-log-empty';

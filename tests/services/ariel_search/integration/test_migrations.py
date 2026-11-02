@@ -577,17 +577,19 @@ class TestAttachmentTextColumnsMigration:
             "attachment_captions": ("jsonb", "YES", None),
         }
 
-    async def test_busy_table_skips_quickly_without_blocking_readers(
+    async def test_busy_table_skips_without_queueing_or_blocking_readers(
         self, scratch_database, scratch_pool, scratch_config, monkeypatch
     ):
-        """An open reader makes migrate return busy within 6 s; a later reader never waits.
+        """An open reader makes migrate return busy after ``LOCK_ATTEMPTS`` NOWAIT attempts.
+
+        None of the attempts queues, and a reader started during the retries is served.
 
         The reader holds ACCESS SHARE on ``enhanced_entries`` for the whole run.
         A queued ACCESS EXCLUSIVE request would make the third session's read
         wait behind it; the NOWAIT retries never queue, so it returns at once.
         """
         import asyncio
-        import time
+        import types
 
         import psycopg
 
@@ -602,34 +604,48 @@ class TestAttachmentTextColumnsMigration:
 
         holder = await psycopg.AsyncConnection.connect(scratch_database)
         third = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
+        observer = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
+        real_sleep = asyncio.sleep
+        first_pause = asyncio.Event()
+        ungranted: list[int] = []
+
+        async def pause(delay: float) -> None:
+            first_pause.set()
+            waiting = await observer.execute(
+                "SELECT count(*) FROM pg_locks WHERE NOT granted AND database = "
+                "(SELECT oid FROM pg_database WHERE datname = current_database())"
+            )
+            ungranted.append((await waiting.fetchone())[0])
+            await real_sleep(delay)
+
+        # Only the product's retry pause is observed; the event loop keeps its own sleep.
+        monkeypatch.setattr(migrations, "asyncio", types.SimpleNamespace(sleep=pause))
         try:
             await holder.execute("SELECT count(*) FROM enhanced_entries")  # opens a txn
 
-            async def late_reader() -> float:
-                await asyncio.sleep(1.5)
-                started = time.monotonic()
+            async def late_reader() -> None:
+                await first_pause.wait()
                 await third.execute("SET statement_timeout = '3s'")
                 await third.execute("SELECT count(*) FROM enhanced_entries")
-                return time.monotonic() - started
 
-            started = time.monotonic()
-            result, reader_s = await asyncio.wait_for(
+            result, _ = await asyncio.wait_for(
                 asyncio.gather(
                     migrations.run_migrations_detailed(scratch_pool, scratch_config),
                     late_reader(),
                 ),
                 timeout=30,
             )
-            migrate_s = time.monotonic() - started
         finally:
             await holder.rollback()
             await holder.close()
             await third.close()
+            await observer.close()
 
+        pauses = len(ungranted)
         assert result.applied == []
         assert result.busy_skipped == [self.MIGRATION]
-        assert migrate_s < 6.0
-        assert reader_s < 1.0
+        assert pauses + 1 == migrations.LOCK_ATTEMPTS
+        assert ungranted == [0] * pauses
 
         async with scratch_pool.connection() as conn:
             result_cols = await conn.execute("""
@@ -1237,9 +1253,10 @@ class TestV2SearchIndexMigrations:
 
     @pytest.mark.usefixtures("store")
     async def test_v2_share_lock_holder_does_not_block_readers(self, scratch_database):
-        """While a session holds SHARE (as a v2 build does), a reader returns at once."""
-        import time
+        """While a session holds SHARE (as a v2 build does), a reader is served.
 
+        The reader's ``statement_timeout`` fails a read that queues behind the lock.
+        """
         import psycopg
 
         builder = await psycopg.AsyncConnection.connect(scratch_database)
@@ -1247,17 +1264,14 @@ class TestV2SearchIndexMigrations:
         try:
             await builder.execute("LOCK TABLE enhanced_entries IN SHARE MODE")
             await reader.execute("SET statement_timeout = '3s'")
-            started = time.monotonic()
             result = await reader.execute("SELECT count(*) FROM enhanced_entries")
             count = (await result.fetchone())[0]
-            reader_s = time.monotonic() - started
         finally:
             await builder.rollback()
             await builder.close()
             await reader.close()
 
         assert count == 200
-        assert reader_s < 1.0
 
 
 @pytest.fixture

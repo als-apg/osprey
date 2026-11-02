@@ -378,7 +378,7 @@ def test_reset_removes_the_artifact_and_says_so(repo: Path) -> None:
 def test_reset_leaves_no_directory_where_the_file_was(repo: Path, monkeypatch) -> None:
     """It is a file. Recreating it empty — as reset does for the state zones —
     would leave a DIRECTORY of that name for the next deploy to trip over."""
-    monkeypatch.setattr(reset_mod, "down_deployment", lambda root: None)
+    monkeypatch.setattr(reset_mod, "down_deployment", lambda root, **_: None)
     (repo / "var" / "agent_data").mkdir(parents=True)
     (repo / "build" / "config.yml").write_text(
         "project_name: als-exemplar\nbuild_dir: ./build\n", encoding="utf-8"

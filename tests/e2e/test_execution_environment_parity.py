@@ -63,11 +63,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey_connectors.workspace import (
-    BUILD_DIR_NAME,
-    RENDERED_CONFIG_RELPATH,
-    container_image_context,
-)
+from osprey.utils.workspace import container_image_context
+from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
 from tests._builds import uv_path
 from tests.e2e.profile_edits import set_pairs
 
@@ -529,7 +526,7 @@ def built_image(built_render):
         )
         yield tag
     finally:
-        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True)
+        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, timeout=120)
         for artifact in staged:
             # Staged dev artifacts must not outlive the build that needed them:
             # a leftover wheel would silently reinstall osprey in any later

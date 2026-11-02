@@ -4,8 +4,8 @@ This module is imported by other hooks rather than invoked as a script, so it is
 tested by direct import. It carries module-level caches
 (``_hook_config_cache``, ``_osprey_config_cache``, ``_debug_from_config``) that
 must be reset between tests to keep the unit lane serial-safe. Coverage here
-targets the config loaders, stdin/project-dir resolution, the dual-sink
-``log_hook`` gate, and ``_is_debug_enabled``, which reads ``config.yml`` on
+targets the config loaders, stdin/project-dir resolution, the
+``log_hook`` debug gate, and ``_is_debug_enabled``, which reads ``config.yml`` on
 every hook run so the Hook Debug toggle takes effect without a respawn.
 """
 
@@ -238,35 +238,42 @@ def test_agent_data_subdirs_covers_both_anchors_once(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# log_hook — dual-sink gate
+# log_hook — stderr plus a hook debug entry on the record
 # ---------------------------------------------------------------------------
 
 
-def _hooks_dir(tmp_path):
-    d = tmp_path / ".claude" / "hooks"
-    d.mkdir(parents=True)
-    return d
+def _debug_lines(spool_zone):
+    """Every spool line of kind ``debug`` under the test's spool root, oldest first."""
+    lines = []
+    for path in sorted(spool_zone.root.rglob("*.sealed"), key=lambda p: p.name):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if raw.strip():
+                line = json.loads(raw)
+                if line["kind"] == "debug":
+                    lines.append(line)
+    return lines
 
 
-def test_log_hook_noop_when_debug_disabled(tmp_path, capsys, monkeypatch):
-    _hooks_dir(tmp_path)
+def test_log_hook_noop_when_debug_disabled(tmp_path, capsys, monkeypatch, spool_zone):
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
     # Debug not enabled (no OSPREY_HOOK_DEBUG, no config).
 
     hook_log.log_hook("osprey_test", {"tool_name": "channel_write"}, status="ok")
 
     assert capsys.readouterr().err == ""
+    assert list(spool_zone.root.rglob("*.sealed")) == []
     assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
 
 
-def test_log_hook_writes_stderr_and_jsonl_when_enabled(tmp_path, capsys, monkeypatch):
-    _hooks_dir(tmp_path)
+def test_log_hook_writes_stderr_and_debug_entry_when_enabled(
+    tmp_path, capsys, monkeypatch, spool_zone
+):
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 
     hook_log.log_hook(
         "osprey_test",
-        {"tool_name": "channel_write", "tool_use_id": "abc123"},
+        {"tool_name": "channel_write", "tool_use_id": "abc123", "session_id": "conv-1"},
         status="blocked",
         detail="writes disabled",
     )
@@ -276,38 +283,56 @@ def test_log_hook_writes_stderr_and_jsonl_when_enabled(tmp_path, capsys, monkeyp
     assert "status=blocked" in err
     assert "writes disabled" in err
 
-    jsonl = tmp_path / ".claude" / "hooks" / "hook_debug.jsonl"
-    record = json.loads(jsonl.read_text().strip())
-    assert record["hook"] == "osprey_test"
-    assert record["tool"] == "channel_write"
-    assert record["status"] == "blocked"
-    assert record["tool_use_id"] == "abc123"
-    assert record["detail"] == "writes disabled"
+    (line,) = _debug_lines(spool_zone)
+    assert line["session_id"] == "conv-1"
+    assert line["tool_use_id"] == "abc123"
+    body = line["body"]
+    assert body["source"] == "hook"
+    assert body["hook"] == "osprey_test"
+    assert body["tool"] == "channel_write"
+    assert body["status"] == "blocked"
+    assert body["tool_use_id"] == "abc123"
+    assert body["detail"] == "writes disabled"
+    assert body["ts"] == line["ts"]
+    # The render is no longer a sink.
+    assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
 
 
-def test_log_hook_appends_multiple_records(tmp_path, monkeypatch):
-    _hooks_dir(tmp_path)
+def test_log_hook_entries_are_accepted_by_the_record(monkeypatch, tmp_path, spool_zone):
+    """The spool consumer takes every debug line the hook writes (it fails on a refusal)."""
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 
     hook_log.log_hook("h", {"tool_name": "a"}, status="ok")
-    hook_log.log_hook("h", {"tool_name": "b"}, status="ok")
+    hook_log.log_hook("h", {"tool_name": "b"}, status="ok", detail="x" * 5000)
 
-    lines = (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").read_text().strip().splitlines()
-    assert len(lines) == 2
-    assert [json.loads(x)["tool"] for x in lines] == ["a", "b"]
+    entries = spool_zone.recorded_entries("debug")
+    assert sorted(e.body["tool"] for e in entries) == ["a", "b"]
+    assert {e.body["source"] for e in entries} == {"hook"}
 
 
-def test_log_hook_survives_missing_log_dir(tmp_path, capsys, monkeypatch):
-    """No .claude/hooks dir -> the JSONL write is best-effort and swallowed, but
-    the stderr line still prints and nothing raises."""
+def test_log_hook_writes_nothing_when_the_record_is_off(monkeypatch, tmp_path, spool_zone):
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
-    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))  # no .claude/hooks created
+    monkeypatch.setenv("OSPREY_AGENT_RECORD_OFF", "1")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+
+    hook_log.log_hook("h", {"tool_name": "a"}, status="ok")
+
+    assert list(spool_zone.root.rglob("*.sealed")) == []
+
+
+def test_log_hook_survives_an_unwritable_spool(tmp_path, capsys, monkeypatch):
+    """A spool that cannot be written costs the entry, never the hook: the
+    stderr line still prints and nothing raises."""
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+    monkeypatch.setenv("OSPREY_SPOOL_DIR", str(blocker / "alice"))
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 
     hook_log.log_hook("h", {"tool_name": "a"}, status="ok")  # must not raise
 
     assert "[h]" in capsys.readouterr().err
-    assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
 
 
 # ---------------------------------------------------------------------------

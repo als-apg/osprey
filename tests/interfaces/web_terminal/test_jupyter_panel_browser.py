@@ -76,20 +76,19 @@ import pytest
 import requests
 import yaml
 
+from osprey.interfaces._serving import run_app_server
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
-from tests.interfaces.web_terminal.test_logout_resume_browser import _nginx_stand_in
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app, hub_server
+from tests.interfaces.web_terminal._control_context import read_record
 
-# The control-target render, the chip's selectors and the waits are the sibling
-# browser suite's, imported rather than restated: two suites disagreeing about
+# The control-target render, the chip's selectors and the waits are the chip
+# suites' own, imported rather than restated: two suites disagreeing about
 # what a switchable deployment looks like is exactly the drift this feature
 # exists to remove.
-from tests.interfaces.web_terminal.test_posture_toggle_browser import (
-    _LONG_LIVED_SHELL,
+from tests.interfaces.web_terminal._posture_chip import (
     ACTIVE_TARGET,
     CHIP,
     MODAL_CONFIRM,
@@ -101,10 +100,11 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     RECORD_GENERATION,
     SWITCH_TARGET,
     TIMEOUT,
-    _reachability_sweep,
-    _reset_process_memos,
-    _write_config,
+    reachability_sweep,
+    reset_process_memos,
+    write_config,
 )
+from tests.interfaces.web_terminal._user_terminal import nginx_stand_in
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -206,25 +206,8 @@ def _live_server(workspace_dir: Path):
     Yields:
         ``(base_url, app)`` — the live server address and the FastAPI app.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts", "jupyter"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url, app
+    with hub_server(workspace_dir, enabled_panels={"artifacts", "jupyter"}) as served:
+        yield served
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +317,7 @@ def _assert_nothing_outlived(*patterns: str) -> None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
         if found.returncode != 0:
             return
@@ -357,6 +341,7 @@ def _describe(pids: list[str]) -> str:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
         described.append(f"  {pid}: {shown.stdout.strip() or '<gone>'}")
     return "\n".join(described)
@@ -399,13 +384,16 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
 
         # A rail click takes the focused tile over (one panel per tile).
         rail_entry(page, "jupyter").click()
-        expect(page.locator('.tile-tab[aria-label="JUPYTER"]')).to_have_count(1, timeout=10_000)
+        expect(page.locator('.tile-tab[aria-label="Jupyter"]')).to_have_count(1, timeout=10_000)
 
         lab = _lab(page)
         expect(lab.locator("#jp-main-dock-panel")).to_be_visible(timeout=_LAB_BOOT_MS)
 
-        # The pinned dark web theme reached JupyterLab through the labconfig
-        # override the sidecar wrote for this launch.
+        # The tile is dark: the pinned dark web theme, through the labconfig
+        # override the sidecar wrote for this launch. The hub is dark too, so
+        # the tile's theme follower (lab-theme-follow.js) has nothing to switch;
+        # it would also make a light Lab dark, so the override itself is pinned
+        # server-side in test_jupyter_sidecar.py.
         body = lab.locator("body")
         expect(body).to_have_attribute("data-jp-theme-light", "false", timeout=_LAB_BOOT_MS)
         expect(body).to_have_attribute("data-jp-theme-name", "JupyterLab Dark")
@@ -509,7 +497,7 @@ def _control_target_lab(
     one process, which is what the two lanes below need and what neither file
     has on its own:
 
-    * the three-target render comes from ``_write_config`` — imported, so the
+    * the three-target render comes from ``write_config`` — imported, so the
       roster the Lab bar shows is the same roster the hub's own chip shows;
     * ``agent_data.base_dir`` is pointed INTO *tmp_path* in that same config,
       rather than by patching a resolver. Everything downstream of this process
@@ -553,7 +541,7 @@ def _control_target_lab(
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
 
-    config = _write_config(tmp_path / "config.yml")
+    config = write_config(tmp_path / "config.yml")
     document = yaml.safe_load(config.read_text(encoding="utf-8"))
     document["agent_data"] = {"base_dir": str(root)}
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
@@ -572,42 +560,30 @@ def _control_target_lab(
     for name, text in (notebook_files or {}).items():
         (notebooks / name).write_text(text, encoding="utf-8")
 
-    _reset_process_memos()
+    reset_process_memos()
     write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
 
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts", "jupyter"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
-            ".snapshot_session_ids",
-            side_effect=lambda *_args, **_kwargs: set(),
-        ),
-    ]
     try:
-        with _apply_all(patches):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
+        with hub_app(
+            workspace,
+            patch(
+                "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
+                ".snapshot_session_ids",
+                side_effect=lambda *_args, **_kwargs: set(),
+            ),
+            enabled_panels={"artifacts", "jupyter"},
+            shell_command=LONG_LIVED_SHELL,
+            config_path=config,
+        ) as app:
             if terminal_user:
                 prefix = f"/u/{terminal_user}"
-                with _run_app_server(_nginx_stand_in(app, prefix)) as server_url:
+                with run_app_server(nginx_stand_in(app, prefix)) as server_url:
                     yield f"{server_url}{prefix}", app, root
             else:
-                with _run_app_server(app) as base_url:
+                with run_app_server(app) as base_url:
                     yield base_url, app, root
     finally:
-        _reset_process_memos()
+        reset_process_memos()
 
 
 def _restart_the_kernel_from_the_notebook(page: Page) -> None:
@@ -670,14 +646,8 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
         applied_target=applied_target,
         applied_generation=applied_generation,
         children=[4242],
-        reachability=_reachability_sweep(),
+        reachability=reachability_sweep(),
     )
-
-
-def _record() -> Any:
-    """The deployment's control-context record, re-read from disk."""
-    control_context.invalidate_cache()
-    return control_context.read_record()
 
 
 def _standalone_notebook(browser, base_url: str) -> Page:
@@ -822,7 +792,7 @@ def test_a_popped_out_notebook_follows_a_switch_made_from_its_own_bar(
 
             _switch_from_the_lab_bar(notebook, SWITCH_TARGET)
 
-            moved = _record()
+            moved = read_record()
             assert moved is not None, "the switch left no record"
             assert moved.target == SWITCH_TARGET, moved
             assert moved.generation == RECORD_GENERATION + 1, moved
@@ -946,7 +916,7 @@ _PAYLOAD = (
     ".then((r) => r.json())"
     f".then((s) => fetch('{_PROBE_URL}', {{method: 'POST', credentials: 'include',"
     " headers: {'Content-Type': 'application/json'},"
-    f" body: JSON.stringify({{target: '{POSTURE_TARGET}', state: 'on',"
+    f" body: JSON.stringify({{target: '{POSTURE_TARGET}', state: 'asked',"
     " epoch: s.switch_epoch})}));"
 )
 
@@ -1017,8 +987,8 @@ def _violations(page: Page) -> list[dict]:
 
 
 def _switch_of(target: str) -> str | None:
-    """The record's writes switch for *target*: ``"on"``, or ``None`` for off."""
-    record = _record()
+    """The record's writes switch for *target*: its armed position, or ``None`` for off."""
+    record = read_record()
     assert record is not None, "the deployment has no control-context record"
     return dict(record.switch or {}).get(target)
 
@@ -1149,7 +1119,7 @@ def test_agent_script_in_an_output_makes_no_request_and_the_switch_stays_off(
             # The control: the same payload, from outside the policy, is a
             # working credentialed write.
             page.evaluate(f"() => {{ {_PAYLOAD.replace('PROBE', 'control')} }}")
-            _wait_for_switch(page, POSTURE_TARGET, "on")
+            _wait_for_switch(page, POSTURE_TARGET, "asked")
             control = f"{base_url}/api/terminal/posture?probe=control"
             assert [(m, url) for m, url in sent if "probe=" in url] == [
                 ("GET", control),
@@ -1210,14 +1180,17 @@ def test_the_renderers_an_operator_relies_on_survive_the_policy(
 def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """Behind the per-user prefix, the bar mounts and its switch writes the record.
+    """Behind the per-user prefix, the bar mounts and its off→asked lands everywhere.
 
     The popped-out page is its own window, so the injected module mounts the
-    bar. The switch is flipped on through the confirm a fresh browser always
-    shows, then off again, which applies at once; both land in the record. The
-    gestures post to the PREFIXED route — the stand-in passes a bare path
-    through untouched, so a chip that forgot the prefix would still reach the
-    app, and only the request URL can tell.
+    bar. The machine the deployment stands on is moved off→asked from the
+    bar's card, through the confirm a fresh browser always shows; the move
+    lands in the record, the bar's chip reads ``writes asked``, and the hub's
+    own chip — another page, reading the same record — reads the same word.
+    Then off again, which applies at once. The gestures post to the PREFIXED
+    route — the stand-in passes a bare path through untouched, so a chip that
+    forgot the prefix would still reach the app, and only the request URL can
+    tell.
     """
     with _control_target_lab(tmp_path, monkeypatch, terminal_user=_USER) as (
         base_url,
@@ -1230,6 +1203,7 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             "request",
             lambda request: posts.append(request.url) if request.method == "POST" else None,
         )
+        hub = None
         try:
             expect(page.locator(f'script[src$="{_LAB_BAR_MODULE}"]')).to_have_attribute(
                 "src", f"{_PREFIX}/panel/jupyter/terminal-static/js/{_LAB_BAR_MODULE}"
@@ -1238,25 +1212,45 @@ def test_the_lab_bar_mounts_on_a_popped_out_page_and_flips_a_switch(
             expect(page.locator(_LAB_CHIP)).to_have_attribute(
                 "data-enforceable", "true", timeout=TIMEOUT
             )
+            expect(page.locator(f"{_LAB_CHIP} .ctc-state")).to_have_text(
+                "writes off", timeout=TIMEOUT
+            )
 
             page.locator(_LAB_CHIP).click()
             expect(page.locator(POPOVER)).to_be_visible(timeout=TIMEOUT)
-            toggle = page.locator(f'{POPOVER} .ctc-row[data-target="{POSTURE_TARGET}"] .ctc-toggle')
-            expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)
+            machine = f'{POPOVER} .ctc-card[data-target="{ACTIVE_TARGET}"]'
+            asked = page.locator(f'{machine} .ctc-position[data-position="asked"]')
+            off = page.locator(f'{machine} .ctc-position[data-position="off"]')
+            expect(off).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
 
-            toggle.click()
-            expect(page.locator(MODAL_CONFIRM)).to_be_visible(timeout=TIMEOUT)
+            asked.click()
+            expect(page.locator(MODAL_TITLE)).to_have_text(
+                f"Set writes to asked on {NAMES[ACTIVE_TARGET]}?", timeout=TIMEOUT
+            )
             page.locator(MODAL_CONFIRM).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
-            expect(toggle).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
-            _wait_for_switch(page, POSTURE_TARGET, "on")
+            expect(asked).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
+            expect(page.locator(machine)).to_have_attribute("data-state", "asked", timeout=TIMEOUT)
+            _wait_for_switch(page, ACTIVE_TARGET, "asked")
+            expect(page.locator(f"{_LAB_CHIP} .ctc-state")).to_have_text(
+                "writes asked", timeout=TIMEOUT
+            )
 
-            toggle.click()
-            expect(toggle).to_have_attribute("aria-checked", "false", timeout=TIMEOUT)
-            _wait_for_switch(page, POSTURE_TARGET, None)
+            # The hub's own chip, on its own page, reads the same word.
+            hub = chromium_browser.new_page()
+            hub.goto(base_url, wait_until="domcontentloaded")
+            expect(hub.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
+            expect(hub.locator(CHIP)).to_have_attribute("data-state", "asked", timeout=TIMEOUT)
+            expect(hub.locator(f"{CHIP} .ctc-state")).to_have_text("writes asked", timeout=TIMEOUT)
+
+            off.click()
+            expect(off).to_have_attribute("aria-checked", "true", timeout=TIMEOUT)
+            _wait_for_switch(page, ACTIVE_TARGET, None)
 
             switch_posts = [url for url in posts if url.endswith("/api/terminal/posture")]
             assert switch_posts == [f"{base_url}/api/terminal/posture"] * 2, posts
             assert _violations(page) == []
         finally:
+            if hub is not None:
+                hub.close()
             page.close()

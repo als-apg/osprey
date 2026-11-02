@@ -44,6 +44,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.logger import get_logger
 
 from .base import KEYLESS_API_KEY_PLACEHOLDER, declares
+from .health import HealthResult, failure_reason
 
 if TYPE_CHECKING:
     from .base import BaseProvider
@@ -316,12 +317,16 @@ def execute_litellm_completion(
     response = litellm.completion(**completion_kwargs)
 
     # Handle extended thinking response (returns content blocks)
-    if enable_thinking and budget_tokens is not None and provider == "anthropic":
-        # Return raw content blocks for thinking responses
-        if hasattr(response, "choices") and response.choices:
-            choice = response.choices[0]
-            if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
-                return choice.message.content
+    if (
+        enable_thinking
+        and budget_tokens is not None
+        and provider == "anthropic"
+        and hasattr(response, "choices")
+        and response.choices
+    ):
+        choice = response.choices[0]
+        if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
+            return choice.message.content
 
     # Handle tool call responses
     if hasattr(response, "choices") and response.choices:
@@ -565,8 +570,7 @@ def _clean_json_response(text: str) -> str:
     elif text.startswith("```"):
         text = text[3:]
 
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
 
     text = text.strip()
 
@@ -576,9 +580,7 @@ def _clean_json_response(text: str) -> str:
     text = re.sub(r":\s*True\b", ": true", text)
     text = re.sub(r":\s*False\b", ": false", text)
     text = re.sub(r",\s*True\b", ", true", text)
-    text = re.sub(r",\s*False\b", ", false", text)
-
-    return text
+    return re.sub(r",\s*False\b", ", false", text)
 
 
 #: Seconds a direct Ollama request may take when the caller gives no timeout.
@@ -856,3 +858,106 @@ def check_litellm_health(
         return False, f"API error: {str(e)[:_ERR_SNIPPET]}"
     except Exception as e:
         return False, f"Unexpected error: {str(e)[:_ERR_SNIPPET]}"
+
+
+def execute_litellm_embedding(
+    provider: str,
+    texts: list[str],
+    model_id: str | None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    dimensions: int | None = None,
+    timeout: float = 600.0,
+) -> list[list[float]]:
+    """Embed *texts* through LiteLLM, one vector per text, in input order.
+
+    The model is routed like a chat model (:func:`get_litellm_model_name`), so
+    an OpenAI-compatible proxy gets ``openai/<model>`` against its base URL. A
+    key, base URL or dimension count that is not given is left out of the call.
+    On a LiteLLM-fronted provider the call carries the acting identity, as a
+    chat completion does.
+
+    :param provider: Osprey provider name
+    :param texts: Texts to embed
+    :param model_id: Embedding model identifier (the adapter resolves its default)
+    :param api_key: API key for authentication
+    :param base_url: API endpoint URL
+    :param dimensions: Output vector length, when the model takes one
+    :param timeout: Request timeout in seconds
+    :return: One embedding vector per input text
+    :raises ValueError: When no model id is given
+    :raises RuntimeError: When the call fails; the original exception is the ``__cause__``
+    """
+    if not texts:
+        return []
+    if not model_id:
+        raise ValueError(
+            f"No embedding model configured for provider {provider!r}: set the module's model"
+        )
+
+    embed_kwargs: dict[str, Any] = {
+        "model": get_litellm_model_name(provider, model_id, base_url),
+        "input": texts,
+        "timeout": timeout,
+    }
+    if api_key:
+        embed_kwargs["api_key"] = api_key
+    if base_url:
+        embed_kwargs["api_base"] = base_url
+    if dimensions is not None:
+        embed_kwargs["dimensions"] = dimensions
+    if _provider_gateway(provider) == LITELLM_GATEWAY:
+        embed_kwargs["user"] = acting_identity()
+        embed_kwargs["extra_headers"] = {TAGS_HEADER: attribution_tags()}
+
+    try:
+        response = litellm.embedding(**embed_kwargs)
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate embeddings with {provider}: {e}") from e
+    return [item["embedding"] for item in response.data]
+
+
+def check_litellm_embedding_health(
+    provider: str,
+    api_key: str | None,
+    base_url: str | None,
+    model_id: str | None = None,
+    timeout: float = 10.0,
+) -> HealthResult:
+    """Embed one one-token text against *model_id*, answering with one typed verdict.
+
+    Never raises for a provider failure: the exception is classified by
+    :func:`~osprey.models.providers.health.failure_reason`, and anything it does
+    not know is reported ``unreachable``. A missing key, endpoint or model is a
+    ``config`` verdict and makes no request.
+
+    :param provider: Osprey provider name
+    :param api_key: API key for authentication
+    :param base_url: API endpoint URL (already resolved by the adapter)
+    :param model_id: Model to check (the adapter resolves its health-check default)
+    :param timeout: Request timeout in seconds
+    :return: The verdict
+    """
+    if not api_key and _requires_api_key(provider):
+        return HealthResult(False, f"{provider} API key is required", "config")
+    if not base_url:
+        # Lazy import: provider_registry imports the provider modules, which import this adapter.
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_class = get_provider_registry().get_provider(provider)
+        if provider_class is not None and declares(provider_class, "requires_base_url"):
+            return HealthResult(False, f"Base URL required for {provider}", "config")
+    if not model_id:
+        return HealthResult(
+            False, f"No embedding model configured for provider {provider!r}", "config"
+        )
+
+    try:
+        execute_litellm_embedding(
+            provider, ["ping"], model_id, api_key=api_key, base_url=base_url, timeout=timeout
+        )
+    except Exception as e:
+        cause = e.__cause__ if isinstance(e.__cause__, BaseException) else e
+        reason = failure_reason(cause) or "unreachable"
+        return HealthResult(False, f"{provider} embedding health check failed: {cause}", reason)
+    return HealthResult(True, f"{provider} embedding API healthy (model: {model_id})", None)

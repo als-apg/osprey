@@ -10,13 +10,24 @@ Examples:
 
         cmd = get_runtime_command(config)
         # Returns: ['docker', 'compose'] or ['podman', 'compose']
+
+    From a shell, the runtime ``osprey up`` would drive::
+
+        RUNTIME="$(python -m osprey.deployment.runtime_helper --build)" || exit 1
+
+    It prints ``docker`` or ``podman`` and nothing else on stdout. It reads
+    ``CONTAINER_RUNTIME`` and auto-detects when that is unset; ``--build`` also
+    refuses a host that cannot build OSPREY's images. A refusal prints the
+    reason on stderr and exits non-zero.
 """
 
+import argparse
 import hashlib
 import os
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
 import threading
 from collections.abc import Mapping, Sequence
@@ -25,7 +36,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey_connectors.logger import get_logger
+from osprey_connectors.logger import configure_logging, get_logger
 
 logger = get_logger("deployment.runtime")
 
@@ -340,13 +351,12 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
         if podman_installed:
             error_parts.append("\n" + _get_podman_not_running_message())
         raise RuntimeError("".join(error_parts))
-    else:
-        # No runtime installed at all
-        raise RuntimeError(
-            "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
-            "Docker: https://docs.docker.com/get-docker/\n"
-            "Podman: https://podman.io/getting-started/installation"
-        )
+    # No runtime installed at all
+    raise RuntimeError(
+        "No container runtime found. Install Docker Desktop 4.0+ or Podman 4.0+\n"
+        "Docker: https://docs.docker.com/get-docker/\n"
+        "Podman: https://podman.io/getting-started/installation"
+    )
 
 
 def no_container_runtime_installed() -> bool:
@@ -675,6 +685,7 @@ def runtime_env(
     base_env: dict[str, str] | None = None,
     *,
     ignore_orphans: bool = False,
+    project: str | None = None,
 ) -> dict[str, str]:
     """Build the environment for a runtime (docker/podman compose) invocation.
 
@@ -736,18 +747,21 @@ def runtime_env(
         ignore_orphans: Set ``COMPOSE_IGNORE_ORPHANS=1`` for a compose
             invocation that shares its project with another one by design.
             Never combine with a ``--remove-orphans`` argv.
+        project: The compose project to pin instead of the one ``config``
+            resolves. An observer passes the project the last start recorded;
+            a start leaves it unset and decides through ``config``.
 
     Returns:
         A new environment dict with ``COMPOSE_PROJECT_NAME``,
         :data:`ENV_DIGEST_VAR`, :data:`CONFIG_DIGEST_VAR` and every
-        ``OSPREY_TELEMETRY_DIGEST_*`` variable of
-        :func:`~osprey.deployment.telemetry_credentials.digest_env` set (and ``COMPOSE_IGNORE_ORPHANS`` when
-        requested).
+        ``OSPREY_AGENT_RECORD_DIGEST_*`` variable of
+        :func:`~osprey.agent_record.credentials.digest_env` set (and
+        ``COMPOSE_IGNORE_ORPHANS`` when requested).
     """
     from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
 
     env = dict(base_env if base_env is not None else os.environ)
-    env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
+    env["COMPOSE_PROJECT_NAME"] = project or resolve_project_name(config or {})
     # Derived from the repo compose_base_cmd pins as --project-directory, so the
     # digest covers the same chain files compose itself resolves ./.env* against.
     repo_root = resolve_repo_root(config)
@@ -757,11 +771,11 @@ def runtime_env(
     # same one, and a call site that skipped it would interpolate the label to
     # empty, read as a document change, and recreate the whole stack for nothing.
     env[CONFIG_DIGEST_VAR] = as_built_config_digest(repo_root)
-    # And the same again for the telemetry credential files: one variable per
-    # service that is handed any, each interpolated into that service's
-    # `osprey.telemetry.cred.digest` label, so a credential minted anew
-    # recreates its owners and nothing else.
-    from osprey.deployment.telemetry_credentials import digest_env
+    # And the same again for the credential files: one variable per service
+    # that is handed any, each interpolated into that service's
+    # `osprey.agent-record.cred.digest` label, so a credential minted anew
+    # recreates its owners and nothing else. Never raises either.
+    from osprey.agent_record.credentials import digest_env
 
     env.update(digest_env(repo_root, config))
     if ignore_orphans:
@@ -818,11 +832,15 @@ def with_plain_progress(cmd: list[str], *, provider: ComposeProvider | None) -> 
     return cmd
 
 
-def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[bool, str]:
+def verify_runtime_is_running(
+    config: Mapping[str, Any] | None = None, *, runtime: str | None = None
+) -> tuple[bool, str]:
     """Verify that the detected container runtime is actually running.
 
     Args:
         config: Optional configuration mapping
+        runtime: The runtime to check instead of the one ``config`` decides;
+            an observer passes the runtime the last start recorded.
 
     Returns:
         Tuple of (is_running: bool, error_message: str)
@@ -832,11 +850,10 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
         message saying it did not answer, never that the runtime is not running)
     """
     try:
-        cmd = get_runtime_command(config)
-        runtime = cmd[0]  # 'docker' or 'podman'
+        binary = runtime if runtime is not None else get_runtime_command(config)[0]
 
         # Try a simple ps command to verify daemon is accessible
-        result = _await_runtime_answer([runtime, "ps"], text=True)
+        result = _await_runtime_answer([binary, "ps"], text=True)
 
         if result.returncode == 0:
             return True, ""
@@ -851,10 +868,10 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
             return False, _get_podman_not_running_message()
 
         # Generic error
-        return False, f"`{runtime} ps` exited {result.returncode}:\n{result.stderr}"
+        return False, f"`{binary} ps` exited {result.returncode}:\n{result.stderr}"
 
     except subprocess.TimeoutExpired as exc:
-        return False, f"{_no_answer([runtime, 'ps'], exc.timeout)}. {_retry_hint(runtime)}"
+        return False, f"{_no_answer([binary, 'ps'], exc.timeout)}. {_retry_hint(binary)}"
     except RuntimeError as e:
         # No runtime found at all
         return False, str(e)
@@ -878,7 +895,7 @@ def _get_docker_not_running_message() -> str:
             "If Docker Desktop is not installed:\n"
             "https://docs.docker.com/desktop/install/mac-install/"
         )
-    elif system == "Windows":
+    if system == "Windows":
         return (
             "Docker Desktop is not running.\n\n"
             "To fix this:\n"
@@ -888,17 +905,17 @@ def _get_docker_not_running_message() -> str:
             "If Docker Desktop is not installed:\n"
             "https://docs.docker.com/desktop/install/windows-install/"
         )
-    else:  # Linux
-        return (
-            "Docker daemon is not running.\n\n"
-            "To fix this:\n"
-            "1. Start Docker: sudo systemctl start docker\n"
-            "2. Enable on boot: sudo systemctl enable docker\n"
-            "3. Check status: sudo systemctl status docker\n\n"
-            "If permission issues, add user to docker group:\n"
-            "sudo usermod -aG docker $USER\n"
-            "(then log out and back in)"
-        )
+    # Linux
+    return (
+        "Docker daemon is not running.\n\n"
+        "To fix this:\n"
+        "1. Start Docker: sudo systemctl start docker\n"
+        "2. Enable on boot: sudo systemctl enable docker\n"
+        "3. Check status: sudo systemctl status docker\n\n"
+        "If permission issues, add user to docker group:\n"
+        "sudo usermod -aG docker $USER\n"
+        "(then log out and back in)"
+    )
 
 
 def _get_podman_not_running_message() -> str:
@@ -917,31 +934,36 @@ def _get_podman_not_running_message() -> str:
             "1. Initialize: podman machine init\n"
             "2. Start: podman machine start"
         )
-    else:  # Linux
-        return (
-            "Podman service is not responding.\n\n"
-            "To fix this:\n"
-            "1. Check status: systemctl --user status podman.socket\n"
-            "2. Start if needed: systemctl --user start podman.socket\n\n"
-            "For rootful Podman:\n"
-            "sudo systemctl start podman.socket"
-        )
+    # Linux
+    return (
+        "Podman service is not responding.\n\n"
+        "To fix this:\n"
+        "1. Check status: systemctl --user status podman.socket\n"
+        "2. Start if needed: systemctl --user start podman.socket\n\n"
+        "For rootful Podman:\n"
+        "sudo systemctl start podman.socket"
+    )
 
 
 def get_ps_command(
-    config: Mapping[str, Any] | None = None, all_containers: bool = False
+    config: Mapping[str, Any] | None = None,
+    all_containers: bool = False,
+    *,
+    runtime: str | None = None,
 ) -> list[str]:
     """Get container ps command.
 
     Args:
         config: Optional configuration mapping
         all_containers: Include stopped containers (-a flag)
+        runtime: The runtime to run instead of the one ``config`` decides;
+            an observer passes the runtime the last start recorded.
 
     Returns:
         Command list for ps operation with JSON format
     """
-    cmd = get_runtime_command(config)
-    runtime = cmd[0]  # 'docker' or 'podman'
+    if runtime is None:
+        runtime = get_runtime_command(config)[0]
 
     ps_cmd = [runtime, "ps"]
     if all_containers:
@@ -1249,20 +1271,49 @@ def podman_compose_provider_advisory(runtime: str, provider: ComposeProvider) ->
     )
 
 
+_GO_TRUE = frozenset({"1", "t", "T", "TRUE", "true", "True"})
+_GO_FALSE = frozenset({"0", "f", "F", "FALSE", "false", "False"})
+
+
+def _buildkit_switch(value: str | None) -> bool | None:
+    """Read a ``DOCKER_BUILDKIT`` value exactly as Docker reads it.
+
+    Docker parses the variable with Go's ``strconv.ParseBool`` and reads it only
+    when it is set and not empty, so the words are Go's twelve and nothing else:
+    no trimming, no other casing, no ``yes``/``on``.
+
+    :param value: The variable's value as the environment holds it, or ``None``
+        when it is not set.
+    :returns: ``True`` or ``False`` for one of Go's boolean words, ``None`` when
+        the variable is unset or empty.
+    :raises ValueError: For any other value, which Docker refuses too; the
+        message carries the value as given.
+    """
+    if value is None or value == "":
+        return None
+    if value in _GO_TRUE:
+        return True
+    if value in _GO_FALSE:
+        return False
+    raise ValueError(f"DOCKER_BUILDKIT expects a boolean value, got {value!r}")
+
+
 def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
-    """Say what this host lacks to build the service images, if anything.
+    """Say what this host lacks to build OSPREY's images, if anything.
 
-    The service Dockerfiles use ``RUN --mount=type=cache``, which only BuildKit
-    parses. podman's builder parses it natively. Docker reaches BuildKit through
-    the buildx CLI plugin: without it ``compose build`` falls back to the legacy
-    builder, which stops partway through on a Dockerfile parse error that names
-    neither BuildKit nor the plugin.
+    OSPREY's Containerfiles use ``RUN --mount=type=cache`` and
+    ``FROM --platform``, which only BuildKit honours; podman's builder honours
+    both natively. Docker reaches BuildKit through the buildx CLI plugin:
+    without it a build falls back to the legacy builder, which stops partway
+    through on an error that names neither BuildKit nor the plugin.
 
-    ``DOCKER_BUILDKIT`` is read first because it settles the question without
-    asking the host: ``0`` forces the legacy builder whatever is installed, and
-    ``1`` is the operator stating that this host builds with BuildKit -- which a
-    Compose release that links BuildKit in, rather than calling the plugin, does
-    with no buildx present.
+    ``DOCKER_BUILDKIT`` is read first, exactly as Docker reads it (Go's boolean
+    words; empty is unset), because it settles the question without asking the
+    host: a false value forces the legacy builder whatever is installed, and a
+    true value is the operator stating that this host builds with BuildKit --
+    which a Compose release that links BuildKit in, rather than calling the
+    plugin, does with no buildx present. A value Docker would refuse is refused
+    here by its spelling.
 
     Total: a probe that cannot run or does not answer reports nothing. A host
     whose runtime is not answering is :func:`verify_runtime_is_running`'s to
@@ -1276,14 +1327,23 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
     if runtime != "docker":
         return None
 
-    switch = env.get("DOCKER_BUILDKIT")
-    if switch == "0":
+    raw = env.get("DOCKER_BUILDKIT")
+    try:
+        switch = _buildkit_switch(raw)
+    except ValueError:
         return (
-            "The service images use BuildKit-only Dockerfile syntax "
-            "(RUN --mount=type=cache), and DOCKER_BUILDKIT=0 forces Docker's legacy "
-            "builder, which cannot parse it. Unset DOCKER_BUILDKIT and deploy again."
+            f"DOCKER_BUILDKIT={raw} is not a value Docker accepts: it takes only a boolean "
+            "(1, t, T, TRUE, true, True / 0, f, F, FALSE, false, False) and refuses any "
+            "other value. Set DOCKER_BUILDKIT to 1 or 0, or unset it, and run it again."
         )
-    if switch == "1":
+    if switch is False:
+        return (
+            "OSPREY's images use BuildKit-only Containerfile features "
+            f"(RUN --mount=type=cache, FROM --platform), and DOCKER_BUILDKIT={raw} forces "
+            "Docker's legacy builder, which cannot build them. Unset DOCKER_BUILDKIT and "
+            "run it again."
+        )
+    if switch is True:
         return None
 
     try:
@@ -1294,12 +1354,231 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
         return None
 
     return (
-        "The service images use BuildKit-only Dockerfile syntax "
-        "(RUN --mount=type=cache), and this Docker has no buildx: "
+        "OSPREY's images use BuildKit-only Containerfile features "
+        "(RUN --mount=type=cache, FROM --platform), and this Docker has no buildx: "
         "`docker buildx version` fails, so the build would fall back to the legacy "
-        "builder and stop on a Dockerfile parse error.\n"
+        "builder, which cannot build them.\n"
         "Install the docker-buildx plugin -- Docker Desktop ships it; on a Linux "
-        "Docker Engine it is the docker-buildx-plugin package -- then deploy again.\n"
+        "Docker Engine it is the docker-buildx-plugin package -- then run it again.\n"
         "If this host's Compose builds with BuildKit without the plugin, set "
         "DOCKER_BUILDKIT=1 to skip this check. podman needs nothing extra."
     )
+
+
+# ---------------------------------------------------------------------------
+# One-time transcripts copy
+# ---------------------------------------------------------------------------
+
+#: The image the transcripts copy runs, fully qualified and pinned so the copy
+#: means the same thing on every host. Not the project image: the copy runs
+#: before that image is built. ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` replaces it
+#: with a complete reference, for a host that pulls from a mirror. The
+#: ``images.registry`` axis does not apply: it names where OSPREY's own images
+#: live, not a mirror of library images.
+TRANSCRIPTS_COPY_IMAGE = "docker.io/library/alpine:3.20"
+
+#: Environment variable holding a complete image reference that replaces
+#: :data:`TRANSCRIPTS_COPY_IMAGE`.
+TRANSCRIPTS_COPY_IMAGE_ENV = "OSPREY_TRANSCRIPTS_COPY_IMAGE"
+
+#: Copies the parent's transcripts directory, named by ``$1``, into ``/to``
+#: with owners, modes and mtimes kept. A parent without that directory is
+#: nothing to copy, not a failure.
+_TRANSCRIPTS_COPY_SH = 'if [ -d "/from/$1" ]; then cp -a "/from/$1/." /to/; fi'
+
+#: The labels compose stamps on a volume it creates, beside
+#: :data:`~osprey.deployment.container_ownership.COMPOSE_PROJECT_LABEL`. Reset,
+#: the orphan sweep and the feedback reader find a project's volumes by them.
+_COMPOSE_VOLUME_LABEL = "com.docker.compose.volume"
+_PODMAN_COMPOSE_PROJECT_LABEL = "io.podman.compose.project"
+
+
+class TranscriptsCopyError(RuntimeError):
+    """The transcripts copy could not be completed; ``up`` stops here."""
+
+
+def transcripts_copy_image(env: Mapping[str, str] | None = None) -> str:
+    """The transcripts copy's image reference.
+
+    ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` in *env* (this process's environment when
+    not given), when set and not blank, else :data:`TRANSCRIPTS_COPY_IMAGE`.
+    """
+    source = os.environ if env is None else env
+    override = (source.get(TRANSCRIPTS_COPY_IMAGE_ENV) or "").strip()
+    return override or TRANSCRIPTS_COPY_IMAGE
+
+
+def copy_transcripts_once(
+    config: Mapping[str, Any] | None,
+    *,
+    runtime: str | None = None,
+    run: Any = None,
+    env: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Give every transcripts volume its parent's existing transcripts, once.
+
+    For each pair :func:`~osprey.deployment.compose_generator.claude_projects_volumes`
+    names whose parent volume exists and whose transcripts volume does not: stop
+    the containers mounting the pair, if they run, so nothing is written to the
+    old directory after the copy (``up`` recreates them, because their mounts
+    changed); create the transcripts volume with the labels compose would stamp
+    on it; and copy the parent's transcripts directory into it in a one-shot
+    root container. The old directory is left in place, shadowed by the mount.
+    A pair whose transcripts volume exists is never copied again, and a parent
+    without the directory gets an empty, labeled volume.
+
+    Args:
+        config: The deployment config.
+        runtime: The runtime binary; resolved from *config* when not given.
+        run: Stand-in for :func:`subprocess.run`, called as ``run(argv, env=...,
+            capture_output=True, text=True)``.
+        env: Environment for the runtime calls; defaults to this process's.
+
+    Returns:
+        The runtime names of the volumes this call created, in pair order.
+
+    Raises:
+        TranscriptsCopyError: When the image cannot be pulled, naming it, or a
+            copy fails, naming the volume. A failed copy's volume is removed
+            first, so the next ``up`` copies again.
+    """
+    from osprey.deployment.compose_generator import claude_projects_volumes, resolve_project_name
+    from osprey.deployment.container_ownership import COMPOSE_PROJECT_LABEL
+
+    config = dict(config or {})
+    pairs = claude_projects_volumes(config)
+    if not pairs:
+        return []
+    run = run or subprocess.run
+    call_env = dict(env) if env is not None else None
+    runtime = runtime or get_runtime_command(config)[0]
+    project = resolve_project_name(config)
+    podman = Path(runtime).name == "podman"
+
+    def _call(argv: list[str]) -> subprocess.CompletedProcess:
+        result: subprocess.CompletedProcess = run(
+            argv, env=call_env, capture_output=True, text=True
+        )
+        return result
+
+    def _volume_exists(name: str) -> bool:
+        return _call([runtime, "volume", "inspect", name]).returncode == 0
+
+    image: str | None = None
+    created: list[str] = []
+    for pair in pairs:
+        parent = f"{project}_{pair['parent']}"
+        target = f"{project}_{pair['volume']}"
+        if not _volume_exists(parent) or _volume_exists(target):
+            continue
+
+        for container in pair["containers"]:
+            state = _call([runtime, "container", "inspect", "-f", "{{.State.Running}}", container])
+            if state.returncode == 0 and (state.stdout or "").strip() == "true":
+                stopped = _call([runtime, "stop", container])
+                if stopped.returncode != 0:
+                    raise TranscriptsCopyError(
+                        f"Could not stop {container} before copying its transcripts into "
+                        f"{target}: {(stopped.stderr or '').strip()}"
+                    )
+
+        if image is None:
+            image = transcripts_copy_image(env)
+            if _call([runtime, "image", "inspect", image]).returncode != 0:
+                pulled = _call([runtime, "pull", image])
+                if pulled.returncode != 0:
+                    raise TranscriptsCopyError(
+                        f"Could not pull {image}, which copies the existing transcripts into "
+                        f"their own volumes: {(pulled.stderr or '').strip()}"
+                    )
+
+        labels = [
+            f"{COMPOSE_PROJECT_LABEL}={project}",
+            f"{_COMPOSE_VOLUME_LABEL}={pair['volume']}",
+        ]
+        if podman:
+            labels.append(f"{_PODMAN_COMPOSE_PROJECT_LABEL}={project}")
+        create = [runtime, "volume", "create"]
+        for label in labels:
+            create += ["--label", label]
+        made = _call([*create, target])
+        if made.returncode != 0:
+            raise TranscriptsCopyError(
+                f"Could not create the transcripts volume {target}: {(made.stderr or '').strip()}"
+            )
+
+        copied = _call(
+            [
+                runtime,
+                "run",
+                "--rm",
+                "--user",
+                "0:0",
+                "--network",
+                "none",
+                "--mount",
+                f"type=volume,source={parent},destination=/from,readonly",
+                "--mount",
+                f"type=volume,source={target},destination=/to",
+                image,
+                "sh",
+                "-c",
+                _TRANSCRIPTS_COPY_SH,
+                "sh",
+                pair["parent_dir"],
+            ]
+        )
+        if copied.returncode != 0:
+            _call([runtime, "volume", "rm", "-f", target])
+            raise TranscriptsCopyError(
+                f"Could not copy the transcripts of {parent} into {target}; the volume was "
+                f"removed, so the next `osprey up` copies again: {(copied.stderr or '').strip()}"
+            )
+        logger.info("Copied the transcripts of %s into %s", parent, target)
+        created.append(target)
+    return created
+
+
+class _UsageError(Exception):
+    """An argument error, reported as one stderr line instead of argparse's usage block."""
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:  # type: ignore[override]
+        raise _UsageError(message)
+
+
+def main(argv: list[str]) -> int:
+    """Print the container runtime OSPREY drives on this host: ``[--build]``.
+
+    Stdout carries exactly ``docker`` or ``podman`` and a newline, and the exit
+    is 0. The decision is :func:`get_runtime_command`'s. With ``--build`` the
+    host must also be able to build OSPREY's images (:func:`buildkit_missing`).
+    A refusal leaves stdout empty, prints its reason on stderr and exits 1; an
+    argument error exits 2. There is no ``--help``: an exit 0 must always carry
+    a runtime.
+    """
+    configure_logging()
+    parser = _Parser(prog="python -m osprey.deployment.runtime_helper", add_help=False)
+    parser.add_argument("--build", action="store_true")
+    try:
+        args = parser.parse_args(argv)
+    except _UsageError as exc:
+        sys.stderr.write(f"usage: python -m osprey.deployment.runtime_helper [--build]: {exc}\n")
+        return 2
+    try:
+        runtime = get_runtime_command(None)[0]
+    except RuntimeError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    if args.build:
+        refusal = buildkit_missing(runtime, os.environ)
+        if refusal is not None:
+            sys.stderr.write(f"{refusal}\n")
+            return 1
+    sys.stdout.write(f"{runtime}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

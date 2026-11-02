@@ -76,12 +76,10 @@ def build_merged_configuration(
             logger.info(f"Loaded application registry from: {registry_path} (app: {app_name})")
             return merged, excluded_provider_names
 
-        else:
-            logger.info(
-                f"Using standalone registry from application '{app_name}' "
-                f"(framework registry skipped)"
-            )
-            return app_config, excluded_provider_names
+        logger.info(
+            f"Using standalone registry from application '{app_name}' (framework registry skipped)"
+        )
+        return app_config, excluded_provider_names
 
     except Exception as e:
         logger.error(f"Failed to load registry from {registry_path}: {e}")
@@ -125,7 +123,7 @@ def load_registry_from_module(module_path: str) -> RegistryConfig:
                 f"RegistryConfigProvider. "
                 f"Import: from osprey.registry import RegistryConfigProvider"
             )
-        elif len(provider_classes) > 1:
+        if len(provider_classes) > 1:
             class_names = [cls.__name__ for cls in provider_classes]
             raise RegistryError(
                 f"Multiple RegistryConfigProvider implementations found in "
@@ -246,7 +244,7 @@ def load_registry_from_path(registry_path: str) -> RegistryConfig:
             f"      def get_registry_config(self) -> RegistryConfig:\n"
             f"          return RegistryConfig(...)"
         )
-    elif len(provider_classes) > 1:
+    if len(provider_classes) > 1:
         class_names = [cls.__name__ for cls in provider_classes]
         raise RegistryError(
             f"Multiple RegistryConfigProvider implementations found in "

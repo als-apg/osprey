@@ -23,10 +23,10 @@ const CHAT_ENDPOINT = '/api/chat';
 /** Base path for the per-session routes; `/{key}/handoff` hangs off it. */
 const SESSION_ENDPOINT = '/api/session';
 
-/** Read-only transcript endpoint backing the Simple view's replay. */
+/** Read-only transcript endpoint backing the chat's replay. */
 const SESSION_CHAT_ENDPOINT = '/api/session-chat';
 
-/** The project's slash commands, backing the Simple view's suggestions. */
+/** The project's slash commands, backing the chat's suggestions. */
 const COMMANDS_ENDPOINT = '/api/chat/commands';
 
 /**
@@ -141,10 +141,12 @@ async function pump(reader, callbacks, untilClosed = false) {
  * commands the outgoing agent started that ending it would also end. It is
  * present only when the body carried one. `unread` is that refusal's word
  * that the server could not read what the agent started; it is present only
- * when the body carried it.
+ * when the body carried it. `command` is the slash command name a
+ * `command_not_available` refusal names; it is present only when the body
+ * carried one.
  * @typedef {Error & { status: number, slug: string,
  *   commands?: import('./started-commands.js').StartedCommandJson[],
- *   unread?: boolean }} TransportError
+ *   unread?: boolean, command?: string }} TransportError
  */
 
 /**
@@ -161,11 +163,14 @@ async function transportError(res) {
   let commands;
   /** @type {boolean | undefined} */
   let unread;
+  /** @type {string | undefined} */
+  let command;
   try {
     const detail = (await res.json())?.detail;
     if (detail && typeof detail.error === 'string') slug = detail.error;
     if (detail && Array.isArray(detail.commands)) commands = detail.commands;
     if (detail && typeof detail.unread === 'boolean') unread = detail.unread;
+    if (detail && typeof detail.command === 'string') command = detail.command;
   } catch {
     /* no body, or not the JSON error shape — the status carries the failure */
   }
@@ -174,6 +179,7 @@ async function transportError(res) {
   err.slug = slug;
   if (commands) err.commands = commands;
   if (unread !== undefined) err.unread = unread;
+  if (command !== undefined) err.command = command;
   return err;
 }
 
@@ -297,9 +303,10 @@ export async function answerPermission(chatId, body) {
  * Follow everything the agent behind *chatId* does, whichever tab asked, until
  * closed: `GET /api/chat/{chat_id}/events`. Each (re)connect opens with a
  * `hello` snapshot. A dropped connection is retried with backoff; a 204 (no
- * agent runs for the chat yet) more slowly.
+ * agent runs for the chat, yet or any longer) more slowly.
  * @param {string} chatId
- * @param {ChatCallbacks} callbacks - `onEvent` gets every frame
+ * @param {ChatCallbacks} callbacks - `onEvent` gets every frame; `onNoAgent`
+ *   hears each 204, the answer that no agent runs for the chat
  * @returns {ChatFeed}
  */
 export function followChat(chatId, callbacks) {
@@ -332,6 +339,9 @@ export function followChat(chatId, callbacks) {
       });
       if (res.status === 204) {
         next = 10000;
+        if (mine === generation && typeof callbacks.onNoAgent === 'function') {
+          callbacks.onNoAgent();
+        }
       } else if (res.ok && res.body) {
         delay = 1000;
         await pump(res.body.getReader(), callbacks, true);
@@ -369,18 +379,18 @@ export function followChat(chatId, callbacks) {
  */
 
 /**
- * Ask the server to hand session *key* to the Simple view.
+ * Ask the server to hand session *key* to the chat.
  *
  * POSTs to `/api/session/{key}/handoff`. The server tears the outgoing surface
  * down, waits for it to be observed dead, and answers `{state, session_id}`
- * once the Simple view may resume the key's transcript. `interrupt` says the
+ * once the chat may resume the key's transcript. `interrupt` says the
  * operator chose to cut a turn that was still running rather than wait for it.
  * `endStarted` says the operator agreed that ending the outgoing agent also
  * ends the commands it started; without it, a hand-off that would end them is
  * refused `handoff_started_commands` with the list in `err.commands`, or with
  * `err.unread` set when the server could not read what the agent started.
  *
- * The request is long-lived by design — a busy Expert turn can take minutes to
+ * The request is long-lived by design — a busy terminal turn can take minutes to
  * reach idle — so this adds no timeout of its own; *signal* is the only way to
  * end it. A rejection carries the endpoint's reason the same way `sendPrompt`'s
  * does: `err.status` plus `err.slug` from the body's `detail.error` (409 the
@@ -400,9 +410,9 @@ export async function requestHandoff(key, options = {}) {
   const res = await fetch(withPrefix(`${SESSION_ENDPOINT}/${encodeURIComponent(key)}/handoff`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // `to` is fixed: this module is the Simple view's transport, and the
-    // Expert view acquires its surface over `/ws/terminal` instead.
-    body: JSON.stringify({ to: 'simple', interrupt: cutRunningTurn, end_started: endStarted }),
+    // `to` is fixed: this module is the chat's transport, and the terminal
+    // acquires its surface over `/ws/terminal` instead.
+    body: JSON.stringify({ to: 'chat', interrupt: cutRunningTurn, end_started: endStarted }),
     signal,
   });
   if (!res.ok) throw await transportError(res);
@@ -411,14 +421,14 @@ export async function requestHandoff(key, options = {}) {
 }
 
 /**
- * Read the conversation behind *key* so the Simple view can replay it.
+ * Read the conversation behind *key* so the chat can replay it.
  *
  * `full=1` asks for the whole transcript rather than the trailing window the
  * session page shows, and `events=1` for each agent turn's thinking and tool
  * calls alongside its text. The response is `{turns, count}`; only the turns are
  * returned, and a body without them yields an empty list — a key whose
- * transcript has no turns yet is a normal first flip, not a failure.
- * `no-store` keeps a flip from replaying a copy cached before the last turn.
+ * transcript has no turns yet is a normal first hand-off, not a failure.
+ * `no-store` keeps a hand-off from replaying a copy cached before the last turn.
  * @param {string} key
  * @returns {Promise<ChatTurn[]>}
  */
@@ -430,7 +440,11 @@ export async function fetchHistory(key) {
   return Array.isArray(data?.turns) ? data.turns : [];
 }
 
-/** @typedef {{ name: string, description: string, argument_hint: string, kind: string }} SlashCommand */
+/**
+ * One slash command the chat agent accepts. `kind` is `skill`, `command` or
+ * `builtin`; `agent_invocable` says whether the agent may also run it on its own.
+ * @typedef {{ name: string, description: string, argument_hint: string, kind: string, agent_invocable?: boolean }} SlashCommand
+ */
 
 /**
  * Read the slash commands the chat agent accepts in this project.

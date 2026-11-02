@@ -293,19 +293,21 @@ def problems(
             "(paired wheel installs and `osprey up --dev` would fail below it)"
         )
     # R3: the two lists are disjoint ...
-    for version in sorted(set(frameworks) & set(retired), key=version_key):
-        found.append(f"framework {version} is both listed and retired")
+    found.extend(
+        f"framework {version} is both listed and retired"
+        for version in sorted(set(frameworks) & set(retired), key=version_key)
+    )
     if tags is None:
         return found
     released = framework_releases(tags)
     # ... and name only releases tagged after the last paired one.
-    for key, versions in (("frameworks", frameworks), ("retired", retired)):
-        for version in versions:
-            if version not in released:
-                found.append(
-                    f"framework {version} is in [tool.osprey-connectors.compat] {key} but no "
-                    f"tag v{version} after {LAST_PAIRED_FRAMEWORK} is reachable from HEAD"
-                )
+    found.extend(
+        f"framework {version} is in [tool.osprey-connectors.compat] {key} but no "
+        f"tag v{version} after {LAST_PAIRED_FRAMEWORK} is reachable from HEAD"
+        for key, versions in (("frameworks", frameworks), ("retired", retired))
+        for version in versions
+        if version not in released
+    )
     # R2: every release but the newest is accounted for.
     if before_tagging is not None:
         match = _FRAMEWORK_TAG_RE.match(before_tagging)
@@ -314,11 +316,11 @@ def problems(
         owed = released - {match["version"]}
     else:
         owed = released - {max(released, key=version_key)} if released else set()
-    for version in sorted(owed - set(frameworks) - set(retired), key=version_key):
-        found.append(
-            f"framework {version} is tagged and a newer release follows it, but it is neither "
-            "listed in [tool.osprey-connectors.compat] frameworks nor retired: list or retire it"
-        )
+    found.extend(
+        f"framework {version} is tagged and a newer release follows it, but it is neither "
+        "listed in [tool.osprey-connectors.compat] frameworks nor retired: list or retire it"
+        for version in sorted(owed - set(frameworks) - set(retired), key=version_key)
+    )
     return found
 
 

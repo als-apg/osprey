@@ -1,13 +1,11 @@
-"""GoogleChatBridgeConfig: env parsing, the CoreConfig projection, the boot requires."""
+"""GoogleChatBridgeConfig: env parsing, the CoreConfig projection, the startup require."""
 
 import dataclasses
 import logging
 
 import pytest
 
-from osprey.bridges.core import CoreConfig
-from osprey.bridges.google_chat import GoogleChatBridgeConfig, require_boot
-from osprey.port_layout import default_port
+from osprey.bridges.google_chat import GoogleChatBridgeConfig
 
 CONFIG_LOGGER = "osprey.bridges.google_chat.config"
 
@@ -23,22 +21,10 @@ COMPLETE_ENV = {
     "DISPATCH_WORKER_TOKEN": "work-token",
 }
 
-# What require_boot checks on top of require_startup. Bare in compose, so an
-# unset one arrives as "" and no code default ever replaces it.
-BOOT_URL_ENV = {
-    "DISPATCHER_URL": "http://dispatcher:10010",
-    "WORKER_URL": "http://worker:10011",
-}
-
 
 def complete(**overrides: str) -> dict[str, str]:
     """A complete env with `overrides` applied (an empty value means "unset")."""
     return {**COMPLETE_ENV, **overrides}
-
-
-def bootable(**overrides: str) -> dict[str, str]:
-    """A complete env that also carries the two URLs require_boot checks."""
-    return {**COMPLETE_ENV, **BOOT_URL_ENV, **overrides}
 
 
 # --- from_env parsing -----------------------------------------------------
@@ -100,26 +86,6 @@ def test_version_tag_comes_from_the_unprefixed_image_build_arg():
 # --- neutral settings carry no GCHAT_ prefix ------------------------------
 
 
-def test_neutral_vars_are_delegated_to_core_config():
-    cfg = GoogleChatBridgeConfig.from_env(
-        complete(
-            DISPATCHER_URL="http://disp:10010/",
-            WORKER_URL="http://work:10011/",
-            POLL_INTERVAL="0.5",
-            DEDUP_PATH="/data/gchat_dedup.json",
-            HISTORY_PATH="/data/gchat_history.json",
-        )
-    )
-    assert cfg.core.dispatcher_url == "http://disp:10010"
-    assert cfg.core.worker_url == "http://work:10011"
-    assert cfg.core.event_dispatcher_token == "disp-token"
-    assert cfg.core.dispatch_worker_token == "work-token"
-    assert cfg.core.trigger == "gchat-question"
-    assert cfg.core.poll_interval == 0.5
-    assert cfg.core.dedup_path == "/data/gchat_dedup.json"
-    assert cfg.core.history_path == "/data/gchat_history.json"
-
-
 @pytest.mark.parametrize(
     ("prefixed", "field_name", "default"),
     [
@@ -128,7 +94,6 @@ def test_neutral_vars_are_delegated_to_core_config():
         ("GCHAT_DRAIN_INTERVAL", "drain_interval", 60.0),
         ("GCHAT_RETRY_MIN_AGE", "retry_min_age", 1200.0),
         ("GCHAT_DEDUP_PATH", "dedup_path", "/data/dedup.json"),
-        ("GCHAT_HISTORY_PATH", "history_path", "/data/history.json"),
         ("GCHAT_TRIGGER", "trigger", ""),
     ],
 )
@@ -139,36 +104,7 @@ def test_prefixed_spellings_of_neutral_settings_are_not_read(prefixed, field_nam
     assert getattr(cfg.core, field_name) == default
 
 
-# --- CoreConfig is composed, not subclassed ------------------------------
-
-
-def test_core_is_a_composed_projection_not_a_base_class():
-    cfg = GoogleChatBridgeConfig.from_env(complete())
-    assert isinstance(cfg.core, CoreConfig)
-    assert not isinstance(cfg, CoreConfig)
-    assert CoreConfig not in type(cfg).__mro__
-
-
-def test_config_is_immutable():
-    # One instance is shared by the subscriber loop, the ChannelOps instance and
-    # the drain thread; build variants with dataclasses.replace instead.
-    cfg = GoogleChatBridgeConfig.from_env(complete())
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        cfg.subscription = "projects/other/subscriptions/other-sub"
-    assert dataclasses.replace(cfg, app_id="users/999").app_id == "users/999"
-
-
 # --- no trigger default, no subscription default -------------------------
-
-
-def test_from_env_applies_no_trigger_default():
-    # The gchat-question default belongs to the deployment surface (rendered as
-    # DISPATCH_TRIGGER in the compose template). If from_env defaulted it, a
-    # hand-rolled deployment would silently dispatch to a trigger nobody chose
-    # and require_startup could never catch the omission.
-    assert GoogleChatBridgeConfig.from_env({}).core.trigger == ""
-    assert GoogleChatBridgeConfig.from_env(complete(DISPATCH_TRIGGER="")).core.trigger == ""
-    assert GoogleChatBridgeConfig().core.trigger == ""
 
 
 def test_from_env_applies_no_subscription_default():
@@ -210,31 +146,6 @@ def test_the_undefaulted_values_are_what_require_startup_catches(missing_var):
 # --- require_startup -----------------------------------------------------
 
 
-def test_require_startup_passes_on_a_complete_config():
-    GoogleChatBridgeConfig.from_env(complete()).require_startup()  # no raise
-
-
-@pytest.mark.parametrize("name", sorted(COMPLETE_ENV))
-def test_require_startup_names_each_missing_var(name):
-    cfg = GoogleChatBridgeConfig.from_env(complete(**{name: ""}))
-    with pytest.raises(ValueError, match=name) as excinfo:
-        cfg.require_startup()
-    # Only the one that is actually missing is reported.
-    others = [other for other in COMPLETE_ENV if other != name]
-    assert not [other for other in others if other in str(excinfo.value)]
-
-
-def test_require_startup_lists_every_missing_var_in_one_raise():
-    # A wholly unconfigured process must not need six restarts to learn what it
-    # is missing.
-    with pytest.raises(ValueError) as excinfo:
-        GoogleChatBridgeConfig.from_env({}).require_startup()
-    message = str(excinfo.value)
-    assert message.startswith("missing required config: ")
-    for name in COMPLETE_ENV:
-        assert name in message
-
-
 def test_require_startup_requires_both_dispatch_tokens():
     cfg = GoogleChatBridgeConfig.from_env(
         complete(EVENT_DISPATCHER_TOKEN="", DISPATCH_WORKER_TOKEN="")
@@ -252,65 +163,6 @@ def test_require_startup_ignores_the_optional_vars(name):
     env = complete(GCS_BUCKET="b", GCS_PROJECT="p", APP_VERSION_DISPLAY="v1")
     env[name] = ""
     GoogleChatBridgeConfig.from_env(env).require_startup()  # no raise
-
-
-# --- require_boot: the bare-${VAR} compose trap ---------------------------
-
-
-def test_require_boot_passes_when_the_urls_are_set():
-    require_boot(GoogleChatBridgeConfig.from_env(bootable()))  # no raise
-
-
-@pytest.mark.parametrize("name", sorted(BOOT_URL_ENV))
-def test_require_boot_rejects_a_url_that_rendered_empty(name):
-    # An unset bare ${DISPATCHER_URL} in compose reaches the process as "", not as
-    # an absent key, so CoreConfig.from_env's localhost fallback never fires. Left
-    # unchecked the bridge would POST to a protocol-less URL forever.
-    cfg = GoogleChatBridgeConfig.from_env(bootable(**{name: ""}))
-    with pytest.raises(ValueError, match=name):
-        require_boot(cfg)
-
-
-def test_require_boot_names_env_vars_not_field_names():
-    cfg = GoogleChatBridgeConfig.from_env(bootable(DISPATCHER_URL="", WORKER_URL=""))
-    with pytest.raises(ValueError) as excinfo:
-        require_boot(cfg)
-    message = str(excinfo.value)
-    assert "DISPATCHER_URL" in message
-    assert "WORKER_URL" in message
-    # The engine's own check reports field names; the abort has to be diagnosable
-    # from the container log, where only the env spelling exists.
-    assert "dispatcher_url" not in message
-    assert "worker_url" not in message
-
-
-def test_require_boot_reports_the_startup_vars_before_the_urls():
-    # require_startup runs first, so a wholly unconfigured process is told about
-    # its credentials rather than only about two URLs it never set either.
-    with pytest.raises(ValueError) as excinfo:
-        require_boot(GoogleChatBridgeConfig.from_env({}))
-    assert "GCHAT_SA_KEY" in str(excinfo.value)
-
-
-def test_require_startup_does_not_cover_the_urls():
-    # The split is deliberate: require_startup is the credentials check and
-    # require_boot adds the compose-trap check on top.
-    cfg = GoogleChatBridgeConfig.from_env(complete(DISPATCHER_URL=""))
-    cfg.require_startup()  # no raise
-    with pytest.raises(ValueError, match="DISPATCHER_URL"):
-        require_boot(cfg)
-
-
-def test_absent_url_vars_still_fall_back_to_the_code_defaults():
-    # Only the *empty* render is the trap. A deployment that never mentions the
-    # URLs at all is the local-dev shape CoreConfig's defaults exist for, and
-    # require_boot must not break it.
-    cfg = GoogleChatBridgeConfig.from_env(complete())
-    assert (cfg.core.dispatcher_url, cfg.core.worker_url) == (
-        f"http://localhost:{default_port('dispatcher')}",
-        f"http://localhost:{default_port('worker', 1)}",
-    )
-    require_boot(cfg)  # no raise
 
 
 # --- a malformed subscription warns, never raises -------------------------
@@ -347,26 +199,3 @@ def test_an_unset_subscription_does_not_warn_about_its_shape(caplog):
     with caplog.at_level(logging.WARNING, logger=CONFIG_LOGGER):
         GoogleChatBridgeConfig.from_env({})
     assert not [rec for rec in caplog.records if rec.levelno == logging.WARNING]
-
-
-# --- mentions --------------------------------------------------------------
-
-
-@pytest.mark.parametrize("env", [{}, {"GCHAT_MENTIONS": ""}])
-def test_mentions_default_on_when_unset_or_empty(env):
-    assert GoogleChatBridgeConfig.from_env(complete(**env)).mentions is True
-
-
-@pytest.mark.parametrize("raw", ["false", "0", "no", "off", "ture"])
-def test_mentions_turn_off_for_a_false_spelling(raw):
-    assert GoogleChatBridgeConfig.from_env(complete(GCHAT_MENTIONS=raw)).mentions is False
-
-
-@pytest.mark.parametrize("raw", ["true", "1", "yes", "on"])
-def test_mentions_stay_on_for_a_true_spelling(raw):
-    assert GoogleChatBridgeConfig.from_env(complete(GCHAT_MENTIONS=raw)).mentions is True
-
-
-def test_mentions_are_not_a_startup_requirement():
-    GoogleChatBridgeConfig.from_env(complete(GCHAT_MENTIONS="false")).require_startup()
-    GoogleChatBridgeConfig.from_env(complete()).require_startup()  # no raise

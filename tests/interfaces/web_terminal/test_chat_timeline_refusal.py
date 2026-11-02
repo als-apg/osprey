@@ -5,7 +5,7 @@ Every refusal a write path returns to the agent ends with the trailer
 the preview's head cut would lose it, so it is read from the full result text by
 one helper (``tool_preview.tool_result_refusal``) that both the live stream
 (``operator_session._event_to_wire``) and the history replay
-(``routes/session._chat_timeline``) call. The texts below come from the real
+(``routes/session._chat_turns``) call. The texts below come from the real
 producers: the writes-check hook's deny header, the twin's and the package's
 ``refusal_text``, the bluesky ``queue_start`` in-tool refusal and the chat's own
 tier deny.
@@ -25,7 +25,7 @@ import osprey.templates.claude_code.claude.hooks.osprey_target_state as twin
 import osprey.templates.claude_code.claude.hooks.osprey_writes_check as writes_check
 from osprey.agent_runner import ToolResultEvent
 from osprey.interfaces.web_terminal.operator_session import _event_to_wire
-from osprey.interfaces.web_terminal.routes.session import _chat_timeline
+from osprey.interfaces.web_terminal.routes.session import _chat_turns, _transcript_nodes
 from osprey.interfaces.web_terminal.tool_preview import (
     PLAIN_TEXT_CHARS,
     tool_result_refusal,
@@ -161,7 +161,7 @@ def _replayed(tmp_path: Path, content: object, is_error: bool) -> dict[str, Any]
     _write_transcript(transcript, content, is_error)
     (event,) = [
         event
-        for turn in _chat_timeline(transcript)
+        for turn in _chat_turns(_transcript_nodes(transcript))
         for event in turn.get("events", [])
         if event["type"] == "tool_result"
     ]

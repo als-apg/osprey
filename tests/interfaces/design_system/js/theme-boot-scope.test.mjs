@@ -22,7 +22,8 @@
  *   npx vitest run tests/interfaces/design_system/js/theme-boot-scope.test.mjs
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach } from 'vitest';
+import { stubOSPreference } from './os-preference.mjs';
 
 import { runBootScript } from './boot-harness.mjs';
 
@@ -35,22 +36,6 @@ function runBoot() {
 
 function currentTheme() {
   return document.documentElement.getAttribute('data-theme');
-}
-
-/**
- * Force the OS preference so every 'auto' fall-through resolves to a known id
- * rather than to whatever the host machine happens to prefer.
- * @param {boolean} prefersDark
- */
-function stubOSPreference(prefersDark) {
-  vi.stubGlobal('matchMedia', (/** @type {string} */ query) => ({
-    matches: query.includes('dark') ? prefersDark : !prefersDark,
-    media: query,
-    addEventListener() {},
-    removeEventListener() {},
-    addListener() {},
-    removeListener() {},
-  }));
 }
 
 /** @param {string} key @param {{family: string, mode: string}|string} preference */

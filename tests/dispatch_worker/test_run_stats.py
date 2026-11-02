@@ -164,7 +164,6 @@ async def test_dispatch_task_pops_stats_on_completion(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
     monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
 
     async def _fake_run_dispatch(*, run_id, event_queue, **kw):  # noqa: ARG001 - the patched run_dispatch is called with event_queue=
@@ -197,7 +196,6 @@ async def test_dispatch_task_pops_stats_on_error(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
 
     async def _boom(*, run_id, event_queue, **kw):  # noqa: ARG001 - the patched run_dispatch is called with event_queue=
         run_stats.increment_tool_calls(run_id)

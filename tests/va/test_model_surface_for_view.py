@@ -25,6 +25,8 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
 from osprey.services.virtual_accelerator.serving.model_surface import (
+    INFO_ENTRY_KEYS,
+    STATUS_KEYS,
     SURFACE_MODEL_ONLY,
     SURFACE_SERVED,
     WRITES_DISABLED,
@@ -36,6 +38,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
 from tests._builds import BuiltProject
+from tests._simulator_view import view_channel
 
 TOKEN = "s3cret"
 STATUS = "T:SIM:M:STATUS"
@@ -98,28 +101,12 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
 
 
-def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": fields.pop("pair", address if role == "setpoint" else None),
-        "value_type": "float",
-        "unit": fields.pop("unit", None),
-        "description": None,
-        "writable": fields.pop("writable", False),
-        "value_range": fields.pop("value_range", None),
-        "owner": owner,
-        "on": None,
-    }
-
-
 def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
     channels = [
-        _channel("M:BPM:X", "M", unit="mm"),
-        _channel("M:SP", "M", role="setpoint", writable=True, value_range=[-5.0, 5.0]),
-        _channel("T:RB"),
-        _channel("T:SP", role="setpoint", pair="T:RB", writable=True),
+        view_channel("M:BPM:X", "M", unit="mm"),
+        view_channel("M:SP", "M", role="setpoint", writable=True, value_range=[-5.0, 5.0]),
+        view_channel("T:RB"),
+        view_channel("T:SP", role="setpoint", pair="T:RB", writable=True),
     ]
     addresses = {"channels": sorted(c["address"] for c in channels), "status": [STATUS]}
     documents = {
@@ -197,7 +184,7 @@ def test_info_lists_the_served_addresses_then_the_model_variables(tmp_path: Path
     assert set(info) == {"variables"}
     assert [entry["name"] for entry in info["variables"]] == [*CHANNELS, STATUS, *MODEL_VARIABLES]
     for entry in info["variables"]:
-        assert set(entry) == {"name", "unit", "value_range", "read_only", "shape", "surface"}
+        assert set(entry) == INFO_ENTRY_KEYS
         assert entry["shape"] is None
     surfaces = {entry["name"]: entry["surface"] for entry in info["variables"]}
     assert surfaces == {
@@ -210,6 +197,15 @@ def test_info_lists_the_served_addresses_then_the_model_variables(tmp_path: Path
     assert by_name[STATUS]["read_only"] is True
     assert by_name["M/knob"]["read_only"] is False
     assert by_name["M/gain"]["read_only"] is True
+
+
+def test_every_info_entry_carries_exactly_the_declared_keys(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path)
+
+    entries = surface.info()["variables"]
+
+    assert entries
+    assert [set(entry) for entry in entries] == [set(INFO_ENTRY_KEYS)] * len(entries)
 
 
 def test_info_of_a_failed_model_lists_no_model_variable(tmp_path: Path) -> None:
@@ -243,6 +239,12 @@ def test_status_carries_the_view_keyset(tmp_path: Path) -> None:
             "last_failed_pass": None,
         },
     }
+
+
+def test_the_status_document_carries_exactly_the_declared_keys(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path)
+
+    assert set(surface.status()) == STATUS_KEYS
 
 
 def test_a_recorded_pass_failure_is_reported_with_its_uptime(tmp_path: Path) -> None:
@@ -556,11 +558,12 @@ GATED = (GATED_SUM, GATED_VALID, GATED_COUNT)
 def _gate_view(path: Path, *, paddle: str = "FALSE") -> Path:
     """A texture-only view: one paddle whose in-state gates a sum, a valid flag and a count."""
     channels = [
-        _channel(GATE_SP, role="setpoint", pair=GATE_RB, writable=True) | {"value_type": "bool"},
-        _channel(GATE_RB) | {"value_type": "bool"},
-        _channel(GATED_SUM),
-        _channel(GATED_VALID) | {"value_type": "bool"},
-        _channel(GATED_COUNT) | {"value_type": "int"},
+        view_channel(GATE_SP, role="setpoint", pair=GATE_RB, writable=True)
+        | {"value_type": "bool"},
+        view_channel(GATE_RB) | {"value_type": "bool"},
+        view_channel(GATED_SUM),
+        view_channel(GATED_VALID) | {"value_type": "bool"},
+        view_channel(GATED_COUNT) | {"value_type": "int"},
     ]
     inputs = {GATE_RB: "TRUE"}
     documents = {
@@ -657,7 +660,8 @@ def test_the_seeded_value_at_t_equals_the_live_value_at_t(tmp_path: Path, paddle
     _, composite, _ = _gate_surface(tmp_path, paddle=paddle)
     live = composite.get(list(GATED))
 
-    seeded = archive.build(tmp_path / "simulator", ["nominal"]).samples(list(GATED), [T0])
+    with archive.build(tmp_path / "simulator", ["nominal"]) as seeded_archive:
+        seeded = seeded_archive.samples(list(GATED), [T0])
 
     labels = ["FALSE", "TRUE"]
     assert seeded[GATED_SUM] == [pytest.approx(live[GATED_SUM], rel=1e-12)]

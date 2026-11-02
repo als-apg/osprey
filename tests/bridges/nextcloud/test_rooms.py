@@ -29,6 +29,8 @@ from osprey.bridges.nextcloud_talk import (
 )
 from osprey.bridges.nextcloud_talk.client import ROOM_TYPE_ONE_TO_ONE
 from osprey.bridges.nextcloud_talk.rooms import BACKOFF_CAP, BACKOFF_START
+from tests.bridges.conftest import recording_client
+from tests.bridges.nextcloud.conftest import ocs
 
 CFG = NextcloudBridgeConfig(
     base_url="https://cloud.example.org",
@@ -39,14 +41,6 @@ CFG = NextcloudBridgeConfig(
 
 GROUP_ROOM = {"type": 2, "displayName": "Ops", "lastMessage": {"id": 7}}
 ONE_TO_ONE_ROOM = {"type": ROOM_TYPE_ONE_TO_ONE, "displayName": "alice", "lastMessage": {"id": 3}}
-
-
-def _ocs(data, *, status=200):
-    """An OCS v2 envelope response carrying ``data``."""
-    return httpx.Response(
-        status,
-        json={"ocs": {"meta": {"status": "ok", "statuscode": status}, "data": data}},
-    )
 
 
 def _room_token(request):
@@ -61,20 +55,15 @@ def _directory(handler, **kwargs):
     for the backoff schedule — and ``requests`` every HTTP request the directory
     made, which is how the read path is pinned as network-free.
     """
-    requests: list[httpx.Request] = []
+    http, requests = recording_client(handler)
     sleeps: list[float] = []
-
-    def recorder(request):
-        requests.append(request)
-        return handler(request)
-
-    client = TalkClient(CFG, client=httpx.Client(transport=httpx.MockTransport(recorder)))
+    client = TalkClient(CFG, client=http)
     return RoomDirectory(client, sleep=sleeps.append, **kwargs), sleeps, requests
 
 
 def _always(payload):
     """A Talk that answers every room request with ``payload``."""
-    return lambda request: _ocs(payload)
+    return lambda request: ocs(payload)
 
 
 def _fails_then(failures, payload=GROUP_ROOM, exc=None):
@@ -90,7 +79,7 @@ def _fails_then(failures, payload=GROUP_ROOM, exc=None):
         seen[room] = seen.get(room, 0) + 1
         if seen[room] <= failures:
             raise exc or httpx.ConnectError("nextcloud unreachable", request=request)
-        return _ocs(payload)
+        return ocs(payload)
 
     return handler
 
@@ -115,7 +104,7 @@ def test_resolve_once_returns_type_and_caches_it():
 
 def test_resolution_is_per_room():
     def handler(request):
-        return _ocs(ONE_TO_ONE_ROOM if _room_token(request) == "roomB" else GROUP_ROOM)
+        return ocs(ONE_TO_ONE_ROOM if _room_token(request) == "roomB" else GROUP_ROOM)
 
     directory, _, _ = _directory(handler)
 
@@ -301,8 +290,8 @@ def test_rejects_backoff_settings_that_would_hot_loop(kwargs):
         pytest.param(lambda request: httpx.Response(500), id="server_error"),
         pytest.param(lambda request: httpx.Response(404), id="not_found"),
         pytest.param(lambda request: httpx.Response(200, text="not json"), id="non_json_body"),
-        pytest.param(lambda request: _ocs({"displayName": "Ops"}), id="payload_without_type"),
-        pytest.param(lambda request: _ocs(["wrong", "shape"]), id="payload_not_an_object"),
+        pytest.param(lambda request: ocs({"displayName": "Ops"}), id="payload_without_type"),
+        pytest.param(lambda request: ocs(["wrong", "shape"]), id="payload_not_an_object"),
         pytest.param(_fails_then(999, exc=TalkApiError("boom")), id="talk_api_error"),
     ],
 )
@@ -372,7 +361,7 @@ def test_concurrent_reads_and_population_across_rooms():
     rooms = ("roomA", "roomB", "roomC", "roomD")
 
     def handler(request):
-        return _ocs({"type": 2, "displayName": _room_token(request)})
+        return ocs({"type": 2, "displayName": _room_token(request)})
 
     directory, _, _ = _directory(handler)
 
@@ -408,7 +397,7 @@ def test_a_slow_fetch_does_not_block_readers():
     def handler(_request):
         in_flight.set()
         release.wait(timeout=5)
-        return _ocs(GROUP_ROOM)
+        return ocs(GROUP_ROOM)
 
     directory, _, _ = _directory(handler)
     fetcher = threading.Thread(target=directory.resolve_once, args=("roomA",))

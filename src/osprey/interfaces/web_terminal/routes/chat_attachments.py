@@ -1,4 +1,4 @@
-"""Files the operator attaches to a Simple-view message, kept for the agent to read.
+"""Files the operator attaches to a chat message, kept for the agent to read.
 
 The composer uploads each file as the operator picks it, before the message is
 sent. The message then names the stored paths, and the agent opens them with its
@@ -67,7 +67,7 @@ from starlette.requests import ClientDisconnect
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey_connectors.workspace import CHAT_UPLOADS_SUBDIR
+from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
 
 if TYPE_CHECKING:
     from typing import BinaryIO

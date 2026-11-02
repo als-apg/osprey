@@ -1,7 +1,11 @@
 """Supported helpers for serving a FastAPI interface on a throwaway port.
 
-These utilities run any OSPREY interface ``create_app()`` on a free localhost
-port in a background thread — the shared surface used by the real-browser
+Every OSPREY server binds its listening socket through :func:`listening_socket`
+before it reports a port, and serves on that socket: port 0 lets the system
+choose, and the port a server names is the one it holds.
+
+These utilities run any OSPREY interface ``create_app()`` on a localhost port
+the system chooses, in a background thread — the shared surface used by the real-browser
 Playwright suites under ``tests/interfaces/`` *and* by the documentation
 screenshot runner (``docs/screenshots/``). Both consumers import a real,
 supported API here instead of reaching into test internals.
@@ -51,11 +55,39 @@ _DRAIN_TIMEOUT = 5
 _SHUTDOWN_JOIN = 30.0
 
 
-def free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
+#: Pending-connection queue of a socket :func:`listening_socket` returns;
+#: uvicorn's own default, so a server handed the socket listens as it would
+#: have on a socket it bound itself.
+_BACKLOG = 2048
+
+
+def listening_socket(host: str, port: int) -> socket.socket:
+    """Bind and listen on *host*:*port*, and return the socket.
+
+    The one way an OSPREY server takes its port: the caller reads the number
+    from ``sock.getsockname()[1]`` only after this returns, reports it, and
+    hands the same socket to uvicorn (``server.run(sockets=[sock])``), so the
+    port it names is the one it holds for its whole life. Port 0 lets the
+    system choose. ``SO_REUSEADDR`` matches uvicorn's own bind, so a port held
+    only by ``TIME_WAIT`` connections of a server that just stopped is free.
+
+    Args:
+        host: The address to bind; an IPv6 literal binds an IPv6 socket.
+        port: The port to bind, or 0 for one the system chooses.
+
+    Raises:
+        OSError: If the address cannot be bound, a port in use among them.
+    """
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+        sock.listen(_BACKLOG)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
 
 
 def wait_for_port(port: int, timeout: float = 10.0) -> None:
@@ -111,17 +143,10 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
     Yields:
         The server's base URL, e.g. ``"http://127.0.0.1:54321"``.
     """
-    # Bind the listening socket here and hand uvicorn the live socket, rather
-    # than passing it a port number chosen earlier. ``free_port`` must close its
-    # socket before returning the number, which leaves a window where anything
-    # else on the machine can claim that port — and a readiness check that only
-    # opens a TCP connection is satisfied by whoever won it. Owning the socket
-    # for the server's whole lifetime removes the window and makes the yielded
-    # URL provably this app's.
-    sock = socket.socket()
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen(128)
+    # The server owns its socket for its whole life, so the yielded URL is
+    # provably this app's: nothing else on the host can take the port between
+    # the bind and the readiness check.
+    sock = listening_socket("127.0.0.1", 0)
     port = int(sock.getsockname()[1])
 
     config = uvicorn.Config(

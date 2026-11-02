@@ -11,18 +11,13 @@ throughout so the transitions do not depend on a kernel.
 
 from __future__ import annotations
 
-import socket
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
-
-
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from osprey_connectors_tests._harness._ports import bound_socket
 
 
 def _make_launcher(host: str, port: int):
@@ -88,38 +83,31 @@ class TestLauncherConfigReader:
 class TestMakeAutoLaunchChecker:
     """Tests for _make_auto_launch_checker using catalog entries."""
 
-    def test_require_section_missing(self):
-        """Auto-launch returns False when require_section=True and section is absent."""
+    @pytest.mark.parametrize(
+        ("server", "config", "launches"),
+        [
+            # require_section=True and the section is absent.
+            pytest.param("channel_finder", {}, False, id="require-section-missing"),
+            # The section exists, and auto_launch defaults to True.
+            pytest.param(
+                "channel_finder",
+                {"channel_finder": {"pipeline_mode": "in_context"}},
+                True,
+                id="require-section-present",
+            ),
+            # require_section=False launches even with no section at all.
+            pytest.param("artifact", {}, True, id="no-require-section"),
+        ],
+    )
+    def test_auto_launch_follows_the_section_requirement(self, server, config, launches):
         from osprey.infrastructure.server_launcher import _make_auto_launch_checker
 
-        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["channel_finder"])
+        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS[server])
         with patch(
             "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={},
+            return_value=config,
         ):
-            assert checker() is False
-
-    def test_require_section_present(self):
-        """Auto-launch returns True when section exists (default auto_launch=True)."""
-        from osprey.infrastructure.server_launcher import _make_auto_launch_checker
-
-        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["channel_finder"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={"channel_finder": {"pipeline_mode": "in_context"}},
-        ):
-            assert checker() is True
-
-    def test_no_require_section(self):
-        """Auto-launch returns True even when section is empty if require_section=False."""
-        from osprey.infrastructure.server_launcher import _make_auto_launch_checker
-
-        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["artifact"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={},
-        ):
-            assert checker() is True
+            assert checker() is launches
 
 
 class TestEnsureRunningOwnership:
@@ -133,14 +121,14 @@ class TestEnsureRunningOwnership:
     attributes the listener to this deployment.
     """
 
-    def test_launches_when_port_bindable_despite_health_200(self):
+    def test_launches_when_port_bindable_despite_health_200(self, reserve_port):
         """A /health 200 over a bindable port must NOT suppress the launch.
 
         This is the core of #327: ``/health`` is exempt from the auth gate, so
         every OSPREY checkout on the machine answers it 200 and it says nothing
         about whether this port is ours. The bind question is the only one asked.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
@@ -152,9 +140,9 @@ class TestEnsureRunningOwnership:
 
         mock_launch.assert_called_once()
 
-    def test_launches_when_port_genuinely_free(self):
+    def test_launches_when_port_genuinely_free(self, reserve_port):
         """Bindable, nothing answering → launch and own the port."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
@@ -166,9 +154,9 @@ class TestEnsureRunningOwnership:
 
         mock_launch.assert_called_once()
 
-    def test_waits_out_dying_predecessor_then_launches(self):
+    def test_waits_out_dying_predecessor_then_launches(self, reserve_port):
         """A predecessor that releases the port during the grace window is waited out."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         # Unbindable on the first probe, bindable on the second (predecessor gone).
         bindable = iter([False, True])
 
@@ -186,14 +174,14 @@ class TestEnsureRunningOwnership:
 
         mock_launch.assert_called_once()
 
-    def test_adopts_a_held_port_whose_listener_accepts_our_secret(self):
+    def test_adopts_a_held_port_whose_listener_accepts_our_secret(self, reserve_port):
         """401 unauthenticated + non-401 credentialed → our own panel; stand down.
 
         This is the only shape that justifies not launching: the listener gates,
         and it accepts THIS process's operator secret, so it is this deployment's
         panel under a shared ``OSPREY_TERMINAL_SECRET``.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=False),
@@ -209,7 +197,7 @@ class TestEnsureRunningOwnership:
         assert launcher._launched is True
         mock_warn.assert_not_called()
 
-    def test_refuses_a_held_port_that_serves_health_but_cannot_be_attributed(self):
+    def test_refuses_a_held_port_that_serves_health_but_cannot_be_attributed(self, reserve_port):
         """A /health 200 does not earn a stand-down either — it is refused, not adopted.
 
         The superseded contract deferred to any listener that answered /health,
@@ -217,7 +205,7 @@ class TestEnsureRunningOwnership:
         talk to. An ungated 200 to the adoption probe now refuses: no launch (the
         port is not ours to take), no latch, and a warning naming the conflict.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=False),
@@ -235,9 +223,9 @@ class TestEnsureRunningOwnership:
         assert launcher._retry_not_before > 0
         mock_warn.assert_called_once()
 
-    def test_warns_when_port_held_by_a_listener_that_never_answers(self):
+    def test_warns_when_port_held_by_a_listener_that_never_answers(self, reserve_port):
         """Held for the full grace window, nothing answering → warn, no silent skip."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=False),
@@ -253,14 +241,14 @@ class TestEnsureRunningOwnership:
         assert launcher._launched is False
         mock_warn.assert_called_once()
 
-    def test_a_refusal_does_not_latch_and_self_heals(self):
+    def test_a_refusal_does_not_latch_and_self_heals(self, reserve_port):
         """A refusal must not latch, so a later call can self-heal.
 
         Regression guard for the artifact_store per-save relaunch pattern: if the
         first call hit a foreign holder, a later call (after the port frees) must
         still launch instead of being permanently short-circuited.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
 
         # First call: held by an unattributable listener → warn, throttle, no latch.
         with (
@@ -284,7 +272,7 @@ class TestEnsureRunningOwnership:
             launcher.ensure_running()
         mock_launch2.assert_called_once()
 
-    def test_a_second_held_port_pass_skips_the_grace_window(self):
+    def test_a_second_held_port_pass_skips_the_grace_window(self, reserve_port):
         """The window is a predecessor's, and a refused port has no predecessor.
 
         Once a refusal has established that the holder is staying, a per-save
@@ -292,7 +280,7 @@ class TestEnsureRunningOwnership:
         call. The bind question is still re-asked first, so a freed port still
         launches (covered above).
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         sleep = MagicMock()
 
         for _pass in range(2):
@@ -311,9 +299,9 @@ class TestEnsureRunningOwnership:
 
         sleep.assert_not_called()
 
-    def test_cooldown_short_circuits_reprobe(self):
+    def test_cooldown_short_circuits_reprobe(self, reserve_port):
         """Within the retry cooldown, ensure_running must not re-probe (avoids grace cost)."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         launcher._retry_not_before = time.monotonic() + 1000  # far future
 
         with (
@@ -325,9 +313,9 @@ class TestEnsureRunningOwnership:
         mock_probe.assert_not_called()
         mock_launch.assert_not_called()
 
-    def test_dead_thread_health_200_not_marked_launched(self):
+    def test_dead_thread_health_200_not_marked_launched(self, reserve_port):
         """Post-launch: a /health 200 from a dead thread (foreign responder) is not trusted."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         dead_thread = MagicMock()
         dead_thread.is_alive.return_value = False
 
@@ -373,16 +361,15 @@ class TestTheTwoProbesAnswerDifferentQuestions:
     probe live in ``tests/infrastructure/test_server_launcher.py``.
     """
 
-    def test_a_free_port_is_bindable_and_answers_nothing(self):
-        launcher = _make_launcher("127.0.0.1", _free_port())
+    def test_a_free_port_is_bindable_and_answers_nothing(self, reserve_port):
+        launcher = _make_launcher("127.0.0.1", reserve_port())
         host, port = launcher._config_reader()
 
         assert launcher._port_is_bindable(host, port) is True
         assert launcher._port_answers_connect(host, port) is False
 
     def test_a_bound_port_is_unbindable_and_answers_a_connect(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
-            srv.bind(("127.0.0.1", 0))
+        with bound_socket() as srv:
             srv.listen(1)
             port = srv.getsockname()[1]
             launcher = _make_launcher("127.0.0.1", port)

@@ -1,7 +1,7 @@
 """The sidecar's audit seam: one function per login decision it must record.
 
 A login is a safety decision like any other Osprey records, so it belongs in the
-unified ledger (:mod:`osprey.audit.envelope`) rather than in a service log line
+agent record as an audit entry (:mod:`osprey.audit.envelope`) rather than in a service log line
 an operator has to grep for. This module is the only place in the sidecar that
 builds an envelope, so every category the login path admits or refuses under is
 shaped the same way and joins the rest of the ledger on the same columns.
@@ -11,27 +11,24 @@ through :func:`record_login_success` or :func:`record_login_refusal`, which are
 the only two builders of an envelope in this service, and both file through
 :func:`write_envelope`. Nothing else in the sidecar knows where a record lands.
 
-**Where a record lands is env-only.** :data:`AUDIT_DIR_ENV` names the one
-directory this service may write in — the subdirectory compose binds for it —
-and it is read per call, never resolved from a project root. The sidecar image
-is one uvicorn app under ``/app``: there is no ``osprey.yml`` to anchor on, and
-:func:`osprey.audit.writer.audit_dir`'s resolver would either raise here or
-point at a directory the container does not bind. An unset or blank variable
-degrades to the log line below — a sidecar rendered before the audit mount
-existed still says what it decided, it simply cannot store it. The same
-directory holds the login service's revoked-session file (see
-:mod:`~osprey.services.auth_sidecar.revocation`).
+**Where a record lands is the spool's.** Every record is one ``audit`` entry
+written through the one record writer (:func:`osprey.audit.writer.record_envelope`,
+which reaches :func:`osprey.agent_record.writer.write`) into the spool directory
+``OSPREY_SPOOL_DIR`` names — the sidecar's own, which compose binds for it. The
+sidecar image is one uvicorn app under ``/app`` with no ``osprey.yml``, so that
+variable is the only way the writer finds its directory; nothing here resolves a
+project root.
 
 **The record is the user's, the directory is the service's.** The sidecar is
 the ``actor`` (it decided, under its own container identity) and the roster user
-is the ``subject`` (they were acted on). That asymmetry is the whole reason
-these records file under ``var/audit/sidecar/`` rather than under the user's
-own subdirectory: a user's container binds their own directory read-write, so a
-login history filed there would be theirs to rewrite. The sidecar's directory is
-bound by nobody else — and, the service running as root with no entrypoint and
-no ``user:``, its records are root-owned on the host by design.
+is the ``subject`` (they were acted on). The record files each entry under the
+identity of the spool directory it came from, never a value the line carries, so
+these entries are the ``sidecar``'s: a user's container writes only its own
+spool directory and can never make a login history look like its own. The entry
+names the person in ``on_behalf_of``, which the record keeps because the sidecar
+is on its trusted on-behalf list.
 
-**What bounds the file's growth.** Every refusal an unauthenticated caller can
+**What bounds the record's growth.** Every refusal an unauthenticated caller can
 reach cheaply is recorded through a window: the first refusal in each window is
 filed and the rest are folded into it, so the append rate is bounded rather than
 set by the caller. On the password path that window is the login throttle,
@@ -47,14 +44,16 @@ post-exchange OIDC categories are unbounded on purpose — reaching one costs a
 full IdP round trip, so they are not free to generate, and they are the records
 that describe a login that actually authenticated. Card-less sign-in refusals
 are all post-credential or post-exchange, so they are unbounded on the same
-terms. The distinction matters because this file is root-owned in a directory
-nothing else in the deployment binds: nobody inside it can rotate or truncate
-what an unbounded append filled.
+terms. The distinction matters because the record is append-only: nothing in
+the deployment can rotate or truncate what an unbounded append filled.
 
 **An audit failure never costs the decision.** Both record functions swallow
 everything the write can raise: a refusal that was audited and a refusal that
 could not be audited are both refusals, and a sidecar that 500s because its
-ledger is unwritable has turned an audit gap into an outage. The reverse —
+spool is unwritable has turned an audit gap into an outage. Nor does a failure
+delay it: the write is one local append with no network and no retry. The writer
+logs a failed write and appends it to the spool directory's ``.errors``, which
+the record reports on its health; this module puts the record itself on the log. The reverse —
 recording a decision that did not happen — is what the callers prevent by
 calling these only from the branch that actually decided.
 """
@@ -63,9 +62,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from collections.abc import Mapping
-from pathlib import Path
 
 from osprey.audit import writer
 from osprey.audit.envelope import (
@@ -81,7 +77,6 @@ from .methods import METHOD_OIDC, METHOD_PASSWORD
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "AUDIT_DIR_ENV",
     "LOGIN_REASONS",
     "REASON_AMBIGUOUS_IDENTITY",
     "REASON_AMBIGUOUS_ROLE_CLAIM",
@@ -108,8 +103,6 @@ __all__ = [
     "SIDECAR_POSTURE",
     "SIGN_IN_SUBJECT",
     "SURFACE",
-    "audit_directory",
-    "ledger_path",
     "record_login_refusal",
     "record_login_success",
     "write_envelope",
@@ -121,17 +114,6 @@ SURFACE = "auth_sidecar"
 Fixed rather than derived: the sidecar decides exactly one kind of thing, and a
 record that named the route instead would split one question ("who tried to log
 in, and what happened") across as many surfaces as the login flow has legs.
-"""
-
-AUDIT_DIR_ENV = "OSPREY_AUTH_AUDIT_DIR"
-"""Names the directory this service files its records in.
-
-Auth-specific rather than the generic ``OSPREY_AUDIT_DIR``: that one is the
-variable the project image's entrypoint iterates to fix up group ownership, and
-the sidecar image has no entrypoint and no root phase to read it. Rendered by
-``deployment/web_terminals/render.py`` from the same derivation that names the
-bind's host side, so the path this module writes to and the path the host
-provisions cannot diverge.
 """
 
 SIDECAR_POSTURE = "sandbox"
@@ -402,65 +384,6 @@ one — but pinned by a test, which is the layer that can fail loudly without
 costing a decision."""
 
 
-def audit_directory(env: Mapping[str, str] | None = None) -> Path | None:
-    """The directory :data:`AUDIT_DIR_ENV` names, or ``None``.
-
-    Read from *env*, or from :data:`os.environ` when *env* is ``None``, per
-    call. ``None`` means the variable is missing or blank, or names a relative
-    path.
-
-    **A relative value is refused like a blank one.** Resolved against the
-    process's working directory it would name ``/app/<something>`` inside the
-    image — a path the host binds nothing at — and the records would accumulate
-    in the container's writable layer and vanish with it, while this function
-    kept returning a path that says they were durably stored. The documented
-    degrade (the log line in :func:`write_envelope`) is the honest answer to a
-    value this service cannot write anything durable under.
-    """
-    source = os.environ if env is None else env
-    raw = source.get(AUDIT_DIR_ENV)
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    directory = Path(raw.strip())
-    if not directory.is_absolute():
-        logger.warning(
-            "%s is not an absolute path; this service stores nothing under it until it names "
-            "the directory compose binds for it",
-            AUDIT_DIR_ENV,
-        )
-        return None
-    return directory
-
-
-def ledger_path() -> Path | None:
-    """The file this service's records are appended to, or ``None``.
-
-    ``None`` means :data:`AUDIT_DIR_ENV` names nothing usable, which is the
-    documented degrade rather than an error. The file is named for the surface,
-    inside the directory the variable names — the same
-    ``<identity>/<surface>.jsonl`` shape every other emitter files under, so the
-    sidecar's ledger reads next to the rest of them without a special case.
-
-    Read per call, never cached: the variable is a property of the container's
-    environment, and a value captured at import would be whatever the first
-    importer happened to see.
-
-    **The stem is the surface literal, not a routed name.**
-    :func:`osprey.audit.writer.ledger_name` consults
-    :func:`~osprey.audit.writer.writer_context` first, so an
-    ``OSPREY_AUDIT_WRITER`` value that happened to be present in this
-    container's environment would silently rename this ledger. The sidecar has
-    no root maintenance phase for that marker to describe — one uvicorn app, no
-    entrypoint — so borrowing a helper that routes on it can only misfire here.
-    :data:`~osprey.audit.writer.LEDGER_SUFFIX` is still the writer's, because
-    that one *is* shared vocabulary.
-    """
-    directory = audit_directory()
-    if directory is None:
-        return None
-    return directory / f"{SURFACE}{writer.LEDGER_SUFFIX}"
-
-
 def record_login_success(
     *,
     user: str,
@@ -583,36 +506,29 @@ def _log_unfiled(envelope: AuditEnvelope) -> None:
         logger.warning("could not log an unfiled audit record for a login")
 
 
-def write_envelope(envelope: AuditEnvelope) -> Path | None:
-    """File one record in the audit ledger; returns where it landed, or ``None``.
+def write_envelope(envelope: AuditEnvelope) -> str | None:
+    """Write one record as an ``audit`` entry; its ``entry_id``, or ``None``.
 
-    The single seam every record in this service passes through. The line
-    shaping and the append are the shared writer's, reached through
-    :func:`osprey.audit.writer.append_envelope`: the byte budget that makes
-    concurrent appends non-interleaving and the one ``O_APPEND`` write that
-    makes the ledger append-only are not re-implemented one service over. Only
-    the directory is this module's own — the writer's other entry points route
-    through :func:`~osprey.audit.writer.audit_dir`, which resolves a project
-    root the sidecar image does not have.
+    The single seam every record in this service passes through, and a thin
+    one: the body shaping and the append are the shared writer's
+    (:func:`osprey.audit.writer.record_envelope`), which carries the envelope's
+    ``on_behalf_of`` as the entry's own field. The spool directory is the one
+    ``OSPREY_SPOOL_DIR`` names, the sidecar's own.
 
     Args:
         envelope: The already-validated, already-bounded record.
 
     Returns:
-        The ledger path when the record was durably stored, otherwise ``None`` —
-        an unset variable, an unwritable zone, a torn write. The caller does not
-        branch on it (the decision is enforced by the caller, not by this record
-        landing), but a test can tell "wrote" from "degraded quietly".
-        *Every* ``None`` has put the record on the log first, so the degrade is
-        the same one whichever rung gave way.
+        The entry id when the line was stored, otherwise ``None`` — an
+        unwritable spool, the record off switch, anything at all. The caller
+        does not branch on it (the decision is enforced by the caller, not by
+        this entry landing), but a test can tell "wrote" from "degraded
+        quietly". *Every* ``None`` has put the record on the log first.
     """
-    path = ledger_path()
-    if path is None:
-        _log_unfiled(envelope)
-        return None
-    if writer.append_envelope(path, envelope):
-        return path
-    # A short or refused append: the writer has warned about the *path*, which
-    # does not say what was lost. This says what was lost.
+    entry_id = writer.record_envelope(envelope)
+    if entry_id:
+        return entry_id
+    # The writer has logged the failure and reported it to health, which does
+    # not say what was lost. This says what was lost.
     _log_unfiled(envelope)
     return None

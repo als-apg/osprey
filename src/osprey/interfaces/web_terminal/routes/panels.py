@@ -7,9 +7,9 @@ import contextlib
 import hashlib
 import ipaddress
 import logging
-import os
 import socket
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -29,6 +29,7 @@ from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_terminal import panel_cap
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
+from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -235,31 +236,31 @@ def _project_key(project_cwd: str | None) -> str:
     return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
 
 
-def _workspace_has_artifacts(base: Path | None) -> bool:
-    """True when the agent workspace holds at least one regular file.
+def _loopback_backend_ports(request: Request, panel_ids: Iterable[str]) -> dict[str, int]:
+    """The port of each panel whose backend is this host's loopback, served at its root.
 
-    Dot-entries (``.DS_Store``, ``.gitkeep``, hidden dirs) don't count — a
-    workspace seeded only with housekeeping files must still read empty, so
-    the simple UX's chat-only first boot isn't defeated by scaffolding. The
-    walk stops at the first hit; unreadable directories are skipped.
+    The agent's tools name a backend by its loopback address (the artifact
+    gallery's ``gallery_url``), and an agent answer may repeat it. That address
+    is dead in a browser on another machine, so the chat maps a loopback
+    link on one of these ports to the panel instead. Only the port leaves the
+    server: a backend that is not a loopback literal, or that serves under a
+    path or query (so a link path would not map 1:1 onto ``/panel/<id>/...``),
+    is left out, and its links keep opening in a new tab.
     """
-    if base is None:
-        return False
-    stack = [os.fspath(base)]
-    while stack:
-        directory = stack.pop()
-        try:
-            with os.scandir(directory) as entries:
-                for entry in entries:
-                    if entry.name.startswith("."):
-                        continue
-                    if entry.is_file(follow_symlinks=False):
-                        return True
-                    if entry.is_dir(follow_symlinks=False):
-                        stack.append(entry.path)
-        except OSError:
+    ports: dict[str, int] = {}
+    for panel_id in panel_ids:
+        url = _resolve_panel_url(request, panel_id)
+        if not url or not _backend_is_loopback(url):
             continue
-    return False
+        parsed = urlparse(url)
+        if parsed.path not in ("", "/") or parsed.query:
+            continue
+        try:
+            port = parsed.port
+        except ValueError:
+            continue
+        ports[panel_id] = port or (443 if parsed.scheme == "https" else 80)
+    return ports
 
 
 @router.get("/api/panels")
@@ -282,37 +283,22 @@ async def get_panels(request: Request):
             "labels":   {id: label},    # display labels for enabled built-in panels
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
-            "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
-            "workspace_has_artifacts": bool,  # any non-hidden file under the agent workspace
             "open_tiles": [...]|None,   # last-reported service tiles, reading order
             "open_tiles_age_s": float|None,   # seconds since that report (None = never)
             "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
-            "docs_url": str,            # target of the rail's Documentation control
+            "docs_url": str,            # target of the sidebar's Documentation control
             "feedback_trackers": [...],  # [{"kind", "label", "repo"|"url"}], render order
             "feedback_email": str,      # recipient of the prefilled mailto: draft
             "feedback_deployment": {...},  # identity lines for a report's metadata
             "feedback_escalation_url": str,  # prefilled upstream issue; "" upstream
+            "loopback_ports": {id: int},  # backend port of each loopback-hosted panel
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
     a truncated sha256 of the resolved project directory). The client uses it as
     the ``osprey-dock-layout-<project_key>`` localStorage suffix so dock layouts
     persist independently per project on a shared browser origin.
-
-    ``ui_mode`` mirrors the server-rendered ``<html data-ui-mode>`` attribute so
-    the client can read the resolved mode after boot. First paint must never
-    depend on this field — the SSR attribute is the authoritative first-paint
-    rung; this is the API-side echo for later client mode resolution.
-
-    ``rail_position`` mirrors the server-rendered ``<html data-rail-position>``
-    the same way, and travels with two companions: ``family_rail_defaults``
-    (``app.FAMILY_RAIL_DEFAULTS``, the theme-family -> rail-position coupling
-    that gives the retro family a top tab strip) and
-    ``rail_position_configured`` (whether ``web.rail_position`` was set
-    explicitly, which outranks that coupling). ``rail-position.js`` reads both
-    so a live theme-family switch can move the rail without the browser
-    carrying its own copy of the coupling.
 
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
@@ -332,12 +318,6 @@ async def get_panels(request: Request):
 
     ``labels`` covers only the enabled built-in panels; custom panels carry
     their own ``label`` field in the ``custom`` list.
-
-    ``workspace_has_artifacts`` reports whether the agent workspace already
-    holds any (non-hidden) file. The simple UX uses it to decide whether the
-    first paint is chat-only (empty workspace) or includes the WORKSPACE
-    panel; recomputed per request so a reload after the first artifact lands
-    sees ``true``.
 
     ``open_tiles`` is what a browser last reported through
     ``POST /api/panel-layout``: the service tiles actually on screen, in spatial
@@ -364,13 +344,15 @@ async def get_panels(request: Request):
 
     ``docs_url``, ``feedback_trackers`` and ``feedback_email`` are the resolved
     ``web.docs_url`` / ``web.feedback.*`` values that address the two utility
-    controls at the far end of the rail: the Documentation link target, and
+    controls in the sidebar footer: the Documentation link target, and
     the outbound channels the feedback dialog offers (one prefilled new-issue
     link per configured tracker — ``web.feedback.trackers`` plus the
     ``web.feedback.github_repo`` sugar, already merged server-side — and a
-    prefilled ``mailto:`` draft). The store ceiling
-    (``web.feedback.max_store_bytes``) is deliberately not echoed — it governs
-    server-side pruning and nothing in the browser acts on it.
+    prefilled ``mailto:`` draft).
+
+    ``loopback_ports`` maps a panel id to its backend's port, for each panel
+    whose backend is a loopback literal served at its root (see
+    :func:`_loopback_backend_ports`). Nothing else about a backend is exposed.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -408,23 +390,7 @@ async def get_panels(request: Request):
         active = None if active == _CONFIG_PANEL_ID else active
     allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
     presets = list(getattr(request.app.state, "panel_presets", []))
-    # Echo the resolved UI mode (server-rendered onto <html data-ui-mode>).
-    # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
-    # avoid a routes->app import cycle.
-    ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
-    # Echo the resolved rail position (server-rendered onto
-    # <html data-rail-position>). "left" default mirrors
-    # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
-    rail_position = getattr(request.app.state, "web_rail_position", "left")
-    # The theme-family -> rail-position coupling, plus whether config pinned a
-    # position of its own. The client needs both to decide whether a live theme
-    # switch may move the rail; app.FAMILY_RAIL_DEFAULTS stays the only
-    # definition of the coupling (imported lazily for the same cycle reason).
-    from osprey.interfaces.web_terminal.app import FAMILY_RAIL_DEFAULTS
-
-    rail_position_configured = getattr(request.app.state, "web_rail_position_configured", False)
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
-    has_artifacts = _workspace_has_artifacts(getattr(request.app.state, "workspace_dir", None))
     # Tile occupancy as last reported by a browser, with its freshness. The
     # timestamp is never exposed raw: an age is what a consumer can reason
     # about without knowing the server's clock. ``None`` survives untouched —
@@ -473,12 +439,7 @@ async def get_panels(request: Request):
         "labels": labels,
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
-        "ui_mode": ui_mode,
-        "rail_position": rail_position,
-        "rail_position_configured": rail_position_configured,
-        "family_rail_defaults": dict(FAMILY_RAIL_DEFAULTS),
         "project_key": project_key,
-        "workspace_has_artifacts": has_artifacts,
         "open_tiles": open_tiles,
         "open_tiles_age_s": open_tiles_age,
         "open_tiles_dock": open_tiles_dock,
@@ -495,6 +456,9 @@ async def get_panels(request: Request):
             str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
         ),
         "tour": tour,
+        "loopback_ports": _loopback_backend_ports(
+            request, [*enabled, *(cp["id"] for cp in custom if cp.get("id"))]
+        ),
     }
 
 
@@ -663,7 +627,7 @@ class PanelVisibilityRequest(BaseModel):
     """A rail-membership change.
 
     ``index`` places a panel being ADDED at that position of the rail's panel
-    entries (the SESSION entry is not counted), clamped to the list. It is how an
+    entries (the Agent entry is not counted), clamped to the list. It is how an
     operator's Undo puts a removed entry back where it was; without it an added
     panel goes to the end. It is ignored when hiding and when the panel is
     already a member, which keeps its place.
@@ -732,7 +696,7 @@ class RailOrderRequest(BaseModel):
     """Move a rail member so it sits directly above ``before``.
 
     ``before`` names another member; ``None`` moves the panel to the foot of
-    the rail. The SESSION entry is not a member, so it is never a target and
+    the rail. The Agent entry is not a member, so it is never a target and
     always stays at the head.
     """
 
@@ -1653,8 +1617,7 @@ async def get_mcp_servers(request: Request):
         return []
 
     try:
-        servers = await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
-        return servers
+        return await get_mcp_servers_cached(mcp_json_path, project_dir, timeout=10.0)
     except Exception:
         logger.warning("mcp-servers: introspection failed", exc_info=True)
         return []

@@ -14,7 +14,6 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.audit import writer
 from osprey.mcp_server.workspace.tools import setup as setup_tools
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
@@ -22,7 +21,7 @@ SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 
 
 @pytest.fixture
-def render(tmp_path, monkeypatch):
+def render(tmp_path):
     (tmp_path / "config.yml").write_text(
         yaml.dump(
             {
@@ -35,7 +34,6 @@ def render(tmp_path, monkeypatch):
             }
         )
     )
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
     with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
         yield tmp_path
 

@@ -26,7 +26,7 @@ from click.testing import CliRunner
 from osprey.cli.config_cmd import config
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 #: The frozen reference deployment — the shape `osprey init` is being built to
 #: emit. Used here so the zero-argument path is exercised against a real
@@ -50,11 +50,6 @@ name: Demo Facility
 model: claude-haiku-4-5  # tier, or any model ID the provider serves
 data: data
 """
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 @pytest.fixture

@@ -8,15 +8,17 @@ without contaminating agent output.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
+from tests.e2e.claude_code._chat_turn import hook_debug_since
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     assert_agent_ran,
     combined_text,
     init_project,
-    render_dir,
+    print_run_summary,
     run_sdk_query_with_hooks,
 )
 
@@ -42,15 +44,18 @@ def _channel_finder_report(result, project) -> str:
             continue
         lines.append(f"    {trace.name} input={json.dumps(trace.input, default=str)[:400]}")
         lines.append(f"      error={trace.is_error} result={(trace.result or '')[:600]}")
-    hook_log = render_dir(project) / ".claude" / "hooks" / "hook_debug.jsonl"
-    if hook_log.is_file():
-        captured = [
-            line
-            for line in hook_log.read_text().splitlines()
-            if "cf-feedback-capture" in line and '"skip-tool"' not in line
-        ]
-        lines.append(f"  cf-feedback-capture log ({len(captured)} lines):")
-        lines.extend(f"    {line[:400]}" for line in captured)
+    try:
+        hook_lines = hook_debug_since(project, datetime.min.replace(tzinfo=UTC))
+    except Exception as exc:  # a diagnostic never hides the failure it explains
+        lines.append(f"  cf-feedback-capture log unreadable: {exc}")
+        return "\n".join(lines)
+    captured = [
+        json.dumps(body, default=str)
+        for body in hook_lines
+        if body.get("hook") == "cf-feedback-capture" and body.get("status") != "skip-tool"
+    ]
+    lines.append(f"  cf-feedback-capture log ({len(captured)} lines):")
+    lines.extend(f"    {line[:400]}" for line in captured)
     return "\n".join(lines)
 
 
@@ -153,10 +158,8 @@ async def test_feedback_hook_is_silent(feedback_project):
     )
 
     # -- Debug output --
-    print("\n--- feedback capture: silence check ---")
-    print(f"  tools called: {result.tool_names}")
+    print_run_summary("feedback capture: silence check", result)
     print(f"  system messages: {len(result.system_messages)}")
-    print(f"  text blocks: {len(result.text_blocks)}")
 
     # -- Assertions --
     assert_agent_ran(result)

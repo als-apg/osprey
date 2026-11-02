@@ -1,7 +1,7 @@
 """The history page's ``auth_request`` target and the sign-in paths that feed it.
 
 ``/verify-history`` resolves one person out of the session cookie and maps them
-to one store view user. Every row of the mapping table is pinned here, with the
+to one agent-record viewer. Every row of the mapping table is pinned here, with the
 default selection's tie-break, the selector, the headers, reader
 re-validation, and the carriers the sidecar reads its answers from. Cookies are
 minted with a client-side codec, as in ``test_verify.py``; the app is always
@@ -28,9 +28,7 @@ from osprey.services.auth_sidecar.routes.history import (
     PERSON_HEADER,
     ROLE_HEADER,
     SCOPE_HEADER,
-    TABLES_HEADER,
     VIEW_HEADER,
-    VIEW_TABLES,
 )
 from osprey.services.auth_sidecar.routes.recheck import ROLE_SOURCE_CLAIM, RosterRoles
 from osprey.services.auth_sidecar.sessions import (
@@ -43,7 +41,8 @@ from osprey.services.auth_sidecar.sessions import (
 SECRET = "session-secret-value"
 LIFETIME = 3600
 HISTORY_ORIGIN = "https://terminals.example.org:8443"
-ALL_TABLES = "otel_logs,otel_traces,audit_ledger"
+STALE_TABLES_HEADER = "X-Osprey-History-Tables"
+"""The old store's per-view table list: the record scopes a viewer itself."""
 
 HASHES = {name: hash_password(f"{name}-password") for name in ("alice", "bob", "desk")}
 
@@ -62,7 +61,6 @@ PASSWORD_ENV = {
     "OSPREY_AUTH_ROSTER_HISTORY_BOB": "own",
     "OSPREY_AUTH_ROSTER_HISTORY_DESK": "own",
     "OSPREY_AUTH_READERS": "carol",
-    "OSPREY_AUTH_READER_TABLES_CAROL": "otel_logs",
 }
 
 OIDC_ENV = {
@@ -76,7 +74,6 @@ OIDC_ENV = {
     "OSPREY_AUTH_OIDC_SUBJECT_ALICE": "alice@example.org",
     "OSPREY_AUTH_OIDC_SUBJECT_BOB": "bob@example.org",
     "OSPREY_AUTH_READERS": "carol,ext",
-    "OSPREY_AUTH_READER_TABLES_EXT": "otel_logs,audit_ledger",
     "OSPREY_AUTH_READER_SUBJECT_EXT": "ext@partner.org",
 }
 
@@ -154,8 +151,6 @@ class TestCarriers:
         assert not settings.role_history_all("viewer")
         assert not settings.role_history_all("")
         assert settings.readers == ("carol", "ext")
-        assert settings.tables_for_reader("carol") == ("otel_logs",)
-        assert settings.tables_for_reader("ext") == ("otel_logs", "audit_ledger")
         assert settings.reader_subject("ext") == "ext@partner.org"
         assert settings.reader_subject("carol") is None
 
@@ -173,19 +168,16 @@ class TestCarriers:
                 "OSPREY_AUTH_HISTORY_ORIGIN": f" {HISTORY_ORIGIN}/ ",
                 "OSPREY_AUTH_ROSTER_HISTORY_ALICE": " ALL ",
                 "OSPREY_AUTH_READERS": " x , ,x, y",
-                "OSPREY_AUTH_READER_TABLES_X": "otel_logs, audit_ledger",
             }
         )
         assert settings.history_origin == HISTORY_ORIGIN
         assert settings.user_history_all("alice")
         assert settings.readers == ("x", "y")
-        assert settings.tables_for_reader("x") == ("otel_logs", "audit_ledger")
-        assert settings.tables_for_reader("y") == ()
 
-    def test_the_view_tables_are_the_stores(self) -> None:
-        from osprey.deployment.telemetry_store.accounts import DEFAULT_READER_TABLES
-
-        assert VIEW_TABLES == DEFAULT_READER_TABLES
+    def test_the_answer_names_the_viewer_and_no_table_list(self) -> None:
+        response = _ask(_app(PASSWORD_ENV), _cookie(_entry("alice")))
+        assert response.headers[VIEW_HEADER] == "own:alice"
+        assert STALE_TABLES_HEADER not in response.headers
 
 
 # --- the mapping table ----------------------------------------------------------
@@ -194,47 +186,46 @@ class TestCarriers:
 class TestOwnCard:
     def test_own_maps_to_the_persons_view(self) -> None:
         response = _ask(_app(PASSWORD_ENV), _cookie(_entry("alice")))
-        assert _view(response) == (200, "view_alice", "alice")
+        assert _view(response) == (200, "own:alice", "alice")
         assert response.headers[SCOPE_HEADER] == "own"
-        assert response.headers[TABLES_HEADER] == ALL_TABLES
+        assert STALE_TABLES_HEADER not in response.headers
 
     def test_a_reader_named_like_the_person_takes_precedence(self) -> None:
         env = {
             **PASSWORD_ENV,
             "OSPREY_AUTH_READERS": "alice",
-            "OSPREY_AUTH_READER_TABLES_ALICE": "otel_logs",
         }
         env["OSPREY_AUTH_ROSTER_HISTORY_ALICE"] = "all"
         response = _ask(_app(env), _cookie(_entry("alice")))
-        assert _view(response) == (200, "view__reader_alice", "alice")
+        assert _view(response) == (200, "reader:alice", "alice")
         assert response.headers[SCOPE_HEADER] == "reader"
-        assert response.headers[TABLES_HEADER] == "otel_logs"
+        assert STALE_TABLES_HEADER not in response.headers
 
     def test_all_on_the_roster_entry_maps_to_view_all(self) -> None:
         env = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_HISTORY_ALICE": "all"}
         response = _ask(_app(env), _cookie(_entry("alice")))
-        assert _view(response) == (200, "view__all", "alice")
+        assert _view(response) == (200, "all", "alice")
         assert response.headers[SCOPE_HEADER] == "all"
-        assert response.headers[TABLES_HEADER] == ALL_TABLES
+        assert STALE_TABLES_HEADER not in response.headers
 
     def test_all_on_the_current_roster_role_maps_to_view_all(self) -> None:
         env = {**PASSWORD_ENV, "OSPREY_AUTH_ROLE_HISTORY_LEAD": "all"}
         response = _ask(_app(env, {"alice": "lead"}), _cookie(_entry("alice")))
-        assert _view(response) == (200, "view__all", "alice")
+        assert _view(response) == (200, "all", "alice")
         assert response.headers[ROLE_HEADER] == "lead"
 
     def test_a_reassigned_role_takes_effect_on_the_next_request(self) -> None:
         env = {**PASSWORD_ENV, "OSPREY_AUTH_ROLE_HISTORY_LEAD": "all"}
         app = _app(env, {"alice": "lead"})
         cookie = _cookie(_entry("alice", role="lead", role_source="roster"))
-        assert _view(_ask(app, cookie))[1] == "view__all"
+        assert _view(_ask(app, cookie))[1] == "all"
         app.state.roster_roles = RosterRoles(roles={"alice": "viewer"})
-        assert _view(_ask(app, cookie)) == (200, "view_alice", "alice")
+        assert _view(_ask(app, cookie)) == (200, "own:alice", "alice")
 
     def test_the_stored_roster_role_is_never_read(self) -> None:
         env = {**PASSWORD_ENV, "OSPREY_AUTH_ROLE_HISTORY_LEAD": "all"}
         cookie = _cookie(_entry("alice", role="lead", role_source="roster"))
-        assert _view(_ask(_app(env, {}), cookie))[1] == "view_alice"
+        assert _view(_ask(_app(env, {}), cookie))[1] == "own:alice"
 
     def test_a_claim_granted_role_is_read_from_the_session(self) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_ROLE_HISTORY_LEAD": "all"}
@@ -242,7 +233,7 @@ class TestOwnCard:
             _entry("alice", subject="alice@example.org", role="lead", role_source=ROLE_SOURCE_CLAIM)
         )
         response = _ask(_app(env), cookie)
-        assert _view(response) == (200, "view__all", "alice")
+        assert _view(response) == (200, "all", "alice")
         assert response.headers[ROLE_HEADER] == "lead"
 
 
@@ -254,7 +245,7 @@ class TestSharedCards:
         env["OSPREY_AUTH_OIDC_SUBJECT_DESK"] = "desk@example.org"
         env["OSPREY_AUTH_ROSTER_HISTORY_DESK"] = "all"
         response = _ask(_app(env), _cookie(_entry("desk", subject="desk@example.org")))
-        assert _view(response) == (200, "view__all", "desk")
+        assert _view(response) == (200, "all", "desk")
 
     def test_a_sign_in_as_a_shared_card_through_its_role_maps_to_view_all(self) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_ROSTER_ACCESS_DESK": '["self","roster"]'}
@@ -262,7 +253,7 @@ class TestSharedCards:
         env["OSPREY_AUTH_ROLE_HISTORY_OPERATOR"] = "all"
         app = _app(env, {"desk": "operator"})
         response = _ask(app, _cookie(_entry("desk", subject="desk@example.org")))
-        assert _view(response) == (200, "view__all", "desk")
+        assert _view(response) == (200, "all", "desk")
 
     def test_a_sign_in_as_a_shared_card_without_all_lists_nothing(self) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_ROSTER_ACCESS_DESK": '["self","roster"]'}
@@ -276,13 +267,13 @@ class TestSharedCards:
         app = _app(env, {"desk": "operator"})
         cookie = _cookie(_entry("desk", opener="bob", role="operator", role_source="roster"))
         response = _ask(app, cookie)
-        assert _view(response) == (200, "view_bob", "bob")
+        assert _view(response) == (200, "own:bob", "bob")
         assert response.headers[ENTRY_HEADER] == "desk"
 
     def test_an_openers_own_all_still_widens_their_view(self) -> None:
         env = {**self.SHARED, "OSPREY_AUTH_ROSTER_HISTORY_BOB": "all"}
         response = _ask(_app(env), _cookie(_entry("desk", opener="bob")))
-        assert _view(response) == (200, "view__all", "bob")
+        assert _view(response) == (200, "all", "bob")
 
 
 class TestRuleAdmitted:
@@ -290,7 +281,7 @@ class TestRuleAdmitted:
 
     def test_a_rule_admitted_roster_person_gets_their_own_row(self) -> None:
         response = _ask(_app(self.ENV), _cookie(_entry("desk", admitted="bob@example.org")))
-        assert _view(response) == (200, "view_bob", "bob")
+        assert _view(response) == (200, "own:bob", "bob")
 
     def test_a_rule_admitted_stranger_is_refused(self) -> None:
         response = _ask(_app(self.ENV), _cookie(_entry("desk", admitted="zed@example.org")))
@@ -306,11 +297,11 @@ class TestRuleAdmitted:
 
 
 class TestReaders:
-    def test_a_reader_entry_maps_to_its_view_user(self) -> None:
+    def test_a_reader_entry_maps_to_its_viewer(self) -> None:
         response = _ask(_app(OIDC_ENV), _cookie(_entry("reader:ext", subject="ext@partner.org")))
-        assert _view(response) == (200, "view__reader_ext", "ext")
+        assert _view(response) == (200, "reader:ext", "ext")
         assert response.headers[SCOPE_HEADER] == "reader"
-        assert response.headers[TABLES_HEADER] == "otel_logs,audit_ledger"
+        assert STALE_TABLES_HEADER not in response.headers
         assert response.headers[ENTRY_HEADER] == "reader:ext"
 
     def test_a_withdrawn_reader_is_refused_on_the_next_request(self) -> None:
@@ -340,7 +331,7 @@ class TestReaders:
         )
         env = {**OIDC_ENV, "OSPREY_AUTH_READERS": "carol"}
         response = _ask(_app(env), cookie)
-        assert _view(response) == (200, "view_alice", "alice")
+        assert _view(response) == (200, "own:alice", "alice")
         assert response.headers[CHOICES_HEADER] == "alice=alice"
 
     def test_a_reader_a_domain_rule_also_admits_is_still_a_reader(self) -> None:
@@ -354,7 +345,7 @@ class TestReaders:
             UnlockedUser(**{**_asdict(e), "expires_at": session[0].expires_at}) for e in session
         ]
         response = _ask(_app(env), _cookie(*same))
-        assert _view(response) == (200, "view__reader_ext", "ext")
+        assert _view(response) == (200, "reader:ext", "ext")
         assert response.headers[CHOICES_HEADER] == "reader:ext=ext"
 
     def test_verify_refuses_a_reader_key(self) -> None:
@@ -408,7 +399,7 @@ class TestSelection:
         cookie = _cookie(_at(_entry("alice"), now + 100), _at(_entry("bob"), now + 200))
         app = _app(PASSWORD_ENV)
         response = _ask(app, cookie, "/history/session/abc?as=alice")
-        assert _view(response) == (200, "view_alice", "alice")
+        assert _view(response) == (200, "own:alice", "alice")
         assert response.headers[ENTRY_HEADER] == "alice"
         assert response.headers[CHOICES_HEADER] == "bob=bob,alice=alice"
         assert _view(_ask(app, cookie, "/history/?as=bob"))[2] == "bob"
@@ -450,7 +441,7 @@ class TestSelection:
             _at(_entry("desk", admitted="zed@example.org"), now + 900),
         )
         response = _ask(_app(env), cookie)
-        assert _view(response) == (200, "view_alice", "alice")
+        assert _view(response) == (200, "own:alice", "alice")
         assert response.headers[CHOICES_HEADER] == "alice=alice"
 
 
@@ -609,7 +600,6 @@ def _reader_sidecar(provider: MockIdP, **overrides: str) -> FastAPI:
     carriers = {
         "OSPREY_AUTH_HISTORY_ORIGIN": HISTORY_ORIGIN,
         "OSPREY_AUTH_READERS": "ext",
-        "OSPREY_AUTH_READER_TABLES_EXT": "otel_logs",
         "OSPREY_AUTH_READER_SUBJECT_EXT": EXT_SUBJECT,
     }
     return create_app(_env(provider, **{**carriers, **overrides}))
@@ -640,7 +630,7 @@ class TestReaderSignIn:
         assert response.headers["location"] == NEXT
         minted = _session_from(response).entry("reader:ext")
         assert minted is not None and minted.oidc_subject == EXT_SUBJECT
-        assert _view(history) == (200, "view__reader_ext", "ext")
+        assert _view(history) == (200, "reader:ext", "ext")
 
     def test_a_reader_with_no_card_and_no_next_lands_on_the_history_page(
         self,
@@ -667,7 +657,7 @@ class TestReaderSignIn:
         assert response.headers["location"] == NEXT
         state = _session_from(response)
         assert {user.username for user in state.users} == {"bob", "reader:ext"}
-        assert _view(history) == (200, "view__reader_ext", "ext")
+        assert _view(history) == (200, "reader:ext", "ext")
 
     def test_an_identity_no_card_and_no_reader_admits_is_still_refused(
         self,

@@ -25,7 +25,6 @@ from starlette.routing import Route
 
 from osprey.health.core.ariel import ariel
 from osprey.health.models import CheckResult, Status
-from osprey.interfaces._serving import free_port
 from osprey.interfaces.ariel.app import HEALTH_NO_SERVICE, HEALTH_STORE_NOT_ANSWERING
 from osprey.port_layout import default_port
 from osprey.services.ariel_search.config import IngestionConfig, WatchConfig
@@ -262,10 +261,10 @@ async def test_an_unreadable_ingestion_interval_warns_with_the_key(tmp_path, val
 # --------------------------------------------------------------------------- #
 
 
-async def test_configured_but_unreachable_emits_single_warning(monkeypatch) -> None:
+async def test_configured_but_unreachable_emits_single_warning(reserve_port, monkeypatch) -> None:
     monkeypatch.delenv("OSPREY_ARIEL_PORT", raising=False)
-    # A port just released by the OS has no listener, so the connect is refused.
-    by_name = await _run(_cfg(web={"host": "127.0.0.1", "port": free_port()}))
+    # A reserved port has no listener, so the connect is refused.
+    by_name = await _run(_cfg(web={"host": "127.0.0.1", "port": reserve_port()}))
     assert set(by_name) == {"ariel_status"}
     row = by_name["ariel_status"]
     assert row.status is Status.WARNING

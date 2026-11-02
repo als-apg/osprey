@@ -23,7 +23,8 @@ from osprey.cli.build_cmd import build
 from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.facility.validate import FACILITY_HEADER
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import BuiltProject, init_project
 
 pytestmark = [pytest.mark.slow]

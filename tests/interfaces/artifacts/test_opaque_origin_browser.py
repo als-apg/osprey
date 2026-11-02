@@ -35,7 +35,6 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import json
-import sys
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -44,11 +43,12 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import control_context, posture_store
+from osprey.interfaces._serving import run_app_server
+from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.web_terminal._posture_chip import reset_process_memos
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -73,14 +73,13 @@ GALLERY = "/panel/artifacts/"
 #: first-party control below can flip it and a refusal is the origin's alone.
 TARGET = "va"
 
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
-
 # ---------------------------------------------------------------------------
 # Fixtures: the artifacts
 # ---------------------------------------------------------------------------
 
-#: The attack an agent could write into any HTML artifact: turn the simulator's
-#: writes on with whatever credential the browser attaches. Two shapes — the
+#: The attack an agent could write into any HTML artifact: set the simulator's
+#: writes to ``allowed`` — the position that runs every write with no prompt —
+#: with whatever credential the browser attaches. Two shapes — the
 #: chip's own gesture as a credentialed JSON ``fetch`` (read the epoch, POST,
 #: retry once on ``409``; needs CORS, which the opaque origin never gets) and a
 #: ``no-cors`` simple request (reaches the server; the gate must refuse it).
@@ -91,13 +90,13 @@ _LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
 _ATTACK_SCRIPT = """<script>
 (function () {
   var url = location.protocol + '//' + location.host + '/' + 'api/terminal/posture';
-  var body = JSON.stringify({ target: '__TARGET__', state: 'on', epoch: null });
+  var body = JSON.stringify({ target: '__TARGET__', state: 'allowed', epoch: null });
   var out = { origin: String(self.origin) };
   try { out.cookie = document.cookie; } catch (e) { out.cookie = 'denied'; }
   function post(epoch) {
     return fetch(url, { method: 'POST', credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ target: '__TARGET__', state: 'on', epoch: epoch }) });
+                        body: JSON.stringify({ target: '__TARGET__', state: 'allowed', epoch: epoch }) });
   }
   var a = fetch(url, { credentials: 'include' })
     .then(function (r) { return r.json(); })
@@ -284,12 +283,6 @@ def _write_config(path: Path) -> Path:
     return path
 
 
-def _reset_process_memos() -> None:
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
-
-
 @contextmanager
 def hub_with_gallery(
     tmp_path: Path,
@@ -341,41 +334,30 @@ def hub_with_gallery(
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    _reset_process_memos()
+    reset_process_memos()
     write_control_context(root, target=TARGET, generation=1)
 
     from osprey.interfaces.artifacts.app import create_app as create_artifacts_app
 
     artifacts_app = create_artifacts_app(workspace_root=artifacts_root)
     try:
-        with _run_app_server(artifacts_app) as artifacts_url:
-            patches = [
-                patch(
-                    "osprey.interfaces.web_terminal.app._load_web_config",
-                    return_value={"watch_dir": str(watch)},
-                ),
-                patch(
-                    "osprey.interfaces.web_terminal.app._load_panel_config",
-                    return_value=({"artifacts"}, [], None),
-                ),
-                patch(
-                    "osprey.interfaces.web_terminal.app._launch_panel_server",
-                    side_effect=publish_artifact_url(artifacts_url),
-                ),
+        with (
+            run_app_server(artifacts_app) as artifacts_url,
+            hub_server(
+                watch,
                 patch(
                     "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
                     ".snapshot_session_ids",
                     side_effect=lambda *_a, **_k: set(),
                 ),
-            ]
-            with _apply_all(patches):
-                from osprey.interfaces.web_terminal.app import create_app
-
-                hub = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
-                with _run_app_server(hub) as base_url:
-                    yield base_url, seeded
+                launch=publish_artifact_url(artifacts_url),
+                shell_command=LONG_LIVED_SHELL,
+                config_path=config,
+            ) as (base_url, _hub),
+        ):
+            yield base_url, seeded
     finally:
-        _reset_process_memos()
+        reset_process_memos()
 
 
 @pytest.fixture
@@ -407,7 +389,7 @@ def _first_party_turn_on(page: Page, epoch: str | None) -> dict:
           const r = await fetch('/' + 'api/terminal/posture', {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, state: 'on', epoch }),
+            body: JSON.stringify({ target, state: 'allowed', epoch }),
           });
           let body = null;
           try { body = await r.json(); } catch (e) { body = null; }
@@ -418,7 +400,7 @@ def _first_party_turn_on(page: Page, epoch: str | None) -> dict:
 
 
 def _assert_control_flips(page: Page, base_url: str) -> None:
-    """The same request from first-party script turns the switch on.
+    """The same request from first-party script sets the switch to ``allowed``.
 
     Sent the way the chip sends it: with the ``switch_epoch`` it read, and
     retried once with the epoch a ``409 stopped_since`` names (an epoch-less
@@ -429,7 +411,7 @@ def _assert_control_flips(page: Page, base_url: str) -> None:
     if answer["status"] == 409:
         answer = _first_party_turn_on(page, answer["body"]["detail"]["epoch"])
     assert answer["status"] == 200, f"first-party turn-on answered {answer}"
-    assert _switch(page, base_url) == "on"
+    assert _switch(page, base_url) == "allowed"
 
 
 def _probe(frame: Frame | Page) -> dict:

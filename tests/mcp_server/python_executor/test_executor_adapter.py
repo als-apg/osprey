@@ -26,7 +26,8 @@ from osprey.mcp_server.python_executor.executor import (
     execute_code,
     resolve_agent_interpreter,
 )
-from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, ConfigBuilder
+from osprey.utils.execution_method import DEFAULT_EXECUTION_TIMEOUT_SECONDS
+from osprey_connectors.config import ConfigBuilder
 from tests.mcp_server._zones import zone_away_from_host
 
 
@@ -391,9 +392,9 @@ async def test_deprecated_container_method_still_executes(tmp_path, monkeypatch,
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"execution": {"execution_method": "container"}})
 
-    import osprey_connectors.config as _cfg
+    import osprey.utils.execution_method as _execution_method
 
-    monkeypatch.setattr(_cfg, "_container_method_warned", False)
+    monkeypatch.setattr(_execution_method, "_container_method_warned", False)
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"ok\n", b""))

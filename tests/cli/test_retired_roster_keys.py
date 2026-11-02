@@ -52,8 +52,8 @@ from osprey.deployment.web_terminals.roster import (
 )
 from osprey.port_layout import default_port
 from osprey.utils.config_writer import config_update_fields
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests._renders import app_render, tier_render
 
 _LOGGER_NAME = doc.__name__

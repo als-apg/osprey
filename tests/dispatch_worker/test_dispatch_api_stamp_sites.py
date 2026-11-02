@@ -30,26 +30,36 @@ def counter_calls():
 
 @pytest.fixture
 def persist_calls(monkeypatch):
-    """Record persisted run_ids and neutralise the on-disk write during tests."""
+    """Record the run_id of every terminal record the worker writes to the record."""
     calls: list[str] = []
+    real = dispatch_api._write_run_terminal
 
-    def _fake_persist(run_id, _run):
+    def _counting(run_id, record):
         calls.append(run_id)
+        real(run_id, record)
 
-    monkeypatch.setattr(dispatch_api, "_persist_run", _fake_persist)
+    monkeypatch.setattr(dispatch_api, "_write_run_terminal", _counting)
     return calls
 
 
 @pytest.fixture
 def persisted_records(monkeypatch):
-    """Record every persisted ``(run_id, record)`` and neutralise the on-disk write."""
+    """Record every terminal ``(run_id, record)`` the worker writes to the record."""
     records: list[tuple[str, dict]] = []
+    real = dispatch_api._write_run_terminal
 
-    def _fake_persist(run_id, run):
-        records.append((run_id, dict(run)))
+    def _keeping(run_id, record):
+        records.append((run_id, dict(record)))
+        real(run_id, record)
 
-    monkeypatch.setattr(dispatch_api, "_persist_run", _fake_persist)
+    monkeypatch.setattr(dispatch_api, "_write_run_terminal", _keeping)
     return records
+
+
+@pytest.fixture(autouse=True)
+def _worker_reads_its_record(worker_record):
+    """The stale sweep reads the record before it ends a run."""
+    return worker_record
 
 
 @pytest.fixture(autouse=True)

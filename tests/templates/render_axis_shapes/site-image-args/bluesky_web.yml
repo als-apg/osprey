@@ -105,37 +105,28 @@ services:
       # host directory and names the mount below
       # (compose_generator.FIXED_SERVICE_AUDIT_IDENTITIES), which is why the
       # three are asserted against each other rather than kept in step by hand.
-      #
-      # No OSPREY_AUDIT_DIR beside it, unlike the dispatch worker: that variable
-      # is the contract a compose file offers the PROJECT image's entrypoint,
-      # whose root phase joins the group of each directory it names before
-      # dropping privileges. This image has no entrypoint and no privilege drop
-      # (uvicorn runs as root, so the mount's setgid 0o2770 mode is already
-      # writable by it), so the variable would be config nothing reads — exactly
-      # why the auth sidecar omits it too.
       OSPREY_AUDIT_IDENTITY: bluesky-web
+      # Where this sidecar appends its agent-record events and keeps its own
+      # state: its directories in the two zones, bound below. Plain config,
+      # read by the writer; there is no entrypoint here to join their groups.
+      OSPREY_SPOOL_DIR: /app/project/var/spool/bluesky-web
+      OSPREY_STATE_DIR: /app/project/var/state/bluesky-web
     volumes:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the
       # bluesky-web/ prefix (mirrors the bridge's config.yml:ro convention).
       - ./build/services/bluesky_web/config.yml:/app/project/config.yml:ro
-      # This sidecar's audit subdirectory, and only its own. A bind rather than
-      # a named volume, for the same reason the dispatch worker's is: the
-      # records are the operator's to read, grep and purge on the host. The
-      # isolation is the MOUNT — this container holds a bind to
-      # `var/audit/bluesky-web` and nothing else under `var/audit`, so it cannot
-      # read a terminal user's records or a worker's. Provisioned host-side
-      # before the mount is created (compose_generator.ensure_audit_dir, from
-      # `_ensure_agent_data_structure` on the build path): left to the container
-      # runtime, a missing bind source is created by the daemon instead.
-      #
-      # The container side is `/app/project/var/audit/...`: the writer anchors
-      # the audit zone on the project OSPREY_CONFIG above names, the directory
-      # the config is mounted into — not on the working directory (WORKDIR
-      # /app), and not on the project image's `/app/<project>`. A bind anywhere
-      # else would be a directory nothing writes to while the records piled up
-      # in the writable layer.
-      - ./var/audit/bluesky-web:/app/project/var/audit/bluesky-web
+      # Its spool and state directories, and only its own. Binds rather than
+      # named volumes: the isolation is the MOUNT — this container holds a bind
+      # to its own subdirectory of each zone and nothing else under them, so it
+      # cannot read a terminal user's events or a worker's. Provisioned
+      # host-side before the mount is created (compose_generator.ensure_spool_dir
+      # and ensure_state_dir, from `_ensure_agent_data_structure` on the build
+      # path): left to the container runtime, a missing bind source is created
+      # by the daemon instead. The container side is under `/app/project`: the
+      # writer anchors on the project OSPREY_CONFIG above names.
+      - ./var/spool/bluesky-web:/app/project/var/spool/bluesky-web
+      - ./var/state/bluesky-web:/app/project/var/state/bluesky-web
 
     networks:
       - osprey-network

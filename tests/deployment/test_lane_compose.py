@@ -46,7 +46,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
-from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
 
 # Rooted at the templates/ PROJECT root, not services/, because service
 # templates import the shared axis macros as "services/_*.j2" — the spelling
@@ -224,10 +224,12 @@ def _context(
         # the context, decides which lane mounts the tree.
         "osprey_control_tree_mount_source": CONTROL_TREE_SOURCE,
         "osprey_container_control_tree_dir": _control_tree_target(),
-        # Both halves of a queueserver's audit bind, injected unconditionally
-        # for the same reason.
-        "osprey_audit_mount_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
-        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        # Both halves of a queueserver's spool and state binds, injected
+        # unconditionally for the same reason.
+        "osprey_spool_mount_source": repo_relative_mount_source(SPOOL_DIR_RELPATH),
+        "osprey_service_container_spool_dir": f"/app/project/{SPOOL_DIR_RELPATH}",
+        "osprey_state_zone_mount_source": repo_relative_mount_source(STATE_DIR_RELPATH),
+        "osprey_service_container_state_dir": f"/app/project/{STATE_DIR_RELPATH}",
         # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
         "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
         # The control-identity module's container path and each lane's
@@ -1072,6 +1074,7 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
         return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
 
     assert posture({"writes": "allowed"}) is True
+    assert posture({"writes": "asked"}) is True
     assert posture({"writes": "never"}) is False
     assert posture(None) is False
     assert posture({"writes_enabled": True}) is False
@@ -1079,9 +1082,9 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     assert posture({"type": "virtual_accelerator", "writes": "allowed"}) is True
 
 
-@pytest.mark.parametrize("writes", ["allowed", "never"])
+@pytest.mark.parametrize("writes", ["asked", "allowed", "never"])
 def test_the_login_tier_alone_decides_which_lanes_mount_the_limits_db(writes: str) -> None:
-    """The tier is a ceiling, not a selection: ``allowed`` arms every lane, ``never`` none.
+    """The tier is a ceiling, not a selection: an arming word arms every lane, ``never`` none.
 
     A live-baseline deployment with a VA lane beside its live lane: the lane's
     target does not narrow the mount, because which machine a write reaches is
@@ -1110,11 +1113,32 @@ def test_the_login_tier_alone_decides_which_lanes_mount_the_limits_db(writes: st
         )
     )
 
-    expected = [LIMITS_DB_MOUNT] if writes == "allowed" else []
+    expected = [] if writes == "never" else [LIMITS_DB_MOUNT]
     assert _limits_mounts(rendered, "bluesky-va-bridge") == expected
     assert _limits_mounts(rendered, "bluesky-va-queueserver") == expected
     assert _limits_mounts(rendered, "bluesky-bridge") == expected
     assert _limits_mounts(rendered, "queueserver") == expected
+
+
+@pytest.mark.parametrize(
+    ("writes", "armed"), [("asked", True), ("allowed", True), ("never", False)]
+)
+def test_the_tier_word_decides_the_queue_token_and_the_lane_verdict(
+    writes: str, armed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The launch-token entitlement and the lane's startup verdict read the same tier."""
+    from osprey.deployment.web_terminals.roster import config_needs_launch_token_for
+    from osprey.services.bluesky_bridge import queue_backend
+
+    control_system = {"type": "epics", "writes": writes}
+    config = {
+        "control_system": control_system,
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+    }
+    monkeypatch.setattr(queue_backend, "resolve_lane_connector_type", lambda: ("epics", None))
+
+    assert config_needs_launch_token_for(config, "bluesky") is armed
+    assert queue_backend.lane_tier_allows(control_system) is armed
 
 
 def test_an_armed_lane_renders_without_a_limits_db_when_none_is_configured() -> None:
@@ -1547,8 +1571,10 @@ def _web_context(
             "project_root": "/deploy/proj",
         },
         "osprey_images": _image_defaults("proj"),
-        "osprey_audit_mount_source": "./var/audit",
-        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        "osprey_spool_mount_source": "./var/spool",
+        "osprey_service_container_spool_dir": f"/app/project/{SPOOL_DIR_RELPATH}",
+        "osprey_state_zone_mount_source": "./var/state",
+        "osprey_service_container_state_dir": f"/app/project/{STATE_DIR_RELPATH}",
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
         # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
         "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
@@ -1668,7 +1694,7 @@ def test_the_control_tree_is_mounted_whole_and_never_writable() -> None:
     """Two properties the mount would be wrong without.
 
     WHOLE: the owner of a queue item arrives with the request, so a mount
-    narrowed to one identity's subdirectory — the shape the audit binds take —
+    narrowed to one identity's subdirectory — the shape the spool binds take —
     would answer for nobody. READ-ONLY: the record belongs to the terminal that
     wrote it, and a writable tree would let a queued plan rewrite the narrowing
     that judges it.
@@ -1809,7 +1835,7 @@ def test_the_queueserver_applies_its_lane_identity_before_the_manager_starts(
         f' || echo "WARNING: control identity {identity} not applied; this lane writes as root"'
         " >&2; exec start-re-manager"
     )
-    subprocess.run(["sh", "-n", "-c", script], check=True)
+    subprocess.run(["sh", "-n", "-c", script], check=True, timeout=60)
 
 
 @pytest.mark.parametrize("rename_exit", [0, 1])
@@ -1834,6 +1860,7 @@ def test_the_manager_starts_whether_or_not_the_rename_lands(
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr

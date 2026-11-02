@@ -15,10 +15,9 @@ from typing import Any
 
 import pytest
 import yaml
-from tests._vocabulary import RATCHET_WORD
 
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.workspace import APPS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME
 
 SKILL = "claude_code/claude/skills/pyaml-tools/SKILL.md.j2"
 PROMPT = "claude_code/CLAUDE.md.j2"
@@ -106,11 +105,6 @@ def test_step_sizes_point_at_the_authored_limits(rendered: str):
     assert "channel_limits.json" not in rendered
 
 
-def test_the_skill_carries_no_retired_word(rendered: str):
-    assert not re.search(RATCHET_WORD, rendered)
-    assert not re.search(RATCHET_WORD, Path(TemplateManager().template_root, SKILL).read_text())
-
-
 def test_without_a_view_the_skill_renders_empty():
     assert _skill(False, SR="periodic").strip() == ""
 
@@ -138,5 +132,5 @@ def test_the_control_room_preset_installs_the_skill_and_sandboxless_renders_drop
 def test_the_model_section_names_what_has_no_solve(rendered: str):
     section = rendered.split("## Read the model through `model_response_matrix`", 1)[1]
     section = _flat(section.split("\n---\n", 1)[0])
-    assert "`unsolved`" in section
+    assert "`missing`" in section
     assert "never read a missing column as zero response" in section

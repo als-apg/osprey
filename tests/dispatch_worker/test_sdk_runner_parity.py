@@ -53,6 +53,8 @@ _ENV_KEYS = [
     # The job's launch-scoped terminal session, ``dispatch-<run id>``; never
     # the posture session, which stays unset for dispatch.
     "OSPREY_TERMINAL_SESSION",
+    # Every headless run carries it: a dispatch prompt comes from code, not an operator.
+    "OSPREY_WATCHDOG_SKIP",
 ]
 
 
@@ -193,6 +195,7 @@ async def test_the_agent_options_are_the_ones_dispatch_always_built(monkeypatch,
         mcp_servers=str(render_dir / ".mcp.json"),
         strict_mcp_config=True,
         cli_path=STUB_AGENT_CLI,
+        extra_args={"thinking-display": "summarized"},
     )
     assert sorted(options.env) == sorted(_ENV_KEYS)
     assert options.env["OSPREY_TERMINAL_SESSION"] == "dispatch-run-p"

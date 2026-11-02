@@ -22,8 +22,8 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_launch_token_for,
     launch_token_writes_key,
 )
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.types import WRITES_KEY
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests._renders import tier_render
 
 # ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ def test_a_switch_capable_render_prints_one_tier_wide_right() -> None:
     profile = _card_profile({})
     deltas = {"rw": {"config": {"control_system.writes": "allowed"}}}
 
-    assert _write_rights(profile, deltas, "rw") == ["rights approval-gated"]
+    assert _write_rights(profile, deltas, "rw") == ["rights allowed"]
 
 
 def test_a_never_layer_over_an_allowed_host_prints_no_right() -> None:
@@ -151,8 +151,8 @@ def test_a_never_layer_over_an_allowed_host_prints_no_right() -> None:
 def test_a_silent_layer_inherits_the_host_tier() -> None:
     profile = _card_profile({"control_system.writes": "allowed"})
 
-    assert _write_rights(profile, {"plain": {"config": {"web.ui_mode": "simple"}}}, "plain") == [
-        "rights approval-gated"
+    assert _write_rights(profile, {"plain": {"config": {"web.theme": "main"}}}, "plain") == [
+        "rights allowed"
     ]
     assert _write_rights(_card_profile({}), {}, "plain") == []
 
@@ -172,7 +172,7 @@ def test_a_retired_layer_is_read_as_its_rewrite_over_a_normalized_host() -> None
     }
 
     assert _write_rights(profile, readonly, "ro") == []
-    assert _write_rights(_card_profile({}), va_write, "va") == ["rights approval-gated"]
+    assert _write_rights(_card_profile({}), va_write, "va") == ["rights allowed"]
 
 
 # ---------------------------------------------------------------------------

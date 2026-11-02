@@ -301,6 +301,27 @@ describe('sendPrompt: transport failures', () => {
     expect(err.message).toBe('HTTP 409: Conflict');
   });
 
+  test('a refused command carries the command it names', async () => {
+    const body = {
+      detail: { error: 'command_not_available', command: 'login', message: 'not here' },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ...streamResponse([], { ok: false, status: 400, statusText: 'Bad Request' }),
+        json: async () => body,
+      }))
+    );
+
+    const cb = collector();
+    chat.sendPrompt('c', '/login', cb.handlers);
+    await vi.waitFor(() => expect(cb.onClose).toHaveBeenCalledTimes(1));
+
+    const err = cb.onError.mock.calls[0][0];
+    expect(err.slug).toBe('command_not_available');
+    expect(err.command).toBe('login');
+  });
+
   test('a non-JSON rejection body is not itself a failure', async () => {
     vi.stubGlobal(
       'fetch',
@@ -467,7 +488,7 @@ describe('requestHandoff: request shape', () => {
     const init = firstInit(fetchMock);
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init.body)).toEqual({ to: 'simple', interrupt: false, end_started: false });
+    expect(JSON.parse(init.body)).toEqual({ to: 'chat', interrupt: false, end_started: false });
     expect(result).toEqual({ state: 'ready', session_id: 'k-1' });
   });
 
@@ -477,7 +498,7 @@ describe('requestHandoff: request shape', () => {
 
     await chat.requestHandoff('k', { interrupt: true });
     expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
-      to: 'simple',
+      to: 'chat',
       interrupt: true,
       end_started: false,
     });
@@ -489,7 +510,7 @@ describe('requestHandoff: request shape', () => {
 
     await chat.requestHandoff('k', { endStarted: true });
     expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
-      to: 'simple',
+      to: 'chat',
       interrupt: false,
       end_started: true,
     });
@@ -541,7 +562,7 @@ describe('requestHandoff: abort', () => {
 
   test('aborting the signal rejects the pending hand-off', async () => {
     // A fetch that never settles on its own, mirroring a hand-off waiting on a
-    // long Expert turn: only the signal ends it.
+    // long terminal turn: only the signal ends it.
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -660,6 +681,36 @@ describe('fetchHistory', () => {
     });
   });
 
+  test("hands each agent turn's thinking events to the renderer untouched", async () => {
+    // The chat chat's thinking summary is drawn from these events, an
+    // omitted (empty) block included: the renderer, not the transport, decides
+    // that an empty block draws nothing.
+    const turns = [
+      { role: 'user', content: 'why?' },
+      {
+        role: 'assistant',
+        content: 'because',
+        events: [
+          { type: 'thinking', content: 'reasoning' },
+          { type: 'thinking', content: '' },
+          { type: 'text', content: 'because' },
+          { type: 'result', is_error: false, duration_ms: 900 },
+        ],
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ turns, count: turns.length }))
+    );
+
+    const got = await chat.fetchHistory('k');
+    expect(got).toEqual(turns);
+    expect(got[1].events?.filter((e) => e.type === 'thinking').map((e) => e.content)).toEqual([
+      'reasoning',
+      '',
+    ]);
+  });
+
   test('applies the multi-user prefix and encodes the key', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     const fetchMock = vi.fn(async () => jsonResponse({ turns: [], count: 0 }));
@@ -745,6 +796,40 @@ describe('followChat', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onEvent).not.toHaveBeenCalled();
+    feed.close();
+  });
+
+  test('each 204 tells the caller that no agent runs for the chat', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 204, body: null }))
+    );
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent: vi.fn(), onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onNoAgent).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(onNoAgent).toHaveBeenCalledTimes(2);
+    feed.close();
+  });
+
+  test('a feed that answers says nothing about a missing agent', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        streamResponse([frame({ type: 'hello', seq: 0, in_flight: false, pending: [] })])
+      )
+    );
+    const onEvent = vi.fn();
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent, onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'hello' }));
+    expect(onNoAgent).not.toHaveBeenCalled();
     feed.close();
   });
 

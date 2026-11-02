@@ -22,8 +22,10 @@ from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
     GRAPHDB_SERVICE_NAME,
@@ -34,7 +36,6 @@ from osprey.deployment.host_binding import (
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
 )
-from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -405,10 +406,15 @@ def _copy_service_templates(project_path: Path) -> int:
         if name not in names:
             names.append(name)
     # The history page is never a deployed_services entry: it is rendered
-    # exactly when the deployment runs the store and signs people in.
+    # exactly when the web terminals sign people in.
     if history_page_deployed(config) and HISTORY_SERVICE not in names:
         names.append(HISTORY_SERVICE)
         deployed.append(HISTORY_SERVICE)
+    # The agent record is derived and always deployed: it is never a
+    # deployed_services entry, and every deployment renders it.
+    if AGENT_RECORD_TEMPLATE_DIR not in names:
+        names.append(AGENT_RECORD_TEMPLATE_DIR)
+        deployed.append(AGENT_RECORD_TEMPLATE_DIR)
 
     if not names:
         return 0

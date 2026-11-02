@@ -4,9 +4,9 @@
  *   npx vitest run tests/interfaces/web_terminal/session-pointer-boot.test.mjs
  *
  * The pointer is one slot with two writers — the terminal (terminal.js) and
- * the operator console (chat.js) — and both views read it. The surface that
- * owns the session is the one that names it: in the Expert view that is the
- * id the terminal's server confirms, in the Simple view it is the console's
+ * the operator console (chat.js) — and both surfaces read it. The surface that
+ * owns the session is the one that names it: in the terminal that is the
+ * id the terminal's server confirms, in the chat it is the console's
  * own key, because the terminal never connects there. A boot that writes the
  * slot twice leaves the two views disagreeing for as long as a PTY takes to
  * spawn, and every reader in that window believes the first value.
@@ -16,12 +16,20 @@
  * mounts both real modules into one document, in app.js's boot order
  * (initTerminal, then initChat), and records every pointer write.
  *
- * The xterm, WebSocket, fetch and font stubs are the ones
- * terminal-resume.test.mjs uses; the chat-client.js mock is the one
- * chat.test.mjs uses.
+ * The xterm, WebSocket and fetch stubs are _terminal-fake.mjs's, as in
+ * terminal-resume.test.mjs; the chat-client.js mock is the one chat.test.mjs
+ * uses.
  */
 
 import { test, expect, beforeEach, afterEach, vi } from 'vitest';
+
+import {
+  FakeWebSocket,
+  openSocket,
+  receive,
+  stubSessionProbe,
+  stubTerminalGlobals,
+} from './_terminal-fake.mjs';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js')} */
 let terminal;
@@ -39,88 +47,18 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   fetchHistory: vi.fn(async () => []),
   sendPrompt: vi.fn(() => ({ abort: () => {}, aborted: false })),
   interrupt: vi.fn(async () => undefined),
-  requestHandoff: vi.fn(async () => ({ state: 'simple', session_id: 'k' })),
+  requestHandoff: vi.fn(async () => ({ state: 'chat', session_id: 'k' })),
   fetchCommands: vi.fn(async () => []),
   followChat: vi.fn(() => ({ close: () => {} })),
 }));
 
-/** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
-class FakeTerminal {
-  constructor() {
-    this.cols = 80;
-    this.rows = 24;
-    this.options = {};
-  }
-  loadAddon() {}
-  open() {}
-  onData() {}
-  onResize() {}
-  write() {}
-  reset() {}
-  focus() {}
-  attachCustomKeyEventHandler() {}
-}
-
-class FakeAddon {
-  fit() {}
-}
-
-/** Minimal fake WebSocket that captures the most recently constructed instance. */
-class FakeWebSocket {
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = FakeWebSocket.CONNECTING;
-    /** @type {any[]} */
-    this.sent = [];
-    /** @type {((ev?: any) => void)|null} */
-    this.onopen = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onmessage = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onclose = null;
-    FakeWebSocket.last = this;
-  }
-  /** @param {any} data */
-  send(data) {
-    this.sent.push(data);
-  }
-  close() {
-    this.readyState = FakeWebSocket.CLOSED;
-    if (this.onclose) this.onclose({});
-  }
-}
-FakeWebSocket.CONNECTING = 0;
-FakeWebSocket.OPEN = 1;
-FakeWebSocket.CLOSING = 2;
-FakeWebSocket.CLOSED = 3;
-/** @type {FakeWebSocket|null} */
-FakeWebSocket.last = null;
-
-/** Flip the most recently created fake socket to OPEN and fire its onopen. */
-function openSocket() {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  ws.readyState = FakeWebSocket.OPEN;
-  if (!ws.onopen) throw new Error('onopen handler not set');
-  ws.onopen();
-}
-
 /**
- * Deliver a JSON control message from the "server" on the current socket.
- * @param {any} msg
+ * Load both surfaces into a fresh document on the given surface.
+ * @param {'terminal'|'chat'} surface
  */
-function receive(msg) {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  if (!ws.onmessage) throw new Error('onmessage handler not set');
-  ws.onmessage({ data: JSON.stringify(msg) });
-}
-
-/**
- * Load both surfaces into a fresh document in the given view.
- * @param {'expert'|'simple'} mode
- */
-async function loadPage(mode) {
-  document.documentElement.setAttribute('data-ui-mode', mode);
+async function loadPage(surface) {
+  if (surface === 'terminal')
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
   chat = await import('../../../src/osprey/interfaces/web_terminal/static/js/chat.js');
   pointer =
@@ -138,31 +76,19 @@ beforeEach(() => {
   // @ts-expect-error -- test stub, not a full FontFaceSet
   document.fonts = { ready: Promise.resolve() };
 
-  vi.stubGlobal('Terminal', FakeTerminal);
-  vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
-  vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
-  vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
-  vi.stubGlobal('WebSocket', FakeWebSocket);
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, json: async () => ({}) };
-    })
-  );
+  stubTerminalGlobals();
+  stubSessionProbe();
   vi.spyOn(console, 'error').mockImplementation(() => {});
-
-  FakeWebSocket.last = null;
 });
 
 afterEach(() => {
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-test('an Expert boot with nothing stored writes the pointer once, with the id the server confirmed', async () => {
-  await loadPage('expert');
+test('a terminal boot with nothing stored writes the pointer once, with the id the server confirmed', async () => {
+  await loadPage('terminal');
 
   terminal.initTerminal('terminal-container');
   chat.initChat('operator-container');
@@ -179,9 +105,9 @@ test('an Expert boot with nothing stored writes the pointer once, with the id th
   expect(pointer.getPointer()).toBe('server-minted-id');
 });
 
-test('an Expert boot on a kept-warm key writes nothing', async () => {
+test('a terminal boot on a kept-warm key writes nothing', async () => {
   localStorage.setItem(STORAGE_KEY, 'kept-warm-id');
-  await loadPage('expert');
+  await loadPage('terminal');
 
   terminal.initTerminal('terminal-container');
   expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).url).toContain(
@@ -199,11 +125,11 @@ test('an Expert boot on a kept-warm key writes nothing', async () => {
   expect(pointer.getPointer()).toBe('kept-warm-id');
 });
 
-test('a Simple boot with nothing stored writes the pointer once, with the key the console minted', async () => {
-  await loadPage('simple');
+test('a chat boot with nothing stored writes the pointer once, with the key the console minted', async () => {
+  await loadPage('chat');
 
   terminal.initTerminal('terminal-container');
-  // The terminal does not connect in the Simple view.
+  // The terminal does not connect in the chat.
   expect(FakeWebSocket.last).toBeNull();
 
   chat.initChat('operator-container');

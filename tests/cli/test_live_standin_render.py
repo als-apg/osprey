@@ -40,31 +40,26 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
-from osprey.cli.build_cmd import build as build_command
+from osprey.deployment.deployment_record import DeploymentRecord
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.port_layout import default_port
 from osprey_connectors.write_target import KIND_BANNERS
+from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 #: Every test here renders a deployment for real — seconds each, not
 #: milliseconds — which is the property that makes them worth having.
 pytestmark = pytest.mark.slow
-
-#: A build with no venv and no lifecycle hooks. Neither is what the stand-in is
-#: about, and a real dependency install would dominate this module's runtime.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 #: The port the stand-in is reserved on throughout the codebase.
 STANDIN_PORT = 5074
@@ -135,51 +130,35 @@ def _set_live_standin(repo: Path, port: int | None) -> None:
     rather than a no-op the day the preset starts shipping the key.
     """
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     block = profile["virtual_accelerator"]
     if port is None:
         block.pop("live_standin", None)
     else:
         block["live_standin"] = port
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _set_config_entries(repo: Path, entries: dict[str, Any]) -> None:
     """Add dotted entries to the repo profile's own ``config:`` block."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for key, value in entries.items():
         profile["config"][key] = value
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
+    _ruamel.dump(profile, profile_path)
 
 
 def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
     """Remove whole top-level blocks from the repo's profile."""
     profile_path = repo / "profile.yml"
-    with profile_path.open("r", encoding="utf-8") as handle:
-        profile = _ruamel.load(handle)
+    profile = _ruamel.load(profile_path)
     for name in names:
         profile.pop(name, None)
-    with profile_path.open("w", encoding="utf-8") as handle:
-        _ruamel.dump(profile, handle)
-
-
-def _invoke_build(repo: Path):
-    """Run ``osprey build`` the way an operator standing in the repo would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        return CliRunner().invoke(build_command, CI_FLAGS)
-    finally:
-        os.chdir(previous)
+    _ruamel.dump(profile, profile_path)
 
 
 def _build(repo: Path) -> Path:
-    result = _invoke_build(repo)
+    result = invoke_build_in(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
     )
@@ -563,7 +542,11 @@ async def test_live_standin_render_grows_a_container_health_row(
     stands up. Fed the REAL rendered config rather than a hand-built one, since
     the list is exactly what the build is being asked about.
     """
-    monkeypatch.setattr(containers_mod, "get_runtime_command", lambda *_a, **_k: ["docker"])
+    monkeypatch.setattr(
+        containers_mod,
+        "read_deployment_record",
+        lambda _root: DeploymentRecord("docker", "standin"),
+    )
 
     async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
         return _FakeProc(b"Docker version 27.0.0")
@@ -699,7 +682,7 @@ class TestTheBuildRefusesAnIncoherentStandIn:
 
     def _refuse(self, repo: Path, caplog: pytest.LogCaptureFixture) -> str:
         with caplog.at_level(logging.ERROR):
-            result = _invoke_build(repo)
+            result = invoke_build_in(repo)
         assert result.exit_code != 0, result.output
         return caplog.text
 

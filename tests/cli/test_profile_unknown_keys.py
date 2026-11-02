@@ -31,15 +31,6 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     return path
 
 
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one."""
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
-
-
 # ---------------------------------------------------------------------------
 # Unknown keys are rejected
 # ---------------------------------------------------------------------------

@@ -1,0 +1,29 @@
+/* OSPREY Web Terminal — the sidebar's artifact lists
+ *
+ * What sidebar-artifacts.js adds inside the Artifacts and Script runs lists
+ * and their row actions. The rows, group heads and empty lines are the shared
+ * list primitives (primitives.css: .osprey-list-row, .osprey-list-head,
+ * .osprey-list-empty), and the list shell (the guide line, the filter field,
+ * the eight-row cap and its fade, the row actions that show on hover, the
+ * collapsed sidebar's flyout) is the sidebar's own, in terminal.css. This
+ * file holds only the states the list module sets on top of those.
+ */
+
+/* All sessions is the non-default scope, and its checkbox lives in the ⋯
+ * menu. While it is on, ⋯ carries a dot, so the wider scope shows with the
+ * menu closed: a shape, not a colour alone. */
+.osprey-mini[data-art-menu] {
+  position: relative;
+}
+
+.osprey-mini[data-art-menu][data-art-scope]::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--surface-card);
+}

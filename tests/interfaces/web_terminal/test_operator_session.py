@@ -36,6 +36,7 @@ from osprey.agent_runner import (
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolStartEvent,
     ToolUseEvent,
 )
 from osprey.agent_runner.clean_env import build_clean_env
@@ -153,6 +154,21 @@ class TestEventToWire:
         assert ev["tool_name_raw"] == "mcp__osprey__channel_read"
         assert ev["tool_use_id"] == "tu_1"
         assert ev["input"] == {"channels": ["X"]}
+
+    def test_a_tool_call_starting_reaches_the_stream_named_like_its_row(self):
+        """The status line names the call while its input is still being written."""
+        ev = _event_to_wire(
+            ToolStartEvent(
+                name="mcp__osprey__channel_read", tool_use_id="tu_1", parent_tool_use_id=None
+            )
+        )
+        assert ev == {
+            "type": "tool_start",
+            "tool_name": "Channel Read",
+            "tool_name_raw": "mcp__osprey__channel_read",
+            "tool_use_id": "tu_1",
+            "parent_tool_use_id": None,
+        }
 
     @pytest.mark.parametrize("is_error", [False, True])
     def test_tool_results_reach_the_stream_as_a_preview(self, is_error):
@@ -426,7 +442,7 @@ class TestCardTarget:
                 {
                     "key": "live",
                     "machine_kind": "real",
-                    "kind_words": "Real machine — writes move hardware",
+                    "kind_words": "Live — writes move hardware",
                 },
                 id="real",
             ),
@@ -446,7 +462,7 @@ class TestCardTarget:
                 {
                     "key": "standin",
                     "machine_kind": "real",
-                    "kind_words": "Real machine — writes move hardware",
+                    "kind_words": "Live — writes move hardware",
                 },
                 id="standin-not-vouched-for",
             ),
@@ -883,6 +899,37 @@ class TestOperatorSession:
         assert [f["type"] for f in frames] == ["turn_start", "text", "result"]
         assert frames[1] == {"type": "text", "content": "hello", "parent_tool_use_id": None}
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("prompt", "rows"),
+        [
+            pytest.param("/diagnose SR03", [("diagnose", "SR03")], id="a-skill"),
+            pytest.param("/check SR03", [], id="a-command-file"),
+            pytest.param("diagnose SR03", [], id="plain-words"),
+        ],
+    )
+    async def test_a_skill_the_operator_runs_opens_its_turn_as_a_skill_row(
+        self, tmp_path, prompt, rows
+    ):
+        """The CLI loads a typed skill with no tool call, so the turn draws its row itself."""
+        (tmp_path / ".claude" / "skills" / "diagnose").mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md").write_text("Body\n")
+        (tmp_path / ".claude" / "commands").mkdir()
+        (tmp_path / ".claude" / "commands" / "check.md").write_text("Check\n")
+        session = OperatorSession(cwd=str(tmp_path))
+        client = _ScriptedClient([assistant_message([TextBlock("on it")]), result_message()])
+
+        with sdk_seam(client):
+            await session.start()
+            frames = [unnumbered(f) for f in await collect_turn(session, prompt)]
+            await session.stop()
+
+        calls = [f for f in frames if f["type"] == "tool_use"]
+        assert [(c["input"]["skill"], c["input"].get("args")) for c in calls] == rows
+        if rows:
+            assert [f["type"] for f in frames][:3] == ["turn_start", "tool_use", "tool_result"]
+            assert frames[2]["tool_use_id"] == calls[0]["tool_use_id"]
+
 
 # ---------------------------------------------------------------------------
 # OperatorSession start identity: resume a transcript, or open one
@@ -913,7 +960,7 @@ class TestOperatorSessionResumeOptions:
         assert options.session_id is None
         # Everything else about the launch is unchanged by the resume.
         assert options.setting_sources == ["project"]
-        assert options.env["OSPREY_WEB_UX"] == "simple"
+        assert options.env["OSPREY_WEB_UX"] == "chat"
 
     @pytest.mark.asyncio
     async def test_without_a_resume_the_child_opens_one_under_the_session_key(self):
@@ -982,7 +1029,6 @@ class TestOperatorSessionResumeOptions:
 
     @pytest.mark.asyncio
     async def test_two_keyless_sessions_do_not_share_an_identity(self):
-
         with sdk_seam() as first:
             await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}).start()
         with sdk_seam() as second:
@@ -1334,6 +1380,116 @@ class TestOperatorSessionConnectedAgent:
                 await session.send_prompt("hi")
         assert client.interrupt_calls == 0
         assert client.query_calls == 0
+
+
+class _ExitingClient(FakeStreamClient):
+    """A child that exits when ``exited`` is set: its response stream then ends with no result.
+
+    Until then each prompt is answered with one text block, and with a result
+    too unless ``answers`` is False, so a turn can be left open when it exits.
+    """
+
+    def __init__(self, *, answers: bool = True) -> None:
+        super().__init__()
+        self.answers = answers
+        self.exited = asyncio.Event()
+
+    async def receive_response(self):
+        prompt = asyncio.ensure_future(self._prompts.get())
+        gone = asyncio.ensure_future(self.exited.wait())
+        await asyncio.wait({prompt, gone}, return_when=asyncio.FIRST_COMPLETED)
+        if self.exited.is_set():
+            prompt.cancel()
+            return
+        yield assistant_message([TextBlock("done")])
+        self.first_yielded.set()
+        if self.answers:
+            gone.cancel()
+            yield result_message()
+        else:
+            await gone
+
+
+class TestOperatorSessionChildExits:
+    """A child that exits leaves the session dead, and says so to whoever is reading.
+
+    A session that still read as active after its child was gone stayed pooled,
+    and every later prompt failed until the operator started a new conversation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_idle_child_exit_ends_the_session_and_tells_every_feed(self):
+        client = _ExitingClient()
+        async with _started_session(client) as session:
+            frames = await collect_turn(session, "hi")
+            assert frames[-1]["type"] == "result"
+            feed, _hello = session.subscribe()
+
+            client.exited.set()
+            frame = await asyncio.wait_for(feed.get(), timeout=2.0)
+
+            assert frame["type"] == "error"
+            assert frame["error_type"] == "AgentExited"
+            assert session.is_active is False
+            assert session.feed_open(feed) is False
+
+    @pytest.mark.asyncio
+    async def test_a_child_exit_mid_turn_ends_the_turn_and_the_session(self):
+        client = _ExitingClient(answers=False)
+        async with _started_session(client) as session:
+            consumer, frames = start_turn(session, "hi")
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+
+            client.exited.set()
+            await asyncio.wait_for(consumer, timeout=2.0)
+
+            assert frames[-1]["error_type"] == "AgentExited"
+            assert session.in_flight is False
+            assert session.is_active is False
+
+
+class _UnpromptedClient(FakeStreamClient):
+    """Starts a response of its own when ``speak`` is set, and ends it when ``finish`` is.
+
+    As the CLI does after a background agent reports with no prompt behind it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.speak = asyncio.Event()
+        self.finish = asyncio.Event()
+
+    async def receive_response(self):
+        await self.speak.wait()
+        self.speak.clear()
+        yield assistant_message([TextBlock("the report")])
+        self.first_yielded.set()
+        await self.finish.wait()
+        yield result_message()
+
+
+class TestHelloInFlight:
+    """The ``hello`` snapshot says a response is under way whenever one is."""
+
+    @pytest.mark.asyncio
+    async def test_a_response_the_cli_started_on_its_own_is_in_flight(self):
+        client = _UnpromptedClient()
+        async with _started_session(client) as session:
+            feed, before = session.subscribe()
+            client.speak.set()
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+
+            _feed, during = session.subscribe()
+            client.finish.set()
+            while (await asyncio.wait_for(feed.get(), timeout=1.0))["type"] != "result":
+                pass
+            _feed, after = session.subscribe()
+
+        assert (before["in_flight"], during["in_flight"], after["in_flight"]) == (
+            False,
+            True,
+            False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1760,7 +1916,7 @@ class TestProcessExited:
 async def test_the_pid_names_the_running_child_and_nothing_else():
     """``pid`` is the chat child's pid while it runs, and ``None`` when it is not.
 
-    The Simple view holds a session in this child, so anything addressed to
+    The chat holds a session in this child, so anything addressed to
     the process behind a session key — a controls-server record, a
     diagnostic — has to be able to ask which process that is. A session that
     never started has no handle, and a handle carrying a return code names a
@@ -2047,11 +2203,15 @@ class TestOperatorRegistryChatPool:
     @pytest.mark.asyncio
     async def test_an_unreadable_process_table_does_not_keep_a_chat_open_for_good(self):
         """Every sweep that cannot look leaves the idle clock alone, so the reap comes."""
-        clock = [time.monotonic()]
+        # Whole seconds, as test_chat_process_tree.py's clock reads: on a raw
+        # monotonic stamp ``last + 20.0`` can round to one step short of 20 s
+        # after ``last``, and the sweep landing exactly on the timeout misses.
+        last = 1000.0
+        clock = [last]
         pool = ChatSessionPool(factory=_session_factory(), idle_seconds=10.0, now=lambda: clock[0])
         a, _ = await pool.get_or_create("stale-chat", "/tmp")
         a.running_commands = None
-        last = a.last_activity
+        a.last_activity = last
 
         for moment in (10.0, 15.0, 10.0 * UNREAD_IDLE_FACTOR - 1.0):
             clock[0] = last + moment
@@ -2262,12 +2422,15 @@ class TestOperatorChatLaunchParity:
             cli_path=STUB_AGENT_CLI,
             include_partial_messages=True,
             can_use_tool=session._can_use_tool,
+            # The stub CLI takes --thinking-display, so the launch passes the
+            # default display.
+            extra_args={"thinking-display": "summarized"},
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"
         assert options.env["OSPREY_TELEMETRY_SESSION_ID"] == key
         assert options.env["OSPREY_TELEMETRY_SESSION_START"]
-        assert options.env["OSPREY_WEB_UX"] == "simple"
+        assert options.env["OSPREY_WEB_UX"] == "chat"
         await session.stop()
 
     @pytest.mark.asyncio
@@ -2348,7 +2511,7 @@ class TestOperatorChatStreamParity:
                 ),
                 user_message([ToolResultBlock("tu_1", "42.0", is_error=False)]),
                 system_message("init", {"session_id": "abc"}),
-                result_message(),
+                result_message(session_id="abc"),
             ]
         )
         async with _started_session(client) as session:
@@ -2388,8 +2551,68 @@ class TestOperatorChatStreamParity:
                 "total_cost_usd": 0.01,
                 "duration_ms": 1200,
                 "num_turns": 1,
+                "session_id": "abc",
             },
         ]
+
+
+class _TurnScriptedClient(_ScriptedClient):
+    """A client that answers each prompt with the next of *turns*, in order."""
+
+    def __init__(self, *turns) -> None:
+        super().__init__()
+        self._turns = [list(turn) for turn in turns]
+
+    async def receive_response(self):
+        await self._prompts.get()
+        for message in self._turns.pop(0):
+            yield message
+
+
+class TestTheConversationMoves:
+    """A child that moves to a new transcript (``/clear``) says so, and the session follows.
+
+    The SDK answers such a turn with a result naming a new ``session_id`` and
+    no text. The session keeps the id the child last reported and, when a
+    result names a different one, emits a ``session_reset`` ahead of it so
+    the turn's consumer and every feed see the boundary where the old
+    conversation ends (#1483).
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_init_id_is_kept_and_announces_nothing(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")]
+        )
+        async with _started_session(client) as session:
+            assert session.transcript_id is None
+            frames = await collect_turn(session, "hello")
+            assert session.transcript_id == "t-1"
+        assert [f["type"] for f in frames] == ["turn_start", "system", "result"]
+
+    @pytest.mark.asyncio
+    async def test_a_result_on_a_new_transcript_emits_a_reset_before_it(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")],
+            [result_message(session_id="t-2")],
+        )
+        async with _started_session(client) as session:
+            await collect_turn(session, "hello")
+            cleared = await collect_turn(session, "/clear")
+            assert session.transcript_id == "t-2"
+        assert [f["type"] for f in cleared] == ["turn_start", "session_reset", "result"]
+        assert [unnumbered(f) for f in cleared][1] == {"type": "session_reset"}
+
+    @pytest.mark.asyncio
+    async def test_a_result_on_the_same_transcript_is_not_a_move(self):
+        client = _TurnScriptedClient(
+            [system_message("init", {"session_id": "t-1"}), result_message(session_id="t-1")],
+            [assistant_message([TextBlock("again")]), result_message(session_id="t-1")],
+        )
+        async with _started_session(client) as session:
+            await collect_turn(session, "hello")
+            second = await collect_turn(session, "more")
+        assert "session_reset" not in [f["type"] for f in second]
 
     @pytest.mark.asyncio
     async def test_an_agent_sdk_failure_mid_turn_is_named_for_its_class(self):

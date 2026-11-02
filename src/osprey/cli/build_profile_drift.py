@@ -42,13 +42,8 @@ from osprey.profiles.providers import (
     load_provider_catalog,
     packaged_catalog_path,
 )
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, PROFILE_FILENAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import (
-    APPS_DIRNAME,
-    LAYER_DIR_KINDS,
-    PROFILE_FILENAME,
-    TIERS_DIRNAME,
-)
 
 from .build_profile_document import _parse_profile_document, _read_profile_document
 from .build_profile_emit import emit_layer_delta_yaml, materialized_profile

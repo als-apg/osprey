@@ -1,11 +1,12 @@
 """Release-gate test: no legacy renamed symbols survive.
 
 Walks ``src/``, ``tests/``, ``docs/source/`` and ``packages/`` (sources only;
-vendored trees and ``changelog.d/`` fragments, which record removals by name,
-are skipped) and asserts that none of the legacy names appear anywhere.
+vendored trees, ``changelog.d/`` fragments and a package's ``CHANGELOG.md``,
+which record removals by name, are skipped) and asserts that none of the legacy names appear anywhere.
 
-Eight rename generations are guarded. The first seven are plain substrings
-with no per-file exclusions — if a legitimate match shows up later, the rename
+Nine rename generations are guarded. The first eight are plain substrings
+with no per-file exclusions (only the docs redirect sources, which name retired
+pages by design, are masked) — if a legitimate match shows up later, the rename
 surfaced it: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
 (a plan is an arbitrary generator, not only a scan); the
@@ -16,15 +17,18 @@ behind; the substrate-env -> devices-file move, which deleted the three
 passthrough variables and the helpers that produced and read them; the
 control-context rename, which made the control target and the write posture one
 record per *deployment* and retired every name that called that deployment-wide
-thing a session's; and the build-artifact catalog's move into the harness
-adapter. The genuine
+thing a session's; the build-artifact catalog's move into the harness
+adapter; and the agent record, which replaced the telemetry store's modules.
+The store's own vocabulary (its service names, tables, reader keys and the
+old audit ledger directory) is guarded in ``tests/test_retired_store_words.py``,
+which allows the refusal code and its tests to name it. The genuine
 tokens that legitimately survive — the ``scan``/``grid_scan``
 *plan names*, their ``Scan*Params`` schemas, physics scan docs, the many
 unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
 and every upstream ``bluesky``/``ophyd`` name such as ``SimMotor`` or
 ``EpicsMotor`` — are NOT listed here.
 
-The eighth, the write-posture generation, retired every reader of the old
+The ninth, the write-posture generation, retired every reader of the old
 ``writes_enabled`` posture when the tier key and ``write_verdict`` became the
 one answer. Its names are ordinary words (``effective_writes``,
 ``target_posture``), so it matches whole identifiers only, and it has a closed
@@ -38,6 +42,8 @@ while the test file it runs is renamed.
 
 from __future__ import annotations
 
+import ast
+import functools
 import re
 from pathlib import Path
 
@@ -148,6 +154,15 @@ LEGACY_SUBSTRINGS = (
     # build-artifact catalog moved inside the harness adapter
     "services.build_artifacts",
     "services/build_artifacts",
+    # the agent record replaced the telemetry store: the modules that
+    # configured, credentialed, linted and exported it, and the session
+    # reconstruction query and page that read it, are deleted.
+    "telemetry_config",
+    "telemetry_credentials",
+    "telemetry_lint",
+    "telemetry_export",
+    "reconstruct_session",
+    "reconstruct-session",
 )
 
 # write-posture generation: every reader of the old ``writes_enabled`` posture,
@@ -229,7 +244,8 @@ WRITE_POSTURE_EXEMPTIONS: dict[str, frozenset[str]] = {
 ROOTS = ("src", "tests", "docs/source", "packages")
 # Never walked: caches, vendored and built trees, and changelog fragments (a
 # removal entry names what it removed; the root ``changelog.d`` is outside the
-# roots for the same reason).
+# roots for the same reason). A package's ``CHANGELOG.md`` is where its
+# fragments are folded at release, so it is skipped by name for that reason too.
 SKIP_DIRS = frozenset(
     {
         "__pycache__",
@@ -242,6 +258,7 @@ SKIP_DIRS = frozenset(
         "changelog.d",
     }
 )
+SKIP_FILES = frozenset({"CHANGELOG.md"})
 SCAN_SUFFIXES = (
     ".py",
     ".md",
@@ -265,11 +282,46 @@ SELF_ALLOWLIST = {
 }
 
 
+# A redirect's source is a retired URL by definition: the docs ``redirects``
+# dict keeps old page paths alive so links into them still land. Its keys are
+# masked before matching; its targets and every other line are still judged.
+_DOCS_CONF = (_REPO_ROOT / "docs/source/conf.py").resolve()
+
+
+def _redirect_sources(content: str) -> list[str]:
+    """The key literals of the module-level ``redirects`` dict in ``content``."""
+    for node in ast.parse(content).body:
+        if isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        else:
+            continue
+        if isinstance(target, ast.Name) and target.id == "redirects":
+            assert isinstance(value, ast.Dict), "redirects must be a dict literal"
+            return [
+                key.value
+                for key in value.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            ]
+    return []
+
+
+def _judged_text(path: Path, content: str) -> str:
+    """``content`` with the docs redirect sources masked out."""
+    if path.resolve() != _DOCS_CONF:
+        return content
+    for source in _redirect_sources(content):
+        content = content.replace(f'"{source}":', '"":')
+    return content
+
+
 def _scan_roots(repo_root: Path = _REPO_ROOT, roots: tuple[str, ...] = ROOTS) -> list[Path]:
     def skip(path: Path) -> bool:
         return (
             path.resolve() in SELF_ALLOWLIST
             or ".bak" in path.name
+            or path.name in SKIP_FILES
             or bool(SKIP_DIRS.intersection(path.relative_to(repo_root).parts))
         )
 
@@ -294,50 +346,79 @@ _WRITE_POSTURE_ANY = re.compile(
 )
 
 
-def _write_posture_offenders(
+def _legacy_offenders_in(path: Path, content: str) -> list[str]:
+    offenders: list[str] = []
+    for needle in LEGACY_SUBSTRINGS:
+        if needle in content:
+            # Capture a few line numbers for diagnosis
+            lines = [
+                f"{i}: {ln}" for i, ln in enumerate(content.splitlines(), start=1) if needle in ln
+            ][:3]
+            offenders.append(f"{path}: {needle!r}\n  " + "\n  ".join(lines))
+    return offenders
+
+
+def _write_posture_offenders_in(path: Path, content: str, allowed: frozenset[str]) -> list[str]:
+    # The alternation is the slow part of the sweep, and a whole identifier it
+    # finds is a substring first: a file that holds none of the names is passed
+    # over without it.
+    if not any(name in content for name in WRITE_POSTURE_IDENTIFIERS):
+        return []
+    offenders: list[str] = []
+    for name in sorted(set(_WRITE_POSTURE_ANY.findall(content)) - allowed):
+        pattern = _WRITE_POSTURE_PATTERNS[name]
+        lines = [
+            f"{i}: {ln}" for i, ln in enumerate(content.splitlines(), start=1) if pattern.search(ln)
+        ][:3]
+        offenders.append(f"{path}: {name!r}\n  " + "\n  ".join(lines))
+    return offenders
+
+
+def _sweep(
     repo_root: Path = _REPO_ROOT,
     roots: tuple[str, ...] = ROOTS,
     exemptions: dict[str, frozenset[str]] = WRITE_POSTURE_EXEMPTIONS,
-) -> list[str]:
-    offenders: list[str] = []
+) -> tuple[list[str], list[str]]:
+    """The legacy-substring and the write-posture offenders, from one read of each file."""
+    legacy: list[str] = []
+    posture: list[str] = []
     for path in _scan_roots(repo_root, roots):
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        legacy += _legacy_offenders_in(path, _judged_text(path, content))
         allowed = exemptions.get(path.relative_to(repo_root).as_posix(), frozenset())
-        for name in sorted(set(_WRITE_POSTURE_ANY.findall(content)) - allowed):
-            pattern = _WRITE_POSTURE_PATTERNS[name]
-            lines = [
-                f"{i}: {ln}"
-                for i, ln in enumerate(content.splitlines(), start=1)
-                if pattern.search(ln)
-            ][:3]
-            offenders.append(f"{path}: {name!r}\n  " + "\n  ".join(lines))
-    return offenders
+        posture += _write_posture_offenders_in(path, content, allowed)
+    return legacy, posture
+
+
+@functools.cache
+def _repository_sweep() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """:func:`_sweep` of the repository itself, read once for the two tests that assert it.
+
+    Reading the scanned tree is most of what either test costs, and the tree
+    does not change while the suite runs.
+    """
+    legacy, posture = _sweep()
+    return tuple(legacy), tuple(posture)
+
+
+def _write_posture_offenders(
+    repo_root: Path = _REPO_ROOT,
+    roots: tuple[str, ...] = ROOTS,
+    exemptions: dict[str, frozenset[str]] = WRITE_POSTURE_EXEMPTIONS,
+) -> list[str]:
+    return _sweep(repo_root, roots, exemptions)[1]
 
 
 def test_no_legacy_symbols() -> None:
-    offenders: list[str] = []
-    for path in _scan_roots():
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        for needle in LEGACY_SUBSTRINGS:
-            if needle in content:
-                # Capture a few line numbers for diagnosis
-                lines = [
-                    f"{i}: {ln}"
-                    for i, ln in enumerate(content.splitlines(), start=1)
-                    if needle in ln
-                ][:3]
-                offenders.append(f"{path}: {needle!r}\n  " + "\n  ".join(lines))
+    offenders = _repository_sweep()[0]
     assert not offenders, "Legacy renamed symbols remain:\n" + "\n".join(offenders)
 
 
 def test_no_write_posture_identifiers() -> None:
-    offenders = _write_posture_offenders()
+    offenders = _repository_sweep()[1]
     assert not offenders, "Retired write-posture names remain:\n" + "\n".join(offenders)
 
 
@@ -374,6 +455,10 @@ def test_planted_name_in_packages_fails(tmp_path: Path) -> None:
     log = tmp_path / "packages" / "osprey-demo" / "changelog.d"
     log.mkdir()
     (log / "x.removed.md").write_text("`launch_permits` is gone.\n")
+    # Nor is the package changelog those fragments are folded into.
+    (tmp_path / "packages" / "osprey-demo" / "CHANGELOG.md").write_text(
+        "`launch_permits` is gone.\n"
+    )
     exemptions = {
         "packages/osprey-demo/src/osprey_demo/exempt.py": frozenset({"store_permits"}),
     }

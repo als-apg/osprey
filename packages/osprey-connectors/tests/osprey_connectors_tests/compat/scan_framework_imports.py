@@ -151,8 +151,8 @@ def _string_value(node: ast.expr | None) -> str | None:
     return None
 
 
-def _module_bindings(tree: ast.AST) -> dict[str, str]:
-    """Each name an import in ``tree`` binds to what may be a connectors module.
+def _module_bindings(imports: Iterable[ast.AST]) -> dict[str, str]:
+    """Each name the ``imports`` bind to what may be a connectors module.
 
     ``import osprey_connectors.a`` binds ``osprey_connectors`` itself; ``import
     osprey_connectors.a as x`` binds ``x`` to ``osprey_connectors.a``; ``from
@@ -160,7 +160,7 @@ def _module_bindings(tree: ast.AST) -> dict[str, str]:
     ``osprey_connectors.a``, which the resolver keeps only if it is a module.
     """
     bound: dict[str, str] = {}
-    for node in ast.walk(tree):
+    for node in imports:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if not _is_connectors(alias.name):
@@ -176,18 +176,15 @@ def _module_bindings(tree: ast.AST) -> dict[str, str]:
     return bound
 
 
-def _attribute_sites(tree: ast.AST, file: str) -> Iterator[Site]:
+def _attribute_sites(
+    attributes: list[ast.Attribute], bound: dict[str, str], file: str
+) -> Iterator[Site]:
     """Every attribute chain read off a name :func:`_module_bindings` found."""
-    bound = _module_bindings(tree)
     if not bound:
         return
-    inner = {
-        id(node.value)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute)
-    }
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Attribute) or id(node) in inner:
+    inner = {id(node.value) for node in attributes if isinstance(node.value, ast.Attribute)}
+    for node in attributes:
+        if id(node) in inner:
             continue
         chain: list[str] = []
         base: ast.expr = node
@@ -204,8 +201,23 @@ def _attribute_sites(tree: ast.AST, file: str) -> Iterator[Site]:
 
 
 def _sites_in(tree: ast.AST, file: str) -> Iterator[Site]:
-    yield from _attribute_sites(tree, file)
+    # One walk sorts out every node a site can sit on, in the walk's order:
+    # walking the tree is what the scan spends its time on beside parsing it.
+    attributes: list[ast.Attribute] = []
+    imports: list[ast.Import | ast.ImportFrom] = []
+    candidates: list[ast.AST] = []
     for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            attributes.append(node)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            imports.append(node)
+            candidates.append(node)
+        elif isinstance(node, ast.Call) or (
+            isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ):
+            candidates.append(node)
+    yield from _attribute_sites(attributes, _module_bindings(imports), file)
+    for node in candidates:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if _is_connectors(alias.name):
@@ -294,8 +306,12 @@ def _collect(root: Path) -> tuple[list[Site], list[str], list[FallbackGroup]]:
         except (SyntaxError, ValueError) as error:
             unparsable.append(f"{label}: {error.__class__.__name__}: {error}")
             continue
-        sites.extend(_sites_in(tree, label))
-        groups.extend(_fallback_groups(tree, label))
+        found = list(_sites_in(tree, label))
+        sites.extend(found)
+        # A group settles only sites of its own file, so a file with none
+        # needs no walk for its groups.
+        if found:
+            groups.extend(_fallback_groups(tree, label))
     # A registration's module_path is also a bare string literal: the
     # registration site is the stronger claim and stands for both.
     named = {(site.file, site.line, site.module) for site in sites if site.kind == "registration"}

@@ -76,10 +76,12 @@ async def run(spec: Mapping[str, Any], _ctx: ProbeContext) -> CheckResult:
         # asyncio.timeout bounds the whole handshake; nested context managers are
         # cancelled and cleaned up on expiry.
         async with asyncio.timeout(timeout_s):
-            async with streamablehttp_client(url) as (read, write, _get_session_id):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.list_tools()
+            async with (
+                streamablehttp_client(url) as (read, write, _get_session_id),
+                ClientSession(read, write) as session,
+            ):
+                await session.initialize()
+                result = await session.list_tools()
     except TimeoutError:
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(

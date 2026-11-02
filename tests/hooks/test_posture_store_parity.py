@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, posture_env, posture_store
 from osprey_connectors.types import switch_capable
 from osprey_connectors_tests._harness import (
     pin_identity,
@@ -43,7 +43,7 @@ from osprey_connectors_tests._harness import (
 )
 
 #: Every machine the record can switch on.
-ALL_ON = {"live": "on", "va": "on", "standin": "on"}
+ALL_ON = {"live": "asked", "va": "asked", "standin": "allowed"}
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +94,49 @@ def write_record(root, posture, switch=None):
     write_payload(path, payload)
     posture_store.invalidate_cache()
     return path
+
+
+#: Every stdlib-only hook that restates the read-only run, and the names it
+#: spells the variable and its sandboxing value with. The hooks cannot import
+#: ``osprey_connectors``, so each holds its own copy; these are the copies.
+READ_ONLY_RESTATEMENTS = [
+    ("osprey_target_state", "EXECUTION_MODE_ENV_VAR", "SANDBOX_MODE"),
+    ("osprey_writes_check", "EXECUTION_MODE_ENV_VAR", "SANDBOX_MODE"),
+    ("osprey_hook_log", "EXECUTION_MODE_ENV", "READONLY_MODE"),
+]
+
+
+@pytest.mark.parametrize(
+    ("hook", "variable", "value"),
+    READ_ONLY_RESTATEMENTS,
+    ids=[r[0] for r in READ_ONLY_RESTATEMENTS],
+)
+def test_every_hook_spells_the_read_only_run_as_posture_env_does(
+    hook_module, hook, variable, value
+):
+    """The variable and the value are the wire contract; a renamed one sandboxes nobody.
+
+    :mod:`osprey_connectors.posture_env` owns them. A hook whose copy drifted
+    would read an ordinary run as read-only, or a read-only run as writable,
+    with nothing else noticing.
+    """
+    # The target-state reader is a library sibling rather than a hook entry
+    # point, so it is imported as a module here rather than through the seam.
+    module = reader if hook == "osprey_target_state" else hook_module(hook)
+
+    assert getattr(module, variable) == posture_env.POSTURE_ENV_VAR
+    assert getattr(module, value) == posture_env.SANDBOX_MODE
+
+
+@pytest.mark.parametrize("raw", [None, "", "readonly", "readwrite", "READONLY", " readonly"])
+def test_the_hook_answers_is_readonly_run_as_posture_env_does(monkeypatch, raw):
+    """A value comparison on both sides, never presence: garbage sandboxes nothing."""
+    if raw is None:
+        monkeypatch.delenv(posture_env.POSTURE_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(posture_env.POSTURE_ENV_VAR, raw)
+
+    assert reader.is_readonly_run() is posture_env.is_readonly_run()
 
 
 def test_a_blank_session_key_is_no_session_key(stamped_root, monkeypatch):
@@ -391,6 +434,24 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     assert reader.read_record({})["posture"] == {}
 
 
+def test_a_stored_on_reads_as_asked_on_both_sides(stamped_root):
+    """The retired spelling a file may still hold: asked, never allowed, on either side."""
+    path = write_control_context(stamped_root, switch={"live": "asked"})
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["switch"] = {"live": "on", "va": "allowed", "standin": "ON"}
+    write_payload(path, payload)
+    posture_store.invalidate_cache()
+
+    record, status = reader.read_record_status({})
+    assert status == "ok"
+    canonical = control_context.read_record()
+    assert record["switch"] == canonical.switch == {"live": "asked", "va": "allowed"}
+    for target in ("live", "va", "standin"):
+        assert reader.switch_position(record, target) == control_context.switch_position(
+            canonical, target
+        )
+
+
 # ---------------------------------------------------------------------------
 # every write-path verdict names its machine
 # ---------------------------------------------------------------------------
@@ -400,10 +461,10 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
 #: any other test that documents the difference.
 _PRODUCTION_ROOTS = ("packages", "src")
 
-#: The posture store's write-path question, taking the target the write lands
-#: on as its second argument. A caller that hands it no target has stopped
-#: naming the machine it writes to.
-_TARGETED_RULES = ("write_verdict",)
+#: The posture store's write-path questions, each taking the target the write
+#: lands on as its second argument. A caller that hands them no target has
+#: stopped naming the machine it writes to.
+_TARGETED_RULES = ("write_verdict", "execution_verdict")
 
 
 def _production_python_files():
@@ -419,8 +480,17 @@ def _production_python_files():
 def _verdict_calls(path):
     """``(lineno, call)`` for every call of a :data:`_TARGETED_RULES` name in *path*."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):  # pragma: no cover - an unreadable file is not a caller
+        source = path.read_text(encoding="utf-8")
+    except OSError:  # pragma: no cover - an unreadable file is not a caller
+        return
+    # A call spells the name it calls (an identifier has no escape sequence),
+    # and parsing every module is what the scan spends its time on: a module
+    # that spells no rule is passed over.
+    if not any(rule in source for rule in _TARGETED_RULES):
+        return
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:  # pragma: no cover - an unparsable file is not a caller
         return
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -585,12 +655,12 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     reset_config_cache()
 
     try:
-        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "on"})
+        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "asked"})
 
         assert reader.posture_unknown({}) is False
         record, status = reader.read_record_status({})
         assert status == "ok"
-        assert record["switch"] == {"va": "on"}
+        assert record["switch"] == {"va": "asked"}
     finally:
         reset_config_cache()
         posture_store.invalidate_cache()

@@ -1,7 +1,9 @@
 """Tests for the runtime shell: collaborator wiring, startup recovery, drain supervision.
 
-Stores are the real ``DedupStore``/``HistoryStore`` on temp files; the dispatcher is a
-stub that records its payload, marks itself into the ``RecordingChannelOps`` timeline and
+The dedup store is the real ``DedupStore`` on a temp file and the history the real
+``ConversationHistory`` over an in-memory record that already holds run ``run-1``'s
+answer, as the dispatch worker records it; the dispatcher is a stub that records its
+payload, marks itself into the ``RecordingChannelOps`` timeline and
 returns a canned terminal result. ``run_drain_thread`` is monkeypatched wherever a test
 cares about *whether* a drain started rather than what it does — the drain loop itself is
 covered by ``test_drain.py``, and no test here sleeps or waits on real time.
@@ -30,11 +32,12 @@ from osprey.bridges.core import pipeline, runtime
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.dispatch_client import DispatchClient
-from osprey.bridges.core.history import HistoryStore
+from osprey.bridges.core.history import ConversationHistory
 from osprey.bridges.core.pipeline import PipelineDeps
 from osprey.bridges.core.ports import InboundEvent, InputDownload, RoomMember, RoomPeople
 from osprey.bridges.core.reconcile import ReconcileDeps
 from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
+from tests.bridges.record_double import MemoryRecord, RecordHistory
 
 QUESTION = "what is the orbit doing?"
 HISTORY_KEY = "room/AAA"
@@ -86,11 +89,17 @@ class FakeDispatcher:
 def _cfg(tmp_path, **over: Any) -> CoreConfig:
     fields: dict[str, Any] = {
         "dedup_path": str(tmp_path / "dedup.json"),
-        "history_path": str(tmp_path / "history.json"),
         "drain_interval": 0.01,
     }
     fields.update(over)
     return CoreConfig(**fields)
+
+
+def _history() -> RecordHistory:
+    """History over a record holding run ``run-1``, the canned result's run."""
+    record = MemoryRecord()
+    record.answer(COMPLETED["run_id"], COMPLETED["text_output"])
+    return RecordHistory(record)
 
 
 def _deps(tmp_path, ops: RecordingChannelOps, **over: Any) -> PipelineDeps:
@@ -101,7 +110,7 @@ def _deps(tmp_path, ops: RecordingChannelOps, **over: Any) -> PipelineDeps:
         ops=ops,
         dedup=DedupStore(cfg.dedup_path),
         dispatcher=over.pop("dispatcher", None) or FakeDispatcher(ops),
-        history=HistoryStore(cfg.history_path),
+        history=_history(),
         probe_capability=lambda cfg, capability: True,
     )
     return dataclasses.replace(deps, **over) if over else deps
@@ -163,7 +172,8 @@ def test_build_deps_constructs_collaborators_from_cfg_and_ops(tmp_path):
     assert deps.cfg is cfg
     assert deps.ops is ops
     assert isinstance(deps.dedup, DedupStore) and deps.dedup.path == cfg.dedup_path
-    assert isinstance(deps.history, HistoryStore) and deps.history.path == cfg.history_path
+    assert isinstance(deps.history, ConversationHistory)
+    assert not list(tmp_path.rglob("history.json"))
     assert isinstance(deps.dispatcher, DispatchClient)
 
 
@@ -183,7 +193,7 @@ def test_build_deps_bundle_also_satisfies_the_reconcile_surface(tmp_path):
 def test_build_deps_uses_injected_stores_verbatim(tmp_path):
     ops = RecordingChannelOps()
     dedup = DedupStore(str(tmp_path / "other-dedup.json"))
-    history = HistoryStore(str(tmp_path / "other-history.json"))
+    history = _history()
     dispatcher = FakeDispatcher(ops)
 
     deps = runtime.build_deps(
@@ -239,7 +249,7 @@ def test_startup_recovery_replays_the_live_payload(tmp_path):
     dispatch would — proof the pipeline's context builder is the injected one."""
     ops = RecordingChannelOps()
     deps = _deps(tmp_path, ops)
-    deps.history.append(HISTORY_KEY, "earlier?", "earlier answer")
+    deps.history.seed(HISTORY_KEY, "earlier?", "earlier answer", run_id="run-0")
     _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
 
     runtime.start(deps.cfg, ops, deps=deps)
@@ -402,6 +412,8 @@ def test_deliver_callback_survives_a_raising_file_delivery(tmp_path):
     ops = RecordingChannelOps()
     deps = _deps(tmp_path, ops)
     entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    # A re-attached delivery has its run on record; the turn names it.
+    deps.dedup.record("m1", run_id="run-1", status="queued")
     ops.fail_next("deliver_files", RuntimeError("upload exploded"))
 
     runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
@@ -559,7 +571,7 @@ def test_rebuild_extra_replays_history_reply_and_inputs(tmp_path):
         )
     )
     deps = _deps(tmp_path, ops)
-    deps.history.append(HISTORY_KEY, "earlier?", "earlier answer")
+    deps.history.seed(HISTORY_KEY, "earlier?", "earlier answer", run_id="run-0")
     _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
     deps.dedup.record(
         "m1", run_id=None, status="pending", reply_to={"sender": "Pat", "text": "the plot"}
@@ -690,7 +702,7 @@ def test_rebuild_extra_ships_the_same_shortened_history_as_the_live_path(tmp_pat
     )
     ops = RecordingChannelOps(parse_result=event)
     deps = _deps(tmp_path, ops)
-    deps.history.append(HISTORY_KEY, "the table?", "| row |\n" * 2000, run_id=long_run)
+    deps.history.seed(HISTORY_KEY, "the table?", "| row |\n" * 2000, run_id=long_run)
     rebuilt: list[dict[str, Any]] = []
 
     class RebuildingDispatcher(FakeDispatcher):

@@ -15,8 +15,10 @@ this module owns that sequence once, parameterized by the
 4.  ``ops.resolve_reply_context`` — after the claim, so duplicates never pay for it;
     the resolved ``reply_to`` (plus its meta, e.g. quoted attachment refs) is persisted
     so every re-dispatch path replays the same context without re-resolving.
-5.  ``history.recent`` — the conversation-so-far rides the payload so follow-ups
-    resolve their referents.
+5.  ``history.read`` — the conversation-so-far, read back from the agent record with a
+    drain, rides the payload so follow-ups resolve their referents. A read the record
+    could not answer, or answered incomplete, sends no history and says so in the
+    payload (:data:`HISTORY_RECORD_KEY`).
 6.  ONE memoized ``input_files`` capability probe for the whole dispatch, shared by
     the attachment fold (the own and quoted buckets of ``ops.download_inputs``,
     budgeted own-first, with own provenance top-level and quoted provenance folded
@@ -33,7 +35,7 @@ this module owns that sequence once, parameterized by the
     is final — ``ops.post_answer`` (which raises on a failed send: the entry is then
     re-queued, run id intact, for the drain to re-attach and re-deliver — never marked
     terminal, never appended to history), then the terminal status mark, then
-    best-effort ``ops.deliver_files``, then the history append.
+    best-effort ``ops.deliver_files``, then the turn's ``bridge_turn`` entry.
 
 Returns ``"ignored"`` | ``"duplicate"`` | ``"handled"``.
 """
@@ -57,7 +59,7 @@ from .config import CoreConfig
 from .dedup import DedupStore
 from .dispatch_client import DispatchClient
 from .errors import UndeliverableError
-from .history import HistoryStore
+from .history import ConversationHistory
 from .people import asker_of, room_payload
 from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload, RoomRoster
 
@@ -65,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EXPIRED_NOTE",
+    "HISTORY_RECORD_KEY",
     "IMAGE_MIMES",
     "MAX_FILES",
     "MAX_TOTAL_BYTES",
@@ -132,7 +135,13 @@ PRIOR_ANSWERS_CAPABILITY = "prior_answers"
 # dispatcher takes it out of the body and hands it to the worker as a field.
 PRIOR_ANSWER_RUNS_KEY = "prior_answer_runs"
 
-# Belt-and-suspenders mirror of ``HistoryStore.MAX_ARTIFACTS_PER_TURN``: the store
+# The payload key saying the conversation-so-far is missing because the record could
+# not answer the history read ("unavailable") or answered it incomplete
+# ("incomplete"). Absent when the history read was complete. The payload it rides in
+# is documented at docs/source/reference/contracts/bridge-dispatch.rst.
+HISTORY_RECORD_KEY = "conversation_record"
+
+# Belt-and-suspenders mirror of ``history.MAX_ARTIFACTS_PER_TURN``: the turn body
 # already caps (keeping the tail), but we assemble OLDEST-first so its tail-keep
 # retains the NEWEST, and we never hand it an unbounded list.
 MAX_TURN_DESCRIPTORS = 10
@@ -177,7 +186,7 @@ class PipelineDeps:
     ops: ChannelOps
     dedup: DedupStore
     dispatcher: DispatchClient
-    history: HistoryStore | None = None
+    history: ConversationHistory | None = None
     park: Callable[..., Any] = retry_queue.park
     probe_capability: Callable[..., bool] = pair_supports
     fetch_prior_artifact: Callable[..., FetchedArtifact | None] = _default_fetch_prior_artifact
@@ -273,11 +282,13 @@ def build_extra(
     if room:
         extra["room"] = room
 
-    turns, readable = _replayed_history(deps, history_key)
+    turns, readable, record = _replayed_history(deps, history_key)
     if turns:
         extra["conversation_so_far"] = turns
     if readable:
         extra[PRIOR_ANSWER_RUNS_KEY] = readable
+    if record:
+        extra[HISTORY_RECORD_KEY] = record
 
     # A COPY: the quoted-attachment fold mutates ``reply_to``, and handing out either
     # the store's own nested dict or the adapter's mapping would let per-dispatch keys
@@ -293,26 +304,33 @@ def build_extra(
 
 def _replayed_history(
     deps: PipelineDeps, history_key: str
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """The conversation-so-far to replay, and the runs whose answers it shortened.
+) -> tuple[list[dict[str, Any]], list[str], str | None]:
+    """The conversation-so-far to replay, the runs whose answers it shortened, and
+    why history is missing (``None`` when the record answered the read complete).
 
-    No history store or no key gives ``([], [])``. A ``history_answer_limit`` of 0
-    gives the full history and no runs. Otherwise a long answer is replayed as its
-    opening and a note naming its run, and those runs are returned — unless the pair
-    does not advertise :data:`PRIOR_ANSWERS_CAPABILITY`, in which case the full
-    history goes out as it always has, because nothing on the other end could read a
-    shortened answer back. The probe runs only when something would be shortened.
+    No history or no key gives ``([], [], None)``; one record read serves the whole
+    dispatch. A read the record could not answer or answered incomplete gives no
+    turns and its :class:`~osprey.bridges.core.history.HistoryRead` ``record`` state.
+    A ``history_answer_limit`` of 0 gives the full history and no runs. Otherwise a
+    long answer is replayed as its opening and a note naming its run, and those runs
+    are returned — unless the pair does not advertise :data:`PRIOR_ANSWERS_CAPABILITY`,
+    in which case the full history goes out, because nothing on the other end could
+    read a shortened answer back. The probe runs only when something would be
+    shortened.
     """
     if deps.history is None or not history_key:
-        return [], []
+        return [], [], None
+    read = deps.history.read(history_key)
+    if read.record is not None:
+        return [], [], read.record
     limit = deps.cfg.history_answer_limit
     if limit == 0:
-        return deps.history.recent(history_key), []
-    turns = deps.history.recent(history_key, shorten_over=limit)
+        return deps.history.cut(read.turns), [], None
+    turns = deps.history.cut(read.turns, shorten_over=limit)
     readable = [t["run_id"] for t in turns if "answer_chars" in t]
     if readable and not _capability_probe(deps, PRIOR_ANSWERS_CAPABILITY)():
-        return deps.history.recent(history_key), []
-    return turns, readable
+        return deps.history.cut(read.turns), [], None
+    return turns, readable, None
 
 
 def _room(deps: PipelineDeps, entry: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -563,12 +581,12 @@ def _content_hashes(input_files: Any) -> set[bytes]:
 
 def _flag_expired(turns: list[dict[str, Any]], ti: int, ai: int) -> None:
     """Flag one prior-artifact descriptor with :data:`EXPIRED_NOTE` WITHOUT mutating
-    the :class:`~osprey.bridges.core.history.HistoryStore`'s copy.
+    the read it came from.
 
-    ``HistoryStore.recent`` shallow-copies each turn but SHARES the nested artifact
-    list and descriptor dicts with the persisted store, so we replace the turn's
-    artifact list (and the one descriptor) with fresh objects the store never sees.
-    Idempotent and safe to call repeatedly for the same turn."""
+    :func:`~osprey.bridges.core.history.replay_window` shallow-copies each turn but
+    SHARES the nested artifact list and descriptor dicts with the read, so we replace
+    the turn's artifact list (and the one descriptor) with fresh objects the read never
+    sees. Idempotent and safe to call repeatedly for the same turn."""
     turn = turns[ti]
     arts = list(turn.get("artifacts") or [])
     if not (0 <= ai < len(arts)) or not isinstance(arts[ai], dict):
@@ -820,11 +838,12 @@ def _append_history(
     result: dict[str, Any],
     artifact_urls: dict[str, str] | None = None,
 ) -> None:
-    """Record this exchange under the entry's persisted ``history_key`` so the NEXT
-    question in the conversation carries it. A completed run with text keeps the
-    real answer, the producing ``run_id``, and this turn's artifact descriptors (so
-    a follow-up can refer back to a plot the agent already made); anything else
-    (timeout, error, or a completed run with no text) keeps the QUESTION with a
+    """Record this exchange as one ``bridge_turn`` under the entry's persisted
+    ``history_key`` so the NEXT question in the conversation carries it. A completed
+    run with text is an answered turn naming the producing ``run_id`` (whose answer the
+    record already holds) and this turn's artifact descriptors (so a follow-up can
+    refer back to a plot the agent already made); anything else (timeout, error, or a
+    completed run with no text) is a failed turn, replayed as the QUESTION with a
     marker so a follow-up still resolves its referent — the raw error text is never
     replayed, and a failed turn carries no descriptors. Best-effort: a history write
     must never fail a delivery that already landed.
@@ -835,20 +854,19 @@ def _append_history(
     if not key:
         return
     question = entry.get("text", "")
-    answer = result.get("text_output") or ""
     asked_by = asker_of(entry)
+    run_id = result.get("run_id") or entry.get("run_id") or None
     try:
-        if result.get("status") == "completed" and answer:
+        if result.get("status") == "completed" and result.get("text_output") and run_id:
             deps.history.append(
                 key,
                 question,
-                answer,
-                run_id=result.get("run_id"),
+                run_id=run_id,
                 artifacts=_turn_descriptors(result, artifact_urls),
                 asked_by=asked_by,
             )
         else:
-            deps.history.append_failed(key, question, asked_by=asked_by)
+            deps.history.append_failed(key, question, asked_by=asked_by, run_id=run_id)
     except Exception:
         logger.exception("history append failed for %s; continuing", key)
 
@@ -859,7 +877,7 @@ def _turn_descriptors(
     """Assemble this turn's artifact descriptors, OLDEST-first.
 
     Order is inputs (what the user sent, older) then outputs (what the run produced,
-    newer), each in delivery order, so the history store's tail-keeping cap retains
+    newer), each in delivery order, so the conversation history's tail-keeping cap retains
     the NEWEST when it trims. Each descriptor is
     ``{entry_id, filename, delivered_mime, public_url?, origin}`` with ``origin`` in
     ``{"input", "output"}``. Only OUTPUT descriptors ever carry ``public_url``

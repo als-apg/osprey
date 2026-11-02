@@ -101,15 +101,13 @@ def _project(tmp_path: Path) -> tuple[Path, Path]:
         "deployed_services": [],
         "services": {},
     }
-    with open(project_path / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
+    yaml.dump(config, project_path / "config.yml")
     return project_path, profile_dir
 
 
 def _services(project_path: Path) -> dict:
     yaml = YAML()
-    with open(project_path / "config.yml") as fh:
-        return yaml.load(fh)["services"]
+    return yaml.load(project_path / "config.yml")["services"]
 
 
 # ── the loader fills from the resolved base ──────────────────────────────────
@@ -264,8 +262,7 @@ def _write_triggers(profile_dir: Path, body: str) -> None:
 
 def _dispatcher_block(project_path: Path) -> dict:
     yaml = YAML()
-    with open(project_path / "triggers.yml") as fh:
-        return yaml.load(fh)["dispatcher"]
+    return yaml.load(project_path / "triggers.yml")["dispatcher"]
 
 
 def test_copied_triggers_route_to_the_worker_port_this_deployment_binds(

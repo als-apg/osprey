@@ -71,10 +71,7 @@ class ChannelDatabase(BaseDatabase):
         Returns:
             List of validation entries with 'channel' (str) and 'valid' (bool) keys
         """
-        validation_results = []
-        for name in channel_names:
-            validation_results.append({"channel": name, "valid": self.validate_channel(name)})
-        return validation_results
+        return [{"channel": name, "valid": self.validate_channel(name)} for name in channel_names]
 
     def get_valid_channels(self, validation_results: list[dict]) -> list[str]:
         """Extract only valid channel names from validation results."""
@@ -83,29 +80,6 @@ class ChannelDatabase(BaseDatabase):
     def get_invalid_channels(self, validation_results: list[dict]) -> list[str]:
         """Extract only invalid channel names from validation results."""
         return [entry["channel"] for entry in validation_results if not entry["valid"]]
-
-    def format_for_prompt(self, include_addresses: bool = False) -> str:
-        """Format channel database for inclusion in LLM prompts.
-
-        Args:
-            include_addresses: Whether to include channel addresses in output
-
-        Returns:
-            Formatted string of all channels
-        """
-        formatted = []
-        for ch in self.channels:
-            if include_addresses:
-                entry = f"- {ch['channel']} (Address: {ch['address']})"
-            else:
-                entry = f"- {ch['channel']}"
-
-            if ch.get("description"):
-                entry += f": {ch['description']}"
-
-            formatted.append(entry)
-
-        return "\n".join(formatted)
 
     def chunk_database(self, chunk_size: int = 50) -> list[list[dict]]:
         """Split database into chunks for processing.

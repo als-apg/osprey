@@ -16,6 +16,7 @@ from rich.logging import RichHandler
 
 from osprey.cli.altitude import PRINTED, _AltitudeGate, gate_installed, install_gate, lift_gate
 from osprey.cli.main import cli
+from tests.cli._reporters import installed
 
 INFO_MARKER = "INFOMARKER"
 WARNING_MARKER = "WARNMARKER"
@@ -115,12 +116,10 @@ class TestSingleVoiceDuringLifecycleVerbs:
 
     @pytest.fixture
     def lifecycle_reporter_installed(self):
-        from osprey.cli.phase_reporter import PhaseReporter, current_reporter, install_reporter
+        from osprey.cli.phase_reporter import PhaseReporter
 
-        previous = current_reporter()
-        install_reporter(PhaseReporter(color=False))
-        yield
-        install_reporter(previous)
+        with installed(PhaseReporter(color=False)):
+            yield
 
     def _record(self, level: int) -> logging.LogRecord:
         return logging.LogRecord("osprey.test", level, __file__, 1, "msg", None, None)
@@ -149,14 +148,10 @@ class TestSingleVoiceDuringLifecycleVerbs:
         The gate is normally not even installed under ``-v``; this pins the
         harmless answer for the state where one is.
         """
-        from osprey.cli.phase_reporter import NullReporter, current_reporter, install_reporter
+        from osprey.cli.phase_reporter import NullReporter
 
-        previous = current_reporter()
-        install_reporter(NullReporter(verbose=True))
-        try:
+        with installed(NullReporter(verbose=True)):
             assert _AltitudeGate().filter(self._record(logging.WARNING)) is True
-        finally:
-            install_reporter(previous)
 
 
 class TestNormalRun:

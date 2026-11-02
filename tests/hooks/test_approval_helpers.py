@@ -24,52 +24,6 @@ import pytest
 
 from osprey.port_layout import default_port
 
-
-@pytest.fixture
-def approval(hook_module, monkeypatch):
-    """The `osprey_approval` module, imported through the test seam.
-
-    Imported in a fixture rather than at module scope: the hook prepends its own
-    directory to `sys.path` on import, and `import_hook` is what undoes that.
-
-    Every test starts with the prompt's pre-flight budget unspent. The hook
-    stamps its entry instant at import, which in the process that serves one
-    prompt is when that prompt began; a test worker keeps the module for its
-    whole life, so without this a row's budget would depend on how long the
-    worker had been running and a slow suite would render trajectories
-    differently from a fast one.
-    """
-    module = hook_module("osprey_approval")
-    monkeypatch.setattr(module, "_HOOK_ENTERED_AT", time.monotonic())
-    return module
-
-
-@pytest.fixture
-def bridge_calls():
-    """Recorder for the (base_url, path) pairs a helper asks the bridge for."""
-    return []
-
-
-@pytest.fixture
-def fake_bridge(approval, bridge_calls, monkeypatch):
-    """Factory replacing `_bridge_get_json` with a routing table.
-
-    Takes ``{path: body}``; an unmapped path yields `None`, which is exactly what
-    the real helper returns for a 404, an unreachable bridge or a malformed
-    body — so a route left out of the table is a genuine failure case, not a
-    test-harness gap.
-    """
-
-    def _install(routes: dict[str, object]):
-        def _get(base_url, path, _timeout=3.0):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        monkeypatch.setattr(approval, "_bridge_get_json", _get)
-
-    return _install
-
-
 # --------------------------------------------------------------------------
 # _sanitize_label
 # --------------------------------------------------------------------------

@@ -93,6 +93,7 @@ def test_reading_the_mcp_path_costs_no_leaf_of_the_package():
         text=True,
         env=dict(os.environ, PYTHONPATH=_SRC),
         check=False,
+        timeout=120,
     )
 
     assert result.returncode == 0, result.stderr

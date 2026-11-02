@@ -5,12 +5,13 @@ import pytest
 from osprey_connectors.errors import (
     RAW_CLIENT_WRITE_MARKER,
     ChannelWriteBlockedError,
+    RefusalReason,
     raw_client_write_message,
 )
 
 
 def test_reason_is_a_valid_blocked_reason():
-    assert "RAW_CLIENT_WRITE" in ChannelWriteBlockedError._VALID_REASONS
+    assert RefusalReason("RAW_CLIENT_WRITE") is RefusalReason.RAW_CLIENT_WRITE
 
 
 def test_marker_value_is_pinned():

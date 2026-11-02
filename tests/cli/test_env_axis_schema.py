@@ -22,32 +22,14 @@ import yaml
 
 from osprey.cli.build_profile import BuildProfile, DispatchConfig, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import env_names_errors
-from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
-
-
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _env_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Return only the failures that mention an ``env`` key."""
-    return [e for e in _errors(profile, profile_dir) if ".env" in e]
+    return [e for e in validation_errors(profile, profile_dir) if ".env" in e]
 
 
 def _triggers(tmp_path: Path, name: str = "trig.yml") -> str:
@@ -387,7 +369,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
             )
         },
     )
-    messages = _errors(profile, tmp_path)
+    messages = validation_errors(profile, tmp_path)
     assert "Profile 'name' is required" in messages
     assert any("(got 'in-context')" in message for message in messages)
     assert "services.gchat_bridge.network must be one of bridge, host (got 'hostnet')" in messages
@@ -401,7 +383,7 @@ def test_a_malformed_service_key_is_reported_once_for_all_axes(tmp_path: Path) -
     """Two axes walk the services mapping; a bool key is still one message."""
     raw = yaml.safe_load("name: envaxis\nservices:\n  on:\n    template: osprey.postgresql\n")
     assert True in raw["services"]
-    messages = _errors(_parse_profile(raw), tmp_path)
+    messages = validation_errors(_parse_profile(raw), tmp_path)
     assert len([m for m in messages if m.startswith("services keys must be strings")]) == 1
 
 
@@ -409,7 +391,7 @@ def test_a_malformed_config_key_is_reported_once_for_all_axes(tmp_path: Path) ->
     """Same for the dotted override surface."""
     raw = yaml.safe_load("name: envaxis\nconfig:\n  off: 1\n")
     assert False in raw["config"]
-    messages = _errors(_parse_profile(raw), tmp_path)
+    messages = validation_errors(_parse_profile(raw), tmp_path)
     assert len([m for m in messages if m.startswith("config keys must be strings")]) == 1
 
 

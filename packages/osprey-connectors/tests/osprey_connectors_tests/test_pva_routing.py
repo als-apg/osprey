@@ -24,6 +24,7 @@ import sys
 import pytest
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     EPICS_PVA_VARS,
     clean_epics_env,  # noqa: F401 - fixture, used by name
@@ -123,6 +124,23 @@ class TestConnectPvaContext:
         context_cls.assert_called_once_with("pva")
         assert connector._pva_context is context_cls.return_value
         assert connector._is_pva_channel("BL7:DET:ARRAY") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_a_pva_context_that_cannot_be_built_makes_the_connector_unavailable(
+        self, monkeypatch
+    ):
+        """A client context p4p cannot build fails connect() once, as the connector's own loss."""
+        patch_writes_enabled(monkeypatch, False)
+        _, context_cls = install_fake_p4p(monkeypatch)
+        context_cls.side_effect = RuntimeError("no network interface")
+
+        connector = EPICSConnector()
+        with pytest.raises(ConnectorUnavailableError, match="no network interface") as raised:
+            await connector.connect({"pva_channels": ["SR:CAM*:IMAGE"]})
+
+        assert isinstance(raised.value.__cause__, RuntimeError)
+        context_cls.assert_called_once_with("pva")
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")

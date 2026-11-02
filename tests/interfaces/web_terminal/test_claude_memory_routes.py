@@ -3,29 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 from urllib.parse import quote
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.agent_runner.project_paths import claude_project_dir
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.claude_memory_service import (
     MEMORY_TRUNCATION_LIMIT,
     MEMORY_TRUNCATION_WARNING,
 )
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture()
@@ -45,13 +36,8 @@ def fake_home(tmp_path, monkeypatch):
 # directory.
 @pytest.fixture()
 def client(workspace_dir, fake_home):  # noqa: ARG001
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    with terminal_client(workspace_dir) as c:
+        yield c
 
 
 def _memory_dir_of(client) -> Path:

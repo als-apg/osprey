@@ -149,7 +149,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         self, _req, _fp, _code, _msg, _headers, _newurl
     ):
         """Never follow: the listener's own first response is the verdict."""
-        return None
+        return
 
 
 def _probe_opener(*extra: urllib.request.BaseHandler) -> urllib.request.OpenerDirector:

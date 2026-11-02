@@ -561,7 +561,7 @@ def test_a_connector_settable_is_bluesky_locatable() -> None:
     located: list[Any] = []
 
     def _plan():
-        located.append((yield from bps.locate(device)))
+        located.append((yield from bps.loc(device)))
 
     assert isinstance(device, Locatable)
     RunEngine(context_managers=[])(_plan())

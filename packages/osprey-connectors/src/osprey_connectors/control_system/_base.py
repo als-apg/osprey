@@ -8,33 +8,25 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 import asyncio
 import functools
+import inspect
 import logging
 import math
 import numbers
-import os
 import sys
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from osprey_connectors import posture_store
 from osprey_connectors.control_system.write_door import open_door
-
-if TYPE_CHECKING:
-    # Type-checking only, and every annotation naming it is a string:
-    # ``posture_store`` imports THIS module for :func:`is_readonly_run`, so a
-    # load-time import here is the cycle both modules document. The functions
-    # that need the names at runtime import them inside their own bodies.
-    #
-    # What that pairing costs: ``typing.get_type_hints()`` raises ``NameError``
-    # on ``ControlSystemConnector`` and on :func:`_monitor_verdict`, whose
-    # string annotations name this type and nothing else in this module's
-    # runtime namespace does. A reader of annotations — a schema generator, a
-    # doc builder, a test — has to supply the name itself.
-    from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.errors import RefusalReason
+from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.posture_store import WriteVerdict
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
@@ -64,6 +56,21 @@ class ChannelMetadata:
     survives the connector-host IPC seam: :mod:`osprey_connectors.ipc._frames`
     encodes sequences as JSON arrays and decodes them as lists, so a tuple set
     here would compare unequal to the same field read through a proxy.
+
+    ``control_low`` / ``control_high`` (EPICS DRVL/DRVH), ``warning_low`` /
+    ``warning_high`` (LOW/HIGH) and ``alarm_low`` / ``alarm_high`` (LOLO/HIHI)
+    are the remaining limit pairs a control system reports. Like the display
+    range they describe the channel; none of them is a write bound OSPREY
+    enforces. ``writable`` is this client's access right on the channel (EPICS
+    CA write access) — not the user's tier — and ``None`` where the control
+    system does not report one.
+
+    Every limit pair, the display range included, passes through
+    :func:`normalise_limit_pair` on construction: a missing, non-numeric or
+    non-finite bound becomes ``None``, and a pair whose low is not below its high
+    (EPICS reports an unset range as ``0``/``0``) becomes ``None`` on both sides.
+    The normalisation is idempotent, so a value decoded on the far side of the
+    connector-host IPC seam — which re-runs ``__post_init__`` — is unchanged.
     """
 
     units: str = ""
@@ -83,11 +90,79 @@ class ChannelMetadata:
     #: The label for the value of THIS reading; None off enums and when unresolvable.
     enum_label: str | None = None
     raw_metadata: dict[str, Any] | None = field(default_factory=dict)
+    #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
+    control_low: float | None = None
+    control_high: float | None = None
+    #: Minor-alarm range (EPICS LOW/HIGH); None when unreported or not a valid range.
+    warning_low: float | None = None
+    warning_high: float | None = None
+    #: Major-alarm range (EPICS LOLO/HIHI); None when unreported or not a valid range.
+    alarm_low: float | None = None
+    alarm_high: float | None = None
+    #: This client's write access to the channel; None when the control system does not say.
+    writable: bool | None = None
 
     def __post_init__(self):
-        """Ensure raw_metadata is a dict."""
+        """Ensure raw_metadata is a dict and normalise the limits and ``writable``."""
         if self.raw_metadata is None:
             self.raw_metadata = {}
+        for low_name, high_name in _LIMIT_PAIRS:
+            low, high = normalise_limit_pair(getattr(self, low_name), getattr(self, high_name))
+            setattr(self, low_name, low)
+            setattr(self, high_name, high)
+        self.writable = _writable_flag(self.writable)
+
+
+#: The limit pairs of :class:`ChannelMetadata`, each normalised as one pair.
+_LIMIT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("display_low", "display_high"),
+    ("control_low", "control_high"),
+    ("warning_low", "warning_high"),
+    ("alarm_low", "alarm_high"),
+)
+
+
+def _limit_bound(value: Any) -> float | None:
+    """One limit as a finite ``float``, or ``None`` for anything else.
+
+    Bools are excluded (``True`` is not a limit), as is every non-numeric value —
+    including a ``MagicMock`` standing in for a PV in tests — so a connector may
+    hand over whatever its transport reported without checking it first.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    try:
+        bound = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return bound if math.isfinite(bound) else None
+
+
+def normalise_limit_pair(low: Any, high: Any) -> tuple[float | None, float | None]:
+    """Normalise one ``(low, high)`` limit pair the way :class:`ChannelMetadata` stores it.
+
+    Each bound that is missing, non-numeric or non-finite becomes ``None``. When
+    both survive and ``low >= high`` the pair describes no range — EPICS reports
+    an unset range as ``0``/``0`` — so both become ``None``. A pair with only one
+    valid bound keeps it. Idempotent.
+    """
+    low_bound, high_bound = _limit_bound(low), _limit_bound(high)
+    if low_bound is not None and high_bound is not None and low_bound >= high_bound:
+        return None, None
+    return low_bound, high_bound
+
+
+def _writable_flag(value: Any) -> bool | None:
+    """A reported write-access right as ``bool``, or ``None`` when not reported.
+
+    A client may report access rights as ``bool`` or ``0``/``1``; anything that
+    is not an integer (a ``MagicMock`` attribute, say) is "not reported".
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, numbers.Integral):
+        return bool(value)
+    return None
 
 
 @dataclass
@@ -240,6 +315,11 @@ def as_number(value: Any) -> float | None:
     return float(value)
 
 
+#: The outcomes whose result carries an ``error_message``: each has something
+#: the operator has to be told.
+_MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
+
+
 @dataclass
 class ChannelWriteResult:
     """What became of one channel write, and what the channel was seen to hold.
@@ -252,14 +332,18 @@ class ChannelWriteResult:
     ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry
     something the operator has to be told. A ``mismatch`` needs no message:
     both numbers are on the result already, in ``value_written`` and
-    ``observed_value``.
+    ``observed_value``. Construction enforces it: a result that breaks it
+    raises ``ValueError``.
 
     ``notes`` is display-only text ("observed 2.4, sent 2.5", "cannot be
     compared"). No consumer reads it, and nothing classifies a write by
     parsing it.
 
-    ``refusal_reason`` names the policy that refused, and is set only when the
-    outcome is ``refused``. ``observed_value`` is whatever the confirming
+    ``refusal_reason`` is the :class:`~osprey_connectors.errors.RefusalReason`
+    that says why, and who, refused; it is set **if and only if** the outcome
+    is ``refused``. Construction enforces it too: a refused result with no
+    reason or an unknown one, or a reason on any other outcome, raises
+    ``ValueError``. ``observed_value`` is whatever the confirming
     re-read returned, in the type the channel holds — a number, a string, an
     enum label, a waveform; :attr:`observed_number` narrows it to a float
     where that makes sense.
@@ -276,9 +360,10 @@ class ChannelWriteResult:
     channel_address: str  # Channel that was written
     value_written: Any  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
-    # One of ``ChannelWriteBlockedError._VALID_REASONS`` when refused, else None
-    refusal_reason: str | None = None
-    error_message: str | None = None  # Set iff refused, failed or unconfirmed
+    # Set iff refused, enforced at construction
+    refusal_reason: RefusalReason | None = None
+    # Set iff refused, failed or unconfirmed, enforced at construction
+    error_message: str | None = None
     observed_value: Any = None  # What the confirming re-read returned
     # Alarm name reported for the reading, e.g. "NO_ALARM"/"HIHI"; None if not reported
     alarm_status: str | None = None
@@ -287,17 +372,44 @@ class ChannelWriteResult:
     notes: str | None = None  # Display-only detail
 
     def __post_init__(self) -> None:
-        """Coerce a string ``outcome`` to the :class:`WriteOutcome` member.
+        """Coerce ``outcome`` and ``refusal_reason`` to members, then check the shape.
 
         A ``StrEnum`` crosses the connector-host IPC as the plain string JSON
         encodes it to, and the codec rebuilds the dataclass by calling it with
         the decoded fields — so what arrives here on the parent side is a
         ``str``. Coercing once, on construction, is what lets every consumer
-        compare against :class:`WriteOutcome` members whichever side of the
-        process boundary it runs on.
+        compare against the members whichever side of the process boundary it
+        runs on.
+
+        Raises:
+            ValueError: ``refusal_reason`` is not a known reason, is missing on
+                a ``refused`` result or set on any other, or ``error_message``
+                is missing on a ``refused``, ``failed`` or ``unconfirmed``
+                result or set on any other.
         """
         if not isinstance(self.outcome, WriteOutcome):
             self.outcome = WriteOutcome(self.outcome)
+        if self.refusal_reason is not None and not isinstance(self.refusal_reason, RefusalReason):
+            try:
+                self.refusal_reason = RefusalReason(self.refusal_reason)
+            except ValueError:
+                raise ValueError(
+                    f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                    f"refusal_reason {self.refusal_reason!r} is not a known refusal reason"
+                ) from None
+        refused = self.outcome is WriteOutcome.REFUSED
+        if refused != (self.refusal_reason is not None):
+            expected = "a known refusal reason" if refused else "None"
+            raise ValueError(
+                f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                f"refusal_reason must be {expected}, got {self.refusal_reason!r}"
+            )
+        if bool(self.error_message) != (self.outcome in _MESSAGE_OUTCOMES):
+            expected = "a message" if self.outcome in _MESSAGE_OUTCOMES else "None"
+            raise ValueError(
+                f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
+                f"error_message must be {expected}, got {self.error_message!r}"
+            )
 
     @property
     def observed_number(self) -> float | None:
@@ -305,44 +417,49 @@ class ChannelWriteResult:
         return as_number(self.observed_value)
 
 
-def is_readonly_run() -> bool:
-    """True when this process must refuse control-system writes, whatever it is.
-
-    Two things set ``OSPREY_EXECUTION_MODE=readonly``, and this answers yes to
-    both:
-
-    * the **deployment**, when the whole run is started read-only — the
-      variable is on every process the deployment owns, the MCP servers
-      included, so ``mcp__controls__channel_write`` is refused right here
-      rather than only by the (best-effort) hook chain;
-    * the **python executor**, onto the sandbox subprocess of a run submitted
-      with ``execution_mode="readonly"`` — so the per-run claim is enforceable
-      at runtime, independent of the pre-execution pattern scan.
-
-    Both are refusals; only the operator-facing wording differs, which
-    :func:`_verdict_refusal` decides through
-    :func:`_in_mcp_server_process` — the discriminator, because the two are
-    the same variable at the same value and only the process tells them apart.
-
-    An operator's narrowing of ONE control target is deliberately NOT here: it
-    never lived in the environment, and is read from the deployment's
-    control-context record instead. So outside these two the variable is unset
-    and the answer is still not "writes" by itself — the deployment's
-    ``control_system`` section and that record both apply, and
-    :func:`_monitor_verdict` decides on them through
-    :func:`osprey_connectors.posture_store.write_verdict`.
-
-    The comparison is by VALUE, never presence: ``readwrite`` is the writes
-    posture, and a stale or misspelled value must not silently sandbox
-    anything.
-    """
-    return os.environ.get("OSPREY_EXECUTION_MODE") == "readonly"
-
-
 #: Package path of the OSPREY MCP servers, as consecutive parts of the file
 #: they are launched with (``python -m osprey.mcp_server.<server>`` sets
 #: ``sys.argv[0]`` to that package's ``__main__.py``).
 _MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
+
+#: Set once by :func:`mark_long_lived_session`. A long-lived control session —
+#: a panel backend that holds one connector for hours — runs no script either,
+#: so a readonly refusal there is the deployment's, exactly as in an MCP server.
+#: Process-global by design: the mark describes the process, not one connector.
+_long_lived_session = False
+
+
+def mark_long_lived_session() -> None:
+    """Record that this process holds a long-lived control session.
+
+    Called by :meth:`osprey.runtime.session.ControlSession.open`. From then on a
+    readonly refusal in this process uses the deployment-wide wording: the
+    process was started by the deployment, not submitted as one readonly
+    script, so "resubmit it with execution_mode='readwrite'" would send the
+    operator to a script that does not exist. Irreversible for the process.
+    """
+    global _long_lived_session
+    _long_lived_session = True
+
+
+def _reset_long_lived_session_for_tests() -> None:
+    """Clear the :func:`mark_long_lived_session` mark. Tests only.
+
+    A test process opens many sessions; each test starts from an unmarked
+    process so the readonly wording does not depend on test order.
+    """
+    global _long_lived_session
+    _long_lived_session = False
+
+
+def _readonly_is_deployment_wide() -> bool:
+    """Whether a readonly refusal here is the deployment's rather than one script's.
+
+    True in an OSPREY MCP server (:func:`_in_mcp_server_process`) and in a
+    process that holds a long-lived control session
+    (:func:`mark_long_lived_session`); everything else keeps the script wording.
+    """
+    return _long_lived_session or _in_mcp_server_process()
 
 
 def _in_mcp_server_process() -> bool:
@@ -398,7 +515,8 @@ _READONLY_MARKER = "readonly execution mode"
 
 #: What a read-only refusal adds when the process is a script the executor ran
 #: for one readonly submission rather than an MCP server of a read-only
-#: deployment (:func:`_in_mcp_server_process`): that run alone can be resubmitted.
+#: deployment or a long-lived control session
+#: (:func:`_readonly_is_deployment_wide`): that run alone can be resubmitted.
 _READONLY_SCRIPT_REMEDY = (
     "This script was submitted readonly; resubmit it with execution_mode='readwrite' "
     "(human approval required) if the write is intended."
@@ -418,19 +536,15 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
 
     Never raises; reads the record at most once.
     """
-    # Imported here: ``posture_store`` imports this module for
-    # :func:`is_readonly_run`, so the two must not import each other while loading.
-    from osprey_connectors.posture_store import write_verdict
-
     if is_readonly_run():
-        return write_verdict({}, control_target, owner=None)
+        return posture_store.write_verdict({}, control_target, owner=None)
     try:
         from osprey_connectors.config import get_config_value
 
         section: Any = get_config_value("control_system", {})
     except (FileNotFoundError, RuntimeError):
         section = {}
-    return write_verdict(section, control_target, owner=None)
+    return posture_store.write_verdict(section, control_target, owner=None)
 
 
 def _verdict_refusal(
@@ -441,9 +555,10 @@ def _verdict_refusal(
     The operator's words are :func:`~osprey_connectors.refusals.refusal_text`
     for the verdict's reason and machine kind — the same phrase the hooks
     speak, ending with the ``[osprey-refusal: <reason>]`` trailer — after the
-    channel it concerns. A read-only run's refusal also
-    carries :data:`_READONLY_MARKER`, and in a script the executor ran for one
-    readonly submission :data:`_READONLY_SCRIPT_REMEDY` as well. A verdict that
+    channel it concerns, with the verdict's own detail after the phrase. A
+    read-only run's refusal also carries :data:`_READONLY_MARKER`, and in a script
+    the executor ran for one readonly submission :data:`_READONLY_SCRIPT_REMEDY`
+    as well. A verdict that
     allowed (an overriding subclass refused on its own) names no contract reason.
     """
     from osprey_connectors.refusals import refusal_text
@@ -452,7 +567,7 @@ def _verdict_refusal(
     remedy = None
     if verdict.reason == "readonly_run":
         marker = f" ({_READONLY_MARKER})"
-        if not _in_mcp_server_process():
+        if not _readonly_is_deployment_wide():
             # One script submitted readonly, not the deployment: the same
             # refusal, and the one remedy that applies to it alone.
             remedy = _READONLY_SCRIPT_REMEDY
@@ -460,14 +575,14 @@ def _verdict_refusal(
         spoken = _OVERRIDE_REFUSAL
     else:
         try:
-            spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy)
+            spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy or verdict.detail)
         except ValueError:
             spoken = _OVERRIDE_REFUSAL
     return ChannelWriteResult(
         channel_address=channel_address,
         value_written=value,
         outcome=WriteOutcome.REFUSED,
-        refusal_reason="WRITES_DISABLED",
+        refusal_reason=RefusalReason.WRITES_DISABLED,
         error_message=f"Write to '{channel_address}' blocked{marker}: {spoken}",
     )
 
@@ -534,6 +649,66 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
         value_written=result.value_written,
         observed_value=result.observed_value,
     )
+
+
+def _accepts_on_connection(subscribe: Callable[..., Any]) -> bool:
+    """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
+    parameters = inspect.signature(subscribe).parameters.values()
+    return any(
+        parameter.name == "on_connection" or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _compat_subscribe_without_on_connection(
+    owner: type, subscribe: Callable[..., Any]
+) -> Callable[..., Any]:
+    """Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.
+
+    A connector that reports no connection state of its own still shows one
+    fact about it: a value arrived, so the channel is up. The wrapper tells
+    ``on_connection`` ``True`` before the first value and nothing after —
+    never ``False``, because such a connector never says a channel dropped.
+    Without ``on_connection`` the original runs untouched.
+
+    Wrapping ``owner`` emits one :class:`DeprecationWarning` naming it. This
+    compatibility wrapper is removed in osprey-connectors 2027.3.0; a connector's
+    ``subscribe`` should take ``on_connection`` itself.
+    """
+    warnings.warn(
+        f"{owner.__module__}.{owner.__qualname__}.subscribe does not take on_connection; "
+        "the base class wraps it for now, but the wrapper is deprecated and is removed "
+        "in osprey-connectors 2027.3.0. Add the on_connection keyword to subscribe().",
+        DeprecationWarning,
+        # this function, __init_subclass__, ABCMeta.__new__, the class statement
+        stacklevel=4,
+    )
+
+    @functools.wraps(subscribe)
+    async def _subscribe(self, channel_address, callback, *args, on_connection=None, **kwargs):
+        if on_connection is None:
+            return await subscribe(self, channel_address, callback, *args, **kwargs)
+        connected = False
+
+        def _deliver(value: "ChannelValue") -> None:
+            nonlocal connected
+            if not connected:
+                connected = True
+                on_connection(True)
+            callback(value)
+
+        return await subscribe(self, channel_address, _deliver, *args, **kwargs)
+
+    # inspect.signature() reads __signature__ before following __wrapped__, so
+    # the wrapper reports the keyword it takes; mypy knows no such attribute.
+    signature = inspect.signature(subscribe)
+    _subscribe.__signature__ = signature.replace(  # type: ignore[attr-defined]
+        parameters=[
+            *signature.parameters.values(),
+            inspect.Parameter("on_connection", inspect.Parameter.KEYWORD_ONLY, default=None),
+        ]
+    )
+    return _subscribe
 
 
 class ControlSystemConnector(ABC):
@@ -647,7 +822,7 @@ class ControlSystemConnector(ABC):
             channel_address=channel_address,
             value_written=value,
             outcome=WriteOutcome.REFUSED,
-            refusal_reason="VALIDATION_ERROR",
+            refusal_reason=RefusalReason.VALIDATION_ERROR,
             error_message=f"Write to '{channel_address}' refused: validation error: {error}",
         )
 
@@ -663,12 +838,25 @@ class ControlSystemConnector(ABC):
         This fires before limits validation (intentional: fast-reject when
         writes are disabled, avoiding unnecessary validation work).
 
-        Past that check the original method runs inside
+        Past that check the wrapper asks
+        :func:`~osprey_connectors.posture_store.session_hold_refusal`, kept out of
+        ``_writes_enabled`` because that property also chooses the gateway: a held
+        session's write is refused here while its connection stays as it is.
+
+        Past both checks the original method runs inside
         :func:`~osprey_connectors.control_system.write_door.open_door`, so the
         raw-client guard attributes its put to a connector. A connector whose
         writes are disabled never opens the door.
+
+        A ``subscribe()`` written before ``on_connection`` existed is wrapped
+        too (:func:`_compat_subscribe_without_on_connection`, deprecated), so every connector
+        takes the keyword and a facility's own connector keeps working.
         """
         super().__init_subclass__(**kwargs)
+
+        original_subscribe = cls.__dict__.get("subscribe")
+        if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
+            cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)
 
         original_write = cls.__dict__.get("write_channel")
         if original_write is not None:
@@ -679,6 +867,9 @@ class ControlSystemConnector(ABC):
                 if not self._writes_enabled:
                     verdict = self._last_verdict or _monitor_verdict(self._control_target)
                     return _verdict_refusal(channel_address, value, verdict)
+                held = posture_store.session_hold_refusal()
+                if held is not None:
+                    return _verdict_refusal(channel_address, value, held)
                 with open_door():
                     return await original_write(self, channel_address, value, *args, **kwargs)
 
@@ -696,6 +887,9 @@ class ControlSystemConnector(ABC):
                     # must tell the same story about why.
                     verdict = self._last_verdict or _monitor_verdict(self._control_target)
                     return [_verdict_refusal(addr, val, verdict) for addr, val in operations]
+                held = posture_store.session_hold_refusal()
+                if held is not None:
+                    return [_verdict_refusal(addr, val, held) for addr, val in operations]
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 
@@ -722,14 +916,12 @@ class ControlSystemConnector(ABC):
             config: Control system-specific configuration
 
         Raises:
-            ConnectionError: If connection cannot be established
+            ConnectorUnavailableError: If connection cannot be established
         """
-        pass
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Close connection to control system and cleanup resources."""
-        pass
 
     @abstractmethod
     async def read_channel(
@@ -746,13 +938,14 @@ class ControlSystemConnector(ABC):
             ChannelValue with current value, timestamp, and metadata
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached or did not
+                answer in time; the connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
             TimeoutError: If operation times out
             ValueError: If channel address is invalid
             ChannelNotFoundError: The address is not a channel of the facility
                 (a connector that holds the facility's address set)
         """
-        pass
 
     @abstractmethod
     async def write_channel(
@@ -777,7 +970,9 @@ class ControlSystemConnector(ABC):
             seen to hold
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached or did not
+                answer in time; the connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
             TimeoutError: If operation times out
             ValueError: If value is invalid for this channel
             PermissionError: If write access is not allowed
@@ -829,7 +1024,6 @@ class ControlSystemConnector(ABC):
             out of a mechanical refusal, and the approval layer cannot substitute for
             that refusal.
         """
-        pass
 
     async def write_channel_checked(
         self, channel_address: str, value: Any, **kwargs: Any
@@ -838,7 +1032,7 @@ class ControlSystemConnector(ABC):
 
         ``refused`` (policy/limits/validation) -> raises ChannelWriteBlockedError.
         ``failed`` / ``mismatch`` / ``unconfirmed`` -> raises ChannelWriteFailedError.
-        Native ConnectionError/TimeoutError from the transport -> propagate unchanged.
+        Connection failures and timeouts propagate unchanged.
         ``confirmed`` or ``unrequested`` -> returns the ChannelWriteResult.
 
         A scan device setter wraps this so any raise aborts the RunEngine, while a
@@ -857,8 +1051,8 @@ class ControlSystemConnector(ABC):
             result = await self.write_channel(channel_address, value, **kwargs)
         except ChannelLimitsViolationError as exc:
             # A limits refusal is a REFUSAL — normalize it into the unified denial type
-            # so consumers key on one refusal signal. (ConnectionError/TimeoutError are
-            # NOT caught here, so they propagate unchanged.)
+            # so consumers key on one refusal signal. Connection failures and
+            # timeouts are not caught here, so they propagate unchanged.
             raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
         return raise_for_write_result(result)
@@ -895,7 +1089,6 @@ class ControlSystemConnector(ABC):
             Dictionary mapping channel address to ChannelValue
             (May exclude channels that failed to read)
         """
-        pass
 
     async def write_multiple_channels(
         self,
@@ -942,7 +1135,11 @@ class ControlSystemConnector(ABC):
 
     @abstractmethod
     async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
+        self,
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,
     ) -> str:
         """
         Subscribe to channel changes.
@@ -950,11 +1147,18 @@ class ControlSystemConnector(ABC):
         Args:
             channel_address: Address/name of the channel
             callback: Function called when value changes (receives ChannelValue)
+            on_connection: Optional function told the channel's connection state:
+                ``True`` when it connects (before the first value of that
+                connection), ``False`` when it drops. A channel that never
+                connects reports nothing. Called on the event loop, like
+                ``callback``. Connectors whose control system reports no
+                connection state (DOOCS, Tango) accept and ignore it. A
+                subclass whose ``subscribe`` does not take it is told ``True``
+                before its first value by the base class instead.
 
         Returns:
             Subscription ID for later unsubscribe
         """
-        pass
 
     @abstractmethod
     async def unsubscribe(self, subscription_id: str) -> None:
@@ -964,7 +1168,42 @@ class ControlSystemConnector(ABC):
         Args:
             subscription_id: Subscription ID returned by subscribe()
         """
-        pass
+
+    async def wait_stale(self) -> None:
+        """
+        Raise :class:`~osprey_connectors.errors.ConnectorUnavailableError` once this connector's transport has gone stale.
+
+        Stale means the control system serves a channel again while this
+        process's client library still holds it down and will not notice on its
+        own; only a new connector in a new process cures it. That is a lost
+        connector, so it is raised as the lost-connector root, and the
+        supervisor that owns the connector's lifetime replaces it as it would
+        after any :class:`~osprey_connectors.errors.ConnectorUnavailableError`
+        (:mod:`osprey_connectors.recovery`). It never returns normally. A
+        connector that can tell (EPICS with a name server) overrides this
+        method.
+
+        This default serves every connector where staleness cannot occur or
+        cannot be told (DOOCS, Tango, ...): it waits for ever. A caller that is
+        shutting down cancels it.
+
+        An overriding connector counts only channels that connected in this
+        process, so in the successor of a stale process a channel that never
+        comes back cannot drive a respawn loop.
+        """
+        await asyncio.get_running_loop().create_future()
+
+    def channel_key(self, address: str) -> str:
+        """The one name every spelling of a channel's address shares on this control system.
+
+        A caller that must treat two addresses as one channel (a session
+        admitting one write per channel at a time) compares these keys; the
+        read or write itself still goes to the address as given. Pure and
+        synchronous. This default strips surrounding whitespace; a connector
+        whose protocol spells one channel several ways (EPICS: ``ca://X``,
+        ``X.VAL`` and ``X``) overrides it.
+        """
+        return address.strip()
 
     @abstractmethod
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
@@ -979,9 +1218,10 @@ class ControlSystemConnector(ABC):
             control system reports one) a display range
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached; the
+                connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
         """
-        pass
 
     @abstractmethod
     async def validate_channel(self, channel_address: str) -> bool:
@@ -994,4 +1234,3 @@ class ControlSystemConnector(ABC):
         Returns:
             True if channel is valid and accessible
         """
-        pass

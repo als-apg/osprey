@@ -226,7 +226,7 @@
 /* The explicit [hidden] rule is load-bearing: the author `display: flex` below
  * beats the user agent's `[hidden] { display: none }` (author styles win over
  * UA styles regardless of specificity), so without it the popover renders open
- * from the first frame. Same trap as `.status-item[hidden]` in files.css. */
+ * from the first frame. */
 .feedback-help-popover[hidden] {
   display: none;
 }

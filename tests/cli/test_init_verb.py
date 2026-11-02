@@ -14,6 +14,8 @@ different kinds of thing:
 * The ``data/`` tree is compared on SHAPE alone — ~2 MB of packaged bundle
   against the exemplar's ~20 hand-authored files, which exist to pin paths
   rather than content. Every path the exemplar names must be present.
+* ``data/README.md`` is the exception: it is copied from the package, the
+  exemplar reads that same file, and the two are compared byte for byte.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
   ``the retired layer directory*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
   That is the full TR-4 contract: the packaged prose is the exemplar's, down
@@ -52,10 +54,11 @@ from osprey.cli.init_cmd import (
     init,
 )
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._reporters import installed
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
 
 #: The exemplar's display name — what ``init`` derives from the directory it
@@ -69,32 +72,7 @@ EXEMPLAR_NAME = "Als Exemplar"
 AUTHORED_FILES = (".gitignore", "README.md", "ci-extra.yml")
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Answer ``init``'s runtime preflight without consulting the host.
-
-    ``--reset`` and ``--up`` are refused up front when no container runtime
-    answers, which is the right behaviour and the wrong dependency for a unit
-    test: left unstubbed these tests pass on a developer's machine with Docker
-    Desktop open and fail on a CI runner that has no daemon, which is a
-    property of the runner rather than of the verb.
-
-    Patched on ``runtime_helper`` itself because that is where the preflight
-    reads it from, at call time. The other callers of this function bind it at
-    import into their own modules, so this reaches exactly the one check these
-    tests need to get past and none of theirs.
-    ``TestContainerRuntimePreflight`` patches it back down, in the test body,
-    where it wins over this.
-    """
-    monkeypatch.setattr(
-        "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
-    )
+pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
 
 
 @pytest.fixture(autouse=True)
@@ -127,6 +105,33 @@ def _git_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "osprey@example.org")
 
 
+@pytest.fixture(autouse=True)
+def _no_repository_above_the_base_temp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Keep the checkout that hosts the run's base temp from enclosing every target.
+
+    ``init`` leaves git alone when a repository already covers the target, and
+    finds one by walking up for ``.git`` itself, which ``GIT_CEILING_DIRECTORIES``
+    does not reach. A base temp inside a checkout would turn every test here
+    into the enclosing-repository case. The real walk still runs; only a
+    repository above the base temp is ignored, so one a test makes under
+    ``tmp_path`` is still found.
+    """
+    import osprey.cli.init_cmd as init_cmd
+
+    base = tmp_path_factory.getbasetemp().resolve()
+    walk = init_cmd._enclosing_git_dir
+
+    def within_the_base_temp(target: Path) -> Path | None:
+        found = walk(target)
+        if found is None or not found.resolve().is_relative_to(base):
+            return None
+        return found
+
+    monkeypatch.setattr(init_cmd, "_enclosing_git_dir", within_the_base_temp)
+
+
 def run_init(runner: CliRunner, *args: str):
     """Invoke ``osprey init`` and return the result, with tracebacks preserved."""
     return runner.invoke(init, list(args), catch_exceptions=False)
@@ -144,7 +149,7 @@ def init_exemplar(runner: CliRunner, target: Path, *extra: str):
 def git(repo: Path, *args: str) -> str:
     """Run git in ``repo`` and return its stdout."""
     return subprocess.run(
-        ["git", *args], cwd=repo, capture_output=True, text=True, check=True
+        ["git", *args], cwd=repo, capture_output=True, text=True, check=True, timeout=60
     ).stdout
 
 
@@ -323,6 +328,12 @@ def test_rendered_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path) ->
     assert differing == []
 
 
+def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
+    """Init copies the preset's ``data/README.md`` through unchanged."""
+    emitted = exemplar_repo.joinpath("data/README.md").read_text(encoding="utf-8")
+    assert emitted == exemplar_source_files(with_ci=False)["data/README.md"]
+
+
 def test_source_lives_at_the_repo_root(exemplar_repo: Path) -> None:
     """No ``profile/`` nesting: the repo root IS the profile root."""
     assert (exemplar_repo / "profile.yml").is_file()
@@ -335,7 +346,8 @@ def test_state_zone_is_created_empty(exemplar_repo: Path) -> None:
     A marker file would be git-ignored along with the directory, and would be
     the one thing ``osprey reset``'s wipe had to work around.
     """
-    for relative in ("var/agent_data", "var/audit"):
+    assert not (exemplar_repo / "var" / "audit").exists()
+    for relative in ("var/agent_data",):
         state_dir = exemplar_repo / relative
         assert state_dir.is_dir()
         assert list(state_dir.iterdir()) == []
@@ -480,7 +492,7 @@ def test_no_git_skips_the_repository(runner: CliRunner, tmp_path: Path) -> None:
 
 def test_enclosing_git_repository_is_left_alone(runner: CliRunner, tmp_path: Path) -> None:
     """The clone-your-empty-repository-first workflow: git is already the operator's."""
-    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True, timeout=60)
     target = tmp_path / EXEMPLAR_DIRNAME
 
     result = init_exemplar(runner, target)
@@ -491,7 +503,7 @@ def test_enclosing_git_repository_is_left_alone(runner: CliRunner, tmp_path: Pat
     # Nothing was committed into somebody else's history — the enclosing repo
     # still has no HEAD at all.
     no_head = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"], cwd=tmp_path, capture_output=True
+        ["git", "rev-parse", "--verify", "HEAD"], cwd=tmp_path, capture_output=True, timeout=60
     )
     assert no_head.returncode != 0
 
@@ -553,7 +565,7 @@ def test_in_place_into_an_empty_clone(
     """No DIR: the deployment is written into the directory the operator stands in."""
     target = tmp_path / "cloned-empty"
     target.mkdir()
-    subprocess.run(["git", "init", "--quiet", str(target)], check=True)
+    subprocess.run(["git", "init", "--quiet", str(target)], check=True, timeout=60)
     monkeypatch.chdir(target)
 
     result = run_init(runner, "--preset", "control-assistant")
@@ -1016,11 +1028,8 @@ def test_the_report_is_written_through_the_reporters_console(
     # Installed before the verb runs, so `lifecycle_reporter` reuses it rather
     # than installing one of its own. Nothing is mounted and no thread starts:
     # this is the plain reporter with its console swapped.
-    previous = install_reporter(Recording(color=False))
-    try:
+    with installed(Recording(color=False)):
         result = init_exemplar(runner, tmp_path / EXEMPLAR_DIRNAME)
-    finally:
-        install_reporter(previous)
 
     assert result.exit_code == 0, result.output
     assert EXEMPLAR_REPORT in buffer.getvalue()
@@ -1213,7 +1222,7 @@ def test_importing_the_module_stays_off_the_heavy_chain() -> None:
         "'osprey.cli.profile_cmd' in sys.modules)"
     )
     completed = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=120
     )
     assert completed.stdout.split() == ["False", "False"]
 
@@ -1434,7 +1443,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
             "osprey.cli.init_cmd._surviving_project_resources",
-            lambda target, runtime: ["container old-thing", "volume old-thing_data"],
+            lambda runtime, project: ["container old-thing", "volume old-thing_data"],
         )
 
         result = runner.invoke(
@@ -1458,7 +1467,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
             "osprey.cli.init_cmd._surviving_project_resources",
-            lambda target, runtime: ["container old-thing"],
+            lambda runtime, project: ["container old-thing"],
         )
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.get_runtime_command",
@@ -1482,7 +1491,7 @@ class TestResetFlag:
     def test_it_proceeds_when_the_sweep_was_complete(self, runner, tmp_path, monkeypatch):
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
-            "osprey.cli.init_cmd._surviving_project_resources", lambda target, runtime: []
+            "osprey.cli.init_cmd._surviving_project_resources", lambda runtime, project: []
         )
 
         result = runner.invoke(
@@ -1523,6 +1532,59 @@ class TestResetFlag:
         assert stale_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
         assert not (exemplar_repo / "data" / "orphan.json").exists()
         assert "MY_PROVIDER_KEY=keepme" in env.read_text(encoding="utf-8")
+
+    def test_init_reset_sweeps_the_recorded_project_with_the_recorded_runtime(
+        self, exemplar_repo, runner, monkeypatch, caplog
+    ):
+        """The sweep reads the record before the reset deletes it.
+
+        The last start recorded which project it drove and on which runtime;
+        the survivor probe and its remedy act on those, not on what the shell
+        or the profile would decide now.
+        """
+        from osprey.deployment import reset as reset_mod
+        from osprey.deployment.deployment_record import (
+            DEPLOYMENT_RECORD_RELPATH,
+            DeploymentRecord,
+            read_deployment_record,
+            write_deployment_record,
+        )
+
+        monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+        record = DeploymentRecord("podman", "earlier-name")
+        write_deployment_record(exemplar_repo, record)
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_for_reinit",
+            lambda repo_root, **kw: (
+                (repo_root / DEPLOYMENT_RECORD_RELPATH).unlink(missing_ok=True),
+                _completed_reset(repo_root),
+            )[1],
+        )
+        swept: list[tuple[str, str]] = []
+
+        class _Probe:
+            def __init__(self, runtime, **_kw):
+                self.runtime = runtime
+
+            def containers_for_project(self, project):
+                swept.append((self.runtime, project))
+                return [reset_mod.Resource("container", f"{project}-old")]
+
+            def volumes_for_project(self, _project):
+                return []
+
+        monkeypatch.setattr(reset_mod, "RuntimeProbe", _Probe)
+
+        result = init_exemplar(runner, exemplar_repo, "--reset")
+
+        printed = " ".join(caplog.text.split())
+        assert read_deployment_record(exemplar_repo) is None
+        assert swept == [(record.runtime, record.compose_project)]
+        assert result.exit_code != 0
+        assert (
+            f"{record.runtime} ps -aq --filter "
+            f"label=com.docker.compose.project={record.compose_project}"
+        ) in printed
 
     def test_the_refusal_on_a_used_name_offers_the_flag(self, exemplar_repo, runner):
         """The wall an operator hits is where they must learn the way through it.
@@ -1575,7 +1637,7 @@ class TestContainerRuntimePreflight:
     def _runtime_down(monkeypatch, message="Docker Desktop is not running.\n\nTo fix this:\n1. x"):
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.verify_runtime_is_running",
-            lambda config=None: (False, message),
+            lambda config=None, **_: (False, message),
         )
 
     def test_reset_refuses_before_creating_anything(self, runner, tmp_path, monkeypatch):
@@ -1635,7 +1697,7 @@ class TestContainerRuntimePreflight:
         asked: list[object] = []
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.verify_runtime_is_running",
-            lambda config=None: (asked.append(config), (False, "should not be consulted"))[1],
+            lambda config=None, **_: (asked.append(config), (False, "should not be consulted"))[1],
         )
         target = tmp_path / "demo"
 

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "owner": {
+    "kind": "web_terminal",
+    "pid": 4242,
+    "port": 10080
+  },
+  "target": "va",
+  "generation": 3,
+  "posture": {
+    "live": "sandbox",
+    "standin": "sandbox"
+  },
+  "last_switch": null,
+  "switch": {
+    "va": "on"
+  },
+  "switch_epoch": 1761800000000000000
+}

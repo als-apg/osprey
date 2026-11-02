@@ -22,12 +22,13 @@ from osprey.cli.build_profile_schema import (
 )
 from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build_in
 
 _READONLY = """\
 name: Read-Only
 config:
   control_system.writes_enabled: false
-  web.ui_mode: simple
+  web.theme: main
 """
 
 _ADMIN = """\
@@ -59,13 +60,11 @@ def _dispatch(**overrides: object) -> DispatchConfig:
 def _write_config(project_path: Path, config: dict | None = None) -> None:
     doc = {"deployed_services": [], "services": {}}
     doc.update(config or {})
-    with open(project_path / "config.yml", "w") as fh:
-        YAML().dump(doc, fh)
+    YAML().dump(doc, project_path / "config.yml")
 
 
 def _read_config(project_path: Path) -> dict:
-    with open(project_path / "config.yml") as fh:
-        return YAML().load(fh)
+    return YAML().load(project_path / "config.yml")
 
 
 # ── the dataclass and the parser ─────────────────────────────────────────────
@@ -323,11 +322,7 @@ def _emitted_profile(preset: str) -> dict:
 @pytest.fixture(scope="module")
 def _built_exemplar(tmp_path_factory) -> Path:
     """The exemplar repo after one real ``osprey build`` (no venv, no hooks)."""
-    import os
 
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build as build_command
     from tests.fixtures.lifecycle_repo import (
         EXEMPLAR_DIRNAME,
         build_exemplar_repo,
@@ -336,13 +331,33 @@ def _built_exemplar(tmp_path_factory) -> Path:
 
     base = tmp_path_factory.mktemp("flagship-dispatch-tier")
     repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    finally:
-        os.chdir(previous)
+    with preserved_environ():
+        result = invoke_build_in(repo)
+    assert result.exit_code == 0, result.output
+    return repo
+
+
+@pytest.fixture(scope="module")
+def _asked_exemplar(tmp_path_factory) -> Path:
+    """The exemplar repo built as shipped, ``asked`` authored in the readwrite tier."""
+    import os
+
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
+
+    base = tmp_path_factory.mktemp("asked-dispatch-tier")
+    with preserved_environ():
+        os.environ["OSPREY_AUDIT_IDENTITY"] = "builder"
+        repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
+        tier_file = repo / "tiers" / "readwrite.yml"
+        text = tier_file.read_text(encoding="utf-8")
+        # The shipped stance (FR4): the readwrite tier and the root say `asked`.
+        assert text.count("\n  control_system.writes: asked\n") == 1
+        assert text.count("\n  control_system.writes:") == 1
+        result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 
@@ -364,6 +379,20 @@ class TestFlagshipExemplar:
         assert "tier" not in (profile.get("dispatch") or {})
 
     @pytest.mark.slow
+    def test_worker_config_carries_the_three_valued_map(self, _asked_exemplar: Path) -> None:
+        """The worker runs read-only; the map beside that says each login's own tier."""
+        worker = _asked_exemplar / "build" / "services" / "dispatch_worker" / "config.yml"
+        section = YAML(typ="safe").load(worker.read_text(encoding="utf-8"))["control_system"]
+
+        assert section["writes"] == "never"
+        assert section["login_tiers"] == {
+            "alice": "asked",
+            "bob": "never",
+            "carol": "allowed",
+            "builder": "asked",
+        }
+
+    @pytest.mark.slow
     def test_built_worker_runs_the_readonly_render(self, _built_exemplar: Path) -> None:
         from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME
 
@@ -377,7 +406,7 @@ class TestFlagshipExemplar:
             assert service["image"].endswith(f"{EXEMPLAR_DIRNAME}-readonly:local}}")
             assert env["OSPREY_PROJECT_DIR"] == root
             assert env["CONFIG_FILE"] == f"{root}/build/config.yml"
-            assert env["OSPREY_AUDIT_DIR"] == f"{root}/var/audit/{key}"
+            assert env["OSPREY_SPOOL_DIR"] == f"{root}/var/spool/{key}"
             workspace = [
                 str(volume).split(":")[1]
                 for volume in service.get("volumes", [])

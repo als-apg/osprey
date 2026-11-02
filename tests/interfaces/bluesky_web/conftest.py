@@ -177,11 +177,14 @@ def _stub_bridge(request: httpx.Request) -> httpx.Response:
 
 @pytest.fixture(autouse=True)
 def _isolate_ambient_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Mirrors the per-module isolation fixtures in this directory: point config
-    # resolution at a config.yml that does not exist, so ambient repo/user
-    # config can never leak a real launch token (or bridge URL) into the
-    # lifespan's resolve_bridge_url() during server startup. Harmlessly
-    # duplicates the module-level fixtures where both apply.
+    """Never let ambient repo/user config leak a real launch token (or bridge URL) in.
+
+    Config resolution is pointed at a file that does not exist, so a test
+    asserting the unarmed path cannot pass (or fail) because of the developer's
+    own ``config.yml``, and the lifespan's ``resolve_bridge_url()`` sees no real
+    bridge during server startup. Tests that need a token set
+    ``BLUESKY_LAUNCH_TOKEN`` themselves.
+    """
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
     monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
 

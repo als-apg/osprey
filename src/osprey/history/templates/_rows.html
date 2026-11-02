@@ -1,0 +1,17 @@
+{# Shared pieces of the session list and the session page. #}
+{% macro source_label(identity, persons) -%}
+{%- if identity.startswith('dispatch-worker') -%}dispatch
+{%- elif identity.endswith('-bridge') -%}{{ identity[:-7] }}
+{%- elif identity in persons -%}web
+{%- else -%}{{ identity }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro source_of(row) -%}
+{%- set persons = row.persons or [] -%}
+{%- set identities = row.identities or [] -%}
+{%- if identities -%}{{ source_label(identities[0], persons) }}{%- else -%}unknown{%- endif -%}
+{%- endmacro %}
+
+{% macro hhmm(ts) -%}{{ (ts | clock)[11:16] }}{%- endmacro %}
+{% macro hhmmss(ts) -%}{{ (ts | clock)[11:] }}{%- endmacro %}

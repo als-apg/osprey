@@ -54,6 +54,7 @@ from osprey.cli.build_posture_check import (
     missing_posture_errors,
 )
 from osprey.facility.errors import FacilityBuildError
+from tests.cli._lifecycle_build import rendered_config
 
 #: The presets the feature converts, and the ones the floor has to leave alone.
 PRESETS: tuple[str, ...] = (
@@ -100,7 +101,7 @@ def _rendered(**overrides: Any) -> dict[str, Any]:
         },
         "archiver": {"type": "mock_archiver"},
         "approval": {"enabled": True, "default_policy": "always"},
-        "claude_code": {"telemetry": {"enabled": True}},
+        "claude_code": {},
         "hooks": {"debug": False},
     }
     document.update(overrides)
@@ -127,8 +128,8 @@ def _named_keys(errors: list[str]) -> list[str]:
 class TestFloorKeySet:
     """What the floor can ask for, and nothing else."""
 
-    def test_the_floor_is_exactly_six_keys(self) -> None:
-        """The set is pinned: these six are the ones the build gate enforces,
+    def test_the_floor_is_exactly_five_keys(self) -> None:
+        """The set is pinned: these five are the ones the build gate enforces,
 
         out of the larger ``required`` set the manifest marks.
         """
@@ -137,7 +138,6 @@ class TestFloorKeySet:
             "archiver.type",
             "approval.enabled",
             "approval.default_policy",
-            "claude_code.telemetry.enabled",
             "hooks.debug",
         )
 
@@ -173,10 +173,7 @@ class TestControlsGate:
         rendered = _rendered(
             control_system={},
             archiver={},
-            claude_code={
-                "telemetry": {"enabled": True},
-                "servers": {"controls": {"enabled": False}},
-            },
+            claude_code={"servers": {"controls": {"enabled": False}}},
         )
         assert missing_posture_errors(rendered, [APPROVAL_HOOK]) == []
 
@@ -185,10 +182,7 @@ class TestControlsGate:
         rendered = _rendered(
             control_system={},
             archiver={},
-            claude_code={
-                "telemetry": {"enabled": True},
-                "servers": {"controls": {"enabled": True}},
-            },
+            claude_code={"servers": {"controls": {"enabled": True}}},
         )
         assert _named_keys(missing_posture_errors(rendered, [])) == [
             "control_system.type",
@@ -218,22 +212,16 @@ class TestApprovalHookGate:
 
 
 class TestUnconditionalKeys:
-    """Telemetry and hook debugging are asked of every deployment."""
+    """Hook debugging is asked of every deployment."""
 
     def test_required_with_no_controls_and_no_approval_hook(self) -> None:
         rendered = {"claude_code": {"servers": {"controls": {"enabled": False}}}}
-        assert _named_keys(missing_posture_errors(rendered, [])) == [
-            "claude_code.telemetry.enabled",
-            "hooks.debug",
-        ]
+        assert _named_keys(missing_posture_errors(rendered, [])) == ["hooks.debug"]
 
     def test_false_is_an_answer(self) -> None:
         """The floor asks to be told, not to be told ``true``."""
         rendered = _rendered(
-            claude_code={
-                "telemetry": {"enabled": False},
-                "servers": {"controls": {"enabled": False}},
-            },
+            claude_code={"servers": {"controls": {"enabled": False}}},
             hooks={"debug": False},
         )
         assert missing_posture_errors(rendered, [APPROVAL_HOOK]) == []
@@ -256,11 +244,11 @@ class TestWhatCountsAsStated:
         assert _named_keys(errors) == ["hooks.debug"], why
 
     def test_a_nested_key_is_read_through_its_parents(self) -> None:
-        """``claude_code.telemetry.enabled`` needs every segment, not just the leaf."""
-        rendered = _rendered(claude_code={"telemetry": {}})
-        assert _named_keys(missing_posture_errors(rendered, [])) == [
-            "claude_code.telemetry.enabled"
-        ]
+        """``hooks.debug`` needs its parent block, not just a leaf of that name."""
+        rendered = _rendered()
+        del rendered["hooks"]
+        rendered["debug"] = False
+        assert _named_keys(missing_posture_errors(rendered, [])) == ["hooks.debug"]
 
     @pytest.mark.parametrize("blank", ["", "   "])
     def test_a_blank_string_leaf_is_unstated(self, blank: str) -> None:
@@ -302,38 +290,43 @@ class TestEffectivePolicy:
 
 
 class TestAskCapable:
-    """Whether a guarded tool's call is put to a human, read from the render alone."""
+    """Whether a policy-keeping tool's call is put to a human, read from the render alone.
+
+    Governed tools ask whatever ``approval.*`` says; that half is in
+    ``test_governed_tools.py``. ``phoebus_drive`` stands in for the tools that
+    keep their policy.
+    """
 
     def test_enabled_and_a_prompting_policy_is_ask_capable(self) -> None:
-        assert ask_capable(_rendered(approval=_approval()), "execute_file")
+        assert ask_capable(_rendered(approval=_approval()), "phoebus_drive")
 
     def test_approval_disabled_is_not_ask_capable(self) -> None:
         rendered = _rendered(approval={**_approval(), "enabled": False})
-        assert not ask_capable(rendered, "execute_file")
+        assert not ask_capable(rendered, "phoebus_drive")
 
     def test_a_skip_policy_is_not_ask_capable(self) -> None:
-        rendered = _rendered(approval=_approval(pyaml_measure="skip"))
-        assert not ask_capable(rendered, "pyaml_measure")
+        rendered = _rendered(approval=_approval(phoebus_drive="skip"))
+        assert not ask_capable(rendered, "phoebus_drive")
 
     def test_a_selective_policy_is_ask_capable(self) -> None:
-        rendered = _rendered(approval=_approval(execute="selective"))
-        assert ask_capable(rendered, "execute")
+        rendered = _rendered(approval=_approval(phoebus_drive="selective"))
+        assert ask_capable(rendered, "phoebus_drive")
 
     def test_an_absent_approval_block_asks(self) -> None:
         """The hook reads an unstated switch as on and an unstated policy as ``always``."""
         rendered = _rendered()
         del rendered["approval"]
-        assert ask_capable(rendered, "execute")
+        assert ask_capable(rendered, "phoebus_drive")
 
     @pytest.mark.parametrize("enabled", [None, "", 0, "false", "no", 1])
     def test_a_non_bool_switch_is_not_ask_capable(self, enabled: Any) -> None:
         """A switch that is not true or false asks nobody; the hook and executor refuse it."""
         rendered = _rendered(approval={**_approval(), "enabled": enabled})
-        assert ask_capable(rendered, "execute") is False
+        assert ask_capable(rendered, "phoebus_drive") is False
 
     @pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
     def test_a_section_that_is_not_a_mapping_is_not_ask_capable(self, section: Any) -> None:
-        assert ask_capable(_rendered(approval=section), "execute") is False
+        assert ask_capable(_rendered(approval=section), "phoebus_drive") is False
 
 
 class TestApprovalEnabled:
@@ -393,21 +386,51 @@ class TestApprovalEnabled:
         )
 
 
+#: No server that serves a governed tool, on top of the registry defaults, so a
+#: test of a policy-keeping tool is not answered by a governed one first.
+_NO_GOVERNED_SERVERS: dict[str, dict[str, bool]] = {
+    "controls": {"enabled": False},
+    "python": {"enabled": False},
+}
+
+
 class TestApprovalHookSelected:
-    """A render that puts a guarded tool to a human selects the hook that asks."""
+    """A render that puts a tool to a human selects the hook that asks.
+
+    The governed half, facility tools included, is in ``test_governed_tools.py``.
+    """
 
     def test_the_hook_selected_passes(self) -> None:
         check_approval_hook_selected(_rendered(approval=_approval()), [APPROVAL_HOOK])
 
-    def test_approval_disabled_without_the_hook_passes(self) -> None:
+    def test_approval_disabled_without_the_hook_stops(self) -> None:
+        """``approval.*`` has no say over a governed tool, so off is no way out."""
         rendered = _rendered(approval={**_approval(), "enabled": False})
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["error-guidance"])
+        assert "governed tool `execute`" in stop.value.format_message()
+
+    def test_approval_disabled_with_no_governed_tool_served_passes(self) -> None:
+        rendered = _rendered(
+            approval={**_approval(), "enabled": False},
+            claude_code={"servers": _NO_GOVERNED_SERVERS},
+        )
         check_approval_hook_selected(rendered, ["error-guidance"])
 
-    def test_every_guarded_tool_skipped_without_the_hook_passes(self) -> None:
+    def test_every_guarded_tool_skipped_without_the_hook_stops(self) -> None:
+        """A ``skip`` policy on a governed tool is no way out either."""
         rendered = _rendered(
             approval=_approval(
                 channel_write="skip", execute="skip", execute_file="skip", pyaml_measure="skip"
             )
+        )
+        with pytest.raises(FacilityBuildError):
+            check_approval_hook_selected(rendered, ["error-guidance"])
+
+    def test_every_tool_skipped_with_no_governed_tool_served_passes(self) -> None:
+        skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
+        rendered = _rendered(
+            approval=_approval(**skipped), claude_code={"servers": _NO_GOVERNED_SERVERS}
         )
         check_approval_hook_selected(rendered, ["error-guidance"])
 
@@ -418,29 +441,40 @@ class TestApprovalHookSelected:
         assert stop.value.kind == "profile-invalid"
         assert stop.value.record_id == "approval.enabled"
         message = stop.value.format_message()
-        assert "guarded tool `execute` is put to a human under `approval.tools.execute`" in message
+        assert "governed tool `execute` is put to a human by the write switch" in message
         assert "add `approval` to `hooks:` in profile.yml" in message
+        assert "approval.enabled: false" not in message
 
     @pytest.mark.parametrize(
-        ("tool", "server"),
-        [
-            ("channel_write", "controls"),
-            ("queue_start", "bluesky"),
-            ("queue_add", "bluesky"),
-            ("phoebus_drive", "phoebus"),
-        ],
+        ("server", "named"),
+        [("controls", "channel_write"), ("bluesky", "queue_start")],
     )
-    def test_an_asking_stage1_tool_on_an_enabled_server_stops(self, tool: str, server: str) -> None:
+    def test_a_governed_stage1_tool_on_an_enabled_server_stops(
+        self, server: str, named: str
+    ) -> None:
         skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
         rendered = _rendered(
-            approval=_approval(**{**skipped, tool: "always"}),
-            claude_code={"servers": {server: {"enabled": True}}},
+            approval=_approval(**skipped),
+            claude_code={"servers": {**_NO_GOVERNED_SERVERS, server: {"enabled": True}}},
         )
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, ["error-guidance"])
-        assert f"guarded tool `{tool}` is put to a human under `approval.tools.{tool}`" in (
+        assert f"governed tool `{named}` is put to a human by the write switch" in (
             stop.value.format_message()
         )
+        check_approval_hook_selected(rendered, [APPROVAL_HOOK])
+
+    def test_an_asking_policy_tool_on_an_enabled_server_stops(self) -> None:
+        skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
+        rendered = _rendered(
+            approval=_approval(**{**skipped, "phoebus_drive": "always"}),
+            claude_code={"servers": {**_NO_GOVERNED_SERVERS, "phoebus": {"enabled": True}}},
+        )
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["error-guidance"])
+        assert (
+            "guarded tool `phoebus_drive` is put to a human under `approval.tools.phoebus_drive`"
+        ) in stop.value.format_message()
         check_approval_hook_selected(rendered, [APPROVAL_HOOK])
 
     @pytest.mark.parametrize(
@@ -458,7 +492,7 @@ class TestApprovalHookSelected:
         skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
         rendered = _rendered(
             approval=_approval(**{**skipped, tool: "always"}),
-            claude_code={"servers": {server: {"enabled": False}}},
+            claude_code={"servers": {**_NO_GOVERNED_SERVERS, server: {"enabled": False}}},
         )
         check_approval_hook_selected(rendered, ["error-guidance"])
 
@@ -466,10 +500,11 @@ class TestApprovalHookSelected:
         rendered = _rendered(approval=_approval(execute="always"))
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, [])
-        assert "guarded tool `execute`" in stop.value.format_message()
+        assert "governed tool `execute`" in stop.value.format_message()
 
-    def test_an_unstated_approval_block_without_the_hook_stops(self) -> None:
-        rendered = _rendered()
+    def test_an_unserved_guarded_tool_still_stops_by_its_policy(self) -> None:
+        """Off the governed set a guarded tool is read as before, served or not."""
+        rendered = _rendered(claude_code={"servers": _NO_GOVERNED_SERVERS})
         del rendered["approval"]
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, [])
@@ -505,6 +540,7 @@ def _run_cli(
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
 
 
@@ -556,7 +592,7 @@ def test_each_preset_builds_green(preset: str, built_preset: Any) -> None:
     own output if either verb refuses.
     """
     repo = built_preset(preset)
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    rendered = rendered_config(repo)
     assert missing_posture_errors(rendered, _selected_hooks(repo)) == []
 
 

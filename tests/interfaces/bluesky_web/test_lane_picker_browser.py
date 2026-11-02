@@ -12,14 +12,17 @@ Runs the composed sidecar for real (``bluesky_live_server``), then swaps in a
 two-lane world the way every suite in this directory swaps the bridge: a
 recording ``httpx.MockTransport`` answering for BOTH bridge hosts, plus the
 ``app.state`` lane map/roster the lifespan would have resolved from a
-two-lane render.
+two-lane render. Each bridge request is recorded with the lane of the app
+request it serves, so the routing claim is per request.
 
 Skips cleanly when the chromium headless binary is not installed.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -43,21 +46,52 @@ VA_BRIDGE_URL = "http://bridge-va.test"
 
 _PANEL_SETTLE_MS = 15_000
 
+#: The lane a bridge call made outside any app request is recorded under.
+_NO_APP_REQUEST = "<no app request>"
 
-def _wire_two_lanes() -> list[str]:
-    """Swap the served app into a two-lane shape; return the recorded hosts.
+#: The ``?lane=`` of the app request being served; ``None`` names lane 1.
+_serving_lane: ContextVar[str | None] = ContextVar("serving_lane", default=_NO_APP_REQUEST)
+
+
+class _LaneTag:
+    """ASGI wrapper that tags each app request with the lane it names.
+
+    Reads ``lane`` from the query string the way the proxy routers do: empty
+    and absent both name lane 1.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.inner(scope, receive, send)
+            return
+        query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
+        token = _serving_lane.set((query.get("lane") or [""])[0] or None)
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            _serving_lane.reset(token)
+
+
+def _wire_two_lanes(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str | None, str]]:
+    """Swap the served app into a two-lane shape; return the recorded pairs.
 
     Must be called inside a ``bluesky_live_server()`` context (the lifespan
     has run). The recording handler answers for both bridge hosts with the
-    same stub answers, so which HOST each request reached is the entire
-    routing claim.
+    same stub answers and records ``(lane, host)`` per bridge request: the
+    lane the app request it serves names, and the host it reached.
     """
-    hosts: list[str] = []
+    pairs: list[tuple[str | None, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        hosts.append(request.url.host)
+        pairs.append((_serving_lane.get(), request.url.host))
         return _stub_bridge(request)
 
+    monkeypatch.setattr(
+        app, "middleware_stack", _LaneTag(app.middleware_stack or app.build_middleware_stack())
+    )
     app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     app.state.bridge_url = STUB_BRIDGE_URL
     app.state.bridge_urls = {"bluesky": STUB_BRIDGE_URL, "bluesky_va": VA_BRIDGE_URL}
@@ -65,7 +99,7 @@ def _wire_two_lanes() -> list[str]:
         {"lane": "bluesky", "lane_target": "live"},
         {"lane": "bluesky_va", "lane_target": "va"},
     ]
-    return hosts
+    return pairs
 
 
 def test_single_lane_deployment_shows_no_picker(
@@ -84,7 +118,7 @@ def test_single_lane_deployment_shows_no_picker(
 
 
 def test_second_lane_document_routes_every_bridge_request_to_that_lane(
-    chromium_browser: Browser, bluesky_live_server
+    chromium_browser: Browser, bluesky_live_server, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The claim the feature exists for, end to end.
 
@@ -94,7 +128,7 @@ def test_second_lane_document_routes_every_bridge_request_to_that_lane(
     per-document design makes unrepresentable.
     """
     with bluesky_live_server() as base_url:
-        hosts = _wire_two_lanes()
+        pairs = _wire_two_lanes(monkeypatch)
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/?lane=bluesky_va", wait_until="load")
@@ -111,6 +145,7 @@ def test_second_lane_document_routes_every_bridge_request_to_that_lane(
 
             # The boot fetches have long since landed once the strip rendered;
             # the routing claim is over everything recorded.
+            hosts = [host for _, host in pairs]
             assert hosts, "the panel booted without a single bridge fetch"
             assert set(hosts) == {"bridge-va.test"}
         finally:
@@ -118,19 +153,18 @@ def test_second_lane_document_routes_every_bridge_request_to_that_lane(
 
 
 def test_picker_switches_back_to_lane_one_by_navigation(
-    chromium_browser: Browser, bluesky_live_server
+    chromium_browser: Browser, bluesky_live_server, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Clicking the other lane is a navigation to a fresh document whose URL
     no longer names a lane — lane 1 stays off the wire, as it always was."""
     with bluesky_live_server() as base_url:
-        hosts = _wire_two_lanes()
+        pairs = _wire_two_lanes(monkeypatch)
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/?lane=bluesky_va", wait_until="load")
             strip = page.locator("#lane-strip")
             expect(strip).to_be_visible(timeout=_PANEL_SETTLE_MS)
 
-            hosts.clear()
             with page.expect_navigation(wait_until="load"):
                 strip.locator("button", has_text="live").click()
 
@@ -139,7 +173,14 @@ def test_picker_switches_back_to_lane_one_by_navigation(
             expect(page.locator("#lane-strip button", has_text="live")).to_have_attribute(
                 "aria-pressed", "true"
             )
-            assert hosts, "the reloaded panel booted without a single bridge fetch"
-            assert set(hosts) == {"bridge.test"}
+            # Requests of either document may still land around the
+            # navigation; each is held to the lane its own request names.
+            assert all(lane != _NO_APP_REQUEST for lane, _ in pairs), pairs
+            assert all(host == "bridge-va.test" for lane, host in pairs if lane == "bluesky_va"), (
+                pairs
+            )
+            lane_one = [host for lane, host in pairs if lane is None]
+            assert lane_one, "the reloaded panel booted without a single bridge fetch"
+            assert set(lane_one) == {"bridge.test"}, pairs
         finally:
             page.close()

@@ -8,8 +8,8 @@ truthy and hand that value back, so a wait that is also a read stays one call::
 On timeout they raise :class:`AssertionError` naming *what* was awaited and the
 probe's last value, which is what a failing test log needs to show.
 
-For ports, use ``free_port`` / ``wait_for_port`` from
-:mod:`osprey.interfaces._serving` (tests/README.md, "Ports").
+For ports, use the ``reserve_port`` fixture or the harness's ``_ports`` helpers,
+and ``wait_for_port`` from :mod:`osprey.interfaces._serving` (tests/README.md, "Ports").
 """
 
 from __future__ import annotations

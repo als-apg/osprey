@@ -4,15 +4,15 @@ Three things only a live page can prove, all of them wired in
 ``static/js/search.js`` from payloads the backend really produces:
 
 - the query-expansion strip (``[data-testid="expansion-banner"]``) renders one
-  pair per ``expanded_terms`` group in Expert view, and is absent in Simple
-  view and whenever the response expanded nothing;
+  pair per ``expanded_terms`` group, and is absent whenever the response
+  expanded nothing;
 - a vocabulary file that could not be loaded, with no database behind the
   panel, still puts ``ariel.vocabulary.path`` and its remedy on screen inside
   ``#config-invalid-banner`` and leaves ``#search-btn`` disabled;
 - the warning class (a pre-existing ``validate()`` error, valid vocabulary)
   renders ``#config-warning-banner`` instead and leaves the button usable.
 
-The panel is booted the way ``test_load_smokes.py::_launch_ariel`` boots it —
+The panel is booted the way ``_launchers.py::launch_ariel`` boots it —
 a real ``create_app()`` on a real uvicorn server — with a real ``config.yml``
 written into ``tmp_path`` and ``create_ariel_service`` patched, so the
 configuration classification, the ``/api/capabilities`` payload and the
@@ -37,7 +37,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -108,6 +108,10 @@ class _ServiceDouble:
         """Report the double as healthy (the lifespan logs this)."""
         return True, "Service healthy"
 
+    async def verify_search_model_table(self) -> None:
+        """Report the embedding table as present (the lifespan probes it)."""
+        return None
+
     async def __aenter__(self) -> _ServiceDouble:
         """Enter the async context the service protocol defines."""
         return self
@@ -127,7 +131,7 @@ def _launch_ariel_with_config(
 ) -> Iterator[str]:
     """Boot standalone ARIEL against a real ``config.yml``, with no database.
 
-    Mirrors ``test_load_smokes.py::_launch_ariel`` (cwd isolation + the real
+    Mirrors ``_launchers.py::launch_ariel`` (cwd isolation + the real
     ``create_app()`` on a real server); the config file is written first and
     handed to the factory explicitly, so a relative ``ariel.vocabulary.path``
     resolves against ``tmp_path`` and no stray ``/app/config.yml`` or
@@ -157,7 +161,7 @@ def _launch_ariel_with_config(
 
     with patch("osprey.services.ariel_search.create_ariel_service", create_service):
         app = create_app(config_file)
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             yield base_url
 
 
@@ -171,8 +175,6 @@ def _write_vocabulary(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Faked search responses
 # ---------------------------------------------------------------------------
-
-SIMPLE_TITLE = "Simple-view search hit"
 
 TWO_GROUPS = [
     {"original": "ts", "alternatives": ["troubleshoot", "timing system"]},
@@ -190,8 +192,8 @@ def _entry(entry_id: str, subject: str) -> dict[str, Any]:
     empty container nor an empty state proves a response was ever drawn.
 
     Args:
-        entry_id: Shown verbatim in the Expert card's ``.entry-id`` span.
-        subject: First line of ``raw_text``; the Simple card's title.
+        entry_id: Shown verbatim in the card's ``.entry-id`` span.
+        subject: First line of ``raw_text``.
 
     Returns:
         One entry of a ``SearchResponse`` body.
@@ -362,10 +364,10 @@ def test_configuration_warning_leaves_search_usable(
 # ---------------------------------------------------------------------------
 
 
-def test_expansion_strip_renders_one_pair_per_group_in_expert_view(
+def test_expansion_strip_renders_one_pair_per_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chromium_browser: Browser
 ) -> None:
-    """Expert view shows ``original -> canonical, canonical`` once per group."""
+    """The strip shows ``original -> canonical, canonical`` once per group."""
     _write_vocabulary(tmp_path)
     with _launch_ariel_with_config(
         tmp_path, monkeypatch, _healthy_section(), with_service=True
@@ -378,8 +380,6 @@ def test_expansion_strip_renders_one_pair_per_group_in_expert_view(
         _route_search(page, state)
         page.goto(base_url, wait_until="load")
 
-        # Expert is the default view; no pick needed to be in it.
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert", timeout=10_000)
         expect(page.locator("#config-invalid-banner")).to_have_count(0)
 
         _run_search(page, "ts bpm")
@@ -408,53 +408,3 @@ def test_expansion_strip_renders_one_pair_per_group_in_expert_view(
         expect(strip).to_have_count(0)
 
         page.close()
-
-
-def test_expansion_strip_absent_in_simple_view(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chromium_browser: Browser
-) -> None:
-    """Simple view omits the search-mechanics chrome, expansions included."""
-    _write_vocabulary(tmp_path)
-    with _launch_ariel_with_config(
-        tmp_path, monkeypatch, _healthy_section(), with_service=True
-    ) as base_url:
-        state: dict[str, list[dict[str, Any]]] = {
-            "expanded_terms": TWO_GROUPS,
-            "entries": [_entry("SIMPLE-1", SIMPLE_TITLE)],
-        }
-
-        page = chromium_browser.new_page()
-        _route_search(page, state)
-        # ?mode= is the one-shot view deep-link the display menu also writes.
-        page.goto(f"{base_url}/?mode=simple", wait_until="load")
-        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple", timeout=10_000)
-
-        _run_search(page, "ts bpm")
-
-        # The response's own hit really rendered — not index.html's static
-        # "Ready to Search" placeholder, which sits inside #search-results
-        # before any search and would make a bare .empty-state check vacuous.
-        # The strip is the only thing missing.
-        expect(page.locator(".entry-card-simple-title")).to_have_text(SIMPLE_TITLE, timeout=10_000)
-        expect(page.locator('[data-testid="expansion-banner"]')).to_have_count(0)
-
-        page.close()
-
-        # Control, same response: Expert view DOES draw the strip, so the
-        # absence above is the view mode and not a response that expanded
-        # nothing. A fresh page is a fresh context, hence the default view.
-        expert_page = chromium_browser.new_page()
-        _route_search(expert_page, state)
-        expert_page.goto(base_url, wait_until="load")
-        expect(expert_page.locator("html")).to_have_attribute(
-            "data-ui-mode", "expert", timeout=10_000
-        )
-
-        _run_search(expert_page, "ts bpm")
-
-        expect(expert_page.locator(".entry-card .entry-id")).to_have_text(
-            "SIMPLE-1", timeout=10_000
-        )
-        expect(expert_page.locator('[data-testid="expansion-banner"]')).to_have_count(1)
-
-        expert_page.close()

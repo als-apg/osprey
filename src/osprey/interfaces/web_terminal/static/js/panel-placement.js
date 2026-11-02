@@ -31,8 +31,7 @@
  *
  * MODE DEGRADATION
  * ----------------
- * The tile rebuild runs wherever there is a dock shell — in Simple as in
- * Expert; the ui view is a starting point, not a lock. Fallback mode (no dock
+ * The tile rebuild runs wherever there is a dock shell. Fallback mode (no dock
  * shell) has no tiles at all and skips the rebuild, letting the focus step take
  * the single surface over. Rail MEMBERSHIP is applied in every mode — the
  * launcher rail is not a dock feature, and a preset must prune it wherever it
@@ -129,8 +128,8 @@ function hasAnyServiceTile() {
  * panel is unhealthy — the placeholder tile still appears and fills on the next
  * health settle); a non-member is revealed through the same visibility-POST path
  * the "+" menu uses. The exception is a non-member that already held a tile
- * before the move — an off-rail tile (panel-manager's openPanelOffRail) being
- * rearranged: moving it is layout, not a request to join the rail, so it is
+ * before the move (a tile opened from a chat link or the palette and then
+ * rearranged): moving it is layout, not a request to join the rail, so it is
  * focused without a POST and stays off it.
  * @param {string} panelId
  * @param {boolean} wasOnScreen - the panel held a tile before this placement

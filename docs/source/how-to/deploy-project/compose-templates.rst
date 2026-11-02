@@ -208,10 +208,9 @@ fails at ``up`` on the image it forgot:
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
    * - The upstream pins
      - One row at a time: ``services.<name>.image`` (or the row's
-       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy. The
-       telemetry store and gateway have no variable; keep the store's tag
-       when you mirror it, since its query page is served only for a tag
-       OSPREY knows.
+       ``OSPREY_..._IMAGE`` variable) naming your mirrored copy. The agent
+       record's ClickHouse store has no variable: the profile's
+       ``agent_record.clickhouse.image`` names its mirrored copy.
    * - The web tier's images, auth sidecar included
      - ``registry.url`` plus ``modules.web_terminals.image_tag``.
    * - nginx
@@ -234,10 +233,6 @@ fails at ``up`` on the image it forgot:
        image: registry.example.org/mirror/pgvector/pgvector:pg16
      mongodb:
        image: registry.example.org/mirror/mongo:7
-     telemetry_store:
-       image: registry.example.org/mirror/clickhouse/clickhouse-server:26.8.18.2
-     telemetry_gateway:
-       image: registry.example.org/mirror/opentelemetry-collector-contrib:0.162.0
      graphdb:
        image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:

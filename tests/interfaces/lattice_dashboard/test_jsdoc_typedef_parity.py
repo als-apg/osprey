@@ -6,7 +6,8 @@ typedefs, which ``tsc`` holds the code to. The server owns those shapes, and
 in that snapshot must carry the same property names, the same required set,
 the same nullability per property and the same scalar type, so a field the
 server adds or makes nullable fails here instead of reaching the page as an
-untyped surprise.
+untyped surprise. A quoted literal (``'figure_error'``) is a string, and must
+be the schema's constant when the schema states one.
 
 Typedefs whose names are not schemas (callback bundles, browser-only shapes)
 are not checked. A typedef that names a schema must use the ``{object}`` form
@@ -39,6 +40,9 @@ _TYPEDEF_RE = re.compile(r"@typedef\s+\{(?P<type>.*?)\}\s+(?P<name>\w+)")
 _PROPERTY_RE = re.compile(
     r"@property\s+\{(?P<type>[^}]*)\}\s+(?:\[(?P<optional>\w+)\]|(?P<required>\w+))"
 )
+
+# A JSDoc string literal type, such as ``'figure_error'``.
+_LITERAL_RE = re.compile(r"""^(['"])(?P<value>.*)\1$""")
 
 # A JSDoc scalar type and the JSON-schema scalar type it restates.
 _SCALARS = {"string": "string", "boolean": "boolean", "number": "number", "integer": "number"}
@@ -91,13 +95,21 @@ def _js_alternatives(js_type: str) -> list[str]:
     return [part.strip() for part in js_type.split("|")]
 
 
+def _js_scalar(part: str) -> str | None:
+    """The JSON-schema scalar a JSDoc alternative restates; a quoted literal is a string."""
+    if part in _SCALARS:
+        return _SCALARS[part]
+    if _LITERAL_RE.match(part):
+        return "string"
+    return None
+
+
 _SCHEMA_NAMES = set(_schemas())
 _MATCHED = [t for t in _typedefs() if t.form == "object" and t.name in _SCHEMA_NAMES]
 
 
-@pytest.mark.parametrize("typedef", _MATCHED, ids=[t.name for t in _MATCHED])
-def test_typedef_matches_schema(typedef: _Typedef) -> None:
-    schema = _schemas()[typedef.name]
+def _check(typedef: _Typedef, schema: dict[str, Any]) -> None:
+    """Assert that *typedef* restates *schema* field for field."""
     where = f"{typedef.source} @typedef {typedef.name}"
     fields = schema.get("properties", {})
 
@@ -125,11 +137,40 @@ def test_typedef_matches_schema(typedef: _Typedef) -> None:
         }
         if not schema_scalars:
             continue
-        js_scalars = {_SCALARS[part] for part in js if part in _SCALARS}
+        js_scalars = {scalar for part in js if (scalar := _js_scalar(part)) is not None}
         assert js_scalars == {_SCALARS[s] for s in schema_scalars}, (
             f"{where}: property {name!r} has scalar type {sorted(schema_scalars)} on the server, "
             f"the typedef says {typedef.properties[name]!r}"
         )
+        literals = {m["value"] for part in js if (m := _LITERAL_RE.match(part))}
+        consts = {alt["const"] for alt in alternatives if "const" in alt}
+        if literals and consts:
+            assert literals == consts, (
+                f"{where}: property {name!r} is the constant {sorted(consts)} on the server, "
+                f"the typedef says {typedef.properties[name]!r}"
+            )
+
+
+@pytest.mark.parametrize("typedef", _MATCHED, ids=[t.name for t in _MATCHED])
+def test_typedef_matches_schema(typedef: _Typedef) -> None:
+    _check(typedef, _schemas()[typedef.name])
+
+
+def test_a_literal_other_than_the_schema_const_is_refused() -> None:
+    schema = {
+        "properties": {"type": {"const": "figure_error", "type": "string"}},
+        "required": ["type"],
+    }
+    typedef = _Typedef(
+        name="FigureErrorEvent",
+        form="object",
+        source="net.js",
+        properties={"type": "'figure_ready'"},
+        required=frozenset({"type"}),
+    )
+
+    with pytest.raises(AssertionError, match="constant"):
+        _check(typedef, schema)
 
 
 def test_schema_named_typedefs_use_the_object_form() -> None:

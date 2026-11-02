@@ -57,10 +57,9 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from tests.interfaces._panel_launch import publish_artifact_url
+from osprey.interfaces._serving import run_app_server
+from tests.interfaces._hub import hub_server
 from tests.interfaces.conftest import (
-    _apply_all,
-    _run_app_server,
     use_process_web_credentials,
 )
 
@@ -194,33 +193,14 @@ _CUSTOM_DATA_VIZ: dict = {
 def _hub_server(workspace_dir: Path) -> Iterator[str]:
     """Launch a real web-terminal hub with artifacts + the data-viz panel.
 
-    The companion backends are bypassed via the same three patches every hub
-    browser suite uses; the artifacts panel reports the standard fallback URL
-    so it loads-and-activates without a real backend process.
+    The artifacts panel reports the standard fallback URL so it
+    loads-and-activates without a real backend process.
 
     Yields:
         The hub's base URL.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [_CUSTOM_DATA_VIZ], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(workspace_dir, custom_panels=[_CUSTOM_DATA_VIZ]) as (base_url, _app):
+        yield base_url
 
 
 def _open_hub_page(browser: Browser, base_url: str) -> Page:
@@ -422,37 +402,27 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
     from osprey.services.bluesky_bridge import plan_loader
     from osprey.services.bluesky_bridge.app import app as bridge_app
 
-    managed = [
-        "BLUESKY_SESSION_PLAN_DIR",
-        "BLUESKY_PLAN_DIRS",
-        "BLUESKY_PLAN_MODULE",
-        "BLUESKY_BRIDGE_URL",
-        "OSPREY_CONFIG",
-    ]
-    saved = {k: os.environ.get(k) for k in managed}
+    plan_env = {
+        "BLUESKY_SESSION_PLAN_DIR": str(tmp_path / "plans_session"),
+        "OSPREY_CONFIG": str(tmp_path / "does-not-exist.yml"),
+    }
     try:
-        os.environ["BLUESKY_SESSION_PLAN_DIR"] = str(tmp_path / "plans_session")
-        os.environ["OSPREY_CONFIG"] = str(tmp_path / "does-not-exist.yml")
-        os.environ.pop("BLUESKY_PLAN_DIRS", None)
-        os.environ.pop("BLUESKY_PLAN_MODULE", None)
-        plan_loader.reset_facility_plans()
-        bridge_draft._clear()
+        with patch.dict(os.environ, plan_env):
+            os.environ.pop("BLUESKY_PLAN_DIRS", None)
+            os.environ.pop("BLUESKY_PLAN_MODULE", None)
+            plan_loader.reset_facility_plans()
+            bridge_draft._clear()
 
-        with _run_app_server(bridge_app) as bridge_url:
-            os.environ["BLUESKY_BRIDGE_URL"] = bridge_url
-            # `sidecar_app` is a module-level singleton, so its cached
-            # credential holder goes stale the moment the root conftest
-            # resets the process one; without this the browser's minted
-            # session cookie is refused and /bluesky/ never renders.
-            use_process_web_credentials(sidecar_app)
-            with _run_app_server(sidecar_app) as sidecar_url:
-                yield sidecar_url
+            with run_app_server(bridge_app) as bridge_url:
+                os.environ["BLUESKY_BRIDGE_URL"] = bridge_url
+                # `sidecar_app` is a module-level singleton, so its cached
+                # credential holder goes stale the moment the root conftest
+                # resets the process one; without this the browser's minted
+                # session cookie is refused and /bluesky/ never renders.
+                use_process_web_credentials(sidecar_app)
+                with run_app_server(sidecar_app) as sidecar_url:
+                    yield sidecar_url
     finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
         plan_loader.reset_facility_plans()
         bridge_draft._clear()
 

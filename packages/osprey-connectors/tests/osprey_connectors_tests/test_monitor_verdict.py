@@ -71,7 +71,7 @@ def _switch(root: Path, *targets: str, posture: dict[str, str] | None = None) ->
     *posture* is an old narrowing laid over the mirror verbatim, as a file
     written before the mirror would carry it.
     """
-    path = write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"))
+    path = write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "asked"))
     if posture is not None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         payload["posture"] = dict(posture)

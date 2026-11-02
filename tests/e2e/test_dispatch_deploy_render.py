@@ -31,15 +31,12 @@ Docker lanes otherwise exercise:
 
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure, run_command
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = pytest.mark.model_free
@@ -50,27 +47,6 @@ PROJECT_NAME = "e2e-dispatch-render"
 
 INIT_TIMEOUT_SEC = 300
 BUILD_TIMEOUT_SEC = 300
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
 
 
 def _init_dispatch_repo(
@@ -91,7 +67,7 @@ def _init_dispatch_repo(
 
     Returns the repo root; the render is at ``<repo>/build``.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     repo = root / PROJECT_NAME
 
     edits = {
@@ -102,7 +78,7 @@ def _init_dispatch_repo(
         }
     }
 
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -115,10 +91,7 @@ def _init_dispatch_repo(
         cwd=root,
         timeout=INIT_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, (
-        f"osprey init failed (rc={init.returncode}):\n"
-        f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-    )
+    assert init.returncode == 0, format_failure("osprey init", init)
 
     # Decided BEFORE the build, because the render probes the repo root for it:
     # `osprey_env_present` is what gates the worker's env_file block, and
@@ -132,15 +105,12 @@ def _init_dispatch_repo(
     elif env_path.exists():
         env_path.unlink()
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
         cwd=root,
         timeout=BUILD_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, (
-        f"osprey build failed (rc={build.returncode}):\n"
-        f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-    )
+    assert build.returncode == 0, format_failure("osprey build", build)
     return repo
 
 

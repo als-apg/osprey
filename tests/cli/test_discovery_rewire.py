@@ -73,27 +73,6 @@ def nested(repo: Path) -> Path:
     return deep
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo what an in-process launch does to the interpreter's globals.
-
-    These commands chdir into the render and publish ``OSPREY_CONFIG`` — both
-    deliberate, both process-global, and both able to reach every test that
-    runs after this one in the same worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    yield
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
-
-
 @pytest.fixture(autouse=True)
 def _no_ambient_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     """Start every test from an environment that names no deployment.
@@ -312,6 +291,7 @@ class TestDetachedServerHandle:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
         assert status.stdout == ""
 

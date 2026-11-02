@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.interfaces._serving import free_port
 from tests._live import wait_until
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -1338,7 +1337,7 @@ class TestAutoLaunchLogging:
 class TestServerLauncherRetry:
     """Tests for server launcher crash recovery."""
 
-    def test_server_launcher_retries_after_crash(self):
+    def test_server_launcher_retries_after_crash(self, reserve_port):
         """_launched resets to False when the server thread crashes."""
         from osprey.infrastructure.server_launcher import ServerLauncher
 
@@ -1347,7 +1346,7 @@ class TestServerLauncherRetry:
 
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", free_port()),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=crash_app_factory,
             pass_workspace=False,
@@ -1356,15 +1355,10 @@ class TestServerLauncherRetry:
         # First call: sets _launched = True, then thread crashes and resets it
         launcher.ensure_running()
 
-        # Give the thread time to crash and reset _launched
-        import time
+        # After the crash, _launched is reset to False
+        wait_until(lambda: launcher._launched is False, what="_launched reset after the crash")
 
-        time.sleep(1.0)
-
-        # After crash, _launched should be reset to False
-        assert launcher._launched is False
-
-    def test_server_launcher_health_check_warning(self, caplog, monkeypatch):
+    def test_server_launcher_health_check_warning(self, reserve_port, caplog, monkeypatch):
         """A server that never answers /health is warned about once the late-health window ends."""
         import logging
 
@@ -1380,7 +1374,7 @@ class TestServerLauncherRetry:
 
         launcher = ServerLauncher(
             name="Test Server",
-            config_reader=lambda: ("127.0.0.1", free_port()),
+            config_reader=lambda: ("127.0.0.1", reserve_port()),
             auto_launch_checker=lambda: True,
             app_factory=noop_app_factory,
             pass_workspace=False,

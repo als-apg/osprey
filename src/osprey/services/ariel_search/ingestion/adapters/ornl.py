@@ -105,14 +105,16 @@ class ORNLLogbookAdapter(FacilityAdapter):
             try:
                 import aiohttp
 
-                async with aiohttp.ClientSession(connector=self._create_connector()) as session:
-                    async with session.get(self.source_url, ssl=self._ssl_context()) as response:
-                        if response.status != 200:
-                            raise IngestionError(
-                                f"HTTP request failed with status {response.status}",
-                                source_system=self.source_system_name,
-                            )
-                        return await response.json()
+                async with (
+                    aiohttp.ClientSession(connector=self._create_connector()) as session,
+                    session.get(self.source_url, ssl=self._ssl_context()) as response,
+                ):
+                    if response.status != 200:
+                        raise IngestionError(
+                            f"HTTP request failed with status {response.status}",
+                            source_system=self.source_system_name,
+                        )
+                    return await response.json()
             except ImportError as err:
                 raise IngestionError(
                     "aiohttp is required for HTTP sources",
@@ -211,14 +213,14 @@ class ORNLLogbookAdapter(FacilityAdapter):
             headers = data.get("attachment_header", [])
             if isinstance(headers, str):
                 headers = [headers]
-            for header in headers:
-                result.append(
-                    {
-                        "url": "",  # URL not available
-                        "filename": header,
-                        "type": None,
-                    }
-                )
+            result.extend(
+                {
+                    "url": "",  # URL not available
+                    "filename": header,
+                    "type": None,
+                }
+                for header in headers
+            )
         else:
             for att in attachments:
                 if not isinstance(att, dict):

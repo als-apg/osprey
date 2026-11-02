@@ -42,7 +42,11 @@ def _load_dashboard():
 # loaded by path and registered in sys.modules so its dataclasses can resolve
 # cls.__module__. The module object is what the tests below are written against.
 dash = _load_dashboard()
-EXCLUDED = json.load(open(_CONFIG))["excluded_files"]
+
+
+def _excluded() -> list[dict]:
+    """The configured exclusions, read per test rather than at import."""
+    return json.loads(_CONFIG.read_text(encoding="utf-8"))["excluded_files"]
 
 
 def _name(path: str, fmt: str) -> str:
@@ -61,8 +65,9 @@ def _name(path: str, fmt: str) -> str:
 def test_apply_exclusions_strips_every_configured_file(fmt):
     """Every file in matrix_e2e_config.json — top-level AND nested — must be
     stripped by apply_exclusions, in both id formats. Zero survivors."""
+    excluded = _excluded()
     excluded_tests = [
-        {"name": _name(e["path"], fmt), "outcome": "failed", "duration_s": 1.0} for e in EXCLUDED
+        {"name": _name(e["path"], fmt), "outcome": "failed", "duration_s": 1.0} for e in excluded
     ]
     # two genuinely model-driving tests that must SURVIVE the strip
     kept_tests = [
@@ -91,7 +96,7 @@ def test_apply_exclusions_strips_every_configured_file(fmt):
 
     d = runs[("m", 1)]
     survivors = {dash.canon_name(t["name"])[0] for t in d["tests"]}
-    leaked = survivors & {e["path"].replace("tests/e2e/", "", 1) for e in EXCLUDED}
+    leaked = survivors & {e["path"].replace("tests/e2e/", "", 1) for e in excluded}
     assert not leaked, f"excluded files still in the grid: {sorted(leaked)}"
     # the two model-driving tests survive, and counts are recomputed to match
     assert d["total"] == 2

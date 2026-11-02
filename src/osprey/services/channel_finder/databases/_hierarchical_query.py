@@ -44,7 +44,7 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
         # Extract options based on level type
         if level_type == "tree":
             # Direct children of current node
-            options = self._extract_tree_options(current_node)
+            return self._extract_tree_options(current_node)
 
             # OPTIONAL LEVEL BEHAVIOR: For optional tree levels, INCLUDE both:
             # 1. Containers (subdevices, subsystems, etc.) - these lead to deeper navigation
@@ -53,9 +53,7 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
             # OR a direct signal (Heartbeat, Status, etc.) without needing to reason about
             # "NOTHING_FOUND". The navigation logic will handle both cases appropriately.
 
-            return options
-
-        elif level_type == "instances":
+        if level_type == "instances":
             # Find expansion definition for this level
             return self._get_expansion_options(current_node, level)
 
@@ -96,32 +94,31 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
                 continue
 
             # Tree levels - navigate down using selection
-            if level_config["type"] == "tree":
-                if prev_level in previous_selections:
-                    selection = self._get_single_value(previous_selections[prev_level])
+            if level_config["type"] == "tree" and prev_level in previous_selections:
+                selection = self._get_single_value(previous_selections[prev_level])
 
-                    if selection and selection in current_node:
-                        current_node = current_node[selection]
-                    else:
-                        # No direct match - check if selection is an expanded instance
-                        # (e.g., selection="CH-1" but tree has "CH" with _expansion)
-                        found_via_expansion = False
-                        for key, value in current_node.items():
-                            if (
-                                not key.startswith("_")
-                                and isinstance(value, dict)
-                                and "_expansion" in value
-                            ):
-                                # This node has an expansion - check if it generates our selection
-                                instance_names = self._get_instance_names(value["_expansion"])
-                                if selection in instance_names:
-                                    # Found the container that expands to our selected instance
-                                    current_node = value
-                                    found_via_expansion = True
-                                    break
+                if selection and selection in current_node:
+                    current_node = current_node[selection]
+                else:
+                    # No direct match - check if selection is an expanded instance
+                    # (e.g., selection="CH-1" but tree has "CH" with _expansion)
+                    found_via_expansion = False
+                    for key, value in current_node.items():
+                        if (
+                            not key.startswith("_")
+                            and isinstance(value, dict)
+                            and "_expansion" in value
+                        ):
+                            # This node has an expansion - check if it generates our selection
+                            instance_names = self._get_instance_names(value["_expansion"])
+                            if selection in instance_names:
+                                # Found the container that expands to our selected instance
+                                current_node = value
+                                found_via_expansion = True
+                                break
 
-                        if not found_via_expansion:
-                            return None  # Invalid path
+                    if not found_via_expansion:
+                        return None  # Invalid path
 
         return current_node
 
@@ -169,9 +166,8 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
         """
         # Look for level name key with expansion
         for key, value in node.items():
-            if key.upper() == level.upper() and isinstance(value, dict):
-                if "_expansion" in value:
-                    return self._expand_instances(value["_expansion"])
+            if key.upper() == level.upper() and isinstance(value, dict) and "_expansion" in value:
+                return self._expand_instances(value["_expansion"])
 
         # If not found, return empty (will cause navigation to fail)
         return []
@@ -199,8 +195,7 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
 
         elif expansion_type == "list":
             instances = expansion_def.get("_instances", [])
-            for instance in instances:
-                options.append({"name": instance, "description": ""})
+            options.extend({"name": instance, "description": ""} for instance in instances)
 
         return options
 
@@ -211,10 +206,9 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
     def get_channel(self, channel_name: str) -> dict | None:
         """Get channel information."""
         channel_data = self.channel_map.get(channel_name)
-        if channel_data:
-            # Add address field if not present (use channel name as address)
-            if "address" not in channel_data:
-                channel_data["address"] = channel_name
+        # Add address field if not present (use channel name as address)
+        if channel_data and "address" not in channel_data:
+            channel_data["address"] = channel_name
         return channel_data
 
     def get_all_channels(self) -> list[dict]:
@@ -237,7 +231,7 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
             first_config = self.hierarchy_config["levels"].get(first_level, {})
             if first_config.get("type") == "tree":
                 stats["systems"] = []
-                for system_name in self.tree.keys():
+                for system_name in self.tree:
                     if not system_name.startswith("_"):
                         system_channels = [
                             ch

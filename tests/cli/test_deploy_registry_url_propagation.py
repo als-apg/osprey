@@ -44,7 +44,7 @@ WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "nginx_port": 20000,
     "web_base_port": 20100,
-    "users": ["operator"],
+    "users": ["console"],
 }
 
 #: The same stack with a render catalog.

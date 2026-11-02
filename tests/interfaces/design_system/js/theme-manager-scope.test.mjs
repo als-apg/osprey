@@ -24,24 +24,10 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import { stubOSPreference } from './os-preference.mjs';
 
 const SCOPE_ATTR = 'data-osprey-storage-scope';
 const LEGACY_KEY = 'osprey-theme';
-
-/**
- * Force the OS preference so every 'auto' resolution lands on a known id.
- * @param {boolean} prefersDark
- */
-function stubOSPreference(prefersDark) {
-  vi.stubGlobal('matchMedia', (/** @type {string} */ query) => ({
-    matches: query.includes('dark') ? prefersDark : !prefersDark,
-    media: query,
-    addEventListener() {},
-    removeEventListener() {},
-    addListener() {},
-    removeListener() {},
-  }));
-}
 
 describe('theme-manager.js storage scoping', () => {
   /** @type {typeof import('/design-system/js/theme-manager.js')} */

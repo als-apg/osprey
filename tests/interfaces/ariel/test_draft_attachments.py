@@ -10,9 +10,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import osprey.interfaces.ariel.api.drafts as drafts_mod
-from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.api.drafts import draft_router, write_draft
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from tests.interfaces.ariel._routes_app import routes_app
 
 #: The 8-byte PNG signature followed by an IHDR chunk header.
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + b"\x00" * 24
@@ -289,10 +289,7 @@ def test_draft_pdf_uploaded_as_octet_stream_is_stored_as_pdf(
     assert blob_type == "application/octet-stream"
 
     service = _upload_service(has_copy_state)
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     upload_http = TestClient(app)
 
     response = upload_http.post(
@@ -316,10 +313,7 @@ def test_draft_pdf_uploaded_as_octet_stream_is_stored_as_pdf(
 def test_upload_keeps_a_declared_specific_type():
     """Only octet-stream counts as absent; a specific declared type is kept."""
     service = _upload_service(False)
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
 
     response = TestClient(app).post(
         "/api/entries/upload",

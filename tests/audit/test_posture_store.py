@@ -428,5 +428,11 @@ class TestWireContract:
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.append(node.module)
 
-        assert not [name for name in imported if name.startswith("osprey_connectors")]
+        # ``posture_env`` is the one exception: the read-only predicate's owner,
+        # a standard-library leaf that loads nothing else of the package.
+        assert not [
+            name
+            for name in imported
+            if name.startswith("osprey_connectors") and name != "osprey_connectors.posture_env"
+        ]
         assert not [name for name in imported if name.startswith("osprey.mcp_server")]

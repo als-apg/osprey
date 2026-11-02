@@ -56,15 +56,9 @@ def _resolve_workspace(request: Request) -> Path:
 
 #: The server-side stores the file routes never show, each named by the
 #: ``app.state`` attribute its directory is published under and by what a
-#: warning calls it. All three are the server's own state, written through their
-#: own routes: the feedback store holds session context users submitted
-#: privately, the bar-items store holds each operator's saved bar layout, and
-#: the panel-status store holds what the terminal recorded about its sidecars.
-_CONCEALED_STORES: tuple[tuple[str, str], ...] = (
-    ("feedback_dir", "feedback store"),
-    ("bar_items_dir", "bar-items store"),
-    ("panel_status_dir", "panel-status store"),
-)
+#: warning calls it. The panel-status store is the server's own state: what the
+#: terminal recorded about its sidecars.
+_CONCEALED_STORES: tuple[tuple[str, str], ...] = (("panel_status_dir", "panel-status store"),)
 
 
 def _concealed_stores(request: Request, workspace_root: Path) -> tuple[Path, ...]:
@@ -78,8 +72,8 @@ def _concealed_stores(request: Request, workspace_root: Path) -> tuple[Path, ...
     it. An empty tuple conceals nothing.
 
     Identity is the resolved path, never the directory name, so a directory a
-    user legitimately named ``feedback`` or ``bar_items`` elsewhere in the
-    workspace stays browsable.
+    user legitimately named ``panel_status`` elsewhere in the workspace stays
+    browsable.
     """
     stores: list[Path] = []
     for attribute, label in _CONCEALED_STORES:

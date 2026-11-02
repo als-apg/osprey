@@ -99,9 +99,10 @@ concepts:
 class _StubService:
     """Async-context-manager stub standing in for the ARIEL service."""
 
-    def __init__(self, *, repository=None, health=(True, "OK")):
+    def __init__(self, *, repository=None, health=(True, "OK"), refusal=None):
         self.repository = repository or MagicMock()
         self._health = health
+        self._refusal = refusal
 
     async def __aenter__(self):
         return self
@@ -111,6 +112,26 @@ class _StubService:
 
     async def health_check(self):
         return self._health
+
+    async def verify_search_model_table(self):
+        if self._refusal is not None:
+            raise self._refusal
+
+    async def search(self, **_kwargs):
+        await self.verify_search_model_table()
+        raise AssertionError("a refusing stub never reaches the search modules")
+
+
+async def _missing_table_refusal(fake_pool_factory):
+    """The refusal the real repository raises for a missing embedding table."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.exceptions import ConfigurationError
+
+    repo = ARIELRepository(fake_pool_factory(results=[[(False,)]]), ARIELConfig.from_dict(_DB))
+    with pytest.raises(ConfigurationError) as exc_info:
+        await repo.validate_search_model_table("nomic-embed-text")
+    return exc_info.value
 
 
 def _patch_service(monkeypatch, service):
@@ -272,6 +293,31 @@ class TestGetStatus:
         assert out["embedding_tables"][0]["entries"] == 5
         assert "enhancement_modules" in out
         assert "search_modules" in out
+
+    async def test_healthy_status_reports_no_errors(self, monkeypatch):
+        repo = _status_repo(stats={"total_entries": 1}, tables=[_embedding_table()])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["errors"] == []
+
+    async def test_missing_embedding_table_is_an_error_line_in_a_full_report(
+        self, monkeypatch, fake_pool_factory
+    ):
+        refusal = await _missing_table_refusal(fake_pool_factory)
+        repo = _status_repo(stats={"total_entries": 42}, tables=[_embedding_table()])
+        service = _StubService(repository=repo, health=(True, "connected"), refusal=refusal)
+        _patch_service(monkeypatch, service)
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "unhealthy"
+        assert out["errors"] == [f"{refusal.message}. {refusal.remedy}"]
+        assert "osprey ariel" in out["errors"][0]
+        assert "search_modules.semantic" in out["errors"][0]
+        assert out["embedding_tables"][0]["table"] == "text_embeddings_nomic"
+        assert out["entries"] == 42
 
     async def test_unhealthy_flag_when_health_check_fails(self, monkeypatch):
         repo = _status_repo(stats={})
@@ -1013,6 +1059,18 @@ class TestRunSearch:
         out = await ops.run_search(dict(_DB), "q", "keyword", 5)
         assert out == {"error": "weird failure"}
 
+    async def test_missing_embedding_table_refusal_is_reported_verbatim(
+        self, monkeypatch, fake_pool_factory
+    ):
+        # Neither the connection hint nor the missing-schema hint may claim it:
+        # the repository's own refusal names the fix.
+        refusal = await _missing_table_refusal(fake_pool_factory)
+        _patch_service(monkeypatch, _StubService(refusal=refusal))
+
+        out = await ops.run_search(dict(_DB), "q", "keyword", 5)
+
+        assert out == {"error": f"{refusal.message}. {refusal.remedy}"}
+
     async def test_success_projects_answer_sources_and_entries(self, monkeypatch):
         result = SimpleNamespace(
             answer="the answer",
@@ -1613,31 +1671,35 @@ class TestGetStatusModuleHealth:
         }
 
     async def test_checks_run_concurrently(self, monkeypatch):
-        """Two checks of 4 s each finish in under 6 s together."""
+        """Each check answers only once both have started, so both answer only together.
+
+        Run one after the other, the first check waits alone until the
+        per-check timeout reports it unreachable.
+        """
         import asyncio
-        import time
 
         from osprey.models.providers.health import HealthResult
 
-        async def four_seconds():
-            await asyncio.sleep(4)
+        both_started = asyncio.Barrier(2)
+
+        async def meet():
+            await both_started.wait()
             return HealthResult(True, "OK", None)
 
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
         _patch_modules(
             monkeypatch,
             {
-                "qmd_export": _HealthModule("qmd_export", check=four_seconds),
-                "text_embedding": _HealthModule("text_embedding", check=four_seconds),
+                "qmd_export": _HealthModule("qmd_export", check=meet),
+                "text_embedding": _HealthModule("text_embedding", check=meet),
             },
         )
 
-        started = time.monotonic()
         out = await ops.get_status(_enable("qmd_export", "text_embedding"))
 
-        assert time.monotonic() - started < 6
-        assert _health(out, "qmd_export")["reachable"] is True
-        assert _health(out, "text_embedding")["reachable"] is True
+        healthy = {"reachable": True, "reason": None, "probed_from": "this process"}
+        assert _health(out, "qmd_export") == healthy
+        assert _health(out, "text_embedding") == healthy
 
 
 @pytest.fixture
