@@ -682,7 +682,7 @@ async def _conclude_review(tool: str, outcome: ReviewOutcome, request: ReviewReq
     Raises:
         Whatever :func:`make_error` raises for ``review_blocked`` or ``review_unavailable``.
     """
-    from osprey.services.code_review.contract import ReviewFailure
+    from osprey.services.code_review.contract import ReviewFailure, ReviewVerdict
     from osprey.services.code_review.review import ACTION_REFUSE, agent_message
 
     _record_review(outcome, request)
@@ -693,6 +693,8 @@ async def _conclude_review(tool: str, outcome: ReviewOutcome, request: ReviewReq
     result = outcome.result
     if isinstance(result, ReviewFailure):
         make_error("review_unavailable", str(message), details={"kind": result.kind})
+    if not isinstance(result, ReviewVerdict):  # a switched-off review never refuses
+        return message
     return make_error(
         "review_blocked",
         str(message),
