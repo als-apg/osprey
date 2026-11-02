@@ -54,6 +54,34 @@ def init_project(parent: Path, preset: str, name: str) -> Path:
     return repo
 
 
+def init_machineless(parent: Path, name: str) -> Path:
+    """Init a control-assistant repo with no machine in it.
+
+    Its facility tree holds the blank knowledge index the facility import seeds
+    and nothing else, and its profile states the empty start set, the remedy of
+    the stop the preset's start set meets once the file holds no scenario of it.
+
+    Args:
+        parent: The directory the repo is created in.
+        name: The repo's directory name, which is the project name.
+
+    Returns:
+        The repo.
+    """
+    from osprey.cli.main import cli
+    from osprey.facility.layers import _seed_knowledge_index
+
+    repo = init_project(parent, "control-assistant", name)
+    facility = repo / "data" / "facility"
+    shutil.rmtree(facility)
+    _seed_knowledge_index(facility)
+    stated = CliRunner().invoke(
+        cli, ["set", "--repo", str(repo), "config.simulation.default_scenarios=[]"]
+    )
+    assert stated.exit_code == 0, stated.output
+    return repo
+
+
 def run_build(repo: Path) -> Result:
     """Run ``osprey build --skip-deps`` on a repo.
 
