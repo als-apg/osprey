@@ -23,6 +23,7 @@ to launch at all — no ``build/``, no chat.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 
 # Module level so tests can scope a stand-in to this module without patching the
@@ -34,12 +35,12 @@ import click
 
 from osprey.cli import output
 
-from .altitude import lift_gate
+from .altitude import install_handoff_gate, lift_gate, lift_handoff_gate
 from .phase_reporter import NullReporter, install_reporter
 from .repo_resolver import find_repo_root, repo_option
 
 
-def _stand_down_output_policy() -> None:
+def _stand_down_output_policy(session_log: Path | None = None) -> logging.Handler | None:
     """Take OSPREY's output policy off the terminal the agent is about to own.
 
     One switch, called once, for the whole session. Past this point the screen
@@ -49,15 +50,82 @@ def _stand_down_output_policy() -> None:
     decorates a verb's progress is replaced by the quiet one. Agent text reaches
     the terminal exactly as the agent wrote it.
 
+    The process keeps logging after the handoff -- the companion servers and
+    the translation proxy run on in daemon threads, and a health check that
+    lands late, a pool that times out, a thread that dies all say so through
+    the root logger. With *session_log* given, those records go there instead
+    of over the agent's screen: a file sink is put on the root logger first,
+    then the handoff gate goes on the terminal handler, which from then on
+    paints ERROR and above only (:func:`~osprey.cli.altitude.install_handoff_gate`).
+    The order matters: the sink is open before the screen stops painting, so
+    no record falls between the two. A file that cannot be opened leaves the
+    gate off and says so -- painting over the screen loses less than dropping
+    the record. :func:`_stand_back_up` undoes both once the agent has exited.
+
     What this does not do is silence the process. The pin it replaces set the
     root logger to CRITICAL, which stopped records from being emitted at all --
     so a warning worth having was dropped rather than merely unpainted, and the
     companion-server failure in :func:`_launch_companion_servers` had to be
     printed by hand to get past it. No level is touched here, so every record is
     still emitted and still reaches every sink the deployment configured.
+
+    Args:
+        session_log: Where the records of the agent's session go, or None to
+            leave the terminal handler painting as before.
+
+    Returns:
+        The file sink that was installed, for :func:`_stand_back_up`; None
+        when none was.
     """
     lift_gate()
     install_reporter(NullReporter())
+    if session_log is None:
+        return None
+    try:
+        session_log.parent.mkdir(parents=True, exist_ok=True)
+        sink: logging.Handler = logging.FileHandler(session_log, encoding="utf-8")
+    except OSError as exc:
+        output.warn(
+            f"could not open {session_log}",
+            f"{type(exc).__name__}: {exc}\n"
+            "Companion-server log records stay on the terminal for this session.",
+        )
+        return None
+    sink.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(sink)
+    install_handoff_gate()
+    return sink
+
+
+def _stand_back_up(sink: logging.Handler | None) -> None:
+    """Return the terminal to OSPREY once the agent has given it back.
+
+    The handoff gate comes off the terminal handler and the session's file
+    sink comes off the root logger, in that order, so a record emitted in
+    between is painted rather than lost. Both outlive one CLI invocation
+    otherwise: the handler is a process singleton and the test suite runs the
+    verb many times in one process.
+    """
+    lift_handoff_gate()
+    if sink is not None:
+        logging.getLogger().removeHandler(sink)
+        sink.close()
+
+
+def _session_log_path(build_dir: Path) -> Path:
+    """Where this session's log records go: the repo's own spool directory.
+
+    ``var/logs/`` beside ``build/`` is where the lifecycle verbs already spool
+    the output of the commands they run, and the summary card names it as
+    "command output"; one file per session, stamped so two sessions in one
+    repo do not interleave.
+    """
+    from datetime import datetime
+
+    from osprey.deployment.subprocess_capture import SPOOL_DIR
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return build_dir.parent / SPOOL_DIR / f"chat-{stamp}.log"
 
 
 def _overlay_repo_env(repo_root: Path) -> None:
@@ -507,13 +575,16 @@ def _run_agent(args: list[str], build_dir: Path) -> int:
         output.section("Companion servers", started_servers)
         output.report("")
 
+    session_log = _session_log_path(build_dir)
     output.note(f"Launching the agent in {build_dir}...")
+    output.note(f"Companion-server log for this session: {session_log}")
     output.report("")
 
     # Everything this verb had to say is now on screen. The switch takes
-    # OSPREY's output policy off the terminal, and the flush empties what is
-    # still buffered, before the agent's TUI takes it over.
-    _stand_down_output_policy()
+    # OSPREY's output policy off the terminal and sends what the daemon
+    # threads log from here on to the session file, and the flush empties
+    # what is still buffered, before the agent's TUI takes it over.
+    sink = _stand_down_output_policy(session_log)
     sys.stdout.flush()
     sys.stderr.flush()
 
@@ -548,4 +619,7 @@ def _run_agent(args: list[str], build_dir: Path) -> int:
     if started_servers:
         child_env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
 
-    return subprocess.run(args, env=child_env).returncode
+    try:
+        return subprocess.run(args, env=child_env).returncode
+    finally:
+        _stand_back_up(sink)
