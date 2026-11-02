@@ -17,7 +17,7 @@ import pytest
 from claude_agent_sdk import ClaudeAgentOptions
 
 from osprey.agent_runner import launcher, primitives
-from osprey.agent_runner.runner import run_query
+from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR, run_query
 
 ROUTED_ENV = {"CLAUDECODE": "", "ANTHROPIC_AUTH_TOKEN": "routed-token", "SHARED": "routed"}
 MODEL = "main-model"
@@ -287,8 +287,8 @@ async def test_run_query_forwards_all_three(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_run_query_leaves_all_three_at_none_by_default(tmp_path: Path):
     options = await _capture_run_query_options(tmp_path)
+    # run_query stamps every headless run so the watchdog trigger leaves it alone.
+    expected = primitives.build_agent_options(tmp_path, disallowed_tools=[])
+    expected.env[WATCHDOG_SKIP_ENV_VAR] = "1"
 
-    assert (
-        _differing_fields(options, primitives.build_agent_options(tmp_path, disallowed_tools=[]))
-        == set()
-    )
+    assert _differing_fields(options, expected) == set()
