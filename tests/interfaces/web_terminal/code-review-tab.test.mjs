@@ -100,7 +100,7 @@ test("the server's warning leads the tab, verbatim, as text", async () => {
   expect(notice?.classList.contains('code-review-warning')).toBe(true);
   expect(notice?.textContent).toBe(warning);
   expect(notice?.querySelector('b')).toBeNull();
-  expect(text('.code-review-rules')).toBe('The rules file cannot be read.');
+  expect(text('.code-review-rules')).toBe('The rules file cannot be used.');
 });
 
 test('an unreadable section says so instead of On or Off', async () => {

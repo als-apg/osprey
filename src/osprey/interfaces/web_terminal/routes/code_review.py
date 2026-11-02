@@ -12,9 +12,8 @@ Everything is read through the reviewer's own functions in
 section and the file the next review acts on, and refuses the files a review
 would refuse. The warning follows what a review does with each failure:
 an unusable section is a ``config`` failure with no level, which refuses
-(``review.decide``); an unusable prompt is a ``prompt`` failure, which refuses
-under ``block`` and lets the code run unreviewed under ``flag``; an empty
-prompt is refused by nothing, so the reviewer runs with no rules.
+(``review.decide``); an unusable prompt, an empty one included, is a ``prompt``
+failure, which refuses under ``block`` and lets the code run unreviewed under ``flag``.
 """
 
 from __future__ import annotations
@@ -54,12 +53,6 @@ RULES_UNUSABLE_FLAG = (
     "The rules file cannot be used ({reason}), so every review fails and the agent's "
     "code runs unreviewed; restore {path} or point code_review.prompt at a readable "
     "file under data/."
-)
-
-#: The warning for an empty rules file, which nothing refuses.
-RULES_EMPTY = (
-    "The rules file is empty, so the reviewer judges the agent's code against no rules; "
-    "write the rules into {path}."
 )
 
 
@@ -125,6 +118,4 @@ async def get_code_review(request: Request) -> dict[str, Any]:
             body["warning"] = template.format(reason=exc, path=shown.prompt)
         return body
     body["rules"] = rules
-    if running.enabled and not rules.strip():
-        body["warning"] = RULES_EMPTY.format(path=shown.prompt)
     return body

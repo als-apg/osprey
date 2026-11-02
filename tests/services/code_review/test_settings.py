@@ -353,6 +353,15 @@ def test_resolve_refuses_missing_prompt(repo):
         resolve_prompt(ReviewSettings(prompt="data/code_review/absent.md"), repo, {})
 
 
+@pytest.mark.parametrize("text", ["", "  \n\t\n"], ids=["empty", "whitespace"])
+def test_resolve_refuses_empty_prompt_as_it_refuses_a_missing_one(repo, text):
+    _write(repo, "data/code_review/empty.md", text)
+    with pytest.raises(
+        ReviewConfigError, match="is empty: a reviewer with no rules judges nothing"
+    ):
+        resolve_prompt(ReviewSettings(prompt="data/code_review/empty.md"), repo, {})
+
+
 def test_resolve_refuses_directory_prompt(repo):
     with pytest.raises(ReviewConfigError, match="code_review.prompt"):
         resolve_prompt(ReviewSettings(prompt="data/code_review"), repo, {})

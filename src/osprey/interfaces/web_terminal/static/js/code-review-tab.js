@@ -23,7 +23,7 @@ export const RULES_ENTRY_NAME = 'code-review/rules';
  * @property {string | null} level
  * @property {number | null} time_limit  seconds
  * @property {string | null} prompt  the rules file's path, as configured
- * @property {string | null} rules  the file's text, null when it cannot be read
+ * @property {string | null} rules  the file's text, null when it cannot be used
  * @property {string | null} warning  what a review does meanwhile, and the fix
  * @property {boolean} can_change
  */
@@ -201,7 +201,7 @@ function rulesBlock(data) {
   box.className = 'code-review-rules';
   if (data.rules === null) {
     box.classList.add('missing');
-    box.textContent = 'The rules file cannot be read.';
+    box.textContent = 'The rules file cannot be used.';
   } else {
     for (const [className, text] of rulesSpans(data.rules)) {
       box.append(textEl('span', className, text), '\n');

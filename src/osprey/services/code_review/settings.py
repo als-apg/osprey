@@ -211,8 +211,8 @@ def resolve_prompt(settings: ReviewSettings, repo_root: Path, config: Mapping | 
         The prompt's text.
 
     Raises:
-        ReviewConfigError: The prompt is missing, unreadable or not UTF-8, is
-            outside the source zone, or is under a permitted root.
+        ReviewConfigError: The prompt is missing, unreadable, not UTF-8 or empty,
+            is outside the source zone, or is under a permitted root.
     """
     from osprey.mcp_server.python_executor.executor import (
         PROFILE_SOURCE_ENTRIES,
@@ -233,9 +233,12 @@ def resolve_prompt(settings: ReviewSettings, repo_root: Path, config: Mapping | 
         raise ReviewConfigError(f"{label} is under the agent's own data root")
 
     try:
-        return path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except (OSError, ValueError) as exc:
         raise ReviewConfigError(f"{label} cannot be read: {exc}") from exc
+    if not text.strip():
+        raise ReviewConfigError(f"{label} is empty: a reviewer with no rules judges nothing")
+    return text
 
 
 def hook_deadline_s(settings: ReviewSettings) -> int:

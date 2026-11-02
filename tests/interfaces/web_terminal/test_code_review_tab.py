@@ -13,7 +13,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes.code_review import (
-    RULES_EMPTY,
     RULES_UNUSABLE_BLOCK,
     RULES_UNUSABLE_FLAG,
     router,
@@ -105,10 +104,19 @@ def test_unusable_rules_under_flag_say_code_runs_unreviewed(tmp_path):
     assert decide(ReviewFailure("prompt", "x"), "flag").action == ACTION_PROCEED
 
 
-def test_empty_rules_say_the_reviewer_has_no_rules(tmp_path):
-    body = _get(tmp_path, ON, rules="  \n")
-    assert body["rules"] == "  \n"
-    assert body["warning"] == RULES_EMPTY.format(path=PROMPT)
+@pytest.mark.parametrize(
+    ("level", "template", "consequence"),
+    [
+        ("block", RULES_UNUSABLE_BLOCK, "code is blocked"),
+        ("flag", RULES_UNUSABLE_FLAG, "runs unreviewed"),
+    ],
+)
+def test_empty_rules_are_treated_as_missing(tmp_path, level, template, consequence):
+    body = _get(tmp_path, ON + f"  level: {level}\n", rules="  \n")
+    assert body["rules"] is None
+    assert body["warning"].startswith(template.split("({reason})")[0])
+    assert "is empty" in body["warning"]
+    assert consequence in body["warning"]
 
 
 def test_unreadable_section_says_every_review_blocks(tmp_path):

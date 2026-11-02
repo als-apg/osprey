@@ -445,6 +445,21 @@ async def test_a_missing_prompt_is_a_prompt_failure_under_the_level(
     assert not (repo / REVIEW_STATE_DIR).exists()
 
 
+@pytest.mark.parametrize(("level", "action"), [("flag", "proceed"), ("block", "refuse")])
+async def test_an_empty_prompt_is_a_prompt_failure_like_a_missing_one(
+    repo: Path, render_dir: Path, level: str, action: str
+) -> None:
+    (repo / DEFAULT_PROMPT).write_text(" \n\n", encoding="utf-8")
+    stub = StubRunner()
+
+    outcome = await _review(repo, render_dir, stub, replace(SETTINGS, level=level))
+
+    assert isinstance(outcome.result, ReviewFailure) and outcome.result.kind == "prompt"
+    assert "is empty" in outcome.result.message
+    assert outcome.action == action
+    assert not stub.args
+
+
 async def test_an_unusable_state_dir_is_a_runner_failure(repo: Path, render_dir: Path) -> None:
     (repo / REVIEW_STATE_DIR).parent.mkdir(parents=True)
     (repo / REVIEW_STATE_DIR).write_text("not a directory", encoding="utf-8")
