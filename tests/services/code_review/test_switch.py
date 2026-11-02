@@ -34,6 +34,9 @@ OFF = {"on": False, "off_by": "alice", "off_at": 1700000000.5}
 _ASK = """
 import contextlib
 import json
+import logging
+import sys
+logging.basicConfig(level=logging.WARNING, stream=sys.stderr, force=True)
 from osprey.services.code_review.switch import switched_off
 off = switched_off()
 print(json.dumps(None if off is None else [off.off_by, off.off_at]))
@@ -92,8 +95,12 @@ def terminal(monkeypatch) -> Iterator[_Terminal]:
     http_module.reset_panel_token_latch()
 
 
-def _ask_as_a_descendant() -> ReviewSwitchedOff | None:
-    """Ask the switch from a child of this process, as a session's hook asks its terminal."""
+def _ask_as_a_descendant(*, expect_off: bool = False) -> ReviewSwitchedOff | None:
+    """Ask the switch from a child of this process, as a session's hook asks its terminal.
+
+    With *expect_off*, a ``None`` answer fails the test with the child's own log, which says
+    which check refused the answer.
+    """
     done = subprocess.run(
         [sys.executable, "-c", _ASK],
         capture_output=True,
@@ -103,6 +110,8 @@ def _ask_as_a_descendant() -> ReviewSwitchedOff | None:
         check=True,
     )
     answer = json.loads(done.stdout.strip().splitlines()[-1])
+    if answer is None and expect_off:
+        pytest.fail(f"the terminal said off but the child read no answer:\n{done.stderr}")
     return None if answer is None else ReviewSwitchedOff(off_by=answer[0], off_at=answer[1])
 
 
@@ -112,7 +121,9 @@ def _ask_as_a_descendant() -> ReviewSwitchedOff | None:
 def test_an_off_answer_from_the_terminal_names_who_and_when(terminal):
     terminal.answer(OFF)
 
-    assert _ask_as_a_descendant() == ReviewSwitchedOff(off_by="alice", off_at=1700000000.5)
+    assert _ask_as_a_descendant(expect_off=True) == ReviewSwitchedOff(
+        off_by="alice", off_at=1700000000.5
+    )
     [(path, auth)] = terminal.requests
     assert path == "/api/code-review/switch"
     assert auth == f"Bearer {TOKEN}"
@@ -126,7 +137,7 @@ def test_an_on_answer_reviews(terminal):
 def test_an_off_answer_without_names_still_skips(terminal):
     terminal.answer({"on": False, "off_by": 7, "off_at": "noon"})
 
-    assert _ask_as_a_descendant() == ReviewSwitchedOff(off_by=None, off_at=None)
+    assert _ask_as_a_descendant(expect_off=True) == ReviewSwitchedOff(off_by=None, off_at=None)
 
 
 @pytest.mark.parametrize(
