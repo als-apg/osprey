@@ -276,7 +276,7 @@ def test_places_classes_and_roles_read_off_a_hand_built_document() -> None:
         ],
     }
 
-    facts = facts_document(document, [TEXTURE], "lab")
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "lab")
 
     assert facts["places"] == [
         {"id": "A", "level": "area", "names": ["Alpha", "Zed"], "devices": {"-": 1, QUAD: 1}},
@@ -332,7 +332,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     quad["class"] = "SkewQuad"
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert declared in document["classes"]
     assert list(classes) == sorted([BPM, "SkewQuad", "Spare"])
@@ -350,7 +350,7 @@ def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
     ]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG", "SR/QF"]
     assert classes[BPM]["groups"] == []
@@ -361,7 +361,7 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
     tree["records/groups.yaml"] = [{"id": "SR/MAG", "members": ["SR/Q1"]}]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG"]
 
@@ -372,7 +372,7 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
 def test_a_facility_with_no_sources_has_the_zero_source_facts(tmp_path: Path) -> None:
     document = build_facility(tmp_path / "absent", project_name="my proj")
 
-    facts = facts_document(document, [TEXTURE], "my proj")
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "my proj")
 
     assert facts == zero_source_facts({"code": "my_proj", "name": "my proj", "description": None})
     assert facts["device_classes"] == {}
