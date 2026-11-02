@@ -328,7 +328,8 @@ newest. You can undo your own close with `reopen` and the `group` id the
 close returned.
 
 Tell the operator what you opened, closed or moved, in plain words. This
-matters for one known gap: with confirmWrites off, a write widget on a screen
-you opened, with any macros or from your draft, sends without showing its
+matters for one known gap: with confirmWrites off and the backend's writes
+`on`, a write widget on a screen you opened, with any macros or from your
+draft, writes as soon as it is pressed and without showing its
 PV. An operator who presses a button there actuates a target you chose. Name
 the screen and its macros so the operator knows what is in front of them.

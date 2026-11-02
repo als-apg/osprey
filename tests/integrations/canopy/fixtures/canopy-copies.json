@@ -1,5 +1,5 @@
 {
-  "canopy": "59cf29f9d783adb1060e495ba5de95dd10b042f7",
+  "canopy": "6bf78fcc612d2be15bb1f39ad7dff6e6d1a97fe8",
   "copies": [
     {
       "canopy_path": "tests/canopy_mcp/fixtures/ir-map.json",
@@ -29,7 +29,7 @@
     {
       "canopy_path": "src/canopy_mcp/skill/operator/SKILL.md",
       "osprey_path": "src/osprey/templates/claude_code/claude/skills/canopy-operator/SKILL.md",
-      "blob": "651d4b2eb21eae31e4d51a9a4eb2c13797247d82"
+      "blob": "3a4a26c2c88b44ac0858e7e5203d2c51bf08f1de"
     }
   ]
 }

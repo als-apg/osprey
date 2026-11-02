@@ -37,7 +37,7 @@ from dataclasses import dataclass
 #: The canopy-contract check runs against exactly these; a payload and the shipped
 #: library's report must name them.
 PROVEN_COMMITS: dict[str, str] = {
-    "canopy": "59cf29f9d783adb1060e495ba5de95dd10b042f7",  # osprey:not-a-port (a sha)
+    "canopy": "6bf78fcc612d2be15bb1f39ad7dff6e6d1a97fe8",  # osprey:not-a-port (a sha)
     "PyDMConverter": "69d41977bbe53e456220b2f8ca3cb73057cd21ea",
 }
 
