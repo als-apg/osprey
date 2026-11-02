@@ -146,7 +146,7 @@
   'on':
     device: BR/DCCT01
   signal: beam_intensity_readback
-  unit: A
+  unit: mA
   description: 'Booster ring DC current transformer 01 current readback. Beam current (milliAmperes) during booster cycle. Current Readback (read-only): Beam current during acceleration.'
 - id: BR:DIAG:DCCT:01:STATUS:VALID
   'on':
@@ -7753,7 +7753,7 @@
   'on':
     device: SR/DCCT01
   signal: beam_intensity_readback
-  unit: A
+  unit: mA
   description: 'Storage ring DC current transformer 01 current readback. Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA. Current Readback (read-only): Standard beam current measurement.'
   tags:
   - in_context
@@ -22014,13 +22014,13 @@
   'on':
     device: SR/CAVITY01
   signal: voltage_golden_readback
-  unit: V
+  unit: MV
   description: 'Storage ring RF cavity 01 voltage golden setpoint. Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV. Golden Voltage (read-only): Reference gap voltage for nominal operation.'
 - id: SR:RF:CAVITY:01:VOLTAGE:RB
   'on':
     device: SR/CAVITY01
   signal: voltage_readback
-  unit: V
+  unit: MV
   description: 'Storage ring RF cavity 01 voltage readback. Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV. Voltage Readback (read-only): Measured cavity gap voltage.'
   tags:
   - in_context
@@ -22032,7 +22032,7 @@
   'on':
     device: SR/CAVITY01
   signal: voltage_setpoint
-  unit: V
+  unit: MV
   description: 'Storage ring RF cavity 01 voltage setpoint. Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV. Voltage Setpoint (read-write): Commanded cavity gap voltage.'
   tags:
   - in_context
@@ -22114,13 +22114,13 @@
   'on':
     device: SR/CAVITY02
   signal: voltage_golden_readback
-  unit: V
+  unit: MV
   description: 'Storage ring RF cavity 02 voltage golden setpoint. Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV. Golden Voltage (read-only): Reference gap voltage for nominal operation.'
 - id: SR:RF:CAVITY:02:VOLTAGE:RB
   'on':
     device: SR/CAVITY02
   signal: voltage_readback
-  unit: V
+  unit: MV
   description: 'Storage ring RF cavity 02 voltage readback. Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV. Voltage Readback (read-only): Measured cavity gap voltage.'
   tags:
   - in_context
@@ -22132,7 +22132,7 @@
   'on':
     device: SR/CAVITY02
   signal: voltage_setpoint
-  unit: V
+  unit: MV
   description: 'Storage ring RF cavity 02 voltage setpoint. Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV. Voltage Setpoint (read-write): Commanded cavity gap voltage.'
   tags:
   - in_context
@@ -22220,7 +22220,7 @@
   'on':
     device: SR/GAUGESR01
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR01 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22240,7 +22240,7 @@
   'on':
     device: SR/GAUGESR02
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR02 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22260,7 +22260,7 @@
   'on':
     device: SR/GAUGESR03
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR03 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22280,7 +22280,7 @@
   'on':
     device: SR/GAUGESR04
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR04 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22300,7 +22300,7 @@
   'on':
     device: SR/GAUGESR05
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR05 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22320,7 +22320,7 @@
   'on':
     device: SR/GAUGESR06
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR06 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22340,7 +22340,7 @@
   'on':
     device: SR/GAUGESR07
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR07 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22360,7 +22360,7 @@
   'on':
     device: SR/GAUGESR08
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR08 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22380,7 +22380,7 @@
   'on':
     device: SR/GAUGESR09
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR09 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22400,7 +22400,7 @@
   'on':
     device: SR/GAUGESR10
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR10 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22420,7 +22420,7 @@
   'on':
     device: SR/GAUGESR11
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR11 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22440,7 +22440,7 @@
   'on':
     device: SR/GAUGESR12
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring vacuum gauge SR12 pressure readback. Measured Pressure (Torr): Direct pressure reading from ionization gauge. Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
   tags:
   - in_context
@@ -22460,13 +22460,13 @@
   'on':
     device: SR/ION-PUMP01
   signal: current_readback
-  unit: A
+  unit: uA
   description: 'Storage ring ion pump 01 current readback. Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum. Current Readback (read-only): Measured ion pump current.'
 - id: SR:VAC:ION-PUMP:01:PRESSURE:RB
   'on':
     device: SR/ION-PUMP01
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring ion pump 01 pressure readback. Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr. Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
 - id: SR:VAC:ION-PUMP:01:STATUS:FAULT
   'on':
@@ -22484,29 +22484,29 @@
   'on':
     device: SR/ION-PUMP01
   signal: voltage_readback
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 01 voltage readback. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Readback (read-only): Actual measured ion pump operating voltage.'
 - id: SR:VAC:ION-PUMP:01:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:01:VOLTAGE:RB
   tolerance:
-    absolute: 50.0
+    absolute: 0.05
   'on':
     device: SR/ION-PUMP01
   signal: voltage_setpoint
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 01 voltage setpoint. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Setpoint (read-write): Commanded ion pump high voltage.'
 - id: SR:VAC:ION-PUMP:02:CURRENT:RB
   'on':
     device: SR/ION-PUMP02
   signal: current_readback
-  unit: A
+  unit: uA
   description: 'Storage ring ion pump 02 current readback. Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum. Current Readback (read-only): Measured ion pump current.'
 - id: SR:VAC:ION-PUMP:02:PRESSURE:RB
   'on':
     device: SR/ION-PUMP02
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring ion pump 02 pressure readback. Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr. Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
 - id: SR:VAC:ION-PUMP:02:STATUS:FAULT
   'on':
@@ -22524,29 +22524,29 @@
   'on':
     device: SR/ION-PUMP02
   signal: voltage_readback
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 02 voltage readback. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Readback (read-only): Actual measured ion pump operating voltage.'
 - id: SR:VAC:ION-PUMP:02:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:02:VOLTAGE:RB
   tolerance:
-    absolute: 50.0
+    absolute: 0.05
   'on':
     device: SR/ION-PUMP02
   signal: voltage_setpoint
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 02 voltage setpoint. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Setpoint (read-write): Commanded ion pump high voltage.'
 - id: SR:VAC:ION-PUMP:03:CURRENT:RB
   'on':
     device: SR/ION-PUMP03
   signal: current_readback
-  unit: A
+  unit: uA
   description: 'Storage ring ion pump 03 current readback. Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum. Current Readback (read-only): Measured ion pump current.'
 - id: SR:VAC:ION-PUMP:03:PRESSURE:RB
   'on':
     device: SR/ION-PUMP03
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring ion pump 03 pressure readback. Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr. Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
 - id: SR:VAC:ION-PUMP:03:STATUS:FAULT
   'on':
@@ -22564,29 +22564,29 @@
   'on':
     device: SR/ION-PUMP03
   signal: voltage_readback
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 03 voltage readback. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Readback (read-only): Actual measured ion pump operating voltage.'
 - id: SR:VAC:ION-PUMP:03:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:03:VOLTAGE:RB
   tolerance:
-    absolute: 50.0
+    absolute: 0.05
   'on':
     device: SR/ION-PUMP03
   signal: voltage_setpoint
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 03 voltage setpoint. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Setpoint (read-write): Commanded ion pump high voltage.'
 - id: SR:VAC:ION-PUMP:04:CURRENT:RB
   'on':
     device: SR/ION-PUMP04
   signal: current_readback
-  unit: A
+  unit: uA
   description: 'Storage ring ion pump 04 current readback. Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum. Current Readback (read-only): Measured ion pump current.'
 - id: SR:VAC:ION-PUMP:04:PRESSURE:RB
   'on':
     device: SR/ION-PUMP04
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring ion pump 04 pressure readback. Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr. Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
 - id: SR:VAC:ION-PUMP:04:STATUS:FAULT
   'on':
@@ -22604,29 +22604,29 @@
   'on':
     device: SR/ION-PUMP04
   signal: voltage_readback
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 04 voltage readback. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Readback (read-only): Actual measured ion pump operating voltage.'
 - id: SR:VAC:ION-PUMP:04:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:04:VOLTAGE:RB
   tolerance:
-    absolute: 50.0
+    absolute: 0.05
   'on':
     device: SR/ION-PUMP04
   signal: voltage_setpoint
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 04 voltage setpoint. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Setpoint (read-write): Commanded ion pump high voltage.'
 - id: SR:VAC:ION-PUMP:05:CURRENT:RB
   'on':
     device: SR/ION-PUMP05
   signal: current_readback
-  unit: A
+  unit: uA
   description: 'Storage ring ion pump 05 current readback. Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum. Current Readback (read-only): Measured ion pump current.'
 - id: SR:VAC:ION-PUMP:05:PRESSURE:RB
   'on':
     device: SR/ION-PUMP05
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring ion pump 05 pressure readback. Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr. Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
 - id: SR:VAC:ION-PUMP:05:STATUS:FAULT
   'on':
@@ -22644,29 +22644,29 @@
   'on':
     device: SR/ION-PUMP05
   signal: voltage_readback
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 05 voltage readback. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Readback (read-only): Actual measured ion pump operating voltage.'
 - id: SR:VAC:ION-PUMP:05:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:05:VOLTAGE:RB
   tolerance:
-    absolute: 50.0
+    absolute: 0.05
   'on':
     device: SR/ION-PUMP05
   signal: voltage_setpoint
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 05 voltage setpoint. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Setpoint (read-write): Commanded ion pump high voltage.'
 - id: SR:VAC:ION-PUMP:06:CURRENT:RB
   'on':
     device: SR/ION-PUMP06
   signal: current_readback
-  unit: A
+  unit: uA
   description: 'Storage ring ion pump 06 current readback. Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum. Current Readback (read-only): Measured ion pump current.'
 - id: SR:VAC:ION-PUMP:06:PRESSURE:RB
   'on':
     device: SR/ION-PUMP06
   signal: vacuum_readback
-  unit: Pa
+  unit: Torr
   description: 'Storage ring ion pump 06 pressure readback. Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr. Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
 - id: SR:VAC:ION-PUMP:06:STATUS:FAULT
   'on':
@@ -22684,17 +22684,17 @@
   'on':
     device: SR/ION-PUMP06
   signal: voltage_readback
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 06 voltage readback. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Readback (read-only): Actual measured ion pump operating voltage.'
 - id: SR:VAC:ION-PUMP:06:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:06:VOLTAGE:RB
   tolerance:
-    absolute: 50.0
+    absolute: 0.05
   'on':
     device: SR/ION-PUMP06
   signal: voltage_setpoint
-  unit: V
+  unit: kV
   description: 'Storage ring ion pump 06 voltage setpoint. High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV). Voltage Setpoint (read-write): Commanded ion pump high voltage.'
 - id: SR:VAC:VALVE:01:CONTROL:CLOSE
   'on':

@@ -165,19 +165,19 @@
 - class: BeamCurrentMonitor
   signal: beam_intensity_readback
   machine: SR
-  noise: {value: 0.05, unit: A}
-  source: DCCT resolution
+  noise: {value: 0.05, unit: mA}
+  source: DCCT resolution, ~100 ppm of the ~500 mA stored beam
 
 - class: BeamCurrentMonitor
   signal: beam_intensity_readback
   machine: BR
-  noise: {value: 5.0, unit: A}
-  source: shot-to-shot booster current
+  noise: {value: 0.01, unit: mA}
+  source: shot-to-shot booster current, ~1 % of the ~1.2 mA ramped beam
 
 - class: BeamLossMonitor
   signal: dose_rate_readback
-  noise: {value: 1.0, unit: mrem/hr}
-  source: counting statistics at 100 mrem/hr
+  noise: {value: 0.005, unit: mrem/hr}
+  source: counting statistics of an area monitor outside the shield, about 0.05-0.35 mrem/hr
 
 - class: AcceleratingCavity
   signal: frequency_readback
@@ -213,7 +213,7 @@
 
 - class: AcceleratingCavity
   signal: voltage_readback
-  noise: {value: 0.0025, unit: V}
+  noise: {value: 0.0025, unit: MV}
   source: amplitude loop, 0.1 %
 
 - class: Modulator
@@ -228,18 +228,18 @@
 
 - class: Gauge
   signal: vacuum_readback
-  noise: {value: 1.5e-09, unit: Pa}
-  source: gauge reading scatter, 3 % of nominal
+  noise: {value: 1e-11, unit: Torr}
+  source: cold-cathode gauge scatter, about 3 % of 0.3-0.6 nTorr
 
 - class: Pump
   signal: vacuum_readback
-  noise: {value: 1e-11, unit: Pa}
-  source: gauge reading scatter, 1 % of nominal
+  noise: {value: 1e-11, unit: Torr}
+  source: pressure derived from the pump current, about 1 % of 0.5-1.5 nTorr
 
 - class: Pump
   signal: current_readback
-  noise: {value: 1.5, unit: A}
-  source: pump controller readout
+  noise: {value: 0.01, unit: uA}
+  source: pump controller readout of a sub-uA current
 
 - class: Pump
   signal: voltage_readback
@@ -427,7 +427,7 @@
 
 - class: AcceleratingCavity
   signal: voltage_setpoint
-  tolerance: {value: 0.02, unit: V}
+  tolerance: {value: 0.02, unit: MV}
   source: amplitude loop settle band
 
 - class: Modulator

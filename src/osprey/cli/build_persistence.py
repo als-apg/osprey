@@ -547,6 +547,15 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
         cc = data["claude_code"]
         if "servers" in cc:
             for name, spec in specs.items():
+                # An entry already present carries the operator's (or a
+                # layer's) ``enabled`` switch — e.g. a child profile that
+                # inherits ``mcp_servers.X`` but sets
+                # ``claude_code.servers.X.enabled: false``. The rebuilt spec
+                # replaces the entry whole, so carry that one key across or
+                # the server silently renders again.
+                existing = cc["servers"].get(name)
+                if isinstance(existing, dict) and "enabled" in existing:
+                    spec["enabled"] = existing["enabled"]
                 anchored_put(cc["servers"], name, spec)
         else:
             anchored_put(cc, "servers", specs)

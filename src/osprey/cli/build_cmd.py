@@ -490,6 +490,12 @@ def _swap_in_render(zones: _RenderZones) -> None:
     ``build/``, and :func:`_repair_interrupted_swap` restores it from
     ``incoming`` at the start of the next build.
 
+    The paths in :data:`_CARRIED_ACROSS_SWAP` move into the staged tree the same
+    way (step 1), so a running stack's bind mounts keep resolving: they are
+    written by ``osprey up`` and the roster verbs rather than by the build, so
+    the render never contains them, and a swap that only brought the render
+    across would delete what nginx is serving until the next start.
+
     The venv moves *into* the staged tree (step 1) rather than being rendered
     there, because a virtual environment is the one artifact that records its
     own absolute location — in the shebang of every console script, in
@@ -501,10 +507,22 @@ def _swap_in_render(zones: _RenderZones) -> None:
     venv = zones.build_dir / ".venv"
     if venv.is_dir():
         os.replace(venv, zones.stage / ".venv")
+    for name in _CARRIED_ACROSS_SWAP:
+        served = zones.build_dir / name
+        if served.exists() and not (zones.stage / name).exists():
+            os.replace(served, zones.stage / name)
     os.replace(zones.stage, zones.incoming)
     os.replace(zones.build_dir, zones.outgoing)
     os.replace(zones.incoming, zones.build_dir)
     shutil.rmtree(zones.outgoing, ignore_errors=True)
+
+
+#: Paths under ``build/`` that a running stack bind-mounts but the build does
+#: not render: ``osprey up`` and the roster verbs write the web-terminal compose
+#: file and the nginx config, landing page and secret templates there. The swap
+#: carries them into the new ``build/`` by rename, so the files the containers
+#: serve from are the same inodes before and after, and never absent.
+_CARRIED_ACROSS_SWAP: tuple[str, ...] = ("nginx", "docker-compose.web.yml")
 
 
 #: Runtime-state directories a renderer must never leave inside the tree it is
