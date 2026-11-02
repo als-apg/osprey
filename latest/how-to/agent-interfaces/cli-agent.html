@@ -600,7 +600,11 @@ starts:</p>
 secret. Open it in a browser to reach the service while the OSPREY agent runs
 in your terminal; the address without the token will not sign you in. Which
 servers start depends on your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — each server respects its own
-<code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> setting. Unlike <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, chat does not consult
+<code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> setting, and the ARIEL server starts only when the build
+rendered an <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> section, which it does when the ARIEL server is on
+(<code class="docutils literal notranslate"><span class="pre">claude_code.servers.ariel.enabled</span></code>). A deployment with no logbook, such as
+the <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset, gets no ARIEL companion and no connection warnings
+from a database it never declared. Unlike <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, chat does not consult
 <code class="docutils literal notranslate"><span class="pre">web.panels</span></code>: a panel switched off there still gets its companion server
 here, because chat opens companions as browser tabs rather than as a panel
 rail.</p>

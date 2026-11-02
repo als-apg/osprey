@@ -961,11 +961,12 @@ landing page. With login on, the auth sidecar runs as
 <p class="admonition-title">Note</p>
 <p>Upgrading a multi-user deployment</p>
 <p>Before this naming, the web containers and the auth image took their
-prefix from <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> (<code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ca-assistant-auth:local</span></code>). The first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> after upgrading
-replaces them with the <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-…</span></code> containers and builds the auth
-image under its new tag; no old-named container is left running. The
-volumes keep their names, so every user’s workspace carries over.</p>
+prefix from the since-removed <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> key (<code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-assistant-auth:local</span></code>). The first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+after upgrading replaces them with the <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-…</span></code> containers and
+builds the auth image under its new tag; no old-named container is left
+running. The volumes keep their names, so every user’s workspace carries
+over.</p>
 </div>
 </li>
 </ol>

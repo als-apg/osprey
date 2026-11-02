@@ -497,10 +497,13 @@ osprey<span class="w"> </span>build
 source and whose <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the render; provider keys go in the repository’s
 <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
 <p>No hardware is involved, so every example below is safe to run; hardware writes
-are still gated behind the human-approval prompt. Unlike <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the
-preset ships a <strong>channel database</strong>, a <strong>seeded electronic logbook</strong>, and an
-<strong>archive of its own</strong> — a real store this project deploys, seeds and records
-into — plus a set of sub-agents and operator skills.</p>
+are still gated behind the human-approval prompt.</p>
+<p>Unlike <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the preset ships a <strong>full facility description</strong> under
+<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> (places, devices, channels, groups, models and limits), from
+which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the channel database and every other file a
+service reads (<a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>), a <strong>seeded electronic
+logbook</strong>, and an <strong>archive of its own</strong> — a real store this project deploys,
+seeds and records into — plus a set of sub-agents and operator skills.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>First run may take 1–2 minutes to create a virtual environment and install
