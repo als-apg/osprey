@@ -530,14 +530,28 @@ holds the agent’s writes and asks the operator to stop or continue.
 gates and what it does not cover. This page sets one up. The steps here enable
 <code class="docutils literal notranslate"><span class="pre">guard-circumvention</span></code>, the example the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships, and then show how
 to write your own.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>A decision-engine watchdog sends the session’s prompts, answers, tool calls and tool
-results to <strong>TypeSafe, hosted in the US, or to OpenRouter</strong>. An agent-engine watchdog uses
-the deployment’s configured LLM provider, so its data goes where the main agent’s goes.
-Confirm this is acceptable before you enable one.</p>
+<div class="osprey-demo">
+  <video id="osprey-watchdog" preload="metadata" muted loop playsinline controls
+         poster="../_static/demo/osprey-watchdog-light-poster.jpg"
+         aria-label="Video of a watchdog flagging a prompt in the web terminal"
+         aria-describedby="osprey-watchdog-note">
+    <source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">
+    <img src="../_static/demo/osprey-watchdog-light-poster.jpg"
+         alt="The web terminal with the dialog of the guard-circumvention watchdog.">
+  </video>
+  <p class="osprey-demo-note" id="osprey-watchdog-note">
+    One session on the control-assistant demo; the wait for the verdict is sped up
+    (marked ⏩). Its first exchange happened before recording started.
+  </p>
+  <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
+    <span>Speed</span>
+    <button type="button" data-rate="1">1×</button>
+    <button type="button" data-rate="1.5">1.5×</button>
+    <button type="button" data-rate="2">2×</button>
+    <button type="button" data-rate="3">3×</button>
+  </div>
 </div>
-<section id="enable-the-example">
+<script src="../_static/js/doc-video.js"></script><section id="enable-the-example">
 <h2>Enable the example<a class="headerlink" href="#enable-the-example" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code> writes the watchdog, turned off, into your
 deployment: its entry in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and its instructions in
@@ -554,6 +568,13 @@ around OSPREY’s own guards, for instance by asking it to edit hooks or call a 
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">api.jev.route</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter</span>
 </pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A decision-engine watchdog sends the session’s prompts, answers, tool calls and tool
+results to <strong>TypeSafe, hosted in the US, or to OpenRouter</strong>. An agent-engine watchdog uses
+the deployment’s configured LLM provider, so its data goes where the main agent’s goes.
+Confirm this is acceptable before you enable one.</p>
 </div>
 <p><strong>2. Label some prompts.</strong> Replay needs prompts from your own facility, both risky ones and
 ordinary ones that look similar. Each fixture is one <code class="docutils literal notranslate"><span class="pre">.jsonl</span></code> file: a header line, then the
@@ -593,29 +614,9 @@ idle. The build wires the hook that hands prompts to the watchdogs by itself.</p
 osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p><strong>6. See it work.</strong> In a web-terminal session, type a prompt from your risky fixtures:</p>
-<div class="osprey-demo">
-  <video id="osprey-watchdog" preload="metadata" muted loop playsinline controls
-         poster="../_static/demo/osprey-watchdog-light-poster.jpg"
-         aria-label="Video of a watchdog flagging a prompt in the web terminal"
-         aria-describedby="osprey-watchdog-note">
-    <source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">
-    <img src="../_static/demo/osprey-watchdog-light-poster.jpg"
-         alt="The web terminal with the dialog of the guard-circumvention watchdog.">
-  </video>
-  <p class="osprey-demo-note" id="osprey-watchdog-note">
-    One session on the control-assistant demo, played in real time. Its first exchange
-    happened before recording started.
-  </p>
-  <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
-    <span>Speed</span>
-    <button type="button" data-rate="1">1×</button>
-    <button type="button" data-rate="1.5">1.5×</button>
-    <button type="button" data-rate="2">2×</button>
-    <button type="button" data-rate="3">3×</button>
-  </div>
-</div>
-<script src="../_static/js/doc-video.js"></script><p>Until you answer, the agent’s writes in that session are refused with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>. The
+<p><strong>6. See it work.</strong> In a web-terminal session, type a prompt from your risky fixtures; the dialog
+in the video at the top of this page appears.</p>
+<p>Until you answer, the agent’s writes in that session are refused with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>. The
 verdict and your answer are both in the audit trail, on the <code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code> surface.</p>
 <p>If a line saying <code class="docutils literal notranslate"><span class="pre">Watchdog</span> <span class="pre">guard-circumvention:</span> <span class="pre">unavailable</span></code> appears instead, the watchdog
 could not decide: look for <code class="docutils literal notranslate"><span class="pre">error_type</span></code> in its audit entry. <code class="docutils literal notranslate"><span class="pre">missing_key</span></code> means the key in

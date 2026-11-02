@@ -11,12 +11,30 @@ gates and what it does not cover. This page sets one up. The steps here enable
 ``guard-circumvention``, the example the ``control-assistant`` preset ships, and then show how
 to write your own.
 
-.. warning::
+.. raw:: html
 
-   A decision-engine watchdog sends the session's prompts, answers, tool calls and tool
-   results to **TypeSafe, hosted in the US, or to OpenRouter**. An agent-engine watchdog uses
-   the deployment's configured LLM provider, so its data goes where the main agent's goes.
-   Confirm this is acceptable before you enable one.
+   <div class="osprey-demo">
+     <video id="osprey-watchdog" preload="metadata" muted loop playsinline controls
+            poster="../_static/demo/osprey-watchdog-light-poster.jpg"
+            aria-label="Video of a watchdog flagging a prompt in the web terminal"
+            aria-describedby="osprey-watchdog-note">
+       <source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">
+       <img src="../_static/demo/osprey-watchdog-light-poster.jpg"
+            alt="The web terminal with the dialog of the guard-circumvention watchdog.">
+     </video>
+     <p class="osprey-demo-note" id="osprey-watchdog-note">
+       One session on the control-assistant demo; the wait for the verdict is sped up
+       (marked ⏩). Its first exchange happened before recording started.
+     </p>
+     <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
+       <span>Speed</span>
+       <button type="button" data-rate="1">1×</button>
+       <button type="button" data-rate="1.5">1.5×</button>
+       <button type="button" data-rate="2">2×</button>
+       <button type="button" data-rate="3">3×</button>
+     </div>
+   </div>
+   <script src="../_static/js/doc-video.js"></script>
 
 Enable the example
 ==================
@@ -41,6 +59,13 @@ To go through OpenRouter instead, set ``OPENROUTER_API_KEY`` and choose the rout
 
    config:
      api.jev.route: openrouter
+
+.. warning::
+
+   A decision-engine watchdog sends the session's prompts, answers, tool calls and tool
+   results to **TypeSafe, hosted in the US, or to OpenRouter**. An agent-engine watchdog uses
+   the deployment's configured LLM provider, so its data goes where the main agent's goes.
+   Confirm this is acceptable before you enable one.
 
 **2. Label some prompts.** Replay needs prompts from your own facility, both risky ones and
 ordinary ones that look similar. Each fixture is one ``.jsonl`` file: a header line, then the
@@ -92,32 +117,8 @@ idle. The build wires the hook that hands prompts to the watchdogs by itself.
    osprey build
    osprey up -d
 
-**6. See it work.** In a web-terminal session, type a prompt from your risky fixtures:
-
-.. raw:: html
-
-   <div class="osprey-demo">
-     <video id="osprey-watchdog" preload="metadata" muted loop playsinline controls
-            poster="../_static/demo/osprey-watchdog-light-poster.jpg"
-            aria-label="Video of a watchdog flagging a prompt in the web terminal"
-            aria-describedby="osprey-watchdog-note">
-       <source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">
-       <img src="../_static/demo/osprey-watchdog-light-poster.jpg"
-            alt="The web terminal with the dialog of the guard-circumvention watchdog.">
-     </video>
-     <p class="osprey-demo-note" id="osprey-watchdog-note">
-       One session on the control-assistant demo, played in real time. Its first exchange
-       happened before recording started.
-     </p>
-     <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
-       <span>Speed</span>
-       <button type="button" data-rate="1">1×</button>
-       <button type="button" data-rate="1.5">1.5×</button>
-       <button type="button" data-rate="2">2×</button>
-       <button type="button" data-rate="3">3×</button>
-     </div>
-   </div>
-   <script src="../_static/js/doc-video.js"></script>
+**6. See it work.** In a web-terminal session, type a prompt from your risky fixtures; the dialog
+in the video at the top of this page appears.
 
 Until you answer, the agent's writes in that session are refused with ``session_held``. The
 verdict and your answer are both in the audit trail, on the ``safety_watchdog`` surface.
