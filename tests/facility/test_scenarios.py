@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility import STILL_ALL
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import _value_errors
-from osprey_connectors.simulation import STILL_ALL
 from osprey_connectors.simulation.envelope import active_envelopes
 from tests.facility._synthetic_trees import plain_tree, write_tree
 

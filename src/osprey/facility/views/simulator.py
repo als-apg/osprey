@@ -58,11 +58,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
 from osprey.facility.records import FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
-from osprey_connectors.simulation import STILL_ALL, STILL_SCENARIO
+from osprey_connectors.simulation import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,

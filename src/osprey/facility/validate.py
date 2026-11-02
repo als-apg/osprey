@@ -39,7 +39,7 @@ from typing import IO, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE, fold_code
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import (
     FacilityBuildError,
@@ -51,7 +51,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
-from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES, STILL_ALL
+from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 
 __all__ = [
     "FACILITY_HEADER",
