@@ -377,8 +377,9 @@ report success and then break every later build.
 .. note::
 
    The check catches the mistake, not an adversary: copies dereference
-   symlinks, and the scan does not descend into a symlinked directory. Read it
-   as the rule the build holds you to, not as a boundary it enforces.
+   symlinks, and the check follows directory links the way the copy does; a
+   target can still change between the check and the copy. Read it as the rule
+   the build holds you to, not as a boundary it enforces.
 
 ``data:`` is a path the profile *names*, not material the build finds by
 convention. It resolves against the profile directory and must resolve inside

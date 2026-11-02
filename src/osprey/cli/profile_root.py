@@ -31,6 +31,7 @@ warning naming the rewrite.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
@@ -81,7 +82,8 @@ def symlink_escapes(path: Path, root: Path) -> bool:
     """True when ``path`` is a symlink resolving outside ``root``."""
     if not path.is_symlink():
         return False
-    return not path.resolve().is_relative_to(root.resolve())
+    # realpath answers for a link loop on every supported Python; ``Path.resolve`` raises on 3.11.
+    return not Path(os.path.realpath(path)).is_relative_to(root.resolve())
 
 
 def layer_files(root_dir: Path) -> list[tuple[ProfileKind, Path]]:

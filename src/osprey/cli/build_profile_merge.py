@@ -1781,9 +1781,10 @@ def _fold_source_tree(
 
     * Symlinks. A symlinked *file* is folded — ``is_file`` and ``read_bytes``
       both follow it — and so is a ``source`` that is itself a symlink to a
-      directory, which arrives here already resolved. A nested link whose
-      target is outside the repository never reaches the fold:
-      :func:`refuse_inputs_outside_repository` refuses it before hashing. A
+      directory, which arrives here already resolved. A link whose target is
+      outside the repository, however many directory links lead to it, never
+      reaches the fold: :func:`refuse_inputs_outside_repository` refuses it
+      before hashing. A
       nested *directory* link that resolves inside the repository is the one
       thing still outside the digest: ``rglob`` does not recurse into it, while
       ``shutil.copytree`` (``symlinks=False``) follows it and copies its
@@ -2122,6 +2123,9 @@ def _is_service_template_label(label: str) -> bool:
 #: The remedy every repository-boundary refusal line ends with.
 _MOVE_INSIDE = "Move it into the repository."
 
+#: The remedy a refusal line for a link that leads back into its own tree ends with.
+_REMOVE_LINK = "Remove the link."
+
 
 @dataclass(frozen=True)
 class OutsideInput:
@@ -2132,10 +2136,13 @@ class OutsideInput:
             the link.
         link: The link's path relative to ``entry.path``, POSIX, or ``None``
             when the top path itself is outside.
+        loops: The descent at ``link`` meets a directory it is still inside, so
+            the copy would not end. The link stays inside the repository.
     """
 
     entry: ProfileInput
     link: str | None = None
+    loops: bool = False
 
     @property
     def path(self) -> Path:
@@ -2143,15 +2150,64 @@ class OutsideInput:
         return self.entry.path if self.link is None else self.entry.path / self.link
 
 
+def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
+    """What a ``copytree(symlinks=False)`` of *entry* cannot stage from inside *root*.
+
+    Directory links are entered, through any number of hops. A link outside *root*
+    is reported and not entered. An entry resolving to a directory the descent is
+    still inside is reported as a loop and not entered: the copy would not end. A
+    directory reached a second way is not walked again, because its first visit
+    answered for it. Everything else a visited directory holds is inside *root*,
+    because every directory visited resolves inside it.
+
+    Args:
+        entry: The input directory, which resolves inside *root*.
+        root: The resolved repository root.
+
+    Returns:
+        One record per link, at its path relative to the input, POSIX: the path
+        the copy would write, sorted per directory, depth first.
+    """
+    found: list[OutsideInput] = []
+    top = entry.path.resolve()
+    visited = {top}
+    descent = {top}
+
+    def visit(directory: Path, prefix: str) -> None:
+        try:
+            children = sorted(directory.iterdir(), key=lambda child: child.name)
+        except PermissionError:
+            return
+        for child in children:
+            if not prefix and entry.skips_runtime_output and child.name == RUNTIME_DATA_DIR_NAME:
+                continue
+            rel = f"{prefix}{child.name}"
+            if symlink_escapes(child, root):
+                found.append(OutsideInput(entry, rel))
+            elif child.is_dir():
+                resolved = child.resolve()
+                if resolved in descent:
+                    found.append(OutsideInput(entry, rel, loops=True))
+                elif resolved not in visited:
+                    visited.add(resolved)
+                    descent.add(resolved)
+                    visit(child, f"{rel}/")
+                    descent.remove(resolved)
+
+    visit(entry.path, "")
+    return found
+
+
 def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[OutsideInput, ...]:
     """The inputs of *document* outside its root, or holding a link that resolves outside.
 
     The repository is the profile root, ``document.root_dir``. Both sides are
     resolved, so a symlink whose target lies outside counts as outside: a clone
-    does not carry it. An input directory inside the root is walked, and every
-    link in it that resolves outside is reported, except under the runtime
-    subtree the fold skips. A bundled preset is package content, not a
-    repository, and has none.
+    does not carry it. An input directory inside the root is walked the way the
+    copy that stages it follows it, through directory links, and every link that
+    resolves outside or leads back into its own tree is reported at the path the
+    copy would write, except under the runtime subtree the fold skips. A bundled
+    preset is package content, not a repository, and has none.
 
     Args:
         document: The profile's resolution, from :func:`resolve_profile_document`.
@@ -2170,17 +2226,12 @@ def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[Outsid
             continue
         if not entry.path.is_dir():
             continue
-        for path in sorted(entry.path.rglob("*")):
-            rel = path.relative_to(entry.path).as_posix()
-            if entry.skips_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
-                continue
-            if symlink_escapes(path, root):
-                outside.append(OutsideInput(entry, rel))
+        outside.extend(_links_outside(entry, root))
     return tuple(outside)
 
 
 def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
-    """Refuse a profile whose input is outside the repository or holds a link that resolves outside.
+    """Refuse a profile whose input is outside the repository or holds a link the copy cannot stage.
 
     Called by the profile loaders before validation, so a repository builds
     from a clone or is refused before anything is installed.
@@ -2190,7 +2241,8 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
 
     Raises:
         BuildProfileError: One line per outside input or link, in enumeration
-            order, naming the profile key, the resolved path and the remedy.
+            order, naming the profile key, the resolved path and the remedy. A
+            link back into its own tree names the key and the remedy.
     """
     outside = inputs_outside_repository(document)
     if not outside:
@@ -2214,6 +2266,11 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
             key = entry.key
         if found.link is not None:
             key = f"{key.rstrip('/')}/{found.link}"
+        if found.loops:
+            lines.append(
+                f"{key} leads back into its own tree, so the copy would not end. {_REMOVE_LINK}"
+            )
+            continue
         lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")
     raise BuildProfileError("\n".join(lines))
 
