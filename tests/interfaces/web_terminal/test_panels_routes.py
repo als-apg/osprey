@@ -102,8 +102,21 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "scaffold_write_enabled",
         "config_unreadable_path",
         "tour",
+        "personal_login",
         "loopback_ports",
     }
+
+
+def test_personal_login_facts_default_off_and_absent(tmp_path):
+    """A bare state publishes the defaults: not allowed, no login (#925)."""
+    assert _panels(_make_app(tmp_path))["personal_login"] == {"allowed": False, "present": False}
+
+
+def test_personal_login_facts_follow_the_startup_decision(tmp_path):
+    app = _make_app(tmp_path)
+    app.state.personal_login_allowed = True
+    app.state.personal_login_present = False
+    assert _panels(app)["personal_login"] == {"allowed": True, "present": False}
 
 
 def test_loopback_ports_names_only_root_loopback_backends(tmp_path):
