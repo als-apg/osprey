@@ -655,6 +655,7 @@ class TestReadonlyServerRefusal:
         """A write that slipped every option layer still stops at the server."""
         from tests.mcp_server.conftest import get_tool_fn
 
+        from osprey.mcp_server.control_system import server_context
         from osprey.mcp_server.control_system.server_context import initialize_server_context
         from osprey.mcp_server.control_system.tools.channel_write import channel_write
         from osprey_connectors.refusals import refusal_text
@@ -687,6 +688,9 @@ class TestReadonlyServerRefusal:
         env = stream.kwargs["mcp_servers"]["controls"]["env"]
         for key in ("OSPREY_EXECUTION_MODE", "OSPREY_SESSION_ID", "OSPREY_SESSION_HOLD_DIR"):
             monkeypatch.setenv(key, env[key])
+        # A process singleton: restored at teardown so later tests on this worker
+        # do not inherit this test's controls server.
+        monkeypatch.setattr(server_context, "_registry", None)
         initialize_server_context()
 
         connector = AsyncMock()
