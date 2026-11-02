@@ -240,23 +240,47 @@ class FakeChannel:
     connect.
     """
 
-    def __init__(self, value=None, *, ctrl=None, put=None, connected=True):
+    def __init__(self, value=None, *, ctrl=None, put=None, connected=True, write=True):
         self.value = value if value is not None else ca_reading(1.0)
         self.ctrl = ctrl if ctrl is not None else ca_reading(0.0, units="mA", precision=3)
         self.put = put
         self.connected = connected
+        # The client's write access, as cainfo and the record's CTRL handler see it.
+        self.write = write
 
 
 class FakeSubscription:
-    """What ``camonitor`` returns: the callback to fire, and whether it was closed."""
+    """What ``camonitor`` returns: the callback to fire, and whether it was closed.
 
-    def __init__(self, name, callback):
+    ``kwargs`` are the keywords it was opened with (``events``, ``format``,
+    ``count``, ``all_updates``, ``notify_disconnect``); ``fire`` delivers one
+    update the way aioca would, unless the subscription is closed.
+    """
+
+    OPEN, CLOSED = 1, 2
+
+    def __init__(self, name, callback, kwargs=None):
         self.name = name
         self.callback = callback
+        self.kwargs = dict(kwargs or {})
         self.closed = False
+        self.state = self.OPEN
+
+    @property
+    def is_ctrl(self):
+        return self.kwargs.get("format") == aioca.FORMAT_CTRL
+
+    def fire(self, reading):
+        if not self.closed:
+            self.callback(reading)
+
+    def drop(self):
+        """Deliver a disconnect, as ``notify_disconnect=True`` does."""
+        self.fire(aioca.CANothing(self.name, ECA_DISCONN))
 
     def close(self):
         self.closed = True
+        self.state = self.CLOSED
 
 
 class FakeAioca(types.ModuleType):
@@ -269,6 +293,10 @@ class FakeAioca(types.ModuleType):
     """
 
     CANothing = aioca.CANothing
+    Subscription = FakeSubscription
+    DBE_VALUE = aioca.DBE_VALUE
+    DBE_ALARM = aioca.DBE_ALARM
+    DBE_PROPERTY = aioca.DBE_PROPERTY
     FORMAT_RAW = aioca.FORMAT_RAW
     FORMAT_TIME = aioca.FORMAT_TIME
     FORMAT_CTRL = aioca.FORMAT_CTRL
@@ -333,15 +361,54 @@ class FakeAioca(types.ModuleType):
             name=name,
             datatype=getattr(channel.value, "datatype", DBR_DOUBLE),
             count=getattr(channel.value, "element_count", 1),
+            write=channel.write,
         )
 
+    # Hooks the subscription path asks instead of libca (_epics_bulk).
+
+    def write_access(self, name):
+        channel = self.channels.get(name, self.default)
+        return None if channel is None else channel.write
+
+    def channel_connected(self, name):
+        return self._channel(name) is not None
+
+    def get_channel_infos(self):
+        """aioca's channel cache: every name connected, read or put, with its state."""
+        names = dict.fromkeys(name for _call, name, _kwargs in self.calls)
+        return [
+            types.SimpleNamespace(name=name, connected=self._channel(name) is not None)
+            for name in names
+        ]
+
+    def monitors_of(self, name):
+        """The open (CTRL, TIME) monitor pair of ``name``'s record, newest first."""
+        live = [m for m in self.monitors if m.name == name and not m.closed]
+        ctrl = next((m for m in reversed(live) if m.is_ctrl), None)
+        time_ = next((m for m in reversed(live) if not m.is_ctrl), None)
+        return ctrl, time_
+
     def camonitor(
-        self, name, callback, *, format=aioca.FORMAT_RAW, notify_disconnect=False, **_aioca_kwargs
+        self,
+        name,
+        callback,
+        *,
+        events=None,
+        format=aioca.FORMAT_RAW,
+        count=0,
+        all_updates=False,
+        notify_disconnect=False,
+        **_aioca_kwargs,
     ):
-        self.calls.append(
-            ("camonitor", name, {"format": format, "notify_disconnect": notify_disconnect})
-        )
-        subscription = FakeSubscription(name, callback)
+        kwargs = {
+            "events": events,
+            "format": format,
+            "count": count,
+            "all_updates": all_updates,
+            "notify_disconnect": notify_disconnect,
+        }
+        self.calls.append(("camonitor", name, kwargs))
+        subscription = FakeSubscription(name, callback, kwargs)
         self.monitors.append(subscription)
         return subscription
 

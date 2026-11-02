@@ -893,9 +893,10 @@ ignore-variadic-names = true
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 # Allow assert False, useless attribute access, assert blind exception. Test
-# fixtures carry fake credentials by design; gitleaks scans every path for real ones.
+# fixtures, in every test suite, carry fake credentials by design; gitleaks scans
+# every path for real ones. T20: package tests print, as below.
 "tests/*" = ["B011", "B017", "B018", "S105", "S106", "S107"]
-"packages/*/tests/**" = ["S105", "S106", "S107", "T20"]  # T20: tests print, as below
+"packages/*/tests/**" = ["B011", "B017", "B018", "S105", "S106", "S107", "T20"]
 # The simplification families are adopted in the shipped trees first; the test
 # trees are brought under them separately. Each code that fires there is named,
 # so the rest of each family, SIM105 among it, holds in tests as it did before.

@@ -755,10 +755,15 @@ class TestThroughTheEpicsConnector:
         with _connecting(connector):
             await source.start([_trigger(pv="SIM:PV", threshold=1.0)], fire)
 
-        fake.monitors[-1].callback(ca_reading(0.0))  # first read, suppressed
+        # Each address is one CTRL + TIME monitor pair; a connection's values
+        # flow once its CTRL event has arrived.
+        ctrl, values = fake.monitors_of("SIM:PV")
+        ctrl.callback(ca_reading(0.0))
+        values.callback(ca_reading(0.0))  # first read, suppressed
         connector._ca.repoint()  # aioca closes every monitor; the connector re-opens
-        reopened = fake.monitors[-1]
-        assert reopened is not fake.monitors[0]
+        reopened_ctrl, reopened = fake.monitors_of("SIM:PV")
+        assert reopened is not values and reopened_ctrl is not ctrl
+        reopened_ctrl.callback(ca_reading(0.0))
         reopened.callback(ca_reading(2.0))
         for _ in range(10):
             await asyncio.sleep(0)
@@ -766,3 +771,4 @@ class TestThroughTheEpicsConnector:
         assert fired == [(0.0, 2.0)]
         await source.stop()
         assert reopened.closed is True
+        assert reopened_ctrl.closed is True

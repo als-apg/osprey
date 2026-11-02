@@ -43,10 +43,11 @@ No call outlives its bound. On every connector whose transport call runs in a
 worker thread — DOOCS and TANGO — a read whose transport stalls raises
 ``TimeoutError`` naming the channel, and a send whose transport stalls is
 ``unconfirmed``, because the thread cannot be stopped and the value may still
-arrive. EPICS (and the Virtual Accelerator, an EPICS subclass) has no row: it
-hands its bound to aioca's own connection and get timeouts, and a channel
-that never connects is the ``ChannelUnreachableError`` the unreachable-channel
-class already pins. Mock has no transport to stall.
+arrive. EPICS (and the Virtual Accelerator, an EPICS subclass) has no row
+here: each phase of its write runs under one aioca deadline that covers connect
+and call, which ``test_epics_write_deadlines.py`` pins against a timing fake
+aioca, and a channel that never connects is the ``ChannelUnreachableError`` the
+unreachable-channel class already pins. Mock has no transport to stall.
 """
 
 import threading
