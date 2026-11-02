@@ -481,6 +481,26 @@ class SignalRoleEnum(str, Enum):
     """
     Measured longitudinal offset (phase) of an insertion device's magnet rows.
     """
+    temperature_limit_readback = "temperature_limit_readback"
+    """
+    Temperature above which a device's over-temperature interlock trips.
+    """
+    blade_position_setpoint = "blade_position_setpoint"
+    """
+    Commanded insertion of a scraper blade into the beam aperture.
+    """
+    blade_position_readback = "blade_position_readback"
+    """
+    Measured insertion of a scraper blade into the beam aperture.
+    """
+    coolant_flow_readback = "coolant_flow_readback"
+    """
+    Measured cooling-water flow through a device.
+    """
+    valve_position_readback = "valve_position_readback"
+    """
+    Measured opening of a modulating valve, in percent.
+    """
     temperature_readback = "temperature_readback"
     """
     Measured temperature.
@@ -548,6 +568,14 @@ class SignalRoleEnum(str, Enum):
     temperature_setpoint = "temperature_setpoint"
     """
     Commanded temperature of a regulated loop (e.g. a cooling-water heater).
+    """
+    beam_lifetime_readback = "beam_lifetime_readback"
+    """
+    Measured lifetime readback of the stored beam.
+    """
+    operation_mode_status = "operation_mode_status"
+    """
+    Current operating mode of the machine (e.g. user operation, machine development, shutdown).
     """
 
 
@@ -1428,6 +1456,28 @@ class Seed(ConfiguredBaseModel):
     linear: Optional[dict[str, Union[float, LinearTerm]]] = Field(default=None, description="""The value as a weighted sum of other channels, `{<address>: <coefficient>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Curve'], 'list_elements_ordered': True} })
     pulse: Optional[Pulse] = Field(default=None, description="""The trace of a waveform channel, shaped in code and scaled by a driving channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     gate: Optional[Gate] = Field(default=None, description="""What the channel does while any of `inputs` reads its blocking label, beside `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    topoff: Optional[Topoff] = Field(default=None, description="""A stored current refilled every `period_s` and decaying between refills with lifetime `lifetime_h`; it holds the level the decay averages to, so it carries no `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    topoff_lifetime: Optional[TopoffLifetime] = Field(default=None, description="""The lifetime of a `topoff` channel, read as a constant.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+
+
+class Topoff(ConfiguredBaseModel):
+    """
+    A top-off sawtooth: the reading falls from `ceiling` with lifetime `lifetime_h` and returns to it every `period_s`.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    ceiling: float = Field(default=..., description="""The reading just after a refill, in the channel's unit.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff']} })
+    lifetime_h: float = Field(default=..., description="""The decay lifetime in hours; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff']} })
+    period_s: float = Field(default=..., description="""The seconds between refills; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff', 'Drift']} })
+
+
+class TopoffLifetime(ConfiguredBaseModel):
+    """
+    A channel that reads the `lifetime_h` of another channel's `topoff` seed.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    of: str = Field(default=..., description="""The address of the channel whose `topoff` seed's lifetime this channel reads.""", json_schema_extra = { "linkml_meta": {'domain_of': ['TopoffLifetime']} })
 
 
 class Pulse(ConfiguredBaseModel):
@@ -1481,7 +1531,7 @@ class Drift(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     amplitude: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Drift']} })
-    period_s: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Drift']} })
+    period_s: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff', 'Drift']} })
 
 
 class LinearTerm(ConfiguredBaseModel):
@@ -1746,6 +1796,8 @@ Device.model_rebuild()
 OnTarget.model_rebuild()
 Channel.model_rebuild()
 Seed.model_rebuild()
+Topoff.model_rebuild()
+TopoffLifetime.model_rebuild()
 Pulse.model_rebuild()
 Gate.model_rebuild()
 GateInput.model_rebuild()

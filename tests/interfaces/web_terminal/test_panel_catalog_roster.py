@@ -4,23 +4,26 @@
 labels. Four places in the browser depend on that roster, and each can drift
 from it on its own:
 
-- ``panel-catalog.js`` declares one descriptor per built-in panel — the id,
+- ``panel-catalog.js`` declares one descriptor per companion panel — the id,
   the config endpoint, and whether the panel is health-polled. A panel added
   to the registry and not to the catalog has no descriptor; one removed from
-  the registry but left here is a rail entry for a panel that no longer
-  exists. The catalog states no label of its own.
+  the registry but left here is a sidebar row for a panel that no longer
+  exists. The catalog states no label of its own, and names no sidecar panel:
+  those it builds from the descriptors the page stamps on
+  ``<html data-sidecar-panels>``.
 - The page stamps the labels on ``<html data-panel-labels>``, which is where
   the catalog reads them. ``/api/panels`` answers for the ENABLED panels
   only, so it cannot seed the full roster before the catalog's first render.
-- ``PANEL_ICONS`` in ``panel-catalog.js`` maps each panel id to the name of an
-  ``icons.js`` glyph for its sidebar row. A built-in panel it does not name
-  falls to the generic icon, and a name ``icons.js`` does not draw makes
-  ``icon()`` throw. The map also names panels the registry does not know (the
-  Agent row, and config panels such as ``events`` and ``bluesky``), so only
-  the registry-to-map direction is checked.
+- ``PANEL_ICONS`` in ``panel-catalog.js`` maps each companion panel id to the
+  name of an ``icons.js`` glyph for its sidebar row. A companion panel it does
+  not name falls to the generic icon, and a name ``icons.js`` does not draw
+  makes ``icon()`` throw. The map also names panels the registry does not
+  know (the Agent row, and config panels such as ``events`` and ``bluesky``),
+  so only the registry-to-map direction is checked. A sidecar panel's glyph
+  is its registry entry's ``icon``, held to the same table of names.
 - The vitest fixture that stamps the roster for the suites that assert a
-  label is pinned to the same dict, so a renamed label cannot leave the
-  fixture behind.
+  label is pinned to the same dict and the same descriptors, so a renamed
+  label cannot leave the fixture behind.
 
 The catalog and icon checks read the shipped sources, so either direction of drift
 fails immediately.
@@ -30,7 +33,11 @@ import json
 import re
 from pathlib import Path
 
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
+from osprey.profiles.web_panels import (
+    BUILTIN_PANEL_LABELS,
+    SIDECAR_PANELS,
+    sidecar_panel_descriptors,
+)
 
 _ROOT = Path(__file__).parents[3]
 _INTERFACES = _ROOT / "src" / "osprey" / "interfaces"
@@ -42,6 +49,10 @@ _FIXTURE = Path(__file__).parent / "panel-labels-fixture.mjs"
 #: is dock-layout state rather than a service panel, so the registry does not
 #: name it.
 _TERMINAL_ROW_ID = "terminal"
+
+
+#: The built-in panels the catalog lists itself: every one that is not a sidecar.
+_COMPANION_IDS = set(BUILTIN_PANEL_LABELS) - set(SIDECAR_PANELS)
 
 
 def _catalog_ids() -> set[str]:
@@ -75,13 +86,21 @@ def _icon_names() -> set[str]:
     return names
 
 
-def test_the_catalog_declares_exactly_the_builtin_panels() -> None:
+def test_the_catalog_declares_exactly_the_companion_panels() -> None:
     ids = _catalog_ids()
-    assert ids == set(BUILTIN_PANEL_LABELS), (
-        "panel-catalog.js and BUILTIN_PANEL_LABELS disagree about the built-in "
-        f"roster: only in the catalog {sorted(ids - set(BUILTIN_PANEL_LABELS))}, "
-        f"only in the registry {sorted(set(BUILTIN_PANEL_LABELS) - ids)}"
+    assert ids == _COMPANION_IDS, (
+        "panel-catalog.js and the registry disagree about the companion "
+        f"roster: only in the catalog {sorted(ids - _COMPANION_IDS)}, "
+        f"only in the registry {sorted(_COMPANION_IDS - ids)}"
     )
+
+
+def test_the_catalog_names_no_sidecar_panel() -> None:
+    """Sidecar rows come from the page's stamp, so the bundle spells none."""
+    source = _CATALOG.read_text()
+    named = {panel_id for panel_id in SIDECAR_PANELS if f"'{panel_id}'" in source}
+    assert named == set(), f"panel-catalog.js names sidecar panels: {sorted(named)}"
+    assert not set(SIDECAR_PANELS) & set(_panel_icons()), "PANEL_ICONS names a sidecar panel"
 
 
 def test_the_catalog_states_no_label_of_its_own() -> None:
@@ -108,19 +127,26 @@ def test_the_builtin_panel_roster_is_stamped_on_html(isolated_app) -> None:
     assert json.loads(match.group(1)) == BUILTIN_PANEL_LABELS
 
 
-def test_every_builtin_panel_has_an_icon() -> None:
-    missing = set(BUILTIN_PANEL_LABELS) - set(_panel_icons())
+def test_every_companion_panel_has_an_icon() -> None:
+    missing = _COMPANION_IDS - set(_panel_icons())
     assert not missing, (
         "built-in panels falling back to the generic sidebar icon: "
         f"{sorted(missing)} — add them to PANEL_ICONS in panel-catalog.js"
     )
 
 
+def test_every_sidecar_panel_names_its_icon() -> None:
+    """A sidecar with no ``icon`` wears the generic glyph: the same silent regression."""
+    missing = sorted(panel_id for panel_id, panel in SIDECAR_PANELS.items() if not panel.icon)
+    assert not missing, f"sidecar panels with no registry icon: {missing}"
+
+
 def test_every_panel_icon_is_a_design_system_icon() -> None:
     """``icon()`` throws on a name ``SHAPES`` lacks, so a typo blanks the sidebar row."""
     known = _icon_names()
-    unknown = {panel: name for panel, name in _panel_icons().items() if name not in known}
-    assert not unknown, f"PANEL_ICONS names icons icons.js does not draw: {unknown}"
+    named = {**_panel_icons(), **{pid: panel.icon for pid, panel in SIDECAR_PANELS.items()}}
+    unknown = {panel: name for panel, name in named.items() if name not in known}
+    assert not unknown, f"panel icons name glyphs icons.js does not draw: {unknown}"
 
 
 def test_the_agent_row_has_an_icon() -> None:
@@ -128,6 +154,23 @@ def test_the_agent_row_has_an_icon() -> None:
     assert _TERMINAL_ROW_ID in _panel_icons()
 
 
+def _fixture_literal(name: str) -> str:
+    """The source of the object or array the fixture assigns to *name*."""
+    source = _FIXTURE.read_text()
+    start = source.index(f"export const {name} = ")
+    return source[start : source.index(";\n", start)]
+
+
 def test_the_vitest_label_fixture_matches_the_registry() -> None:
-    pairs = dict(re.findall(r"'?([\w-]+)'?: '([^']*)'", _FIXTURE.read_text()))
+    pairs = dict(re.findall(r"'?([\w-]+)'?: '([^']*)'", _fixture_literal("BUILTIN_PANEL_LABELS")))
     assert pairs == BUILTIN_PANEL_LABELS
+
+
+def test_the_vitest_sidecar_fixture_matches_the_registry() -> None:
+    """Each fixture descriptor, field for field, is the one the page stamps."""
+    literal = _fixture_literal("SIDECAR_PANELS")
+    entries = [
+        dict(re.findall(r"(\w+): '([^']*)'", block))
+        for block in re.findall(r"Object\.freeze\(\{(.*?)\}\)", literal, flags=re.DOTALL)
+    ]
+    assert entries == sidecar_panel_descriptors()

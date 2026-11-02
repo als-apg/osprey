@@ -11374,15 +11374,6 @@ PYAML_WHEEL_GLOBS = (
     "dist/osprey_connectors-*.whl",
     "dist/pyaml_cs_osprey-*.whl",
 )
-DOCK_ENGINE_COVERAGE_FLAG = "--cov=packages/dock-engine/src/dock_engine"
-#: What the framework wheel must carry for ``dock_engine``: the module itself
-#: (bundled from packages/dock-engine, not a wheel of its own) and the package
-#: data ``dock_engine._data`` reads through ``importlib.resources``.
-DOCK_ENGINE_WHEEL_DATA = (
-    "dock_engine/__init__.py",
-    "dock_engine/cases/validate/",
-    "dock_engine/manifest.json",
-)
 RELEASE_VERIFY_JOB = "verify-pypi-resolvable"
 RELEASE_SIBLING_DIR = "/tmp/sibling"
 
@@ -11412,24 +11403,6 @@ def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() 
     step["run"] = step["run"].replace(f" {PYAML_COVERAGE_FLAG}", "")
     with pytest.raises(AssertionError, match="does not measure the pyAML member"):
         test_the_coverage_cell_measures_the_pyaml_member(mutated)
-
-
-def test_the_coverage_cell_measures_the_dock_engine_member(workflow: dict[str, Any]) -> None:
-    """The dock-engine member's tests run in the unit lane, so its tree is on
-    the coverage command line beside the other members'."""
-    flags = _coverage_cell_flags(workflow)
-    assert DOCK_ENGINE_COVERAGE_FLAG in flags, (
-        f"the coverage cell does not measure the dock-engine member; COV_ARGS names {flags}"
-    )
-
-
-def test_the_coverage_cell_measures_the_dock_engine_member__mutation_drops_the_flag() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
-    assert DOCK_ENGINE_COVERAGE_FLAG in step["run"], "the flag moved; this mutation is stale"
-    step["run"] = step["run"].replace(f" {DOCK_ENGINE_COVERAGE_FLAG}", "")
-    with pytest.raises(AssertionError, match="does not measure the dock-engine member"):
-        test_the_coverage_cell_measures_the_dock_engine_member(mutated)
 
 
 PackageSteps = tuple[tuple[str, ...], ...]
@@ -11531,60 +11504,6 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_uploads_all_of_d
     _find_named_step(mutated, PACKAGE_JOB, PACKAGE_UPLOAD_STEP)["with"]["path"] = "dist/"
     with pytest.raises(AssertionError, match="framework-only dist/"):
         test_the_package_job_import_walks_the_pyaml_wheel(mutated)
-
-
-def _checks_dock_engine(step: tuple[str, ...]) -> bool:
-    return step[:2] == ("python3", "-c") and "dock_engine" in step[2]
-
-
-def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
-    workflow: dict[str, Any], steps: PackageSteps | None = None
-) -> None:
-    """``dock_engine`` ships inside the framework wheel, not as a wheel of its own,
-    so the package check reads the framework wheel's file list for the module and
-    the package data ``dock_engine._data`` needs. No dock-engine wheel is built
-    anywhere in the check or the job."""
-    steps = framework_checks.PACKAGE_STEPS if steps is None else steps
-    check = _step_index(steps, _checks_dock_engine, "checks the framework wheel for dock_engine")
-    assert "dist/osprey_framework-*.whl" in steps[check], (
-        "the check does not read the framework wheel"
-    )
-    for member in DOCK_ENGINE_WHEEL_DATA:
-        assert member in steps[check][2], f"the dock-engine check does not look for {member}"
-    job_text = " ".join(" ".join(step) for step in steps) + json.dumps(_jobs(workflow)[PACKAGE_JOB])
-    assert "osprey-dock-engine" not in job_text and "osprey_dock_engine" not in job_text, (
-        "the package job builds or installs a dock-engine wheel; the engine ships inside "
-        "the framework wheel and has no distribution of its own"
-    )
-
-
-def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_drops_the_step() -> (
-    None
-):
-    steps = tuple(s for s in framework_checks.PACKAGE_STEPS if not _checks_dock_engine(s))
-    with pytest.raises(AssertionError, match="no step that"):
-        test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
-
-
-@pytest.mark.parametrize("member", DOCK_ENGINE_WHEEL_DATA)
-def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_skips_data(
-    member: str,
-) -> None:
-    steps = framework_checks.PACKAGE_STEPS
-    index = _step_index(steps, _checks_dock_engine, "checks the framework wheel")
-    step = steps[index]
-    assert member in step[2], f"the check no longer names {member}; mutation is stale"
-    mutated = _replace_step(steps, index, (*step[:2], step[2].replace(member, ""), *step[3:]))
-    with pytest.raises(AssertionError, match=f"does not look for {re.escape(member)}"):
-        test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), mutated)
-
-
-def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_builds_a_wheel() -> (
-    None
-):
-    steps = (*framework_checks.PACKAGE_STEPS, ("uv", "build", "--package", "osprey-dock-engine"))
-    with pytest.raises(AssertionError, match="no distribution of its own"):
-        test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
 
 
 def _release_staging_script(release: dict[str, Any]) -> str:
@@ -12829,17 +12748,6 @@ def test_no_caller_step_spells_a_check__mutation_restores_the_ruff_command() -> 
     ]
 
 
-def test_no_caller_step_spells_a_check__mutation_restores_the_bundle_check() -> None:
-    mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, FRONTEND_JS_JOB, "Check the dock-engine bundle is current")
-    step["run"] = "node packages/dock-engine/scripts/build.mjs --check"
-    assert _spelled_checks(mutated) == [
-        f"frontend-js: 'Check the dock-engine bundle is current' is neither a setup step "
-        f"nor a call of {CHECK_SCRIPT}",
-        "frontend-js: 'Check the dock-engine bundle is current' spells ['build.mjs']",
-    ]
-
-
 def test_no_caller_step_spells_a_check__mutation_spells_actionlint() -> None:
     mutated = _load_raw_workflow()
     _find_named_step(mutated, LINT_JOB, "Run actionlint (workflow lint)")["run"] = (
@@ -12983,13 +12891,6 @@ def test_every_full_check_is_called_on_ci__mutation_drops_the_mypy_step() -> Non
     steps = _jobs(mutated)[LINT_JOB]["steps"]
     steps[:] = [step for step in steps if step.get("name") != MYPY_STEP]
     assert _checks_missing_from_ci(mutated) == ["mypy: no caller step runs it"]
-
-
-def test_every_full_check_is_called_on_ci__mutation_drops_the_bundle_step() -> None:
-    mutated = _load_raw_workflow()
-    steps = _jobs(mutated)[FRONTEND_JS_JOB]["steps"]
-    steps[:] = [s for s in steps if s.get("name") != "Check the dock-engine bundle is current"]
-    assert _checks_missing_from_ci(mutated) == ["dock-engine-bundle: no caller step runs it"]
 
 
 def test_every_full_check_is_called_on_ci__mutation_runs_live_ca_on_every_cell() -> None:

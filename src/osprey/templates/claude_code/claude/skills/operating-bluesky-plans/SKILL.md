@@ -329,8 +329,9 @@ on the code and relay the bridge's sentence to the operator as written.
   bridge itself was never given one. Not agent-recoverable, and NOT a configuration task for you: which
   agents may arm this deployment is an operator's decision, so hand the action
   to the human — the BLUESKY queue panel performs these operations with its
-  own token. Never edit config.yml, `.env`, or settings to obtain a token. For
-  a `queue_add`, `details.manager_state` names the state that made it armed,
+  own token. A launch token reaches you only from the operator; do not go
+  looking for one. For a `queue_add`, `details.manager_state` names the state
+  that made it armed,
   and the suggestions say whether this server withheld the token because
   writes are disabled (then enabling writes, an operator action, is what
   unblocks it). If `details.item_left_behind` is true, an item could not be

@@ -20,7 +20,7 @@ import os
 import pytest
 
 from osprey.mcp_server.control_system import server, server_context, target_state
-from osprey_connectors import control_context
+from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
@@ -595,6 +595,91 @@ class TestShutdown:
         target_state.delete_on_shutdown(server_pid=1234)  # missing file is fine
 
         assert target_state.read(1234) is None
+
+
+class TestDisplayOnlyReport:
+    """DATA's report sits beside the fleet's and is never counted in it."""
+
+    @pytest.fixture(autouse=True)
+    def _one_root_for_every_reader(self, state_root, monkeypatch):
+        """Stamp the scratch root too, so the connector-side readers resolve it."""
+        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+        control_context.invalidate_cache()
+        yield
+        control_context.invalidate_cache()
+
+    @staticmethod
+    def _write_display_only(state_root, pid, *, updated_at):
+        directory = state_dir_under(state_root)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = (
+            directory / f"{target_state.REPORT_FILE_PREFIX}{pid}{target_state.REPORT_FILE_SUFFIX}"
+        )
+        path.write_text(
+            json.dumps(
+                {
+                    "server_pid": pid,
+                    "session": None,
+                    "applied_target": "va",
+                    "applied_generation": 3,
+                    "children": [],
+                    "reachability": {},
+                    "last_switch": None,
+                    "last_posture_realign": None,
+                    "targets": {},
+                    "updated_at": updated_at,
+                    "statement": {
+                        "reachable": {"state": "yes", "since": None, "reason": None},
+                        "writes": {
+                            "allowed": True,
+                            "position": "allowed",
+                            "reason": None,
+                            "kind": "simulator",
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        control_context.invalidate_cache()
+        return path
+
+    def test_a_controls_server_never_writes_a_statement(self):
+        target_state.write_server_record(TARGETS_META, server_pid=1234)
+
+        record = json.loads(target_state.report_file_path(1234).read_text(encoding="utf-8"))
+        assert "statement" not in record
+        assert control_context.parse_report(record).display_only is False
+
+    def test_the_shape_doc_names_the_eleventh_field(self):
+        doc = target_state.__doc__
+        assert '"statement"' in doc
+        assert "display-only" in doc
+
+    def test_a_newer_display_only_report_leaves_the_published_labels_unchanged(self, state_root):
+        from osprey.interfaces.web_terminal.routes import websocket
+
+        target_state.write_server_record(TARGETS_META, server_pid=os.getpid())
+        self._write_display_only(state_root, os.getppid(), updated_at="2999-01-01T00:00:00+00:00")
+
+        reports = websocket._live_reports()
+        assert [r.server_pid for r in reports] == [os.getpid()]
+        assert websocket._published_targets(reports) == TARGETS_META
+        statements = control_context.live_statement_reports(is_alive=target_state.is_process_alive)
+        assert [r.server_pid for r in statements] == [os.getppid()]
+        # Even handed the DATA report directly, its empty targets name nothing.
+        assert websocket._published_targets([*reports, *statements]) == TARGETS_META
+
+    def test_the_landing_wait_passes_over_a_display_only_row(self, state_root):
+        from osprey.interfaces.web_terminal.routes import websocket
+
+        self._write_display_only(state_root, os.getppid(), updated_at="2999-01-01T00:00:00+00:00")
+
+        assert websocket._live_reports() == ()
+        statements = control_context.live_statement_reports(is_alive=target_state.is_process_alive)
+        rows = websocket._server_rows(statements)
+        assert [row["children"] for row in rows] == [[]]
+        assert rows[0]["last_switch"] is None
 
 
 class TestAtomicWrite:

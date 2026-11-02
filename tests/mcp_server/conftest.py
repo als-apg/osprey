@@ -241,7 +241,7 @@ def _block_web_terminal_posts(request, monkeypatch):
     filling the activity strip. Both posters are stubbed here to the outcome
     they already produce when the terminal is down: ``post_json`` swallows and
     returns ``None``; ``_post_json_with_response`` raises ``URLError`` so
-    ``notify_panel_register`` / ``notify_panel_arrange`` take their existing
+    ``notify_panel_register`` and ``panel_op`` take their existing
     unreachable branch. Patching only ``post_json`` would miss those two.
 
     Patched in the ``http`` module's own namespace, which is where the helpers

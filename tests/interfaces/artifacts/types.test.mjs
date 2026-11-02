@@ -483,28 +483,30 @@ describe('thumbnailHtml', () => {
     expect(html).toContain('/files/i1/photo.png');
   });
 
-  test('an html-family type renders an <iframe>', () => {
-    const html = thumbnailHtml({ id: 'i2', artifact_type: 'plot_html', filename: 'p.html' });
-    expect(html).toContain('<iframe');
-  });
+  // Cards load no live page: an HTML-family or notebook card would be a
+  // sandboxed full document (a plot one carrying Plotly inline) per card.
+  test.each(['plot_html', 'table_html', 'dashboard_html', 'html', 'notebook'])(
+    'a %s card is the type placeholder: no <iframe>, no Plotly',
+    (artifact_type) => {
+      const html = thumbnailHtml({ id: 'i2', artifact_type, filename: 'p.html' });
+      expect(html).not.toContain('<iframe');
+      expect(html).not.toMatch(/plotly/i);
+      expect(html).not.toContain('/files/');
+      expect(html).not.toContain('/api/notebooks/');
+      expect(html).toContain('thumb-placeholder');
+    }
+  );
 
-  test('the notebook iframe src percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+  test('an HTML-family card with a summary shows the escaped summary', () => {
     const html = thumbnailHtml({
-      id: 'a/../b?x="y"',
-      artifact_type: 'notebook',
-      filename: 'n.ipynb',
+      id: 'i2',
+      artifact_type: 'plot_html',
+      filename: 'p.html',
+      summary: { traces: '<b>3</b>' },
     });
-    expect(html).toContain('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
-    expect(html).not.toContain('/api/notebooks/a/../b');
-  });
-
-  test('the notebook iframe src is byte-identical for a real 12-hex artifact id', () => {
-    const html = thumbnailHtml({
-      id: '0123456789ab',
-      artifact_type: 'notebook',
-      filename: 'n.ipynb',
-    });
-    expect(html).toContain('/api/notebooks/0123456789ab/rendered');
+    expect(html).toContain('thumb-summary');
+    expect(html).toContain('traces: &lt;b&gt;3&lt;/b&gt;');
+    expect(html).not.toContain('<iframe');
   });
 
   test('a type with a non-empty summary renders the summary fields, escaped', () => {

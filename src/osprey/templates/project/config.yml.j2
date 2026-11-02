@@ -227,12 +227,12 @@ web:
   panels: {}  # No builtin panels selected; custom panels arrive from `config:`.
 {%- endif %}
 {%- if _has_presets %}
-  # Panel layouts ("Layouts"): named sets of panels a human applies in one
-  # click from the "+" popover. The key is the menu label; the value is the
-  # exact set of panels to show (non-member panels close).
+  # Panel layouts ("Layouts"): named arrangements a human applies in one
+  # click from the "+" popover, or the agent by name. The key is the menu
+  # label; the value is the layout: tiles of panel-id tabs, in splits.
   presets:
-{%- for preset_name, preset_panels in panel_presets.items() %}
-    {{ preset_name | tojson }}: [{{ preset_panels | join(", ") }}]
+{%- for preset_name, preset_layout in panel_presets.items() %}
+    {{ preset_name | tojson }}: {{ preset_layout | tojson }}
 {%- endfor %}
 {%- endif %}
 {%- endif %}

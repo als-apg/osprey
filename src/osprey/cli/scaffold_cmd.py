@@ -1875,7 +1875,7 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
-    from osprey.deployment.web_terminals.roster import app_titles_in
+    from osprey.deployment.web_terminals.roster import app_titles_in, render_stop_grace
 
     repo_root = find_repo_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
@@ -1909,8 +1909,12 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     # with no authored identity records; each app card is titled by its
     # apps/<name>.yml `name:`, as the deploy titles it.
     try:
+        # Not a credential, so this preview carries it: how long each service
+        # gets to stop is a fact of the compose file an operator reads here,
+        # read off the renders' rendered configs.
         artifacts = render_web_terminals(
             config,
+            stop_grace_renders=render_stop_grace(config, repo_root),
             facility_name=str(config.get("project_name") or ""),
             app_titles=app_titles_in(repo_root / APPS_DIRNAME),
         )

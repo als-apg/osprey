@@ -10,7 +10,7 @@ would hand it write access to a machine nobody re-consented to while it works.
 So the executor pins what it launched under. ``OSPREY_LAUNCH_POSTURE`` is
 stamped into the sandbox environment and recorded in the in-flight marker, and
 inside that sandbox the write verdict reads it as its last term
-(``launch_pin_term``):
+(``_launch_pin_term``):
 
 * the switch goes OFF -> the record read refuses on the next write (immediate);
 * the switch goes ON -> the pin still refuses (the run stays off until it ends).
@@ -84,7 +84,7 @@ class TestStampFormat:
 
         assert stamp == f"{posture_store.LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
         for target in posture_store.CONTROL_TARGETS:
-            assert posture_store.launch_pin_term(target) == "pinned", target
+            assert posture_store._launch_pin_term(target) == "pinned", target
 
 
 # ---------------------------------------------------------------------------

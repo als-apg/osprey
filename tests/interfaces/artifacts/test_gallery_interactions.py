@@ -596,6 +596,10 @@ def test_the_viewer_preview_boots_in_and_follows_the_hub_theme(
     The gallery is loaded ``?embedded=true``, as the hub loads it: only a
     follower applies the broadcast at all (standalone, the gallery runs
     theme-manager.js in the hub role behind its own display menu).
+
+    The preview runs in the content sandbox's opaque origin, so the gallery
+    cannot read its document: the frame is inspected through Playwright's own
+    frame access, and the live half rides the page's opaque-origin bridge.
     """
     with _launch_artifacts(tmp_path, monkeypatch) as base_url:
         ctx = chromium_browser.new_context(viewport=VIEWPORT, color_scheme="dark")

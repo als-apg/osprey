@@ -73,7 +73,7 @@ worker, a CLI run — is decided by the same field as one that does.
 
 Inside an executor sandbox one further term is read, and only there:
 :data:`LAUNCH_POSTURE_ENV_VAR`, the switch state the run was LAUNCHED under
-(:func:`launch_posture_stamp` writes it, :func:`launch_pin_term` reads it). Its
+(:func:`launch_posture_stamp` writes it, :func:`_launch_pin_term` reads it). Its
 job is asymmetry: a machine switched off mid-run is refused by the record read,
 while a machine switched ON never reaches a run that started with it off, which
 would otherwise hand a running script write access the operator had not given
@@ -180,7 +180,6 @@ __all__ = [
     "current_owner",
     "execution_verdict",
     "invalidate_cache",
-    "launch_pin_term",
     "launch_posture_stamp",
     "owner_tier_term",
     "parse_posture_value",
@@ -230,7 +229,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 
 #: The launch-time pin, stamped into an executor sandbox's environment by
 #: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read
-#: back HERE, inside that sandbox, by :func:`launch_pin_term`.
+#: back HERE, inside that sandbox, by :func:`_launch_pin_term`.
 #:
 #: The wire format is one ``"<target>=<posture>"`` pair and nothing else:
 #:
@@ -244,7 +243,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 #: the in-flight marker states what the run launched under, and is inert here:
 #: a stamp can refuse and never grant. A missing or blank stamp is inert too,
 #: which is what makes every process that is not an executor sandbox
-#: unaffected by this term; an unparseable one refuses (:func:`launch_pin_term`).
+#: unaffected by this term; an unparseable one refuses (:func:`_launch_pin_term`).
 #:
 #: Spelled here rather than imported because this is the reading side and the
 #: reading side runs in the lean connector chain;
@@ -992,7 +991,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     """Compose the :data:`LAUNCH_POSTURE_ENV_VAR` value for one launch.
 
     The one place the wire format is written, so the executor that stamps it
-    and :func:`launch_pin_term` which reads it cannot disagree about the
+    and :func:`_launch_pin_term` which reads it cannot disagree about the
     separator or about how "no target" is spelled.
 
     Args:
@@ -1005,7 +1004,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     return f"{target or LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
 
 
-def launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
+def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
     """The launch pin as a term of the write verdict — fail-closed on a bad stamp.
 
     Reads :data:`LAUNCH_POSTURE_ENV_VAR` on every call and answers, for *target*:
@@ -1193,7 +1192,7 @@ def write_verdict(
        (:func:`~osprey_connectors.control_context.switch_position`) is ``off``.
        The record's ``posture`` field is not read: it mirrors the switch, and
        an old ``sandbox`` value left in a file does not refuse.
-    8. ``launch_pinned`` — the launch pin (:func:`launch_pin_term`) is
+    8. ``launch_pinned`` — the launch pin (:func:`_launch_pin_term`) is
        ``pinned`` or ``unreadable`` for *target*; skipped when
        *ignore_launch_pin*, for a caller that reports the pin on its own.
 
@@ -1420,7 +1419,7 @@ def _write_refusal(
     if stored == "off":
         return "switch_off", None
 
-    if not ignore_launch_pin and launch_pin_term(target) != "none":
+    if not ignore_launch_pin and _launch_pin_term(target) != "none":
         return "launch_pinned", None
     ceiling = write_ceiling(section, resolved)
     return None, cast("Literal['asked', 'allowed']", min(stored, ceiling, key=_LOGIN_TIERS.index))

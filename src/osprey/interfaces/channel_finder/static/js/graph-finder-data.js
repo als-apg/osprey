@@ -2,10 +2,11 @@
 /**
  * OSPREY Channel Finder — graph finder reads and payload shapes.
  *
- * The two pieces of the graph finder that touch what the server sends rather
- * than what the operator sees: reading one graph endpoint while keeping the
- * remedy fields a failure carries, and building the class forest the rail
- * draws from the flat taxonomy the ontology endpoint answers with.
+ * The pieces of the graph finder that touch what the server sends rather than
+ * what the operator sees: reading one graph endpoint while keeping the remedy
+ * fields a failure carries, keeping one request in flight per kind, and
+ * building the class forest the rail draws from the flat taxonomy the ontology
+ * endpoint answers with.
  *
  * The endpoints are read with `fetch` rather than `api.js`'s `fetchJSON`: the
  * graph routes carry `error_type` and `suggestions` beside `detail`, and
@@ -59,6 +60,66 @@ export async function fetchJson(url, signal) {
     if (e instanceof Error && e.name === 'AbortError') return null;
     return { ok: false, status: 0, detail: messageOf(e), errorType: '', suggestions: [] };
   }
+}
+
+/** One request kind's in-flight controller and its generation counter. */
+/** @typedef {{controller: AbortController|null, generation: number}} Flight */
+/** @typedef {'ontology'|'search'|'device'} FlightKind */
+
+/**
+ * The finder's requests, one flight per kind. A new request of a kind aborts
+ * the previous one and takes the next generation; a reply from an older
+ * generation, or one that lands after the pane it was asked for has gone, is
+ * dropped.
+ *
+ * @param {() => object|null} currentPane - The element mounted now, or null.
+ * @returns {{abort: (kind: FlightKind) => void, request: (kind: FlightKind, url: string) => Promise<Reply>}}
+ */
+export function createFlights(currentPane) {
+  /** @type {Record<FlightKind, Flight>} */
+  const flights = {
+    ontology: { controller: null, generation: 0 },
+    search: { controller: null, generation: 0 },
+    device: { controller: null, generation: 0 },
+  };
+
+  /**
+   * Abort the in-flight request of one kind, if there is one, and retire its
+   * generation so a reply already on its way is discarded.
+   * @param {FlightKind} kind - Which request to abandon.
+   */
+  function abort(kind) {
+    const flight = flights[kind];
+    flight.controller?.abort();
+    flight.controller = null;
+    flight.generation += 1;
+  }
+
+  /**
+   * Run one request of `kind`, superseding whatever else that kind had running.
+   * @param {FlightKind} kind - Which request this is.
+   * @param {string} url - The url to read.
+   * @returns {Promise<Reply>} The reply, or null when it no longer applies.
+   */
+  async function request(kind, url) {
+    abort(kind);
+    const flight = flights[kind];
+    const mine = flight.generation;
+    const pane = currentPane();
+    const controller = new AbortController();
+    flight.controller = controller;
+
+    const reply = await fetchJson(url, controller.signal);
+
+    // A newer request of this kind, or an unmount, happened while this one was
+    // in flight.
+    const now = currentPane();
+    if (mine !== flight.generation || now === null || now !== pane) return null;
+    flight.controller = null;
+    return reply;
+  }
+
+  return { abort, request };
 }
 
 /**
