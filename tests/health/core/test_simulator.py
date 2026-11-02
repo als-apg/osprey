@@ -191,3 +191,26 @@ def test_the_child_prints_each_models_status_read_through_the_connector(
         status_module._main()
 
     assert 'OSPREY_MODEL_STATUSES {"AR": "read ca:AR"}' in capsys.readouterr().out
+
+
+def test_the_child_does_not_import_from_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stray ``json.py`` in the cwd never runs: the real child reaches its own failure."""
+    from osprey.simulation.status import read_in_child
+
+    marker = tmp_path / "ran"
+    (tmp_path / "json.py").write_text(
+        f"import pathlib\npathlib.Path({str(marker)!r}).touch()\nraise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    # An empty section builds no reachable connector, so the child answers with an error.
+    with pytest.raises(RuntimeError) as failure:
+        asyncio.run(
+            read_in_child({}, "standin", ["M"], {"M": "c:M"}, config_path=None, timeout_s=120.0)
+        )
+
+    assert not marker.exists()
+    assert "No module named" not in str(failure.value)

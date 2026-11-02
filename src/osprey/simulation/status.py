@@ -95,6 +95,8 @@ async def read_in_child(
         env["CONFIG_FILE"] = str(config_path)
     child = await asyncio.create_subprocess_exec(
         sys.executable,
+        # Safe path: the cwd is the operator's, and code found there must not run.
+        "-P",
         "-m",
         "osprey.simulation.status",
         stdin=asyncio.subprocess.PIPE,
