@@ -391,6 +391,7 @@
 
 
 
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Python Executor</a></li>
@@ -527,6 +528,10 @@ in a sandbox child (see <a class="reference internal" href="../how-to/measure-wi
 <p>The <code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> and
 <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> tool parameters and the JSON they return are
 documented in <a class="reference internal" href="../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>.</p>
+<p>A deployment can also turn on code review: a second AI agent reads the code before the
+operator is asked to approve it, following instructions the deployment writes, and can stop
+it. That review is not one of the layers on this page, which hold whatever it says: see
+<a class="reference internal" href="safety-chain.html#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a>.</p>
 </section>
 <section id="where-code-runs">
 <h2>Where Code Runs<a class="headerlink" href="#where-code-runs" title="Link to this heading">#</a></h2>

@@ -547,31 +547,35 @@ surface named for the server: <code class="docutils literal notranslate"><span c
 <code class="docutils literal notranslate"><span class="pre">hook_limits</span></code>, <code class="docutils literal notranslate"><span class="pre">hook_memory_guard</span></code></p></td>
 <td><p>What the safety hooks denied, and what they put in front of a person</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">http_mutation</span></code>, <code class="docutils literal notranslate"><span class="pre">web_auth</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hook_code_review</span></code></p></td>
+<td><p>What the code review decided on a notebook edit — see
+<a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">http_mutation</span></code>, <code class="docutils literal notranslate"><span class="pre">web_auth</span></code></p></td>
 <td><p>Requests that changed something through a web API, and the 401s and 403s
 the login check itself refused</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">jupyter_lab</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">jupyter_lab</span></code></p></td>
 <td><p>Control-target and write-posture gestures made from the bar on the
 JupyterLab page, which names no session — the control context belongs
 to the deployment, so the line joins on the deployment and the moment
 rather than on an actor</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">notebook_kernel</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">notebook_kernel</span></code></p></td>
 <td><p>Control-system writes a notebook cell was refused — a write posture, a
 limit, a target that moved while the cell ran</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">preflight</span></code> (written as <code class="docutils literal notranslate"><span class="pre">queueserver</span></code> and as each lane’s
 <code class="docutils literal notranslate"><span class="pre">&lt;lane&gt;-queueserver</span></code>)</p></td>
 <td><p>Whether a queued plan’s declared channels answered before it moved, per
 run: <code class="docutils literal notranslate"><span class="pre">allowed</span></code> (<code class="docutils literal notranslate"><span class="pre">all_responded</span></code> or <code class="docutils literal notranslate"><span class="pre">skipped</span></code>) or <code class="docutils literal notranslate"><span class="pre">refused</span></code>
 (<code class="docutils literal notranslate"><span class="pre">unresponsive</span></code>), with the lane, the target and the counts in
 <code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
 <td><p>Logins and login refusals, where a deployment has a login wall</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
 <td><p>Each watchdog’s verdict on a prompt, its failures, and the operator’s
 answer to a flag — see <a class="reference internal" href="watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a></p></td>
 </tr>
@@ -655,7 +659,11 @@ project-relative path when a whole file is the target</p></td>
 <td><p>Short machine-readable reason — <code class="docutils literal notranslate"><span class="pre">protected_key</span></code>, <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span></code>,
 <code class="docutils literal notranslate"><span class="pre">reserved</span> <span class="pre">path</span> <span class="pre">in</span> <span class="pre">ownership</span> <span class="pre">store</span></code>; a control-system write the
 write posture refused reads <code class="docutils literal notranslate"><span class="pre">posture</span></code> on every surface (the hook,
-the MCP server and the Python executor all spell it the same way). The
+the MCP server and the Python executor all spell it the same way);
+<code class="docutils literal notranslate"><span class="pre">code_review</span></code> is a code review’s own record, on <code class="docutils literal notranslate"><span class="pre">hook_approval</span></code> (a
+Python run, ahead of its prompt), <code class="docutils literal notranslate"><span class="pre">executor</span></code> (a run no prompt reviewed)
+or <code class="docutils literal notranslate"><span class="pre">hook_code_review</span></code> (a notebook edit)
+(<a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a>). The
 login service has a vocabulary of its own — see
 <a class="reference internal" href="#audit-trail-login-refusals"><span class="std std-ref">Why a login was refused</span></a></p></td>
 </tr>

@@ -930,6 +930,49 @@ what it does with an ungoverned tool nothing named</p></td>
 does — is asked for neither control-system key: it has no
 control system to state a type for.</p>
 </section>
+<section id="code-review">
+<span id="profile-code-review"></span><h2>Code review<a class="headerlink" href="#code-review" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 25.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.enabled</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">false</span></code>; a present section with no <code class="docutils literal notranslate"><span class="pre">enabled</span></code> key reads as off</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.level</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">block</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">flag</span></code> or <code class="docutils literal notranslate"><span class="pre">block</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.prompt</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/code_review/reviewer.md</span></code></p></td>
+<td><p>The reviewer’s prompt file; a relative path is anchored at the repository root</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.modes</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[readwrite]</span></code></p></td>
+<td><p>The execution modes reviewed on a Python run</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.time_limit</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>Seconds one review may take</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The feature requires the <code class="docutils literal notranslate"><span class="pre">code-review</span></code> and <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code> hooks in the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>
+list. A change in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> applies on the next call, and only <code class="docutils literal notranslate"><span class="pre">time_limit</span></code>
+needs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a session reload. <a class="reference internal" href="../../how-to/control-systems/code-review.html"><span class="doc">Review the Agent’s Code</span></a> sets
+it up; <a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a> says what it does.</p>
+</section>
 <section id="preset-drift">
 <span id="profile-preset-drift"></span><h2>Preset drift<a class="headerlink" href="#preset-drift" title="Link to this heading">#</a></h2>
 <p>A profile <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote records the preset it came from under
@@ -2037,6 +2080,7 @@ what the stack looks like when it is up.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys-the-build-renders">Keys the build renders</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-provider-catalog-providers-yml">The provider catalog — providers.yml</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-posture-floor">The posture floor</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-review">Code review</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-drift">Preset drift</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP server injection</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shipping-the-server-s-code">Shipping the server’s code</a></li>

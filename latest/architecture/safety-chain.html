@@ -387,6 +387,7 @@
 
 
 
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
@@ -741,9 +742,9 @@ Channel writes only.</p></li>
 position decides: at <em>asked</em> the operator answers a prompt at the terminal, at <em>allowed</em>
 the write runs unprompted on a record naming the switch. Every other tool keeps its own
 policy: <code class="docutils literal notranslate"><span class="pre">always</span></code>, <code class="docutils literal notranslate"><span class="pre">selective</span></code>, or <code class="docutils literal notranslate"><span class="pre">skip</span></code>. When a Python run
-needs approval, the exact code is saved as a <strong>Pre-Execution Review</strong> notebook in the
+needs approval, the exact code is saved as an <strong>Approval preview</strong> notebook in the
 artifact gallery and linked from the prompt, so the operator can read what is about to run.
-The approval is the terminal prompt; the gallery only shows the code.</p>
+The approval is the terminal prompt; the preview only shows the code.</p>
 <p><strong>What a prompt guarantees (stage 1).</strong> A governed write, and a Phoebus drive where its
 policy asks, go ahead only on the record the hook left for that call; a call the hook
 never saw is refused by the server that
@@ -1090,11 +1091,15 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment’s own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library’s own put is refused by the approval hook
-before anyone is asked to approve it. Before a read-write run starts, the executor
+before anyone is asked to approve it. A deployment can also turn on code review: a second
+AI agent then reads the code before the operator is asked, following instructions the
+deployment writes itself, and says whether it is safe to run. Depending on how the deployment
+set it up, unsafe code is either stopped or allowed through with a warning
+(<a class="reference internal" href="#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a>). Before a read-write run starts, the executor
 checks that the approval prompt recorded this call and that what the call carries matches
 what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
-out of the script’s reach. Then the code runs in its own process with guards in
-place: read-only code cannot write even if it tries, read-write code writes through the
+out of the script’s reach. Then the code
+runs in its own process with guards in place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library’s own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment’s own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
@@ -1163,7 +1168,10 @@ cooperative, and its gaps are listed with the others on this page. A refused
 write is shown in the cell, with a line saying what to do where something in the notebook
 would change it. The agent may edit notebooks only in the <code class="docutils literal notranslate"><span class="pre">notebooks</span></code> and <code class="docutils literal notranslate"><span class="pre">artifacts</span></code>
 folders under the agent-data root, held there by a file-write guard that protects the host’s
-files, not the machine. See <a class="reference internal" href="../how-to/web-terminal/notebooks.html"><span class="doc">Notebooks</span></a>.</p>
+files, not the machine. With code review turned on, the same reviewing agent reads a code cell
+the OSPREY agent writes into a notebook before it is saved, and can stop it or warn about it
+the same way; cells a person writes are never reviewed
+(<a class="reference internal" href="#architecture-safety-chain-code-review"><span class="std std-ref">Code review</span></a>). See <a class="reference internal" href="../how-to/web-terminal/notebooks.html"><span class="doc">Notebooks</span></a>.</p>
 </section>
 </section>
 <section id="guarded-runs">
@@ -1205,6 +1213,109 @@ call that was allowed, is written down as one <code class="docutils literal notr
 check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See <a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">Audit Trail Contract</span></a>.</p>
+</section>
+<section id="code-review">
+<span id="architecture-safety-chain-code-review"></span><h1>Code review<a class="headerlink" href="#code-review" title="Link to this heading">#</a></h1>
+<p>Everything above checks code by its spelling: a client library’s own put, the name of the
+store that holds the switch, a pattern on a list. None of it can tell whether a write makes
+sense — whether it belongs to the task the agent was given, whether the step is reasonable
+for the magnet it moves, whether a loop will ever end. Code review lets a deployment close that
+gap: a second AI agent reads the code and judges it against the deployment’s rules. (The approval preview is
+something else: there the operator reads the code at the prompt; here a machine does the
+reading.)</p>
+<p>A deployment turns it on in its profile (<a class="reference internal" href="../how-to/control-systems/code-review.html"><span class="doc">Review the Agent’s Code</span></a>). From
+then on the reviewer reads two things: a Python run the OSPREY agent sends to the executor,
+before the operator is asked to approve it, and a code cell the agent writes into a
+notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
+pyAML tools carry no code of the agent’s, and cells a person writes are the person’s own.</p>
+<p>The reviewer judges by rules the deployment writes itself, in a Markdown file in the project
+(<code class="docutils literal notranslate"><span class="pre">data/code_review/reviewer.md</span></code>): which channels must never be written, when writes need
+extra care, which procedures a write has to follow. OSPREY ships that file with one worked
+rule for the demo facility and nothing more, so a deployment gets the checks it wrote and
+pays only for those. The reviewer has no tools and takes one turn, and anything
+the code says to it is treated as evidence, never as an instruction.</p>
+<p>Its answer is <em>pass</em>, <em>concern</em> or <em>block</em>, with the reasons and, where a small change would
+fix it, a corrected version. All of that goes back to the OSPREY agent, which revises its code
+and tries again. Under the shipped rule, a scan that moves a storage-ring corrector without
+first reading the beam mode is a block, and the same scan with the check passes. The deployment
+chooses what a block does. In blocking mode (<code class="docutils literal notranslate"><span class="pre">level:</span> <span class="pre">block</span></code>, the default) the code is
+stopped. In advisory mode (<code class="docutils literal notranslate"><span class="pre">level:</span> <span class="pre">flag</span></code>) the code runs and the agent is told what the
+reviewer found. A concern never stops code; it only comes with an explanation.</p>
+<p>Three things are worth knowing. First, the review happens <em>before</em> the operator’s approval.
+In blocking mode, code the reviewer stops never reaches the operator; otherwise the answer and
+the reasons stand on the approval prompt and in the approval preview, so the operator decides
+knowing what the reviewer found. A run no prompt sees — the write switch at <em>allowed</em>, a
+read-only run — is reviewed by the executor just before it starts.
+Second, the operator sees a <em>code review</em> line in the activity log whenever the reviewer found
+something — what was reviewed, the answer, and whether the code ran; the reasons go to the
+agent, and on a run they are on the prompt too; the audit trail keeps a record that a review
+happened and how it ended (<a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">Audit Trail Contract</span></a>). Third, if the reviewer cannot
+answer — the model is unreachable, or the time limit runs out — blocking mode stops the
+code and the agent is told to report the problem rather than retry, while advisory mode lets
+the code run unreviewed and says so. The reviewer is never a safety boundary: every gate on
+this page holds whatever it answers.</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 1100 390" role="img" aria-labelledby="code-review-title code-review-desc">
+  <title id="code-review-title">A second AI agent reads the OSPREY agent's Python before it reaches the machine</title>
+  <desc id="code-review-desc">The OSPREY agent wrote some Python. It reaches the code review in one of two ways: as a Python run, before the operator is asked to approve it, or as a code cell the agent writes into a notebook, before it is saved. A second AI agent reads the code, following instructions the deployment wrote, and answers pass, concern or block, with reasons. The answer and the reasons go back to the OSPREY agent: in blocking mode the code is stopped, in advisory mode it runs and the agent is told. The operator gets a code review line in the activity log saying what was found and whether the code ran, but not why.</desc>
+  <defs>
+    <marker id="code-review-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+    <marker id="code-review-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/>
+    </marker>
+  </defs>
+
+  <!-- agent to the two ways in -->
+  <path class="e" d="M220,170 H250 V92 H346" marker-end="url(#code-review-arr)"/>
+  <path class="e" d="M220,194 H250 V272 H346" marker-end="url(#code-review-arr)"/>
+
+  <!-- the two ways in, to the review -->
+  <path class="e" d="M650,92 H700 V170 H736" marker-end="url(#code-review-arr)"/>
+  <path class="e" d="M650,272 H700 V194 H736" marker-end="url(#code-review-arr)"/>
+
+  <!-- review to the operator -->
+  <line class="e-acc" x1="910" y1="150" x2="910" y2="100" marker-end="url(#code-review-arr-acc)"/>
+  <text class="ta ta-acc" x="918" y="128">a line in the log</text>
+
+  <!-- verdict back to the agent -->
+  <path class="e e-dash" d="M910,214 V345 H130 V218" marker-end="url(#code-review-arr)"/>
+  <rect class="mask" x="212" y="339" width="616" height="12" rx="2"/>
+  <text class="ta" x="520" y="348" text-anchor="middle">answer and reasons back to the agent · blocking mode stops the code · advisory mode lets it run and tells the agent</text>
+
+  <!-- agent -->
+  <rect class="mask" x="40" y="150" width="180" height="64" rx="6"/>
+  <rect class="nb-in" x="40" y="150" width="180" height="64" rx="6"/>
+  <text class="tn" x="130" y="178" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="130" y="194" text-anchor="middle">wrote the Python</text>
+
+  <!-- the two ways in -->
+  <rect class="mask" x="350" y="60" width="300" height="64" rx="6"/>
+  <rect class="nb" x="350" y="60" width="300" height="64" rx="6"/>
+  <text class="tn" x="500" y="88" text-anchor="middle">A Python run</text>
+  <text class="ts" x="500" y="104" text-anchor="middle">before the operator is asked to approve it</text>
+
+  <rect class="mask" x="350" y="240" width="300" height="64" rx="6"/>
+  <rect class="nb" x="350" y="240" width="300" height="64" rx="6"/>
+  <text class="tn" x="500" y="268" text-anchor="middle">A notebook cell</text>
+  <text class="ts" x="500" y="284" text-anchor="middle">written by the agent, before it is saved</text>
+
+  <!-- the review -->
+  <rect class="mask" x="740" y="150" width="340" height="64" rx="6"/>
+  <rect class="nb-foc" x="740" y="150" width="340" height="64" rx="6"/>
+  <text class="tn" x="910" y="170" text-anchor="middle">Code review</text>
+  <text class="ts" x="910" y="186" text-anchor="middle">a second AI agent reads the code, following</text>
+  <text class="ts" x="910" y="200" text-anchor="middle">the deployment's instructions · pass, concern or block</text>
+
+  <!-- operator -->
+  <rect class="mask" x="740" y="32" width="340" height="64" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="740" y="32" width="340" height="64" rx="6"/>
+  <text class="tn" x="910" y="54" text-anchor="middle">Operator</text>
+  <text class="ts" x="910" y="70" text-anchor="middle">a code review line in the activity log</text>
+  <text class="ts" x="910" y="84" text-anchor="middle">what was found and whether the code ran, not why</text>
+</svg>
+</div>
 </section>
 <section id="a-phoebus-drive">
 <span id="architecture-safety-chain-phoebus-drive"></span><h1>A Phoebus drive<a class="headerlink" href="#a-phoebus-drive" title="Link to this heading">#</a></h1>
