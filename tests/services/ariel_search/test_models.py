@@ -152,6 +152,20 @@ class TestEnhancedEntryFromRow:
             "updated_at": datetime(2024, 1, 15, 11, 0, tzinfo=UTC),
         }
 
+    def test_a_row_without_references_checked_keeps_none(self, sample_row: dict) -> None:
+        entry = enhanced_entry_from_row({**sample_row, "facility_refs": None})
+
+        assert "facility_refs" in entry
+        assert entry["facility_refs"] is None
+
+    def test_a_row_with_references_carries_them(self, sample_row: dict) -> None:
+        spans = [{"start": 0, "end": 4, "target": "Test", "kinds": ["channel"]}]
+
+        assert (
+            enhanced_entry_from_row({**sample_row, "facility_refs": spans})["facility_refs"]
+            == spans
+        )
+
     def test_basic_conversion(self, sample_row: dict) -> None:
         """Test basic row to entry conversion."""
         entry = enhanced_entry_from_row(sample_row)
