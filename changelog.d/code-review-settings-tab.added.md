@@ -1,0 +1,1 @@
+The Settings drawer has a Review tab: whether code review is on, its time limit, and the code reviewer's rules (`code_review.prompt`), read-only. It says what reviews do while the rules file cannot be used. The rules no longer appear under Safety.

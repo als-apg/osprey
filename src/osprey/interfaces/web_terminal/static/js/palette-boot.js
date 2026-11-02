@@ -31,6 +31,7 @@ import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
 import { scaffoldGalleryMounted, listGalleryEntries, revealArtifact } from './scaffold-gallery.js';
+import { REVIEW_TAB_ID, reviewPaletteEntries } from './code-review-tab.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
@@ -139,10 +140,14 @@ function buildPaletteDeps() {
 
   // The Settings files group (a row per gallery card) reaches the drawer's
   // galleries; where none mounted, both deps are withheld and the group and
-  // its /api/scaffold read go with them.
+  // its /api/scaffold read go with them. The Review tab adds its rules row,
+  // which opens that tab rather than a gallery card.
   if (scaffoldGalleryMounted()) {
-    deps.loadArtifacts = listGalleryEntries;
-    deps.revealArtifact = revealArtifact;
+    deps.loadArtifacts = async () => [...(await listGalleryEntries()), ...reviewPaletteEntries()];
+    deps.revealArtifact = (name, tabId) => {
+      if (tabId === REVIEW_TAB_ID) void openDrawerTab(tabId);
+      else void revealArtifact(name, tabId);
+    };
   }
 
   // "Open … in a new tile" and the Layouts group place tiles; both views hold

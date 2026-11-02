@@ -38,11 +38,11 @@ const ENTRIES = [
   },
   {
     name: 'code-review/rules',
-    label: 'rules',
-    category: 'code-review',
-    tabId: 'tab-safety',
-    tabLabel: 'Safety',
-    description: "The code reviewer's instructions",
+    label: 'Code review rules',
+    category: '',
+    tabId: 'tab-review',
+    tabLabel: 'Review',
+    description: "The rules the code reviewer judges the agent's code against",
   },
 ];
 
@@ -56,10 +56,15 @@ describe('buildRegistry: Settings files group', () => {
       revealArtifact: () => {},
     });
     const rows = files(items);
-    expect(rows.map((r) => r.label)).toEqual(['claude-md', 'safety', 'approval', 'rules']);
-    expect(rows[3].detail).toBe('Safety · code-review');
+    expect(rows.map((r) => r.label)).toEqual([
+      'claude-md',
+      'safety',
+      'approval',
+      'Code review rules',
+    ]);
+    expect(rows[3].detail).toBe('Review');
     expect(rows[3].searchText).toContain('code-review/rules');
-    expect(rows[3].searchText).toContain("The code reviewer's instructions");
+    expect(rows[3].searchText).toContain('judges the agent');
   });
 
   it('comes before the Settings group', () => {
@@ -81,7 +86,7 @@ describe('buildRegistry: Settings files group', () => {
       .map((r) => ({ r, m: fuzzyMatch('code review', r.searchText) }))
       .filter((x) => x.m)
       .sort((a, b) => /** @type {any} */ (b.m).score - /** @type {any} */ (a.m).score);
-    expect(ranked[0].r.label).toBe('rules');
+    expect(ranked[0].r.label).toBe('Code review rules');
   });
 
   it('run reveals the entry by name on its tab', () => {
@@ -90,7 +95,7 @@ describe('buildRegistry: Settings files group', () => {
       buildRegistry({ artifacts: { state: 'ok', entries: ENTRIES }, revealArtifact })
     );
     rows[3].run();
-    expect(revealArtifact).toHaveBeenCalledWith('code-review/rules', 'tab-safety');
+    expect(revealArtifact).toHaveBeenCalledWith('code-review/rules', 'tab-review');
   });
 
   it.each([
@@ -173,7 +178,7 @@ describe('palette: Settings files read', () => {
     expect(loadArtifacts).toHaveBeenCalledTimes(1);
     d.resolve(ENTRIES);
     await flush();
-    expect(settingsFilesRows()).toEqual(['claude-md', 'safety', 'approval', 'rules']);
+    expect(settingsFilesRows()).toEqual(['claude-md', 'safety', 'approval', 'Code review rules']);
   });
 
   it('a rejecting lister yields the unavailable row', async () => {
@@ -203,7 +208,7 @@ describe('palette: Settings files read', () => {
     expect(settingsFilesRows()).toEqual(['Loading settings files…']);
     second.resolve(ENTRIES.slice(3));
     await flush();
-    expect(settingsFilesRows()).toEqual(['rules']);
+    expect(settingsFilesRows()).toEqual(['Code review rules']);
   });
 
   it('typing "code review" and Enter reveals the reviewer\'s rules', async () => {
@@ -216,6 +221,6 @@ describe('palette: Settings files read', () => {
     input.value = 'code review';
     input.dispatchEvent(new Event('input'));
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(revealArtifact).toHaveBeenCalledWith('code-review/rules', 'tab-safety');
+    expect(revealArtifact).toHaveBeenCalledWith('code-review/rules', 'tab-review');
   });
 });

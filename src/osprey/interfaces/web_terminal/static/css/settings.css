@@ -560,6 +560,83 @@
   opacity: 0.4;
 }
 
+/* ---- Review tab (code-review-tab.js; the bar reuses the safety-switch row) ---- */
+
+.code-review-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.code-review-rows {
+  padding: var(--space-2) 16px;
+}
+
+.code-review-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--text-base);
+}
+
+.code-review-key {
+  color: var(--text-secondary);
+}
+
+.code-review-value,
+.code-review-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.code-review-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) 16px var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.code-review-path {
+  padding: 0 16px;
+  color: var(--text-muted);
+}
+
+.code-review-rules {
+  margin: var(--space-1) 16px var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code-review-rules.missing {
+  color: var(--text-muted);
+}
+
+.code-review-rules-heading {
+  color: var(--color-accent-light);
+}
+
+.code-review-foot {
+  margin: 0;
+  padding: 0 16px var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
 /* ---- Hook Debug Log Viewer ---- */
 
 .hook-debug-log {
