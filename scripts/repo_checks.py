@@ -128,8 +128,10 @@ DOCS_DIR = "docs"
 QUICK_PYTEST_BOUND_S = 1800
 
 #: Where the parallel sweep finds the tests of a changed source file, first match
-#: wins. ``package`` maps the nearest package to its directory under ``tests/``;
-#: ``file`` maps a top-level ``scripts/<name>.py`` to ``tests/scripts/test_<name>.py``.
+#: wins. ``package`` maps the nearest package, or failing that its nearest parent,
+#: whose directory under ``tests/`` holds a test module, never across a directory
+#: with its own ``pyproject.toml``; ``file`` maps a top-level
+#: ``scripts/<name>.py`` to ``tests/scripts/test_<name>.py``.
 #: A source file under a root whose rule finds nothing widens the sweep.
 TEST_MIRRORS: tuple[tuple[str, str], ...] = (
     ("src/osprey/", "package"),
@@ -394,6 +396,7 @@ WIDENS_PROJECT = "the project's dependencies reach every test"
 WIDENS_NO_TEST_MODULE = "its test directory holds no test module"
 WIDENS_UNPLACED = "a file under packages/ or tests/ that no rule places"
 WIDENS_NO_MIRROR = "no tested package mirrors it"
+WIDENS_BUNDLED_PROJECT = "a bundled project outside the test mirrors"
 WIDENS_NO_MAPPING = "no JavaScript module-to-test mapping in this tree"
 WIDENS_SHARED_INTERFACE = "the shared interface reaches every interface"
 WIDENS_UNTESTED_INTERFACE = "its interface has no tests"
@@ -473,6 +476,25 @@ def _mirror_root(path: str) -> tuple[str, str] | None:
     return next((entry for entry in TEST_MIRRORS if path.startswith(entry[0])), None)
 
 
+def _bundled_project(path: str, files: Sequence[str]) -> str | None:
+    """The directory below *path*'s mirror root holding its own ``pyproject.toml``, if any.
+
+    Such a directory is a separate distribution, so its tests are its own, never a
+    parent package's mirror.
+    """
+    entry = _mirror_root(path)
+    if entry is None or entry[1] != "package":
+        return None
+    known = set(files)
+    top = entry[0].rstrip("/")
+    directory = PurePosixPath(path).parent
+    while directory.as_posix().startswith(top + "/"):
+        if f"{directory}/pyproject.toml" in known:
+            return directory.as_posix()
+        directory = directory.parent
+    return None
+
+
 def _mirror(path: str, files: Sequence[str]) -> str | None:
     """The tests that mirror *path* under its ``TEST_MIRRORS`` rule, if they exist."""
     entry = _mirror_root(path)
@@ -485,15 +507,19 @@ def _mirror(path: str, files: Sequence[str]) -> str | None:
             return None
         mirror = f"tests/{root.rstrip('/')}/test_{relative.stem}.py"
         return mirror if mirror in set(files) else None
+    if _bundled_project(path, files) is not None:
+        return None
     known = set(files)
     top = root.rstrip("/")
     package = PurePosixPath(path).parent
     while package.as_posix() != top and f"{package}/__init__.py" not in known:
         package = package.parent
-    if package.as_posix() == top:
-        return None
-    mirror = "tests/" + package.relative_to(top).as_posix()
-    return mirror if any(name.startswith(mirror + "/") for name in files) else None
+    while package.as_posix() != top:
+        mirror = "tests/" + package.relative_to(top).as_posix()
+        if _holds_test_module(mirror, files):
+            return mirror
+        package = package.parent
+    return None
 
 
 def _paths(chosen: Iterable[str]) -> Selection:
@@ -541,6 +567,8 @@ def _select_pytest(
             continue
         mirror = _mirror(path, files)
         if mirror is None:
+            if _bundled_project(path, files) is not None:
+                return _whole(path, WIDENS_BUNDLED_PROJECT)
             return _whole(path, WIDENS_NO_MIRROR)
         chosen.append(mirror)
     return _paths(chosen)
