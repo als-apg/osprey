@@ -388,7 +388,7 @@ jobs:
         # --timeout=600 --timeout-method=signal is the per-test cap that ends a
         # hang, and it is deliberately not the ini option above. Without a cap,
         # a single wedged test is indistinguishable from "still running" until
-        # the 40-minute step cap cancels the job — which truncates the log, so
+        # the 55-minute step cap cancels the job — which truncates the log, so
         # the run ends with no name for the test that hung (#743). Ten minutes
         # is chosen to clear a cold container image pull: the files in the one
         # sanctioned xdist group legitimately sit in one for minutes, so a
