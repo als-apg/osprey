@@ -380,11 +380,12 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    .. note:: Upgrading a multi-user deployment
 
       Before this naming, the web containers and the auth image took their
-      prefix from ``facility.prefix`` (``ca-nginx``, ``ca-web-alice``,
-      ``ca-assistant-auth:local``). The first ``osprey up`` after upgrading
-      replaces them with the ``<project_name>-…`` containers and builds the auth
-      image under its new tag; no old-named container is left running. The
-      volumes keep their names, so every user's workspace carries over.
+      prefix from the since-removed ``facility.prefix`` key (``ca-nginx``,
+      ``ca-web-alice``, ``ca-assistant-auth:local``). The first ``osprey up``
+      after upgrading replaces them with the ``<project_name>-…`` containers and
+      builds the auth image under its new tag; no old-named container is left
+      running. The volumes keep their names, so every user's workspace carries
+      over.
 
 Stop the stack again with ``osprey down``; check on it with
 ``osprey status``.
