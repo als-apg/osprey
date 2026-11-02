@@ -529,6 +529,18 @@
   100% { opacity: 0; }
 }
 
+/* ---- Runtime safety switches (rows reuse the hook-debug bar) ---- */
+
+.safety-switch-state {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+.safety-switch-state.off {
+  color: var(--color-warning);
+}
+
 /* ---- Hook Debug Log Viewer ---- */
 
 .hook-debug-log {

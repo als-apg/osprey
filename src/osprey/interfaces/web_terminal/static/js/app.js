@@ -23,6 +23,7 @@ import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
+import { initSafetySwitches } from './safety-switches.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
@@ -119,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMemoryGallery();
   initScaffoldGallery();
   initHookDebug();
+  initSafetySwitches();
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
 });

@@ -240,3 +240,8 @@ project to replay against:
 
 Turn one off by setting ``enabled: false`` and rebuilding. A disabled watchdog leaves no trace
 in the render, and with none enabled sessions behave as if the feature were not there.
+
+To pause the watchdogs without a rebuild, an admin-tier web terminal turns **Safety watchdog**
+off in **Settings > Safety**. Every operator sees the switch and who turned it off. While it is off,
+prompts in that terminal are not judged and no new hold opens. Holds that are already open stay
+open until an operator answers them. The move is audited, and a restart turns the watchdogs back on.

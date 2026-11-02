@@ -1362,6 +1362,8 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
         # Built before any feature registers into it; a restart starts it empty.
+        # Registered: the watchdog (_start_watchdogs). Code review registers here
+        # once it is on main (feat/agentic-code-review), when code_review is on.
         app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
 
