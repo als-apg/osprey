@@ -75,7 +75,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/channel_finder/static/js/feedback-detail.js",
     "src/osprey/interfaces/channel_finder/static/js/feedback-state.js",
     "src/osprey/interfaces/channel_finder/static/js/feedback.js",
-    "src/osprey/interfaces/channel_finder/static/js/graph-finder-data.js",
     "src/osprey/interfaces/channel_finder/static/js/graph-finder-events.js",
     "src/osprey/interfaces/channel_finder/static/js/graph-finder-verbs.js",
     "src/osprey/interfaces/channel_finder/static/js/modal.js",
