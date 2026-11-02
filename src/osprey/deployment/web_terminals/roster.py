@@ -2500,7 +2500,7 @@ DEPLOYMENT_EDIT_DOORS: tuple[DeploymentEditDoor, ...] = (
 ALL_PRIVILEGES: tuple[str, ...] = tuple(door.privilege for door in DEPLOYMENT_EDIT_DOORS)
 
 # The words the SERVER accepts for `web.config_panel.enabled`
-# (`osprey.interfaces.web_terminal.app.coerce_config_flag`), restated rather
+# (`osprey.interfaces.web_terminal.config_view.coerce_config_flag`), restated rather
 # than imported: this module is read by the deploy path and by lint, and
 # importing the web application to borrow two frozensets would pull the whole
 # interface package in behind them. Restated deliberately with the same

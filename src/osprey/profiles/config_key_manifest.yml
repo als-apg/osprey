@@ -3049,7 +3049,7 @@ keys:
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
   web.terminal:
     rendered: false
-    evidence: 'get_config_value\("web\.terminal", True, str\(config_path\)\)'
+    evidence: '\.flag\(\s*"web\.terminal",\s*True\s*\)'
     note: >-
       Whether the deployment offers the terminal on the Agent tile. False
       removes the Agent bar's "Open terminal" entry, and `/ws/terminal` refuses
@@ -3232,7 +3232,7 @@ keys:
       pushes an unrelated call past the margin.
     default: https://als-apg.github.io/osprey
   web.config_panel:
-    evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.'
+    evidence: '_flag_in\(\s*config,\s*"web\.config_panel\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -3241,7 +3241,7 @@ keys:
       has none, so this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
-    evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
+    evidence: '_flag_in\(\s*config,\s*"web\.config_panel\.enabled",\s*True'
     note: >-
       Tier gate for the Config panel, and a SERVER-side one: false makes
       /api/config and /api/claude-setup refuse every verb with 403 and takes
@@ -3255,7 +3255,7 @@ keys:
       cannot be read closes the gate instead.
     default: true
   web.scaffold_gallery:
-    evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.'
+    evidence: '_flag_in\(\s*config,\s*"web\.scaffold_gallery\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -3265,7 +3265,7 @@ keys:
       `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
-    evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
+    evidence: '_flag_in\(\s*config,\s*"web\.scaffold_gallery\.write_enabled",\s*True'
     note: >-
       Tier gate for the Scaffold gallery, and a SERVER-side one: false makes
       every write and delete verb under /api/scaffold refuse with 403 (create,

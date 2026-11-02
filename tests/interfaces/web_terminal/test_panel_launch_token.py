@@ -46,7 +46,7 @@ TOKEN = "held-launch-token-value"
 #: A value a caller tries to present for itself.
 FORGED = "forged-launch-token-value"
 
-_LOGIN_TIER = "osprey.interfaces.web_terminal.routes.proxy._login_tier"
+_LOGIN_TIER = "osprey.interfaces.web_terminal.routes.proxy.login_tier"
 
 
 def _panel(*, panel_id: str = PANEL_ID, url: str = "http://127.0.0.1:9300", **extra) -> dict:
