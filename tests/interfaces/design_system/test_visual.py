@@ -221,6 +221,10 @@ def _artifacts_server(tmp_path: Path):
     return run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
 
 
+# ARIEL's list pane once its first load has landed (see the TARGETS below).
+_ARIEL_SETTLED = '#ariel-list-body[aria-busy="false"] > :not(.loading-overlay)'
+
+
 def _ariel_server(_tmp_path: Path):
     from osprey.interfaces.ariel.app import create_app
 
@@ -332,17 +336,23 @@ TARGETS: list[VisualTarget] = [
         path="/static/session.html",
     ),
     VisualTarget("artifacts_gallery", _artifacts_server, path="/"),
-    VisualTarget("ariel", _ariel_server, path="/"),
+    # Both frames wait for the list pane to settle — its body holds rows, the
+    # empty state or the error state, never the loading spinner — so the
+    # baseline captures the one screen (rail | list | reader), not a spinner.
+    VisualTarget(
+        "ariel",
+        _ariel_server,
+        path="/",
+        wait_selector=_ARIEL_SETTLED,
+    ),
     # Embedded mode drops the panel's own header entirely (the hub tile bar is
     # the one header, see ``body.embedded .header`` in ariel's layout.css) and
-    # opens on Browse rather than Search, since embedded users search the
-    # logbook through the agent. Wait for that redirect to land so the baseline
-    # captures the browse view, not the pre-navigation search shell.
+    # starts with the rail collapsed to its strip.
     VisualTarget(
         "ariel_embedded",
         _ariel_server,
         path="/?embedded=true",
-        wait_selector="#view-browse.active",
+        wait_selector=_ARIEL_SETTLED,
     ),
     VisualTarget("channel_finder", _channel_finder_server, path="/"),
     # D14/D15 regression guard: embedded mode must hide the standalone logo +
