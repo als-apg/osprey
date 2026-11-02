@@ -154,6 +154,10 @@ SAFETY = {
     "control_pvs": False,
 }
 
+#: The display precision a float channel stating none is served, spelled out
+#: like :data:`SAFETY`.
+FLOAT_PRECISION = 4
+
 #: (severity, status) of an undefined output on each wire.
 CA_UDF = (3, 17)
 PVA_UDF = (3, 6)
@@ -953,8 +957,9 @@ def _assert_safety_config(
             assert entry.get("value_range") == band, address
         else:
             assert "value_range" not in entry, address
-        if channel.get("value_type", "float") == "float" and channel.get("precision") is not None:
-            assert entry["precision"] == channel["precision"], address
+        if channel.get("value_type", "float") == "float":
+            stated = channel.get("precision")
+            assert entry["precision"] == (FLOAT_PRECISION if stated is None else stated), address
         else:
             assert "precision" not in entry, address
 
@@ -1292,6 +1297,8 @@ class TestStubComposite:
         assert config["variables"][STUB_RANGE]["precision"] == STUB_PRECISION
         assert _ca_precision(STUB_RANGE) == STUB_PRECISION
         assert int(stub_server.pva_get(STUB_RANGE)["display.precision"]) == STUB_PRECISION
+        # A float channel stating no precision is served the default, not CA's 0.
+        assert _ca_precision(STUB_SETPOINT) == FLOAT_PRECISION
 
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
         for address in (STUB_FLAG, STUB_MODE):

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: the task bar.
+ * OSPREY Web Terminal — operator chat: the task bar.
  *
  * The agent's task list for the conversation, pinned above the composer. It is
  * folded to one line by default: the count, the task in hand (or the next

@@ -166,7 +166,7 @@ const STANDIN = {
 /** The facility's own machine, writes off — a row. */
 const LIVE = {
   target: 'live',
-  label: 'Real machine — writes move hardware',
+  label: 'Live — writes move hardware',
   short_label: 'LIVE',
   machine_kind: 'real',
   endpoint: 'gw.example.org:5064',
@@ -657,10 +657,10 @@ describe("the chip's words and gestures", () => {
 
     expect(posts()).toHaveLength(0);
     expect(confirmEl()?.querySelector('.posture-modal-title')?.textContent).toBe(
-      'Set writes to asked on Real machine?'
+      'Set writes to asked on Live?'
     );
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine — writes move hardware'
+      'Live — writes move hardware'
     );
     expect(confirmEl()?.querySelector('.posture-modal-body')?.textContent).toContain(
       TURN_ON_SENTENCE
@@ -688,7 +688,7 @@ describe("the chip's words and gestures", () => {
 
     expect(posts()).toHaveLength(0);
     expect(confirmEl()?.querySelector('.posture-modal-title')?.textContent).toBe(
-      'Set writes to allowed on Real machine?'
+      'Set writes to allowed on Live?'
     );
     expect(confirmBtn().textContent).toBe('Set writes to allowed');
 
@@ -788,7 +788,7 @@ describe("the chip's words and gestures", () => {
   });
 
   test('a waived move to asked applies directly and says the turn-on sentence in the status line', async () => {
-    localStorage.setItem('osprey-ctc-skip-confirm:writes-asked:standin:rehearsal', '1');
+    localStorage.setItem('osprey-ctc-skip-confirm:move', '1');
     await rebootOn(
       viewOf({ any_armed: false, targets: [rowOf({ ...STANDIN, ...OFF }), rowOf(LIVE)] })
     );

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: question card.
+ * OSPREY Web Terminal — operator chat: question card.
  *
  * The card for an AskUserQuestion: one question per page, options as radio rows
  * (checkboxes for multi-select), and an "Other…" row for free text. Once

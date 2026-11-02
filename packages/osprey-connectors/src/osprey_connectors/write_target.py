@@ -6,7 +6,7 @@ that writes nothing, the real machine for a facility write tool, the lane's
 target for a lane-addressed tool, and the session's target for every other
 framework write tool. :func:`write_target_for_tool` is the package restatement
 of that placement, for a surface that has to name the machine before the hook
-has run — the Simple chat's approval card (C-FRAME). A parity test
+has run — the operator chat's approval card (C-FRAME). A parity test
 (``tests/hooks/test_write_target_parity.py``) pins the two against each other
 for every write tool.
 
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 #: The banner an owner reads beside each kind of machine (C-WORDS).
 KIND_BANNERS: dict[str, str] = {
-    "real": "Real machine — writes move hardware",
+    "real": "Live — writes move hardware",
     "rehearsal": "Rehearsal — nothing moves",
     "simulator": "Simulator — nothing moves",
 }

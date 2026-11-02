@@ -347,6 +347,7 @@ async def pyaml_measure(
         notify=notify_agent_activity_async,
         approved_target=approved_target,
         approved_view_sha256=approved_view_sha256,
+        code_review=False,
     )
     _note_writes(exec_result)
 

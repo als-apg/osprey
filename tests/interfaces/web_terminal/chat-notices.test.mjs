@@ -105,7 +105,7 @@ describe('handoffRefusal', () => {
     ['session_attached_elsewhere', { message: HANDOFF_HELD_ELSEWHERE_MESSAGE, action: null }],
     [
       'handoff_needs_interrupt',
-      { message: 'The other view may still be working.', action: 'interrupt' },
+      { message: 'The agent may still be working.', action: 'interrupt' },
     ],
     [
       'handoff_started_commands',

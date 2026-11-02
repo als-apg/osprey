@@ -5,10 +5,12 @@ from __future__ import annotations
 import ast
 import fcntl
 import os
+import re
 import socket
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -49,6 +51,34 @@ def _end_holder(holder: subprocess.Popen[str]) -> None:
 def test_the_port_lies_below_the_ephemeral_range():
     with reserved_port() as port:
         assert _ports.PORT_FLOOR <= port < ephemeral_range_start()
+
+
+def test_a_reservation_never_lands_in_a_booked_block():
+    candidates = set(_ports._candidates(ephemeral_range_start()))
+    assert candidates
+    for block in _ports.BOOKED_BLOCKS:
+        assert candidates.isdisjoint(block)
+
+
+def test_every_block_an_e2e_lane_books_is_kept_clear_of_reservations():
+    repo_tests = Path(__file__).resolve().parents[1]
+    booking = re.compile(r"""port_base["']?\s*[=:]\s*(\d{5})""")
+    found = {
+        int(base): path
+        for tree in ("e2e", "va/e2e")
+        for path in (repo_tests / tree).rglob("*.py")
+        for base in booking.findall(path.read_text(encoding="utf-8"))
+    }
+    assert found, "the scan read no bookings, so a pass here would mean nothing"
+    uncovered = {
+        base: str(path)
+        for base, path in found.items()
+        if base >= _ports.PORT_FLOOR
+        and not all(
+            any(port in block for block in _ports.BOOKED_BLOCKS) for port in (base, base + 999)
+        )
+    }
+    assert not uncovered, f"add these blocks to _ports.BOOKED_BLOCKS: {uncovered}"
 
 
 def test_two_nested_reservations_never_share_a_port():

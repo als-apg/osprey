@@ -19,6 +19,9 @@
 # This is the bottom of the ceiling's three words, `never`, `asked` and
 # `allowed`. The write-capable counterparts are the `readwrite` tier at `asked`
 # and the `admin` tier at `allowed`.
+#
+# This tier has no EVENTS/BLUESKY panels, not by any key here, but because only
+# the write-capable tiers add them by name.
 
 name: Control Assistant (Read-Only)
 
@@ -29,10 +32,3 @@ config:
   # ceiling, since a tier's key beats the root's, so no session of this
   # tier writes to any machine the deployment configures.
   control_system.writes: never
-  # Pared-down operator layout: chat only, workspace hidden until the agent
-  # puts something in it. Pinned on both sides of the tier boundary (readwrite
-  # pins `expert`), same rationale as control_system.writes.
-  #
-  # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
-  # because only the write-capable tiers add them by name.
-  web.ui_mode: simple

@@ -25,27 +25,6 @@ export function applyFacilityTimezone(capabilities) {
 }
 
 /**
- * Format a timestamp as a friendly, full-sentence date for Simple mode
- * (frame 1b), in the facility zone and the viewer's date convention, e.g.
- * "Tuesday, July 15 at 8:30 AM" in US English. Falls back to the raw string
- * if the timestamp can't be parsed.
- * @param {string} [timestamp] - ISO timestamp
- * @returns {string} Humanized date/time
- */
-export function formatHumanTimestamp(timestamp) {
-  if (!timestamp) return '';
-  return (
-    formatFacilityTime(timestamp, {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }) || timestamp
-  );
-}
-
-/**
  * @typedef {Object} Entry
  * @property {string} entry_id
  * @property {string} [timestamp]
@@ -246,33 +225,6 @@ export function renderEntryCard(entry, isCited = false) {
 }
 
 /**
- * Render a plain-language result card for Simple mode (frame 1b): title,
- * humanized date, author, and a plain-text summary — no relevance score,
- * source chip, highlight markup, or keyword pills. The whole card and its
- * footer link both carry data-entry-id, so the existing search-results
- * delegation opens the same detail view as the Expert card.
- * @param {Entry} entry - Entry data
- * @returns {string} HTML string
- */
-export function renderEntryCardSimple(entry) {
-  const { subject, details } = parseEntryText(entry.raw_text);
-  const preview = escapeHtml(details).slice(0, 240) + (details.length > 240 ? '…' : '');
-  const when = formatHumanTimestamp(entry.timestamp);
-  const author = escapeHtml(entry.author || 'Unknown');
-  const metaBits = [when, author].filter(Boolean).join(' · ');
-  const id = escapeHtml(entry.entry_id);
-
-  return `
-    <article class="entry-card-simple" data-entry-id="${id}">
-      <h3 class="entry-card-simple-title">${escapeHtml(subject)}</h3>
-      <div class="entry-card-simple-meta">${metaBits}</div>
-      <p class="entry-card-simple-summary">${preview}</p>
-      <a href="#" class="entry-card-simple-link" data-entry-id="${id}">Read the full entry &rarr;</a>
-    </article>
-  `;
-}
-
-/**
  * Render the answer box with mode and tool labels.
  * @param {string} answer - Generated answer
  * @param {string[]} sources - Source entry IDs
@@ -440,7 +392,7 @@ export function renderDiagnosticsBar(diagnostics) {
 }
 
 /**
- * Render the query-expansion strip for the Expert results header: one pair per
+ * Render the query-expansion strip for the results header: one pair per
  * applied expansion, e.g. `ts -> troubleshoot, timing system`. An entry whose
  * term expanded to several canonicals is ONE pair with the canonicals joined by
  * commas, never one pair per canonical, so the strip mirrors the backend's
@@ -525,14 +477,12 @@ export function createElement(html) {
 export default {
   formatTimestamp,
   formatRelativeTime,
-  formatHumanTimestamp,
   getScoreClass,
   renderScoreBadge,
   renderStatusIndicator,
   renderTags,
   sanitizeHighlight,
   renderEntryCard,
-  renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
   renderExpansionBanner,

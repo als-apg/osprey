@@ -4,7 +4,7 @@ Several providers do nothing but forward :meth:`execute_completion` and
 :meth:`check_health` to the shared ``litellm_adapter`` helpers, differing only
 in their class-attribute metadata (name, routing flags, default models, API-key
 help). Those providers -- anthropic, als-apg, amsc-i2, cborg, google, openai,
-stanford -- subclass :class:`LiteLLMDelegatingProvider` and supply only class
+openrouter, stanford -- subclass :class:`LiteLLMDelegatingProvider` and supply only class
 attributes; the two delegating methods live here, once.
 
 **Patch-target preservation.** Each provider's test suite patches

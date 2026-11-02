@@ -266,24 +266,29 @@ refuses names the reason:
      - ``tier_never``
      - the render's tier is ``never``.
    * - 3
+     - ``session_held``
+     - the session has an unanswered hold (:ref:`reference-watchdog`). A write
+       about to execute meets this term through ``execution_verdict``; a process
+       with no session or no hold store is never held.
+   * - 4
      - ``target_unknown``
      - the machine does not resolve in this deployment.
-   * - 4
+   * - 5
      - ``owner_unknown`` / ``owner_unscheduled`` / ``owner_foreign``
      - no login can be named for the write; a scheduled or triggered job runs
        for no login; or the owner is not the login this process acts for.
-   * - 5
+   * - 6
      - ``owner_unknown`` / ``tier_never``
      - in a shared container, the owner is missing from the login→tier map,
        or mapped ``never``.
-   * - 6
+   * - 7
      - ``record_unavailable``
      - the owner's switch record cannot be read. An absent record is not
        unavailable: it is every switch at ``off``.
-   * - 7
+   * - 8
      - ``switch_off``
      - the owner's switch is at ``off`` for this machine.
-   * - 8
+   * - 9
      - ``launch_pinned``
      - the run was started with writes held off for this machine.
 

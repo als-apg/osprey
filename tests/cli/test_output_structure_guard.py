@@ -305,9 +305,10 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "through the renderer precisely so the document lands on real stdout.",
     ),
     "cli/users_cmd.py": (
-        1,
-        "The users-env byte render. A caller redirects this to a file, so the "
-        "bytes are the contract.",
+        2,
+        "The users-env byte render, which a caller redirects to a file, and the "
+        "`users list --json` document, which scripts parse. In both the bytes "
+        "are the contract.",
     ),
     "cli/config_cmd.py": (
         1,

@@ -1,10 +1,10 @@
 // @ts-check
 /**
- * Unit tests for the Simple-mode console's DOM (chat-console.js):
+ * Unit tests for the chat console's DOM (chat-console.js):
  *   npx vitest run tests/interfaces/web_terminal/chat-console.test.mjs
  *
  * The console's Agent bar becomes the Agent pane's one header row (the dock
- * adopts it as the tile bar in the Simple view), so its contents are a
+ * adopts it as the tile bar in the chat), so its contents are a
  * contract: the status dot, `Agent`, and named icon buttons. The bell and
  * Export are appended by their feature modules, and the ⋯ is handed back
  * unattached so chat.js can put it last.

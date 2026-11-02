@@ -3,7 +3,8 @@
 Safety: PreToolUse hooks put the write to an approver before this tool runs,
 and the tool checks two things itself, first and in this order: the write
 verdict for the session's control target
-(:func:`~osprey_connectors.posture_store.write_verdict`), then the record the
+(:func:`~osprey_connectors.posture_store.execution_verdict`, the write verdict
+and the session's hold), then the record the
 approval prompt left for this call
 (:func:`~osprey.mcp_server.approval_record.require_approval_record`).
 ``channel_write`` is a governed tool, so no approval policy exempts it: at
@@ -134,6 +135,7 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
@@ -141,7 +143,7 @@ from osprey_connectors.errors import (
     ChannelNotFoundError,
     ChannelWriteBlockedError,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict, write_verdict
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
 from osprey_connectors.refusals import refusal_text
 from osprey_connectors.types import baseline_target
 from osprey_connectors.workspace import load_osprey_config
@@ -647,7 +649,7 @@ def _check_write_verdict(record: control_context.ControlContext | None, config: 
     section = config.get("control_system") if isinstance(config, dict) else None
     target = _write_target(record, section)
     try:
-        verdict = write_verdict(section or {}, target)
+        verdict = execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not write
         logger.warning("Write verdict for channel_write could not be reached", exc_info=True)
         verdict = WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
@@ -659,7 +661,9 @@ def _check_write_verdict(record: control_context.ControlContext | None, config: 
         refusal_text(
             reason,
             verdict.kind,
-            detail="channel_write was refused before reaching the control system.",
+            detail=refusal_detail(
+                "channel_write was refused before reaching the control system.", verdict
+            ),
         ),
         [
             "Nothing was written: the refusal happened before the control system was touched.",

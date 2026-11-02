@@ -158,7 +158,7 @@ def _sidebar_routes(asked: list[str]) -> list[str]:
 )
 def test_an_unserved_panel_is_never_asked(tmp_path, chromium_browser, enabled):
     """Nothing reaches either panel's routes, and the dot stays hidden."""
-    with live_chat_server(tmp_path, ui_mode="expert", enabled_panels=enabled) as (base_url, _app):
+    with live_chat_server(tmp_path, enabled_panels=enabled) as (base_url, _app):
         page, asked = _open(chromium_browser, base_url)
         page.wait_for_timeout(_QUIET_MS)
 
@@ -174,7 +174,6 @@ def test_a_served_panel_works_as_ever(tmp_path, chromium_browser):
         run_app_server(_companion()) as companion,
         live_chat_server(
             tmp_path,
-            ui_mode="expert",
             enabled_panels=_BOTH,
             panel_urls={"artifact": companion, "system_health": companion},
         ) as (base_url, _app),
@@ -195,7 +194,7 @@ def test_a_panel_appearing_and_leaving_is_followed_without_a_reload(tmp_path, ch
     """Start on the hub serving it, stop when it does not, the stream's retry included."""
     with (
         run_app_server(_companion()) as companion,
-        live_chat_server(tmp_path, ui_mode="expert", enabled_panels=_BOTH) as (base_url, app),
+        live_chat_server(tmp_path, enabled_panels=_BOTH) as (base_url, app),
     ):
         page, asked = _open(chromium_browser, base_url)
         page.wait_for_timeout(1_000)

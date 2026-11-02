@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: markdown and math rendering.
+ * OSPREY Web Terminal — operator chat: markdown and math rendering.
  *
  * {@link renderMarkdownInto} is the one path from model markdown to the DOM.
  * `marked` parses the text, DOMPurify sanitises the HTML, and only the

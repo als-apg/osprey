@@ -556,3 +556,78 @@ describe('an entry-field error marks the named input', () => {
     expect(new api.ApiError(400, 'x', 'c').field).toBeUndefined();
   });
 });
+
+describe('leaving the create form leaves nothing behind', () => {
+  const DRAFT = {
+    subject: 'Beam dump',
+    details: 'Lost beam at 10:02',
+    tags: ['rf'],
+    metadata: { session_metadata: { id: 's-1' } },
+    attachment_paths: ['/tmp/plot.png'],
+  };
+
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  test("a submitted draft's attachments are not sent again with the next entry", async () => {
+    const calls = stubFetch({});
+    const { form } = await loadModules();
+    stageAttachment();
+    await submit(form);
+    expect(createCall(calls).url.endsWith('/api/entries/upload')).toBe(true);
+
+    calls.length = 0;
+    await submit(form);
+
+    expect(createCall(calls).url.endsWith('/api/entries')).toBe(true);
+  });
+
+  test('resetCreateForm drops a loaded draft: tags, metadata, attachments, banner', async () => {
+    const calls = stubFetch({ draft: DRAFT });
+    const { entries, form } = await loadModules();
+    await entries.adaptCreateForm();
+    await form.loadDraft('d-1');
+    expect(document.getElementById('draft-banner')).not.toBeNull();
+    expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(1);
+
+    form.resetCreateForm();
+
+    expect(document.getElementById('draft-banner')).toBeNull();
+    expect(document.querySelectorAll('#entry-tags .tag')).toHaveLength(0);
+    const preview = /** @type {HTMLElement} */ (document.getElementById('file-preview'));
+    expect(preview.children).toHaveLength(0);
+    expect(preview.dataset.draftAttachments).toBeUndefined();
+
+    calls.length = 0;
+    await submit(form);
+    const call = createCall(calls);
+    expect(call.url.endsWith('/api/entries')).toBe(true);
+    const body = JSON.parse(call.init.body);
+    expect(body.metadata).toBeNull();
+    expect(body.tags).toEqual([]);
+  });
+
+  test('resetCreateForm clears an entry-field error mark', async () => {
+    stubFetch({
+      publishInfo: { supports_write: true, requires_auth: false, entry_fields: FIELDS },
+    });
+    const { entries, form, fields } = await loadModules();
+    await entries.adaptCreateForm();
+    await fields.entryFieldsRendered();
+    fields.markEntryFieldError('book', 'Unknown book');
+
+    form.resetCreateForm();
+
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+    expect(document.querySelector('[data-entry-field-error]')).toBeNull();
+  });
+
+  test('a created entry opens over Browse, where closing it lands', async () => {
+    stubFetch({});
+    const { form } = await loadModules();
+    await submit(form);
+
+    expect(window.location.hash).toBe('#entry?id=e-1');
+  });
+});

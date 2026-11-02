@@ -12,7 +12,7 @@
  * It is the counterpart of panel-context-menu.js, which is purely
  * presentational (popover DOM, dismissal, focus bookkeeping) and never knows
  * what a verb does. Every decision lives here instead: which menu a surface
- * gets, whether it gets one at all, which rows the current ui mode allows, and
+ * gets, whether it gets one at all, which rows the Agent tile's surface allows, and
  * which closure each row runs. The rows bind the SAME closures the sidebar
  * click, the row drag and the agent MCP tools use, so a menu pick is
  * indistinguishable downstream from any other path to the verb.
@@ -50,6 +50,7 @@ import {
   isTerminalPanelOpen,
   resetDockLayout,
 } from './dock-workspace.js';
+import { isTerminalSurface } from './agent-surface.js';
 import { focusTerminal, restartTerminal, startTerminal } from './terminal.js';
 import { startNewSession } from './sessions.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
@@ -173,16 +174,17 @@ export function railOptions() {
 /**
  * The Agent row's click: open the Agent pane when it is closed, or bring the
  * open one forward, then put the caret where the operator types — the chat
- * composer in Simple, the terminal in Expert.
+ * composer, or the terminal when that is the surface showing.
  */
 function showAgentPane() {
   openTerminalPanel();
   if (!isTerminalPanelOpen()) return;
-  if (isSimpleMode()) {
+  if (isTerminalSurface()) focusTerminal();
+  else {
     /** @type {HTMLElement | null} */ (
       document.querySelector('#operator-container textarea')
     )?.focus();
-  } else focusTerminal();
+  }
 }
 
 /**
@@ -254,19 +256,9 @@ function isFailed(id) {
 }
 
 // Tooltip suffix advertising the context menu on every service row. The
-// Agent row gets none: its verb set changes with the ui view (see
+// Agent row gets none: its verb set changes with the surface showing (see
 // buildTerminalMenuItems), so one fixed promise would misinform one of them.
 export const RAIL_MENU_HINT = 'right-click for actions';
-
-/**
- * Simple mode replaces the xterm card with the operator console — the one fact
- * the terminal menu below turns on. The workspace itself is as editable there
- * as in Expert, so no service-panel verb reads the mode.
- * @returns {boolean}
- */
-function isSimpleMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
-}
 
 /**
  * Open a sidebar row's context menu at a viewport position, and report
@@ -363,8 +355,7 @@ export function setServiceMenuExtras(panelId, fn) {
  * "Pop out" stays inert until the panel can open in a window of its own: its
  * standalone URL has resolved, and it is not an opaque-origin panel. A
  * popped-out panel offers "Bring back" in its place and no "Open in a new
- * tile", because the panel has no tile while its window is open. The rows
- * are the same in both ui views.
+ * tile", because the panel has no tile while its window is open.
  *
  * A member's rows also move its sidebar row between the sidebar's groups:
  * "Move to <group>" for every other group, then "Move to new group…".
@@ -458,12 +449,9 @@ function moveToNewGroup(id) {
  * The Agent pane's menu rows — the Agent row and the pane's tile header,
  * which share one verb set.
  *
- * In simple mode the tile hosts the operator console instead of the xterm
- * card, so the two PTY verbs would act on a surface the operator cannot see
- * and are withheld (the palette drops the same actions there, for the same
- * reason). The layout rows are the same in both views: "Reset layout" puts
- * back the CURRENT view's default arrangement, and the pane is as closable
- * there as in Expert.
+ * In chat the tile hosts the operator console, so the two PTY verbs would act
+ * on a surface the operator cannot see and are withheld (the palette never
+ * offers them). The layout rows are the same on both surfaces.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
@@ -471,7 +459,7 @@ export function buildTerminalMenuItems() {
     { label: 'Reset layout', run: () => resetDockLayout() },
     { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
   ];
-  if (isSimpleMode()) return layout;
+  if (!isTerminalSurface()) return layout;
   return [
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The

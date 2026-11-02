@@ -108,7 +108,7 @@
 
 /* Embedded in web terminal: the host tile header bar IS this panel's header —
  * it carries the panel name, the hub's theming, and (via app.js) the Search /
- * Browse / New Entry nav contributed into it, in Expert and Simple alike. The
+ * Browse / New Entry nav contributed into it. The
  * panel's own header would be a second bar, so it goes away wholesale. The
  * display menu needs no rule here: the component injects its own
  * body.embedded hide rule. */
@@ -530,112 +530,4 @@ body.embedded .dashboard-header { display: none; }
 .loading-text {
   margin-top: var(--space-4);
   color: var(--text-secondary);
-}
-
-/* ================================================================
-   UI Mode: Simple (frame 1b)
-   Every delta gates on html[data-ui-mode="simple"]; Expert mode (the
-   default) is left untouched, so it stays pixel-identical to today.
-   The .nav-simple-link element ships hidden and only appears here.
-   ================================================================ */
-
-/* Header: the four-tab strip collapses to one plain-language browse link. */
-.nav-simple-link {
-  display: none;
-}
-
-html[data-ui-mode="simple"] .nav {
-  display: none;
-}
-
-html[data-ui-mode="simple"] .nav-simple-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-light);
-  border-radius: var(--radius-sm);
-  text-decoration: none;
-  transition: color var(--duration-instant) ease,
-    background-color var(--duration-instant) ease;
-}
-
-html[data-ui-mode="simple"] .nav-simple-link:hover {
-  color: var(--color-accent);
-  background: var(--ariel-surface-hover);
-  text-decoration: none;
-}
-
-/* Search view: one search box + button is all Simple mode exposes — hide the
-   mode tabs, the advanced-options bar, and its panel. Trim the hero to a
-   single friendly line by dropping the descriptive subtitle. */
-html[data-ui-mode="simple"] .search-mode-tabs,
-html[data-ui-mode="simple"] .search-options-bar,
-html[data-ui-mode="simple"] .advanced-panel {
-  display: none;
-}
-
-html[data-ui-mode="simple"] .search-hero p {
-  display: none;
-}
-
-/* Simple results header: a single friendly line, no modes/exec-time column. */
-.results-header-simple {
-  justify-content: flex-start;
-}
-
-/* Browse view degrades gracefully: hide the relevance score and the
-   keyword/attachment footer (advanced-only chrome) on Expert cards when they
-   are viewed under Simple mode. */
-html[data-ui-mode="simple"] .entry-card .score-badge,
-html[data-ui-mode="simple"] .entry-card .entry-card-footer {
-  display: none;
-}
-
-/* ---- Simple result cards (plain: title · date · author · summary) ---- */
-.entry-card-simple {
-  background: var(--ariel-surface-card);
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-  transition: background-color var(--duration-instant) ease,
-    border-color var(--duration-instant) ease;
-}
-
-.entry-card-simple:hover {
-  border-color: var(--border-accent);
-  background: var(--ariel-surface-hover);
-}
-
-.entry-card-simple-title {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-normal);
-  color: var(--text-primary);
-  margin-bottom: var(--space-2);
-}
-
-.entry-card-simple-meta {
-  font-size: var(--text-md);
-  color: var(--text-muted);
-  margin-bottom: var(--space-2);
-}
-
-.entry-card-simple-summary {
-  color: var(--text-secondary);
-  line-height: var(--leading-relaxed);
-  margin-bottom: var(--space-3);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.entry-card-simple-link {
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-light);
 }

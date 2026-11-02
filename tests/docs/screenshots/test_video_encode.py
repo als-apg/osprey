@@ -29,9 +29,10 @@ from docs.screenshots.video_timeline import Step, Timeline
 
 
 def test_the_target_length_lies_inside_the_review_window() -> None:
-    from docs.screenshots import __main__ as cli
+    from docs.screenshots.videos import video_named
 
-    assert cli.VIDEO_MIN_S < TARGET_S < cli.VIDEO_MAX_S
+    low, high = video_named("landing").window_s
+    assert low < TARGET_S < high
 
 
 def test_speed_factor_clamps_below_one_to_one() -> None:

@@ -1,0 +1,1 @@
+The write switch's colour now means the position on every machine: off green, asked yellow, allowed red. The machine shows as an outline and icon, and only allowed on the live machine fills the block; the hardware line stays red on the live machine. Every machine's dialog now carries a banner.

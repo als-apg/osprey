@@ -58,13 +58,11 @@
  * deployment configuration this module cannot see. Confirms state scope,
  * endpoint and consequence only.
  *
- * **A confirm can be waived, sometimes.** {@link confirmSkippable} decides. A
- * target switch and a move to `asked` on the rehearsal or the simulator carry
- * a "don't ask again" checkbox — per gesture, per machine, per render
- * (scopedStorageKey), remembered only when the operator confirms. A move to
- * `asked` on the real machine and a move to `allowed` anywhere keep asking
- * always. A waived dialog is re-shown by holding Shift on the gesture, which
- * is also where the waiver is undone.
+ * **A confirm can be waived.** Every widening carries one "don't ask again"
+ * checkbox covering every move to `asked` or `allowed` on every machine, and
+ * every target switch carries another; both are per render (scopedStorageKey)
+ * and remembered only when the operator confirms. A waived dialog is re-shown
+ * by holding Shift on the gesture; "Ask again" under the foot clears both.
  *
  * **The popover stays open beneath a confirm.** Both confirms raise a
  * `.posture-modal-overlay` at `--z-modal`, a layer above the popover. The
@@ -83,14 +81,14 @@
 import {
   POSITIONS,
   bannerNote,
-  confirmSkipKeyBase,
-  confirmSkippable,
+  SKIP_KEY_MOVE,
+  SKIP_KEY_SWITCH,
   reasonPhrase,
   switchConfirm,
   TURN_ON_SENTENCE,
   turnOnConfirm,
 } from './control-target-facts.js';
-import { confirmSkipped } from './confirm-skip.js';
+import { confirmSkipped, rememberConfirmSkip } from './confirm-skip.js';
 import { el, focusOption, focusedOption } from './control-target-popover-switch.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 import {
@@ -420,8 +418,29 @@ function render() {
 
   popover.append(separator());
   popover.append(renderFoot(state, ctx));
+  if (confirmSkipped(SKIP_KEY_MOVE) || confirmSkipped(SKIP_KEY_SWITCH)) {
+    popover.append(renderAskAgain());
+  }
   if (option) focusOption(popover, option.target, option.position);
   else restoreFocus(focused);
+}
+
+/**
+ * The one way back from "don't ask again" that needs no Shift: says the dialogs
+ * are waived and clears both slots.
+ * @returns {HTMLElement}
+ */
+function renderAskAgain() {
+  const line = el('div', 'ctc-ask-again', 'Not asking first on any machine.');
+  const link = /** @type {HTMLButtonElement} */ (el('button', 'ctc-ask-again-link', 'Ask again'));
+  link.type = 'button';
+  link.addEventListener('click', () => {
+    rememberConfirmSkip(SKIP_KEY_MOVE, false);
+    rememberConfirmSkip(SKIP_KEY_SWITCH, false);
+    render();
+  });
+  line.append(' ', link);
+  return line;
 }
 
 /** @returns {HTMLElement} the design system's separator line */
@@ -647,9 +666,8 @@ function releaseParkedSwitch() {
 }
 
 /**
- * The confirm for one widening — or, when its waiver is recorded and Shift is
- * not held, the move applied directly. {@link confirmSkippable} decides which
- * moves take a waiver; the rest have no key to read or write.
+ * The confirm for one widening — or, when the waiver is recorded and Shift is
+ * not held, the move applied directly.
  * Wording lives in control-target-facts.js ({@link turnOnConfirm}); this
  * only wires the gesture.
  * @param {any} row
@@ -658,18 +676,13 @@ function releaseParkedSwitch() {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function confirmWiden(row, to, state, reshow = false) {
-  const kind = kindAttr(row);
-  const keyBase =
-    to === 'asked' && confirmSkippable('writes-asked', kind)
-      ? confirmSkipKeyBase('writes-asked', row)
-      : null;
-  if (keyBase && !reshow && confirmSkipped(keyBase)) {
+  if (!reshow && confirmSkipped(SKIP_KEY_MOVE)) {
     void setSwitch(row.target, to, state, undefined, true);
     return;
   }
   showConfirm({
-    ...turnOnConfirm(row, kind, to),
-    skipKeyBase: keyBase,
+    ...turnOnConfirm(row, kindAttr(row), to),
+    skipKeyBase: SKIP_KEY_MOVE,
     onConfirm: (ui) => void setSwitch(row.target, to, state, ui),
     onDismiss: releaseParkedSwitch,
   });
@@ -690,14 +703,13 @@ function confirmWiden(row, to, state, reshow = false) {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function confirmSwitchTo(row, state, reshow = false) {
-  const keyBase = confirmSkipKeyBase('switch', row);
-  if (!reshow && confirmSkipped(keyBase)) {
+  if (!reshow && confirmSkipped(SKIP_KEY_SWITCH)) {
     void requestSwitch(row, state);
     return;
   }
   showConfirm({
     ...switchConfirm(row, kindAttr(row), stateWord(row)),
-    skipKeyBase: keyBase,
+    skipKeyBase: SKIP_KEY_SWITCH,
     onConfirm: (ui) => void requestSwitch(row, state, ui),
   });
 }

@@ -188,7 +188,7 @@ class TestSuccessfulSwitch:
         # here selects a gateway, so identity is the config rendering and the
         # republication changes nothing an operator would read.
         assert record["targets"]["va"]["label"] == "Simulator — nothing moves"
-        assert record["targets"]["live"]["label"] == "Real machine — writes move hardware"
+        assert record["targets"]["live"]["label"] == "Live — writes move hardware"
 
     async def test_the_previous_child_process_actually_exits(self, make_manager):
         manager = await started_on(make_manager, "live")
@@ -903,7 +903,7 @@ class TestRepublishedDisplayMetadata:
         assert narrowed["selected_role"] == "read_only"
         assert narrowed["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
         # Identity did not move with the endpoint: this is the same machine.
-        assert narrowed["label"] == "Real machine — writes move hardware"
+        assert narrowed["label"] == "Live — writes move hardware"
 
     async def test_a_render_that_raises_leaves_the_switch_intact(self, make_manager, monkeypatch):
         """The swap has already happened, so a failed render may not undo it.
@@ -939,7 +939,7 @@ class TestRepublishedDisplayMetadata:
         metadata = manager.display_metadata()
 
         assert manager.has_child() is False
-        assert metadata["live"]["label"] == "Real machine — writes move hardware"
+        assert metadata["live"]["label"] == "Live — writes move hardware"
         assert metadata["live"]["selected_role"] == "read_only"
         assert metadata["live"]["endpoint"] == f"{GATEWAY_HOST}:{READ_GATEWAY_PORT}"
 
@@ -1882,14 +1882,14 @@ class TestConfigDerivedFacts:
         # deployment that has said what its real machine is, whatever that
         # class turns out to do.
         assert metadata["live"]["real_machine"] is True
-        assert metadata["live"]["label"] == "Real machine — writes move hardware"
+        assert metadata["live"]["label"] == "Live — writes move hardware"
 
     def test_display_metadata_still_describes_a_target_it_cannot_derive(self):
         metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
 
         assert metadata["live"] == {
-            "label": "Real machine — writes move hardware (not configured)",
-            "display_name": "Real machine",
+            "label": "Live — writes move hardware (not configured)",
+            "display_name": "Live",
             "endpoint": "",
             "selected_role": "",
             "real_machine": False,

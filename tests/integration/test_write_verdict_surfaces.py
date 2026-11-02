@@ -44,7 +44,7 @@ from tests.integration._write_verdict_surfaces_registry import (
 
 REPO = Path(__file__).resolve().parents[2]
 SRC_ROOTS = (REPO / "src", REPO / "packages" / "osprey-connectors" / "src")
-VERDICT_NAMES = frozenset({"write_verdict", "backstop_verdict"})
+VERDICT_NAMES = frozenset({"write_verdict", "execution_verdict", "backstop_verdict"})
 
 #: The modules that define a verdict rather than ask one.
 DEFINING_MODULES = frozenset(

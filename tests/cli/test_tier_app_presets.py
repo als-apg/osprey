@@ -1,8 +1,8 @@
 """Tests for the bundled tier and app presets and the control-assistant roster.
 
 A bundled tier (``presets/tiers/<name>.yml``) is a small delta over the
-deployment's own profile: write pins, ``web.ui_mode``, and the panels, skills
-and privilege lifts that differ from the host. It carries no deployment fact
+deployment's own profile: write pins, and the panels, skills and privilege
+lifts that differ from the host. It carries no deployment fact
 and never subtracts, so its top-level keys stay within the tier-kind key set:
 the root set minus every deployment key, plus the per-render image keys.
 
@@ -15,9 +15,8 @@ everyone on the roster may open beside it.
 Three tiers ship in ``presets/tiers/``, each a small delta laid over the
 deployment's own profile:
 
-* ``readonly`` — simple chat-first surface; every write surface refuses on
-  every target; built without the EVENTS/BLUESKY panels.
-* ``readwrite`` — expert workspace; ``control_system.writes: asked``, so a
+* ``readonly`` — every write surface refuses on every target; built without the EVENTS/BLUESKY panels.
+* ``readwrite`` — ``control_system.writes: asked``, so a
   session may write to every machine the deployment configures; channel writes
   pass the ordinary safety chain (writes-check, limits, human approval); adds
   the EVENTS/BLUESKY panels.
@@ -36,7 +35,7 @@ owns its own lists and runs on the deployment's services:
 
 The tier contract has two halves, and both are asserted wholesale below rather
 than key-by-key. The MACHINE axes separate readonly from readwrite: enforcement
-(``control_system.writes``, ``never`` against ``asked``), surface (``web.ui_mode``), and the
+(``control_system.writes``, ``never`` against ``asked``) and the
 write-oriented panels (EVENTS + BLUESKY, added by every write-armed tier and
 absent from readonly). The DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
@@ -197,17 +196,15 @@ def test_tier_opens_with_its_preset_comment(tier: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("tier", "writes", "ui_mode"),
+    ("tier", "writes"),
     [
-        ("readonly", "never", "simple"),
-        ("readwrite", "asked", "expert"),
-        ("admin", "allowed", "expert"),
+        ("readonly", "never"),
+        ("readwrite", "asked"),
+        ("admin", "allowed"),
     ],
 )
-def test_tier_pins_write_posture_and_ui_mode(tier: str, writes: str, ui_mode: str) -> None:
-    config = _load_tier(tier)["config"]
-    assert _stated_writes(config) == writes
-    assert config["web.ui_mode"] == ui_mode
+def test_tier_pins_write_posture(tier: str, writes: str) -> None:
+    assert _stated_writes(_load_tier(tier)["config"]) == writes
 
 
 def test_readonly_tier_adds_no_panels_skills_or_privileges() -> None:
@@ -216,7 +213,7 @@ def test_readonly_tier_adds_no_panels_skills_or_privileges() -> None:
     assert "skills" not in document
     config = document["config"]
     assert _posture_keys(config)
-    assert set(config) - _posture_keys(config) == {"web.ui_mode"}
+    assert set(config) == _posture_keys(config)
 
 
 def test_readwrite_tier_adds_the_write_panels_only() -> None:
@@ -225,7 +222,7 @@ def test_readwrite_tier_adds_the_write_panels_only() -> None:
     assert "skills" not in document
     config = document["config"]
     assert _posture_keys(config)
-    assert set(config) - _posture_keys(config) == {"web.ui_mode"}
+    assert set(config) == _posture_keys(config)
 
 
 def test_admin_tier_lifts_the_three_deployment_privileges() -> None:
@@ -520,7 +517,6 @@ WRITES_KEY = TIER_WRITES_KEY
 EXEMPLAR_TIERS_DIR = (
     Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile" / "tiers"
 )
-UI_MODE_KEY = "web.ui_mode"
 # The agent's deployment-editing tool: denied by the deployment for every tier,
 # and subtracted back by the admin tier alone. A deny rather than an ask because
 # string lists only ever UNION when a tier is laid over the profile — see the
@@ -1086,7 +1082,7 @@ class TestControlAssistantTiersAndApps:
     three apps: agents of their own on the deployment's services.
 
     Over the MACHINE, readonly and readwrite differ on enforcement
-    (``writes_enabled``), surface (``ui_mode``) and the write-oriented panels
+    (``writes_enabled``) and the write-oriented panels
     (write-armed tiers only). Over the DEPLOYMENT, admin differs from readwrite
     on the three keys the deployment floors off — ``remove_deny`` for
     ``setup_patch``, the Config panel, the gallery's write surfaces — plus the
@@ -1122,8 +1118,8 @@ class TestControlAssistantTiersAndApps:
 
     def test_admin_lifts_the_deployment_floor(self, layers: dict[str, BuildProfile]) -> None:
         """The admin tier is readwrite plus deployment editing at the ceiling
-        above it: it holds ``control_system.writes: allowed`` and
-        ``ui_mode: expert``, and adds the three keys that lift the floor.
+        above it: it holds ``control_system.writes: allowed`` and adds the
+        three keys that lift the floor.
 
         ``remove_deny`` rather than a bare absence of the deny is the whole
         mechanism — string lists UNION when a tier is laid over the profile, so
@@ -1135,7 +1131,6 @@ class TestControlAssistantTiersAndApps:
         assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) == "allowed"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
-        assert profile.config.get(UI_MODE_KEY) == "expert"
         assert "control_system" not in _own_config("tiers", "admin")
 
         assert profile.config.get(DENY_KEY) == [SETUP_PATCH_TOOL]
@@ -1193,9 +1188,8 @@ class TestControlAssistantTiersAndApps:
         rw_cfg = dict(layers["tiers/readwrite"].config)
         ad_cfg = dict(layers["tiers/admin"].config)
         # The ceiling: only admin offers the position that does not prompt.
-        # Both tiers are otherwise the same expert desk over the same machines.
+        # Both tiers are otherwise the same desk over the same machines.
         assert rw_cfg.pop(WRITES_KEY) == "asked" and ad_cfg.pop(WRITES_KEY) == "allowed"
-        assert rw_cfg[UI_MODE_KEY] == "expert" and ad_cfg[UI_MODE_KEY] == "expert"
         # Deployment axis 1 — the agent's tool. The deployment's deny reaches
         # BOTH tiers identically; what makes admin different is the subtraction.
         assert rw_cfg[DENY_KEY] == [SETUP_PATCH_TOOL]
@@ -1242,10 +1236,7 @@ class TestControlAssistantTiersAndApps:
         assert ro_cfg.pop(WRITES_KEY) == "never"
         assert rw_cfg.pop(WRITES_KEY) == "asked"
         assert not _posture_keys(ro_cfg) and not _posture_keys(rw_cfg)
-        # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
-        assert ro_cfg.pop(UI_MODE_KEY) == "simple"
-        assert rw_cfg.pop(UI_MODE_KEY) == "expert"
-        # Axis 3 — write-oriented panels — is not a config axis at all: the
+        # Axis 2 — write-oriented panels — is not a config axis at all: the
         # tabs ride the write-armed tiers' `web_panels` lists (asserted in
         # test_tiers_share_every_artifact_list_except_panels_and_the_admin_skill),
         # and their URLs are projected from the hosting deployment's render

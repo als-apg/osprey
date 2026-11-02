@@ -726,16 +726,25 @@ def test_a_host_launch_records_a_subagent_and_thinking(
         check=False,
     )
     assert run.returncode == 0, f"osprey {launch.command[0]} failed:\n{run.stdout}\n{run.stderr}"
-    assert launch.marker in run.stdout, (
-        f"the answer does not carry {launch.marker!r}; the model did not run the subagent's "
-        f"read. Re-run the case:\n{run.stdout}"
-    )
 
     session_dir = _session_dir(config_dir)
     mains = sorted(session_dir.glob("*.jsonl"))
     subagents = sorted(session_dir.glob("*/subagents/*.jsonl"))
     assert len(mains) == 1, mains
     assert subagents, f"the session started no subagent: {sorted(session_dir.rglob('*'))}"
+    # The read is proven where it happened, in the subagent's transcript: the
+    # model's closing reply may paraphrase the file instead of quoting it.
+    sub_blocks = [block for path in subagents for block in _blocks(_entries(path))]
+    reads = {
+        block.get("id")
+        for block in sub_blocks
+        if block.get("type") == "tool_use" and block.get("name") == "Read"
+    }
+    assert any(
+        block.get("tool_use_id") in reads and launch.marker in json.dumps(block.get("content"))
+        for block in sub_blocks
+        if block.get("type") == "tool_result"
+    ), f"no subagent Read returned {launch.marker!r}; the subagent did not read the file"
     main = _entries(mains[0])
     kinds = {block.get("type") for block in _blocks(main)}
     assert "thinking" in kinds, f"the session holds no thinking block: {sorted(map(str, kinds))}"

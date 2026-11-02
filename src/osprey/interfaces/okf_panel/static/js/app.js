@@ -29,7 +29,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import { debounce } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
@@ -75,15 +75,12 @@ let readerView = 'browse';
 
 /**
  * Publish this panel's tile-bar contribution. Embedded, the tile bar is the
- * panel's one header in Expert and Simple alike, so both modes get the same
- * two items:
+ * panel's one header, with two items:
  *
  * - the sidebar's search box, rendered as the hub's magnifier pill (style.css
- *   hides the in-body one; Simple shows the results column while a search is
- *   active);
- * - a `view` nav whose Browse entry opens the structure overview. Simple hides
- *   the sidebar with its "Knowledge Base" link, so this is how embedded Simple
- *   reaches the page list. It is active while the overview is showing.
+ *   hides the in-body one);
+ * - a `view` nav whose Browse entry opens the structure overview. It is active
+ *   while the overview is showing.
  *
  * The nav goes last, against the close button: it is the control aimed at
  * repeatedly, and it outranks the search when a narrow tile has to fold one.
@@ -113,17 +110,9 @@ function setReaderView(view) {
   publishHeaderContribution();
 }
 
-// Live Expert<->Simple switch broadcast by the hub (same-origin postMessage),
-// the mode-axis sibling of the osprey-theme-change follower wired by initTheme
-// above. mode-boot.js already stamped the initial data-ui-mode pre-paint; this
-// is the runtime flip. frame-params.js's shared receive side stamps <html>.
-// The Simple layout is pure CSS gated on the attribute (see style.css) and the
-// tile-bar contribution is the same in both modes, so no callback is needed.
-onModeChange();
-
 applyEmbedded();
 
-// Draggable sidebar/reader splitter (expert layout; hidden in simple mode).
+// Draggable sidebar/reader splitter.
 initSidebarResize();
 
 /**
@@ -475,24 +464,6 @@ function requireEl(id) {
       ev.preventDefault();
       loadStructure();
     });
-  }
-
-  // Standalone "Browse all pages" bar — Simple hides the sidebar tree, so this
-  // is standalone Simple's route back to the structure overview (the plain doc
-  // list); style.css shows it in Simple only. Embedded, the tile bar's Browse
-  // entry does that job, so the bar leaves the DOM instead of drawing chrome
-  // inside the pane.
-  const readerTopbar = document.getElementById('reader-topbar');
-  if (readerTopbar && isEmbedded()) {
-    readerTopbar.remove();
-  } else if (readerTopbar) {
-    readerTopbar.hidden = false;
-    const browseAllBtn = document.getElementById('browse-all');
-    if (browseAllBtn) {
-      browseAllBtn.addEventListener('click', function () {
-        loadStructure();
-      });
-    }
   }
 
   // -- bundle health (osprey addition) ---------------------------------------

@@ -345,7 +345,7 @@ _APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt be
 #: The hook events that run once a call has executed. The approval note arrives on one.
 _OUTCOME_HOOK_EVENTS = frozenset({"PostToolUse", "PostToolUseFailure"})
 
-#: How the result of a declined call opens: the Simple view's answer
+#: How the result of a declined call opens: the chat's answer
 #: (``OperatorSession.resolve_permission``), and the CLI's rejection at its own prompt.
 _DECLINED_RESULTS = (
     "The operator declined this tool call.",
@@ -390,7 +390,7 @@ def _replayed_decision(
     ``allowed`` for a call the approval note names: a person allowed it, and it ran.
     The transcript cannot tell "Allowed for this session" from a one-off allow, so a
     session allow replays as ``allowed`` too. ``denied`` for an error result that is an
-    operator's decline, from either view. A call a safety hook refused never reached the
+    operator's decline, from either surface. A call a safety hook refused never reached the
     operator; its result opens with ``PreToolUse:<tool> hook error:``, so it shows no pill.
     """
     if tool_use_id in approved:
@@ -655,7 +655,7 @@ def _subagent_timelines(nodes: list[dict[str, Any]]) -> dict[str, list[dict[str,
 
 
 def _chat_turns(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """A session's main stream as the Simple chat's turns, agent turns carrying their events.
+    """A session's main stream as the chat's turns, agent turns carrying their events.
 
     A user turn is ``{role, content, timestamp}``. Everything the agent did up
     to the next user prompt is one assistant turn whose ``events`` are the
@@ -893,7 +893,7 @@ async def session_chat(request: Request):
     through :mod:`osprey.interfaces.web_terminal.transcript_map` first: a caller
     that knows only its key still reads the conversation that key is on.
 
-    ``events=1`` answers the Simple chat's turns with their replayable events
+    ``events=1`` answers the chat's turns with their replayable events
     (:func:`_chat_turns`). ``full=1`` leaves each message whole, which is what
     replaying a conversation onto another surface needs. Without either, each
     message is cut at the diagnostics view's cap.

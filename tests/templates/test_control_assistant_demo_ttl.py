@@ -2,7 +2,7 @@
 
 A corpus that nobody counts can drift silently: a change to the facility or to
 the view's writer would quietly seed a different graph. The census below (644
-devices, 3338 bindings, 522 written and 2812 read signals) is the demo facility
+devices, 3339 bindings, 522 written and 2812 read signals) is the demo facility
 as the build renders it, and the 522 writes are exactly its `:SP` addresses.
 The prose census sits beside it: a description on every binding, a system
 description plus the SYSTEM token on every device, a family description on
@@ -38,7 +38,7 @@ NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 #: storage ring injection septa's 7 channels, and the injector's 379 channels
 #: beyond the frozen ones.
 EXPECTED_DEVICES = 644
-EXPECTED_BINDINGS = 3338
+EXPECTED_BINDINGS = 3339
 EXPECTED_WRITES = 522
 EXPECTED_READS = 2812
 
@@ -100,7 +100,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device carries its prose, exactly once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 3338 times spread over 40 bindings would satisfy a
+    predicate appearing 3339 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.

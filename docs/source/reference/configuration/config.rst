@@ -462,7 +462,7 @@ The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the sidebar's two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, choose
-whether the Expert view is offered, size the Simple-mode operator-chat pool, bound how
+whether the terminal is offered, size the operator-chat pool, bound how
 long a panel's own server gets to start, and set how often the file watchers
 re-read the tree.
 
@@ -506,7 +506,7 @@ Documentation and feedback keys
        baked config image each carry their own name.
    * - ``web.chat_turn_timeout_s``
      - ``600``
-     - Ceiling in seconds on a single Simple-mode chat turn.
+     - Ceiling in seconds on a single chat turn.
    * - ``web.chat_idle_timeout_s``
      - ``1800``
      - How long an operator's chat session may sit idle before it is reaped.
@@ -650,33 +650,17 @@ The setting changes what the page shows, not what the agent may do. With it
 off, the sidebar has no control-target block. A value that is not a boolean is
 reported in the log and ``true`` is used.
 
-.. _config-expert-view:
+.. _config-web-terminal:
 
-Expert and Simple view
-~~~~~~~~~~~~~~~~~~~~~~
+Offering the terminal
+~~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: yaml
-
-   web:
-     ui_mode: simple      # the view a terminal opens in: expert | simple
-     expert_view: false   # offer no Expert view at all
-
-``web.ui_mode`` picks the view a terminal opens in, ``expert`` (the default)
-or ``simple``; anyone can flip to the other one from **☰ More** or the
-command palette. ``web.expert_view: false`` takes the Expert view away
-altogether, on every login the render serves. The terminal opens in Simple
-whatever ``web.ui_mode`` says, **☰ More** has no View group, the command
-palette offers no switch, and a ``?mode=expert`` link or a remembered pick is
-ignored. The server refuses the Expert view's terminal session too:
-``/ws/terminal`` answers with an error and closes (code ``4403``) before any
-Claude Code process is started, so no client can open one.
-
-The default is ``true``, the behaviour of a deployment that never sets the
-key. A value that is not a boolean is reported in the log and ``true`` is
-used; a config file that cannot be read closes the Expert view. ``osprey
-build`` refuses a profile — or a tier or app laid over its deployment — that
-states ``web.ui_mode: expert`` beside ``web.expert_view: false``; set
-``web.ui_mode: simple`` there, or drop the line.
+``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
+menu on every login the render serves, and ``/ws/terminal`` closes with code
+``4403`` before any process starts. The default is ``true``. A value that is
+not a boolean is reported in the log and ``true`` is used; a config file that
+cannot be read closes it. ``osprey build`` refuses a profile that still states
+``expert_view``, the key this one replaced.
 
 .. _config-file-watch-reconcile:
 
@@ -926,7 +910,7 @@ the agent needs routinely runs past 500 characters.
 
 ``claude_code.thinking.display`` sets whether Claude Code shows a summary of
 its thinking. ``summarized``, the default, shows the summaries, and they are
-recorded with the session, where the Simple-view chat and the agent timeline
+recorded with the session, where the operator chat and the agent timeline
 display them. ``omitted`` leaves thinking out. Any other value stops
 ``osprey build`` with a message naming the key.
 

@@ -20,7 +20,7 @@
  *
  * Beyond the prefix contract this file also pins the SSE-driven behavior the
  * rail and the dock share — agent activity styling, rail membership, the
- * simple-UX chat-only boot, and (with a hand-built DockviewApi published
+ * and (with a hand-built DockviewApi published
  * through the mocked dock-workspace module) the placement an agent open_panel
  * produces: focus the panel's own tile, or open one BESIDE, never evicting the
  * tile the operator is watching.
@@ -907,123 +907,6 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
   });
 });
 
-describe('simple-UX chat-only first boot (workspace suppression)', () => {
-  afterEach(() => {
-    document.documentElement.removeAttribute('data-ui-mode');
-  });
-
-  /**
-   * Boot the manager under a given html[data-ui-mode] with a healthy
-   * 'artifacts' panel and a server-reported workspace_has_artifacts flag.
-   * Resolves once the artifacts rail entry is enabled (healthy), i.e. past
-   * the point where auto-activation would have fired.
-   * @param {{ mode: 'simple'|'expert', hasArtifacts: boolean }} opts
-   */
-  async function boot({ mode, hasArtifacts }) {
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    window.__OSPREY_PREFIX__ = '';
-    renderContainer();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (/** @type {string} */ url) => {
-        if (url === '/api/panels') {
-          return jsonOk({
-            enabled: ['artifacts'],
-            custom: [],
-            default: null,
-            visible: ['artifacts'],
-            active: null,
-            labels: {},
-            workspace_has_artifacts: hasArtifacts,
-          });
-        }
-        if (url === '/api/artifact-server') {
-          return jsonOk({ url: '/panel/artifacts', available: true });
-        }
-        return jsonOk({ status: 'ok' });
-      })
-    );
-    const { emit } = stubEventSource();
-
-    const mod = await freshImport();
-    await mod.initPanelManager('panel-manager');
-
-    const entry = /** @type {HTMLElement} */ (
-      document.querySelector('[data-panel-id="artifacts"]')
-    );
-    await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
-    return { emit, mod };
-  }
-
-  /** The activation observables: the workspace iframe and the active stamp. */
-  function workspaceOpen() {
-    const container = /** @type {HTMLElement} */ (document.getElementById('panel-manager'));
-    return {
-      iframe: document.querySelector('iframe[data-panel-id="artifacts"]'),
-      active: container.dataset.activePanel ?? null,
-    };
-  }
-
-  test('simple mode + empty workspace boots chat-only (no auto-activation)', async () => {
-    await boot({ mode: 'simple', hasArtifacts: false });
-    // Give any (wrong) deferred activation a chance to land before asserting.
-    await new Promise((r) => setTimeout(r, 25));
-    expect(workspaceOpen()).toEqual({ iframe: null, active: null });
-  });
-
-  test('simple mode with pre-existing artifacts activates the workspace as before', async () => {
-    await boot({ mode: 'simple', hasArtifacts: true });
-    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
-    expect(workspaceOpen().active).toBe('artifacts');
-  });
-
-  test('expert mode is untouched by an empty workspace', async () => {
-    await boot({ mode: 'expert', hasArtifacts: false });
-    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
-    expect(workspaceOpen().active).toBe('artifacts');
-  });
-
-  test('agent add_panel_to_rail (panel_visibility) reveals the workspace on that panel', async () => {
-    const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
-    expect(workspaceOpen().iframe).toBeNull();
-
-    emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, source: 'agent' });
-
-    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
-    expect(workspaceOpen().active).toBe('artifacts');
-  });
-
-  test('agent open_panel (panel_focus) reveals the workspace', async () => {
-    const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
-    expect(workspaceOpen().iframe).toBeNull();
-
-    emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
-
-    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
-    expect(workspaceOpen().active).toBe('artifacts');
-  });
-
-  test('hiding a panel never reveals the workspace', async () => {
-    const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
-
-    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false, source: 'agent' });
-
-    await new Promise((r) => setTimeout(r, 25));
-    expect(workspaceOpen()).toEqual({ iframe: null, active: null });
-  });
-
-  test('flipping to expert ends the suppression and fills the empty slot', async () => {
-    const { mod } = await boot({ mode: 'simple', hasArtifacts: false });
-    expect(workspaceOpen().iframe).toBeNull();
-
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    mod.handleUiModeFlip('expert');
-
-    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
-    expect(workspaceOpen().active).toBe('artifacts');
-  });
-});
-
 describe('getPanelStandaloneUrl — the "Open in a new window" target (context menu + palette)', () => {
   test('is null before config resolves a url, then the resolved url once it has', async () => {
     window.__OSPREY_PREFIX__ = '';
@@ -1451,17 +1334,17 @@ function menuKey(el) {
  * `restored` names panels whose placeholder tile is already in the grid before
  * the manager boots — a dock layout restored from a previous page load.
  * @param {{ panels?: string[], visible?: string[], unhealthy?: string[],
- *           mode?: 'simple'|'expert', down?: Set<string>, restored?: string[] }} [opts]
+ *           surface?: 'terminal', down?: Set<string>, restored?: string[] }} [opts]
  */
 async function bootWorkspace({
   panels = ['artifacts', 'ariel'],
   visible,
   unhealthy = [],
-  mode,
+  surface,
   down = new Set(),
   restored = [],
 } = {}) {
-  if (mode) document.documentElement.setAttribute('data-ui-mode', mode);
+  if (surface) document.documentElement.setAttribute('data-agent-surface', surface);
   window.__OSPREY_PREFIX__ = '';
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
   // The overlay layer mounts in .main-container — without it the adapter
@@ -1490,9 +1373,6 @@ async function bootWorkspace({
           visible: members,
           active: null,
           labels: {},
-          // Simple mode boots chat-only while the workspace is empty; these
-          // suites are about placement, so start past that onboarding state.
-          workspace_has_artifacts: true,
         });
       }
       const id = panels.find((p) => CONFIG_ENDPOINT[p] === url);
@@ -1540,7 +1420,7 @@ const posts = (/** @type {{url: string, opts: any}[]} */ calls) =>
 
 describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE, never evict", () => {
   afterEach(() => {
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
   });
 
   test('an undocked rail member opens as a NEW tile beside the active one — nothing is evicted', async () => {
@@ -1691,21 +1571,6 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
     expect(api.getPanel('iframe:ariel').group).toBe(artifactsGroup);
   });
 
-  test('simple mode places beside the active tile exactly as expert does', async () => {
-    const { api, emit } = await bootWorkspace({ mode: 'simple' });
-    const artifactsTile = api.getPanel('iframe:artifacts');
-    const artifactsGroup = artifactsTile.group;
-
-    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
-
-    // Simple is a simpler default, not a single-tile lock: the switch opens a
-    // second tile beside the first rather than evicting it.
-    expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
-    expect(api.getPanel('iframe:ariel')).not.toBeNull();
-    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
-    expect(api.panels.filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))).toHaveLength(2);
-  });
-
   test('fallback mode (no dock shell) activates exactly as before — no focus re-POST', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
@@ -1748,7 +1613,7 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
 
 describe('panel_arrange — the declarative whole-workspace rebuild', () => {
   afterEach(() => {
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
   });
 
   /** @param {string} id */
@@ -1959,19 +1824,6 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     expect(entry('no-such-panel')).toBeNull();
   });
 
-  test('simple mode rebuilds the arrangement exactly as expert does', async () => {
-    const { api, emit } = await bootWorkspace({ panels: THREE, mode: 'simple' });
-    expect(dockedTiles(api)).toEqual(['artifacts']);
-
-    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'ariel' });
-
-    // Simple is a simpler default, not a single-tile lock: the region is
-    // rebuilt to the requested tiles, left to right, with the focus honoured.
-    expect(dockedTiles(api)).toEqual(['channel-finder', 'ariel']);
-    expect(activeStamp()).toBe('ariel');
-    expect(entry('channel-finder')).not.toBeNull();
-  });
-
   test('fallback mode (no dock shell) applies membership and focus only', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
@@ -2016,7 +1868,7 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
 describe('tile notice — a docked panel that stops answering says so over its own tile', () => {
   afterEach(() => {
     vi.useRealTimers();
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
   });
 
   /** @param {string} id */
@@ -2821,7 +2673,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // Dismiss whatever a test left open — an undismissed popover keeps
     // document-level listeners alive across the module reset.
     document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
-    document.documentElement.removeAttribute('data-ui-mode');
+    document.documentElement.removeAttribute('data-agent-surface');
   });
 
   test('a healthy service entry opens the full verb list and suppresses the native menu', async () => {
@@ -2893,7 +2745,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(opened.searchParams.get('popout')).toBe('true');
     expect(opened.searchParams.has('embedded')).toBe(false);
     expect(opened.searchParams.has('theme')).toBe(true);
-    expect(opened.searchParams.has('mode')).toBe(true);
+    expect(opened.searchParams.has('mode')).toBe(false);
     expect(name).toBe('osprey-popout-ariel');
     expect(features).toMatch(/^popup=yes,width=\d+,height=\d+,left=\d+,top=\d+$/);
     // The tile is gone from the dock while the window is open: a layout
@@ -2998,7 +2850,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // instances of earlier tests answer the hello too: each sends the same
     // state (no session yet, so no session message).
     expect(new Set(popup.postMessage.mock.calls.map((c) => c[0].type))).toEqual(
-      new Set(['osprey-theme-change', 'osprey-mode-change'])
+      new Set(['osprey-theme-change'])
     );
     expect(popup.postMessage.mock.calls.every((c) => c[1] === window.location.origin)).toBe(true);
     rightClick(entry('ariel'));
@@ -3104,21 +2956,6 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(activeStamp()).toBe('ariel');
   });
 
-  test('simple mode offers the same rows, the new-tile row included', async () => {
-    await bootWorkspace({ mode: 'simple' });
-
-    rightClick(entry('ariel'));
-
-    expect(menuLabels()).toEqual([
-      'Focus Ariel',
-      'Open in a new tile',
-      'Pop out',
-      'Move to Workspace',
-      'Move to new group…',
-      'Remove from rail',
-    ]);
-  });
-
   test('a disabled entry gets no menu, and the browser keeps its own', async () => {
     await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
     expect(entry('ariel').classList.contains('disabled')).toBe(true);
@@ -3147,8 +2984,8 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(opened.defaultPrevented).toBe(true);
   });
 
-  test('the Agent row offers the session verbs, and pairs restart with reconnect', async () => {
-    await bootWorkspace();
+  test('on the terminal surface the Agent row offers the session verbs, and pairs restart with reconnect', async () => {
+    await bootWorkspace({ surface: 'terminal' });
 
     const ev = rightClick(entry('terminal'));
 
@@ -3172,7 +3009,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
   });
 
   test('the Agent row’s other verbs reach the session list and the dock', async () => {
-    await bootWorkspace();
+    await bootWorkspace({ surface: 'terminal' });
 
     rightClick(entry('terminal'));
     /** @type {HTMLElement} */ (menuRow('New session')).click();
@@ -3182,18 +3019,17 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
 
-    // Reset puts the current view's default arrangement back.
+    // Reset puts the default arrangement back.
     rightClick(entry('terminal'));
     /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('simple mode keeps only the layout rows on the Agent menu', async () => {
-    await bootWorkspace({ mode: 'simple' });
+  test('in chat the Agent menu keeps only the layout rows', async () => {
+    await bootWorkspace();
 
     // The tile hosts the operator console there, so the two PTY verbs would
-    // act on a surface the operator cannot see and are withheld; the layout
-    // resets and the tile closes exactly as in expert.
+    // act on a surface the operator cannot see and are withheld.
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
@@ -3206,7 +3042,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
   });
 
   test('a click on the Agent row opens the pane and focuses the terminal — twice, never a close', async () => {
-    await bootWorkspace();
+    await bootWorkspace({ surface: 'terminal' });
     openTerminalPanel.mockClear();
     focusTerminal.mockClear();
 
@@ -3218,8 +3054,8 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
-  test('in simple mode the Agent row puts the caret in the chat composer', async () => {
-    await bootWorkspace({ mode: 'simple' });
+  test('in chat the Agent row puts the caret in the composer', async () => {
+    await bootWorkspace();
     focusTerminal.mockClear();
     const operator = document.createElement('div');
     operator.id = 'operator-container';
@@ -3867,7 +3703,7 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     await settled(() => expect(el.dataset.panelFrame).toBe('opaque'));
   });
 
-  test('an opaque panel receives the theme (target "*") and never the session or mode', async () => {
+  test('an opaque panel receives the theme (target "*") and never the session', async () => {
     await bootOne({
       custom: [discovered],
       visible: ['agent-bundle'],

@@ -254,7 +254,7 @@ describe('sidebar-artifacts.js grouping', () => {
         json: async () => ({ artifacts: [], total: 0, next_cursor: null }),
       }))
     );
-    document.documentElement.dataset.uiMode = 'expert';
+    document.documentElement.dataset.agentSurface = 'terminal';
     document.body.innerHTML = `
       <nav id="sidebar">
         <div class="sidebar-row" id="sidebar-artifacts-row">
@@ -277,7 +277,7 @@ describe('sidebar-artifacts.js grouping', () => {
   afterEach(() => {
     mod.teardownSidebarArtifacts();
     for (const path of Object.keys(STUBBED)) vi.doUnmock(path);
-    delete document.documentElement.dataset.uiMode;
+    delete document.documentElement.dataset.agentSurface;
   });
 
   /** @returns {string | null} the grouping the ⋯ menu shows as chosen */

@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from docs.screenshots import video_probes, video_take
+from docs.screenshots import video_landing, video_probes
 
 from tests._playwright import chromium_available
 
@@ -59,13 +59,13 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
             # From the scene's centre to the colorbar at the right edge.
             page.mouse.move(300, 400)
             page.mouse.down()
-            for step in range(1, video_take.DRAG_STEPS + 1):
-                page.mouse.move(300 + 490 * step / video_take.DRAG_STEPS, 400)
+            for step in range(1, video_landing.DRAG_STEPS + 1):
+                page.mouse.move(300 + 490 * step / video_landing.DRAG_STEPS, 400)
             page.mouse.up()
             waited = 0
             while True:
-                page.wait_for_timeout(video_take.DRAG_SETTLE_MS)
-                waited += video_take.DRAG_SETTLE_MS
+                page.wait_for_timeout(video_landing.DRAG_SETTLE_MS)
+                waited += video_landing.DRAG_SETTLE_MS
                 after = video_probes.camera_azimuth(page.main_frame)
                 if video_probes.azimuth_change(before, after) >= 45 or waited >= _DEADLINE_MS:
                     break

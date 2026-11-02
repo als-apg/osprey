@@ -63,8 +63,6 @@ One queue, three ways to drive it
         means the request authorised without naming anybody, which some do. The
         rows are a record of what happened, and nothing on the queue is allowed
         or refused because of them. The card's **Clear** empties both halves.
-      - A **Simple mode** hides the expert details and leaves the essentials:
-        the form, the queue, the results, and the halts.
 
       See :doc:`/how-to/web-terminal/panels` for where these tabs live.
 

@@ -31,8 +31,7 @@
  *
  * MODE DEGRADATION
  * ----------------
- * The tile rebuild runs wherever there is a dock shell — in Simple as in
- * Expert; the ui view is a starting point, not a lock. Fallback mode (no dock
+ * The tile rebuild runs wherever there is a dock shell. Fallback mode (no dock
  * shell) has no tiles at all and skips the rebuild, letting the focus step take
  * the single surface over. Rail MEMBERSHIP is applied in every mode — the
  * launcher rail is not a dock feature, and a preset must prune it wherever it

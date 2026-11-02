@@ -504,7 +504,11 @@ class TangoConnector(ControlSystemConnector):
         return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
-        self, channel_address: str, callback: Callable[[ChannelValue], None]
+        self,
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *,
+        on_connection: Callable[[bool], None] | None = None,  # noqa: ARG002 - accepted and ignored: TANGO reports no connection state
     ) -> str:
         """
         Subscribe to attribute change events.
@@ -515,6 +519,8 @@ class TangoConnector(ControlSystemConnector):
         Args:
             channel_address: ``domain/family/member/attribute``
             callback: Function to call when the value changes
+            on_connection: Accepted for the base-class contract and ignored —
+                TANGO reports no connection state to this connector.
 
         Returns:
             Subscription ID for later unsubscription

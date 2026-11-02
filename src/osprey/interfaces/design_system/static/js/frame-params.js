@@ -10,14 +10,9 @@
  *   when set.
  * - `popout` — `"true"` marks the page as a panel the web terminal popped out
  *   into its own window. {@link applyEmbedded} stamps `data-popout="true"` on
- *   `<html>`, follows the hub's view mode and starts the pop-out client
- *   (popout-client.js), which reports to the hub that opened the window. The
- *   page keeps its own chrome: unlike an embedded frame it has no tile bar
- *   around it.
- * - `mode` — a one-shot Expert/Simple hint, resolved pre-paint by
- *   mode-boot.js. It is not re-read here, but {@link stripQueryMode} drops it
- *   from the URL once the operator makes an explicit choice, so a leftover
- *   `?mode=` can't out-rank that choice on the next reload.
+ *   `<html>` and starts the pop-out client (popout-client.js), which reports to
+ *   the hub that opened the window. The page keeps its own chrome: unlike an
+ *   embedded frame it has no tile bar around it.
  * - `theme` — owned and read pre-paint by theme-boot.js / theme-manager.js.
  *   It is deliberately NOT read here: theme-boot.js is a non-module inline
  *   script that resolves and applies `data-theme` before first paint, so
@@ -30,26 +25,14 @@
  *
  * Note (decision OC-1): a generic `frameParam()` / `frameParams()` getter is
  * intentionally NOT provided here — that surface is deferred until a second
- * consumer actually needs it. What this module does export are helpers for
- * one named param each ({@link applyEmbedded}, {@link stripQueryMode}).
- *
- * Beyond query params, this module also owns both sides of the host's runtime
- * `osprey-mode-change` postMessage broadcast — {@link pickUiMode} sends it,
- * {@link onModeChange} receives it.
+ * consumer actually needs it. What this module does export are predicates and
+ * helpers for one named param each ({@link isEmbedded}, {@link isPopout},
+ * {@link applyEmbedded}).
  *
  * @module frame-params
  */
 
-import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { initPopoutClient } from '/design-system/js/popout-client.js';
-
-/**
- * Base Expert/Simple key — the one mode-boot.js resolves from. Never used
- * bare: it goes through `scopedStorageKey()` so that on a multi-user mount the
- * pick lands in this render's own slot instead of the shared origin-wide one
- * every render would otherwise overwrite in turn.
- */
-const MODE_STORAGE_KEY = 'osprey-ui-mode';
 
 /**
  * Version of the micro-frontend query-param contract described in this
@@ -92,10 +75,9 @@ export function isPopout() {
  * param is absent, or set to any other value such as `"false"` or `"1"`).
  *
  * On a pop-out page ({@link isPopout}) this also stamps `data-popout="true"`
- * on `<html>`, subscribes the page to the hub's view-mode broadcasts
- * ({@link onModeChange}, so `data-ui-mode` follows the hub) and starts the
- * pop-out client, which reports the window to the hub. Every panel page calls
- * this on load, which is what makes one call enough for both cases.
+ * on `<html>` and starts the pop-out client, which reports the window to the
+ * hub. Every panel page calls this on load, which is what makes one call enough
+ * for both cases.
  *
  * @returns {void}
  */
@@ -105,133 +87,18 @@ export function applyEmbedded() {
   }
   if (isPopout()) {
     document.documentElement.setAttribute('data-popout', 'true');
-    onModeChange();
     initPopoutClient();
   }
 }
 
 /**
- * Strip a one-shot `mode` param from the URL's query string, if present,
- * without adding a history entry — the mode-axis twin of theme-manager's
- * _stripQueryTheme(). Once the user makes an explicit choice, a leftover
- * `?mode=` must not out-rank it (or localStorage) on the next reload. Other
- * params and the hash are preserved.
- *
- * @returns {void}
- */
-export function stripQueryMode() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (!params.has('mode')) return;
-    params.delete('mode');
-    const query = params.toString();
-    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
-    window.history.replaceState(window.history.state, '', url);
-  } catch {
-    /* non-browser environment or a blocked history API — non-fatal */
-  }
-}
-
-/**
- * Whether this page offers the Expert view. False only when the server stamped
- * `data-expert-view="off"` on `<html>` (the web terminal, from
- * `web.expert_view: false`); every other page, and every deployment that never
- * set the key, offers both views. mode-boot.js mirrors this read inline.
+ * Whether this page offers the terminal on the Agent tile. False only when the
+ * server stamped `data-terminal="off"` on `<html>` (the web terminal, from
+ * `web.terminal: false`); every other page, and every deployment that never set
+ * the key, offers it.
  *
  * @returns {boolean}
  */
-export function expertViewOffered() {
-  return document.documentElement.getAttribute('data-expert-view') !== 'off';
+export function terminalOffered() {
+  return document.documentElement.getAttribute('data-terminal') !== 'off';
 }
-
-/**
- * Pick the Expert/Simple mode: persist the explicit choice, drop a leftover
- * one-shot `?mode=`, then broadcast it to this window for the page's
- * same-origin listener ({@link onModeChange}, every `<osprey-display-menu>`
- * included) to apply. The display menu's View row calls this; so does the
- * web terminal's command palette, which must flip the mode with no display
- * menu on the page, since that menu is optional chrome the operator may remove.
- *
- * A pick of the mode already stamped on `<html>` persists and strips but does
- * not broadcast: the listeners treat every broadcast as a flip (the web
- * terminal's dock stashes the on-screen arrangement under the view being
- * left), so re-broadcasting the current mode would file one view's layout
- * under the other's key. The guard sits here, on the one sender, because the
- * receivers share `data-ui-mode` as their state and a receive-side compare
- * would silence every listener after the first.
- *
- * On a page that offers no Expert view ({@link expertViewOffered}) a pick of
- * `'expert'` does nothing at all — nothing is persisted and nothing is
- * broadcast — so every caller (the display menu, the command palette, the
- * chat's hand-off cancel) is covered by this one guard.
- *
- * @param {'expert'|'simple'} mode
- * @returns {void}
- */
-export function pickUiMode(mode) {
-  if (mode === 'expert' && !expertViewOffered()) return;
-  try {
-    // Key resolved at write time, not at module load: the scope attribute is
-    // a property of the document this call ended up in.
-    window.localStorage.setItem(scopedStorageKey(MODE_STORAGE_KEY), mode);
-  } catch {
-    /* storage blocked — the mode still applies for this session */
-  }
-  stripQueryMode();
-  if (document.documentElement.getAttribute('data-ui-mode') === mode) return;
-  window.postMessage({ type: 'osprey-mode-change', mode }, window.location.origin);
-}
-
-/**
- * Subscribe to the host's live Expert/Simple UI-mode broadcasts.
- *
- * The runtime half of the mode contract (the pre-paint half is
- * mode-boot.js): the web-terminal hub posts
- * `{type: 'osprey-mode-change', mode}` to every embedded frame when the
- * operator flips the header toggle. This helper owns the receive side
- * once — it checks the message origin, normalizes the mode (`'simple'`,
- * anything else → `'expert'`, or `'simple'` on a page that offers no Expert
- * view), stamps `data-ui-mode` on `<html>`, then
- * invokes `callback(mode)` for the page's own follow-up (re-render, tab
- * fixup, ...). Pages whose Simple/Expert deltas are pure CSS pass no
- * callback.
- *
- * The callback runs only when the mode actually changed. The hub resends
- * the current mode to a panel on every tab activation and posts a flip both
- * as a broadcast and again on activation, so a follower that re-mounted on
- * every message did so twice per flip and once per tab switch. A repeat of
- * the mode already on `<html>` (stamped pre-paint by mode-boot.js or by an
- * earlier message) is not a flip.
- *
- * Several callers register on one window (the page itself, every
- * `<osprey-display-menu>`), and the first listener to see a message is the
- * one that stamps `<html>`. "Did this message change the mode" is therefore
- * decided once per message event and shared by every listener, so no later
- * listener mistakes the stamp its sibling just made for a repeat.
- *
- * @param {(mode: 'expert'|'simple') => void} [callback]
- * @returns {void}
- */
-export function onModeChange(callback) {
-  window.addEventListener('message', (e) => {
-    if (e.origin !== window.location.origin) return;
-    if (!e.data || e.data.type !== 'osprey-mode-change' || !e.data.mode) return;
-    // A page that offers no Expert view reads every broadcast as Simple.
-    const mode = e.data.mode === 'simple' || !expertViewOffered() ? 'simple' : 'expert';
-    let changed = modeChangeVerdicts.get(e);
-    if (changed === undefined) {
-      changed = document.documentElement.getAttribute('data-ui-mode') !== mode;
-      modeChangeVerdicts.set(e, changed);
-      document.documentElement.setAttribute('data-ui-mode', mode);
-    }
-    if (!changed) return;
-    if (callback) callback(mode);
-  });
-}
-
-/**
- * Per-message verdict of {@link onModeChange}: whether the message flipped
- * the mode. Keyed weakly on the event so entries vanish with it.
- * @type {WeakMap<MessageEvent, boolean>}
- */
-const modeChangeVerdicts = new WeakMap();

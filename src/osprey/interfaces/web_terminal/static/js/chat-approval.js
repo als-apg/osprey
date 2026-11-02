@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: approval card.
+ * OSPREY Web Terminal — operator chat: approval card.
  *
  * The card for a tool call the operator must allow or deny, or for a plan the
  * agent wants to carry out. Filed under the call's own row, it leaves the log

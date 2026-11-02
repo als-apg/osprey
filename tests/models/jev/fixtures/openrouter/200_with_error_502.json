@@ -1,0 +1,18 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from OpenRouter's documented response and error examples; not a recorded reply.",
+  "route": "openrouter",
+  "status": 200,
+  "headers": {},
+  "body": {
+    "id": "gen-dec-synthetic-0002",
+    "error": {
+      "code": 502,
+      "message": "Provider returned error",
+      "metadata": {
+        "provider_name": "synthetic-provider",
+        "raw": "synthetic state: find the warm widget in bay seven"
+      }
+    }
+  }
+}

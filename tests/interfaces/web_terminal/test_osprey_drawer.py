@@ -523,7 +523,7 @@ def test_settings_warning_gates_first_open_and_acks_for_session(
         _click_settings_trigger(page)
         overlay = page.locator(WARNING_OVERLAY_SELECTOR)
         expect(overlay).to_be_visible(timeout=5_000)
-        expect(page.locator(".settings-warning-title")).to_have_text("Expert Configuration Area")
+        expect(page.locator(".settings-warning-title")).to_have_text("Advanced Configuration Area")
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=2_000)
 
         # Cancel: dialog dismissed, drawer never opened.

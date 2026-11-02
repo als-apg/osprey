@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 400,
+  "headers": {},
+  "body": {
+    "detail": "choice questions accept at most 255 options"
+  }
+}

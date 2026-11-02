@@ -1010,6 +1010,9 @@ class TestOtherHookDenies:
         assert not (repo / "var" / "spool").exists()
 
     def test_the_limits_deny_records(self, repo, project_env):
+        """Run from *repo*: this hook loads ``osprey_connectors``, which applies the
+        ``.env`` chain at the working directory's repo, so a checkout's own ``.env``
+        could otherwise switch on the hook's debug line."""
         database = repo / "channel_limits.json"
         database.write_text(
             json.dumps({"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}})
@@ -1039,6 +1042,7 @@ class TestOtherHookDenies:
                 "tool_input": {"operations": [{"channel": "TEST:PV", "value": 999.0}]},
             },
             env=env,
+            cwd=repo,
         )
         assert decision_of(result) == "deny", result.stderr
         record = records(ledger(repo, "alice", "hook_limits"))[0]
@@ -1078,6 +1082,7 @@ class TestOtherHookDenies:
                 "tool_input": {"operations": [{"channel": "TEST:PV", "value": 987654.0}]},
             },
             env=env,
+            cwd=repo,
         )
         assert decision_of(result) == "deny", result.stderr
         assert "987654" not in ledger(repo, "alice", "hook_limits").read_text()

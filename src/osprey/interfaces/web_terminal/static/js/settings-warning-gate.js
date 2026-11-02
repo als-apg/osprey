@@ -137,7 +137,7 @@ function showSettingsWarning(serverSession) {
 
     dialog.innerHTML = `
       <div class="settings-warning-icon">⚠</div>
-      <div class="settings-warning-title">Expert Configuration Area</div>
+      <div class="settings-warning-title">Advanced Configuration Area</div>
       <div class="settings-warning-body">
         <p>These settings directly control <strong>agent behavior</strong>,
         <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>

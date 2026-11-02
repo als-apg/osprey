@@ -1,5 +1,5 @@
 /**
- * Unit tests for chat-format.js -- how a tool's input and result read in the Simple chat.
+ * Unit tests for chat-format.js -- how a tool's input and result read in the chat chat.
  *
  * A tool's input is drawn as key and value rows, for the call's row and for its approval
  * card. Its result is written as text, for the row's RESULT. Both follow one set of rules
@@ -219,7 +219,7 @@ describe('inputView', () => {
 
   test.each([
     ['va', 'Simulator'],
-    ['live', 'Real machine'],
+    ['live', 'Live'],
     ['standin', 'Rehearsal'],
     ['ioc2', 'ioc2'],
     ['constructor', 'constructor'],
@@ -231,7 +231,7 @@ describe('inputView', () => {
     // The kind comes from GET, never from the target's name: a `standin` no
     // live server vouched for is the real machine.
     expect(valueOf(inputView({ approved_target: 'standin' }, { standin: 'real' }), 'Target')).toBe(
-      'Real machine'
+      'Live'
     );
   });
 

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: tool vocabulary.
+ * OSPREY Web Terminal — operator chat: tool vocabulary.
  *
  * What the turn's blocks call a tool: the names of the plan and question tools,
  * the one-line summary of a tool input, the key a tool is recognised by, the

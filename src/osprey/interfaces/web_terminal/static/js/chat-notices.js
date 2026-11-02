@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the copy for refusals and failures.
+ * OSPREY Web Terminal — operator chat: the copy for refusals and failures.
  *
  * What the operator reads when the chat endpoint or the hand-off refuses a
  * request, or the transport fails. Each lookup is keyed on the endpoint's
@@ -67,7 +67,7 @@ function commandNotice(command) {
 /**
  * What the operator may do about a refused hand-off, keyed on the endpoint's
  * `detail.error` slug. A refusal is not a transport failure: it is the other
- * view still holding the session, so it belongs on the overlay that already
+ * surface still holding the session, so it belongs on the overlay that already
  * has the operator's attention rather than as a line in a log they cannot use.
  *
  * `interrupt` re-sends the same request with the operator's consent to cut a
@@ -81,7 +81,7 @@ const HANDOFF_REFUSALS = {
     action: null,
   },
   handoff_needs_interrupt: {
-    message: 'The other view may still be working.',
+    message: 'The agent may still be working.',
     action: 'interrupt',
   },
   handoff_started_commands: {

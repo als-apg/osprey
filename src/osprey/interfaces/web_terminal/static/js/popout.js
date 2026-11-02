@@ -4,7 +4,7 @@
  * The hub side of the pop-out protocol: a service tile moved into its own
  * browser window and brought back when that window closes. The window is a
  * popup the hub opens and keeps a handle on, not a detached tab — that handle
- * is what lets the hub keep the window's theme, view mode and session in step
+ * is what lets the hub keep the window's theme and session in step
  * with its own, bring the window to the front when the operator or the agent
  * asks for the panel, and put the tile back the moment the window goes away.
  *
@@ -25,8 +25,8 @@
  *   popup         the BroadcastChannel named below: the hub's reload loses its
  *                 Map, the popups' `window.opener` survives it, so each popup
  *                 answers with a hello the fresh hub adopts.
- *   hub → popup   the state messages `osprey-theme-change`, `osprey-mode-change`
- *                 and `osprey-session-change`, exactly as the iframes get them,
+ *   hub → popup   the state messages `osprey-theme-change` and
+ *                 `osprey-session-change`, exactly as the iframes get them,
  *                 on every hello and on every change (panel-manager wires the
  *                 change fan-outs through {@link broadcastToPopouts}).
  *
@@ -98,7 +98,7 @@ const BLOCKED_MESSAGE = 'Pop-ups are blocked for this site.';
  *   membership and the server are untouched
  * @property {(id: string) => void} redock - put the tile back, without a focus
  *   report
- * @property {(win: Window) => void} sync - send the hub's theme, mode and
+ * @property {(win: Window) => void} sync - send the hub's theme and
  *   session to one window
  */
 
@@ -234,7 +234,7 @@ export function focusPopout(panelId) {
 }
 
 /**
- * Send one message to every open window — the fan-out the hub's theme, mode
+ * Send one message to every open window — the fan-out the hub's theme
  * and session broadcasts run alongside their iframe loops.
  * @param {(win: Window) => void} send
  */

@@ -52,7 +52,7 @@ from tests.mcp_server.test_control_target_set import config_with_gateways, insta
 REHEARSAL_LABEL = "Rehearsal — nothing moves"
 
 #: The published label of the real machine (C-WORDS, D4): its kind's banner.
-REAL_LABEL = "Real machine — writes move hardware"
+REAL_LABEL = "Live — writes move hardware"
 
 #: The published label of the simulator (C-WORDS, D4): its one name.
 SIM_LABEL = "Simulator — nothing moves"
@@ -1080,10 +1080,10 @@ class TestDisplayName:
     """
 
     def test_defaults_follow_the_label_branches(self):
-        """Real machine, Rehearsal, Simulator — one word per derivation."""
+        """Live, Rehearsal, Simulator — one word per derivation."""
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["live"]["display_name"] == "Live"
         assert metadata["standin"]["display_name"] == "Rehearsal"
         assert metadata["va"]["display_name"] == "Simulator"
 
@@ -1092,14 +1092,14 @@ class TestDisplayName:
         metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
 
         assert metadata["live"]["label"] == f"{REAL_LABEL} (not configured)"
-        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["live"]["display_name"] == "Live"
 
     def test_a_standin_that_fails_the_predicate_is_the_real_machine(self):
         """Same conjuncts as the parenthesis: no deployed stand-in, no Rehearsal."""
         metadata = target_display_metadata(standin_config(standin_port=None))
 
         assert metadata["standin"]["label"] == REAL_LABEL
-        assert metadata["standin"]["display_name"] == "Real machine"
+        assert metadata["standin"]["display_name"] == "Live"
 
     def test_a_configured_name_wins_verbatim_stripped(self):
         raw = standin_config()
@@ -1121,7 +1121,7 @@ class TestDisplayName:
 
         metadata = target_display_metadata(raw)
 
-        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["live"]["display_name"] == "Live"
         assert metadata["standin"]["display_name"] == "Rehearsal"
         assert metadata["va"]["display_name"] == "Simulator"
 

@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — inline icons for the Simple-view chat.
+/* OSPREY Web Terminal — inline icons for the operator chat.
  *
  * Stroke icons on a 24-unit grid, built as SVG nodes (no icon package, no
  * innerHTML). Size and colour come from CSS (`.op-icon`, `currentColor`), so one

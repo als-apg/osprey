@@ -47,17 +47,17 @@ What you get
 
 The window has a sidebar on the left and two panes:
 
-- **Sidebar** (left) — the list of everything you can open, in both views:
+- **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
   **Workspace** and **Tools** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
-- **Agent** (right) — a real terminal running the OSPREY agent in Expert view,
-  or the operator chat in Simple view. It survives reconnects, and you can
-  keep a few background conversations alive and hop between them. Close the
-  pane with its **×**; the **Agent** row in the sidebar opens it again.
+- **Agent** (right) — the operator chat, or a real terminal running the OSPREY
+  agent when you open one from the pane's **⋯** menu. It survives reconnects,
+  and you can keep a few background conversations alive and hop between them.
+  Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
   arranged as dockable tiles. New artifacts, plots, and data files appear in
   the sidebar's **Artifacts** list as the agent creates them, with no refresh.
@@ -85,33 +85,32 @@ back to an older browser mechanism that Safari may refuse.
 
 .. _web-terminal-one-session:
 
-One session, both views
------------------------
+The chat and the terminal
+-------------------------
 
-Expert and Simple are two windows onto the same conversation. Pick the other
-one from **☰ More** in the sidebar and the agent you were talking to comes
-with you: the terminal and the chat share one session, one write state and one
-transcript, and only the view you are looking at runs the agent.
+The Agent pane is the operator chat. To reach the agent's terminal, open the
+Agent bar's **⋯** menu and pick **Open terminal**; **Back to chat** returns.
+The choice belongs to the browser tab, and a new tab opens on the chat. The
+chat and the terminal are two windows onto one conversation: they share one
+session, one write state and one transcript, and only the one you are looking
+at runs the agent. A deployment can leave the terminal out; see
+:ref:`config-web-terminal`.
 
-A deployment can offer the Simple view alone. With ``web.expert_view: false``
-**☰ More** has no View group and every terminal opens in Simple; see
-:ref:`config-expert-view`.
-
-Handing it over waits for the work in flight. Switch while the agent is
-mid-turn and the view you arrive in reads *Finishing in the other view* with
+Handing the agent over waits for the work in flight. Switch while the agent is
+mid-turn and the side you arrive in reads *Finishing the running turn* with
 the time you have been waiting, and offers **Stop and switch now**. Let it
 finish and the conversation reappears where it left off, with everything said
 so far already in the log. Nothing is ended on a clock: only the turn
 finishing, closing the page, or that button ends it. The button interrupts the
 agent, and stops it outright if it has not yielded within five seconds.
 
-Flip views while the other side's agent is idle and there is nothing to wait
-for: the view you arrive in reads *Restarting the agent in this view…*, with no
+Switch while the other side's agent is idle and there is nothing to wait for:
+the side you arrive in reads *Restarting the agent…*, with no
 clock and no stop button. A restart that runs past about four seconds turns
 into the wait above.
 
 A refusal can meet you instead of the wait. *This session is in use in
-another tab or view.* means another browser tab holds it, so close that tab or
+another tab.* means another browser tab holds it, so close that tab or
 work there instead. *The previous agent is still shutting down.* is the one
 worth retrying, and the card offers **Retry**.
 
@@ -122,59 +121,18 @@ worth retrying, and the card offers **Retry**.
    ends, and a deployment scaffolded earlier does not have it: add
    ``turn-state`` to the profile's ``hooks:`` list and run ``osprey build``.
    Without it, switching away from a terminal that might be working never
-   waits. It says *The other view may still be working.* and offers only
+   waits. It says *The agent may still be working.* and offers only
    **Stop and switch now**, and a terminal that was idle all along can still
    take the full five seconds to hand over.
 
-The two views run the same Claude Code version, the one
-``claude_code.cli_version`` names.
-
-.. _personal-login:
-
-A user's own Claude subscription
---------------------------------
-
-By default every terminal authenticates with the deployment's provider
-(``claude_code.provider``), one gateway and one key. Some sites let a
-colleague use their own Claude subscription inside the terminal while
-forbidding the deployment to hold that person's credential. The route that
-satisfies both is the interactive ``/login`` inside the user's own terminal,
-whose credential stays in that terminal's config volume.
-
-.. code-block:: yaml
-
-   config:
-     claude_code.allow_personal_login: true   # default false
-
-With the key on, a terminal that holds a completed ``/login`` is launched
-with the deployment provider withheld: no auth token, base URL or model
-variables and no translation proxy, so Claude Code's own credential
-precedence falls through to the subscription. The decision is made per
-terminal container at launch, by the presence of the credential file under
-that user's ``CLAUDE_CONFIG_DIR``; the file is never read, and a login
-survives a container restart because the config volume does. A terminal
-without a login routes to the deployment provider exactly as before and
-shows a dismissable card saying ``/login`` is on offer. With the key off,
-nothing changes.
-
-Whether the ``/login`` flow completes inside a terminal container has not
-been tried yet: the first site that enables the key does that trial. In
-a headless container the CLI should fall back to its paste-a-code path,
-which the terminal can carry.
-
-Two consequences follow. A login-routed session bypasses the gateway, so it
-leaves no row in the deployment's spend ledger; that is the point. And
-``osprey health`` can no longer treat a failed probe of the agent provider
-as the whole deployment down: with the key on it stays a warning, naming the
-dispatch worker and the terminals without a login as the ones affected.
-The dispatch worker and every other headless path keep the deployment
-provider unconditionally. If the chat is refused because that version
+The chat and the terminal run the same Claude Code version, the one
+``claude_code.cli_version`` names. If the chat is refused because that version
 is not installed, the server log says which one to install; see
 :doc:`/getting-started/installation`.
 
-While a turn runs in the Simple view, the composer is disabled and **Send**
-becomes **Stop**. Send the next prompt when the agent finishes, or select
-**Stop** to end the turn.
+While a turn runs in the chat, the composer is disabled and **Send** becomes
+**Stop**. Send the next prompt when the agent finishes, or select **Stop** to
+end the turn.
 
 Clearing a conversation
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -225,14 +183,14 @@ health dot to see the health of the services.
 
 The first part names the machine this deployment stands on, by what it **is**:
 
-- **Real machine** --- the facility's own. Writes move hardware.
+- **Live** --- the facility's own. Writes move hardware.
 - **Rehearsal** --- a copy of the real machine's controls, same channel names,
   no hardware behind it. Nothing moves.
 - **Simulator** --- the virtual accelerator: a physics model with beam in it,
   served from its container or in process. Nothing moves.
 
 A deployment can put its own names on its machines (*Example Research
-Facility storage ring* rather than *Real machine*); what the machine is stays
+Facility storage ring* rather than *Live*); what the machine is stays
 behind the small ⓘ beside its name either way, and that tooltip also keeps the
 controls server's own technical label.
 
@@ -298,10 +256,10 @@ be recorded you are told plainly that it did not take effect; the chip never
 shows an off that was not recorded.
 
 **Widening** asks first. The confirmation names the machine and says whether
-writes will still prompt. Tick *Don't ask again for this machine* to skip it
-for a move to *asked* (Shift-click brings it back). A move to *allowed*, and
-the real machine, always ask. If a stop lands while you are confirming, the
-move does not take effect: the chip re-reads and you click again.
+writes will still prompt. Tick *Don't ask again on any machine* to skip it for
+every move to *asked* or *allowed*, the live machine included; Shift-click or
+*Ask again* in the popover brings it back. If a stop lands while you are
+confirming, the move does not take effect: the chip re-reads and you click again.
 
 **Nothing is restarted.** Every gate reads the switch at the moment of the
 write. A narrowing reaches every next write, runs already going included: the
@@ -348,8 +306,8 @@ Switch the deployment to another machine
 **Switch to** on a row moves the whole deployment onto that machine, after a
 confirmation that says where every control read and write goes next and
 your switch's position there --- the switch is per machine, and it does not
-travel with you. This dialog too can be skipped with *Don't ask again
-for this machine*. The page that holds the control context runs the same
+travel with you. This dialog too can be skipped with its own *Don't ask
+again on any machine*. The page that holds the control context runs the same
 checks the agent's own switch runs --- that the move is allowed, and that
 nothing is mid-flight on the machine you are leaving --- and records the
 outcome; the deployment's control-system servers then move themselves onto it
@@ -434,13 +392,12 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
 
 .. note::
 
-   **The other surfaces.** Simple mode's chat and the operator websocket run
+   **The other surfaces.** The operator chat and websocket run
    their agent through the Agent SDK rather than a terminal, and notebook
    kernels run no agent at all. All of them read your login's switches at
    write time, so a switch you set and a move you make reach every one of
-   them --- and the full chip works in both views, because what it changes is
-   your login's record rather than anything belonging to the window you are
-   looking at.
+   them --- because what the chip changes is your login's record rather than
+   anything belonging to the window you are looking at.
 
    A notebook kernel is the one surface where *when* is worth knowing. Off
    refuses the running cell's next write; a widening, or a move to another
@@ -460,7 +417,7 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
 The sidebar
 -----------
 
-The sidebar is on the left in both views. From top to bottom, it shows:
+The sidebar is on the left. From top to bottom, it shows:
 
 - The OSPREY mark and the label toggle.
 - The control-target block. It is one row that shows the machine that this
@@ -539,7 +496,7 @@ or press the same keys.
 
 .. note::
 
-   When the Expert terminal has the focus, Ctrl+\\ goes to the terminal, not
+   When a terminal has the focus, Ctrl+\\ goes to the terminal, not
    to the sidebar. In the terminal, Ctrl+\\ sends SIGQUIT to the running
    program. To hide or show the labels in this state, click the toggle.
 
@@ -589,9 +546,8 @@ as normal pages, and they no longer follow the terminal.
 The More menu
 ~~~~~~~~~~~~~
 
-**☰ More** shows your user name and role at the top. It holds the **View**
-(**Simple** or **Expert**), the theme (see :doc:`theming`), **Settings** and
-the tour. The same items are in both views.
+**☰ More** shows your user name and role at the top. It holds the theme
+(see :doc:`theming`), **Settings** and the tour.
 
 .. _web-terminal-sign-out:
 
@@ -614,20 +570,55 @@ the start page.
 Where your preferences live
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The browser remembers the theme, the view (Expert or Simple), the sidebar
+The browser remembers the theme, the sidebar
 labels, the open lists in the sidebar, the sidebar groups, and the panel
 layout. A different browser or a different machine starts from the defaults
 of the deployment.
-The browser keeps one panel layout for each view: Simple starts from one panel
-next to the console, and Expert starts from the full workspace.
-
-The view is a preference. The conversation does not change with it. When you
-change between Expert and Simple, the same session moves to the other view.
-See :ref:`web-terminal-one-session`.
 
 Earlier releases had a header and a status bar that you could arrange. The
 terminal does not show them, and it does not read the bar arrangements that
 those releases saved.
+
+.. _personal-login:
+
+A user's own Claude subscription
+--------------------------------
+
+By default every terminal authenticates with the deployment's provider
+(``claude_code.provider``), one gateway and one key. Some sites let a
+colleague use their own Claude subscription inside the terminal while
+forbidding the deployment to hold that person's credential. The route that
+satisfies both is the interactive ``/login`` inside the user's own terminal,
+whose credential stays in that terminal's config volume.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.allow_personal_login: true   # default false
+
+With the key on, a terminal that holds a completed ``/login`` is launched
+with the deployment provider withheld: no auth token, base URL or model
+variables and no translation proxy, so Claude Code's own credential
+precedence falls through to the subscription. The decision is made per
+terminal container at launch, by the presence of the credential file under
+that user's ``CLAUDE_CONFIG_DIR``; the file is never read, and a login
+survives a container restart because the config volume does. A terminal
+without a login routes to the deployment provider exactly as before and
+shows a dismissable card saying ``/login`` is on offer. With the key off,
+nothing changes.
+
+Whether the ``/login`` flow completes inside a terminal container has not
+been tried yet: the first site that enables the key does that trial. In
+a headless container the CLI should fall back to its paste-a-code path,
+which the terminal can carry.
+
+Two consequences follow. A login-routed session bypasses the gateway, so it
+leaves no row in the deployment's spend ledger; that is the point. And
+``osprey health`` can no longer treat a failed probe of the agent provider
+as the whole deployment down: with the key on it stays a warning, naming the
+dispatch worker and the terminals without a login as the ones affected.
+The dispatch worker and every other headless path keep the deployment
+provider unconditionally.
 
 Documentation and feedback settings
 -----------------------------------
@@ -649,7 +640,7 @@ store. The table, the shipped defaults, and what a blank value means are in
          watch for live files, how many background conversations to keep alive —
          and command-line flags override those for a single run. ``web:`` is the
          browser **UI** the process renders, including the deployment name and
-         the bounds on the Simple-mode chat pool; those keys are catalogued in
+         the bounds on the operator-chat pool; those keys are catalogued in
          :ref:`config-web`.
 
          One key sits outside both, in the multi-user ``modules.web_terminals``

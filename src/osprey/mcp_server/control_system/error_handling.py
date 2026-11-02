@@ -90,7 +90,7 @@ LOOK_IT_UP = (
 
 
 def _target_clause(identity: dict[str, str] | None) -> str:
-    """The human half: `` (active target: Real machine — writes move hardware at <endpoint>)``.
+    """The human half: `` (active target: Live — writes move hardware at <endpoint>)``.
 
     Renders the label the controls server published for the active target —
     its machine kind's banner (``osprey_connectors.write_target.KIND_BANNERS``,

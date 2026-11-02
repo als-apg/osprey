@@ -53,7 +53,7 @@ box. :doc:`lattice-dashboard` describes the tab.
 Where the panels live
 ---------------------
 
-Panels have a row in the sidebar on the left of the window, in both views.
+Panels have a row in the sidebar on the left of the window.
 **Artifacts** (and **Events**, when the deployment enables it) is in the
 **Workspace** section, with **Agent**. All other panels are in the **Tools**
 section, followed by **+ Add panel**. See :ref:`web-terminal-sidebar`.
@@ -158,17 +158,16 @@ whole of what it is told. Everything below is **version 1** of the contract
 that follows it keeps working as later versions add to it.
 
 **The theme arrives in the address.** The terminal opens the panel at the URL
-you configured with three parameters added:
+you configured with two parameters added:
 
 .. code-block:: text
 
-   ?embedded=true&theme=retro-dark&mode=expert
+   ?embedded=true&theme=retro-dark
 
 ``theme`` is the theme to paint with. ``embedded=true`` says the page is
 running inside the terminal rather than on its own, which is the cue to hide
 your own logo and page chrome — the terminal already draws a header around the
-tab, and without this you get two. ``mode`` is the operator's Expert or Simple
-preference. Read all three *before the page first paints*, or the operator sees
+tab, and without this you get two. Read both *before the page first paints*, or the operator sees
 your default colors flash before yours settle on theirs.
 
 **The theme is one of eight names.** ``light`` and ``dark`` for the main
@@ -188,8 +187,7 @@ switches theme, the terminal posts to the panel's frame:
 
 A panel is always served from the terminal's own address, so the message is
 same-origin. Check that before acting on it — ``if (event.origin !==
-window.location.origin) return;`` — and repaint. The Expert/Simple toggle
-broadcasts the same way, as ``{ type: 'osprey-mode-change', mode }``. A panel
+window.location.origin) return;`` — and repaint. A panel
 that runs at an opaque origin (see `Panels you add run at an opaque origin`_)
 receives only the theme message, and checks ``event.source === window.parent``
 instead of the origin.

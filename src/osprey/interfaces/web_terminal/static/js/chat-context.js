@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: the context meter.
+ * OSPREY Web Terminal — operator chat: the context meter.
  *
  * The meter is a quiet line under the composer. It shows how full the
  * conversation's context window is, from the `context` frame the server sends

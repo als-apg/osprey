@@ -151,7 +151,7 @@ def test_a_never_layer_over_an_allowed_host_prints_no_right() -> None:
 def test_a_silent_layer_inherits_the_host_tier() -> None:
     profile = _card_profile({"control_system.writes": "allowed"})
 
-    assert _write_rights(profile, {"plain": {"config": {"web.ui_mode": "simple"}}}, "plain") == [
+    assert _write_rights(profile, {"plain": {"config": {"web.theme": "main"}}}, "plain") == [
         "rights allowed"
     ]
     assert _write_rights(_card_profile({}), {}, "plain") == []

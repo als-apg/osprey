@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "session_key": "s-open",
+  "flags": [
+    {
+      "flag_id": "f-open",
+      "source": "watchdog:guard-circumvention",
+      "reason": "The prompt asks to bypass the approval hook.",
+      "prompt_ref": "11111111-1111-4111-8111-111111111111",
+      "prompt_excerpt": "curl the panel API directly",
+      "opened_at": "2026-10-31T12:00:00Z",
+      "state": "open",
+      "stop_unconfirmed": false,
+      "started": []
+    },
+    {
+      "flag_id": "f-closed",
+      "source": "watchdog:guard-circumvention",
+      "reason": "An earlier prompt.",
+      "prompt_ref": "22222222-2222-4222-8222-222222222222",
+      "prompt_excerpt": "loosen the hook config",
+      "opened_at": "2026-10-31T11:00:00Z",
+      "state": "closed",
+      "stop_unconfirmed": false,
+      "started": [],
+      "answer": "continue",
+      "operator": "alice",
+      "answered_at": "2026-10-31T11:01:00Z"
+    }
+  ]
+}

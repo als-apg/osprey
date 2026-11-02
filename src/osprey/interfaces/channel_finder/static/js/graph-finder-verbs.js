@@ -275,8 +275,7 @@ export function runAction(host, action) {
 }
 
 /**
- * Publish the search box and the ⋯ menu to the hub's tile bar, in Expert and
- * Simple alike. A no-op standalone (header-contrib.js ignores it outside a
+ * Publish the search box and the ⋯ menu to the hub's tile bar. A no-op standalone (header-contrib.js ignores it outside a
  * frame), where the in-body toolbar stays.
  * @param {FinderHost} host
  * @returns {void}

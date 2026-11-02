@@ -489,7 +489,7 @@ pairing the matched span, as normalized, with the terms that were added:
 
 It reports only what the search actually used: a mode that skipped expansion, or
 a request that turned it off, reports an empty list. In the web interface the
-pairs render as a strip above the results in expert mode. The MCP tools carry
+pairs render as a strip above the results. The MCP tools carry
 the same list in their result envelopes, and ``keyword_search`` and
 ``semantic_search`` also carry ``diagnostics`` --- the notices explaining a
 truncated query, a skipped expansion, or a pattern searched as text.

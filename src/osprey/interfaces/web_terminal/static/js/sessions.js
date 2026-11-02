@@ -1,10 +1,14 @@
 /* OSPREY Web Terminal — Session Picker
  *
- * Two openers onto the same session list: the Expert view's picker in the
- * `.terminal-header` (a dropdown under its chevron), and the Simple view's
- * "Earlier conversations" menu behind the Agent bar's ⋯ (an `.osprey-popover`
- * placed by popover.js). Both list what `/api/sessions` returns, switch
- * through the same resume path, and are withheld while the chat is busy. */
+ * Two openers onto the same session list: the terminal's picker in the
+ * `.terminal-header` (a dropdown under its chevron), and the chat's "Earlier
+ * conversations" menu behind the Agent bar's ⋯ (an `.osprey-popover` placed by
+ * popover.js). Both list what `/api/sessions` returns, switch through the same
+ * resume path, and are withheld while the chat is busy.
+ *
+ * The ⋯ menu's last row is the Agent tile's way between its surfaces: "Open
+ * terminal" in chat, "Back to chat" on the terminal, whose own ⋯ holds only that
+ * row. Absent where the deployment offers no terminal. */
 
 import { fetchJSON } from './api.js';
 import {
@@ -17,10 +21,16 @@ import {
   setSessionLabel,
 } from './terminal.js';
 import { escapeHtml } from '/design-system/js/dom.js';
-import { onModeChange } from '/design-system/js/frame-params.js';
+import { terminalOffered } from '/design-system/js/frame-params.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { icon } from '/design-system/js/icons.js';
 import { closePopover, openPopover } from '/design-system/js/popover.js';
+import {
+  isTerminalSurface,
+  onSurfaceChange,
+  showChatSurface,
+  showTerminalSurface,
+} from './agent-surface.js';
 import { onChat } from './chat-events.js';
 import { setPointer } from './session-pointer.js';
 
@@ -47,33 +57,34 @@ let openPicker = null;
 let pickerBtn = null;
 
 /**
- * The Agent bar's ⋯ and the menu it opens, once {@link attachConversationMenu}
- * has wired them.
- * @type {{ opener: HTMLButtonElement, menu: HTMLElement } | null}
+ * The Agent bars' ⋯ buttons and the one menu they open, once
+ * {@link attachConversationMenu} has wired them.
+ * @type {{ openers: HTMLButtonElement[], menu: HTMLElement } | null}
  */
 let conversationMenu = null;
 
 /** Whether the chat has a turn streaming or a hand-off in flight (its `busy` event). */
 let chatBusy = false;
 
-const isSimpleView = () => document.documentElement.getAttribute('data-ui-mode') === 'simple';
-
 /**
- * In the Simple view the chat runs the session, so a pick while a turn streams
- * would cut the turn off and leave the agent working on a conversation nobody
- * is watching. Both openers are withheld while the chat is busy, as the
- * console's New button is. The Expert view's terminal has its own session
- * controls, and a hidden console can stay busy there after a refused
- * hand-off, so the mode is part of the verdict and a flip re-evaluates it.
+ * In chat the console runs the session, so a pick while a turn streams would cut
+ * the turn off and leave the agent working on a conversation nobody is watching.
+ * The picker is withheld while the chat is busy, as the console's New button is,
+ * and the ⋯ menu keeps only its way to the terminal, whose hand-off waits the
+ * turn out (withheld too where no terminal is offered). The terminal has its own session controls, and a hidden console can stay
+ * busy there after a refused hand-off, so the surface is part of the verdict and
+ * a change re-evaluates it.
  */
 function syncPicker() {
-  const blocked = chatBusy && isSimpleView();
+  const blocked = chatBusy && !isTerminalSurface();
   if (pickerBtn) {
     pickerBtn.disabled = blocked;
     if (blocked) closeDropdown();
   }
   if (conversationMenu) {
-    conversationMenu.opener.disabled = blocked;
+    for (const opener of conversationMenu.openers) {
+      opener.disabled = blocked && !terminalOffered();
+    }
     if (blocked) closePopover(conversationMenu.menu);
   }
 }
@@ -82,7 +93,7 @@ onChat('busy', ({ busy }) => {
   chatBusy = busy;
   syncPicker();
 });
-onModeChange(syncPicker);
+onSurfaceChange(syncPicker);
 
 /**
  * Initialize the session selector dropdown.
@@ -116,39 +127,75 @@ export function initSessionSelector(containerId) {
 
   pickerBtn = btn;
   syncPicker();
+
+  const more = /** @type {HTMLButtonElement | null} */ (
+    document.getElementById('terminal-more-btn')
+  );
+  if (more) attachConversationMenu(more);
 }
 
 /**
- * Give the Agent bar's ⋯ its "Earlier conversations" menu: a body-level
+ * Give an Agent bar's ⋯ the "Earlier conversations" menu: a body-level
  * `.osprey-popover` listing the sessions the picker lists, freshly fetched on
  * every open, the current one checked. A pick switches through the picker's
  * own resume path. Withheld while the chat is busy, exactly as the picker is
- * (see syncPicker). Called once by chat.js after it builds the bar.
+ * (see syncPicker). Called once per bar: by chat.js after it builds the
+ * console's, and by {@link initSessionSelector} for the terminal header's.
  * @param {HTMLButtonElement} opener
  */
 export function attachConversationMenu(opener) {
-  const menu = document.createElement('div');
-  menu.className = 'osprey-popover op-conversations';
-  menu.id = 'agent-conversations-menu';
-  menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'Earlier conversations');
-  menu.hidden = true;
-  document.body.append(menu);
+  const menu = conversationMenu?.menu ?? buildConversationMenu();
 
   opener.addEventListener('click', async () => {
     if (!menu.hidden) {
       closePopover(menu);
       return;
     }
-    await fetchSessions();
+    if (!isTerminalSurface() && !chatBusy) await fetchSessions();
     // The chat may have turned busy while the list loaded.
     if (opener.disabled) return;
     renderConversationMenu(menu);
     openPopover(menu, opener, { place: 'below-end' });
   });
 
-  conversationMenu = { opener, menu };
+  conversationMenu = { openers: [...(conversationMenu?.openers ?? []), opener], menu };
   syncPicker();
+}
+
+/** @returns {HTMLElement} the one ⋯ menu, hidden and in the page. */
+function buildConversationMenu() {
+  const menu = document.createElement('div');
+  menu.className = 'osprey-popover op-conversations';
+  menu.id = 'agent-conversations-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Agent');
+  menu.hidden = true;
+  document.body.append(menu);
+  return menu;
+}
+
+/**
+ * The menu's quiet last row, under a separator: the way to the other surface.
+ * @param {HTMLElement} menu
+ * @returns {HTMLElement[]}
+ */
+function surfaceRow(menu) {
+  if (!terminalOffered()) return [];
+  const sep = document.createElement('div');
+  sep.className = 'osprey-popover-sep';
+  sep.setAttribute('role', 'separator');
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'osprey-popover-item op-surface-row';
+  row.setAttribute('role', 'menuitem');
+  const onTerminal = isTerminalSurface();
+  row.textContent = onTerminal ? 'Back to chat' : 'Open terminal';
+  row.addEventListener('click', () => {
+    closePopover(menu);
+    if (onTerminal) showChatSurface();
+    else showTerminalSurface();
+  });
+  return [sep, row];
 }
 
 /**
@@ -158,6 +205,12 @@ export function attachConversationMenu(opener) {
  * @param {HTMLElement} menu
  */
 function renderConversationMenu(menu) {
+  if (isTerminalSurface() || chatBusy) {
+    // On the terminal the picker beside this ⋯ lists the sessions, and while a
+    // chat turn streams a pick would cut it off: only the way across is left.
+    menu.replaceChildren(...surfaceRow(menu).slice(1));
+    return;
+  }
   const title = document.createElement('div');
   title.className = 'osprey-popover-title';
   title.textContent = 'Earlier conversations';
@@ -165,7 +218,7 @@ function renderConversationMenu(menu) {
     const empty = document.createElement('div');
     empty.className = 'osprey-list-empty';
     empty.textContent = 'No earlier conversations';
-    menu.replaceChildren(title, empty);
+    menu.replaceChildren(title, empty, ...surfaceRow(menu));
     return;
   }
   const currentId = getCurrentSessionId();
@@ -192,7 +245,7 @@ function renderConversationMenu(menu) {
     });
     return item;
   });
-  menu.replaceChildren(title, ...items);
+  menu.replaceChildren(title, ...items, ...surfaceRow(menu));
 }
 
 /* ---- dropdown popover ----
@@ -369,11 +422,11 @@ function renderSessionList() {
  * @param {string} sessionId
  */
 async function resumeSession(sessionId) {
-  // The Simple view has no terminal socket: the chat is the surface running the
-  // session. Moving the pointer is the whole switch, because the chat is
-  // subscribed to it and replays the key. Starting a terminal here would put a
-  // second surface on the session's agent.
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
+  // Chat has no terminal socket: the console is the surface running the session.
+  // Moving the pointer is the whole switch, because the console is subscribed to
+  // it and replays the key. Starting a terminal here would put a second surface
+  // on the session's agent.
+  if (!isTerminalSurface()) {
     setPointer(sessionId);
     return;
   }
