@@ -41,10 +41,19 @@ class SidecarPanel:
             imports to start it. A dotted path rather than the object so this
             module stays importable without pulling the sidecar's dependencies
             into every process that reads the panel registry.
+        entry_pages: The panel's own application documents, as route
+            templates below ``/panel/<id>`` (``/``, ``/lab``, ``/s/*`` — a final
+            ``*`` segment matches the rest of the path). The panel proxy serves
+            every other document this sidecar returns — HTML, SVG, XML, text, an
+            untyped body — into an opaque sandbox origin, because a document
+            that is not the panel's own page may be one an agent wrote. Matched
+            after percent-decoding and dot-segment removal. Empty means every
+            document is sandboxed.
     """
 
     name: str
     factory_path: str
+    entry_pages: tuple[str, ...] = ()
 
 
 #: The notebook panel's id. Named rather than spelled, because the terminal
@@ -60,6 +69,24 @@ SIDECAR_PANELS: dict[str, SidecarPanel] = {
     JUPYTER_PANEL_ID: SidecarPanel(
         "JupyterLab notebooks",
         "osprey.interfaces.web_terminal.jupyter_sidecar:JupyterSidecar",
+        # JupyterLab's application documents: the Lab shell's page routes and
+        # the classic page routes. A user's file (``/files/``), a rendered
+        # export (``/nbconvert/``), the ``/view/`` wrapper and every static or
+        # API subtree (``/lab/extensions/``, ``/lab/api/``, ``/static/``) are
+        # not the application, and stay sandboxed.
+        entry_pages=(
+            "/lab",
+            "/lab/tree/*",
+            "/lab/workspaces/*",
+            "/lab/doc/*",
+            "/tree",
+            "/tree/*",
+            "/notebooks/*",
+            "/doc",
+            "/doc/*",
+            "/consoles/*",
+            "/edit/*",
+        ),
     ),
 }
 

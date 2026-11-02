@@ -116,6 +116,8 @@ ERROR_CLASS_MAP = {
     "target_switch_unavailable": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
+    # A panel url that is not a root-relative path or an http(s) URL: pass one.
+    "invalid_url": "Validation",
     "sql_error": "Validation",
     "file_too_large": "Validation",
     "conversion_not_supported": "Validation",

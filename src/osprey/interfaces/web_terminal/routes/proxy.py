@@ -28,6 +28,14 @@ network reach cannot be steered by a backend either, and a redirect naming a
 third origin is refused outright rather than relayed
 (:func:`_rewrite_redirect_location`) so a console URL is never an open redirect.
 
+Every HTTP route here also puts what it answers into an **opaque origin**
+unless it is one of the panel's declared entry pages: :class:`_PanelSandboxRoute`
+appends the terminal's own ``Content-Security-Policy: sandbox allow-scripts
+allow-downloads`` to any document-typed response, whatever branch built it
+(:mod:`osprey.interfaces.web_terminal.panel_sandbox` holds the rules). A
+document that is not the panel's own application page may be one an agent
+wrote, and on the terminal's origin it would run with the operator's session.
+
 What the injection still buys a backend, stated plainly: the header carries the
 **full** operator secret, so a backend that earns it can turn around and act as
 the operator against the terminal's own API. That is accepted here — the
@@ -53,6 +61,7 @@ from urllib.parse import ParseResult, urljoin, urlparse, urlunsplit
 import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
+from fastapi.routing import APIRoute
 from starlette.websockets import WebSocketState
 from websockets.asyncio.client import connect as _WebSocketConnect
 
@@ -78,6 +87,7 @@ from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
+from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
@@ -90,7 +100,68 @@ from osprey_connectors.session_hold import is_held, is_safe_session_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+#: The mount every route in this module sits under; the rest of a route's
+#: template is the path *below* the panel, which is what entry pages name.
+_PANEL_MOUNT_TEMPLATE = "/panel/{panel_id}"
+
+
+def _panel_entry_pages(request: Request, panel_id: str) -> tuple[str, ...]:
+    """The entry-page templates *panel_id* declares, which alone escape the sandbox.
+
+    A built-in panel declares them in code (a sidecar's ``entry_pages``, a
+    companion server's row in ``FRAMEWORK_ENTRY_PAGES``). A config-declared
+    custom panel declares its document by its configured ``path`` (default
+    ``/``) and may list more under ``entryPages`` — both operator inputs. A
+    runtime registration declares nothing: its URL is a free string its caller
+    chose, so every document it serves is sandboxed.
+    """
+    builtin = builtin_entry_pages(panel_id)
+    if builtin or panel_id in _PANEL_STATE_MAP:
+        return builtin
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") != panel_id:
+            continue
+        if not cp.get("configDefined"):
+            return ()
+        declared = cp.get("entryPages") or ()
+        if isinstance(declared, str):
+            declared = (declared,)
+        path = cp.get("path") or "/"
+        component = urlparse(path).path if isinstance(path, str) else "/"
+        entry = component if component.startswith("/") else "/"
+        return tuple(dict.fromkeys((entry, *(str(p) for p in declared if p))))
+    return ()
+
+
+class _PanelSandboxRoute(APIRoute):
+    """Every HTTP route in this module, with the terminal's panel sandbox applied.
+
+    The policy is appended to the endpoint's own response, whatever its status
+    and whichever branch built it (relayed, streamed, redirected, refused), so
+    no emit site can forget it: see :mod:`osprey.interfaces.web_terminal.panel_sandbox`
+    for the rules. The path judged is the one below ``/panel/<id>``, rebuilt
+    from the route's own template, so the panel-scoped static routes are judged
+    by the same path the browser asked for.
+    """
+
+    def get_route_handler(self):  # type: ignore[override]
+        handler = super().get_route_handler()
+        below = self.path_format.removeprefix(_PANEL_MOUNT_TEMPLATE)
+
+        async def sandboxed(request: Request) -> Response:
+            response: Response = await handler(request)
+            panel_id = str(request.path_params.get("panel_id", ""))
+            try:
+                path = below.format(**request.path_params)
+            except (KeyError, IndexError, ValueError):  # pragma: no cover - template guard
+                path = ""
+            apply_panel_sandbox(response, path, _panel_entry_pages(request, panel_id))
+            return response
+
+        return sandboxed
+
+
+router = APIRouter(route_class=_PanelSandboxRoute)
 
 # Paths that companion servers commonly use as root-absolute references.
 # Only these prefixes are rewritten inside string delimiters to avoid

@@ -183,6 +183,8 @@ src/osprey/interfaces/web_terminal/static/vendor/*
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
+# The okf panel's own vendored marked.min.js is tracked; only DOMPurify is fetched.
+src/osprey/interfaces/okf_panel/static/vendor/purify.min.js
 tests/e2e/claude_code/benchmark_results/
 
 # Benchmark results accidentally produced inside the packaged template tree

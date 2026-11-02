@@ -3788,6 +3788,30 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     expect(new URL(el.src).pathname.startsWith('/panel/agent-dash/runs')).toBe(false);
   });
 
+  test.each([
+    '/api/panels',
+    '/panel/ariel/',
+    '/panel/artifacts/../ariel/',
+    '/panel/artifacts/%2e%2e/ariel/',
+    '/panel/artifacts//evil',
+    'http://evil.example/panel/artifacts/',
+    'javascript:alert(1)',
+  ])('a navigation that leaves the panel moves nothing: %s', async (url) => {
+    const { mod, capCalls } = await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
+    await settled(() => expect(frame('artifacts')).not.toBeNull());
+    const el = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
+    const before = el.src;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mod.navigateAndActivatePanel('artifacts', url);
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(el.src).toBe(before);
+    expect(capCalls).toEqual([]);
+    warn.mockRestore();
+  });
+
   test('re-navigating a first-party catalog panel keeps the plain URL and asks for no cap', async () => {
     const { mod, capCalls } = await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
     await settled(() => expect(frame('artifacts')).not.toBeNull());

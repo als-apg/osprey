@@ -445,7 +445,9 @@ export function initIframePasteBridge() {
     // whatever scheme it is handed. `javascript:alert(1)` survives it intact
     // and would execute in the HOST origin, and `//evil.example/x` resolves
     // to a cross-origin document — so a leading-slash test alone is a hole.
-    // Every real panel url is root-relative and already server-prefixed.
+    // Every real panel url is root-relative and already server-prefixed, and
+    // navigateAndActivatePanel then applies the guard's member rule: the url
+    // must stay under that panel's own mount, or nothing moves.
     if (
       e.data &&
       e.data.type === 'osprey:navigate' &&

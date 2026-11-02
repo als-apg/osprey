@@ -23,6 +23,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from osprey.interfaces.panel_urls import (
+    member_navigation_url,
+    navigation_url_refusal,
+    normalise_navigation_url,
+)
 from osprey.interfaces.web_terminal.dock_layout import (
     REASON_TEXT,
     layout_keys,
@@ -39,6 +44,7 @@ from osprey.interfaces.web_terminal.routes.panels import (
     _prefix_path,
     _record_dock_report,
 )
+from osprey.interfaces.web_terminal.routes.proxy import _resolve_panel_url
 
 router = APIRouter()
 
@@ -83,6 +89,10 @@ OP_REFUSAL_TEXT: dict[str, str] = {
         "an open brings its window forward"
     ),
     "unknown_member": "not a known panel id",
+    "invalid_url": (
+        "a url is a path under the panel's own mount (/panel/<id>/...) or an http(s) "
+        "URL on the panel's own server"
+    ),
     "unknown_key": "no such tab",
     "unknown_tile": "no tile with this id in the current layout",
     "unknown_arrangement": "no preset with this name",
@@ -206,6 +216,21 @@ def _known_member(request: Request, member: object) -> str:
     if not isinstance(member, str) or member not in _known_panel_ids(request):
         raise OpRefused("unknown_member", f"unknown panel {member!r}")
     return member
+
+
+def _member_mount_and_upstream(request: Request, member: str) -> tuple[str, str | None]:
+    """A known panel's browser mount (no URL prefix) and its upstream URL.
+
+    The mount is what :func:`~osprey.interfaces.web_terminal.routes.panels._browser_panel_url`
+    hands the browser: ``/panel/<id>`` for a built-in, a sidecar or a URL-backed
+    custom panel, and a discovered bundle's own ``/panel-static/<id>/`` URL. The
+    upstream is the backend the proxy forwards ``/panel/<id>`` to, ``None`` for
+    a bundle served from disk.
+    """
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") == member and cp.get("discovered"):
+            return cp["url"], None
+    return f"/panel/{member}", _resolve_panel_url(request, member)
 
 
 def _not_popped_out(request: Request, key: str) -> str:
@@ -550,7 +575,14 @@ async def op_close_tile(body: CloseTileOpRequest, request: Request):
 async def op_open(body: OpenOpRequest, request: Request):
     """The ``open {member, url?}`` op; where the panel lands is the dock's open rule.
 
-    A root-absolute ``url`` is prefixed into the user's mount. A panel that is
+    ``url`` is read the way a browser's URL parser reads it
+    (:func:`~osprey.interfaces.panel_urls.normalise_navigation_url`, the
+    navigation guard) and must then stay with the panel
+    (:func:`~osprey.interfaces.panel_urls.member_navigation_url`): a path
+    under the panel's own mount, or an http(s) URL on the panel's own server,
+    which is rewritten into the mount. Anything else is refused
+    ``invalid_url`` and no frame is relayed. The admitted path is then
+    prefixed into the user's mount. A panel that is
     not on the rail joins it once the dock shows it. A panel in a pop-out
     window is brought forward in its window and the layout comes back unchanged.
     """
@@ -559,7 +591,15 @@ async def op_open(body: OpenOpRequest, request: Request):
         member = _known_member(request, body.member)
         args: dict = {"member": member}
         if body.url is not None:
-            args["url"] = _prefix_path(body.url)
+            url = normalise_navigation_url(body.url)
+            refusal = navigation_url_refusal(url)
+            if refusal is not None:
+                raise OpRefused("invalid_url", refusal)
+            mount, upstream = _member_mount_and_upstream(request, member)
+            admitted, refusal = member_navigation_url(url, mount=mount, upstream=upstream)
+            if admitted is None:
+                raise OpRefused("invalid_url", refusal)
+            args["url"] = _prefix_path(admitted)
         return _Prepared(args, member, [member])
 
     return await _run_op(request, "open", body.request_id, None, prepare)

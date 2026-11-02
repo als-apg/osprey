@@ -39,6 +39,7 @@ import {
   sendThemeToWindow,
   sendSessionToWindow,
   buildPopoutSrc,
+  isUrlWithinMount,
 } from './panel-iframe-sync.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
@@ -904,6 +905,13 @@ export function applyMenuPreset(name) {
 function navigatePanel(panelId, url) {
   const state = panelState[panelId];
   if (!state) return;
+  // The navigation guard's member rule, applied here as the server applies it
+  // to the op: a url that leaves this panel's own mount (another path on this
+  // origin, another host, an encoded way out) moves nothing, whatever sent it.
+  if (!isUrlWithinMount(url, state.url)) {
+    console.warn(`[panels] refused a url for ${panelId} that leaves its mount`);
+    return;
+  }
 
   // Store the target URL so that createIframe() picks it up if the iframe
   // hasn't been lazy-loaded yet (e.g. an agent open before the user
@@ -934,7 +942,15 @@ function navigatePanel(panelId, url) {
  *  @param {string} panelId
  *  @param {string} url */
 export function navigateAndActivatePanel(panelId, url) {
-  if (url) navigatePanel(panelId, url);
+  if (url) {
+    // A url that leaves the panel's own mount moves nothing and surfaces
+    // nothing: the sender may be an agent-authored page in a sandboxed panel.
+    if (!isUrlWithinMount(url, panelState[panelId]?.url)) {
+      console.warn(`[panels] refused a url for ${panelId} that leaves its mount`);
+      return;
+    }
+    navigatePanel(panelId, url);
+  }
   activateTab(panelId);
 }
 

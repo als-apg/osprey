@@ -446,6 +446,7 @@ EXPECTED_ERROR_CLASSES = {
     "target_switch_unavailable": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
+    "invalid_url": "Validation",
     "sql_error": "Validation",
     "file_too_large": "Validation",
     "conversion_not_supported": "Validation",

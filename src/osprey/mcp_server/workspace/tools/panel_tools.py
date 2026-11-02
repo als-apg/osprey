@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 import anyio
 
+from osprey.interfaces.panel_urls import navigation_url_refusal, normalise_navigation_url
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
     NO_WEB_TERMINAL,
@@ -461,8 +462,12 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
         panel_id: Panel identifier returned by list_panels (e.g.
             'artifacts', 'events', 'ariel', 'lattice', etc.).
         url: Optional URL to navigate the panel iframe to as it opens: a
-            root-relative path (``/panel/ariel/#/draft/7``) or an
-            ``http(s)://`` URL.
+            path under the panel's own mount (``/panel/ariel/#/draft/7``) or
+            an ``http(s)://`` URL on the panel's own server, which opens
+            through the mount. Anything else (another path on this origin, a
+            foreign host, a ``javascript:``, ``data:`` or scheme-relative
+            ``//host`` URL) is refused with an ``invalid_url`` error and
+            nothing is opened.
 
     Returns:
         JSON with ``status``, ``panel``, the resulting ``layout`` and its
@@ -471,6 +476,18 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
     """
     args: dict[str, Any] = {"member": panel_id}
     if url is not None:
+        # Judged here as well as by the terminal's route, so a refused url is
+        # an error the agent sees rather than a success nothing applied.
+        refusal = navigation_url_refusal(normalise_navigation_url(url))
+        if refusal is not None:
+            make_error(
+                "invalid_url",
+                f"URL refused: {refusal}. Nothing was opened.",
+                [
+                    "Pass a path under the panel's mount (/panel/<id>/...) or an http(s) URL on its server."
+                ],
+                {"panel": panel_id},
+            )
         args["url"] = url
     return await _run_panel_op("open", args, echo={"panel": panel_id})
 

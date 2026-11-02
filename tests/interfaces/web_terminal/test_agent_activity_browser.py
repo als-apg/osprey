@@ -766,6 +766,12 @@ def _data_viz_iframe(page: Page):
     return page.locator('iframe.panel-iframe[data-panel-id="data-viz"]')
 
 
+def _under_data_viz(tail: str) -> re.Pattern[str]:
+    """An iframe src under the data-viz mount ending in ``tail``: the mount, then
+    the opaque panel's cap segment when one is minted, then the path."""
+    return re.compile(r"^https?://[^/]+/panel/data-viz/(~c/[^/]+/)?" + re.escape(tail) + r"(\?|$)")
+
+
 def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
     tmp_path, chromium_browser
 ):
@@ -789,14 +795,15 @@ def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
     with _hub_server(workspace) as base_url:
         sender = _open_hub_page(chromium_browser, base_url)
         bystander = _open_hub_page(chromium_browser, base_url)
-        draft_url = "/ariel/logbook/draft/42"
+        draft_url = "/panel/data-viz/logbook/draft/42"
 
         sender.evaluate(_POST_NAVIGATE_JS, {"panel": "data-viz", "url": draft_url})
 
-        # The sender navigated the panel and surfaced it.
+        # The sender navigated the panel and surfaced it: the address is framed
+        # under the panel's mount (an opaque panel's cap sits between the two).
         expect(sender.locator(_DATA_VIZ_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
         expect(_data_viz_iframe(sender)).to_have_attribute(
-            "src", re.compile(re.escape(draft_url)), timeout=5_000
+            "src", _under_data_viz("logbook/draft/42"), timeout=5_000
         )
         # ...with no agent attribution of any kind.
         assert sender.evaluate("(window.__flashLog || []).length") == 0
@@ -822,14 +829,17 @@ def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
 
 
 def test_logbook_navigate_ignores_javascript_and_protocol_relative_urls(tmp_path, chromium_browser):
-    """The host takes only root-relative urls, whatever the origin check said.
+    """The host takes only a url under the panel's own mount, whatever the
+    origin check said.
 
     Same-origin is necessary but not sufficient: the sender may be an
     agent-authored artifact rendered in a sandboxed panel, and this url ends
     up as an iframe src. ``javascript:alert(1)`` survives the embed-src
-    builder intact and would run in the HOST origin, and ``//evil.example/x``
-    resolves to a cross-origin document — so a leading-slash test alone would
-    be a hole, and both must be dropped.
+    builder intact and would run in the HOST origin, ``//evil.example/x``
+    resolves to a cross-origin document, and ``/ariel/logbook/draft/7`` is a
+    root-relative path that points this panel at another place on this origin
+    — so a leading-slash test alone would be a hole, and all three must be
+    dropped (the navigation guard's member rule, the twin of the server's).
 
     Rejection leaves no DOM trace, so the negative is anchored twice: the
     message log proves both messages were DELIVERED before anything is
@@ -842,9 +852,9 @@ def test_logbook_navigate_ignores_javascript_and_protocol_relative_urls(tmp_path
     with _hub_server(workspace) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
 
-        for bad_url in ("javascript:alert(1)", "//evil.example/x"):
+        for bad_url in ("javascript:alert(1)", "//evil.example/x", "/ariel/logbook/draft/7"):
             page.evaluate(_POST_NAVIGATE_JS, {"panel": "data-viz", "url": bad_url})
-        page.wait_for_function("() => (window.__navMsgLog || []).length === 2", timeout=5_000)
+        page.wait_for_function("() => (window.__navMsgLog || []).length === 3", timeout=5_000)
         # Delivery is not handling: activation runs past health guards, so
         # give a wrongly-accepting regression time to manifest.
         page.wait_for_timeout(500)
@@ -852,13 +862,13 @@ def test_logbook_navigate_ignores_javascript_and_protocol_relative_urls(tmp_path
         expect(page.locator(_DATA_VIZ_RAIL)).not_to_have_class(_ACTIVE_RE)
         expect(_data_viz_iframe(page)).to_have_count(0)
 
-        # The very next message, root-relative, DOES land — so the two above
-        # were refused on their urls and not on a dead listener.
-        good_url = "/ariel/logbook/draft/7"
+        # The very next message, under the panel's mount, DOES land — so the
+        # three above were refused on their urls and not on a dead listener.
+        good_url = "/panel/data-viz/logbook/draft/7"
         page.evaluate(_POST_NAVIGATE_JS, {"panel": "data-viz", "url": good_url})
         expect(page.locator(_DATA_VIZ_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
         iframe = _data_viz_iframe(page)
-        expect(iframe).to_have_attribute("src", re.compile(re.escape(good_url)), timeout=5_000)
+        expect(iframe).to_have_attribute("src", _under_data_viz("logbook/draft/7"), timeout=5_000)
         src = iframe.get_attribute("src") or ""
         assert "evil.example" not in src and "javascript:" not in src, src
 

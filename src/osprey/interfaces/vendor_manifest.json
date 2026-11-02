@@ -31,7 +31,8 @@
       "sha256": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
       "targets": [
         "artifacts/static/js/vendor/",
-        "web_terminal/static/vendor/"
+        "web_terminal/static/vendor/",
+        "okf_panel/static/vendor/"
       ]
     },
     {

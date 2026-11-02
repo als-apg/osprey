@@ -27,6 +27,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from osprey.interfaces.common_middleware import EXTERNAL_ORIGIN_ENV
+from osprey.interfaces.opaque_origin import OPAQUE_CSP
 from osprey.interfaces.web_terminal.routes.proxy import (
     _PANEL_STATE_MAP,
     _control_target_bar_markup,
@@ -422,7 +423,9 @@ def test_a_page_that_is_not_labs_keeps_its_upstream_policy_and_gets_no_nonce(
 
     resp = client.get(f"/panel/jupyter/{path}")
 
-    assert resp.headers.get_list("content-security-policy") == [FILES_CSP]
+    # jupyter-server's own policy reaches the browser untouched; the terminal's
+    # panel sandbox is appended beside it as a policy of its own.
+    assert resp.headers.get_list("content-security-policy") == [FILES_CSP, OPAQUE_CSP]
     assert "nonce=" not in resp.text
 
 

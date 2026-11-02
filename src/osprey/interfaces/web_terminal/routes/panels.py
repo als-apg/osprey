@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import ipaddress
 import logging
+import re
 import socket
 import time
 from collections.abc import Iterable
@@ -15,9 +16,10 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from osprey.interfaces.artifacts.inline_assets import self_contained
 from osprey.interfaces.common_middleware import (
     ASSET_CORS_HEADERS,
     MOUNT_SEGMENT_RE,
@@ -26,6 +28,7 @@ from osprey.interfaces.common_middleware import (
     compute_url_prefix,
 )
 from osprey.interfaces.opaque_origin import document_headers
+from osprey.interfaces.panel_urls import navigation_url_refusal, normalise_navigation_url
 from osprey.interfaces.web_terminal import panel_cap
 from osprey.interfaces.web_terminal.dock_layout import (
     REASON_TEXT,
@@ -35,6 +38,7 @@ from osprey.interfaces.web_terminal.dock_layout import (
     same_layout,
 )
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
+from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
@@ -1138,8 +1142,11 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     """Dynamically register a custom panel at runtime.
 
     Requires ``web.allow_runtime_panels: true`` in config.  The supplied URL
-    is validated to reject loopback, link-local, and cloud-metadata targets,
-    and is stored raw server-side so the proxy can forward to it.  The URL
+    is normalised as the browser's URL parser reads it
+    (:func:`~osprey.interfaces.panel_urls.normalise_navigation_url`, the
+    navigation guard), validated to reject non-http(s) schemes and loopback,
+    link-local, and cloud-metadata targets, and is stored in that normalised
+    form server-side so the proxy can forward to it.  The URL
     exposed to the browser (in broadcasts and ``GET /api/panels``) is rewritten
     to ``<prefix>/panel/{id}`` (``<prefix>`` is the empty string outside
     multi-user deployments).
@@ -1208,8 +1215,15 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
             ),
         )
 
-    allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)
-    url_error = await _validate_panel_url(body.url, allowlist)
+    # Judged and stored in the form a browser (and the proxy) will read it: a
+    # raw string the checks below would misread (a tab inside the scheme, a
+    # ``\`` for a ``/``) is normalised first, so what is validated is what is
+    # used (the navigation guard).
+    panel_url = normalise_navigation_url(body.url)
+    url_error = navigation_url_refusal(panel_url)
+    if url_error is None:
+        allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)
+        url_error = await _validate_panel_url(panel_url, allowlist)
     if url_error:
         raise HTTPException(status_code=422, detail=url_error)
 
@@ -1221,7 +1235,7 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
         {
             "id": body.id,
             "label": body.label,
-            "url": body.url,  # stored RAW; proxy reads this for forwarding
+            "url": panel_url,  # stored normalised; proxy reads this for forwarding
             "healthEndpoint": body.health_endpoint,
             "path": body.path,
         }
@@ -1339,9 +1353,30 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
         path: Path within the bundle; empty serves the manifest entry.
         request: Incoming request carrying ``app.state.discovered_panel_dirs``.
 
+    Every document this route answers — the entry page included, on every
+    status — goes out in an opaque sandbox origin (``panel_sandbox``): a
+    discovered bundle is files on disk that an agent may have written, so it
+    declares no entry page and never runs with the terminal's own origin. This
+    route is never allowlisted.
+
+    A sandboxed page carries no cookie, so on a gated deployment any
+    subresource it asks the terminal for answers 401. The panel contract
+    (``design_system.panels.validator``) has every page reference the shared
+    theme by the same canonical tags, so an HTML page is served with exactly
+    those made self-contained (:func:`_self_contained_page`); everything else a
+    panel needs must be inline in the page itself, as in the design-system
+    reference panel.
+
     Returns:
         A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
     """
+    response = _discovered_panel_file(panel_id, path, request)
+    apply_panel_sandbox(response, path, ())
+    return response
+
+
+def _discovered_panel_file(panel_id: str, path: str, request: Request) -> Response:
+    """The bundle file :func:`serve_discovered_panel` answers with, or its 404."""
     panels = getattr(request.app.state, "discovered_panel_dirs", {})
     if panels.get(panel_id) is None:
         return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
@@ -1350,9 +1385,39 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     if target is None:
         return Response(content="Not found", status_code=404)
 
+    page = _self_contained_page(target)
+    if page is not None:
+        return HTMLResponse(page, headers=document_headers("text/html"))
     response = FileResponse(target)
     response.headers.update(document_headers(response.media_type))
     return response
+
+
+#: The shared web-font stylesheet link the panel contract requires. Its fonts
+#: are ~1.5 MB of TrueType, too heavy to inline into every page, so a sandboxed
+#: page drops the link and renders in the tokens' system-font fallbacks.
+_SHARED_FONTS_LINK_RE = re.compile(
+    r"""<link\b[^>]*\bhref\s*=\s*["']/static/fonts/fonts\.css["'][^>]*>""", re.IGNORECASE
+)
+
+
+def _self_contained_page(target: Path) -> str | None:
+    """A discovered panel's HTML page with its canonical shared-theme references inlined.
+
+    The design-system scripts and stylesheets become inline blocks, first-party
+    module imports become ``data:`` modules (``artifacts.inline_assets``, the
+    artifact pages' inliner), and the shared-font link is dropped. ``None`` for
+    a file that is not HTML, and for a page that names a design-system asset
+    that does not exist — that page is served as written.
+    """
+    if target.suffix.lower() not in {".html", ".htm"}:
+        return None
+    try:
+        page = target.read_text(encoding="utf-8")
+        return self_contained(_SHARED_FONTS_LINK_RE.sub("", page))
+    except (OSError, UnicodeDecodeError, ValueError):
+        logger.warning("discovered panel page %s served as written", target, exc_info=True)
+        return None
 
 
 @router.post("/api/terminal/restart")
