@@ -131,7 +131,7 @@ def test_the_search_is_typed_at_reading_speed() -> None:
     page = FakePage()
     STORYBOARD["search"].run(_take(page))
     ((kind, text, delay),) = page.keys
-    assert (kind, text) == ("type", SEARCH) and delay > 0
+    assert (kind, text) == ("type", SEARCH) and delay == video_code_review.SEARCH_DELAY_MS
 
 
 def test_the_reveal_arrows_down_to_the_rules_row_and_presses_enter() -> None:

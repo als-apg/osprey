@@ -32,7 +32,6 @@ from docs.screenshots.video_beats import (
     wait_until,
 )
 from docs.screenshots.video_probes import POLL_MS, ProbeFailed
-from docs.screenshots.video_take import TYPE_DELAY_MS
 
 if TYPE_CHECKING:
     from docs.screenshots.video_take import Take, TakeContext
@@ -129,13 +128,15 @@ ALLOW = "#operator-container .op-btn-primary"
 VERDICT = "Code review: pass"
 
 REVIEW_BUDGET_MS = 420_000
+# The search is typed slowly enough to read, and rests a second before Enter.
+SEARCH_DELAY_MS = 150
+SEARCH_REST_MS = 1_000
 RUN_BUDGET_MS = 180_000
 
 # The approved script, one subtitle per row; a row's beats share its subtitle.
 CAPTIONS = (
     "This deployment has code review on: a second AI agent reads every Python script the agent "
     "wants to run.",
-    "Its instructions are in Settings. The operator looks them up.",
     "Its one rule: a script that moves a corrector must first read the beam mode, and stop while "
     "users have beam.",
     "The operator asks for a corrector scan. The agent was never told the rule.",
@@ -147,7 +148,7 @@ CAPTIONS = (
     "Approved. The scan reads the beam mode first, then steps the corrector.",
     "Every review, pass or block, is recorded in the audit trail.",
 )
-(CHANNELS, LOOK_UP, THE_RULE, ASK, REVIEW, BLOCKED, RESUBMIT, ON_CARD, RAN, AUDIT) = CAPTIONS
+(CHANNELS, THE_RULE, ASK, REVIEW, BLOCKED, RESUBMIT, ON_CARD, RAN, AUDIT) = CAPTIONS
 
 # Move the switch for the session's machine to `asked`, as the header chip does.
 ARM_JS = """
@@ -245,7 +246,7 @@ def _open_palette(take: Take) -> None:
 
 
 def _search(take: Take) -> None:
-    take.page.keyboard.type(SEARCH, delay=TYPE_DELAY_MS)
+    take.page.keyboard.type(SEARCH, delay=SEARCH_DELAY_MS)
 
 
 def _rows(take: Take, selector: str) -> list[str]:
@@ -276,15 +277,15 @@ def _wait_done(take: Take) -> Any:
 
 
 CODE_REVIEW = (
-    hold("channels", CHANNELS, 4_000),
-    Beat("palette", LOOK_UP, _open_palette),
-    Beat("search", LOOK_UP, _search),
+    Beat("palette", CHANNELS, _open_palette),
+    Beat("search", CHANNELS, _search),
     wait_until(
-        "row", LOOK_UP, _row_listed, what=f"no row {ROW_TEXT!r}", budget_ms=PALETTE_BUDGET_MS
+        "row", CHANNELS, _row_listed, what=f"no row {ROW_TEXT!r}", budget_ms=PALETTE_BUDGET_MS
     ),
-    Beat("reveal", LOOK_UP, _choose_row),
-    Beat("settings-open", LOOK_UP, lambda take: _drawer(take, "settings-open", "shown")),
-    wait_for("rules-shown", LOOK_UP, RULE, budget_ms=DRAWER_BUDGET_MS, text=BEAM_MODE),
+    hold("rest", CHANNELS, SEARCH_REST_MS),
+    Beat("reveal", THE_RULE, _choose_row),
+    Beat("settings-open", THE_RULE, lambda take: _drawer(take, "settings-open", "shown")),
+    wait_for("rules-shown", THE_RULE, RULE, budget_ms=DRAWER_BUDGET_MS, text=BEAM_MODE),
     spotlight("rule", THE_RULE, RULE, text=BEAM_MODE, ms=6_000),
     click("close", ASK, CLOSE_DRAWER),
     Beat("settings-closed", ASK, lambda take: _drawer(take, "settings-closed", "gone")),
