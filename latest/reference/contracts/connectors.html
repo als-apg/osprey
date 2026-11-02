@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
   </head>
   
   
@@ -400,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 <li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
 </ul>
@@ -723,29 +724,35 @@ refuses names the reason:</p>
 <td><p>the render’s tier is <code class="docutils literal notranslate"><span class="pre">never</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p>3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">session_held</span></code></p></td>
+<td><p>the session has an unanswered hold (<a class="reference internal" href="watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a>). A write
+about to execute meets this term through <code class="docutils literal notranslate"><span class="pre">execution_verdict</span></code>; a process
+with no session or no hold store is never held.</p></td>
+</tr>
+<tr class="row-odd"><td><p>4</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">target_unknown</span></code></p></td>
 <td><p>the machine does not resolve in this deployment.</p></td>
 </tr>
-<tr class="row-odd"><td><p>4</p></td>
+<tr class="row-even"><td><p>5</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code> / <code class="docutils literal notranslate"><span class="pre">owner_unscheduled</span></code> / <code class="docutils literal notranslate"><span class="pre">owner_foreign</span></code></p></td>
 <td><p>no login can be named for the write; a scheduled or triggered job runs
 for no login; or the owner is not the login this process acts for.</p></td>
 </tr>
-<tr class="row-even"><td><p>5</p></td>
+<tr class="row-odd"><td><p>6</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">owner_unknown</span></code> / <code class="docutils literal notranslate"><span class="pre">tier_never</span></code></p></td>
 <td><p>in a shared container, the owner is missing from the login→tier map,
 or mapped <code class="docutils literal notranslate"><span class="pre">never</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p>6</p></td>
+<tr class="row-even"><td><p>7</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">record_unavailable</span></code></p></td>
 <td><p>the owner’s switch record cannot be read. An absent record is not
 unavailable: it is every switch at <code class="docutils literal notranslate"><span class="pre">off</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p>7</p></td>
+<tr class="row-odd"><td><p>8</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">switch_off</span></code></p></td>
 <td><p>the owner’s switch is at <code class="docutils literal notranslate"><span class="pre">off</span></code> for this machine.</p></td>
 </tr>
-<tr class="row-odd"><td><p>8</p></td>
+<tr class="row-even"><td><p>9</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">launch_pinned</span></code></p></td>
 <td><p>the run was started with writes held off for this machine.</p></td>
 </tr>

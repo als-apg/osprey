@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
   </head>
   
   
@@ -400,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/watchdog.html">Watchdog Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/dock-engine.html">Dock Engine Contract</a></li>
 </ul>
@@ -507,6 +508,7 @@ osprey<span class="w"> </span>web<span class="w">                </span><span cl
 osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
 osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># CI files, boot unit, build artifact overrides</span>
 osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
+osprey<span class="w"> </span>watchdog<span class="w">           </span><span class="c1"># Try safety watchdogs on labelled prompts</span>
 osprey<span class="w"> </span>vendor<span class="w">             </span><span class="c1"># Manage locally bundled vendor assets</span>
 </pre></div>
 </div>
@@ -1192,6 +1194,28 @@ record’s <code class="docutils literal notranslate"><span class="pre">history<
 the sign-in resolved; the record decides what that viewer sees. It admits only
 requests that carry the gate secret nginx presents
 (<code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_HISTORY</span></code>).</p>
+</section>
+<section id="osprey-watchdog">
+<h2>osprey watchdog<a class="headerlink" href="#osprey-watchdog" title="Link to this heading">#</a></h2>
+<p>Try safety watchdogs out before relying on them. <a class="reference internal" href="../how-to/safety-watchdogs.html"><span class="doc">Safety Watchdogs</span></a>
+has the steps, including the format of a fixture.</p>
+<section id="osprey-watchdog-replay">
+<h3>osprey watchdog replay<a class="headerlink" href="#osprey-watchdog-replay" title="Link to this heading">#</a></h3>
+<p>Replay labelled prompts through watchdogs, enabled or not, and report how each
+did. Nothing is flagged, held or recorded.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>watchdog<span class="w"> </span>replay<span class="w"> </span>FIXTURES_DIR<span class="w"> </span><span class="o">[</span>--watchdog<span class="w"> </span>NAME<span class="o">]</span><span class="w"> </span><span class="o">[</span>--profile<span class="w"> </span>DIR<span class="w"> </span>...<span class="o">]</span><span class="w"> </span><span class="o">[</span>--project-dir<span class="w"> </span>DIR<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">FIXTURES_DIR</span></code> holds <code class="docutils literal notranslate"><span class="pre">*.jsonl</span></code> fixtures at any depth, and each directory is
+one set. Definitions come from each <code class="docutils literal notranslate"><span class="pre">--profile</span></code>, by default from the project’s
+profile. Agent watchdogs need a built project through <code class="docutils literal notranslate"><span class="pre">--project-dir</span></code> and are
+reported as not run without one. A fixture’s <code class="docutils literal notranslate"><span class="pre">machine</span></code> values are written to
+that project’s in-process simulator under its usual write checks; a fixture they
+cannot apply to is reported as not run, and no other control system is written.</p>
+<p>For each watchdog, engine and set it prints the hit rate on risky prompts, the
+false-flag rate on benign prompts, p50 and p95 latency, and cost. The exit status
+is non-zero only when an engine answered on none of its fixtures.</p>
+</section>
 </section>
 <section id="osprey-agent-record">
 <h2>osprey agent-record<a class="headerlink" href="#osprey-agent-record" title="Link to this heading">#</a></h2>
@@ -1969,6 +1993,10 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-archive">osprey archive</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-history">osprey history</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-watchdog">osprey watchdog</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-watchdog-replay">osprey watchdog replay</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record">osprey agent-record</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record-serve">osprey agent-record serve</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-record-health">osprey agent-record health</a></li>

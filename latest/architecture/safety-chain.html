@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
   </head>
   
   
@@ -380,6 +380,7 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Safety Chain</a></li>
+
 
 
 
@@ -773,6 +774,177 @@ with only a write gateway has the software layers alone, and the build says so.<
 </ol>
 <p>The hooks and the connector share one verdict and one order, so a write refused at either
 names the same reason.</p>
+<p>Where a watchdog has flagged the session, the hook’s verdict (gate 2), the server (gate 3) and
+the connector (gate 4) each refuse the write with <code class="docutils literal notranslate"><span class="pre">session_held</span></code>. The approval prompt does
+not answer a flag, so a write approved while the flag is open is refused at the server. See
+<a class="reference internal" href="#architecture-safety-watchdogs"><span class="std std-ref">Safety watchdogs</span></a>.</p>
+</section>
+</section>
+<section id="safety-watchdogs">
+<span id="architecture-safety-watchdogs"></span><h1>Safety watchdogs<a class="headerlink" href="#safety-watchdogs" title="Link to this heading">#</a></h1>
+<div class="osprey-diagram">
+<svg viewBox="0 0 640 620" role="img" aria-labelledby="safety-watchdogs-title safety-watchdogs-desc">
+  <title id="safety-watchdogs-title">What happens to an operator's prompt when watchdogs are enabled</title>
+  <desc id="safety-watchdogs-desc">An operator types a prompt. The OSPREY agent runs it at once, and no watchdog delays it. In the background every enabled watchdog judges the prompt separately: decision-engine watchdogs, the fast judges, where a model picks one of the facility's options after seeing only the instructions and the session; and agent-engine watchdogs, the deep judges, where a read-only agent uses references, facility knowledge and machine reads, capped in time and cost. A deployment may have several of each. Each one ends in one of three ways. Clear is logged, nothing is shown, and it is never called safe. Unavailable, from an error, a timeout or a cap, is logged and shown as unavailable, with no dialog and no hold. Risky raises a flag, which holds the session's agent writes: each write the agent starts in that session is refused with session_held until the flag is answered. Flags from one prompt share one dialog, which names the watchdog, the prompt and the reason, and detaching from the session releases nothing. The operator answers with a click on Stop or Continue. Stop interrupts the turn and waits for it; if it ended and nothing the agent started still runs, the flag is released, otherwise the flag stays open and the dialog says the turn did not stop. Continue releases the flag, the answer is audited with who answered, and later writes meet the normal checks and the approval prompt. Every verdict, failure and answer leaves an entry on the safety_watchdog audit surface, joined to the session and the judged prompt.</desc>
+  <defs>
+    <marker id="safety-watchdogs-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+    <marker id="safety-watchdogs-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/>
+    </marker>
+  </defs>
+
+  <!-- the prompt -->
+  <rect class="nb nb-acc-stroke" x="170" y="16" width="200" height="44" rx="6"/>
+  <text class="tn" x="270" y="35" text-anchor="middle">Operator types a prompt</text>
+  <text class="ts" x="270" y="50" text-anchor="middle">a person, in an interactive session</text>
+  <path class="e" d="M170,38 H100 V84" marker-end="url(#safety-watchdogs-arr)"/>
+  <text class="ta" x="104" y="32">at once</text>
+  <path class="e" d="M370,38 H415 V84" marker-end="url(#safety-watchdogs-arr)"/>
+  <text class="ta" x="376" y="32">in the background</text>
+
+  <!-- the agent -->
+  <rect class="nb-in" x="20" y="84" width="160" height="456" rx="6"/>
+  <text class="tn" x="100" y="106" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="100" y="122" text-anchor="middle">the prompt is never delayed</text>
+  <text class="ts" x="100" y="135" text-anchor="middle">tool calls meet the checks</text>
+  <text class="ts" x="100" y="148" text-anchor="middle">and approval prompt as usual</text>
+  <text class="ts" x="172" y="331" text-anchor="end">writes refused:</text>
+  <text class="ts" x="172" y="344" text-anchor="end">session_held</text>
+  <text class="ts" x="172" y="498" text-anchor="end">turn interrupted</text>
+
+  <!-- the watchdogs -->
+  <rect class="zone" x="210" y="84" width="410" height="110" rx="6"/>
+  <text class="te" x="222" y="101">EVERY ENABLED WATCHDOG, SEPARATELY</text>
+  <rect class="nb" x="222" y="110" width="188" height="74" rx="6"/>
+  <text class="tn" x="316" y="130" text-anchor="middle">Decision engine: fast</text>
+  <text class="ts" x="316" y="146" text-anchor="middle">a model picks one of your options</text>
+  <text class="ts" x="316" y="159" text-anchor="middle">sees instructions + session only</text>
+  <text class="ts" x="316" y="172" text-anchor="middle">several, each with its own focus</text>
+  <rect class="nb" x="420" y="110" width="188" height="74" rx="6"/>
+  <text class="tn" x="514" y="130" text-anchor="middle">Agent engine: deep</text>
+  <text class="ts" x="514" y="146" text-anchor="middle">read-only agent: references,</text>
+  <text class="ts" x="514" y="159" text-anchor="middle">facility knowledge, machine reads</text>
+  <text class="ts" x="514" y="172" text-anchor="middle">capped in time and cost</text>
+
+  <line class="e" x1="274" y1="194" x2="274" y2="214" marker-end="url(#safety-watchdogs-arr)"/>
+  <line class="e" x1="415" y1="194" x2="415" y2="214" marker-end="url(#safety-watchdogs-arr)"/>
+  <line class="e-warn" x1="556" y1="194" x2="556" y2="214" marker-end="url(#safety-watchdogs-arr-warn)"/>
+
+  <!-- the three endings -->
+  <rect class="nb" x="210" y="218" width="128" height="68" rx="6"/>
+  <text class="tn" x="274" y="237" text-anchor="middle">Clear</text>
+  <text class="ts" x="274" y="253" text-anchor="middle">logged, nothing shown</text>
+  <text class="ts" x="274" y="266" text-anchor="middle">never called safe</text>
+  <rect class="nb-st" x="351" y="218" width="128" height="68" rx="6"/>
+  <text class="tn" x="415" y="237" text-anchor="middle">Unavailable</text>
+  <text class="ts" x="415" y="253" text-anchor="middle">error, timeout or cap</text>
+  <text class="ts" x="415" y="266" text-anchor="middle">logged, shown as such</text>
+  <text class="ts" x="415" y="279" text-anchor="middle">no dialog, no hold</text>
+  <rect class="nb-warn" x="492" y="218" width="128" height="68" rx="6"/>
+  <text class="tn" x="556" y="237" text-anchor="middle">Risky: a flag</text>
+  <text class="ts" x="556" y="253" text-anchor="middle">names the watchdog,</text>
+  <text class="ts" x="556" y="266" text-anchor="middle">the prompt, a reason</text>
+
+  <line class="e-warn" x1="556" y1="286" x2="556" y2="306" marker-end="url(#safety-watchdogs-arr-warn)"/>
+
+  <!-- the hold -->
+  <rect class="nb-warn" x="210" y="310" width="410" height="54" rx="6"/>
+  <text class="tn" x="415" y="329" text-anchor="middle">Hold on this session's agent writes</text>
+  <text class="ts" x="415" y="344" text-anchor="middle">each write the agent starts in this session is refused until answered</text>
+  <text class="ts" x="415" y="357" text-anchor="middle">flags from one prompt share one dialog · detaching releases nothing</text>
+  <line class="e-warn" x1="210" y1="334" x2="181" y2="334" marker-end="url(#safety-watchdogs-arr-warn)"/>
+  <line class="e" x1="415" y1="364" x2="415" y2="384" marker-end="url(#safety-watchdogs-arr)"/>
+
+  <!-- the dialog -->
+  <rect class="nb-foc" x="210" y="388" width="410" height="42" rx="6"/>
+  <text class="tn" x="415" y="406" text-anchor="middle">Dialog: "This looks risky." Stop or Continue?</text>
+  <text class="ts" x="415" y="421" text-anchor="middle">web terminal, either mode · only a click on Stop or Continue answers</text>
+  <line class="e" x1="309" y1="430" x2="309" y2="450" marker-end="url(#safety-watchdogs-arr)"/>
+  <line class="e" x1="521" y1="430" x2="521" y2="450" marker-end="url(#safety-watchdogs-arr)"/>
+
+  <!-- the answers -->
+  <rect class="nb" x="210" y="454" width="198" height="86" rx="6"/>
+  <text class="tn" x="309" y="473" text-anchor="middle">Stop</text>
+  <text class="ts" x="309" y="489" text-anchor="middle">interrupt the turn, wait for it</text>
+  <text class="ts" x="309" y="502" text-anchor="middle">ended, nothing running: released</text>
+  <text class="ts" x="309" y="515" text-anchor="middle">otherwise the flag stays open:</text>
+  <text class="ts" x="309" y="528" text-anchor="middle">"The turn did not stop."</text>
+  <line class="e" x1="210" y1="494" x2="181" y2="494" marker-end="url(#safety-watchdogs-arr)"/>
+  <rect class="nb" x="422" y="454" width="198" height="86" rx="6"/>
+  <text class="tn" x="521" y="473" text-anchor="middle">Continue</text>
+  <text class="ts" x="521" y="489" text-anchor="middle">releases the flag it names</text>
+  <text class="ts" x="521" y="502" text-anchor="middle">audited with who answered</text>
+  <text class="ts" x="521" y="515" text-anchor="middle">writes meet the normal checks</text>
+  <text class="ts" x="521" y="528" text-anchor="middle">and the approval prompt</text>
+
+  <!-- the audit -->
+  <rect class="nb-st" x="20" y="560" width="600" height="44" rx="6"/>
+  <text class="tn" x="320" y="578" text-anchor="middle">Audit trail: safety_watchdog</text>
+  <text class="ts" x="320" y="594" text-anchor="middle">every verdict, failure and answer, joined to the session and the judged prompt</text>
+</svg>
+</div>
+<p>A <strong>watchdog</strong> is a check a facility writes, in plain language, that judges each operator
+prompt in the background: is this session heading somewhere it should not? A deployment may
+enable any number, off by default, and each uses one of two engines:</p>
+<ul class="simple">
+<li><p><strong>The decision engine</strong> asks a decision model (TypeSafe Jev) to pick among options the
+facility wrote. It sees the watchdog’s instructions and the session’s recent history, and
+nothing else, and usually answers within seconds.</p></li>
+<li><p><strong>The agent engine</strong> runs a read-only agent, which also sees the watchdog’s references and
+facility knowledge and can read the machine. It is slower and costs more, and each run is
+capped in time and cost. Every write or edit it attempts is refused and recorded.</p></li>
+</ul>
+<p>A watchdog answers <em>clear</em>, <em>flagged</em> or <em>unavailable</em>. Nothing it says means an action is
+safe, so no record or screen says so: a clear verdict is logged and not shown. An unavailable
+watchdog raises no dialog and no hold, and the terminal shows it as unavailable.</p>
+<p><strong>The hold.</strong> A flag holds the writes of the agent in that session, by every route the agent
+has: write tools, executed scripts, plans queued through its tools, <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code>. Each
+flag stays open until an operator answers it, whether or not anyone is attached; a reload or
+a reattach brings the dialog back. The hold is one more reason to refuse, and it loosens
+nothing: every other gate on this page still applies once it is gone. Stopping a plan, and
+switching the control target, are never held.</p>
+<p><strong>A watchdog is advisory, not a gate on the first write.</strong> The prompt goes to the agent at
+once, because a watchdog must never delay it, so a verdict can land after a write has already
+run. The hold covers the time from the flag to the answer. A fooled or failed watchdog fails
+to warn, and that is all it can do.</p>
+<p><strong>The dialog</strong> names each watchdog, the prompt it judged and its reason, and flags raised
+together share one dialog. Only a click answers it. <strong>Stop</strong> interrupts the turn and waits;
+when the turn has ended and nothing the agent started still runs, the flags are released. If
+not, they stay open, the dialog says the turn did not stop, and it lists what still runs.
+<strong>Continue</strong> releases the flags and records who chose to proceed. The next write then meets
+the checks above, including the approval prompt.</p>
+<section id="what-watchdogs-do-not-cover">
+<h2>What watchdogs do not cover<a class="headerlink" href="#what-watchdogs-do-not-cover" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Only the prompt.</strong> A watchdog judges when a prompt arrives, not after each tool call or
+at the end of a turn. The decision engine sees only about the last 30,000 tokens of a
+session, and it does not treat what a tool returned as hostile.</p></li>
+<li><p><strong>Only the agent’s writes.</strong> A write the operator makes directly, from a notebook cell or
+the BLUESKY panel, is not held.</p></li>
+<li><p><strong>Not motion already running.</strong> A plan the agent started keeps running; stop it with the
+existing tools.</p></li>
+<li><p><strong>Only the web terminal holds.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or a bare <code class="docutils literal notranslate"><span class="pre">claude</span></code> in a built project
+records its flags and is never held, because no dialog could answer them.</p></li>
+<li><p><strong>Only an operator’s prompts.</strong> Dispatch jobs, webhooks and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> trigger no
+watchdog.</p></li>
+<li><p><strong>Not code set on releasing its own hold.</strong> The hold record sits with the deployment’s other
+state records, and the agent’s file tools and shell are denied its directory. Code running
+as the agent’s user that deliberately rewrites the record can still release its own hold
+with no audited Continue, the same boundary as <a class="reference internal" href="#architecture-safety-chain-residual"><span class="std std-ref">the switch’s record</span></a>.</p></li>
+</ul>
+</section>
+<section id="setting-one-up">
+<h2>Setting one up<a class="headerlink" href="#setting-one-up" title="Link to this heading">#</a></h2>
+<p>A watchdog is an entry in the profile’s <code class="docutils literal notranslate"><span class="pre">watchdogs:</span></code> block plus an instructions file at
+<code class="docutils literal notranslate"><span class="pre">watchdogs/&lt;name&gt;/instructions.md</span></code>, and <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> and a rebuild turn it on. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">watchdog</span> <span class="pre">replay</span></code> over labelled prompts before enabling one: the thresholds are not
+calibrated for any facility. A decision watchdog sends session history to TypeSafe (hosted in
+the US) or OpenRouter; an agent watchdog uses the deployment’s own LLM provider. Each adds its
+cost to every prompt.</p>
+<p><a class="reference internal" href="../how-to/safety-watchdogs.html"><span class="doc">Safety Watchdogs</span></a> has the steps, and <a class="reference internal" href="../reference/contracts/watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a> has the exact
+behaviour.</p>
 </section>
 </section>
 <section id="five-paths-below-the-checks">

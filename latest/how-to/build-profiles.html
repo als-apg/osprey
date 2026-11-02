@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
   </head>
   
   
@@ -436,6 +436,7 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety Watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -729,7 +730,11 @@ everything else lands in every render.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services/</span></code></p></td>
 <td><p>a directory per compose service</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">project/</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code>, for enabled watchdogs only</p></td>
+<td><p>a directory named for one watchdog (see <a class="reference internal" href="#profile-watchdogs-block"><span class="std std-ref">The watchdogs: block</span></a>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">project/</span></code></p></td>
 <td><p>the build root (<code class="docutils literal notranslate"><span class="pre">build/</span></code>)</p></td>
 <td><p>any file, mirrored verbatim</p></td>
 </tr>
@@ -1329,6 +1334,80 @@ already on file alone; <a class="reference internal" href="deploy-project/env-ch
 servers, tool permissions, <code class="docutils literal notranslate"><span class="pre">services</span></code>, <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code>, lifecycle commands,
 <code class="docutils literal notranslate"><span class="pre">env</span></code>, dependencies and the execution environment — is in
 <a class="reference internal" href="../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>.</p>
+<section id="the-watchdogs-block">
+<span id="profile-watchdogs-block"></span><h3>The <code class="docutils literal notranslate"><span class="pre">watchdogs:</span></code> block<a class="headerlink" href="#the-watchdogs-block" title="Link to this heading">#</a></h3>
+<p>A map from a watchdog’s name to its definition, with any number of entries. The name is
+lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">-</span></code> and <code class="docutils literal notranslate"><span class="pre">_</span></code>, starting with a letter or digit, and it names the
+directory <code class="docutils literal notranslate"><span class="pre">watchdogs/&lt;name&gt;/</span></code> beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. That directory holds
+<code class="docutils literal notranslate"><span class="pre">instructions.md</span></code> and, optionally, <code class="docutils literal notranslate"><span class="pre">references/</span></code>. A rendered project carries only the
+enabled entries and their directories; with none enabled, it carries neither the block nor the
+trigger hook. <a class="reference internal" href="safety-watchdogs.html"><span class="doc">Safety Watchdogs</span></a> has the steps.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 14.0%" />
+<col style="width: 14.0%" />
+<col style="width: 52.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Engine</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">engine</span></code></p></td>
+<td><p>both</p></td>
+<td><p>required</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">decision</span></code> or <code class="docutils literal notranslate"><span class="pre">agent</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">enabled</span></code></p></td>
+<td><p>both</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p>Run it on every prompt. An enabled watchdog needs its instructions, and needs
+<code class="docutils literal notranslate"><span class="pre">turn-state</span></code> in <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">options</span></code></p></td>
+<td><p>decision</p></td>
+<td><p>required</p></td>
+<td><p>A list of <code class="docutils literal notranslate"><span class="pre">{id,</span> <span class="pre">text,</span> <span class="pre">flag}</span></code>, with at least one <code class="docutils literal notranslate"><span class="pre">flag:</span> <span class="pre">true</span></code> and one not. <code class="docutils literal notranslate"><span class="pre">text</span></code>
+is what the operator reads.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">threshold</span></code></p></td>
+<td><p>decision</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.5</span></code></p></td>
+<td><p>The summed probability of the flag options at which it flags, between 0 and 1,
+exclusive. Not calibrated.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools</span></code></p></td>
+<td><p>agent</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
+<td><p>Read tools beyond those it always has. An entry is a tool name, optionally ending in
+<code class="docutils literal notranslate"><span class="pre">*</span></code> or <code class="docutils literal notranslate"><span class="pre">.*</span></code>; one that reaches a write tool fails the build.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<td><p>agent</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">null</span></code></p></td>
+<td><p>A model name; <code class="docutils literal notranslate"><span class="pre">null</span></code> is the deployment’s own.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timeout_s</span></code></p></td>
+<td><p>agent</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">90</span></code></p></td>
+<td><p>Seconds one run may take.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">max_cost_usd</span></code></p></td>
+<td><p>agent</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.25</span></code></p></td>
+<td><p>Dollars one run may spend.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A key the entry’s engine does not read fails the build. A profile that inherits a watchdog
+through <code class="docutils literal notranslate"><span class="pre">extends</span></code> does not inherit its files, so it may carry the entry disabled as it stands
+and must add the files itself to enable it.</p>
+</section>
 </section>
 <section id="building">
 <h2>Building<a class="headerlink" href="#building" title="Link to this heading">#</a></h2>
@@ -1608,7 +1687,10 @@ relax the constraint in the profile.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-else-writes-to-env">Who else writes to <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-reference">Profile YAML reference</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-reference">Profile YAML reference</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-watchdogs-block">The <code class="docutils literal notranslate"><span class="pre">watchdogs:</span></code> block</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building">Building</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#checking-a-profile-without-building">Checking a profile without building</a></li>
 </ul>

@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="The Bridge Dispatch Payload" href="bridge-dispatch.html" />
+    <link rel="next" title="Watchdog Contract" href="watchdog.html" />
     <link rel="prev" title="Guarded Run Contract" href="guarded-run.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
   </head>
   
   
@@ -400,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 <li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
 </ul>
@@ -570,6 +571,10 @@ run: <code class="docutils literal notranslate"><span class="pre">allowed</span>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auth_sidecar</span></code> (written as <code class="docutils literal notranslate"><span class="pre">sidecar</span></code>)</p></td>
 <td><p>Logins and login refusals, where a deployment has a login wall</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code></p></td>
+<td><p>Each watchdog’s verdict on a prompt, its failures, and the operator’s
+answer to a flag — see <a class="reference internal" href="watchdog.html#reference-watchdog"><span class="std std-ref">Watchdog Contract</span></a></p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -579,7 +584,9 @@ run: <code class="docutils literal notranslate"><span class="pre">allowed</span>
 then <code class="docutils literal notranslate"><span class="pre">approved</span></code> when the harness reported that the call ran, or <code class="docutils literal notranslate"><span class="pre">denied</span></code>
 when the turn ended without it — declined or interrupted. A write the
 switch’s <em>allowed</em> position let run has no <code class="docutils literal notranslate"><span class="pre">ask</span></code>: its <code class="docutils literal notranslate"><span class="pre">approved</span></code> names
-<code class="docutils literal notranslate"><span class="pre">approver=write_switch</span></code> in <code class="docutils literal notranslate"><span class="pre">detail</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">approver=write_switch</span></code> in <code class="docutils literal notranslate"><span class="pre">detail</span></code>.
+<code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code> has its own too: <code class="docutils literal notranslate"><span class="pre">flagged</span></code>, <code class="docutils literal notranslate"><span class="pre">clear</span></code>, <code class="docutils literal notranslate"><span class="pre">unavailable</span></code>,
+<code class="docutils literal notranslate"><span class="pre">stop</span></code>, <code class="docutils literal notranslate"><span class="pre">continue</span></code> and <code class="docutils literal notranslate"><span class="pre">stop_unconfirmed</span></code>.</p>
 <p>Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves <code class="docutils literal notranslate"><span class="pre">http_mutation</span></code>
 entries next to the config edits. One asymmetry worth knowing
@@ -1104,11 +1111,11 @@ be the surface that grows.</p>
       </div>
     </a>
     <a class="right-next"
-       href="bridge-dispatch.html"
+       href="watchdog.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">The Bridge Dispatch Payload</p>
+        <p class="prev-next-title">Watchdog Contract</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 01, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
   </head>
   
   
@@ -436,6 +436,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../safety-watchdogs.html">Safety Watchdogs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -689,7 +690,15 @@ This guide covers how to configure providers for both.</p>
 <td><p>No</p></td>
 <td><p>No</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vllm</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">openrouter</span></code></p></td>
+<td><p>OpenRouter hosted model router (models from many vendors)</p></td>
+<td><p>Cloud</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code></p></td>
+<td><p>OpenAI (proxied)</p></td>
+<td><p>No</p></td>
+<td><p>No</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vllm</span></code></p></td>
 <td><p>vLLM inference server</p></td>
 <td><p>Self-hosted</p></td>
 <td><p><em>(none)</em></p></td>
@@ -697,7 +706,7 @@ This guide covers how to configure providers for both.</p>
 <td><p>No</p></td>
 <td><p>No</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ds4</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ds4</span></code></p></td>
 <td><p>DwarfStar local server</p></td>
 <td><p>Self-hosted</p></td>
 <td><p><em>(none)</em></p></td>
@@ -705,7 +714,7 @@ This guide covers how to configure providers for both.</p>
 <td><p>No</p></td>
 <td><p>No</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">llama-cpp</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">llama-cpp</span></code></p></td>
 <td><p>llama.cpp server (text and image embeddings, no chat, site-run)</p></td>
 <td><p>Self-hosted</p></td>
 <td><p><em>(none)</em></p></td>
@@ -745,6 +754,7 @@ thinking. A site whose model sees images turns them on for a provider marked
 <span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-ant-...&quot;</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-...&quot;</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GOOGLE_API_KEY</span><span class="o">=</span><span class="s2">&quot;AIza...&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OPENROUTER_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-or-...&quot;</span>
 
 <span class="c1"># Institutional proxies</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CBORG_API_KEY</span><span class="o">=</span><span class="s2">&quot;...&quot;</span>

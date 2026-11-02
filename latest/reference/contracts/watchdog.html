@@ -1,0 +1,898 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Watchdog Contract &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/watchdog';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/watchdog.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="The Bridge Dispatch Payload" href="bridge-dispatch.html" />
+    <link rel="prev" title="Audit Trail Contract" href="audit-trail.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 02, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Watchdog Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Watchdog Contract</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="watchdog-contract">
+<span id="reference-watchdog"></span><h1>Watchdog Contract<a class="headerlink" href="#watchdog-contract" title="Link to this heading">#</a></h1>
+<p><a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-watchdogs"><span class="std std-ref">Safety watchdogs</span></a> places watchdogs among the write gates
+and says what they do not cover, and <a class="reference internal" href="../../how-to/safety-watchdogs.html"><span class="doc">Safety Watchdogs</span></a> sets one up. This page is
+the exact behaviour: the hold record and where it lives, the routes and frames of the web
+terminal, and the fields of a verdict’s audit entry.</p>
+<section id="the-hold-record">
+<h2>The hold record<a class="headerlink" href="#the-hold-record" title="Link to this heading">#</a></h2>
+<p>One file per session, <code class="docutils literal notranslate"><span class="pre">var/state/session_holds/&lt;session_key&gt;/record.json</span></code> in the deployment
+repository. <code class="docutils literal notranslate"><span class="pre">osprey_connectors.session_hold</span></code> owns its format, its reader and its writer. A
+session key is one path segment: it starts with a letter or digit, continues with letters,
+digits, <code class="docutils literal notranslate"><span class="pre">.</span></code>, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, and runs to 128 characters.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;session_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;key&gt;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;flag_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;guard-circumvention&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Asked the agent to edit hooks, settings or configuration to loosen a gate.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;prompt_ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;record_session_id&gt;:&lt;submission_id&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;prompt_excerpt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;at most 200 characters&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;opened_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-10-31T00:00:00Z&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;state&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;open&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;stop_unconfirmed&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;started&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>A session is held while any flag’s <code class="docutils literal notranslate"><span class="pre">state</span></code> is <code class="docutils literal notranslate"><span class="pre">open</span></code>. A flag closes only by an answer that
+names it, and stays in the record, closed, with <code class="docutils literal notranslate"><span class="pre">answer</span></code>, <code class="docutils literal notranslate"><span class="pre">operator</span></code> and <code class="docutils literal notranslate"><span class="pre">answered_at</span></code>.</p>
+<p>The web terminal gives every session it launches the store through
+<code class="docutils literal notranslate"><span class="pre">OSPREY_SESSION_HOLD_DIR</span></code>, and only when the build has an enabled watchdog. A process without
+that variable or a session key is never held. <strong>Under a store, the hold fails closed:</strong> a
+missing or unreadable record, a record of another schema or another session, a symbolic link at
+the directory or the record, and an unsafe key all hold. Such a record is reported as the one
+flag <code class="docutils literal notranslate"><span class="pre">hold-record-unreadable</span></code>, with source <code class="docutils literal notranslate"><span class="pre">session_hold</span></code>, and answering it writes a fresh
+record. <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/watchdog/flags</span></code> reports no flags only for a key with no running session and
+nothing on disk: a session that has not started.</p>
+<p>Writes hold an exclusive lock on <code class="docutils literal notranslate"><span class="pre">record.json.lock</span></code> and land atomically, so a reader sees the
+old record or the new one and two writers never lose each other’s flag.</p>
+</section>
+<section id="where-the-hold-refuses">
+<h2>Where the hold refuses<a class="headerlink" href="#where-the-hold-refuses" title="Link to this heading">#</a></h2>
+<p>A held session’s write is refused with the reason <code class="docutils literal notranslate"><span class="pre">session_held</span></code>, naming the watchdogs that
+raised the hold where the record can be read:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Writes</span> <span class="n">are</span> <span class="n">paused</span><span class="p">:</span> <span class="n">this</span> <span class="n">session</span> <span class="n">has</span> <span class="n">an</span> <span class="n">unanswered</span> <span class="n">hold</span> <span class="n">the</span> <span class="n">operator</span> <span class="n">must</span> <span class="n">answer</span><span class="o">.</span> <span class="n">Raised</span> <span class="n">by</span><span class="p">:</span> <span class="n">guard</span><span class="o">-</span><span class="n">circumvention</span><span class="o">.</span>
+<span class="p">[</span><span class="n">osprey</span><span class="o">-</span><span class="n">refusal</span><span class="p">:</span> <span class="n">session_held</span><span class="p">]</span>
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Site</p></th>
+<th class="head"><p>What it refuses</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_writes_check</span></code> hook</p></td>
+<td><p>Every write tool it judges, Bluesky lane tools included.</p></td>
+</tr>
+<tr class="row-odd"><td><p>The MCP servers’ write-tool clamp</p></td>
+<td><p>Every tool the render classifies as a write, except read/write tools such as
+<code class="docutils literal notranslate"><span class="pre">execute</span></code>, which gate themselves.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code>, <code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">queue_add</span></code>, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>, <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code></p></td>
+<td><p>Each asks again as it executes, so a write approved while the flag was open is refused.
+<code class="docutils literal notranslate"><span class="pre">execute</span></code> refuses read-write runs only.</p></td>
+</tr>
+<tr class="row-odd"><td><p>The connector</p></td>
+<td><p>Every put, as a term of the write verdict
+(<a class="reference internal" href="connectors.html#write-safety-config"><span class="std std-ref">the verdict’s order</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p>The terminal’s panel proxy</p></td>
+<td><p>A call that would fire a dispatch job.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Stopping a plan or a run, and <code class="docutils literal notranslate"><span class="pre">control_target_set</span></code>, are never held.</p>
+</section>
+<section id="the-routes">
+<h2>The routes<a class="headerlink" href="#the-routes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 16.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Route</p></th>
+<th class="head"><p>Tier</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/watchdog/prompt</span></code></p></td>
+<td><p>panel token</p></td>
+<td><p>The trigger hook hands over one prompt.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/watchdog/flags</span></code></p></td>
+<td><p>operator</p></td>
+<td><p>The session’s open flags.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/watchdog/flags/answer</span></code></p></td>
+<td><p>operator</p></td>
+<td><p>The operator’s answer.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The last two are outside the panel tier, so an agent holding the panel token can neither read
+its flags nor release its own hold.</p>
+<section id="post-api-watchdog-prompt">
+<h3><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/watchdog/prompt</span></code><a class="headerlink" href="#post-api-watchdog-prompt" title="Link to this heading">#</a></h3>
+<p>The body holds <code class="docutils literal notranslate"><span class="pre">session_key</span></code>, <code class="docutils literal notranslate"><span class="pre">record_session_id</span></code> and <code class="docutils literal notranslate"><span class="pre">submission_id</span></code>, each a UUID, and
+<code class="docutils literal notranslate"><span class="pre">prompt</span></code>, up to 1,000,000 characters. The answer comes before anything is judged: 202 with
+<code class="docutils literal notranslate"><span class="pre">{&quot;accepted&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;duplicate&quot;:</span> <span class="pre">false}</span></code>, with <code class="docutils literal notranslate"><span class="pre">duplicate:</span> <span class="pre">true</span></code> for a prompt already seen,
+which is not judged again.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 25.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Status</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">detail</span></code></p></th>
+<th class="head"><p>When</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>400</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">invalid_session_id</span></code></p></td>
+<td><p>An id is not a UUID.</p></td>
+</tr>
+<tr class="row-odd"><td><p>404</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">watchdog_disabled</span></code></p></td>
+<td><p>No watchdog runs in this build.</p></td>
+</tr>
+<tr class="row-even"><td><p>404</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">unknown_session</span></code></p></td>
+<td><p>The key names no session this process runs.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>On any failure the hook falls back to judging the prompt in a process of its own, with the
+session key where it has one, so a refused or unreachable intake cannot leave a web session
+unheld. A session with no key is judged and recorded, and never held.</p>
+</section>
+<section id="get-api-watchdog-flags">
+<h3><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/watchdog/flags</span></code><a class="headerlink" href="#get-api-watchdog-flags" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">?session_key=&lt;key&gt;</span></code> answers <code class="docutils literal notranslate"><span class="pre">{&quot;enabled&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;flags&quot;:</span> <span class="pre">[...]}</span></code>. Each flag carries
+<code class="docutils literal notranslate"><span class="pre">flag_id</span></code>, <code class="docutils literal notranslate"><span class="pre">source</span></code>, <code class="docutils literal notranslate"><span class="pre">reason</span></code>, <code class="docutils literal notranslate"><span class="pre">prompt_ref</span></code>, <code class="docutils literal notranslate"><span class="pre">prompt_excerpt</span></code>, <code class="docutils literal notranslate"><span class="pre">opened_at</span></code>,
+<code class="docutils literal notranslate"><span class="pre">stop_unconfirmed</span></code> and <code class="docutils literal notranslate"><span class="pre">started</span></code>, plus <code class="docutils literal notranslate"><span class="pre">watchdog</span></code>, which repeats <code class="docutils literal notranslate"><span class="pre">source</span></code>. In a build
+with no watchdog it answers <code class="docutils literal notranslate"><span class="pre">{&quot;enabled&quot;:</span> <span class="pre">false,</span> <span class="pre">&quot;flags&quot;:</span> <span class="pre">[]}</span></code>. A key that is not a safe path
+segment is 400 <code class="docutils literal notranslate"><span class="pre">invalid_session_id</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/terminal/posture?session_id=&lt;key&gt;</span></code> reports the same state as one field, <code class="docutils literal notranslate"><span class="pre">held</span></code>.</p>
+</section>
+<section id="post-api-watchdog-flags-answer">
+<h3><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/watchdog/flags/answer</span></code><a class="headerlink" href="#post-api-watchdog-flags-answer" title="Link to this heading">#</a></h3>
+<p>The body is <code class="docutils literal notranslate"><span class="pre">{&quot;session_key&quot;:</span> <span class="pre">&quot;&lt;key&gt;&quot;,</span> <span class="pre">&quot;flag_ids&quot;:</span> <span class="pre">[&quot;&lt;id&gt;&quot;],</span> <span class="pre">&quot;answer&quot;:</span> <span class="pre">&quot;stop&quot;</span> <span class="pre">|</span> <span class="pre">&quot;continue&quot;}</span></code>,
+with up to 256 ids. It answers <code class="docutils literal notranslate"><span class="pre">{&quot;released&quot;:</span> <span class="pre">[...],</span> <span class="pre">&quot;stop_unconfirmed&quot;:</span> <span class="pre">[...]}</span></code>. Only the
+named flags are touched, so a flag that joined after the dialog was drawn stays open and the
+session stays held. A flag already closed is ignored. A record that cannot be written is 503
+<code class="docutils literal notranslate"><span class="pre">hold_record_unavailable</span></code>, and an unsafe key is 400 <code class="docutils literal notranslate"><span class="pre">invalid_session_id</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">continue</span></code> closes the named flags.</p>
+<p><code class="docutils literal notranslate"><span class="pre">stop</span></code> ends what is running in that session first, in the terminal by an interrupt and in
+the chat by cancelling the turn, which also denies pending approvals and stops background
+agents. It never terminates the session. Then it reads what the agent started. A flag closes
+only if the turn has ended and nothing the agent started is still running, and this holds when
+no turn was running too. Otherwise the flag stays open with <code class="docutils literal notranslate"><span class="pre">stop_unconfirmed:</span> <span class="pre">true</span></code> and
+<code class="docutils literal notranslate"><span class="pre">started</span></code> naming the commands, and a process table that could not be read counts as a command
+still running. A hookless terminal cannot confirm its turn ended, so it stays unconfirmed.
+Answering again repeats the check; Continue releases it, audited as such.</p>
+</section>
+</section>
+<section id="frames">
+<h2>Frames<a class="headerlink" href="#frames" title="Link to this heading">#</a></h2>
+<p>Frames are change notices on the terminal’s event stream (<code class="docutils literal notranslate"><span class="pre">/api/files/events</span></code>) and the chat
+feed. They carry ids and never prompt text, and the hold record stays the only truth: a client
+re-reads <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/watchdog/flags</span></code> on any frame, and a low-rate poll recovers one it missed.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 40.0%" />
+<col style="width: 35.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></th>
+<th class="head"><p>Fields</p></th>
+<th class="head"><p>Sent when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">watchdog_flag</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">session_key</span></code>, <code class="docutils literal notranslate"><span class="pre">flag_id</span></code>, <code class="docutils literal notranslate"><span class="pre">watchdog</span></code></p></td>
+<td><p>A flag opened, or a Stop marked it unconfirmed.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">watchdog_resolved</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">session_key</span></code>, <code class="docutils literal notranslate"><span class="pre">flag_ids</span></code>, <code class="docutils literal notranslate"><span class="pre">answer</span></code></p></td>
+<td><p>An answer released flags.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">watchdog_status</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">session_key</span></code>, <code class="docutils literal notranslate"><span class="pre">watchdog</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">unavailable</span></code>, or <code class="docutils literal notranslate"><span class="pre">flag_write_failed</span></code> when a verdict flagged and its flag could not
+be written. No record describes this state, so the frame alone paints it.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="the-audit-entries">
+<h2>The audit entries<a class="headerlink" href="#the-audit-entries" title="Link to this heading">#</a></h2>
+<p>Every entry is on the <code class="docutils literal notranslate"><span class="pre">safety_watchdog</span></code> surface of the
+<a class="reference internal" href="audit-trail.html#reference-audit-trail"><span class="std std-ref">audit trail</span></a>, with the watchdog as <code class="docutils literal notranslate"><span class="pre">subject</span></code>, and joined on the
+record session the prompt belongs to, whichever process wrote it. <code class="docutils literal notranslate"><span class="pre">session</span></code> is the session
+key, or the record session where there is none. <code class="docutils literal notranslate"><span class="pre">detail</span></code> holds <code class="docutils literal notranslate"><span class="pre">key=value</span></code> identifiers
+separated by spaces, and never the prompt, the judge’s prose or an agent’s message.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 30.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">decision</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">reason</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">detail</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">flagged</span></code>, <code class="docutils literal notranslate"><span class="pre">clear</span></code></p></td>
+<td><p>the option id where the judge has one; otherwise the decision</p></td>
+<td><p>the verdict fields below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unavailable</span></code></p></td>
+<td><p>the <code class="docutils literal notranslate"><span class="pre">error_type</span></code></p></td>
+<td><p>the verdict fields below</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">stop</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">stop</span></code></p></td>
+<td><p>the answer fields below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">continue</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">continue</span></code>, or <code class="docutils literal notranslate"><span class="pre">after_stop_unconfirmed</span></code> on a flag an earlier Stop could not confirm</p></td>
+<td><p>the answer fields below; <code class="docutils literal notranslate"><span class="pre">started</span></code> on <code class="docutils literal notranslate"><span class="pre">after_stop_unconfirmed</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">stop_unconfirmed</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">stop_unconfirmed</span></code></p></td>
+<td><p>the answer fields below, with <code class="docutils literal notranslate"><span class="pre">started</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Verdict fields:</strong> <code class="docutils literal notranslate"><span class="pre">prompt_ref</span></code>, <code class="docutils literal notranslate"><span class="pre">engine</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code> (<code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">unavailable</span></code>),
+<code class="docutils literal notranslate"><span class="pre">score</span></code> and <code class="docutils literal notranslate"><span class="pre">threshold</span></code> where the engine has them, <code class="docutils literal notranslate"><span class="pre">uncalibrated</span></code>, <code class="docutils literal notranslate"><span class="pre">error_type</span></code> when
+unavailable, <code class="docutils literal notranslate"><span class="pre">latency_s</span></code>, <code class="docutils literal notranslate"><span class="pre">entries_kept</span></code>, <code class="docutils literal notranslate"><span class="pre">entries_cut</span></code>, <code class="docutils literal notranslate"><span class="pre">tokens_estimate</span></code>,
+<code class="docutils literal notranslate"><span class="pre">drain_timed_out</span></code>, <code class="docutils literal notranslate"><span class="pre">record_available</span></code>, <code class="docutils literal notranslate"><span class="pre">input_sha256</span></code> (the hash of the session view the
+judge read), <code class="docutils literal notranslate"><span class="pre">cost_usd</span></code> where known, and <code class="docutils literal notranslate"><span class="pre">refused_tools</span></code> where an agent judge was refused
+any.</p>
+<p><strong>Answer fields:</strong> <code class="docutils literal notranslate"><span class="pre">prompt_ref</span></code>, <code class="docutils literal notranslate"><span class="pre">flag_id</span></code>, <code class="docutils literal notranslate"><span class="pre">operator</span></code>, and where they apply <code class="docutils literal notranslate"><span class="pre">denied</span></code>
+(pending approvals), <code class="docutils literal notranslate"><span class="pre">stopped</span></code> (background agents), <code class="docutils literal notranslate"><span class="pre">after_stop_unconfirmed</span></code> and <code class="docutils literal notranslate"><span class="pre">started</span></code>
+(commands still running). <code class="docutils literal notranslate"><span class="pre">on_behalf_of</span></code> carries the operator too, and an answering surface
+that can name nobody records <code class="docutils literal notranslate"><span class="pre">operator=&lt;unattributed&gt;</span></code>.</p>
+<p><strong>``error_type``</strong> is one of <code class="docutils literal notranslate"><span class="pre">timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">budget</span></code>, <code class="docutils literal notranslate"><span class="pre">in_flight_bound</span></code>, <code class="docutils literal notranslate"><span class="pre">intake_lost</span></code>,
+<code class="docutils literal notranslate"><span class="pre">no_probabilities</span></code>, <code class="docutils literal notranslate"><span class="pre">decision_error</span></code>, <code class="docutils literal notranslate"><span class="pre">missing_key</span></code>, <code class="docutils literal notranslate"><span class="pre">parse_error</span></code>, <code class="docutils literal notranslate"><span class="pre">run_error</span></code> or
+<code class="docutils literal notranslate"><span class="pre">intake_failed</span></code>.</p>
+<p>No decision word or field says “safe”; a value that happens to contain the word is masked.</p>
+</section>
+<section id="what-each-engine-reads">
+<h2>What each engine reads<a class="headerlink" href="#what-each-engine-reads" title="Link to this heading">#</a></h2>
+<p><strong>Decision.</strong> The instructions and the session’s prompts, answers, tool calls and tool results,
+newest kept first, bounded by the route’s <code class="docutils literal notranslate"><span class="pre">max_state_plus_question_tokens</span></code> (30,000 by default)
+and cut to fit rather than refused. Facility option ids never reach the model. The score is the
+summed probability of the flag options; the reason is the <code class="docutils literal notranslate"><span class="pre">text</span></code> of the likeliest flag option.
+The route, model and interactive budget (three seconds in all) are under <code class="docutils literal notranslate"><span class="pre">api.jev</span></code>, and the
+model id is pinned.</p>
+<p><strong>Agent.</strong> The session view, the watchdog’s <code class="docutils literal notranslate"><span class="pre">references/</span></code>, and the read tools of the
+<code class="docutils literal notranslate"><span class="pre">controls</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> servers plus its <code class="docutils literal notranslate"><span class="pre">tools</span></code>. Its servers run in
+read-only mode, its environment ties it to no session, and a refused call is reported in
+<code class="docutils literal notranslate"><span class="pre">refused_tools</span></code>. A run that reaches <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> or <code class="docutils literal notranslate"><span class="pre">max_cost_usd</span></code>, or that finds no room
+under the in-flight bound, is <code class="docutils literal notranslate"><span class="pre">unavailable</span></code>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="audit-trail.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Audit Trail Contract</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="bridge-dispatch.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">The Bridge Dispatch Payload</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-hold-record">The hold record</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-hold-refuses">Where the hold refuses</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-routes">The routes</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#post-api-watchdog-prompt"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/watchdog/prompt</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#get-api-watchdog-flags"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/watchdog/flags</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#post-api-watchdog-flags-answer"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/watchdog/flags/answer</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#frames">Frames</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-audit-entries">The audit entries</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-each-engine-reads">What each engine reads</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/watchdog.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
