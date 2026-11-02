@@ -52,6 +52,14 @@
   <!-- FOUC prevention: applies data-theme before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
 
+  <!-- FOUC prevention: the Agent pane's own window (`?pane=agent`, app.js's
+       agent-only boot, agent-popout.js) lays out as the chat alone from the
+       first paint; terminal.css keys on the attribute. The window runs no
+       terminal, so it offers none: data-terminal="off" keeps the surface on
+       the chat and the ⋯ menu without "Open terminal". Before the surface
+       boot, which reads it. -->
+  <script>if (new URLSearchParams(location.search).get('pane') === 'agent') { document.documentElement.setAttribute('data-pane', 'agent'); document.documentElement.setAttribute('data-terminal', 'off'); }</script>
+
   <!-- FOUC prevention: a tab that opted into the terminal reopens on it -->
   <script src="{{ prefixed('/static/js/agent-surface-boot.js') }}"></script>
 

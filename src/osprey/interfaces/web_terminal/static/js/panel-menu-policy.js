@@ -174,9 +174,15 @@ export function railOptions() {
 /**
  * The Agent row's click: open the Agent pane when it is closed, or bring the
  * open one forward, then put the caret where the operator types — the chat
- * composer, or the terminal when that is the surface showing.
+ * composer, or the terminal when that is the surface showing. While the pane
+ * runs in its own window the click brings that window to the front, as a
+ * service row's does.
  */
 function showAgentPane() {
+  if (isPoppedOut(TERMINAL_RAIL_ID)) {
+    focusPopout(TERMINAL_RAIL_ID);
+    return;
+  }
   openTerminalPanel();
   if (!isTerminalPanelOpen()) return;
   if (isTerminalSurface()) focusTerminal();
@@ -452,14 +458,39 @@ function moveToNewGroup(id) {
  * In chat the tile hosts the operator console, so the two PTY verbs would act
  * on a surface the operator cannot see and are withheld (the palette never
  * offers them). The layout rows are the same on both surfaces.
+ *
+ * Chat also offers "Pop out", as a service panel's menu does: the chat moves
+ * into its own window (agent-popout.js). While it is there the row offers
+ * "Bring back" in its place and no close, because there is no pane to close.
+ * The terminal stays docked and offers neither.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
-  const layout = [
-    { label: 'Reset layout', run: () => resetDockLayout() },
-    { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
-  ];
-  if (!isTerminalSurface()) return layout;
+  const reset = { label: 'Reset layout', run: () => resetDockLayout() };
+  const close = {
+    label: 'Close Agent pane',
+    glyph: '×',
+    danger: true,
+    run: () => closeTerminalTile(),
+  };
+  if (!isTerminalSurface()) {
+    if (isPoppedOut(TERMINAL_RAIL_ID)) {
+      return [
+        { label: 'Bring back', glyph: '⊟', run: () => bringBackPanel(TERMINAL_RAIL_ID) },
+        reset,
+      ];
+    }
+    return [
+      {
+        label: 'Pop out',
+        glyph: '↗',
+        disabled: !canPopOut(TERMINAL_RAIL_ID),
+        run: () => popOutPanel(TERMINAL_RAIL_ID),
+      },
+      reset,
+      close,
+    ];
+  }
   return [
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
@@ -478,6 +509,7 @@ export function buildTerminalMenuItems() {
       },
     },
     { divider: true },
-    ...layout,
+    reset,
+    close,
   ];
 }

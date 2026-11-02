@@ -28,7 +28,9 @@
  *     (dock-workspace.js); this module keeps its tooltip and description in
  *     step and shows how many cards wait on the operator (the chat bus's
  *     `attention` count) on its badge while the pane is closed — the one time
- *     the operator cannot see them.
+ *     the operator cannot see them. While the pane runs in its own window
+ *     (popout.js, agent-popout.js) the tile is closed too, so the badge shows
+ *     what waits in the window, and the row says where the pane is.
  *   - FADES. Each list, and the group that holds the lists (the one section
  *     of the sidebar that gives up height), fade at an edge that has more to
  *     scroll to (`.fade`, `.fade-top`), so a cut-off row reads as scrolled
@@ -46,6 +48,8 @@ import { hideTooltip } from '/design-system/js/tooltip.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
+import { TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { isPoppedOut, onPopoutChange } from './popout.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { initSidebarResize } from './sidebar-resize.js';
 
@@ -236,11 +240,19 @@ function initDisclosures(sidebar) {
 /** Cards waiting on the operator, as the chat bus last reported. */
 let waiting = 0;
 
-/** Paint the Agent row from `html[data-agent]` and the waiting count. */
+/**
+ * Paint the Agent row from `html[data-agent]`, the waiting count and whether
+ * the pane runs in its own window (popout.js). The tile is closed while the
+ * pane is popped out, so the badge shows there too; the row's tip and
+ * description then say where the pane is, and the click's meaning — the
+ * window glyph and the tip's detail are the rail's own popped-out mark
+ * (rail-row-state.js setEntryPoppedOut).
+ */
 function paintAgentRow() {
   const row = document.getElementById(AGENT_ROW_ID);
   if (!row) return;
   const closed = document.documentElement.getAttribute('data-agent') === 'closed';
+  const popped = isPoppedOut(TERMINAL_RAIL_ID);
   const badge = /** @type {HTMLElement | null} */ (row.querySelector('[data-agent-badge]'));
   const showBadge = closed && waiting > 0;
   if (badge) {
@@ -252,12 +264,23 @@ function paintAgentRow() {
     row.removeAttribute('aria-description');
     return;
   }
+  const cards = `${waiting} ${waiting === 1 ? 'card waits' : 'cards wait'} on you`;
+  if (popped) {
+    row.dataset.tip = showBadge ? `Agent · ${waiting} waiting` : 'Agent';
+    row.setAttribute(
+      'aria-description',
+      showBadge
+        ? `The Agent pane is in its own window and ${cards}; activate to bring it to the front`
+        : 'The Agent pane is in its own window; activate to bring it to the front'
+    );
+    return;
+  }
   const state = showBadge ? `${waiting} waiting` : 'closed';
   row.dataset.tip = `Agent · ${state} — click to open`;
   row.setAttribute(
     'aria-description',
     showBadge
-      ? `The Agent pane is closed and ${waiting} ${waiting === 1 ? 'card waits' : 'cards wait'} on you; activate to open it`
+      ? `The Agent pane is closed and ${cards}; activate to open it`
       : 'The Agent pane is closed; activate to open it'
   );
 }
@@ -265,6 +288,9 @@ function paintAgentRow() {
 function initAgentRow() {
   paintAgentRow();
   document.addEventListener('osprey-agent-pane', paintAgentRow);
+  onPopoutChange((panelId) => {
+    if (panelId === TERMINAL_RAIL_ID) paintAgentRow();
+  });
   onChat('attention', (detail) => {
     waiting = Number.isFinite(detail?.waiting) ? Math.max(0, detail.waiting) : 0;
     paintAgentRow();

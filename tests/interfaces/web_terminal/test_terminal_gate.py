@@ -63,12 +63,18 @@ def _client(workspace_dir, web):
     return terminal_client(workspace_dir, config_path=config_file)
 
 
+def _html_tag(body: str) -> str:
+    """The page's ``<html>`` start tag, where the server stamps the gate."""
+    start = body.index("<html ")
+    return body[start : body.index(">", start)]
+
+
 def test_the_page_says_off(workspace_dir):
     with _client(workspace_dir, {"terminal": False}) as client:
         body = client.get("/").text
         payload = client.get("/api/panels").json()
 
-    assert 'data-terminal="off"' in body
+    assert 'data-terminal="off"' in _html_tag(body)
     assert "terminal" not in payload
 
 
@@ -76,7 +82,7 @@ def test_an_absent_key_changes_nothing(workspace_dir):
     with _client(workspace_dir, {"theme": "dark"}) as client:
         body = client.get("/").text
 
-    assert "data-terminal" not in body
+    assert "data-terminal" not in _html_tag(body)
 
 
 def test_the_pty_socket_is_refused_and_nothing_is_spawned(workspace_dir):

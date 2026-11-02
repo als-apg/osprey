@@ -26,13 +26,24 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   fitTerminal: () => {},
   getCurrentSessionId: () => null,
 }));
-// No project key: persistence stays inert, so every apply builds a default.
+// The project key persistence resolves, when a test gives it one; with none,
+// persistence stays inert and every apply builds a default.
+const persistence = vi.hoisted(() => ({ projectKey: /** @type {string | null} */ (null) }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({
-  fetchJSON: async () => ({}),
+  fetchJSON: async () => (persistence.projectKey ? { project_key: persistence.projectKey } : {}),
 }));
 vi.mock('/design-system/js/theme-manager.js', async (importOriginal) => ({
   .../** @type {object} */ (await importOriginal()),
   subscribe: () => {},
+}));
+// Whether the Agent pane runs in its own window (popout.js), as the layout
+// paths ask it; the pop-out itself is popout.js's contract.
+const popout = vi.hoisted(() => ({ popped: false }));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
+  isPoppedOut: (/** @type {string} */ id) => id === 'terminal' && popout.popped,
+  popOutPanel: () => true,
+  canPopOut: () => true,
+  onPopoutChange: () => {},
 }));
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js')} */
@@ -73,6 +84,9 @@ function mountHub() {
 
 beforeEach(async () => {
   vi.resetModules();
+  persistence.projectKey = null;
+  popout.popped = false;
+  localStorage.clear();
   document.documentElement.removeAttribute('data-agent');
   mountHub();
   api = makeDockApi();
@@ -148,6 +162,66 @@ describe('Agent pane state', () => {
   test('the tile carries the Agent title', () => {
     dock.initDockWorkspace();
     expect(api.getPanel('terminal').title).toBe('Agent');
+  });
+});
+
+describe('while the Agent pane runs in its own window', () => {
+  /** Pop the pane out: the window's adoption closes the tile. */
+  function popOut() {
+    dock.closeTerminalPanel();
+    popout.popped = true;
+  }
+
+  test('a reset builds the default without the pane', () => {
+    dock.initDockWorkspace();
+    popOut();
+    dock.resetDockLayout();
+    expect(dock.isTerminalPanelOpen()).toBe(false);
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+    expect(events).toEqual([true, false]);
+  });
+
+  test('the Agent row click re-creates nothing: the window is the pane', () => {
+    dock.initDockWorkspace();
+    popOut();
+    dock.openTerminalPanel();
+    expect(dock.isTerminalPanelOpen()).toBe(false);
+    expect(events).toEqual([true, false]);
+  });
+
+  test('a stored layout that carries the pane restores without it', async () => {
+    persistence.projectKey = 'p1';
+    localStorage.setItem(
+      'osprey-dock-layout-p1',
+      JSON.stringify({
+        version: 2,
+        layout: {
+          split: 'row',
+          items: [
+            { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.6 },
+            { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+          ],
+        },
+        panels: {},
+      })
+    );
+    dock.initDockWorkspace();
+    popOut();
+    await vi.waitFor(() => expect(api.getPanel('iframe:ariel')).not.toBeNull());
+
+    expect(dock.isTerminalPanelOpen()).toBe(false);
+    expect(api.getPanel('terminal')).toBeNull();
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+  });
+
+  test('the window closing brings the pane back through the ordinary reopen', () => {
+    dock.initDockWorkspace();
+    popOut();
+    popout.popped = false;
+    dock.openTerminalPanel();
+    expect(dock.isTerminalPanelOpen()).toBe(true);
+    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
+    expect(events).toEqual([true, false, true]);
   });
 });
 

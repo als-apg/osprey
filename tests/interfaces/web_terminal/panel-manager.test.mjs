@@ -3039,20 +3039,75 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('in chat the Agent menu keeps only the layout rows', async () => {
+  test('in chat the Agent menu keeps the layout rows, and adds Pop out', async () => {
     await bootWorkspace();
 
     // The tile hosts the operator console there, so the two PTY verbs would
-    // act on a surface the operator cannot see and are withheld.
+    // act on a surface the operator cannot see and are withheld; the console
+    // can move into its own window (agent-popout.js registers the pane on the
+    // pop-out seam at boot; here it is not, so the row is offered but inert).
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Reset layout', 'Close Agent pane']);
+    expect(menuLabels()).toEqual(['Pop out', 'Reset layout', 'Close Agent pane']);
+    expect(menuRow('Pop out')?.getAttribute('aria-disabled')).toBe('true');
     /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
     expect(resetDockLayout).toHaveBeenCalledTimes(1);
     rightClick(entry('terminal'));
     /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
+  });
+
+  /**
+   * Register the Agent pane on the pop-out seam, as app.js does after the
+   * panel manager boots, and open its window as the menu's Pop out does.
+   */
+  async function popOutAgent() {
+    const agent =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-popout.js');
+    agent.initAgentPopout({ navigate: () => {} });
+    const popup = {
+      closed: false,
+      opener: window,
+      name: 'osprey-popout-terminal',
+      focus: vi.fn(),
+      close: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    const open = vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (popup));
+    rightClick(entry('terminal'));
+    expect(menuRow('Pop out')?.getAttribute('aria-disabled')).not.toBe('true');
+    /** @type {HTMLElement} */ (menuRow('Pop out')).click();
+    return { agent, popup, open };
+  }
+
+  test('in chat "Pop out" opens the Agent window and closes the tile; the row then offers "Bring back"', async () => {
+    await bootWorkspace();
+    const { popup, open } = await popOutAgent();
+
+    const [url, name] = open.mock.calls[0];
+    const opened = new URL(String(url));
+    expect(opened.searchParams.get('pane')).toBe('agent');
+    expect(opened.searchParams.get('popout')).toBe('true');
+    expect(name).toBe('osprey-popout-terminal');
+    expect(closeTerminalPanel).toHaveBeenCalledTimes(1);
+    expect(entry('terminal').classList.contains('popped-out')).toBe(true);
+
+    rightClick(entry('terminal'));
+    expect(menuLabels()).toEqual(['Bring back', 'Reset layout']);
+    /** @type {HTMLElement} */ (menuRow('Bring back')).click();
+    expect(popup.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('in chat the Agent row click brings the open window to the front, re-docking nothing', async () => {
+    await bootWorkspace();
+    const { popup } = await popOutAgent();
+    openTerminalPanel.mockClear();
+
+    entry('terminal').click();
+
+    expect(popup.focus).toHaveBeenCalledTimes(1);
+    expect(openTerminalPanel).not.toHaveBeenCalled();
   });
 
   test('a click on the Agent row opens the pane and focuses the terminal — twice, never a close', async () => {

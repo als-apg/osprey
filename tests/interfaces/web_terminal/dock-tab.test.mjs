@@ -5,7 +5,8 @@
  * Service tiles carry a visible `.tile-tab-title` and a Pop out button, and a
  * TAB STRIP in place of the title once the tile holds several tabs; the
  * Agent tile adopts a live bar instead — the chat console's `.op-session-bar`
- * in chat, the `.terminal-header` on the terminal surface. Run:
+ * in chat, where it pops out too, the `.terminal-header` on the terminal
+ * surface. Run:
  *   npx vitest run tests/interfaces/web_terminal/dock-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -180,13 +181,23 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has no Pop out button', async () => {
-    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
-    setTerminalHeaderSource(detachedTerminalHeader());
+  test("the chat's Agent tile pops the pane out, inside the click, before its close", async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    setTerminalConsoleBarSource(detachedConsoleBar());
+    const api = fakeApi();
     const tab = createTileTab('terminal');
-    tab.init({ title: 'Agent', params: {}, api: fakeApi() });
+    tab.init({ title: 'Agent', params: {}, api });
 
-    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+    const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-popout'));
+    expect(popout.nextElementSibling?.classList.contains('tile-tab-close')).toBe(true);
+    expect(popout.getAttribute('aria-label')).toBe('Pop out');
+    popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(canPopOut).toHaveBeenCalledWith('terminal');
+    expect(popOutPanel).toHaveBeenCalledExactlyOnceWith('terminal');
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
+    expect(api.close).not.toHaveBeenCalled();
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
@@ -335,7 +346,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, close', async () => {
+    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, pop out, close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -360,6 +371,7 @@ describe('tile-tab renderer', () => {
         'Desktop notifications',
         'Export',
         'Earlier conversations',
+        'Pop out',
         'Close Agent pane',
       ]);
     });

@@ -21,7 +21,7 @@ import {
 import { initDockDrop } from './dock-drop.js';
 import { closeKey, defaultLayout, reopenTerminal } from './dock-open.js';
 import { withEchoSuppressed } from './dock-sync.js';
-import { onPopoutChange } from './popout.js';
+import { isPoppedOut, onPopoutChange } from './popout.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { keysOf } from '/static/vendor/dock-engine.mjs';
 import { subscribe } from '/design-system/js/theme-manager.js';
@@ -374,10 +374,12 @@ function applyHeld(layout) {
  * Build the default arrangement: the terminal card alone (full width until a
  * service placeholder docks to its left at the 60/40 split — see
  * dock-open.js's firstTile), replacing whatever the dock holds. Shared by
- * first boot and resetDockLayout().
+ * first boot and resetDockLayout(). While the Agent pane runs in its own
+ * window (popout.js) the card stays out, as a service tile does while popped
+ * out: the dock starts empty and the window's close is what brings it back.
  */
 function arrangeDefaultLayout() {
-  applyHeld(defaultLayout());
+  applyHeld(isPoppedOut(PANEL_TERMINAL) ? null : defaultLayout());
 }
 
 /**
@@ -467,10 +469,13 @@ function syncAgentPane() {
  * source element, so the running xterm/chat state survives close → reopen
  * (the same mechanism resetDockLayout relies on). A reopened tile docks at
  * the grid's right edge, the pane's home side.
+ * While the pane runs in its own window (popout.js) nothing is re-created:
+ * the window is the pane's home until it closes, and the row click that
+ * reaches here brings that window to the front instead (panel-menu-policy.js).
  */
 export function openTerminalPanel() {
   const holder = layoutHolder;
-  if (!dockApi || !holder) return;
+  if (!dockApi || !holder || isPoppedOut(PANEL_TERMINAL)) return;
   const result = holder.run((layout, ctx) => reopenTerminal(layout, ctx.dock));
   if (!result.changed) {
     // Already in its tile: dockview only has to bring the tile forward.
@@ -630,7 +635,9 @@ function safeKeys(value) {
  * Load, repair and apply the persisted layout through the holder. The repair
  * (dock-reconcile.js) closes every key the dock cannot build any more; a
  * layout that lost the terminal gets it back at the dock's right edge
- * (dock-open.js's reopenTerminal), so a restore always shows the terminal.
+ * (dock-open.js's reopenTerminal), so a restore always shows the terminal —
+ * unless the pane runs in its own window (popout.js), when a terminal the
+ * layout carries is closed instead, because the window's close brings it back.
  * Returns whether a stored layout was applied: no value, another version, an
  * invalid layout or one with nothing left all return false and leave the
  * default grid standing (the next change overwrites the value). A layout that
@@ -643,7 +650,8 @@ function applyStoredLayout() {
   if (!holder || !stored) return false;
   let layout = reconcile(stored.layout, buildableKeys(stored.layout));
   if (!layout) return false;
-  if (!keysOf(layout).includes(PANEL_TERMINAL)) {
+  if (isPoppedOut(PANEL_TERMINAL)) layout = closeKey(layout, PANEL_TERMINAL).layout;
+  else if (!keysOf(layout).includes(PANEL_TERMINAL)) {
     layout = reopenTerminal(layout, holder.dock()).layout;
   }
   const previous = restoredPanels;

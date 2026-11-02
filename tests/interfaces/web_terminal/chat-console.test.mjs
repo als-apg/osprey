@@ -15,6 +15,7 @@ import { test, expect, describe } from 'vitest';
 import {
   barButton,
   buildConsole,
+  renderChatBootFailure,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-console.js';
 
 describe('Agent bar', () => {
@@ -81,5 +82,20 @@ describe('barButton', () => {
 
   test('an unknown icon name fails at the call site', () => {
     expect(() => barButton('x', 'no-such-icon', 'X')).toThrow(/unknown icon/);
+  });
+});
+
+describe('renderChatBootFailure', () => {
+  test('a console that never mounted says so where it would have been', () => {
+    const host = document.createElement('div');
+    host.id = 'operator-container';
+    host.textContent = 'stale';
+    document.body.append(host);
+
+    renderChatBootFailure('operator-container');
+
+    expect(host.textContent).toContain('The agent console failed to start');
+    expect(host.textContent).not.toContain('stale');
+    host.remove();
   });
 });
