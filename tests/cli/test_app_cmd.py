@@ -296,6 +296,30 @@ def test_a_js_test_alone_runs_vitest_alone_from_the_applications_directory(
     assert (design_system / "dom.js").is_file()
 
 
+def test_the_js_tools_never_see_a_secret_of_the_parent_environment(
+    runner: CliRunner,
+    lifecycle_repo: Path,
+    js: _Js,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-parent")
+    monkeypatch.setenv("LAB_TOKEN", "parent-token")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.org:3128")
+    app_dir = _app(lifecycle_repo)
+    _write(app_dir, "panel/main.js", "")
+    _write(app_dir, "tests/main.test.js", "")
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    for tool in ("eslint", "vitest"):
+        _argv, _cwd, env = js.call(tool)
+        assert {"ANTHROPIC_API_KEY", "LAB_TOKEN", "HTTPS_PROXY"}.isdisjoint(env)
+        assert env["PATH"] == os.environ["PATH"]
+    _argv, _cwd, npm_env = js.call("npm")
+    assert npm_env["HTTPS_PROXY"] == "http://proxy.example.org:3128"
+
+
 def test_a_js_file_in_tests_that_matches_no_glob_runs_no_vitest(
     runner: CliRunner, lifecycle_repo: Path, js: _Js
 ) -> None:
