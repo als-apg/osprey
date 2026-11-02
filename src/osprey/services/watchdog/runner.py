@@ -251,6 +251,9 @@ class WatchdogRunner:
     :param config: The full config mapping (the Jev settings and interactive budget).
     :param build_dir: The built project an agent watchdog runs in.
     :param bound: The agent-run bound; in-process by default.
+    :param may_hold: Asked when a flagged verdict would open a flag; ``False``
+        records the verdict and opens none. A run already in flight when an admin
+        turns the watchdog off therefore ends without holding.
     """
 
     def __init__(
@@ -264,6 +267,7 @@ class WatchdogRunner:
         config: Mapping[str, Any] | None = None,
         build_dir: Path | None = None,
         bound: RunBound | None = None,
+        may_hold: Callable[[], bool] = lambda: True,
     ) -> None:
         self._definitions = tuple(d for d in definitions if d.enabled)
         self._recorder = recorder
@@ -275,6 +279,7 @@ class WatchdogRunner:
         self._config: Mapping[str, Any] = config or {}
         self._build_dir = build_dir
         self._bound: RunBound = bound or InProcessBound()
+        self._may_hold = may_hold
         self._tasks: set[asyncio.Task[Any]] = set()
         self._cancellable: set[asyncio.Task[Any]] = set()
         self._closing = False
@@ -483,7 +488,7 @@ class WatchdogRunner:
         """Flag, record, announce. Each step's failure costs only that step."""
         flag_id: str | None = None
         flag_failed = False
-        if verdict.flagged and ids.can_hold:
+        if verdict.flagged and ids.can_hold and self._may_hold():
             try:
                 flag_id = await self._open_flag(defn, ids, verdict)
             except Exception as exc:
