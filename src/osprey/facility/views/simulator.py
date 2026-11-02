@@ -36,9 +36,10 @@ is not writable.
 ``seeds.json`` maps each channel carrying a seed record to that record.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
 states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
-plus ``inactive: model not served`` when the render does not serve it; a
-scenario named ``still`` that stills every reading is listed when no file
-defines one. Each
+plus ``inactive: model not served`` when the render does not serve it;
+``still`` is the sorted list of float addresses its ``all``, addresses and
+selections resolve to; a scenario named ``still`` that stills every float
+reading is listed when no file defines one. Each
 file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
@@ -59,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
-from osprey.facility.records import FacilityRecords
+from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation import STILL_SCENARIO
@@ -117,7 +118,6 @@ _SCENARIO_BLOCKS = (
     "drivers",
     "couple",
     "noise",
-    "still",
     "channel_faults",
 )
 
@@ -314,6 +314,72 @@ def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     return {"schema": SEEDS_SCHEMA, "seeds": seeds}
 
 
+def _float_addresses(channels: Iterable[Mapping[str, Any]]) -> set[str]:
+    return {
+        str(channel["id"])
+        for channel in channels
+        if channel.get("value_type", DEFAULT_VALUE_TYPE) == DEFAULT_VALUE_TYPE
+    }
+
+
+def _resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> list[str]:
+    """The float addresses a scenario's ``still`` names, sorted, each once.
+
+    ``all`` is every float channel, an address is itself, and a selection is the
+    float channels its query matches, over every model of the file.
+
+    Args:
+        records: The facility file's records.
+        scenario: A scenario stating ``still``.
+
+    Returns:
+        The addresses the scenario stills.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a selection matches no float
+            channel, or a resolved reading is one whose ``noise`` or ``couple``
+            the scenario sets.
+    """
+    from osprey.facility.errors import FacilityBuildError
+
+    name = str(scenario["name"])
+
+    def stop(detail: str, remedy: str) -> FacilityBuildError:
+        return FacilityBuildError(
+            "value-invalid",
+            name,
+            [f"{SCENARIOS_DIR}/{name}.yaml"],
+            remedy,
+            record_kind="scenario",
+            detail=detail,
+        )
+
+    still = scenario["still"]
+    resolved: set[str] = set()
+    if still == STILL_ALL:
+        resolved = _float_addresses(records.of_kind("channel"))
+    else:
+        for entry in still:
+            if isinstance(entry, str):
+                resolved.add(entry)
+                continue
+            matched = _float_addresses(records.select_channels(ChannelSelection(**entry)))
+            if not matched:
+                raise stop(
+                    f"`still` selection {dict(entry)!r} matches no float channel",
+                    "correct this selection in `still`",
+                )
+            resolved |= matched
+    for slot in ("noise", "couple"):
+        clashes = sorted(resolved.intersection(scenario.get(slot) or ()))
+        if clashes:
+            raise stop(
+                f"`{slot}.{clashes[0]}` sets the motion of a reading `still` stills",
+                "a scenario either stills a reading or sets its motion",
+            )
+    return sorted(resolved)
+
+
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
     scenarios: list[dict[str, Any]] = []
     for scenario in sorted(
@@ -323,6 +389,8 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
         for block in _SCENARIO_BLOCKS:
             if scenario.get(block) is not None:
                 entry[block] = copy.deepcopy(scenario[block])
+        if scenario.get("still") is not None:
+            entry["still"] = _resolved_still(inputs.records, scenario)
         faults = scenario.get("faults")
         if faults is not None:
             entry["faults"] = {}
@@ -333,7 +401,9 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
                 entry["faults"][model] = fault
         scenarios.append(entry)
     if all(str(entry["name"]) != STILL_SCENARIO for entry in scenarios):
-        scenarios.append(copy.deepcopy(_BUILT_IN_STILL))
+        scenarios.append(
+            {**_BUILT_IN_STILL, "still": _resolved_still(inputs.records, _BUILT_IN_STILL)}
+        )
         scenarios.sort(key=lambda entry: str(entry["name"]))
     return {"schema": SCENARIOS_SCHEMA, "scenarios": scenarios}
 
