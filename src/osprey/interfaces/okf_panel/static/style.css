@@ -73,11 +73,19 @@ body {
   overflow: hidden;
 }
 
+/* The contents list shows only where js/contents.js opens it: the overview
+   is a table of contents itself. Hidden means gone, divider and all, so its
+   links leave the tab order too. */
+#app[data-contents='closed'] #sidebar,
+#app[data-contents='closed'] #sidebar-resizer {
+  display: none;
+}
+
 /* The splitter between sidebar and reader carries `.osprey-splitter` from the
    design system's base.css — the grip-pill visual shared with the artifact
    gallery, the PLAN panel, and the hub's dockview sashes. Nothing to restate
-   here; the only OKF-specific splitter rule is the `display: none` for the
-   stacked responsive layout further down. */
+   here; the only OKF-specific splitter rules hide it with the list (above)
+   and in the stacked responsive layout further down. */
 
 #search-box {
   flex: 0 0 auto;
@@ -281,10 +289,27 @@ body {
   background: var(--bg-primary);
 }
 
+/* Zero-height and sticky: the contents toggle rides the reader's top-left
+   corner while the page scrolls under it, and takes no line of the page. */
+.reader-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 0;
+}
+
+#contents-toggle {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+}
+
+/* The left padding clears the toggle (8 px in, 28 px wide), so no line of
+   the page ever runs under it. */
 #reader-content {
   max-width: 860px;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-6) var(--space-7);
+  padding: var(--space-4) var(--space-6) var(--space-7) var(--space-7);
 }
 
 .concept-title {
@@ -446,9 +471,11 @@ body {
     height: auto;
     min-height: 100vh;
   }
+  /* !important: the splitter's inline width belongs to the side-by-side
+     layout; stacked, the list spans the tile. */
   #sidebar {
-    flex: 0 0 auto;
-    max-width: none;
+    flex: 0 0 auto !important;
+    max-width: none !important;
     width: 100%;
     max-height: 45vh;
     border-right: none;
@@ -462,7 +489,7 @@ body {
     flex: 1 1 auto;
   }
   #reader-content {
-    padding: var(--space-4) var(--space-4) var(--space-6);
+    padding: var(--space-4) var(--space-4) var(--space-6) var(--space-7);
   }
 }
 
@@ -510,10 +537,12 @@ body {
    Embedded in the web-terminal hub
    ----------------------------------------------------------------
    The tile bar is the panel's one header: app.js
-   (publishHeaderContribution) contributes the search box and the Browse
-   view to it, so the in-body search box goes.
+   (publishHeaderContribution) contributes the bundle-health line, the
+   search box and the Browse view to it, so the in-body search box and the
+   sidebar's health footer go.
    ================================================================ */
 
-body.embedded #search-box {
+body.embedded #search-box,
+body.embedded #bundle-health {
   display: none;
 }

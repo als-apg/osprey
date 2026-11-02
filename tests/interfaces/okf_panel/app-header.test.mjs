@@ -118,12 +118,14 @@ beforeAll(async () => {
 });
 
 describe('okf panel tile-bar contribution (embedded)', () => {
-  test('the panel contributes the search box and the Browse view, nav last', () => {
+  test('the panel contributes the health subtitle, the search box and the Browse view, nav last', () => {
     const items = lastContribution();
     expect(items.map((/** @type {any} */ item) => `${item.kind}:${item.id}`)).toEqual([
+      'text:health',
       'search:search',
       'nav:view',
     ]);
+    expect(contributedItem('health').text).toBe('Bundle healthy');
     expect(contributedItem('search').placeholder).toBe('Search concepts…');
     expect(contributedItem('view').items).toEqual([
       { id: 'browse', label: 'Browse', active: false },
@@ -152,5 +154,16 @@ describe('okf panel tile-bar contribution (embedded)', () => {
     await headerAction('search', 'bpm');
     expect(fetched).toContain('/api/search?q=bpm');
     expect(document.getElementById('search-results')?.hidden).toBe(false);
+  });
+
+  test('on the overview a bar search opens the contents list, where its results are', async () => {
+    await headerAction('search', '');
+    await headerAction('view', 'browse');
+    const app = document.getElementById('app');
+    expect(app?.getAttribute('data-contents')).toBe('closed');
+    await headerAction('search', 'bpm');
+    expect(app?.getAttribute('data-contents')).toBe('open');
+    await headerAction('search', '');
+    expect(app?.getAttribute('data-contents')).toBe('closed');
   });
 });

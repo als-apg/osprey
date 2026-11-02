@@ -34,6 +34,7 @@ import { debounce } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import '/design-system/js/components/osprey-display-menu.js';
 import {
+  bundleHealthText,
   el,
   FACILITY_SCHEME,
   facilityLinkView,
@@ -55,7 +56,7 @@ import {
   renderSearchMessage,
   renderSearchResults,
 } from './search.js';
-import { initSidebarResize } from './resize.js';
+import { initContents, setContentsSearching, showContentsFor } from './contents.js';
 
 // Standalone, this page owns its own theme chrome (the header
 // <osprey-display-menu>), so it runs theme-manager.js in the hub role:
@@ -74,9 +75,18 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 let readerView = 'browse';
 
 /**
+ * The bundle-health line, once `/api/bundle_health` answered; null while it
+ * has not, or when the panel is not configured.
+ * @type {string | null}
+ */
+let healthText = null;
+
+/**
  * Publish this panel's tile-bar contribution. Embedded, the tile bar is the
- * panel's one header, with two items:
+ * panel's one header:
  *
+ * - the bundle-health line as the tile's subtitle, beside its name (style.css
+ *   hides the sidebar footer that carries it standalone);
  * - the sidebar's search box, rendered as the hub's magnifier pill (style.css
  *   hides the in-body one);
  * - a `view` nav whose Browse entry opens the structure overview. It is active
@@ -87,7 +97,10 @@ let readerView = 'browse';
  * Sent WHOLE (the hub replaces, never diffs) and a no-op standalone.
  */
 function publishHeaderContribution() {
+  /** @type {import('/design-system/js/header-contrib.js').HeaderItem[]} */
+  const health = healthText === null ? [] : [{ kind: 'text', id: 'health', text: healthText }];
   contributeHeader([
+    ...health,
     // Placeholder matches the in-body input in index.html.
     { kind: 'search', id: 'search', placeholder: 'Search concepts…' },
     {
@@ -100,20 +113,22 @@ function publishHeaderContribution() {
 }
 
 /**
- * Record what the reading pane is about to show and re-publish the tile bar
- * when that changes the Browse entry's active state.
+ * Record what the reading pane is about to show, re-publish the tile bar
+ * when that changes the Browse entry's active state, and let the contents
+ * list follow the view (contents.js).
  * @param {'browse' | 'page'} view
  */
 function setReaderView(view) {
   if (view === readerView) return;
   readerView = view;
   publishHeaderContribution();
+  showContentsFor(view);
 }
 
 applyEmbedded();
 
-// Draggable sidebar/reader splitter.
-initSidebarResize();
+// The contents list (the sidebar): its toggle, splitter and when it shows.
+initContents();
 
 /**
  * @typedef {Object} ConceptFrontmatter
@@ -452,6 +467,8 @@ function requireEl(id) {
    */
   async function runSearch(query) {
     const q = (query || '').trim();
+    // The results are drawn in the contents list, so a search shows it.
+    setContentsSearching(q !== '');
     if (!q) {
       clearSearchResults();
       return;
@@ -500,11 +517,11 @@ function requireEl(id) {
   // -- bundle health (osprey addition) ---------------------------------------
   //
   // Surfaces the panel's own /api/bundle_health summary (broken cross-links /
-  // frontmatter issues) as a small sidebar status line. Guarded/unconfigured
-  // panels (503) simply hide the line.
+  // frontmatter issues) as one status line: embedded, the tile bar's subtitle;
+  // standalone, the sidebar's footer. Guarded/unconfigured panels (503) show
+  // neither.
   async function loadBundleHealth() {
     const footer = document.getElementById('bundle-health');
-    if (!footer) return;
 
     let data;
     try {
@@ -512,33 +529,19 @@ function requireEl(id) {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
-      footer.hidden = true;
+      if (footer) footer.hidden = true;
       return;
     }
 
+    healthText = bundleHealthText(data);
+    publishHeaderContribution();
+    if (!footer) return;
     footer.hidden = false;
-    footer.innerHTML = '';
-    if (data.ok) {
-      footer.classList.remove('has-warnings');
-      footer.appendChild(el('span', { class: 'health-dot ok' }));
-      footer.appendChild(el('span', { class: 'health-text', text: 'Bundle healthy' }));
-    } else {
-      footer.classList.add('has-warnings');
-      const counts = data.counts || {};
-      const parts = Object.keys(counts)
-        .sort()
-        .map(function (k) {
-          return k + '=' + counts[k];
-        });
-      const total = data.total || 0;
-      footer.appendChild(el('span', { class: 'health-dot warn' }));
-      footer.appendChild(
-        el('span', {
-          class: 'health-text',
-          text: total + ' issue' + (total === 1 ? '' : 's') + ': ' + parts.join(', '),
-        })
-      );
-    }
+    footer.classList.toggle('has-warnings', !data.ok);
+    footer.replaceChildren(
+      el('span', { class: 'health-dot ' + (data.ok ? 'ok' : 'warn') }),
+      el('span', { class: 'health-text', text: healthText })
+    );
   }
 
   // -- boot ------------------------------------------------------------------
