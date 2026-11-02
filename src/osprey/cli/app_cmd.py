@@ -227,9 +227,14 @@ def _js_violations(app_dirs: Iterable[Path]) -> list[Violation]:
         return [Violation("", "", "js_toolchain", str(error))]
     from osprey.deployment.wheel_build import _wheel_build_env
 
-    # The tools run the application's own code, so they get what a wheel build gets,
-    # less the proxies: fetching is the install's business alone.
-    env = {name: value for name, value in _wheel_build_env().items() if "proxy" not in name.lower()}
+    # The tools run the application's own code, so they get what a wheel build gets, less
+    # the proxies and the installers' settings, which can carry credentials: fetching is
+    # the install's business alone.
+    env = {
+        name: value
+        for name, value in _wheel_build_env().items()
+        if "proxy" not in name.lower() and not name.startswith(("UV_", "PIP_"))
+    }
     found: list[Violation] = []
     for app_dir, panel, tests in work:
         if panel:
