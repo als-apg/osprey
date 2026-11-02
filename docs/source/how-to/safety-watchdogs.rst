@@ -70,15 +70,17 @@ To go through OpenRouter instead, set ``OPENROUTER_API_KEY`` and choose the rout
    config:
      api.jev.route: openrouter
 
-To keep the data on site, serve a model yourself with vLLM and point the route at it; no key
-is needed:
+To keep the data on site, serve a model yourself with a stock vLLM and point the ``openai``
+route at it. A key, ``api.jev.routes.openai.api_key``, is needed only when the server is not
+on ``localhost`` or a private IP address:
 
 .. code-block:: yaml
 
    config:
-     api.jev.route: TODO           # final key names from the route change
-     api.jev.base_url: http://gpu-host:8000/v1
-     api.jev.model: Qwen/Qwen3-32B
+     api.jev.route: openai
+     api.jev.routes.openai.base_url: http://10.0.0.5:8000   # the vLLM server
+     api.jev.routes.openai.model: qwen3-32b                 # the served model id
+     api.jev.input_cost_per_million_tokens: 0               # no per-call charge
 
 .. warning::
 
@@ -270,7 +272,7 @@ Decision route                             Per prompt          Per 1,000        
 =========================================  ==================  ================  ====================  =============
 TypeSafe, ``jev-1.13.0``                   $0.00006–$0.0008    $0.06–$0.76       0.10 s / 0.16–0.24 s  TypeSafe, US
 OpenRouter                                 OpenRouter's price  not measured      not measured          OpenRouter
-Self-hosted ``Qwen3-32B``, one H200, vLLM  $0                  $0, plus the GPU  0.125 s / 0.130 s     stays on site
+Self-hosted ``Qwen3-32B``, one H200, vLLM  $0                  $0, plus the GPU  0.08 s / 0.09 s       stays on site
 =========================================  ==================  ================  ====================  =============
 
 Measured 2026-11 with replay on the same 20 test sessions: both measured routes caught all 10
