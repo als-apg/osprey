@@ -64,6 +64,13 @@ def test_the_notebooks_panel_declares_no_agent_surface():
     assert (panel.mcp_allow, panel.mcp_ask, panel.mcp_writes) == ((), (), ())
 
 
+def test_a_panel_waits_for_nothing_on_stop_unless_it_says_so():
+    """The notebooks panel gives jupyter-server its kernels' shutdown; a panel
+    that declares nothing is stopped without a wait."""
+    assert sidecar_panels.SidecarPanel("x", "a:b").stop_grace_s == 0
+    assert SIDECAR_PANELS["jupyter"].stop_grace_s == 5
+
+
 @pytest.mark.parametrize("panel_id", SIDECAR_IDS)
 class TestSidecarIsABuiltinPanel:
     """Everything keyed on a panel id covers a sidecar without a second lookup."""

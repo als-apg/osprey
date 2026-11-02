@@ -85,6 +85,13 @@ class SidecarPanel:
             directory once the deployment is copied in, one per entry. A
             failing entry fails the build, so each one decides for itself what
             a missing optional package means.
+        stop_grace_s: Seconds the sidecar's stop waits between the stop signal
+            and the kill: the one number its own ``stop`` hands the process
+            stop as its grace, and the one the deployment adds the terminal's
+            own stop to when it sizes the compose service's
+            ``stop_grace_period``. A sidecar that finishes in-flight work on
+            shutdown (a write it has already sent) declares what it needs;
+            ``0`` is a sidecar whose stop waits for nothing.
     """
 
     name: str
@@ -101,6 +108,7 @@ class SidecarPanel:
     mcp_writes: tuple[str, ...] = ()
     entry_pages: tuple[str, ...] = ()
     image_checks: tuple[str, ...] = ()
+    stop_grace_s: int = 0
 
 
 #: The notebook panel's id. Named rather than spelled, because the terminal
@@ -122,6 +130,9 @@ SIDECAR_PANELS: dict[str, SidecarPanel] = {
         description="JupyterLab with kernels that follow the terminal session",
         # The sidecar's own status route, reached through the panel proxy.
         health_endpoint="/api/status",
+        # jupyter-server closes its kernels on its own shutdown; this is how
+        # long the stop lets it, before the group is killed.
+        stop_grace_s=5,
         # JupyterLab's application documents: the Lab shell's page routes and
         # the classic page routes. A user's file (``/files/``), a rendered
         # export (``/nbconvert/``), the ``/view/`` wrapper and every static or
