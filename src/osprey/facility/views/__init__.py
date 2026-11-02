@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
-from osprey.facility.build import FacilityDocument
+from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH
 
 __all__ = [
@@ -50,7 +50,7 @@ class ViewInputs:
     """What every view of one render is written from.
 
     Attributes:
-        doc: The build's facility file.
+        records: The read model of the build's facility file.
         rendered_config: The render's ``config.yml``, as a nested mapping.
         facility_dir: The build's ``data/facility`` directory, the source of
             the files a view copies.
@@ -64,7 +64,7 @@ class ViewInputs:
             importing it again. ``None`` imports every one.
     """
 
-    doc: FacilityDocument
+    records: FacilityRecords
     rendered_config: Mapping[str, Any]
     facility_dir: Path
     served: list[str]

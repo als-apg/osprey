@@ -256,7 +256,7 @@ def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
 def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     from osprey.facility.views.limits import limits_document
 
-    doc = inputs.doc
+    doc = inputs.records.document
     models = sorted(doc.get("models", []), key=lambda model: str(model["name"]))
     owners: dict[str, str] = {}
     for model in models:
@@ -323,7 +323,9 @@ def _seeds_document(doc: FacilityDocument) -> dict[str, Any]:
 
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
     scenarios: list[dict[str, Any]] = []
-    for scenario in sorted(inputs.doc.get("scenarios", []), key=lambda s: str(s["name"])):
+    for scenario in sorted(
+        inputs.records.document.get("scenarios", []), key=lambda s: str(s["name"])
+    ):
         entry: dict[str, Any] = {"name": scenario["name"]}
         for block in _SCENARIO_BLOCKS:
             if scenario.get(block) is not None:
@@ -353,7 +355,7 @@ def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     attach is copied, and listed, once.
     """
     copies: dict[Path, Path] = {}
-    for scenario in inputs.doc.get("scenarios", []):
+    for scenario in inputs.records.document.get("scenarios", []):
         name = str(scenario["name"])
         source = inputs.facility_dir / SCENARIOS_DIR / name
         scenario_logbook(scenario, source)
@@ -377,7 +379,7 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The files written, in the order they were written.
     """
-    doc = inputs.doc
+    doc = inputs.records.document
     code = str(doc["identity"]["code"])
     physics = [name for name in inputs.served if name != TEXTURE]
     documents = {

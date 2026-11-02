@@ -253,9 +253,10 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
     ``reason`` is present only on a view the render does not carry.
     """
     from osprey.facility import views
+    from osprey.facility.records import FacilityRecords
 
     inputs = views.ViewInputs(
-        doc=built.document,
+        records=FacilityRecords(built.document),
         rendered_config=built.rendered_config,
         facility_dir=built.facility_dir,
         served=served,

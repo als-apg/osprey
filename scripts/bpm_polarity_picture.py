@@ -42,6 +42,7 @@ from typing import Any
 
 import numpy as np
 
+from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH, Binding, SimulatorView
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -86,7 +87,7 @@ def render_simulator_view(facility_dir: Path, root: Path) -> Path:
     write_simulator_view(
         root,
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=config,
             facility_dir=facility_dir,
             served=resolve_served(config, doc),

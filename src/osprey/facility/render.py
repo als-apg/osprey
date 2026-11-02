@@ -126,10 +126,11 @@ def render_facility_outputs(
             or a served block's ``probe_channel`` is not one of its channels.
     """
     from osprey.facility import views
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.served import check_served_probes, resolve_served
 
     inputs = views.ViewInputs(
-        doc=doc,
+        records=FacilityRecords(doc),
         rendered_config=rendered_config,
         facility_dir=facility_dir,
         served=resolve_served(rendered_config, doc),

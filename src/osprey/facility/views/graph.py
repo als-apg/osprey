@@ -429,5 +429,5 @@ def write_graph_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     root.mkdir(parents=True, exist_ok=True)
     target = root / GRAPH_FILE
-    target.write_bytes(graph_text(inputs.doc).encode("utf-8"))
+    target.write_bytes(graph_text(dict(inputs.records.document)).encode("utf-8"))
     return [target]

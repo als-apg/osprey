@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
@@ -76,7 +78,10 @@ def _inputs(doc: dict[str, Any], rendered_config: dict[str, Any] | None = None) 
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc, rendered_config=rendered_config or {}, facility_dir=Path("."), served=[]
+        records=FacilityRecords(doc),
+        rendered_config=rendered_config or {},
+        facility_dir=Path("."),
+        served=[],
     )
 
 

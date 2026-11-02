@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import facility_bytes
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views import VIEWS, ViewInputs
@@ -241,7 +242,9 @@ def test_the_device_class_and_those_above_it_are_declared() -> None:
 
 def test_the_view_writes_one_file(tmp_path: Path) -> None:
     doc = _doc()
-    inputs = ViewInputs(doc=doc, rendered_config={}, facility_dir=tmp_path, served=[])
+    inputs = ViewInputs(
+        records=FacilityRecords(doc), rendered_config={}, facility_dir=tmp_path, served=[]
+    )
 
     written = write_graph_view(tmp_path / "graph", inputs)
 
@@ -254,7 +257,7 @@ def test_the_graph_view_is_always_written() -> None:
 
     assert view.path == "graph"
     assert view.written_when(
-        ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+        ViewInputs(records=FacilityRecords({}), rendered_config={}, facility_dir=Path(), served=[])
     ) == (True, "always written")
 
 

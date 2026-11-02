@@ -235,7 +235,9 @@ def measured_models(inputs: ViewInputs) -> tuple[list[str], dict[str, str]]:
     """
     written: list[str] = []
     omitted: dict[str, str] = {}
-    for model in sorted(inputs.doc.get("models", []), key=lambda record: str(record["name"])):
+    for model in sorted(
+        inputs.records.document.get("models", []), key=lambda record: str(record["name"])
+    ):
         name = str(model["name"])
         if name == TEXTURE:
             continue
@@ -836,7 +838,7 @@ def _configuration(
         TUNE_MONITOR_NAME,
     )
 
-    doc = inputs.doc
+    doc = inputs.records.document
     record = _model_record(doc, model)
     measurement = record.get("measurement") or {}
     solve = ((record.get("settings") or {}).get(str(record["engine"])) or {}).get("solve")
