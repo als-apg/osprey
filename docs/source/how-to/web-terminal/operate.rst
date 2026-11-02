@@ -158,7 +158,7 @@ shows a dismissable card saying ``/login`` is on offer. With the key off,
 nothing changes.
 
 Whether the ``/login`` flow completes inside a terminal container has not
-been tried yet: the first site that turns the switch on does that trial. In
+been tried yet: the first site that enables the key does that trial. In
 a headless container the CLI should fall back to its paste-a-code path,
 which the terminal can carry.
 
