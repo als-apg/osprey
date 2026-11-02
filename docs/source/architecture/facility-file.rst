@@ -110,9 +110,9 @@ filters the file's own channel records and names a model or a place.
      - ``resolve`` order.
      - Empty when dangling.
    * - ``select_channels(selection)``
-     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group`` and ``signal`` facets AND; a place takes every place under it.
+     - The channels a ``ChannelSelection`` matches. Its ``model``, ``place``, ``group``, ``signal``, ``role`` and ``plane`` facets AND; a place takes every place under it; ``role`` and ``plane`` match the wiring record naming the address.
      - Document order.
-     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold.
+     - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or a role or plane outside the schema's vocabulary.
 
 ``osprey.facility.references.resolved_references`` is the one describer of
 references: every surface that returns ``facility_references`` calls it.

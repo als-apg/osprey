@@ -119,23 +119,39 @@ class ChannelSelection:
         place: A place's id; the selection takes that place and every place under it.
         group: A group's id.
         signal: The ``signal`` a channel states.
+        role: The ``role`` of the wiring record naming a channel's address.
+        plane: The ``plane`` of the wiring record naming a channel's address.
 
     Raises:
-        ValueError: The selection names neither a model nor a place, or a value
-            is not a string.
+        ValueError: The selection names neither a model nor a place, a value is
+            not a string, or a role or plane is outside the facility schema's
+            vocabulary.
     """
 
     model: str | None = None
     place: str | None = None
     group: str | None = None
     signal: str | None = None
+    role: str | None = None
+    plane: str | None = None
 
     def __post_init__(self) -> None:
-        for value in (self.model, self.place, self.group, self.signal):
+        for value in (self.model, self.place, self.group, self.signal, self.role, self.plane):
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"a selection's values are strings, not {value!r}")
         if self.model is None and self.place is None:
             raise ValueError("a selection names a model or a place")
+        if self.role is not None or self.plane is not None:
+            self._check_wiring_vocabulary()
+
+    def _check_wiring_vocabulary(self) -> None:
+        """Refuse a ``role`` or ``plane`` the facility schema does not state."""
+        from osprey.facility.schema import core
+
+        if self.role is not None and self.role not in {m.value for m in core.WiringRoleEnum}:
+            raise ValueError(f"a selection's role is a wiring role, not {self.role!r}")
+        if self.plane is not None and self.plane not in {m.value for m in core.PlaneEnum}:
+            raise ValueError(f"a selection's plane is a wiring plane, not {self.plane!r}")
 
 
 class FacilityRecords:
@@ -276,6 +292,10 @@ class FacilityRecords:
         place (its device's ``place``, else its own ``on.place``) is the named
         place or lies under it in the ``/``-separated tree of place ids. ``group``
         takes a channel whose ``on.device`` is a member. ``signal`` is equality.
+        ``role`` and ``plane`` match the wiring record naming the channel's address,
+        never the channel's own ``role`` slot: with ``model`` set, that model's
+        record; otherwise the one record any model holds. An unwired address matches
+        neither.
 
         Args:
             selection: The facets, which AND.
@@ -317,7 +337,18 @@ class FacilityRecords:
                     return False
             if selection.group is not None and str(on_device) not in members:
                 return False
-            return selection.signal is None or channel.get("signal") == selection.signal
+            if selection.signal is not None and channel.get("signal") != selection.signal:
+                return False
+            if selection.role is None and selection.plane is None:
+                return True
+            held = self._wiring.get(str(channel["id"]))
+            if held is None or selection.model not in (None, held[0]):
+                return False
+            entry = held[1]
+            return selection.role in (None, entry.get("role")) and selection.plane in (
+                None,
+                entry.get("plane"),
+            )
 
         return tuple(channel for channel in self._by_kind["channel"].values() if matches(channel))
 
