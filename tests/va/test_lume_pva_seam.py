@@ -38,6 +38,7 @@ on any skip.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import math
@@ -1309,6 +1310,31 @@ class TestStubComposite:
         assert _ca_text(failed) == "the stub has no deck"
         assert stub_server.pva_get(failed)["value"] == "the stub has no deck"
         assert _ca_text(serving) == "ok"
+
+    def test_a_status_read_through_the_real_connector_names_the_failed_child(
+        self,
+        stub_server: _Server,  # noqa: ARG002 - the fixture is the server being read
+    ) -> None:
+        """The read ``sim status --target`` and the health category make, end to end."""
+        from osprey.simulation.status import read_in_child
+
+        port = int(CA_PORTS["stub"])
+        gateway = {"address": "127.0.0.1", "port": port, "use_name_server": False}
+        section = {
+            "type": "virtual_accelerator",
+            "connector": {
+                "virtual_accelerator": {"gateways": {"read_only": gateway, "write_access": gateway}}
+            },
+        }
+        addresses = {model: f"{STUB_CODE}:SIM:{model}:STATUS" for model in ("F", "M")}
+
+        statuses = asyncio.run(
+            read_in_child(
+                section, "va", ["F", "M"], addresses, config_path=None, timeout_s=CA_TIMEOUT_S * 2
+            )
+        )
+
+        assert statuses == {"F": "the stub has no deck", "M": "ok"}
 
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
         for address in (STUB_FLAG, STUB_MODE):

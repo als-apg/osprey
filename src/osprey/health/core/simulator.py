@@ -9,7 +9,9 @@ simulator lives in each agent process, and ``osprey sim status`` reports it.
 
 Each row reads the model's status channel, ``<code>:SIM:<model>:STATUS``,
 through the target's own connector, the same read ``osprey sim status
---target`` makes:
+--target`` makes. Each target is read in a child process: categories run
+concurrently and a process has one Channel Access context, so connecting to a
+target here would repoint the connector the rest of the suite reads through.
 
 * ``ok`` -- the model serves;
 * ``ok`` -- the model names no deck and wires no channel, so it is not built,
@@ -38,8 +40,8 @@ if TYPE_CHECKING:
 
 CATEGORY = "simulator"
 
-#: Seconds one target may take to answer for all its models.
-_READ_TIMEOUT_S = 10.0
+#: Seconds one target's child may take to start and answer for all its models.
+_READ_TIMEOUT_S = 20.0
 
 
 def simulator(
@@ -80,10 +82,13 @@ def simulator(
         if not models:
             return []
         addresses = dict(view.status_addresses())
-        rows: list[CheckResult] = []
-        for target in targets:
-            rows.extend(await _probe(section, target, models, addresses))
-        return rows
+        from osprey_connectors.workspace import rendered_config_path
+
+        config_path = rendered_config_path(repo_root)
+        probed = await asyncio.gather(
+            *(_probe(section, target, models, addresses, config_path) for target in targets)
+        )
+        return [row for rows in probed for row in rows]
 
     return _run
 
@@ -117,17 +122,16 @@ def _served_targets(section: Any) -> list[str]:
 
 
 async def _probe(
-    section: Any, target: str, models: list[str], addresses: Mapping[str, str]
+    section: Any, target: str, models: list[str], addresses: Mapping[str, str], config_path: Path
 ) -> list[CheckResult]:
     """Read every model's status on one target and turn each into a row."""
-    from osprey.simulation.status import target_model_statuses
+    from osprey.simulation.status import read_in_child
     from osprey_connectors.simulation import MODEL_NO_DECK, MODEL_OK, model_state
 
     start = perf_counter()
     try:
-        statuses = await asyncio.wait_for(
-            target_model_statuses(dict(section), target, models, addresses),
-            timeout=_READ_TIMEOUT_S,
+        statuses = await read_in_child(
+            section, target, models, addresses, config_path=config_path, timeout_s=_READ_TIMEOUT_S
         )
     except Exception as exc:  # any read failure is one advisory row for the target
         return [

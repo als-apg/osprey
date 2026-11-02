@@ -13,8 +13,9 @@ rows.
 from __future__ import annotations
 
 import asyncio
+import io
+import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -45,21 +46,6 @@ IN_PROCESS = {
 }
 
 
-class _StatusChannels:
-    """A connector serving fixed status texts as char arrays, as a CA read returns them."""
-
-    def __init__(self, values: dict[str, str]) -> None:
-        self.values = values
-        self.disconnected = False
-
-    async def read_channel(self, address: str, timeout: float | None = None) -> Any:
-        del timeout
-        return SimpleNamespace(value=[*self.values[address].encode("utf-8"), 0])
-
-    async def disconnect(self) -> None:
-        self.disconnected = True
-
-
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A repo root whose render holds the view: ``build/config.yml`` beside ``build/data/``."""
@@ -68,21 +54,19 @@ def repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _serve(monkeypatch: pytest.MonkeyPatch, by_target: dict[str | None, Any]) -> list[str | None]:
-    """Answer each target's connector from ``by_target``; returns the targets asked for."""
-    from osprey_connectors.factory import ConnectorFactory
+def _serve(monkeypatch: pytest.MonkeyPatch, by_target: dict[str, Any]) -> list[str]:
+    """Answer each target's child from ``by_target``; returns the targets asked for."""
+    asked: list[str] = []
 
-    asked: list[str | None] = []
-
-    async def create(section: dict, control_target: str | None = None) -> Any:
-        del section
-        asked.append(control_target)
-        answer = by_target[control_target]
+    async def read(section: Any, target: str, models: Any, addresses: Any, **kwargs: Any) -> Any:
+        del section, models, addresses, kwargs
+        asked.append(target)
+        answer = by_target[target]
         if isinstance(answer, Exception):
             raise answer
         return answer
 
-    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
+    monkeypatch.setattr("osprey.simulation.status.read_in_child", read)
     return asked
 
 
@@ -94,10 +78,7 @@ def _run(config: dict[str, Any] | None, repo: Path) -> list[Any]:
 def test_a_failed_model_is_an_error_row_naming_it_and_its_error(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    connector = _StatusChannels(
-        {"ca:SIM:AR:STATUS": AR_ERROR, "ca:SIM:BR:STATUS": "no deck", "ca:SIM:SR:STATUS": "ok"}
-    )
-    _serve(monkeypatch, {"va": connector})
+    _serve(monkeypatch, {"va": {"AR": AR_ERROR, "BR": "no deck", "SR": "ok"}})
 
     rows = {row.name: row for row in _run(VA_CONTAINER, repo)}
 
@@ -105,16 +86,12 @@ def test_a_failed_model_is_an_error_row_naming_it_and_its_error(
     assert rows["simulator_va_AR"].status is Status.ERROR
     assert rows["simulator_va_AR"].message == "AR on va: failed"
     assert AR_ERROR in rows["simulator_va_AR"].details
-    assert connector.disconnected
 
 
 def test_a_model_with_no_deck_is_ok_and_said_to_be_not_built(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    connector = _StatusChannels(
-        {"ca:SIM:AR:STATUS": "ok", "ca:SIM:BR:STATUS": "no deck", "ca:SIM:SR:STATUS": "ok"}
-    )
-    _serve(monkeypatch, {"va": connector})
+    _serve(monkeypatch, {"va": {"AR": "ok", "BR": "no deck", "SR": "ok"}})
 
     rows = {row.name: row for row in _run(VA_CONTAINER, repo)}
 
@@ -124,14 +101,8 @@ def test_a_model_with_no_deck_is_ok_and_said_to_be_not_built(
 
 
 def test_every_served_simulator_target_is_read(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    healthy = {"ca:SIM:AR:STATUS": "ok", "ca:SIM:BR:STATUS": "no deck", "ca:SIM:SR:STATUS": "ok"}
-    asked = _serve(
-        monkeypatch,
-        {
-            "va": _StatusChannels({**healthy, "ca:SIM:AR:STATUS": AR_ERROR}),
-            "standin": _StatusChannels(healthy),
-        },
-    )
+    healthy = {"AR": "ok", "BR": "no deck", "SR": "ok"}
+    asked = _serve(monkeypatch, {"va": {**healthy, "AR": AR_ERROR}, "standin": healthy})
 
     rows = {row.name: row for row in _run(VA_AND_STANDIN, repo)}
 
@@ -166,3 +137,57 @@ def test_a_render_without_a_view_gives_no_rows(tmp_path: Path) -> None:
 
 def test_no_config_gives_no_rows(repo: Path) -> None:
     assert _run(None, repo) == []
+
+
+def test_reading_a_target_never_repoints_this_processs_channel_access(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The read leaves for a child at once: no connector is built in the suite's process."""
+    from osprey_connectors.factory import ConnectorFactory
+
+    async def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a connector was built in the health process")
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", refuse)
+    monkeypatch.setattr("osprey.health.core.simulator._READ_TIMEOUT_S", 0.001)
+
+    rows = _run(VA_CONTAINER, repo)
+
+    assert [(row.name, row.status) for row in rows] == [("simulator_va", Status.WARNING)]
+
+
+def test_the_child_prints_each_models_status_read_through_the_connector(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import SimpleNamespace
+
+    from osprey.simulation import status as status_module
+    from osprey_connectors.factory import ConnectorFactory
+
+    class Channels:
+        async def read_channel(self, address: str) -> Any:
+            return SimpleNamespace(value=[*f"read {address}".encode(), 0])
+
+        async def disconnect(self) -> None:
+            pass
+
+    async def create(section: dict, control_target: str | None = None) -> Channels:
+        del section
+        assert control_target == "va"
+        return Channels()
+
+    class Exited(Exception):
+        pass
+
+    def exit_now(code: int) -> None:
+        raise Exited(code)
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
+    monkeypatch.setattr(status_module.os, "_exit", exit_now)
+    payload = {"section": {}, "target": "va", "models": ["AR"], "addresses": {"AR": "ca:AR"}}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+
+    with pytest.raises(Exited):
+        status_module._main()
+
+    assert 'OSPREY_MODEL_STATUSES {"AR": "read ca:AR"}' in capsys.readouterr().out
