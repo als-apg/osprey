@@ -1309,6 +1309,8 @@ def web(
                 port=port,
                 reload=reload,
                 log_level="info",
+                # As run_web: no permessage-deflate on the browser leg.
+                ws_per_message_deflate=False,
             )
         else:
             from osprey.interfaces.web_terminal import run_web
