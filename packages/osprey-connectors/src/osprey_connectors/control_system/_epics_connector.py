@@ -1651,13 +1651,24 @@ class EPICSConnector(ControlSystemConnector):
                 outcome unknown
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
+        # One name for the whole write, decided before any check runs. ``X``,
+        # ``ca://X`` and a spelling with surrounding whitespace are one record,
+        # and every refusal, the limits lookup, the current-value read, the put
+        # and the result judge and name that one record; a check on the raw
+        # spelling would judge a different entry than the one the put targets.
+        given = channel_address.strip()
+        channel_address = normalise_address(given)
+
         # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
         # of limits validation: validating max_step reads the channel's current
         # value with a blocking `caget`, so a refusal placed after it would put
         # the CA client on an address routed over PVAccess — the very thing this
         # refusal exists to prevent — and would do it for the arrays PVA channels
-        # carry, which have no scalar limit to be compared against.
-        if self._is_pva_channel(channel_address):
+        # carry, which have no scalar limit to be compared against. The globs
+        # are matched on the spelling as given (the reads' contract) and on the
+        # one name the put would use, so neither padding nor a scheme slips a
+        # PVA-routed record past the refusal.
+        if self._is_pva_channel(given) or self._is_pva_channel(channel_address):
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
@@ -1669,14 +1680,6 @@ class EPICSConnector(ControlSystemConnector):
                     "over PVAccess and is read-only in this deployment. No write was attempted."
                 ),
             )
-
-        # One name for the whole write. ``X``, ``ca://X`` and a spelling with
-        # surrounding whitespace are one record, and the limits database, the
-        # current-value read, the refusals, the put and the result must all
-        # judge and name that one record; a lookup on the raw spelling would
-        # pick a different limits entry than the one the put targets. The
-        # PVAccess check above stays on the raw address by its own contract.
-        channel_address = normalise_address(channel_address.strip())
 
         # Step 0b: the verdict allowed this write (the guard asked it first), but
         # the gateway this connector selected at connect() may predate the
