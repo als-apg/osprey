@@ -1,4 +1,4 @@
-"""Whether the expert view's Claude Code process is mid-turn, per session key.
+"""Whether the terminal's Claude Code process is mid-turn, per session key.
 
 The store is one mapping on ``app.state.turn_state``, keyed by session key::
 

@@ -1,7 +1,7 @@
 {#-
   Runtime contract for the write-gating layers: the osprey_writes_check.py
   PreToolUse hook and the MCP audit middleware both read this file as data.
-  Every key is emitted UNCONDITIONALLY — never under the writes-off
+  Every write-gating key is emitted UNCONDITIONALLY — never under the writes-off
   kill-switch condition — because both consumers run under a readonly session
   posture too, where that condition never applied.
 
@@ -41,6 +41,10 @@
   by its full `mcp__<app>__<tool>` name, and `app_error_types` the class and
   guidance text of each `<app>.<type>` error, both derived from the rendered
   `apps.<name>` leaves; `{}` when the render has no application.
+
+  `watchdogs_enabled` is the one conditional key: `true` when the render has an
+  enabled watchdog and absent otherwise, so a build with none renders what it
+  would render without the feature. It has nothing to do with writes.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
@@ -77,4 +81,7 @@
   "measurement": {{ measurement | default({}, true) | tojson }},
   "app_approvals": {{ app_approvals | default({}, true) | tojson }},
   "app_error_types": {{ app_error_types | default({}, true) | tojson }}
+{%- if watchdogs_enabled %},
+  "watchdogs_enabled": true
+{%- endif %}
 }

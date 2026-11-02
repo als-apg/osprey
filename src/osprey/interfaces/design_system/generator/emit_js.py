@@ -90,7 +90,7 @@ STORAGE_KEY = "osprey-theme"
 #: ``static/js/storage-scope.js`` is the written-down definition of this rule;
 #: theme-boot.js is a pre-paint IIFE that cannot import it, so the generated
 #: source below inlines a mirror of its ``scopedStorageKey()``, exactly as the
-#: hand-written mode-boot.js does. Change the rule there and here together.
+#: hand-written sidebar-boot.js does. Change the rule there and here together.
 SCOPE_ATTRIBUTE = "data-osprey-storage-scope"
 
 #: Shared do-not-edit preamble for both generated files, as ``//`` line
@@ -414,8 +414,8 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 
     The emitted ``storageKey()`` inlines ``storage-scope.js``'s
     ``scopedStorageKey()`` rather than importing it — this script imports
-    nothing — mirroring what the hand-written ``mode-boot.js`` does for the
-    UI-mode axis.
+    nothing — mirroring what the hand-written ``sidebar-boot.js`` does for the
+    sidebar width.
 
     Server-attribute contract (for whoever renders ``<html>`` server-side,
     e.g. the web_terminal server): the boot script reads

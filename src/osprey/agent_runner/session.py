@@ -62,6 +62,7 @@ from osprey.agent_runner.primitives import (
     _send_turn,
     build_agent_options,
 )
+from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
 
 
 class AgentSessionBudgetExceeded(RuntimeError):
@@ -388,6 +389,7 @@ async def agent_session(
     stderr: Callable[[str], None] | None = None,
     await_mcp_servers: Collection[str] | None = None,
     include_partial_messages: bool = False,
+    env_overlay: Mapping[str, str] | None = None,
 ) -> AsyncIterator[AgentSession]:
     """Open a multi-turn :class:`AgentSession` for *project_dir*.
 
@@ -411,6 +413,9 @@ async def agent_session(
             ``None`` for the project's declared ones, empty to skip the wait.
         include_partial_messages: Stream text and reasoning deltas ahead of
             each whole block.
+        env_overlay: Variables added over the run's built environment. Unlike
+            ``env``, which replaces it and so leaves routing to the caller, this
+            keeps the builder's provider routing.
 
     Yields:
         An :class:`AgentSession` ready to :meth:`~AgentSession.send` turns.
@@ -444,6 +449,8 @@ async def agent_session(
         stderr=stderr,
         include_partial_messages=include_partial_messages,
     )
+    if env_overlay:
+        options.env.update(env_overlay)
 
     async with ClaudeSDKClient(options=options) as client:
         mcp_snapshot = await _ready_mcp(client, project_dir, await_mcp_servers=await_mcp_servers)
@@ -487,6 +494,7 @@ async def run_turns(
         max_budget_usd=max_budget_usd,
         model=model,
         permission_mode=permission_mode,
+        env_overlay={WATCHDOG_SKIP_ENV_VAR: "1"},
     ) as session:
         for prompt in prompts:
             if session.budget_exhausted:

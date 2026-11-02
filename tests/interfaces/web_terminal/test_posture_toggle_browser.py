@@ -49,7 +49,7 @@ Coverage (one test each):
       generation, and holds the chip and the row in ``switching…`` for as long
       as a live controls server still reports the generation before it.
   (e) a refusal raised from a confirm stays inside the dialog, which stays up.
-  (f) both UI modes render the SAME popover DOM and show all of it.
+  (f) the popover shows all of a target.
 
 The chip criteria, end to end — each one closed against the write verdict
 itself (``posture_store.write_verdict``), and each one asserting that every
@@ -81,7 +81,7 @@ command line) and confirms it in a ``session_info`` frame — no Claude binary
 and no session discovery involved. ``terminal.js`` writes it to
 ``localStorage['osprey-pty-session']`` on that same frame. The PTY command is a
 long-lived ``sleep`` because the route appends ``--session-id``/``--resume``
-arguments that ``echo`` would choke on. In the Simple view the terminal
+arguments that ``echo`` would choke on. In the chat the terminal
 deliberately does not connect — the console holds that view's session — and the
 chip paints either way, which is the point of it no longer being a session
 surface.
@@ -765,21 +765,11 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("ui_mode", ["expert", "simple"])
-def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
-    tmp_path, monkeypatch, chromium_browser, ui_mode
-):
-    """The popover renders one DOM and shows the whole of it in either mode.
-
-    ``html[data-ui-mode]`` stays a CSS concern, and this design leaves it
-    nothing in the popover to gate: the name, its ⓘ, the three-position
-    switch and Switch are shown in either density, and the confirms are
-    identical whichever mode the deployment renders.
-    """
-    with chip_hub(tmp_path, monkeypatch, ui_mode=ui_mode) as (base_url, _app, _root):
+def test_the_popover_row_shows_the_whole_of_a_target(tmp_path, monkeypatch, chromium_browser):
+    """The name, its ⓘ, the three-position switch and Switch are all shown."""
+    with chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
         page, _session_id = settled_chip(chromium_browser, base_url)
         try:
-            expect(page.locator("html")).to_have_attribute("data-ui-mode", ui_mode)
             open_popover(page)
 
             row = popover_row(page, SWITCH_TARGET)

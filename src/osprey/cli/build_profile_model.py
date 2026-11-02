@@ -35,6 +35,7 @@ from osprey.deployment.qmd_service import (
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
 
@@ -65,6 +66,7 @@ from .build_profile_schema import (
     ServiceDef,
     TeamsBridgeProfileConfig,
     VAConfig,
+    WatchdogsBlock,
     bind_env_errors,
     env_names_errors,
     http_errors,
@@ -79,7 +81,7 @@ from .build_profile_va_faults import (
     standin_baseline_errors,
 )
 from .derived_keys import derived_key_errors
-from .profile_conventions import validate_convention_sources
+from .profile_conventions import library_selection, validate_convention_sources
 
 DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 """The two services the ``dispatch:`` block deploys as one unit. They share a
@@ -327,6 +329,17 @@ def render_key_errors(config: Any) -> list[str]:
 # lives below the cli layer.
 
 
+def _classifiable_server_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """A server spec with its null keys gone, which read the same as absent ones."""
+    clean = {key: value for key, value in spec.items() if value is not None}
+    permissions = clean.get("permissions")
+    if isinstance(permissions, dict):
+        clean["permissions"] = {
+            key: value for key, value in permissions.items() if value is not None
+        }
+    return clean
+
+
 @dataclass
 class BuildProfile:
     """Complete build profile parsed from YAML."""
@@ -463,6 +476,13 @@ class BuildProfile:
     """How a login's selection lists relate to the deployment's (``lists:``);
     spelled in a login file only. Decides whether a listed application is
     shown by default (:meth:`app_shown`)."""
+    watchdogs: WatchdogsBlock = field(default_factory=dict)
+    """The deployment's watchdogs (``watchdogs:``), as the author spelled them.
+
+    A name-keyed map, empty for a profile that declares none. Each watchdog's
+    files live in ``watchdogs/<name>/`` beside the profile; the block's rules are
+    :func:`~osprey.services.watchdog.config.watchdog_errors`'.
+    """
     provenance: ProfileProvenance | None = None
     """What ``osprey init`` materialized this profile from (``provenance:``).
 
@@ -1474,6 +1494,99 @@ class BuildProfile:
             f"workers off the layout."
         ]
 
+    def _rendered_write_tools(self) -> list[str]:
+        """The tools a render of this profile classifies as acting on the machine.
+
+        Resolved through the registry, so a server counts here exactly as it counts
+        in a render, whichever key spelled it. Gathers the framework's write-gated
+        tools, each ``extends`` clone's, the facility write set, every custom
+        server's ``permissions.ask`` tools, the built-ins a read-only run denies,
+        and the ``control_system.write_tools`` extras. A declared server the
+        registry would not render is taken whole, as the read-only run's floor
+        takes it, because a stale ``.mcp.json`` can still launch it.
+
+        Raises:
+            ValueError, TypeError, AttributeError: A server spec no render could
+                resolve either.
+        """
+        from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
+        from osprey.registry.mcp import (
+            facility_write_tools,
+            framework_write_tools,
+            resolve_servers,
+            writes_check_matchers,
+        )
+
+        config = _expand_dotted(self.config)
+        claude_code = config.get("claude_code")
+        spelled = claude_code.get("servers") if isinstance(claude_code, dict) else None
+        specs = {
+            name: _classifiable_server_spec(spec)
+            for name, spec in (spelled if isinstance(spelled, dict) else {}).items()
+            if isinstance(spec, dict)
+        }
+        for name, server in self.mcp_servers.items():
+            # The launch command plays no part in the classification; stating one
+            # keeps the registry from skipping a server that spells only a url.
+            specs[name] = _classifiable_server_spec(
+                {
+                    "command": name,
+                    "permissions": server.permissions,
+                    "hooks": server.hooks,
+                    "writes": None if server.writes is None else list(server.writes),
+                }
+            )
+
+        servers = resolve_servers({"servers": specs}, {})
+        rendered = {server["name"] for server in servers if server["enabled"]}
+        tools = [*READ_ONLY_DENIED_BUILTINS, *framework_write_tools()]
+        tools.extend(facility_write_tools(servers))
+        for resolved in servers:
+            if not resolved["enabled"]:
+                continue
+            name = resolved["name"]
+            if resolved["extends_of"]:
+                tools.extend(writes_check_matchers(resolved["extends_of"], name))
+            if resolved["is_custom"]:
+                prefix = f"mcp__{name}__"
+                tools.extend(
+                    prefix + str(t).removeprefix(prefix) for t in resolved["permissions_ask"]
+                )
+        tools.extend(
+            f"mcp__{name}"
+            for name, spec in specs.items()
+            if spec.get("enabled") is not False and name not in rendered
+        )
+        control_system = config.get("control_system")
+        extras = control_system.get("write_tools") if isinstance(control_system, dict) else None
+        if isinstance(extras, list):
+            tools.extend(tool for tool in extras if isinstance(tool, str))
+        return tools
+
+    def _watchdog_errors(self, profile_dir: Path) -> list[str]:
+        """Every problem in the ``watchdogs:`` block, against this profile's own parts."""
+        write_tools: list[str] = []
+        errors: list[str] = []
+        if self.watchdogs:
+            try:
+                write_tools = self._rendered_write_tools()
+            except (ValueError, TypeError, AttributeError) as exc:
+                errors.append(
+                    "watchdogs cannot be checked against the write tools, because a server "
+                    f"under `mcp_servers` or `claude_code.servers` does not resolve: {exc}"
+                )
+        errors.extend(
+            watchdog_errors(
+                self.watchdogs,
+                base_dir=profile_dir,
+                write_tools=write_tools,
+                hook_selection=library_selection(
+                    "hooks", self.hooks if isinstance(self.hooks, list) else []
+                ),
+            )
+        )
+        return errors
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -1796,14 +1909,6 @@ class BuildProfile:
         # two spellings of one fact disagreeing.
         errors.extend(panel_selection_errors(self.config, self.web_panels))
 
-        # `web.ui_mode: expert` beside `web.expert_view: false`: the second
-        # rules the Expert view out and the terminal resolves the mode to
-        # `simple`, so a stated `expert` is two spellings of one fact
-        # disagreeing — refused naming both, the rule `enabled` has above.
-        from .build_profile_ui_mode import expert_view_errors
-
-        errors.extend(expert_view_errors(self.config))
-
         # A `web.panels.<id>` the served terminal could never route: the id is
         # one URL path segment and a header value on every proxied hop, and the
         # terminal refuses to start on an id outside that class. The same
@@ -2081,6 +2186,8 @@ class BuildProfile:
         # are judged against the roster by the command surfaces' merged-config
         # check, which holds the merged view the roster lives in.
         errors.extend(agent_record_errors(self.agent_record, self.config))
+
+        errors.extend(self._watchdog_errors(profile_dir))
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the

@@ -52,6 +52,7 @@ names another one explicitly.
    osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
+   osprey watchdog           # Try safety watchdogs on labelled prompts
    osprey vendor             # Manage locally bundled vendor assets
 
 Global Options
@@ -830,6 +831,33 @@ record's ``history`` login (``OSPREY_AGENT_RECORD_LOGIN``), naming the viewer
 the sign-in resolved; the record decides what that viewer sees. It admits only
 requests that carry the gate secret nginx presents
 (``OSPREY_TERMINAL_SECRET_HISTORY``).
+
+osprey watchdog
+===============
+
+Try safety watchdogs out before relying on them. :doc:`/how-to/safety-watchdogs`
+has the steps, including the format of a fixture.
+
+osprey watchdog replay
+----------------------
+
+Replay labelled prompts through watchdogs, enabled or not, and report how each
+did. Nothing is flagged, held or recorded.
+
+.. code-block:: bash
+
+   osprey watchdog replay FIXTURES_DIR [--watchdog NAME] [--profile DIR ...] [--project-dir DIR]
+
+``FIXTURES_DIR`` holds ``*.jsonl`` fixtures at any depth, and each directory is
+one set. Definitions come from each ``--profile``, by default from the project's
+profile. Agent watchdogs need a built project through ``--project-dir`` and are
+reported as not run without one. A fixture's ``machine`` values are written to
+that project's in-process simulator under its usual write checks; a fixture they
+cannot apply to is reported as not run, and no other control system is written.
+
+For each watchdog, engine and set it prints the hit rate on risky prompts, the
+false-flag rate on benign prompts, p50 and p95 latency, and cost. The exit status
+is non-zero only when an engine answered on none of its fixtures.
 
 osprey agent-record
 ===================

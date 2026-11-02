@@ -18,7 +18,7 @@
  *     which is the request shape both the nginx perimeter (login redirect) and
  *     the app's own gate (an HTML "not signed in" page) answer usefully
  *   - refusal close codes: 4409 (session held elsewhere), 4503 (outgoing
- *     agent still running) and 4428 (the other view's agent started commands
+ *     agent still running) and 4428 (the other surface's agent started commands
  *     still running) end the reconnect loop and reach the caller as
  *     onRefused; every other close code reconnects exactly as before
  *

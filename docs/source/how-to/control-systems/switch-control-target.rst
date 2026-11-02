@@ -240,7 +240,7 @@ From the Web Terminal
 ---------------------
 
 Everything above can also be done by hand, without a prompt. Click the
-control-target chip in the header and the popover lists every machine this
+control-target chip at the top of the sidebar and the popover lists every machine this
 deployment configures — the one the agent stands on as a card, every other as
 a row.
 
@@ -250,7 +250,7 @@ a row.
    .. grid-item::
 
       .. image:: /_static/screenshots/control_target_popover_light.png
-         :alt: The control-target popover in the light theme, showing the Rehearsal card with its writes switch, and rows for the real machine and the simulator
+         :alt: The control-target popover in the light theme, showing the Simulator card with its writes switch, and rows for Live and Rehearsal
          :width: 100%
 
    .. grid-item::
@@ -259,9 +259,9 @@ a row.
          :alt: The control-target popover in the dark theme
          :width: 100%
 
-The popover on the tutorial deployment, whose baseline is the stand-in: the
-*Rehearsal* card, the real machine still ``not set up``, and the simulator a
-**Switch to** away. Captured with OSPREY |captured_control_target_popover|.
+The popover on the tutorial deployment, whose baseline is the simulator: the
+*Simulator* card, *Live* still ``not set up``, and *Rehearsal* a **Switch to**
+away. Captured with OSPREY |captured_control_target_popover|.
 
 Each machine carries:
 

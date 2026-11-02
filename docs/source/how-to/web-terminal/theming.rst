@@ -33,11 +33,10 @@ Themes come in **families**. OSPREY ships four:
   prefer that look.
 
 In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
-light/dark switch, the theme family picker and the Expert/Simple view. Every
+light/dark switch and the theme family picker, as pictured below. Every
 panel opened as its own page (ARIEL, the workspace, Channel Finder, the
 lattice dashboard, the knowledge panel) has a sliders button in its own
-header. It opens the display menu, which has the same display controls, as
-pictured below.
+header. It opens the display menu, which has the same display controls.
 
 A pick made on any of those pages is remembered by your browser and becomes
 your preference for every OSPREY page served from the same address — set a
@@ -46,7 +45,7 @@ Until you pick Light or Dark, pages follow your operating system's light/dark
 preference.
 
 Panels shown inside the terminal are a separate case. The terminal hands each
-one its theme and view in the page address, and an address outranks the
+one its theme in the page address, and an address outranks the
 remembered preference, so an embedded panel always matches the terminal
 around it. The JUPYTER panel matches the light or dark side only, in
 JupyterLab's own *JupyterLab Dark* and *JupyterLab Light* themes
@@ -58,16 +57,16 @@ JupyterLab's own *JupyterLab Dark* and *JupyterLab Light* themes
    .. grid-item::
 
       .. image:: /_static/screenshots/display_menu_light.png
-         :alt: The open display menu in the light Osprey theme
+         :alt: The open ☰ More menu in the light Osprey theme
          :width: 100%
 
    .. grid-item::
 
       .. image:: /_static/screenshots/display_menu_dark.png
-         :alt: The open display menu in the dark Osprey theme
+         :alt: The open ☰ More menu in the dark Osprey theme
          :width: 100%
 
-The display menu a standalone panel opens from its header, light and dark.
+The terminal's ☰ More menu, light and dark.
 Captured with OSPREY |captured_display_menu|.
 
 To set the theme a deployment *starts* in, use ``web.theme`` in ``config.yml``:

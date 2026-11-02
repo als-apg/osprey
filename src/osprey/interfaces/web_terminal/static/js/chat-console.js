@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the operator console's DOM.
+ * OSPREY Web Terminal — operator chat: the operator console's DOM.
  *
  * Builds the console interior once, at boot: the Agent bar, the message
  * list, the hand-off overlay, and the composer (input, slash button, and the
@@ -8,11 +8,12 @@
  * drives. Nothing here reads the session pointer or the transport.
  *
  * The Agent bar is the Agent pane's one header row. In the dock it does not
- * stay in the console: the Agent tile adopts it as its tile bar in the Simple
- * view (dock-tab.js), so the console body below it is the card interior.
+ * stay in the console: the Agent tile adopts it as its tile bar in chat
+ * (dock-tab.js), so the console body below it is the card interior.
  * Left to right: the status dot, `Agent`, then the icon buttons — New
  * conversation, the notifications bell (chat-attention.js appends it),
- * Export (chat-export.js appends it) and ⋯, the earlier conversations. The
+ * Export (chat-export.js appends it) and ⋯, the earlier conversations with the
+ * way to the terminal as its last row. The
  * ⋯ is returned unattached: chat.js appends it after the feature modules,
  * so it stays last, and sessions.js gives it its menu.
  *
@@ -67,7 +68,7 @@ export function buildConsole() {
 
   // A state the operator is waiting on rather than one they opened: announced
   // when it appears, never focus-trapped. Built with the console and hidden,
-  // because a flip has to paint it in the same frame it disables the input.
+  // because a surface change has to paint it in the same frame it disables the input.
   const overlay = elem('div', 'op-handoff');
   overlay.hidden = true;
   overlay.setAttribute('role', 'status');

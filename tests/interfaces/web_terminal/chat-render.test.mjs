@@ -12,7 +12,7 @@
  *   3. `createChatRenderer` -- the view-model: user/agent entries, streamed
  *      text accumulation, the activity-line state machine, first-turn
  *      session_reset suppression, error rendering, and the transcript replay
- *      that repopulates the log after a handoff from the other view.
+ *      that repopulates the log after a handoff from the other surface.
  *   4. Approval cards in the log -- a card waiting on a call is filed under that
  *      call's row, the row carries the decision, and a replayed call or a second
  *      tab finds the same row.

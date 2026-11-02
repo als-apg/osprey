@@ -111,7 +111,6 @@ class TestMountedRender:
         assert f'{ATTR}="alice"' in tag
         if page_id == "index":
             # The stamp joins the index's existing ones; it does not displace them.
-            assert "data-ui-mode=" in tag
             assert "data-theme=" in tag
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)

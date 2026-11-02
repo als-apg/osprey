@@ -562,7 +562,8 @@ class WriteStanza(NamedTuple):
     or above ``preset_anchor`` where the preset's line has since moved on from
     the one an operator's file still holds. Lines are compared without their
     indentation, and the replacement takes the anchor's indentation in the file
-    it lands in.
+    it lands in. ``new_lines`` of 0 drops the stanza, whatever the preset holds:
+    its subject left the preset, so its anchor may have too.
     """
 
     preset: str
@@ -714,11 +715,11 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
     ),
     WriteStanza(
         "tiers/readonly",
-        "#",
-        1,
-        "sha256:cfacbbb8563ef4d25cce60db32cb514f44a113b30d3b2cd90d2cdb2bd475bc8a",
-        1,
-        "sha256:31af145311961adff92ca6de4e8826a1d8131b9b0594cf1c029bf7869843b560",
+        "web.ui_mode: simple",
+        7,
+        "sha256:5607897a863657e458e63b0c944ef857ccf59ec05baadf2828a6722ea2f9bade",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     ),
     WriteStanza(
         "tiers/readwrite",
@@ -740,10 +741,10 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
     WriteStanza(
         "tiers/readwrite",
         "web.ui_mode: expert",
-        1,
-        "sha256:10d72c4916bfd1c7bb01e2a0f8302c118ed14fdd1c05aec617e6f1b2140058fe",
-        1,
-        "sha256:577f2e4790d551676cccda3ec34d49f56a0e6e1dc1255b99ce2872d261bd0fdc",
+        3,
+        "sha256:186325d335e1f00d44104d4cd0da7d7e928117eea5c8257369259cabbf0b8096",
+        0,
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     ),
     WriteStanza(
         "tiers/admin",
@@ -827,6 +828,8 @@ def _preset_stanza(stanza: WriteStanza) -> list[str] | None:
     """The lines the bundled preset writes above *stanza*'s anchor today; ``None`` if it no longer does."""
     from .build_profile_presets import _presets_dir
 
+    if not stanza.new_lines:
+        return []
     path = _presets_dir() / f"{stanza.preset}.yml"
     try:
         lines = path.read_text(encoding="utf-8").splitlines(keepends=True)

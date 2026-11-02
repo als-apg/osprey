@@ -61,7 +61,7 @@ whatever its widgets are wired to, so a deployment offers the drive or not.
 
 A drive the deployment offers is a write, so it then follows its machine's
 switch like every other write: the write verdict
-(:func:`osprey_connectors.posture_store.write_verdict`) for the baseline, the
+(:func:`osprey_connectors.posture_store.execution_verdict`) for the baseline, the
 only machine the bridge drives, must allow it, and where the approval policy
 asks, the approval prompt must have left its record for the call
 (:func:`osprey.mcp_server.approval_record.require_approval_record`).
@@ -115,6 +115,7 @@ from osprey.mcp_server.http import (
 )
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
+from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import posture_store
 from osprey_connectors.types import baseline_target
 from osprey_connectors.workspace import (
@@ -280,7 +281,7 @@ def _check_drive_switch() -> None:
         config = load_osprey_config()
         section = config.get("control_system") if isinstance(config, dict) else None
         target = baseline_target(section)
-        verdict = posture_store.write_verdict(section or {}, target)
+        verdict = execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not drive a panel
         logger.warning("Write verdict for phoebus_drive could not be reached", exc_info=True)
         verdict = posture_store.WriteVerdict(
@@ -292,7 +293,9 @@ def _check_drive_switch() -> None:
     make_error(
         "writes_disabled",
         refusal_text(
-            reason, verdict.kind, detail="phoebus_drive was refused before reaching the bridge."
+            reason,
+            verdict.kind,
+            detail=refusal_detail("phoebus_drive was refused before reaching the bridge.", verdict),
         ),
         ["Hand the action to the operator, who can perform it on the Phoebus panel."],
         details={"reason": reason, "target": verdict.target},

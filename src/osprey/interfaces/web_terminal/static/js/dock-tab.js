@@ -13,13 +13,11 @@
  *     the tile until that window closes. The close is
  *     a LOCAL tile close (the panel keeps its sidebar row; dock-sync routes
  *     the click to a vacate handler).
- *   the Agent tile — an adopted live bar + close. The Simple view adopts the
- *     chat console's `.op-session-bar` (status dot, `Agent`, New
- *     conversation, notifications, Export, earlier conversations); the
- *     Expert view adopts the `.terminal-header` (session label, session
- *     selector, "+ New"). The bar is chosen when the tab is built, and a view
- *     flip rebuilds every tab (applyDockMode re-applies the layout through
- *     `fromJSON` or `clear` + `addPanel`), so the choice follows the view.
+ *   the Agent tile — an adopted live bar + close. In chat it adopts the
+ *     console's `.op-session-bar` (status dot, `Agent`, New conversation,
+ *     notifications, Export, ⋯); on the terminal surface it adopts the
+ *     `.terminal-header` (session label, session selector, "+ New", ⋯). The bar
+ *     is chosen when the tab is built and swapped on a change of surface.
  *     The close runs dock-workspace's closeTerminalPanel, which keeps
  *     `html[data-agent]` and the `osprey-agent-pane` event in step.
  *
@@ -38,6 +36,7 @@ import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeTerminalPanel } from './dock-workspace.js';
 import { popOutPanel, canPopOut } from './popout.js';
+import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { icon } from '/design-system/js/icons.js';
 
 /** What the disabled Pop out button says about an opaque-origin panel. */
@@ -69,35 +68,36 @@ export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
  */
 let terminalHeaderEl = null;
 
-/** The chat console's `.op-session-bar` (Simple view). @type {HTMLElement | null} */
+/** The chat console's `.op-session-bar`. @type {HTMLElement | null} */
 let terminalConsoleBarEl = null;
 
 /**
- * Registers the live `.terminal-header` node, the Expert view's Agent bar.
+ * Registers the live `.terminal-header` node, the terminal surface's Agent bar.
  * Called once by dock-workspace.js before the terminal panel is added to
  * dockview (see initDockWorkspace).
  * @param {HTMLElement} el
  */
 export function setTerminalHeaderSource(el) {
   terminalHeaderEl = el;
+  barHomes.set(el, el.parentElement);
   wireTerminalBar(el);
 }
 
 /**
- * Registers the chat console's `.op-session-bar`, the Simple view's Agent
- * bar. Called once by dock-workspace.js beside setTerminalHeaderSource; the
+ * Registers the chat console's `.op-session-bar`, the chat's Agent bar. Called once by dock-workspace.js beside setTerminalHeaderSource; the
  * console is built before the dock (app.js runs initChat first).
  * @param {HTMLElement} el
  */
 export function setTerminalConsoleBarSource(el) {
   terminalConsoleBarEl = el;
+  barHomes.set(el, el.parentElement);
   wireTerminalBar(el);
 }
 
 /**
  * Wire the interactive-children pointerdown guard and the bar's contextmenu
  * route directly on a registered bar node, here rather than in the TileTab
- * constructor: the node is long-lived across close/reopen/mode-switch, but a
+ * constructor: the node is long-lived across close/reopen/surface change, but a
  * TileTab is rebuilt on every one of those, so attaching in the constructor
  * would stack a new listener on the same node each time. Registration happens
  * exactly once per node.
@@ -120,14 +120,39 @@ function wireTerminalBar(el) {
 }
 
 /**
- * The bar the Agent tile adopts in the current view: the console bar in
- * Simple (the header when the console never built), the header in Expert.
+ * The bar the Agent tile adopts for the surface showing: the console bar in chat
+ * (the header when the console never built), the header on the terminal.
  * @returns {HTMLElement | null}
  */
 function terminalBar() {
-  const simple = document.documentElement.getAttribute('data-ui-mode') === 'simple';
-  return (simple ? terminalConsoleBarEl : null) ?? terminalHeaderEl;
+  return (isTerminalSurface() ? null : terminalConsoleBarEl) ?? terminalHeaderEl;
 }
+
+/**
+ * Where each Agent bar lives while the tile has not adopted it, so a bar the
+ * tile lets go of keeps its ids and listeners on the page.
+ * @type {Map<HTMLElement, HTMLElement | null>}
+ */
+const barHomes = new Map();
+
+/** The Agent tile's tab root while the tile exists. @type {HTMLElement | null} */
+let agentTabRoot = null;
+
+/** Put the current surface's bar on the Agent tile, sending the other one home. */
+function syncAgentBar() {
+  const bar = terminalBar();
+  if (!agentTabRoot || !bar || bar.parentElement === agentTabRoot) return;
+  for (const other of [terminalHeaderEl, terminalConsoleBarEl]) {
+    if (other && other !== bar && other.parentElement === agentTabRoot) {
+      const home = barHomes.get(other);
+      if (home) home.prepend(other);
+      else other.remove();
+    }
+  }
+  agentTabRoot.prepend(bar);
+}
+
+onSurfaceChange(syncAgentBar);
 
 /** Matches the interactive children of an adopted Agent bar. */
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
@@ -251,6 +276,7 @@ class TileTab {
       // DOM relocation — live references survive. The pointerdown guard and
       // the context menu are wired once, on the node itself, at registration.
       if (bar) root.appendChild(bar);
+      agentTabRoot = root;
     } else {
       const title = document.createElement('span');
       title.className = 'tile-tab-title';
@@ -340,6 +366,7 @@ class TileTab {
 
   dispose() {
     for (const d of this._disposables.splice(0)) d.dispose();
+    if (agentTabRoot === this._element) agentTabRoot = null;
     if (this._contribEl && this._servicePanelId) {
       unregisterContribHost(this._servicePanelId, this._contribEl);
     }

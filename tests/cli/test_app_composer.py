@@ -60,7 +60,7 @@ _HOST = {
         "control_system.connector.epics.timeout_s": 5.0,
         "claude_code.servers.bluesky.enabled": True,
         "claude_code.permissions.deny": [_SETUP_PATCH],
-        "web.ui_mode": "simple",
+        "web.theme": "main",
         "modules.web_terminals.enabled": True,
         "modules.web_terminals.shared": ["logbook"],
     },
@@ -83,7 +83,7 @@ _APP = {
     "config": {
         "claude_code.servers.controls.enabled": False,
         "control_system.writes_enabled": False,
-        "web.ui_mode": "expert",
+        "web.theme": "retro",
     },
 }
 
@@ -340,7 +340,7 @@ def test_composing_does_not_mutate_the_app_document(tmp_path: Path) -> None:
 def test_config_is_host_facts_under_the_app_config(tmp_path: Path) -> None:
     leaves = _leaves(_resolve(_repo(tmp_path, _APP))["config"])
 
-    assert leaves["web.ui_mode"] == "expert"
+    assert leaves["web.theme"] == "retro"
     assert leaves["control_system.type"] == "virtual_accelerator"
     assert leaves["control_system.connector.epics.timeout_s"] == 5.0
     assert leaves["claude_code.servers.controls.enabled"] is False
@@ -355,7 +355,7 @@ def test_config_is_host_facts_under_the_app_config(tmp_path: Path) -> None:
     ],
 )
 def test_host_server_switches_are_dropped_in_every_spelling(tmp_path: Path, spelling: dict) -> None:
-    host = dict(_HOST, config={"web.ui_mode": "simple", **spelling})
+    host = dict(_HOST, config={"web.theme": "main", **spelling})
     leaves = _leaves(_resolve(_repo(tmp_path, _APP, host=host))["config"])
     assert not any(path.startswith("claude_code.servers.bluesky") for path in leaves)
 
@@ -396,7 +396,7 @@ def test_permissions_are_unioned_in_one_spelling(tmp_path: Path, spelling: dict)
     ],
 )
 def test_host_write_switches_never_reach_an_app(tmp_path: Path, host_writes: dict) -> None:
-    host = dict(_HOST, config={"web.ui_mode": "simple", **host_writes})
+    host = dict(_HOST, config={"web.theme": "main", **host_writes})
     leaves = _leaves(_resolve(_repo(tmp_path, _APP, host=host))["config"])
 
     assert leaves[_WRITES] == "never"
@@ -578,7 +578,7 @@ def test_a_lifting_host_is_capable_and_its_apps_are_not(tmp_path: Path) -> None:
 
 
 def test_a_host_without_the_floor_deny_still_yields_a_denying_app(tmp_path: Path) -> None:
-    host = dict(_HOST, config={"web.ui_mode": "simple"})
+    host = dict(_HOST, config={"web.theme": "main"})
     config = _resolve(_repo(tmp_path, _APP, host=host))["config"]
     assert config["claude_code.permissions.deny"] == [_SETUP_PATCH]
 

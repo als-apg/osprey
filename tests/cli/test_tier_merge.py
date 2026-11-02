@@ -78,7 +78,7 @@ def test_tier_is_a_deep_merge_over_the_root_with_lists_unioned(tmp_path: Path) -
         "name": "Ops (Read-Write)",
         "skills": ["session-report", "write-check"],
         "web_panels": ["events", "bluesky"],
-        "config": {"control_system.writes_enabled": True, "web.ui_mode": "expert"},
+        "config": {"control_system.writes_enabled": True, "web.theme": "retro"},
     }
     path = _repo(tmp_path, "tiers/readwrite.yml", tier)
     document = _resolve(path)
@@ -90,13 +90,13 @@ def test_tier_is_a_deep_merge_over_the_root_with_lists_unioned(tmp_path: Path) -
     assert raw["skills"] == ["diagnose", "session-report", "write-check"]
     assert raw["web_panels"] == ["ariel", "events", "bluesky"]
     assert raw["config"]["control_system.writes_enabled"] is True
-    assert raw["config"]["web.ui_mode"] == "expert"
+    assert raw["config"]["web.theme"] == "retro"
     assert raw["config"]["deployed_services"] == ["alpha", "beta"]
 
 
 def test_tier_merge_matches_deep_merge_except_attachment(tmp_path: Path) -> None:
     """Outside the attachment facts, the tier result IS _deep_merge(root, tier)."""
-    tier = {"skills": ["write-check"], "config": {"web.ui_mode": "simple"}}
+    tier = {"skills": ["write-check"], "config": {"web.theme": "main"}}
     path = _repo(tmp_path, "tiers/readonly.yml", tier)
     raw = _resolve(path).raw
 

@@ -64,7 +64,6 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     app.state.active_panel = "ariel"
     app.state.allow_runtime_panels = True
     app.state.panel_presets = [{"name": "L1", "panels": ["ariel"]}]
-    app.state.web_ui_mode = "simple"
 
     body = _panels(app)
 
@@ -75,7 +74,6 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
     assert body["active"] == "ariel"
     assert body["allow_runtime_panels"] is True
     assert body["presets"] == [{"name": "L1", "panels": ["ariel"]}]
-    assert body["ui_mode"] == "simple"
     # The additive key sits alongside the established shape.
     assert set(body) == {
         "enabled",
@@ -86,10 +84,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "labels",
         "allow_runtime_panels",
         "presets",
-        "ui_mode",
-        "expert_view",
         "project_key",
-        "workspace_has_artifacts",
         "open_tiles",
         "open_tiles_age_s",
         "open_tiles_dock",
@@ -167,55 +162,6 @@ def test_a_flagless_app_advertises_no_gated_surface(tmp_path):
     body = _panels(_make_app(tmp_path))
     assert body["config_panel_enabled"] is False
     assert body["scaffold_write_enabled"] is False
-
-
-# ---- workspace_has_artifacts (simple-UX chat-only first boot) ----
-
-
-def _make_workspace_app(project_cwd, workspace_dir):
-    app = _make_app(project_cwd)
-    app.state.workspace_dir = workspace_dir
-    return app
-
-
-def test_workspace_flag_absent_state_is_false(tmp_path):
-    """No workspace_dir on app.state (bare router) → flag is False, not an error."""
-    assert _panels(_make_app(tmp_path))["workspace_has_artifacts"] is False
-
-
-@pytest.mark.parametrize(
-    ("files", "expected"),
-    [
-        pytest.param([], False, id="empty"),
-        # Housekeeping dotfiles (and files under dot-dirs) must not defeat the
-        # chat-only first boot — the workspace still reads empty.
-        pytest.param([".DS_Store", ".cache/state.json"], False, id="hidden"),
-        pytest.param(["orbit_plot.png"], True, id="toplevel"),
-        # Session subdirectories count — the watcher covers all sessions.
-        pytest.param(["session-abc/report.html"], True, id="nested"),
-        # A configured-but-not-yet-created workspace dir reads empty, no error.
-        pytest.param(None, False, id="missing-dir"),
-    ],
-)
-def test_workspace_flag(tmp_path, files, expected):
-    """Any non-hidden regular file under the workspace makes it non-empty."""
-    ws = tmp_path / "_agent_data"
-    if files is not None:
-        ws.mkdir()
-        for name in files:
-            (ws / name).parent.mkdir(parents=True, exist_ok=True)
-            (ws / name).write_text("x")
-    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is expected
-
-
-def test_workspace_flag_recomputed_per_request(tmp_path):
-    """The first artifact flips the flag on the next request (no caching)."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    app = _make_workspace_app(tmp_path, ws)
-    assert _panels(app)["workspace_has_artifacts"] is False
-    (ws / "result.csv").write_text("a,b\n")
-    assert _panels(app)["workspace_has_artifacts"] is True
 
 
 # ---- Focus adds rail membership ---- #

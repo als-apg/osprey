@@ -1,5 +1,5 @@
 // @ts-check
-/* OSPREY Web Terminal — slash-command suggestions for the Simple view.
+/* OSPREY Web Terminal — slash-command suggestions for the chat.
  *
  * Attaches a suggestion list to the console's message box. The contract:
  *

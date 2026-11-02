@@ -71,9 +71,7 @@ async function boot() {
   const mod = await import(MOD);
   const deps = {
     popoutUrl: vi.fn((/** @type {string} */ id) =>
-      id === 'opaque' || id === 'unresolved'
-        ? null
-        : `/panel/${id}/?popout=true&theme=dark&mode=expert`
+      id === 'opaque' || id === 'unresolved' ? null : `/panel/${id}/?popout=true&theme=dark`
     ),
     conceal: vi.fn(),
     redock: vi.fn(),
@@ -124,7 +122,7 @@ describe('opening', () => {
     expect(mod.popOutPanel('ariel')).toBe(true);
 
     expect(open).toHaveBeenCalledWith(
-      '/panel/ariel/?popout=true&theme=dark&mode=expert',
+      '/panel/ariel/?popout=true&theme=dark',
       'osprey-popout-ariel',
       'popup=yes,width=800,height=600,left=400,top=150'
     );

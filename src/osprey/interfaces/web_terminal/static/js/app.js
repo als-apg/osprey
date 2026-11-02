@@ -6,14 +6,12 @@ import {
   pasteToTerminal,
   getCurrentSessionId,
   getTerminalInstance,
-  startExpert,
+  startTerminalSurface,
   stopTerminal,
 } from './terminal.js';
 import { confirmSignOut } from './sign-out.js';
 import {
   initPanelManager,
-  broadcastMode,
-  handleUiModeFlip,
   navigateAndActivatePanel,
   getPanelStandaloneUrl,
 } from './panel-manager.js';
@@ -29,10 +27,10 @@ import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { onModeChange } from '/design-system/js/frame-params.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
-import { initChat, enterFromExpert, renderChatBootFailure } from './chat.js';
-import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
+import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
+import { initChat, enterFromTerminal, renderChatBootFailure } from './chat.js';
+import { initDockWorkspace } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initControlTargetChip } from './control-target-chip.js';
 import { insertPrompt } from './first-contact.js';
@@ -51,14 +49,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // kill the whole boot.
   try {
     initTerminal('terminal-container');
-    // The page opens straight onto the prompt, and nothing else claims focus
-    // at boot — so boot hands it to the terminal.
-    focusTerminal();
+    // A tab that opted into the terminal reopens straight onto its prompt.
+    if (isTerminalSurface()) focusTerminal();
   } catch (err) {
     console.error('Failed to init terminal:', err);
   }
-  // Simple-mode operator chat. Guarded so a chat init failure can't break the
-  // rest of the boot (the expert terminal is already up at this point).
+  // The operator chat. Guarded so a chat init failure can't break the rest of
+  // the boot.
   try {
     initChat('operator-container');
   } catch (err) {
@@ -114,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   initNewSessionButton();
   initSignOut();
-  initUiModeFollowUps();
+  initSurfaceFollowUps();
   initControlSystemBlock();
   initFeedbackDialog();
   initDrawerTriggerHighlight();
@@ -199,89 +196,68 @@ export function initSignOut() {
   }
 }
 
-/* ---- UI Mode Toggle (Expert / Simple) ---- */
+/* ---- The Agent tile's surface ---- */
 
 /**
- * The hub-only half of an Expert/Simple flip. The View rows of the More menu
- * (more-menu.js) and the command palette own the pick itself — through
- * frame-params.js's `pickUiMode()`, which persists the choice, drops a
- * leftover one-shot ?mode=, and posts the same-origin `osprey-mode-change`
- * message to this window — and frame-params.js's shared receive side stamps
- * html[data-ui-mode] before handing the mode here. What follows is what only
- * the hub has to do with it: broadcast to the panels, the dock and panel
- * follow-ups, then hand the session to the view the operator flipped to.
- * mode-boot.js already resolved the initial mode pre-paint, so this only ever
- * handles the runtime flip.
+ * Hand the session to whichever surface the Agent tile now shows. The tile's ⋯
+ * menu and the hand-off's cancel paths own the change itself (agent-surface.js).
  *
- * Exported for testability (see app-mode-flip.test.mjs) — the module's
+ * Exported for testability (see app-surface-handoff.test.mjs) — the module's
  * DOMContentLoaded bootstrap never fires on its own once that event has
  * already passed, e.g. in a test environment.
  */
-export function initUiModeFollowUps() {
-  onModeChange((mode) => {
-    // Panels read the current mode off <html>, so broadcast only after the
-    // swap (onModeChange stamped it before calling back).
-    broadcastMode();
-    // Dock half of the flip: stash the outgoing view's arrangement, then
-    // restore the target view's own (or build its default). Runs after the
-    // CSS/attribute swap so the dock reads the target mode; no-ops until the
-    // workspace shell exists.
-    applyDockMode(mode);
-    // Panel half: a flip to expert ends the simple-UX chat-only suppression
-    // and lets the default panel claim a still-empty workspace slot. Runs
-    // after applyDockMode so the activation docks into the target layout.
-    handleUiModeFlip(mode);
-    // Session half, last: the target view's layout is on screen by now, so
-    // whichever surface has to show a transitional state is the one the
-    // operator is looking at.
-    handOffSession(mode);
-  });
+export function initSurfaceFollowUps() {
+  onSurfaceChange(handOffSession);
 }
 
 /**
- * The hand-offs of successive flips, chained.
+ * The hand-offs of successive surface changes, chained.
  *
- * Both views are windows onto ONE session key, and the server lets exactly one
- * of them hold it — a second acquire arriving while the first is still pending
- * is refused outright. A flip is one gesture, so an operator who flips twice
- * quickly would produce exactly that. Chaining makes the second flip wait for
- * the first hand-off to settle instead, which is also why the teardown belongs
- * in here: dropping the terminal ahead of the queue would strand a connection
- * a queued flip to Expert is about to open.
+ * Both surfaces are windows onto ONE session key, and the server lets exactly
+ * one of them hold it — a second acquire arriving while the first is still
+ * pending is refused outright. A change is one gesture, so an operator who
+ * changes twice quickly would produce exactly that. Chaining makes the second
+ * change wait for the first hand-off to settle instead, which is also why the
+ * teardown belongs in here: dropping the terminal ahead of the queue would
+ * strand a connection a queued change to the terminal is about to open.
  *
- * The chain covers flips and nothing else. The overlay's own retry and the
- * session picker take the key over through terminal.js directly, so a flip
- * that lands between one of those and its answer is still two acquires; both
- * paths already show the server's refusal where the operator can see it.
+ * The chain covers surface changes and nothing else. The overlay's own retry
+ * and the session picker take the key over through terminal.js directly, so a
+ * change that lands between one of those and its answer is still two acquires;
+ * both paths already show the server's refusal where the operator can see it.
  *
  * @type {Promise<void>}
  */
 let sessionHandoff = Promise.resolve();
 
 /**
- * Move the live agent to *mode*'s view.
+ * Move the live agent to the surface now showing.
  *
- * Flipping to Expert resumes the key the tab is pointed at over the terminal
+ * Opening the terminal resumes the key the tab is pointed at over the terminal
  * socket, which shows its own overlay while the server tears the chat down.
- * Flipping to Simple drops that socket first — the server reads the closed
- * connection as the Expert view letting go — and the console then asks for the
+ * Going back to chat drops that socket first — the server reads the closed
+ * connection as the terminal letting go — and the console then asks for the
  * key and replays the transcript into itself. Neither direction reloads.
  *
- * Every step answers with a promise and every one of them is awaited. A flip
- * queued behind an Expert acquire that is still in flight would otherwise drop
+ * Every step answers with a promise and every one of them is awaited. A change
+ * queued behind a terminal acquire that is still in flight would otherwise drop
  * the socket before the server had seen it open; and the console would ask for
  * the key before the dropped socket's close had reached the server, which
- * reads that close as the Expert view letting go.
+ * reads that close as the terminal letting go.
  *
- * @param {'expert'|'simple'} mode
  * @returns {void}
  */
-function handOffSession(mode) {
+function handOffSession() {
+  const toTerminal = isTerminalSurface();
   sessionHandoff = sessionHandoff
     .then(async () => {
-      if (mode === 'expert') return startExpert();
+      if (toTerminal) {
+        await startTerminalSurface();
+        focusTerminal();
+        return;
+      }
       await stopTerminal();
-      return enterFromExpert();
+      await enterFromTerminal();
     })
     .catch((err) => {
       console.error('Failed to hand the session over:', err);
@@ -345,7 +321,7 @@ function initDrawerTriggerHighlight() {
 /* ---- Iframe Paste Bridge ---- */
 
 /**
- * Route clicks on links in the Simple view's agent answers: a link to a panel
+ * Route clicks on links in the chat's agent answers: a link to a panel
  * this hub hosts opens it in the workspace, any other http(s) link opens in a
  * new tab, and the hub page itself never navigates away. Whether a panel is
  * hosted is read at click time, so a panel whose URL has not resolved opens in
@@ -395,7 +371,7 @@ export function initAgentLinks() {
 const ARTIFACTS_PANEL_ID = 'artifacts';
 
 /**
- * Make an artifact id in a Simple-view agent answer show that artifact: the
+ * Make an artifact id in a chat agent answer show that artifact: the
  * gallery is asked to focus it through the hub's panel proxy (the request the
  * agent's `artifact_focus` makes), and the artifacts panel opens once it has.
  * Focusing first means a gallery that loads only now reads the new focus on
@@ -436,8 +412,8 @@ export function initArtifactLinks() {
  *
  * A panel cannot type for the operator, so it posts what it has and the hub
  * decides where that lands. `insertPrompt` is the one seam that knows where
- * that is in each view — the terminal in expert, the chat textarea in Simple,
- * which the terminal branch alone would never reach — and it appends here
+ * that is on each surface — the chat textarea, or the terminal when the tab opted
+ * into it — and it appends here
  * rather than replaces: what a panel contributes (the addresses just picked,
  * say) is an ingredient of a prompt the operator may already be writing, and
  * overwriting that would destroy the only copy of it. It is never sent; the
@@ -530,8 +506,7 @@ function panelIdForMessageSource(source) {
 const SETTINGS_TRIGGER = '[data-drawer-trigger="settings-drawer"]';
 
 /**
- * Ctrl+` focuses the terminal; Cmd+, (macOS) / Ctrl+, opens or closes the
- * settings drawer through the same click the More menu's Settings row takes,
+ * Cmd+, (macOS) / Ctrl+, opens or closes the settings drawer through the same click the More menu's Settings row takes,
  * so the warning gate runs exactly as it does there. Cmd/Ctrl+\ (the
  * sidebar's width) and Cmd/Ctrl+K (the palette) are bound by their own
  * modules.
@@ -539,11 +514,6 @@ const SETTINGS_TRIGGER = '[data-drawer-trigger="settings-drawer"]';
 function initKeyboardShortcuts() {
   const mac = isMacPlatform();
   document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === '`') {
-      e.preventDefault();
-      focusTerminal();
-      return;
-    }
     if (e.key !== ',' || !(mac ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
     const trigger = /** @type {HTMLElement | null} */ (document.querySelector(SETTINGS_TRIGGER));
     if (!trigger) return;

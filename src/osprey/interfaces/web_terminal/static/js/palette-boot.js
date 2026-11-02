@@ -8,18 +8,13 @@
  * thin init dispatcher and the palette's app-facing wiring lives beside the
  * palette itself.
  *
- * The palette runs in BOTH ui modes — the header trigger is not mode-gated, so
- * the action cluster never shifts under an operator on an Expert/Simple flip.
- * What changes is the REGISTRY, not the entry points: simple mode hides the
- * terminal (the operator console takes its place), so `buildPaletteDeps` drops
- * the terminal/session actions there rather than offering picks that would act
- * on a surface the operator cannot see. Everything else — settings search, the
- * panel verbs including "Open … in a new tile", the Layouts group, popping a
- * panel out to its own window, the drawer tabs, the safety reference,
- * opening the activity log in a new tab — is the same in both views.
+ * The palette offers settings search, the panel verbs including "Open … in a
+ * new tile", the Layouts group, popping a panel out to its own window, the
+ * drawer tabs, the safety reference and opening the activity log in a new tab.
+ * It has no terminal entries: the terminal is reached from the Agent tile alone.
  */
 
-import { getCurrentSessionId, restartTerminal, startTerminal } from './terminal.js';
+import { getCurrentSessionId } from './terminal.js';
 import { openActivityLog } from './activity-log-link.js';
 import {
   getHiddenPanels,
@@ -35,18 +30,11 @@ import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
-import { startNewSession } from './sessions.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
-import { expertViewOffered, pickUiMode } from '/design-system/js/frame-params.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
-
-/** @returns {'expert'|'simple'} the resolved ui mode from the authoritative <html> attribute. */
-function currentUiMode() {
-  return document.documentElement.dataset.uiMode === 'simple' ? 'simple' : 'expert';
-}
 
 /**
  * Whether this deployment still carries the settings drawer's Config tab.
@@ -64,10 +52,8 @@ function configTabPresent() {
 
 /**
  * Assemble the live dependency bundle `openPalette` needs. Built fresh on each
- * open because panel visibility, presets, the config snapshot AND the ui mode
- * all drift over a session — the palette must reflect the CURRENT state, not
- * boot state. The action closures are the vetted mechanisms (paired restart,
- * gated drawer tabs, new-tab safety nav) — do not collapse or reorder them
+ * open because panel visibility, presets and the config snapshot all drift over a session — the palette must reflect the CURRENT state, not
+ * boot state. The action closures are the vetted mechanisms (gated drawer tabs, new-tab safety nav) — do not collapse or reorder them
  * casually.
  *
  * Typed against the REGISTRY's dep bundle rather than palette.js's OpenDeps:
@@ -76,44 +62,9 @@ function configTabPresent() {
  * @returns {import('./palette-registry.js').PaletteDeps}
  */
 function buildPaletteDeps() {
-  const simple = currentUiMode() === 'simple';
-
   /** @type {Array<{ label: string, detail?: string, run: () => void }>} */
   const actions = [];
 
-  // Terminal + session verbs address the xterm card, which simple mode replaces
-  // with the operator console — offering them there would act on a surface the
-  // operator cannot see.
-  if (!simple) {
-    // restartTerminal tears down the PTY but does NOT reconnect — pair with
-    // startTerminal or the terminal is left stranded.
-    actions.push({
-      label: 'Restart terminal',
-      run: async () => {
-        await restartTerminal();
-        startTerminal();
-      },
-    });
-    actions.push({
-      label: 'New session',
-      run: () => {
-        startNewSession();
-      },
-    });
-  }
-
-  // Offer the mode the operator is NOT in. The pick is frame-params' own, the
-  // same call the display menu's View row makes, not a click on that row, so
-  // the palette does not depend on that menu being open or present. A
-  // deployment with no Expert view (web.expert_view: false) has no other mode
-  // to offer.
-  if (expertViewOffered()) {
-    const otherMode = simple ? 'expert' : 'simple';
-    actions.push({
-      label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
-      run: () => pickUiMode(otherMode),
-    });
-  }
   // Drawer tabs always go THROUGH openDrawerTab's warning gate.
   // The Config tab is server-gated (web.config_panel.enabled): config-tab.js
   // removes the tab at boot where the deployment withdrew it, and the routes
@@ -143,8 +94,7 @@ function buildPaletteDeps() {
   });
   // On-demand tour entry — works regardless of the web.tour invite policy.
   actions.push({ label: 'Take the tour', run: () => startTour() });
-  // The activity shown is the agent's, not the terminal's, so the row stays in
-  // Simple. It opens on the session the card is on when picked.
+  // It opens on the session the card is on when picked.
   actions.push({
     label: 'Open activity log',
     detail: 'new tab',
@@ -197,9 +147,8 @@ function buildPaletteDeps() {
 }
 
 /**
- * Wire the header trigger + Cmd/Ctrl+K hotkey for the command palette. Both
- * entry points are live in both ui modes; `buildPaletteDeps` is what narrows
- * the registry in simple. Degrades gracefully if the button is absent.
+ * Wire the header trigger + Cmd/Ctrl+K hotkey for the command palette. Degrades
+ * gracefully if the button is absent.
  */
 export function initCommandPalette() {
   const btn = document.getElementById('command-palette-btn');

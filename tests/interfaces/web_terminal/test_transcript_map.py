@@ -12,7 +12,7 @@ properties are pinned here:
 * **The file sits beside the control-context record**, under the same one path
   rule, so a deployment that resolves one of the two resolves both.
 * **A map with no location still answers.** An unresolvable agent-data root
-  costs durability, never a working view flip.
+  costs durability, never a working surface change.
 """
 
 from __future__ import annotations

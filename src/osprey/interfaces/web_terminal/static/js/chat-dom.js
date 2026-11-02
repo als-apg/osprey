@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: DOM and text helpers.
+ * OSPREY Web Terminal — operator chat: DOM and text helpers.
  *
  * The element and button builders every chat block is made from, and the
  * duration and JSON formatters the blocks print. Text goes in with textContent;

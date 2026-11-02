@@ -229,7 +229,7 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
+| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/`, `watchdogs/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
 | The agent's memory and record | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/agent_record/` | no | yes |
@@ -593,7 +593,7 @@ _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
     "which replaces profile.yml, data/, tiers/, apps/, triggers.yml, "
-    "web-terminal-context/, and .env.example, losing any edit to them. In "
+    "web-terminal-context/, watchdogs/, and .env.example, losing any edit to them. In "
     "providers.yml the entries OSPREY ships are reset to the packaged values "
     "(your edits to them are lost) and the ones you added are kept. To start "
     "over on this name entirely, re-run with --reset: that re-materializes the "
@@ -1257,7 +1257,7 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     is_flag=True,
     help="Re-materialize the source zone of an existing deployment repo, "
     "discarding edits to profile.yml, data/, tiers/, apps/, triggers.yml, "
-    "web-terminal-context/, and .env.example. In providers.yml the entries "
+    "web-terminal-context/, watchdogs/, and .env.example. In providers.yml the entries "
     "OSPREY ships are reset to the packaged values (your edits to them are "
     f"lost) and the ones you added are kept. Never touches: {_PRESERVED_PROSE}.",
 )

@@ -2,7 +2,7 @@
 /**
  * OSPREY Artifact Gallery — the page entry.
  *
- * Standalone, the page is the browse gallery in every UI mode: the browser
+ * Standalone, the page is the browse gallery: the browser
  * column (type tree or activity timeline, filter, ⋯ menu) beside the preview
  * pane and its header.
  *

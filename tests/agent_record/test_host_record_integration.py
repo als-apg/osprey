@@ -16,7 +16,7 @@ Pinned here, against real ``osprey agent-record serve`` processes:
   Claude Code's OTLP decision and usage events with the environment it was
   handed) and a host ``osprey query`` (the real command, its agent run
   replaced) each get a host-local record: their tool call is in the session
-  log and the session list, the turn's thinking is in the Simple view's
+  log and the session list, the turn's thinking is in the chat's
   turns, and their OTLP decision and usage events are in the record. No
   container is started, and no record process is left once the session ends.
 - ``osprey feedback list`` answers and leaves no process.
@@ -641,7 +641,7 @@ def _session_read(client: RecordClient, session: str) -> session_record.SessionR
 
 
 def _assert_session_in_record(dep: Deployment, client: RecordClient, session: str, label: str):
-    """The session log, the session list, the Simple view's thinking, and OTLP."""
+    """The session log, the session list, the chat's thinking, and OTLP."""
 
     def _tool_call() -> list[dict]:
         read = _session_read(client, session)

@@ -54,6 +54,11 @@ from osprey.agent_runner.primitives import (
     build_agent_options,
 )
 
+#: Marks a run as headless, so the watchdog trigger hook leaves its prompts alone:
+#: a watchdog judges what an operator typed, and these prompts come from code.
+#: The hook restates this name, because it runs outside the osprey venv.
+WATCHDOG_SKIP_ENV_VAR = "OSPREY_WATCHDOG_SKIP"
+
 
 async def _query_messages(
     options: ClaudeAgentOptions,
@@ -88,6 +93,15 @@ async def _query_messages(
                 yield message
     except ClaudeSDKError as exc:
         raise from_sdk_error(exc) from exc
+
+
+def _stamp_watchdog_skip(options: ClaudeAgentOptions) -> None:
+    """Put the skip marker into the run's built environment.
+
+    On the built options rather than through ``env``, because passing ``env``
+    tells the builder the caller has routed the run itself.
+    """
+    options.env[WATCHDOG_SKIP_ENV_VAR] = "1"
 
 
 def _require_sdk(entry_point: str) -> None:
@@ -168,6 +182,7 @@ async def stream_query(
         pre_tool_use_hooks=pre_tool_use_hooks,
         stderr=stderr,
     )
+    _stamp_watchdog_skip(options)
     # aclosing: closing this stream (or cancelling it at a yield) must unwind
     # the client and its CLI child before aclose() returns, not at finalization.
     async with contextlib.aclosing(
@@ -264,6 +279,7 @@ async def run_query(
         pre_tool_use_hooks=pre_tool_use_hooks,
         stderr=stderr,
     )
+    _stamp_watchdog_skip(options)
 
     workflow = SDKWorkflowResult()
     pending_tools: dict[str, ToolTrace] = {}

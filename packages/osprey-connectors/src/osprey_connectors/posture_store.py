@@ -61,6 +61,11 @@ the ceiling refuses nothing and stays on disk. :func:`backstop_verdict` is the
 floor for a write no target or owner can be named for: its first two terms and
 nothing else, so it reports no position.
 
+Both are blind to a session's hold, because they also choose the gateway a
+connector child connects on. The hold is decided where a write executes:
+:func:`session_hold_refusal` asks it alone, and :func:`execution_verdict` is
+:func:`write_verdict` with the hold placed after its first two terms.
+
 The switch is a property of one OWNER's record, not of a process tree: no
 session key indexes it, and a process that belongs to no session — a dispatch
 worker, a CLI run — is decided by the same field as one that does.
@@ -129,10 +134,11 @@ import os
 import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, Literal, NamedTuple, cast
 
+from osprey_connectors import session_hold
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
@@ -172,11 +178,13 @@ __all__ = [
     "bound_owner",
     "bound_state_dir",
     "current_owner",
+    "execution_verdict",
     "invalidate_cache",
     "launch_pin_term",
     "launch_posture_stamp",
     "owner_tier_term",
     "parse_posture_value",
+    "session_hold_refusal",
     "stamped_agent_data_root",
     "state_dir",
     "write_ceiling",
@@ -1111,6 +1119,9 @@ def write_ceiling(
 
 # -- the write verdict ------------------------------------------------------
 
+#: The environment variable naming the web terminal's session, the hold's key.
+_SESSION_KEY_ENV_VAR: Final = "OSPREY_SESSION_ID"
+
 
 @dataclass(frozen=True)
 class WriteVerdict:
@@ -1130,6 +1141,8 @@ class WriteVerdict:
             ``allowed``, the stored position capped by the environment's
             ceiling — and ``None`` on every refusal and from
             :func:`backstop_verdict`.
+        detail: Words the refusal adds after its phrase, such as what raised a
+            session's hold. Not part of the decision, so verdicts compare without it.
     """
 
     allowed: bool
@@ -1137,6 +1150,7 @@ class WriteVerdict:
     target: str | None
     kind: Literal["real", "rehearsal", "simulator"] | None
     position: Literal["asked", "allowed"] | None = None
+    detail: str | None = field(default=None, compare=False)
 
 
 def write_verdict(
@@ -1251,6 +1265,74 @@ def backstop_verdict(section: Any) -> WriteVerdict:
             logger.warning("Backstop tier could not be read; refusing", exc_info=True)
             reason = "tier_never"
     return WriteVerdict(allowed=reason is None, reason=reason, target=None, kind=None)
+
+
+def session_hold_refusal(*, root: Path | str | None = None) -> WriteVerdict | None:
+    """The ``session_held`` refusal for this process's session, or ``None``.
+
+    The session is :data:`_SESSION_KEY_ENV_VAR`; a process without one belongs to
+    no session and is never held. The store is *root*, else the stamped
+    :data:`~osprey_connectors.session_hold.HOLD_DIR_ENV_VAR`; without either
+    nothing is held. Under a store, a record that cannot be read refuses.
+
+    Args:
+        root: The hold root, for a caller that resolved it itself.
+
+    Returns:
+        ``None`` when not held; otherwise a refusal whose ``target`` and ``kind``
+        are ``None`` and whose ``detail`` names the open flags' sources, each once
+        in the order opened. An unsafe session key has no flags to name. Never
+        raises.
+    """
+    key = os.environ.get(_SESSION_KEY_ENV_VAR, "")
+    if not key:
+        return None
+    detail = None
+    try:
+        # One read: the decision and the words it is refused in come from one answer.
+        flags = session_hold.open_flags(key, root=root)
+        if not flags:
+            return None
+        sources = ", ".join(dict.fromkeys(flag.source for flag in flags))
+        detail = f"Raised by: {sources}."
+    except ValueError:  # the key is not a safe file name, which holds
+        logger.warning("Session key %r is unsafe; held", key)
+    except Exception:  # a hold that cannot be read refuses; it never raises
+        logger.warning("Session hold for %r could not be read; held", key, exc_info=True)
+    return WriteVerdict(allowed=False, reason="session_held", target=None, kind=None, detail=detail)
+
+
+def execution_verdict(
+    section: Any,
+    target: str | None,
+    *,
+    owner: str | NoOwner | None = None,
+    ignore_launch_pin: bool = False,
+) -> WriteVerdict:
+    """The verdict on one write about to execute: :func:`write_verdict` plus the hold.
+
+    The terms are ``readonly_run``, ``tier_never``, ``session_held``
+    (:func:`session_hold_refusal`), then the rest of :func:`write_verdict` in its
+    order, so a held session with its switch off refuses ``session_held``. Its
+    order is shared with the hook's stdlib twin.
+
+    Args:
+        section: The ``control_system`` section of the resolved config.
+        target: The control target the write lands on.
+        owner: As for :func:`write_verdict`.
+        ignore_launch_pin: As for :func:`write_verdict`.
+
+    Returns:
+        A :class:`WriteVerdict` with the ``target`` and ``kind`` of
+        :func:`write_verdict`. Never raises.
+    """
+    verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
+    if not backstop_verdict(section).allowed:
+        return verdict
+    held = session_hold_refusal()
+    if held is None:
+        return verdict
+    return replace(held, target=verdict.target, kind=verdict.kind)
 
 
 def _write_refusal(

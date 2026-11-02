@@ -13,7 +13,7 @@ flight:
   dropped together, so no look at the key ever sees one without the other;
 - **the slot is released exactly once on every exit path** — a return, each
   refusal, a channel that closes, a spawn that raises, a cancellation;
-- **attach before release** — an Expert caller owns the PTY before the
+- **attach before release** — a terminal caller owns the PTY before the
   reservation that protected it is dropped, so the eviction pass never meets
   the entry unheld;
 - **no spawn after a refusal** — a refused acquire starts no process;
@@ -193,12 +193,12 @@ async def test_interleaved_acquires_never_leave_two_live_entries(disk):  # noqa:
     pty_spawn = pty_spawner(app)
     chat_spawn = chat_spawner(app)
     flips = [
-        ("expert", pty_spawn),
-        ("simple", chat_spawn),
-        ("simple", chat_spawn),
-        ("expert", pty_spawn),
-        ("expert", pty_spawn),
-        ("simple", chat_spawn),
+        ("terminal", pty_spawn),
+        ("chat", chat_spawn),
+        ("chat", chat_spawn),
+        ("terminal", pty_spawn),
+        ("terminal", pty_spawn),
+        ("chat", chat_spawn),
     ]
 
     spawned: list[bool] = []
@@ -208,7 +208,7 @@ async def test_interleaved_acquires_never_leave_two_live_entries(disk):  # noqa:
         assert live_entries(app) == 1
         assert_released(app)
         spawned.append(result.spawned)
-        if surface == "expert":
+        if surface == "terminal":
             # What a terminal handler does in its own cleanup.
             registry(app).detach_session(KEY, channel)
 
@@ -226,7 +226,7 @@ async def test_a_dead_entry_is_reaped_rather_than_handed_off():
     corpse.exit(1)
     spawn = chat_spawner(app)
 
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert corpse.terminates == 1
     assert result.plan.outgoing is None
@@ -236,11 +236,11 @@ async def test_a_dead_entry_is_reaped_rather_than_handed_off():
 
 
 @pytest.mark.usefixtures("disk")
-@pytest.mark.parametrize("surface", ["expert", "simple"])
+@pytest.mark.parametrize("surface", ["terminal", "chat"])
 async def test_a_key_live_in_both_pools_is_reduced_to_one(surface):
     """The state this module exists to make unreachable, met head on.
 
-    Whichever view acquires, the other view's entry is the one torn down and
+    Whichever view acquires, the other surface's entry is the one torn down and
     the acquiring view's own entry is what it is handed.
     """
     app = make_app()
@@ -249,13 +249,13 @@ async def test_a_key_live_in_both_pools_is_reduced_to_one(surface):
     chats(app).sessions[KEY] = chat
     set_store(app, IDLE, 1.0)
     assert live_entries(app) == 2
-    spawn = pty_spawner(app) if surface == "expert" else chat_spawner(app)
+    spawn = pty_spawner(app) if surface == "terminal" else chat_spawner(app)
 
     result = await acquire_surface(app, KEY, surface, object(), spawn=spawn)
 
     assert result.plan.action == ACTION_HANDOFF
     assert result.spawned is False and spawn.calls == []
-    if surface == "expert":
+    if surface == "terminal":
         assert result.plan.outgoing is not None and result.plan.outgoing.session is chat
         assert chat.teardowns == 1 and chats(app).get(KEY) is None
         assert result.session is pty
@@ -280,7 +280,9 @@ async def test_the_slot_and_the_reservation_are_taken_and_dropped_together():
     violations = watch_slot_invariant(app)
     channel = object()
 
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", channel, spawn=pty_spawner(app)))
+    task = asyncio.create_task(
+        acquire_surface(app, KEY, "terminal", channel, spawn=pty_spawner(app))
+    )
     await ticks(app, 10)
     assert_held(app, channel)
     chat.is_busy = False
@@ -298,9 +300,7 @@ async def test_the_eviction_pass_steps_over_the_key_a_handoff_reserved():
     spare = pool_pty_under(app, OTHER_KEY, RecordingPty())
     set_store(app, BUSY, 1.0)
 
-    task = asyncio.create_task(
-        acquire_surface(app, KEY, "simple", object(), spawn=chat_spawner(app))
-    )
+    task = asyncio.create_task(acquire_surface(app, KEY, "chat", object(), spawn=chat_spawner(app)))
     await ticks(app, 3)
     assert registry(app).is_reserved(KEY)
 
@@ -324,14 +324,14 @@ async def test_the_eviction_pass_steps_over_the_key_a_handoff_reserved():
 
 async def _exit_returns(app: SimpleNamespace) -> None:
     chats(app).sessions[KEY] = Chat(busy=False)
-    await acquire_surface(app, KEY, "expert", object(), spawn=pty_spawner(app))
+    await acquire_surface(app, KEY, "terminal", object(), spawn=pty_spawner(app))
 
 
 async def _exit_refused_409(app: SimpleNamespace) -> None:
     pool_pty(app)
     registry(app).attach_session(KEY, object())
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "simple", object(), spawn=chat_spawner(app))
+        await acquire_surface(app, KEY, "chat", object(), spawn=chat_spawner(app))
     assert refused.value.error == ERROR_SESSION_ATTACHED_ELSEWHERE
 
 
@@ -339,21 +339,21 @@ async def _exit_refused_503(app: SimpleNamespace) -> None:
     pool_pty(app, SurvivorPty())
     set_store(app, IDLE, 1.0)
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "simple", object(), spawn=chat_spawner(app))
+        await acquire_surface(app, KEY, "chat", object(), spawn=chat_spawner(app))
     assert refused.value.error == ERROR_OUTGOING_STILL_RUNNING
 
 
 async def _exit_needs_interrupt(app: SimpleNamespace) -> None:
     pool_pty(app)
     with pytest.raises(HandoffNeedsInterrupt):
-        await acquire_surface(app, KEY, "simple", object(), spawn=chat_spawner(app))
+        await acquire_surface(app, KEY, "chat", object(), spawn=chat_spawner(app))
 
 
 async def _exit_channel_closed(app: SimpleNamespace) -> None:
     chats(app).sessions[KEY] = Chat(busy=True)
     closed = asyncio.Event()
     token = ChannelToken(closed.is_set)
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", token, spawn=pty_spawner(app)))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", token, spawn=pty_spawner(app)))
     await ticks(app, 3)
     closed.set()
     with pytest.raises(ChannelClosed):
@@ -363,7 +363,7 @@ async def _exit_channel_closed(app: SimpleNamespace) -> None:
 async def _exit_cancelled(app: SimpleNamespace) -> None:
     chats(app).sessions[KEY] = Chat(busy=True)
     task = asyncio.create_task(
-        acquire_surface(app, KEY, "expert", object(), spawn=pty_spawner(app))
+        acquire_surface(app, KEY, "terminal", object(), spawn=pty_spawner(app))
     )
     await ticks(app, 3)
     task.cancel()
@@ -378,7 +378,7 @@ async def _exit_spawn_raised(app: SimpleNamespace) -> None:
         raise OSError("fork failed")
 
     with pytest.raises(OSError, match="fork failed"):
-        await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
 
 
 #: Each exit path and how many slots it should release. One, for every exit
@@ -428,7 +428,7 @@ async def test_a_refused_acquire_starts_no_process(name):
     spawn = chat_spawner(app)
 
     with pytest.raises(HandoffRefused):
-        await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert spawn.calls == []
     assert chats(app).get(KEY) is None
@@ -449,14 +449,14 @@ async def test_a_pty_that_survives_once_is_repooled_and_the_retry_leaves_one_chi
     spawn = chat_spawner(app)
 
     with pytest.raises(HandoffRefused) as refused:
-        await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+        await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
     assert refused.value.status == 503
     assert registry(app).get_session(KEY) is pty
     assert not registry(app).is_attached(KEY)
     assert not registry(app).is_reserved(KEY)
     assert spawn.calls == []
 
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert pty.terminates == 2
     assert not pty.is_alive
@@ -497,7 +497,7 @@ async def test_the_spawn_waits_for_the_kill_to_return_and_the_child_to_be_gone()
         chats(app).sessions[request.key] = session
         return session
 
-    await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert order == ["terminate", "dead", "spawn"]
 
@@ -522,7 +522,7 @@ async def test_an_attachment_that_clears_within_the_grace_becomes_a_handoff():
             registry(app).detach_session(KEY, owner)
 
     app.clock.on_sleep.append(detach_on_the_sixth_look)
-    result = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    result = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     # Six polls of the grace, and nothing else: the key was idle by then.
     assert app.clock.sleeps == [ATTACH_POLL_S] * 6
@@ -534,13 +534,13 @@ async def test_an_attachment_that_clears_within_the_grace_becomes_a_handoff():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_the_expert_owns_the_pty_before_the_reservation_is_dropped():
+async def test_the_terminal_owns_the_pty_before_the_reservation_is_dropped():
     app = make_app()
     chats(app).sessions[KEY] = Chat(busy=False)
     held = watch_attach(app)
     channel = object()
 
-    result = await acquire_surface(app, KEY, "expert", channel, spawn=pty_spawner(app))
+    result = await acquire_surface(app, KEY, "terminal", channel, spawn=pty_spawner(app))
 
     assert held == [True]
     assert registry(app).attached_owner(KEY) is channel
@@ -554,14 +554,14 @@ async def test_the_expert_owns_the_pty_before_the_reservation_is_dropped():
 
 
 @pytest.mark.usefixtures("disk")
-async def test_a_hookless_deployment_still_waits_on_a_busy_chat_for_the_expert():
+async def test_a_hookless_deployment_still_waits_on_a_busy_chat_for_the_terminal():
     """The hook only speaks for a PTY; ``is_busy`` needs no hook at all."""
     app = make_app(hook=False)
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
     spawn = pty_spawner(app)
 
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", object(), spawn=spawn))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", object(), spawn=spawn))
     await ticks(app, 20)
     assert not task.done()
     assert chat.teardowns == 0 and spawn.calls == []
@@ -591,7 +591,7 @@ async def test_a_channel_that_closes_mid_wait_tears_nothing_down():
     token = ChannelToken(closed.is_set)
     spawn = pty_spawner(app)
 
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", token, spawn=spawn))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", token, spawn=spawn))
     await ticks(app, 5)
     closed.set()
     with pytest.raises(ChannelClosed):
@@ -617,16 +617,16 @@ async def test_both_pty_edges_reset_the_turn_state_under_the_moved_transcript(di
 
     # Spawn edge: a fresh TUI has no turn in flight.
     channel = object()
-    await acquire_surface(app, KEY, "expert", channel, spawn=pty_spawner(app))
+    await acquire_surface(app, KEY, "terminal", channel, spawn=pty_spawner(app))
     spawned = turn_state(app)
     assert spawned is not None
     assert spawned["state"] == IDLE and spawned["transcript_id"] == TRANSCRIPT
     registry(app).detach_session(KEY, channel)
 
-    # The TUI runs a turn, then the Simple view takes the key.
+    # The TUI runs a turn, then the chat takes the key.
     set_store(app, BUSY, spawned["ts"] + 1.0)
     with wait_returns(REASON_IDLE):
-        await acquire_surface(app, KEY, "simple", object(), spawn=chat_spawner(app))
+        await acquire_surface(app, KEY, "chat", object(), spawn=chat_spawner(app))
 
     torn_down = turn_state(app)
     assert torn_down is not None
@@ -645,7 +645,7 @@ async def test_the_resume_id_comes_from_a_snapshot_taken_at_spawn_time(disk):  #
 
     spawn = pty_spawner(app)
     with wait_returns(REASON_IDLE, before=clears):
-        result = await acquire_surface(app, KEY, "expert", object(), spawn=spawn)
+        result = await acquire_surface(app, KEY, "terminal", object(), spawn=spawn)
 
     assert result.resume_id == TRANSCRIPT
     assert spawn.calls[0].transcript_id == TRANSCRIPT
@@ -656,8 +656,8 @@ async def test_the_resume_id_comes_from_a_snapshot_taken_at_spawn_time(disk):  #
 # ---------------------------------------------------------------------------
 
 
-async def test_a_simple_round_trip_through_the_real_chat_pool(disk):  # noqa: F811
-    """The Simple side end to end: the acquire door onto the real pool.
+async def test_a_chat_round_trip_through_the_real_chat_pool(disk):  # noqa: F811
+    """The chat side end to end: the acquire door onto the real pool.
 
     Everything else here drives a fake pool, so the seam between the two — the
     spawn callback handing ``request.resume_id`` to
@@ -678,7 +678,7 @@ async def test_a_simple_round_trip_through_the_real_chat_pool(disk):  # noqa: F8
         )
         return session
 
-    first = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    first = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
     chat = first.session
 
     assert first.plan.action == ACTION_SPAWN
@@ -693,7 +693,7 @@ async def test_a_simple_round_trip_through_the_real_chat_pool(disk):  # noqa: F8
     assert_released(app)
 
     # The next turn is handed the same child, and the pool is never asked.
-    second = await acquire_surface(app, KEY, "simple", object(), spawn=spawn)
+    second = await acquire_surface(app, KEY, "chat", object(), spawn=spawn)
 
     assert second.session is chat
     assert second.spawned is False and second.resume_id is None
@@ -703,8 +703,8 @@ async def test_a_simple_round_trip_through_the_real_chat_pool(disk):  # noqa: F8
     assert len(created) == 1
     assert_released(app)
 
-    # The Expert view takes the key: the real pool tears the child down.
-    third = await acquire_surface(app, KEY, "expert", object(), spawn=pty_spawner(app))
+    # The terminal takes the key: the real pool tears the child down.
+    third = await acquire_surface(app, KEY, "terminal", object(), spawn=pty_spawner(app))
 
     assert third.plan.action == ACTION_HANDOFF
     assert chat.stop_calls == 1 and chat.process_exited is True
@@ -722,15 +722,15 @@ async def test_a_simple_round_trip_through_the_real_chat_pool(disk):  # noqa: F8
 
 @pytest.mark.usefixtures("disk")
 @pytest.mark.parametrize("stagger", range(6))
-async def test_two_expert_acquirers_leave_one_child_and_one_owner(stagger):
+async def test_two_terminal_acquirers_leave_one_child_and_one_owner(stagger):
     app = make_app()
     spawn = pty_spawner(app)
     first, second = object(), object()
 
-    one = asyncio.create_task(acquire_surface(app, KEY, "expert", first, spawn=spawn))
+    one = asyncio.create_task(acquire_surface(app, KEY, "terminal", first, spawn=spawn))
     for _ in range(stagger):
         await asyncio.sleep(0)
-    two = asyncio.create_task(acquire_surface(app, KEY, "expert", second, spawn=spawn))
+    two = asyncio.create_task(acquire_surface(app, KEY, "terminal", second, spawn=spawn))
     results = await asyncio.gather(one, two)
 
     # One child was started, both callers were handed it, and the attachment
@@ -753,7 +753,7 @@ async def test_a_cancel_at_any_point_leaves_the_key_consistent(yields):
     channel = object()
     spawn = pty_spawner(app)
 
-    task = asyncio.create_task(acquire_surface(app, KEY, "expert", channel, spawn=spawn))
+    task = asyncio.create_task(acquire_surface(app, KEY, "terminal", channel, spawn=spawn))
     for _ in range(yields):
         await asyncio.sleep(0)
     task.cancel()
@@ -778,7 +778,7 @@ async def test_a_cancelled_acquire_leaves_the_key_free_for_the_next_one():
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
     doomed = asyncio.create_task(
-        acquire_surface(app, KEY, "expert", object(), spawn=pty_spawner(app))
+        acquire_surface(app, KEY, "terminal", object(), spawn=pty_spawner(app))
     )
     await ticks(app, 3)
     doomed.cancel()
@@ -786,7 +786,7 @@ async def test_a_cancelled_acquire_leaves_the_key_free_for_the_next_one():
         await doomed
 
     chat.is_busy = False
-    result = await acquire_surface(app, KEY, "expert", object(), spawn=pty_spawner(app))
+    result = await acquire_surface(app, KEY, "terminal", object(), spawn=pty_spawner(app))
 
     assert result.plan.action == ACTION_HANDOFF
     assert result.outcome == WaitOutcome(REASON_IDLE)
@@ -795,12 +795,12 @@ async def test_a_cancelled_acquire_leaves_the_key_free_for_the_next_one():
 
 
 # ---------------------------------------------------------------------------
-# A Simple interrupt supersedes the Simple wait ahead of it
+# A chat interrupt supersedes the chat wait ahead of it
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("disk")
-async def test_a_simple_interrupt_supersedes_the_pending_simple_wait_and_lands():
+async def test_a_chat_interrupt_supersedes_the_pending_chat_wait_and_lands():
     """The wait the operator wants to end is ended; the interrupt's own acquire completes.
 
     Through the real phase (c): the superseded wait releases its slot exactly
@@ -827,12 +827,12 @@ async def test_a_simple_interrupt_supersedes_the_pending_simple_wait_and_lands()
 
     with releases() as taken:
         first = asyncio.create_task(
-            acquire_surface(app, KEY, "simple", first_channel, spawn=first_spawn)
+            acquire_surface(app, KEY, "chat", first_channel, spawn=first_spawn)
         )
         await ticks(app, 5)
         assert_held(app, first_channel)
         second = asyncio.create_task(
-            acquire_surface(app, KEY, "simple", second_channel, interrupt=True, spawn=second_spawn)
+            acquire_surface(app, KEY, "chat", second_channel, interrupt=True, spawn=second_spawn)
         )
         with pytest.raises(HandoffRefused) as refused:
             await first
@@ -875,10 +875,10 @@ async def test_a_supersede_arriving_during_phase_c_leaves_the_carrier_to_answer(
 
     with releases() as taken:
         first = asyncio.create_task(
-            acquire_surface(app, KEY, "simple", first_channel, spawn=first_spawn)
+            acquire_surface(app, KEY, "chat", first_channel, spawn=first_spawn)
         )
         second = asyncio.create_task(
-            acquire_surface(app, KEY, "simple", second_channel, interrupt=True, spawn=second_spawn)
+            acquire_surface(app, KEY, "chat", second_channel, interrupt=True, spawn=second_spawn)
         )
         # One step: the first is at its shield, the spawn is waiting on the
         # gate, and the second has looked — and found a record it may not touch.

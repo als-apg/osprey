@@ -76,8 +76,8 @@ body {
 /* The splitter between sidebar and reader carries `.osprey-splitter` from the
    design system's base.css — the grip-pill visual shared with the artifact
    gallery, the PLAN panel, and the hub's dockview sashes. Nothing to restate
-   here; the only OKF-specific splitter rules are the two `display: none`
-   cases further down (stacked responsive layout, Simple UI mode). */
+   here; the only OKF-specific splitter rule is the `display: none` for the
+   stacked responsive layout further down. */
 
 #search-box {
   flex: 0 0 auto;
@@ -509,154 +509,11 @@ body {
 /* ================================================================
    Embedded in the web-terminal hub
    ----------------------------------------------------------------
-   The tile bar is the panel's one header in both UI modes: app.js
+   The tile bar is the panel's one header: app.js
    (publishHeaderContribution) contributes the search box and the Browse
-   view to it, so the in-body search box goes. The standalone-only
-   "Browse all pages" bar is removed from the DOM by app.js when embedded.
+   view to it, so the in-body search box goes.
    ================================================================ */
 
 body.embedded #search-box {
   display: none;
-}
-
-/* ================================================================
-   Simple Mode — reading-focused (html[data-ui-mode="simple"])
-   ----------------------------------------------------------------
-   Expert is the default and stays pixel-identical: every rule below is
-   gated on the data-ui-mode attribute, so nothing here touches the panel
-   until the hub flips it to "simple". The reading-focused mode drops the
-   expert navigation/diagnostic chrome (tree, group labels, bundle-health,
-   mono tag chips) and puts the rendered document front and centre with a
-   generous reading measure. The structure overview (the plain doc list) is
-   reached from the tile bar's Browse entry when embedded, and from the
-   "Browse all pages" bar standalone. Mirrors the artifacts panel's
-   Expert/Simple recipe.
-   ================================================================ */
-
-/* Drop the whole expert navigation column (tree, search, group labels,
-   bundle-health footer) and its resizer. #app is a flex row, so #reader then
-   fills the panel. */
-:root[data-ui-mode="simple"] #sidebar,
-:root[data-ui-mode="simple"] #sidebar-resizer {
-  display: none;
-}
-
-/* A search from the tile bar renders into #search-results, which lives in the
-   sidebar: while results are showing, Simple brings the column back with the
-   results as its only content. Clearing the search hides it again. */
-:root[data-ui-mode="simple"] #sidebar:has(#search-results:not([hidden])) {
-  display: flex;
-}
-
-:root[data-ui-mode="simple"] #sidebar > :not(#search-results) {
-  display: none;
-}
-
-:root[data-ui-mode="simple"] #search-results {
-  border-top: none;
-}
-
-/* Expert-only concept metadata: the mono tag chips read as reference chrome. */
-:root[data-ui-mode="simple"] .concept-tags {
-  display: none;
-}
-
-/* Standalone top affordance — hidden in Expert (default), a sticky
-   "Browse all pages" bar in Simple. index.html ships it [hidden]; app.js
-   reveals it standalone and removes it when embedded. */
-.reader-topbar {
-  display: none;
-}
-
-:root[data-ui-mode="simple"] .reader-topbar:not([hidden]) {
-  display: flex;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  justify-content: center;
-  padding: var(--space-4) var(--space-5) var(--space-2);
-  background: var(--bg-primary);
-}
-
-.browse-all-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  max-width: 760px;
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  color: var(--text-secondary);
-  background: var(--okf-surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background var(--duration-instant) ease,
-    border-color var(--duration-instant) ease, color var(--duration-instant) ease;
-}
-
-.browse-all-btn:hover {
-  background: var(--okf-surface-hover);
-  border-color: var(--border-accent);
-  color: var(--color-accent-light);
-}
-
-.browse-all-btn .browse-all-icon {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-}
-
-.browse-all-btn .browse-all-arrow {
-  margin-left: auto;
-  color: var(--text-muted);
-}
-
-.browse-all-btn:hover .browse-all-arrow {
-  color: var(--color-accent-light);
-}
-
-/* Generous reading measure: a narrower, larger-type column so the document
-   reads as prose rather than reference chrome. The page title is the same
-   --text-4xl whether it is a concept's title or the overview's markdown h1. */
-:root[data-ui-mode="simple"] #reader-content {
-  max-width: 760px;
-  padding: var(--space-4) var(--space-5) var(--space-7);
-  font-size: var(--text-lg);
-}
-
-:root[data-ui-mode="simple"] .concept-title {
-  font-size: var(--text-4xl);
-}
-
-:root[data-ui-mode="simple"] .concept-description {
-  font-size: var(--text-xl);
-  line-height: var(--leading-normal);
-}
-
-:root[data-ui-mode="simple"] .osprey-md-rendered {
-  max-width: none;
-  line-height: var(--leading-loose);
-  font-size: var(--text-lg);
-}
-
-:root[data-ui-mode="simple"] .osprey-md-rendered p,
-:root[data-ui-mode="simple"] .osprey-md-rendered ul,
-:root[data-ui-mode="simple"] .osprey-md-rendered ol,
-:root[data-ui-mode="simple"] .osprey-md-rendered li {
-  font-size: var(--text-xl);
-}
-
-:root[data-ui-mode="simple"] .osprey-md-rendered h1 {
-  font-size: var(--text-4xl);
-}
-
-:root[data-ui-mode="simple"] .osprey-md-rendered h2 {
-  font-size: var(--text-3xl);
-}
-
-:root[data-ui-mode="simple"] .osprey-md-rendered h3 {
-  font-size: var(--text-2xl);
 }

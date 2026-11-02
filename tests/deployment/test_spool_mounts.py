@@ -281,9 +281,12 @@ def test_a_worker_on_the_host_network_dials_the_loopback_publish():
     assert _env(service)["OSPREY_AGENT_RECORD_URL"] == f"http://127.0.0.1:{_record_port(config)}"
 
 
-def test_a_worker_with_no_env_chain_still_carries_its_login():
+def test_a_worker_with_no_env_chain_still_carries_its_login(tmp_path, monkeypatch):
     from osprey.agent_record.credentials import login_file
 
+    # The chain is probed at the repo root, which falls back to the working
+    # directory for this config's project_root, so a checkout's .env must not count.
+    monkeypatch.chdir(tmp_path)
     config = _worker_config()
     rendered = _inject_project_metadata(config)
     assert not rendered.get("osprey_env_chain")

@@ -710,7 +710,12 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # the one credential this entry can present is the panel token every
         # child already carries — which is exactly what the proxy on the other
         # end of the loopback hop checks.
-        headers={"Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}"},
+        # The session header names who is calling, so the proxy can refuse a job
+        # fired from a held session.
+        headers={
+            "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
+            "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+        },
         # Conditional on the EVENTS panel, read through the same predicate that
         # grants the dispatcher token itself (see the ctx key's own comment in
         # cli/templates/claude_code.py). A deployment without the panel serves

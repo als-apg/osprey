@@ -1,5 +1,5 @@
 /**
- * Shared harness for the pre-paint boot scripts (mode-boot.js, sidebar-boot.js,
+ * Shared harness for the pre-paint boot scripts (sidebar-boot.js,
  * theme-boot.js).
  *
  * Those files are non-module, dependency-free IIFEs — they export nothing and
@@ -33,7 +33,7 @@ const BOOT_SCRIPT_DIR = join(
  * Execute a pre-paint boot IIFE against the current happy-dom globals.
  *
  * @param {string} relPath path relative to design_system/static/js —
- *   e.g. `'mode-boot.js'`.
+ *   e.g. `'sidebar-boot.js'`.
  * @returns {void}
  */
 export function runBootScript(relPath) {

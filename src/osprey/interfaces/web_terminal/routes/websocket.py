@@ -47,6 +47,8 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
     resolve_agent_data_root,
+    session_hold_root_of,
+    stamp_session_hold,
 )
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
@@ -54,6 +56,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.session_hold import is_held
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -414,7 +417,7 @@ def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: 
     yet, because Claude Code writes the transcript on the first prompt. A key
     the chat pool answers to (:func:`_chat_pool_answers_to`, so a creation
     still inside ``start()`` counts) is equally a session: both views are
-    windows onto one key, and the conversation the operator started in Simple
+    windows onto one key, and the conversation the operator started in chat
     is the one they are asking for here. Only with none of those is the
     transcript directory the authority: ``--resume`` on an id with no file
     there prints :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER` and exits, which is the dead
@@ -490,7 +493,7 @@ def _build_extra_env(
     included. It scopes the child's execution root
     (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
-    conversation is one session whichever view is showing it, so the chat
+    conversation is one session whichever surface is showing it, so the chat
     child spawned under that key
     (:func:`~osprey.interfaces.web_terminal.operator_session.build_operator_child_env`)
     works out of the same directory as this one. The name is in
@@ -515,15 +518,15 @@ def _build_extra_env(
     operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
-    # The PTY terminal IS the expert web surface — every session spawned here
-    # serves it, whatever web.ui_mode the deployment defaults to (the operator
-    # can flip modes live; the chat surface runs its own SDK sessions, marked
-    # "simple" in operator_session.py). The panels-context SessionStart hook
-    # reads this to tell the agent which UI the operator is looking at.
-    extra_env["OSPREY_WEB_UX"] = "expert"
+    # Every session spawned here serves the terminal surface; the chat runs its
+    # own SDK sessions, marked in operator_session.py. The panels-context
+    # SessionStart hook reads this to tell the agent which UI the operator is
+    # looking at.
+    extra_env["OSPREY_WEB_UX"] = session_handoff.SURFACE_TERMINAL
     session_key = claude_session_id or telemetry_session_id
     if session_key:
         extra_env["OSPREY_SESSION_ID"] = session_key
+        stamp_session_hold(extra_env, session_key, websocket.app)
     if telemetry_session_id:
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
@@ -696,7 +699,7 @@ class _TerminalChannel:
         spawn: SpawnCallback,
         end_started: bool = False,
     ) -> AcquireResult:
-        """Take *key* for the Expert surface while reading the socket.
+        """Take *key* for the terminal surface while reading the socket.
 
         The acquire runs in the handler's own task — a cancellation delivered
         while phase (c) runs is then honoured only once the phase is done,
@@ -709,7 +712,7 @@ class _TerminalChannel:
             return await session_handoff.acquire_surface(
                 app,
                 key,
-                session_handoff.SURFACE_EXPERT,
+                session_handoff.SURFACE_TERMINAL,
                 self.token,
                 interrupt=interrupt,
                 spawn=spawn,
@@ -867,10 +870,10 @@ async def _spawn_pooled_pty(
 
 
 #: Close code of a ``/ws/terminal`` refused because the deployment offers no
-#: Expert view (``web.expert_view: false``). In the 4000-4999 application
+#: terminal (``web.terminal: false``). In the 4000-4999 application
 #: range beside the hand-off's 4409; 4403 reads as "forbidden" the way HTTP's
 #: 403 does.
-WS_CLOSE_EXPERT_VIEW_OFF = 4403
+WS_CLOSE_TERMINAL_OFF = 4403
 
 
 @router.websocket("/ws/terminal")
@@ -899,7 +902,7 @@ async def terminal_ws(websocket: WebSocket):
 
     Every PTY this handler serves comes through
     :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`:
-    the key is one session whichever view shows it, so taking it here hands
+    the key is one session whichever surface shows it, so taking it here hands
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
@@ -919,23 +922,23 @@ async def terminal_ws(websocket: WebSocket):
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
     that it found no such conversation and quits.
 
-    A deployment with ``web.expert_view: false`` offers no Expert view, and
-    this socket is the Expert view's PTY session: it is refused before
-    anything is looked up or spawned, with an ``error`` frame naming the key
-    and close code :data:`WS_CLOSE_EXPERT_VIEW_OFF`. The page never opens it
+    A deployment with ``web.terminal: false`` offers no terminal, and this
+    socket is its PTY session: it is refused before anything is looked up or
+    spawned, with an ``error`` frame naming the key and close code
+    :data:`WS_CLOSE_TERMINAL_OFF`. The page never opens it
     there; the refusal is what stops a hand-made client.
     """
     await websocket.accept()
 
     app = websocket.app
-    if not getattr(app.state, "web_expert_view", True):
+    if not getattr(app.state, "web_terminal_offered", True):
         # Imported here for the routes -> app cycle routes/panels.py avoids too.
-        from osprey.interfaces.web_terminal.app import EXPERT_VIEW_REFUSAL
+        from osprey.interfaces.web_terminal.app import TERMINAL_REFUSAL
 
-        logger.info("Refusing /ws/terminal: web.expert_view is false")
+        logger.info("Refusing /ws/terminal: web.terminal is false")
         with suppress(Exception):
-            await websocket.send_text(json.dumps({"type": "error", "message": EXPERT_VIEW_REFUSAL}))
-            await websocket.close(code=WS_CLOSE_EXPERT_VIEW_OFF)
+            await websocket.send_text(json.dumps({"type": "error", "message": TERMINAL_REFUSAL}))
+            await websocket.close(code=WS_CLOSE_TERMINAL_OFF)
         return
 
     registry = app.state.pty_registry
@@ -980,8 +983,8 @@ async def terminal_ws(websocket: WebSocket):
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
     # terminal the operator cannot use. The server knows before spawning, so
-    # it says so and closes, spawning nothing for that id; the client says so
-    # and starts a new session (terminal.js).
+    # it says so and closes, spawning nothing for that id; the client
+    # starts a new session (terminal.js).
     if (
         mode == "resume"
         and req_session_id
@@ -2917,7 +2920,15 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     return None if status == "unreadable" else control_context.switch_position(record, target)
 
 
-def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
+def _session_held(app: Any, session_id: str | None) -> bool:
+    """Whether the named session has an unanswered hold. BLOCKING; never raises."""
+    root = session_hold_root_of(app)
+    return bool(session_id and root is not None and is_held(session_id, root=root))
+
+
+def _posture_view(
+    app: Any, config_path: Path | None, session_id: str | None = None
+) -> dict[str, Any]:
     """Everything ``GET /api/terminal/posture`` reports. BLOCKING.
 
     Called through ``run_in_threadpool``: it parses ``config.yml``, reads the
@@ -2942,9 +2953,12 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     A switch landing mid-render can still move a later row's verdict; the window
     is one poll wide and the chip refetches on the ``control_context`` frame.
 
-    **No session is involved.** There is one control context per login
+    **One session-scoped field.** There is one control context per login
     identity, so every answer here is that login's: the caller's ``session_id``
-    names who is asking and decides nothing about what they are told.
+    names who is asking and decides nothing about the roster or its verdicts.
+    The exception is ``held``, which says the asking session has an unanswered
+    hold, so the chip can name why its writes are paused. It is ``False`` with no
+    session named and wherever no watchdog runs.
     """
     config = _rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
@@ -3033,6 +3047,7 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
         "owner": _owner_row(app, record),
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
+        "held": _session_held(app, session_id),
         "last_switch": _aged(None if record is None else record.last_switch),
         "last_posture_realign": _fleet_realign(reports),
         "targets": rows,
@@ -3046,7 +3061,7 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     The single truth the header chip and its popover read. There is one control
     context per deployment, so every answer here is the deployment's: the
     caller's ``session_id`` names who is asking and changes nothing about what
-    they are told.
+    they are told, except the session-scoped ``held`` field.
 
     One row per configured control target, each answering the whole of what the
     operator needs about that machine:
@@ -3129,7 +3144,9 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
     """
     _require_session_uuid(session_id)
 
-    view = await run_in_threadpool(_posture_view, request.app, request.app.state.config_path)
+    view = await run_in_threadpool(
+        _posture_view, request.app, request.app.state.config_path, session_id
+    )
     return {"session_id": session_id, **view}
 
 

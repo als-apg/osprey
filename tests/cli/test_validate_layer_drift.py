@@ -121,7 +121,7 @@ def test_one_edited_shared_login_key_is_one_drift_line(repo: Path) -> None:
 
 def test_validating_the_shared_login_file_reports_that_login_only(repo: Path) -> None:
     _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
-    _edit(repo / READONLY, "web.ui_mode: simple", "web.ui_mode: expert")
+    _edit(repo / READONLY, "control_system.writes: never", "control_system.writes: asked")
     refs = [f.profile_ref for f in _report(repo, repo / LOGBOOK).unmarked]
     assert len(refs) == 1 and refs[0].startswith("tiers/logbook.yml:")
     refs = [f.profile_ref for f in _report(repo, repo / READONLY).unmarked]

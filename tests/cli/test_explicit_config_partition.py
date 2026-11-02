@@ -82,7 +82,11 @@ from osprey.deployment.web_terminals.render_naming import (
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
-from tests.cli.test_explicit_config_equivalence import ABSENT, CELL_DELTAS
+from tests.cli.test_explicit_config_equivalence import (
+    _CATALOG_ADDITIONS,
+    ABSENT,
+    CELL_DELTAS,
+)
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 
@@ -400,9 +404,37 @@ def test_ports_are_the_layout_fill_and_nothing_else(
 def test_provider_catalog_covers_the_render(
     _preset: str, _mode: str | None, directory: str, tmp_path: Path
 ) -> None:
-    """The render lists exactly the packaged provider catalog."""
+    """The render lists the packaged catalog, short only of the declared additions."""
     rendered_names = set(_render(directory)[_PROVIDERS_KEY])
-    assert rendered_names == set(load_provider_catalog(tmp_path).entries), directory
+    catalog_names = set(load_provider_catalog(tmp_path).entries)
+    assert rendered_names | set(_CATALOG_ADDITIONS) == catalog_names, directory
+
+
+def test_catalog_additions_are_catalog_entries_no_fixture_lists(tmp_path: Path) -> None:
+    """Each declared catalog addition is packaged, and postdates every fixture.
+
+    An addition no fixture lacks would be a stale declaration; one the catalog
+    does not carry would be a typo the assertion above cannot name.
+    """
+    additions = set(_CATALOG_ADDITIONS)
+    assert additions <= set(load_provider_catalog(tmp_path).entries)
+    for _preset, _mode, directory in _cells():
+        for path in sorted((FIXTURE_ROOT / directory).glob("*.yml")):
+            # The frozen file itself: _render applies these very additions.
+            listed = set(dict(_leaves(yaml.safe_load(path.read_text())))[_PROVIDERS_KEY])
+            assert not listed & additions, f"{directory}/{path.stem}"
+
+
+def test_no_cell_declares_a_leaf_twice() -> None:
+    """No cell declares two deltas for the same ``(document, path)``.
+
+    The equivalence check indexes a cell's deltas by that key, so a second delta
+    for a leaf would silently replace the first.
+    """
+    for cell, deltas in CELL_DELTAS.items():
+        keys = [delta.key for delta in deltas]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        assert not duplicates, f"{cell}: {duplicates}"
 
 
 def _render_cells() -> list[tuple[str, str, str]]:

@@ -239,7 +239,7 @@ dependencies = [
     # release satisfies the floor, pip *and* uv under its default policy
     # (`if-necessary`) silently take a pre-release — which is why the floor
     # names only a stable connectors release already on PyPI.
-    "osprey-connectors>=2026.10.2",
+    "osprey-connectors>=2026.11.0",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
@@ -684,6 +684,8 @@ markers = [
     "requires_e2e_provider: Tests that build a deployment repo with the provider the run named in OSPREY_E2E_PROVIDER, and so need that provider's credential — the variable holding it comes from PROVIDER_API_KEYS, not from the test",
     "requires_ollama: Tests that require local Ollama service",
     "requires_matlab: Tests that need a MATLAB installation plus the AT toolbox; skip when `matlab` is not on PATH",
+    "requires_typesafe: Tests that call the live Jev API and need TYPESAFE_API_KEY exported to the run (a value only an ancestor .env supplies does not count)",
+    "requires_openrouter: Tests that call OpenRouter live and need OPENROUTER_API_KEY exported to the run (a value only an ancestor .env supplies does not count)",
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
@@ -785,7 +787,7 @@ layers = [
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
-    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty",
+    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
     "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
 ]
 ignore_imports = [

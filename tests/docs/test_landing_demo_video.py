@@ -1,9 +1,12 @@
-"""The landing page's demo-video block: markup that works without JavaScript,
-and a page that falls back to the poster when the video cannot play.
+"""The docs video blocks: markup that works without JavaScript, and a page that
+falls back to the poster when the video cannot play.
 
-The markup is read straight out of ``docs/source/index.rst``. The browser tests
-load it with ``custom.css`` in real Chromium; they skip when the Playwright
-browser is not installed, and the playing-video ones when ffmpeg is missing.
+The markup is read straight out of the landing page's ``docs/source/index.rst``,
+and the player is the shared ``_static/js/doc-video.js``; a block for a page one
+level down is written out below. The browser tests load a block
+with ``custom.css`` and the player in real Chromium; they skip when the
+Playwright browser is not installed, and the playing-video ones when ffmpeg is
+missing.
 """
 
 from __future__ import annotations
@@ -20,11 +23,13 @@ from tests._playwright import chromium_available
 REPO = Path(__file__).resolve().parents[2]
 INDEX = REPO / "docs" / "source" / "index.rst"
 CSS = REPO / "docs" / "source" / "_static" / "custom.css"
+PLAYER = REPO / "docs" / "source" / "_static" / "js" / "doc-video.js"
+WATCHDOG_PAGE = REPO / "docs" / "source" / "how-to" / "safety-watchdogs.rst"
 
 
-def _block() -> str:
-    """The ``raw:: html`` block that holds the demo video, dedented."""
-    lines = INDEX.read_text(encoding="utf-8").splitlines()
+def _block(page: Path = INDEX, marker: str = 'id="osprey-demo"') -> str:
+    """The ``raw:: html`` block of *page* that holds *marker*, dedented."""
+    lines = page.read_text(encoding="utf-8").splitlines()
     starts = [i for i, line in enumerate(lines) if line.strip() == ".. raw:: html"]
     for start in starts:
         body = []
@@ -33,9 +38,9 @@ def _block() -> str:
                 break
             body.append(line[3:])
         html = "\n".join(body)
-        if 'id="osprey-demo"' in html:
+        if marker in html:
             return html
-    raise AssertionError("no demo-video block in index.rst")
+    raise AssertionError(f"no {marker} block in {page.name}")
 
 
 def _video_tag(html: str) -> str:
@@ -70,7 +75,7 @@ def test_the_speed_buttons_are_hidden_until_the_script_runs() -> None:
 
 
 def test_the_default_speed_is_real_time() -> None:
-    script = _block().split("<script>", 1)[1]
+    script = PLAYER.read_text(encoding="utf-8")
     assert "setRate(1);" in script
     assert "setRate(1.5);" not in script
 
@@ -91,6 +96,8 @@ def site(tmp_path: Path):
             demo / f"osprey-demo-{theme}-poster.jpg"
         )
     shutil.copy(CSS, tmp_path / "custom.css")
+    (tmp_path / "_static" / "js").mkdir()
+    shutil.copy(PLAYER, tmp_path / "_static" / "js" / "doc-video.js")
 
     def page(theme: str = "light") -> Path:
         index = tmp_path / "index.html"
@@ -202,3 +209,68 @@ def test_reduced_motion_does_not_autoplay(site) -> None:
         browser.close()
         p.stop()
     assert state["video"] and state["paused"]
+
+
+# --- a page one level down embeds the same player -----------------------------
+
+NESTED_BLOCK = """\
+<div class="osprey-demo">
+  <video id="osprey-second" preload="metadata" muted loop playsinline controls
+         poster="../_static/demo/osprey-second-light-poster.jpg"
+         aria-label="Video of a second recording in the web terminal"
+         aria-describedby="osprey-second-note">
+    <source src="../_static/demo/osprey-second-light.mp4" type="video/mp4">
+    <img src="../_static/demo/osprey-second-light-poster.jpg"
+         alt="The web terminal.">
+  </video>
+  <p class="osprey-demo-note" id="osprey-second-note">
+    One unedited session on the control-assistant demo, played in real time.
+  </p>
+  <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
+    <span>Speed</span>
+    <button type="button" data-rate="1">1×</button>
+  </div>
+</div>
+<script src="../_static/js/doc-video.js"></script>
+"""
+
+
+def test_a_nested_block_follows_the_dark_theme(tmp_path: Path) -> None:
+    if not chromium_available():
+        pytest.skip("Playwright Chromium is not installed")
+    from PIL import Image
+
+    demo = tmp_path / "_static" / "demo"
+    demo.mkdir(parents=True)
+    for theme in ("light", "dark"):
+        Image.new("RGB", (64, 36)).save(demo / f"osprey-second-{theme}-poster.jpg")
+    (tmp_path / "_static" / "js").mkdir()
+    shutil.copy(PLAYER, tmp_path / "_static" / "js" / "doc-video.js")
+    page = tmp_path / "how-to" / "index.html"
+    page.parent.mkdir()
+    page.write_text(
+        f'<!doctype html><html data-theme="dark"><body>{NESTED_BLOCK}</body></html>',
+        encoding="utf-8",
+    )
+    p, browser, tab = _open(page)
+    try:
+        poster = tab.evaluate(
+            "() => document.querySelector('.osprey-demo-poster')?.getAttribute('src')"
+            " || document.getElementById('osprey-second').getAttribute('poster')"
+        )
+    finally:
+        browser.close()
+        p.stop()
+    assert poster == "../_static/demo/osprey-second-dark-poster.jpg"
+
+
+# --- the watchdog how-to carries the block ---------------------------------------
+
+
+def test_the_watchdog_block_names_its_light_take_and_the_shared_player() -> None:
+    html = _block(WATCHDOG_PAGE, 'id="osprey-watchdog"')
+    assert 'poster="../_static/demo/osprey-watchdog-light-poster.jpg"' in _video_tag(html)
+    assert '<source src="../_static/demo/osprey-watchdog-light.mp4" type="video/mp4">' in html
+    assert '<script src="../_static/js/doc-video.js"></script>' in html
+    assert "autoplay" not in _video_tag(html)
+    assert " hidden" in re.search(r'<div class="osprey-demo-speed"[^>]*>', html).group(0)

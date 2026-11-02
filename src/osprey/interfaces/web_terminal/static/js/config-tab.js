@@ -8,8 +8,8 @@
  * painting a control for that refusing surface.
  *
  * Why a removal rather than server-rendered markup: the Config tab is STATIC
- * drawer markup in index.html, and index.html's Jinja context is the theme /
- * ui-mode bundle resolved in `create_app`'s `/` handler. The
+ * drawer markup in index.html, and index.html's Jinja context is the theme
+ * bundle resolved in `create_app`'s `/` handler. The
  * panel gate is already published on the payload every boot consumer reads
  * (`GET /api/panels` → `config_panel_enabled`), so gating off that one truth
  * keeps a single source: a deployment that flips the key needs no second

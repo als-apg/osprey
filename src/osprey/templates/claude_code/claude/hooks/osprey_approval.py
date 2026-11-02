@@ -497,7 +497,7 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     how ``mcp_server.http._panel_auth_headers`` reads the same carrier.
 
     The focus is sent as ``automatic``: no one asked for it, so a layout that
-    already shows the call another way (the Simple chat's approval card) may
+    already shows the call another way (the chat's approval card) may
     leave its own selection alone.
 
     Non-fatal: silently swallows errors so focus failures never block approval.

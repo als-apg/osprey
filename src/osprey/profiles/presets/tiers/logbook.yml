@@ -113,8 +113,6 @@ config:
   # the facility's logbook, so it is gated too.
   approval.tools.entry_create: always
   approval.tools.entry_publish: always
-  # Full split-pane layout: the ARIEL search panel needs the panel area.
-  web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
   # No shipped example plot: it invites a live plot this login cannot produce.

@@ -117,6 +117,7 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     APPS_DIRNAME,
     "profiles",
     "scripts",
+    "watchdogs",
     # Convention directories, in CONVENTION_DIRS order.
     "rules",
     "skills",

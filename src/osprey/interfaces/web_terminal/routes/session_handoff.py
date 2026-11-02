@@ -1,14 +1,14 @@
-"""Hand a session key to the Simple view.
+"""Hand a session key to the chat.
 
 ``POST /api/session/{key}/handoff``
-Body: ``{"to": "simple", "interrupt": false, "end_started": false}``
+Body: ``{"to": "chat", "interrupt": false, "end_started": false}``
 
-This is the Simple view's half of the one door every surface acquire walks
-through. The Expert view acquires its surface on the ``/ws/terminal``
-handshake, where a refusal is a close code; the Simple view has no long-lived
+This is the chat's half of the one door every surface acquire walks
+through. The terminal acquires its surface on the ``/ws/terminal``
+handshake, where a refusal is a close code; the chat has no long-lived
 socket to refuse on, so it asks here first and only then starts talking to
 ``POST /api/chat``. Nothing is prompted: the call returns once the key's
-process is the Simple one, resuming whatever conversation the key is on.
+process is the chat one, resuming whatever conversation the key is on.
 
 The refusals :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`
 raises are the whole HTTP contract of this route, and every one of them is
@@ -18,7 +18,7 @@ sentence it would have to match:
 ===========================================  ======  =============================
 Condition                                    Status  ``detail.error``
 ===========================================  ======  =============================
-another connection or view holds the key     409     ``session_attached_elsewhere``
+another connection or surface holds the key     409     ``session_attached_elsewhere``
 a terminal holds it and reports no turns     409     ``handoff_needs_interrupt``
 commands the terminal agent started run on   409     ``handoff_started_commands``
 a newer request with interrupt took the key  409     ``handoff_superseded``
@@ -65,7 +65,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
 )
 from osprey.interfaces.web_terminal.session_handoff import (
-    SURFACE_SIMPLE,
+    SURFACE_CHAT,
     ChannelClosed,
     ChannelToken,
     HandoffError,
@@ -84,9 +84,9 @@ class HandoffRequest(BaseModel):
     """Body of ``POST /api/session/{key}/handoff``.
 
     ``to`` is a ``Literal`` rather than a plain string because this route
-    speaks for exactly one surface. The Expert view takes the key on its
+    speaks for exactly one surface. The terminal takes the key on its
     ``/ws/terminal`` handshake — it needs the socket the refusal closes — so
-    ``{"to": "expert"}`` names a hand-off no HTTP request can carry out, and a
+    ``{"to": "terminal"}`` names a hand-off no HTTP request can carry out, and a
     422 saying which field is wrong is a better answer than a 200 that did
     something else.
 
@@ -100,14 +100,14 @@ class HandoffRequest(BaseModel):
     to False, so a hand-off that would end them is refused with the list.
     """
 
-    to: Literal["simple"]
+    to: Literal["chat"]
     interrupt: bool = False
     end_started: bool = False
 
 
 @router.post("/api/session/{key}/handoff")
 async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> Response:
-    """Take session *key* for the Simple view and return once its chat is live.
+    """Take session *key* for the chat and return once its chat is live.
 
     The chat is resumed onto the key's current transcript, or started fresh
     under the key when it has none — the acquire decides which from the
@@ -119,7 +119,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
     operator actually says something.
 
     Returns:
-        200 ``{"state": "simple", "session_id": <key>}``, or 204 with no body
+        200 ``{"state": "chat", "session_id": <key>}``, or 204 with no body
         when the caller disconnected while the hand-off was waiting.
 
     Raises:
@@ -151,7 +151,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
     registry: OperatorRegistry = request.app.state.operator_registry
 
     async def spawn(req: SpawnRequest) -> OperatorSession:
-        """Start the Simple view's chat under the key and hand back the pooled session.
+        """Start the chat under the key and hand back the pooled session.
 
         The environment is built the way ``routes/chat.py`` builds it, with one
         simplification this route earns: the key has already been held to the
@@ -181,7 +181,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
         result = await acquire_surface(
             request.app,
             key,
-            SURFACE_SIMPLE,
+            SURFACE_CHAT,
             ChannelToken(request.is_disconnected),
             interrupt=body.interrupt,
             spawn=spawn,
@@ -216,8 +216,8 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
         ) from None
 
     logger.info(
-        "Session %s is now on the simple surface (%s)",
+        "Session %s is now on the chat surface (%s)",
         key,
         "started" if result.spawned else "already running",
     )
-    return JSONResponse(content={"state": SURFACE_SIMPLE, "session_id": key})
+    return JSONResponse(content={"state": SURFACE_CHAT, "session_id": key})

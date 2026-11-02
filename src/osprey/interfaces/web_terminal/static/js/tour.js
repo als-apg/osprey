@@ -12,8 +12,7 @@
  * Approval flows are config-dependent and therefore never mentioned.
  *
  * What the agent can do here, the questions offered as chips, and the chip
- * row itself come from first-contact.js, which the Simple empty state and the
- * Expert strip render too; that module's header carries the reasoning.
+ * row itself come from first-contact.js, which the chat's empty state renders too; that module's header carries the reasoning.
  *
  * Invite policy (`GET /api/panels` → `tour.policy`, resolved server-side
  * from `web.tour` / `OSPREY_WEB_TOUR`):
@@ -30,8 +29,8 @@
  * because two rendered values (the chip's target name and state) originate
  * in facility-configured free text.
  *
- * Steps whose anchor is absent or hidden on this page (panel not enabled,
- * simple UI mode) drop out and the step count adjusts. The control-target
+ * Steps whose anchor is absent or hidden on this page (panel not enabled) drop
+ * out and the step count adjusts. The control-target
  * step also drops out when the deployment has no control target
  * (`<html data-control-target="off">`): the block then holds only the clock.
  * See `liveAnchor()`. Esc closes at any point; arrows/Enter navigate; focus

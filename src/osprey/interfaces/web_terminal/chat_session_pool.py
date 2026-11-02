@@ -1,4 +1,4 @@
-"""LRU pool of Simple-mode chat sessions.
+"""LRU pool of operator-chat sessions.
 
 The pool owns the chat-keyed session lifecycle: get-or-create with a per-key
 pending Future (concurrent double-submits share one creation), LRU capacity

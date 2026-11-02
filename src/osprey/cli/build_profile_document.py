@@ -972,6 +972,71 @@ def retired_approval_policy_message(tools: list[str]) -> str:
     )
 
 
+#: The ``web:`` keys the web terminal no longer reads. The first is refused rather
+#: than ignored: ignoring ``web.expert_view: false`` would offer a terminal the
+#: deployment ruled out.
+RETIRED_TERMINAL_KEY = "web.expert_view"
+TERMINAL_KEY = "web.terminal"
+RETIRED_LAYOUT_KEY = "web.ui_mode"
+
+
+def _leaf_spellings(
+    node: Any, segments: list[str], parents: tuple[tuple[dict, str], ...] = ()
+) -> list[tuple[tuple[dict, str], ...]]:
+    """Every way mapping *node* writes the leaf *segments*, as a (mapping, key) chain."""
+    if not isinstance(node, dict):
+        return []
+    found: list[tuple[tuple[dict, str], ...]] = []
+    for cut in range(1, len(segments) + 1):
+        head = ".".join(segments[:cut])
+        if head not in node:
+            continue
+        chain = (*parents, (node, head))
+        rest = segments[cut:]
+        found.extend([chain] if not rest else _leaf_spellings(node[head], rest, chain))
+    return found
+
+
+def normalize_retired_web_keys(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Refuse ``web.expert_view`` and drop ``web.ui_mode`` under ``config:``, in place.
+
+    ``web.expert_view`` says whether the deployment offers a terminal, so the
+    document is refused rather than read as saying nothing. ``web.ui_mode``
+    chose a layout that no longer exists, so it loses every spelling (and any
+    mapping that empties) with one warning per *source* and spelling.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the error and the warning.
+
+    Returns:
+        ``raw``.
+
+    Raises:
+        BuildProfileError: If the document states ``web.expert_view``.
+    """
+    config = raw.get("config")
+    for chain in _leaf_spellings(config, RETIRED_TERMINAL_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        value = chain[-1][0][chain[-1][1]]
+        value = str(value).lower() if isinstance(value, bool) else value
+        raise BuildProfileError(
+            f"{source} states `{spelled}: {value}`, which is no longer read. Write "
+            f"`{TERMINAL_KEY}: {value}` in its place: it says whether this deployment "
+            "offers the terminal."
+        )
+    for chain in _leaf_spellings(config, RETIRED_LAYOUT_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        for mapping, key in reversed(chain):
+            del mapping[key]
+            if mapping:
+                break
+        if (source, spelled) not in _WARNED_RETIRED_KEYS:
+            _WARNED_RETIRED_KEYS.add((source, spelled))
+            _LOGGER.warning("%s: `%s` is no longer read; delete it", source, spelled)
+    return raw
+
+
 def _read_profile_document(path: Path, source: str | None = None) -> Any:
     """Read one raw profile-YAML document.
 
@@ -1022,6 +1087,7 @@ def _parse_profile_document(text: str, source: str, *, path: Path | None = None)
         _normalize_retired_roster_keys(raw, source)
         normalize_retired_write_keys(raw, source, path=path)
         normalize_retired_approval_policies(raw, source)
+        normalize_retired_web_keys(raw, source)
     elif path is not None:
         _RETIRED_WRITE_ORIGINS.pop(Path(path).resolve(), None)
     return raw

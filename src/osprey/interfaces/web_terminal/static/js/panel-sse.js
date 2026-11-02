@@ -42,6 +42,12 @@ import {
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
 import { isPoppedOut, focusPopout } from './popout.js';
+import {
+  initWatchdogAlert,
+  isWatchdogFrame,
+  onWatchdogFrame,
+  refetchFlags,
+} from './watchdog-alert.js';
 
 /** @typedef {import('./panel-manager.js').PanelSSEEvent} PanelSSEEvent */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -62,8 +68,6 @@ import { isPoppedOut, focusPopout } from './popout.js';
  * @property {(id: string, url: string) => void} navigate - point a panel's iframe at `url`
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} resetActive - forget the surfaced panel, leaving the rail accent alone
- * @property {() => boolean} isWorkspaceSuppressed - simple-UX chat-only boot still armed
- * @property {() => void} endWorkspaceSuppression - one-way exit from that boot state
  * @property {(message: string) => void} renderEmpty - paint the empty-workspace placeholder
  * @property {(frame: AgentActivityEvent) => void} reportActivity - hand a frame to the strip seam
  */
@@ -91,6 +95,7 @@ function ctx() {
  */
 export function subscribePanelEvents(sseDeps) {
   deps = sseDeps;
+  initWatchdogAlert();
 
   // Listen for SSE events via createEventSource (api.js) so the URL picks up
   // window.__OSPREY_PREFIX__ under multi-user deployments (empty prefix ⇒
@@ -132,6 +137,9 @@ export function subscribePanelEvents(sseDeps) {
   //                                               signal: badge+glow the rail entry
   //                                               for target.kind 'panel', otherwise
   //                                               hand off to the strip seam.
+  //   watchdog_*       {type, session_key, ...} — a change notice: handed to
+  //                                               watchdog-alert.js, which re-reads
+  //                                               the flags from their route.
   //
   // The first three may carry source:'agent' (agent-originated command): that
   // adds a transient glow on the rail entry — never a persistent badge, the
@@ -149,6 +157,7 @@ export function subscribePanelEvents(sseDeps) {
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => {
       void resyncPanelState().then(restoreAgentBadges);
+      void refetchFlags();
       // The first open follows the config reads of this page's boot. A later
       // one may be a different hub: what each panel is served at is read again.
       if (streamOpened) for (const panel of PANELS) void rereadPanelConfig(panel);
@@ -160,11 +169,6 @@ export function subscribePanelEvents(sseDeps) {
         const c = ctx();
 
         if (data.type === 'panel_focus' && data.panel) {
-          // A broadcast switch also ends the simple-UX chat-only suppression,
-          // even when the activation still refuses (unhealthy panel): the
-          // intent to surface the workspace is clear, so the next health
-          // settle may fill the slot.
-          c.endWorkspaceSuppression();
           if (data.url) c.navigate(data.panel, data.url);
           // A panel living in its own pop-out window has no tile to focus or
           // open: the window comes to the front instead, and an agent switch
@@ -217,6 +221,8 @@ export function subscribePanelEvents(sseDeps) {
           if (!(t.kind === 'panel' && t.panel && badgePanelActivity(t.panel, data.ts))) {
             c.reportActivity(data);
           }
+        } else if (isWatchdogFrame(data)) {
+          onWatchdogFrame(data);
         }
       } catch (err) {
         // A throw mid-dispatch can leave rail membership, the dock layout and
@@ -236,9 +242,7 @@ export function subscribePanelEvents(sseDeps) {
  * Order matters and is pinned by the test suite: membership + rail entry
  * first (the agent glow runs after the add so a just-added entry can flash,
  * and an agent-origin change reports itself on the activity strip);
- * then the simple-UX chat-only reveal (showing a panel while the workspace is
- * suppressed brings the workspace up ON that panel — {auto: true} keeps the
- * health guard); then, on a hide, the dock tile drop (one panel per tile — a
+ * then, on a hide, the dock tile drop (one panel per tile — a
  * closed panel's placeholder would be a ghost tile) under the echo guard
  * (dockview auto-activating a neighbor on removal is a server-applied echo
  * and must not POST focus back), and finally the active-panel fallback so a
@@ -280,11 +284,6 @@ function applyPanelVisibility(panel, visible, source, index) {
       tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
       target: { kind: 'panel', panel },
     });
-
-  if (visible && c.isWorkspaceSuppressed()) {
-    c.endWorkspaceSuppression();
-    if (!c.getActive()) c.activate(panel, { auto: true });
-  }
 
   // A panel the operator can no longer launch must not be stranded on screen.
   // A hide of a panel that was never on the rail changed nothing, so a tile it

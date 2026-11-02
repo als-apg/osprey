@@ -213,8 +213,8 @@
  *   SERVICE tiles show the panel's name (.tile-tab-title) + contributed
  *     controls + close.
  *   The AGENT tile shows its adopted bar + close: the chat console's
- *     .op-session-bar in Simple (operator.css), the .terminal-header in
- *     Expert (terminal.css).
+ *     .op-session-bar in chat (operator.css), the .terminal-header on the
+ *     terminal surface (terminal.css).
  *
  * SEATED CHROME: the bar is part of the card (--surface-card, remapped
  * above) closed by a hairline. The hairline turns accent on the ACTIVE tile
@@ -616,8 +616,7 @@
 /* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
  * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
  * primitive gives them their size, washes and disabled look.
- * Present in both ui views: Simple's tiles drag, close and resize exactly as
- * Expert's, so their header bars are live chrome there too. */
+ * Tiles drag, close and resize, so their header bars are live chrome. */
 .tile-tab .tile-tab-actions {
   margin-left: auto;
   display: flex;

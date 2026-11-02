@@ -163,6 +163,11 @@ keys:
       Unset in the presets: every build records the account that ran it.
     default: derived
     default_note: the account that ran `osprey build`
+  # The build writes the profile's enabled watchdogs from the top-level
+  # `watchdogs:` block into this key, each saying `enabled: true`, and writes no
+  # key when none is enabled. Names are the deployment's own, so the map's leaves
+  # are data; the parser in services/watchdog/config.py holds their shape.
+  watchdogs: {rendered: false, data-map: true, evidence: 'WATCHDOGS_BLOCK = "watchdogs"', default: {}}
   # The agent record's block, written by the build from the profile's
   # top-level `agent_record:` block (defaults included) into the top-level
   # `agent_record` key the record service reads. No preset spells it under
@@ -1960,7 +1965,7 @@ keys:
     evidence: 'lists no models and names no default_model'
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
-      deliberately differs (10 providers in project/control_assistant/
+      deliberately differs (11 providers in project/control_assistant/
       hello_world; a deployment may list a subset). The
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
@@ -1968,6 +1973,47 @@ keys:
       hard-errors in agent_runner/provider_env.py, which is the quoted
       evidence.
     default: {}
+  # The Jev decision client's block. `JevSettings.from_config` reads it whole
+  # and validates it as one model, so every leaf is `covered-by` the block and
+  # each `default:` is the settings model's own default. No shipped template or
+  # preset spells it — a deployment that changes the route or a budget writes
+  # the block into its own config — hence `rendered: false` throughout.
+  api.jev:
+    rendered: false
+    evidence: 'block = api\.get\("jev"\) if isinstance\(api, Mapping\)'
+    note: >-
+      Settings for the Jev decision client: which route serves requests
+      (typesafe direct, or openrouter through the api.providers.openrouter
+      entry), the pinned model and size limits per route, the concurrency cap,
+      the declared input price, and the interactive/batch time budgets. A
+      missing block gives every default; a partial budget overrides only the
+      keys it names.
+    default: {}
+  api.jev.route: {covered-by: api.jev, rendered: false, default: typesafe}
+  api.jev.max_choice_options: {covered-by: api.jev, rendered: false, default: 255}
+  api.jev.max_concurrency: {covered-by: api.jev, rendered: false, default: 4}
+  api.jev.input_cost_per_million_tokens: {covered-by: api.jev, rendered: false, default: 0.042}
+  api.jev.budgets.interactive.timeout_s: {covered-by: api.jev, rendered: false, default: 2.0}
+  api.jev.budgets.interactive.max_retries: {covered-by: api.jev, rendered: false, default: 1}
+  api.jev.budgets.interactive.total_s: {covered-by: api.jev, rendered: false, default: 3.0}
+  api.jev.budgets.batch.timeout_s: {covered-by: api.jev, rendered: false, default: 10.0}
+  api.jev.budgets.batch.max_retries: {covered-by: api.jev, rendered: false, default: 2}
+  api.jev.budgets.batch.total_s: {covered-by: api.jev, rendered: false, default: 30.0}
+  api.jev.routes.typesafe.model: {covered-by: api.jev, rendered: false, default: jev-1.13.0}
+  api.jev.routes.typesafe.base_url: {covered-by: api.jev, rendered: false, default: 'https://api.typesafe.ai'}
+  api.jev.routes.typesafe.api_key:
+    covered-by: api.jev
+    rendered: false
+    default: derived
+    default_note: >-
+      the TYPESAFE_API_KEY environment variable when this key is null, empty
+      or an unresolved reference; the openrouter route takes its key from
+      api.providers.openrouter.api_key, else OPENROUTER_API_KEY
+  api.jev.routes.typesafe.max_request_tokens: {covered-by: api.jev, rendered: false, default: 60000}
+  api.jev.routes.typesafe.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
+  api.jev.routes.openrouter.model: {covered-by: api.jev, rendered: false, default: typesafe/jev-1.13}
+  api.jev.routes.openrouter.max_request_tokens: {covered-by: api.jev, rendered: false, default: 30000}
+  api.jev.routes.openrouter.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
 
   # ── Claude Code ─────────────────────────────────────────────────────
   claude_code:
@@ -2878,28 +2924,15 @@ keys:
 
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
-  web.ui_mode:
-    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("ui_mode", DEFAULT_UI_MODE\)'
-    note: >-
-      The web terminal's layout: `expert`, the full split-pane workspace, or
-      `simple`, the pared-down operator layout. Display only. Every bundled app
-      states `expert`, because each opens on a panel; the bundled tiers state it
-      per access level. A value that is not one of the two warns and falls back
-      to the default.
-    default: expert
-  web.expert_view:
+  web.terminal:
     rendered: false
-    evidence: 'get_config_value\("web\.expert_view", True, str\(config_path\)\)'
+    evidence: 'get_config_value\("web\.terminal", True, str\(config_path\)\)'
     note: >-
-      Whether the deployment offers the Expert view at all. False rules it out
-      on every login the render serves: the resolved `web.ui_mode` is `simple`
-      whatever it says, the display menu's View row and the palette's mode
-      switch are gone, `?mode=expert` and a stored pick are ignored, and
-      `/ws/terminal` (the Expert view's PTY session) is refused before anything
-      is spawned. Read like the privilege gates — a file that exists but cannot
-      be read closes it — because the server refuses a route on it. The build
-      refuses `web.ui_mode: expert` beside it. No preset states it: absent is
-      today's behaviour.
+      Whether the deployment offers the terminal on the Agent tile. False
+      removes the Agent bar's "Open terminal" entry, and `/ws/terminal` refuses
+      before anything is spawned. Read like the privilege gates — a file that
+      exists but cannot be read closes it — because the server refuses a route
+      on it. No preset states it.
     default: true
   web.theme:
     evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
@@ -3054,8 +3087,7 @@ keys:
       claim, save, unoverride, register, delete-untracked) while the read
       routes stay open. The gallery authors `.claude/rules|skills|agents`
       content, which the agent loads at PROJECT scope, so a client-only gate
-      would be undone by curl — the same cosmetic-gate failure `ui_mode:
-      simple` was. Shipped true — the gallery every single-user deployment has
+      would be undone by curl — a client-only gate is no gate. Shipped true — the gallery every single-user deployment has
       always had — and pinned false by control-assistant, so every tier but `admin`, which
       lifts it, inherits false. The default is spelled in the evidence because it is
       the posture for a key the file does not mention; a config file that
@@ -3188,7 +3220,7 @@ keys:
     note: >-
       Hidden key, unset in the framework template and the four presets.
       First of the three keys that
-      bound the Simple-mode operator-chat pool, all read in one lifespan block
+      bound the operator-chat pool, all read in one lifespan block
       of the web terminal and all documented together in
       reference/configuration/config.rst. Ceiling in seconds on a single chat
       turn; default 600. The `\s*` between the call's parts is load-bearing for
@@ -3426,6 +3458,10 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
+  # One Agent pane for everyone. The parser refuses `web.expert_view`, naming
+  # `web.terminal`, and warns about `web.ui_mode` and drops it.
+- web.ui_mode
+- web.expert_view
   # The ClickHouse store and the Collector gateway that fed it. The agent
   # record is the one store, stated in the top-level `agent_record:` block; the
   # profile parser refuses each of these keys with that replacement.
@@ -4109,7 +4145,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 426
+  expected_union_size: 431
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

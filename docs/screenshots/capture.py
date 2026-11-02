@@ -57,15 +57,21 @@ from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_secret
 from osprey.port_layout import default_port
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from docs.screenshots.recipes import DocShot
     from playwright.sync_api import Browser
 
-# Host TCP port Postgres publishes once ``osprey up -d`` is healthy. This module
-# builds its own throwaway control-assistant deployment below and never sets
-# ``deployment.port_base``, so the layout's default base is the right one here.
-_POSTGRES_PORT = default_port("postgres")
+# The throwaway deployment's own port block, and its virtual accelerator's two
+# host ports, which a block does not move. A real deployment routinely holds the
+# default block and 5064/5075 on a dev host, so the capture stack sits beside it,
+# below the kernel's outbound range (32768 up).
+_PORT_BASE = 26000
+_VA_CA_PORT = 27064
+_VA_PVA_PORT = 27075
+
+# Host TCP port Postgres publishes once ``osprey up -d`` is healthy.
+_POSTGRES_PORT = default_port("postgres", base=_PORT_BASE)
 
 # Directory name for the throwaway tutorial deployment repo. ``osprey init
 # <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``
@@ -93,6 +99,51 @@ class ScreenshotSkip(Exception):
     for the not-yet-available ``tutorial_stack`` provider, so callers can print a
     clear one-line notice instead of surfacing a traceback.
     """
+
+
+class CaptureRejected(Exception):
+    """Raised when a page reached its capture point showing an error state.
+
+    Unlike :class:`ScreenshotSkip` this is a failure: the run reports it, writes
+    no image for the recipe, and exits non-zero.
+    """
+
+
+#: Text that only an interface in an error state shows: ARIEL's
+#: "Failed to Load Entries/Status" and its database-unavailable notice.
+ERROR_STATE_TEXTS = ("Failed to Load", "Database unavailable")
+
+#: Elements that only an error state shows: the operator chat's error block and
+#: the control-target popover's warning banner.
+ERROR_STATE_SELECTORS = (".op-error-block", ".ctc-banner")
+
+
+def find_error_state(page: object) -> str | None:
+    """Name the error state *page* shows, or ``None`` when it shows none.
+
+    Reads the text of every frame (a panel's error lives in its iframe) for
+    :data:`ERROR_STATE_TEXTS`, and the top page for a visible element matching
+    :data:`ERROR_STATE_SELECTORS`.
+    """
+    for frame in page.frames:
+        try:
+            text = frame.locator("body").inner_text(timeout=2_000)
+        except Exception:  # a detached or still-loading frame has no text to judge
+            continue
+        for needle in ERROR_STATE_TEXTS:
+            if needle in text:
+                return f"the page shows {needle!r}"
+    for selector in ERROR_STATE_SELECTORS:
+        if page.locator(selector).first.is_visible():
+            return f"the page shows {selector}"
+    return None
+
+
+def reject_error_state(page: object, what: str) -> None:
+    """Raise :class:`CaptureRejected` when *page* shows an error state."""
+    problem = find_error_state(page)
+    if problem is not None:
+        raise CaptureRejected(f"{what}: {problem}; no image was written")
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +374,7 @@ def capture_shot(browser: Browser, base_url: str, shot: DocShot) -> list[Path]:
 
                 # Let the theme swap and any async init settle before shooting.
                 page.wait_for_timeout(600)
+                reject_error_state(page, f"{shot.name} ({view.out}, {theme})")
 
                 if shot.capture_mode == "element":
                     png = page.locator(shot.element_selector).screenshot()
@@ -397,7 +449,7 @@ def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
 def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     """Boot the contact sheet's hermetic web terminal and capture a recipe from it.
 
-    One stack serves every theme. Each theme loads in ``shot.hub_mode`` and is
+    One stack serves every theme. Each theme boots on ``shot.hub_agent`` and is
     driven into ``shot.stage`` before the shot, through the same routine the
     contact sheet uses, so the doc image and the review card cannot drift apart.
     """
@@ -409,7 +461,10 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     with hermetic_hub() as hub:
         for theme in shot.themes:
             dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
-            capture_hub_view(browser, hub, theme, shot.hub_mode, dest, stage=shot.stage)
+            element = shot.element_selector if shot.capture_mode == "element" else None
+            capture_hub_view(
+                browser, hub, theme, shot.hub_agent, dest, stage=shot.stage, element=element
+            )
             paths.append(dest)
     return paths
 
@@ -485,7 +540,7 @@ def _opus_model_id(project_dir: Path) -> str:
 
 
 @contextmanager
-def tutorial_stack() -> Iterator[Path]:
+def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
@@ -495,7 +550,8 @@ def tutorial_stack() -> Iterator[Path]:
     deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
-    frozen to :data:`recipes.ANCHOR`. Yields the deployment repo directory
+    frozen to :data:`recipes.ANCHOR`. *sets* adds ``--set KEY=VALUE`` values to
+    the init, after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
     down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
     built images carrying this repo's identity, so the next run's fresh
@@ -524,10 +580,19 @@ def tutorial_stack() -> Iterator[Path]:
             # preset's multi-user roster would own the same index-0 panel ports.
             "--set",
             "config.modules.web_terminals.enabled=false",
+            "--set",
+            f"port_base={_PORT_BASE}",
+            "--set",
+            f"virtual_accelerator.port={_VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={_VA_PVA_PORT}",
         ]
         provider = os.environ.get(PROVIDER_ENV)
         if provider:
             init_cmd += ["--set", f"provider={provider}"]
+        # A docs video's own deployment settings (videos.DocVideo.init_sets).
+        for pair in sets:
+            init_cmd += ["--set", pair]
         _run_stack_step(
             init_cmd,
             cwd=None,
@@ -578,7 +643,9 @@ def tutorial_stack() -> Iterator[Path]:
             # here would replace whatever brought us into it. But it is not
             # swallowed either — a leaked container stack outlives the run and
             # the next one inherits it.
-            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}")
+            output = getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or b""
+            tail = output.decode("utf-8", "replace")[-500:]
+            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}\n{tail}")
         shutil.rmtree(build_root, ignore_errors=True)
 
 
@@ -743,10 +810,15 @@ def _isolated_claude_config(project_dir: Path) -> Path:
     settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}
     settings.setdefault("permissions", {})["defaultMode"] = "auto"
     settings["skipAutoPermissionPrompt"] = True
+    settings.setdefault("env", {})["DISABLE_AUTOUPDATER"] = "1"
     settings_path.write_text(json.dumps(settings, indent=2))
     state_path = config_dir / ".claude.json"
     state = json.loads(state_path.read_text()) if state_path.is_file() else {}
     state["autoModeClassifierBillingNoticeAcknowledgedAt"] = _now_ms()
+    # One Claude Code version everywhere: a session under this config must
+    # never update the host's install (it would also put an update notice on
+    # camera).
+    state["autoUpdates"] = False
     state_path.write_text(json.dumps(state, indent=2))
     return config_dir
 
@@ -777,6 +849,14 @@ def _reap_web_server(pid: int) -> None:
     print(f"WARNING: web terminal PID {pid} survived `osprey web stop`; killing it")
     with suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signal.SIGKILL)
+
+
+#: Opens the hub's Agent tile on the terminal rather than the chat: the per-tab
+#: choice the tile's ⋯ menu stores, seeded before the page loads. The popover
+#: capture answers the CLI trust prompt in the PTY, so it needs the terminal.
+TERMINAL_SURFACE_INIT = (
+    "if (window === window.top) sessionStorage.setItem('osprey-agent-surface', 'terminal');"
+)
 
 
 @dataclass(frozen=True)
@@ -840,6 +920,11 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
         WEB_TOUR_ENV: "never",
         "CLAUDE_CONFIG_DIR": str(config_dir),
         "OSPREY_OFFLINE": "1",
+        # The session must never update the host's Claude Code.
+        "DISABLE_AUTOUPDATER": "1",
+        # The server keeps its panels in a set, so its sidebar order follows
+        # the per-process string hash; a fixed seed makes every take alike.
+        "PYTHONHASHSEED": "0",
     }
     try:
         proc = subprocess.Popen(
@@ -900,18 +985,25 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
             proc.terminate()
 
 
+#: The operator chat's composer, in the Agent pane every session opens on.
+CHAT_COMPOSER = '#operator-container textarea[aria-label="Message the agent"]'
+
+
 def _capture_agentic(
     browser: Browser, project_dir: Path, artifact_port: int, shot: DocShot
 ) -> list[Path]:
     """Drive the live web terminal to produce the agentic hero screenshot(s).
 
     Launches a detached ``osprey web`` bound to a free port, then for each theme:
-    opens the UI with ``?theme=``, answers the PTY trust prompt, types the
-    operator prompt, waits (bounded) for a matching
-    artifact, reveals the artifacts panel, opens the plot, and screenshots the
-    viewport. Every launched process and page is torn down in ``finally``; the
-    web server is stopped with the repo-scoped ``osprey web stop --repo``.
+    opens the UI with ``?theme=``, sends the operator prompt through the Agent
+    pane's chat composer, waits (bounded) for a matching artifact, opens the plot
+    in the work pane from its sidebar row, waits for the turn to finish, and
+    screenshots the viewport. Every launched process and page is torn down in
+    ``finally``; the web server is stopped with the repo-scoped
+    ``osprey web stop --repo``.
     """
+    from playwright.sync_api import expect
+
     with web_terminal(project_dir) as web:
         base_url = web.base_url
         operator_secret = web.operator_secret
@@ -928,29 +1020,23 @@ def _capture_agentic(
                 # First navigation carries the operator secret as ``?token=``:
                 # the gate admits this GET to ``/``, the root handler mints a
                 # session, sets the session cookie, and redirects to the
-                # token-stripped URL. Every later request (and the PTY websocket)
-                # then authenticates with the cookie the child issued.
+                # token-stripped URL. Every later request then authenticates
+                # with the cookie the child issued.
                 token = urllib.parse.quote(operator_secret, safe="")
                 page.goto(
                     f"{base_url}/?theme={theme}&token={token}",
                     wait_until="domcontentloaded",
                     timeout=30_000,
                 )
-                # The Claude-Code trust prompt lives in the PTY, not the DOM:
-                # focus the terminal and answer it, then type the operator prompt.
-                # The Enter that accepts the trust prompt kicks the CLI into its
-                # REPL; typing before that transition finishes drops the prompt
-                # characters, so settle briefly before typing.
-                page.locator("#terminal-container").click(timeout=30_000)
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(2_000)
+                composer = page.locator(CHAT_COMPOSER)
+                expect(composer).to_be_enabled(timeout=60_000)
 
                 # Baseline the artifacts already present (from earlier themes) so
                 # the wait below matches the plot *this* prompt produces, not a
                 # stale one carried over in the shared artifact store.
                 before = artifact_ids(artifact_port, operator_secret)
-                page.keyboard.type(shot.prompt or "")
-                page.keyboard.press("Enter")
+                composer.fill(shot.prompt or "")
+                composer.press("Enter")
 
                 plot_id = _wait_for_artifact(
                     artifact_port,
@@ -961,9 +1047,8 @@ def _capture_agentic(
                 )
 
                 # Select the plot by its row in the hub sidebar's artifact list:
-                # the row click shows the plot in the artifacts tile (opening
-                # the tile when it is not on screen), and the row's ``data-id``
-                # pins the viewer to the plot (unlike relying on
+                # the row click shows the plot in the work pane, and the row's
+                # ``data-id`` pins the viewer to the plot (unlike relying on
                 # newest-auto-select) even as the agent keeps emitting later
                 # artifacts.
                 page.locator(
@@ -974,8 +1059,14 @@ def _capture_agentic(
                     state="visible", timeout=30_000
                 )
 
+                # The chat shows the agent's answer rather than a running turn.
+                expect(page.locator("#operator-container")).not_to_have_class(
+                    re.compile(r"\bstreaming\b"), timeout=240_000
+                )
+
                 # Let the plot preview render (Plotly draws async) before shooting.
                 page.wait_for_timeout(2_000)
+                reject_error_state(page, f"{shot.name} ({theme})")
                 png = page.screenshot()
                 assert_hero_structural(png, shot.viewport)
 
@@ -991,9 +1082,10 @@ def _capture_agentic(
 def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocShot) -> list[Path]:
     """Capture a static element out of the live web terminal (no agent turn).
 
-    Launches a detached ``osprey web`` against the built tutorial repo exactly
-    as :func:`_capture_agentic` does — the ``?token=`` login, the PTY trust
-    prompt — but sends no operator prompt and needs no provider credentials.
+    Launches a detached ``osprey web`` against the built tutorial repo as
+    :func:`_capture_agentic` does — the ``?token=`` login — but opens the Agent
+    pane on the terminal to answer the PTY trust prompt, sends no operator
+    prompt, and needs no provider credentials.
     What it waits for instead is the control-target chip reporting an
     enforceable session (``data-enforceable="true"``): the signal that the
     CLI's controls server has published its state record, so the popover will
@@ -1018,6 +1110,7 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                 device_scale_factor=2,
             )
             try:
+                page.add_init_script(TERMINAL_SURFACE_INIT)
                 token = urllib.parse.quote(operator_secret, safe="")
                 page.goto(
                     f"{base_url}/?theme={theme}&token={token}",
@@ -1047,6 +1140,7 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
                 expect(target).to_be_attached(timeout=10_000)
                 # Let the open animation and the first re-render settle.
                 page.wait_for_timeout(600)
+                reject_error_state(page, f"{shot.name} ({theme})")
 
                 png = target.screenshot()
                 dest = dest_dir / _output_filename(shot.name, theme, n_themes)
@@ -1060,49 +1154,71 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
 def capture_tutorial_stack(
     browser_factory: Callable[[], Browser], shot: DocShot, *, agentic: bool
 ) -> list[Path]:
-    """Capture a ``tutorial_stack`` recipe (container lifecycle owner).
+    """Capture one ``tutorial_stack`` recipe on a stack of its own.
 
     ``browser_factory`` is a zero-argument callable returning a live browser to
     reuse for the capture. Builds and seeds the tutorial stack (via
-    :func:`tutorial_stack`), then dispatches on ``shot.kind`` and
-    ``shot.stack_app``: ``"static"`` boots the ARIEL app on a throwaway port
-    and reuses :func:`capture_shot` — or, for ``stack_app="web_terminal"``,
-    drives the live web terminal statically via
-    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
-    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
-    Raises :class:`ScreenshotSkip` when the container runtime is unavailable
-    so a ``--stack`` run degrades gracefully.
+    :func:`tutorial_stack`) and captures the recipe on it with
+    :func:`capture_on_stack`. Raises :class:`ScreenshotSkip` when the container
+    runtime is unavailable so a ``--stack`` run degrades gracefully.
     """
     with tutorial_stack() as project_dir:
-        artifact_port = rendered_artifact_port(project_dir)
-        browser = browser_factory()
+        return capture_on_stack(browser_factory(), project_dir, shot, agentic=agentic)
 
-        if shot.kind == "agentic":
-            if not agentic:
-                raise ScreenshotSkip(f"{shot.name}: agentic recipe requires the --agentic flag")
-            try:
-                return _capture_agentic(browser, project_dir, artifact_port, shot)
-            except TimeoutError as exc:
-                # The live agent never produced the expected artifact (e.g. no
-                # provider credentials in this environment) — degrade to a clear
-                # skip rather than a traceback.
-                raise ScreenshotSkip(
-                    f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
-                ) from exc
 
-        if shot.stack_app == "web_terminal":
-            return _capture_web_terminal_static(browser, project_dir, shot)
+def capture_on_stack(
+    browser: Browser, project_dir: Path, shot: DocShot, *, agentic: bool
+) -> list[Path]:
+    """Capture a ``tutorial_stack`` recipe on an already running tutorial stack.
 
-        from osprey.interfaces.ariel.app import create_app
+    Dispatches on ``shot.kind`` and ``shot.stack_app``: ``"static"`` boots the
+    ARIEL app on a throwaway port and reuses :func:`capture_shot` — or, for
+    ``stack_app="web_terminal"``, drives the live web terminal statically via
+    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
+    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
+    """
+    artifact_port = rendered_artifact_port(project_dir)
 
-        # The rendered config moved under build/; older layouts kept it at the repo root.
-        config_path = project_dir / "build" / "config.yml"
-        if not config_path.is_file():
-            config_path = project_dir / "config.yml"
+    if shot.kind == "agentic":
+        if not agentic:
+            raise ScreenshotSkip(f"{shot.name}: agentic recipe requires the --agentic flag")
+        try:
+            return _capture_agentic(browser, project_dir, artifact_port, shot)
+        except TimeoutError as exc:
+            # The live agent never produced the expected artifact (e.g. no
+            # provider credentials in this environment) — degrade to a clear
+            # skip rather than a traceback.
+            raise ScreenshotSkip(
+                f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
+            ) from exc
 
+    if shot.stack_app == "web_terminal":
+        return _capture_web_terminal_static(browser, project_dir, shot)
+
+    from osprey.interfaces.ariel.app import create_app
+
+    # The rendered config moved under build/; older layouts kept it at the repo root.
+    config_path = project_dir / "build" / "config.yml"
+    if not config_path.is_file():
+        config_path = project_dir / "config.yml"
+
+    # `osprey up` minted the database password into the repo's `.env`; the
+    # in-process app reads it from the environment, as the container does.
+    from dotenv import dotenv_values
+
+    password = dotenv_values(project_dir / ".env").get("ARIEL_DB_PASSWORD")
+    previous = os.environ.get("ARIEL_DB_PASSWORD")
+    if password:
+        os.environ["ARIEL_DB_PASSWORD"] = password
+    try:
         app = create_app(config_path=str(config_path))
         with run_app_server(app) as ariel_url:
             return capture_shot(browser, ariel_url, shot)
+    finally:
+        if previous is None:
+            os.environ.pop("ARIEL_DB_PASSWORD", None)
+        else:
+            os.environ["ARIEL_DB_PASSWORD"] = previous
 
 
 # ---------------------------------------------------------------------------
@@ -1110,27 +1226,67 @@ def capture_tutorial_stack(
 # ---------------------------------------------------------------------------
 
 
-def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> None:  # noqa: ARG001 - the CLI passes both selector flags by keyword; the recipe list arrives already filtered on stack
+def _capture_stack_shots(
+    browser: Browser, shots: list[DocShot], *, agentic: bool, failed: list[str]
+) -> list[Path]:
+    """Capture every ``tutorial_stack`` recipe on one tutorial stack, built once.
+
+    A recipe that skips, or fails on an error state (its name is appended to
+    *failed*), is reported and the rest still run; a stack that never comes up
+    skips them all. One manifest entry is stamped per captured recipe.
+    """
+    written: list[Path] = []
+    try:
+        with tutorial_stack() as project_dir:
+            for shot in shots:
+                try:
+                    paths = capture_on_stack(browser, project_dir, shot, agentic=agentic)
+                except ScreenshotSkip as exc:
+                    print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                    continue
+                except CaptureRejected as exc:
+                    print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
+                    failed.append(shot.name)
+                    continue
+                stamp_manifest(shot.name, shot.kind)
+                written.extend(paths)
+                print(f"captured {shot.name}: {len(paths)} file(s)")
+    except ScreenshotSkip as exc:
+        for shot in shots:
+            print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+    return written
+
+
+def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> bool:  # noqa: ARG001 - the CLI passes both selector flags by keyword; the recipe list arrives already filtered on stack
     """Capture the selected recipes, sharing one headless browser for the run.
 
     ``standalone_interface`` recipes are booted and captured directly;
     ``static_page`` recipes are served from their committed HTML file;
     ``hermetic_hub`` recipes boot the contact sheet's seeded web terminal;
-    ``tutorial_stack`` recipes are delegated to :func:`capture_tutorial_stack`
-    and skipped per-recipe (with a clear notice) where its runtime is absent.
+    ``tutorial_stack`` recipes all share one stack (:func:`_capture_stack_shots`)
+    and are skipped (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
     entry is stamped per successfully captured recipe ``name``.
+
+    Returns:
+        ``False`` when any recipe was rejected for showing an error state.
     """
     if not shots:
         print("No screenshot recipes selected; nothing to capture.")
-        return
+        return True
 
     written: list[Path] = []
+    failed: list[str] = []
     try:
         with chromium_context() as browser:
             for shot in shots:
                 if shot.environment == "standalone_interface":
-                    paths = _capture_standalone(browser, shot)
+                    try:
+                        paths = _capture_standalone(browser, shot)
+                    except CaptureRejected as exc:
+                        print(f"FAILED {shot.name}: {exc}", file=sys.stderr)
+                        failed.append(shot.name)
+                        continue
                 elif shot.environment == "static_page":
                     try:
                         paths = _capture_static_page(browser, shot)
@@ -1144,17 +1300,22 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                         print(f"skipped {shot.name}: {exc}", file=sys.stderr)
                         continue
                 else:
-                    try:
-                        paths = capture_tutorial_stack(lambda: browser, shot, agentic=agentic)
-                    except ScreenshotSkip as exc:
-                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
-                        continue
+                    continue  # captured below, on one stack shared by every such recipe
 
                 stamp_manifest(shot.name, shot.kind)
                 written.extend(paths)
                 print(f"captured {shot.name}: {len(paths)} file(s)")
+
+            stack_shots = [s for s in shots if s.environment == "tutorial_stack"]
+            if stack_shots:
+                written.extend(
+                    _capture_stack_shots(browser, stack_shots, agentic=agentic, failed=failed)
+                )
     except ScreenshotSkip as exc:
         print(f"screenshot capture skipped: {exc}", file=sys.stderr)
-        return
+        return not failed
 
     print(f"Wrote {len(written)} screenshot file(s) to {output_dir()}.")
+    if failed:
+        print(f"FAILED: {', '.join(failed)} showed an error state.", file=sys.stderr)
+    return not failed

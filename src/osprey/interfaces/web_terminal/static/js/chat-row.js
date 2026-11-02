@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode chat: the action row.
+ * OSPREY Web Terminal — operator chat: the action row.
  *
  * One shape for every row an agent turn is made of — a thought, a tool call, a
  * run of tool calls, a subagent: a glyph in the gutter, a short verb phrase, a

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Web Terminal — Simple-mode operator chat: how a tool's input and result read.
+ * OSPREY Web Terminal — operator chat: how a tool's input and result read.
  *
  * A tool's input and its result are JSON, or text that holds JSON, and an
  * operator reads both. Each field is shown in one of four shapes, and the value

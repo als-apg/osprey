@@ -55,6 +55,7 @@ __all__ = [
     "deployment_env_chain",
     "layer_dir_kind",
     "repo_root_for_agent_data",
+    "session_hold_dir",
 ]
 
 #: The durable state zone inside a deployment repo: ``var/`` survives every
@@ -165,7 +166,7 @@ SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
 STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR,)
 
 #: Subdirectory of the agent-data root holding the files operators attach in the
-#: Simple view's chat. The web terminal stores them there and hands the agent
+#: operator chat. The web terminal stores them there and hands the agent
 #: their absolute paths; the rendered permissions allow the agent to read exactly
 #: that directory. Spelled once so the store and the rule cannot name two places.
 CHAT_UPLOADS_SUBDIR = "uploads"
@@ -178,6 +179,14 @@ CHAT_UPLOADS_SUBDIR = "uploads"
 #: package warns about the same keys when it loads a config, from its own
 #: private copy; a test holds the two equal.
 RUNTIME_WRITE_PATH_KEYS = (SIMULATION_STATE_DIR_CONFIG_KEY,)
+
+
+def session_hold_dir(project_root: Path | str) -> Path:
+    """The root of a deployment's session holds, one ``<key>/record.json`` per session.
+
+    Under the state zone, a root executed code may not write.
+    """
+    return Path(project_root) / STATE_DIR_RELPATH / "session_holds"
 
 
 def container_image_context(repo_root: Path | str, project_name: str) -> Path:

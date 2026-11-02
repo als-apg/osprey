@@ -2,9 +2,8 @@
 
 The worker's dashboard feed projects ``owner`` on every run: the person the fire
 was attributed to, or ``null`` for an owner-less fire (cron, webhook, chat
-bridge). The run detail's Expert summary line says who fired an attributed run
-and says nothing for an owner-less one. Simple mode shows no owner: its summary
-is the subtraction of the Expert one, so the line adds no Simple surface.
+bridge). The run detail's summary line says who fired an attributed run and says
+nothing for an owner-less one.
 
 These tests drive the real rendered dashboard in a browser and assert on the
 rendered summary text, not on the markup the renderer might never reach.
@@ -69,19 +68,14 @@ STATE = {
 }
 
 
-def _open_run(page: Page, base_url: str, run_id: str, mode: str) -> None:
-    """Load the dashboard in *mode*, install a known state, and route to one run.
+def _open_run(page: Page, base_url: str, run_id: str) -> None:
+    """Load the dashboard, install a known state, and route to one run.
 
     The state poll has no dispatcher behind it here, so ``state`` is assigned
     directly and the router is driven through ``navigate()``, which is what
     repaints the screen.
     """
-    page.goto(f"{base_url}/?mode={mode}", wait_until="domcontentloaded")
-    page.wait_for_function(
-        "mode => document.documentElement.getAttribute('data-ui-mode') === mode",
-        arg=mode,
-        timeout=10_000,
-    )
+    page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
     page.evaluate(
         """([nextState, runId]) => {
@@ -104,9 +98,9 @@ def _visible_summaries(page: Page) -> list[str]:
 
 
 def test_run_detail_names_who_fired_it(chromium_browser: Browser, dashboard_url: str) -> None:
-    """In Expert mode, an attributed run's summary names its owner."""
+    """An attributed run's summary names its owner."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, ATTRIBUTED_RUN_ID, "expert")
+    _open_run(page, dashboard_url, ATTRIBUTED_RUN_ID)
 
     summaries = _visible_summaries(page)
     assert any("fired by alice" in text for text in summaries), summaries
@@ -116,20 +110,9 @@ def test_run_detail_names_who_fired_it(chromium_browser: Browser, dashboard_url:
 def test_run_detail_names_nobody_for_an_owner_less_run(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
-    """In Expert mode, an owner-less run's summary names nobody."""
+    """An owner-less run's summary names nobody."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, OWNER_LESS_RUN_ID, "expert")
-
-    summaries = _visible_summaries(page)
-    assert summaries, "the run detail should show a summary line"
-    assert not any("fired by" in text for text in summaries), summaries
-    page.close()
-
-
-def test_simple_mode_does_not_show_the_owner(chromium_browser: Browser, dashboard_url: str) -> None:
-    """In Simple mode, the attributed run's visible summary does not name the owner."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, ATTRIBUTED_RUN_ID, "simple")
+    _open_run(page, dashboard_url, OWNER_LESS_RUN_ID)
 
     summaries = _visible_summaries(page)
     assert summaries, "the run detail should show a summary line"

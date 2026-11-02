@@ -488,7 +488,7 @@ describe('requestHandoff: request shape', () => {
     const init = firstInit(fetchMock);
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init.body)).toEqual({ to: 'simple', interrupt: false, end_started: false });
+    expect(JSON.parse(init.body)).toEqual({ to: 'chat', interrupt: false, end_started: false });
     expect(result).toEqual({ state: 'ready', session_id: 'k-1' });
   });
 
@@ -498,7 +498,7 @@ describe('requestHandoff: request shape', () => {
 
     await chat.requestHandoff('k', { interrupt: true });
     expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
-      to: 'simple',
+      to: 'chat',
       interrupt: true,
       end_started: false,
     });
@@ -510,7 +510,7 @@ describe('requestHandoff: request shape', () => {
 
     await chat.requestHandoff('k', { endStarted: true });
     expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
-      to: 'simple',
+      to: 'chat',
       interrupt: false,
       end_started: true,
     });
@@ -562,7 +562,7 @@ describe('requestHandoff: abort', () => {
 
   test('aborting the signal rejects the pending hand-off', async () => {
     // A fetch that never settles on its own, mirroring a hand-off waiting on a
-    // long Expert turn: only the signal ends it.
+    // long terminal turn: only the signal ends it.
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -682,7 +682,7 @@ describe('fetchHistory', () => {
   });
 
   test("hands each agent turn's thinking events to the renderer untouched", async () => {
-    // The Simple chat's thinking summary is drawn from these events, an
+    // The chat chat's thinking summary is drawn from these events, an
     // omitted (empty) block included: the renderer, not the transport, decides
     // that an empty block draws nothing.
     const turns = [

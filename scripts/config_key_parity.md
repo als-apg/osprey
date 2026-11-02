@@ -40,7 +40,7 @@ The bundled shared logins, each composed over `control-assistant` (the host):
 A `lists: own` login is a complete agent definition, not a delta, so a key only
 it states has its writer in the shared context: the `python` and
 `osprey_facility_knowledge` server switches, `web.control_target_picker`,
-`web.ui_mode`, the `graph` server switch and the per-type write pins. The
+the `graph` server switch and the per-type write pins. The
 governed-set claims are measured from the `logbook` and `channel-finder`
 shared renders.
 

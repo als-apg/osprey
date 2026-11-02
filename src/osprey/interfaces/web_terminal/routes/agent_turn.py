@@ -1,4 +1,4 @@
-"""Whether the expert view's Claude Code process is mid-turn.
+"""Whether the terminal's Claude Code process is mid-turn.
 
 ``POST /api/agent-turn`` is how the terminal's own child process tells the
 server what it is doing. The Claude Code hooks that report it fire on
@@ -27,7 +27,7 @@ and a transcript filename, so the grammar is closed rather than length-bounded
 — the same rule, through the same predicate, that the posture surface applies
 to this class of identifier.
 
-Only the expert surface is recorded. The simple view's chat pool knows its own
+Only the terminal surface is recorded. The chat's pool knows its own
 turn boundaries from the SDK client and needs no hook, and a report arriving
 with any other surface — including none, when the environment variable that
 names it is unset — is accepted and dropped rather than refused: a hook cannot
@@ -67,7 +67,7 @@ router = APIRouter()
 _MAX_ID_LEN = 256
 
 #: The one surface whose turns are recorded here.
-EXPERT_SURFACE = "expert"
+TERMINAL_SURFACE = "terminal"
 
 
 class AgentTurnRequest(BaseModel):
@@ -89,7 +89,7 @@ class AgentTurnRequest(BaseModel):
 
 @router.post("/api/agent-turn")
 async def post_agent_turn(body: AgentTurnRequest, request: Request):
-    """Record a turn edge reported by the expert view's Claude Code process.
+    """Record a turn edge reported by the terminal's Claude Code process.
 
     Reports for any other surface are accepted and dropped — see the module
     docstring for why that is not a 4xx. ``recorded`` in the response says
@@ -107,7 +107,7 @@ async def post_agent_turn(body: AgentTurnRequest, request: Request):
     identifier can never become a store key, a persisted transcript pointer,
     or a fragment of a later resume argv.
     """
-    if body.surface != EXPERT_SURFACE:
+    if body.surface != TERMINAL_SURFACE:
         return {"ok": True, "recorded": False}
 
     if not is_posture_key(body.session_id) or (body.pool_key and not is_posture_key(body.pool_key)):

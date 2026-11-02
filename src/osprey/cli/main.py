@@ -84,6 +84,7 @@ class LazyGroup(click.Group):
             "query": "osprey.cli.query_cmd",  # Headless agent query
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
             "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
+            "watchdog": "osprey.cli.watchdog_cmd",  # Replay labelled prompts through watchdogs
         }
 
         if cmd_name not in commands:
@@ -161,6 +162,7 @@ class LazyGroup(click.Group):
             "query",
             "users",
             "feedback",
+            "watchdog",
         ]
 
 

@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.services.watchdog.config import WATCHDOGS_BLOCK, parse_watchdogs_block
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
@@ -255,6 +256,7 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
     PROFILE_TRIGGERS_FILENAME,
     _CONTEXT_CONVENTION_DIRNAME,
     _PROFILE_ENV_EXAMPLE_FILENAME,
+    WATCHDOGS_BLOCK,
 )
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
@@ -1886,6 +1888,16 @@ def _materialize_profile_directory(
         )
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
+        # Every watchdog the block names, enabled or not, so the files travel with
+        # the block. The strict parser holds a preset's disabled entries to their
+        # files too, where validating the resolved preset does not.
+        parse_watchdogs_block(resolved.watchdogs, base_dir=preset_dir)
+        for watchdog in resolved.watchdogs:
+            shutil.copytree(
+                preset_dir / WATCHDOGS_BLOCK / watchdog,
+                target / WATCHDOGS_BLOCK / watchdog,
+                ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+            )
         if catalog.carried:
             logger.debug(
                 "  Provider catalog: kept %s", ", ".join(f"{name}" for name in catalog.carried)

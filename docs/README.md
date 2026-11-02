@@ -29,14 +29,15 @@ runs for you.
 
 **Two opt-in environments** cover the images that need real data:
 
-- `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views.
-  Builds the `control-assistant` tutorial project, brings up Postgres
+- `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views and
+  the control-target popover. Builds the `control-assistant` tutorial project, brings up Postgres
   (`osprey up -d`), and seeds the logbook with
   `osprey sim apply nominal --yes --now <anchor>`. Needs a container runtime
-  and a free host port 5432. The `--now` anchor freezes the seeded dates, so
+  and free host ports 26000–26999, 27064 and 27075 (its own port block, so a
+  deployment on the default one can keep running). The `--now` anchor freezes the seeded dates, so
   repeat captures are byte-stable.
-- `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Drives a live agent
-  session to produce a real beam-current plot, so it needs a live Claude
+- `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Sends its prompt through
+  the operator chat of a live agent session to produce a real beam-current plot, so it needs a live Claude
   session on your subscription budget. Success is a structural check (non-blank
   image, correct viewport, plot present), not a byte comparison.
 
@@ -79,8 +80,8 @@ $ uv run python -m docs.screenshots.contact_sheet --out /tmp/sheet
 ```
 
 That captures the Web Terminal's four shells — the **dark** and **light**
-themes crossed with the **expert** and **simple** UI modes — writes one PNG per
-cell into the output directory, composes them into `contact-sheet.html` there,
+themes crossed with the Agent tile's **chat** and **terminal** surfaces — writes
+one PNG per cell into the output directory, composes them into `contact-sheet.html` there,
 and prints its path. Open that one file to review every variant side by side.
 
 **Comparing accent candidates.** Add `--accents` to render each of the four
@@ -99,23 +100,23 @@ launches. Where no browser runtime is available the run skips with a one-line
 notice instead of erroring.
 
 **Extending it to another target.** The variant grid is the `VARIANTS` list of
-`(theme, mode)` tuples near the top of `contact_sheet.py`, and the completeness
+`(theme, agent)` tuples near the top of `contact_sheet.py`, and the completeness
 invariant `_FULL_MATRIX` mirrors it — add a cell to *both* to capture a new
-theme/mode combination. To cover a new panel, seed its backing store the way
+theme/agent combination. To cover a new panel, seed its backing store the way
 `seed_demo_workspace` seeds the workspace artifacts and wire it into
 `hermetic_hub` so the panel renders populated; the capture loop and the
 composed sheet then pick it up unchanged. A hub card in a particular UI state is
 a `STAGED_VARIANTS` row naming a `STAGES` key, and the same key on a `DocShot`
 makes it a committed doc image.
 
-## Landing-page demo video
+## Docs videos
 
-The documentation landing page plays a short demo video: three requests to the
-agent on the `control-assistant` tutorial stack (a 3D plot, a correlation plot,
-a logbook post), recorded in the real Web Terminal and cut to a 50–80 second
-window. The agent's working time is sped up; a clock burned into every frame
+Pages can embed videos recorded in the real Web Terminal on the
+`control-assistant` tutorial stack. The landing page plays the demo: three
+requests to the agent (a 3D plot, a correlation plot, a logbook post), cut to a
+50–80 second window. The agent's working time is sped up; a clock burned into every frame
 shows the real elapsed time, and a badge shows the speed-up while it applies.
-It is recorded once per theme (dark and light), and the page picks the one that
+Each is recorded once per theme (dark and light), and the page picks the one that
 matches the reader's theme. Like the screenshots, it is capture-only and never a
 CI gate.
 
@@ -133,18 +134,32 @@ and exits without recording.
 **Recording a take.** From the repository root:
 
 ```console
-$ uv run make -C docs demo-video                          # both themes
-$ uv run make -C docs demo-video VIDEOOPTS="--theme dark" # one theme only
+$ uv run make -C docs doc-videos                          # every video, both themes
+$ uv run make -C docs demo-video                          # the landing demo only
+$ uv run make -C docs doc-videos VIDEOOPTS="--video landing --theme dark"
 ```
 
-For each theme the run writes into `docs/demo-video/` (ignored by git) the video
-`osprey-demo-<theme>.mp4` and `timeline-<theme>.json` (when each scene of the
+**Adding a video.** A new video starts as a written description, agreed with
+the maintainer before any storyboard code: the Agent surface (chat or terminal), the active
+sidebar entry, the open tiles, any history played off camera before recording
+(real agent turns; the note must say so), the prompts, the beats and the captions. Then add
+a `DocVideo` to `VIDEOS` in `docs/screenshots/videos.py`: its name and file stem,
+the `layout` that records the agreed screen, the page that embeds it, any
+`osprey init --set` values and environment variable names its deployment needs,
+the beat that becomes the poster, and a storyboard built from the beats in
+`video_beats.py` (focus, prompt, wait for a selector, click, hold); a probe only
+that video needs is a custom beat. Keep the note under the video honest about
+its speed-up. Embed it by copying the `raw:: html` block of `docs/source/index.rst` with
+the new stem (paths gain `../` on a page one level down); `_static/js/doc-video.js` swaps the theme and handles the fallback.
+
+For each video and theme the run writes into `docs/demo-video/` (ignored by git)
+`<stem>-<theme>.mp4` and `<name>/timeline-<theme>.json` (when each scene of the
 take happened), and into `docs/source/_static/demo/` the poster
-`osprey-demo-<theme>-poster.jpg` and its entry in `manifest.json`, plus a
+`<stem>-<theme>-poster.jpg` and its entry in `manifest.json`, plus a
 git-ignored copy of the video so a local docs build plays it. The poster is the
-last frame of the rotation: the 3D plot on screen after the agent has worked.
-The page shows it before playback, without JavaScript, and whenever the video
-cannot play. The manifest records per theme the OSPREY version, the recording
+last frame of the video's poster beat (for the demo, the 3D plot after the
+rotation). The page shows it before playback, without JavaScript, and whenever the video
+cannot play. The manifest records per video and theme the OSPREY version, the recording
 time, the video's length, the real session time it covers, the speed-up, and the
 video's and the poster's SHA-256.
 
@@ -177,10 +192,11 @@ Upload both videos for the version being released, a final `YYYY.M.P` or a
 pre-release such as `2026.9.0b4` (needs an authenticated `gh` CLI):
 
 ```console
-$ uv run make -C docs upload-demo-video VERSION=YYYY.M.P
+$ uv run make -C docs upload-doc-videos VERSION=YYYY.M.P
 ```
 
-The target runs `upload-check`, creates that version's release with both videos
+The target runs `upload-check`, uploads every video not uploaded yet (pass
+`UPLOADOPTS="--video NAME"` for one), creates that version's release with them
 in one step (or replaces the videos of that same version's release on a
 retake; it never touches another version's release), and names the release in
 `manifest.json`. Commit `docs/source/_static/demo/` (the manifest and the two

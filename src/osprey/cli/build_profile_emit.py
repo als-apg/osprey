@@ -103,6 +103,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "virtual_accelerator",
         "va_archiver",
         "agent_record",
+        "watchdogs",
         "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -450,6 +451,36 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     image: clickhouse/clickhouse-server:26.8.18.2
 #     memory: 2g
 """,
+    "watchdogs": """
+# --- Watchdogs ---------------------------------------------------------------
+# Independent judges of each prompt in a session. A watchdog reads the session
+# and answers a verdict; it never acts on the machine. Declare any number, under
+# any names, in any mix of engines. Each one's instructions live beside this
+# file in watchdogs/<name>/instructions.md, with optional watchdogs/<name>/references/.
+#
+# A decision watchdog chooses among your options and flags when the flag options'
+# summed probability reaches `threshold`; it needs at least one flag option and
+# one non-flag option. An agent watchdog runs a read-only agent, and its `tools`
+# may not reach a write tool. An enabled watchdog needs `turn-state` under `hooks:`.
+#
+# The block is the deployment's, so a tier file may not spell it.
+#
+# watchdogs:
+#   <decision-name>:
+#     engine: decision
+#     enabled: false            # stays off until you turn it on
+#     threshold: 0.5            # between 0 and 1, exclusive
+#     options:
+#       - {id: risky, text: <what a flagged prompt looks like>, flag: true}
+#       - {id: routine, text: <what an ordinary prompt looks like>, flag: false}
+#   <agent-name>:
+#     engine: agent
+#     enabled: false
+#     tools: [<read-only tool>]
+#     model: null               # null takes the deployment's default model
+#     timeout_s: 90
+#     max_cost_usd: 0.25
+""",
     "va_archiver": """
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
@@ -597,6 +628,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "virtual_accelerator",
     "va_archiver",
     "agent_record",
+    "watchdogs",
     "bluesky_web",
     "nextcloud_bridge",
     "gchat_bridge",

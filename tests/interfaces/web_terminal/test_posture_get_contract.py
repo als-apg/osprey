@@ -161,6 +161,7 @@ TOP_LEVEL_FIELDS = {
     "owner",
     "servers",
     "execution_in_flight",
+    "held",
     "last_switch",
     "last_posture_realign",
     "targets",

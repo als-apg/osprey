@@ -517,7 +517,7 @@ class TestPoolFingerprint:
 
     def test_posture_source_is_still_fingerprinted(self):
         """Deny-list discipline: a new name counts unless it is listed."""
-        base = {"OSPREY_WEB_UX": "expert"}
+        base = {"OSPREY_WEB_UX": "terminal"}
         assert env_fingerprint(
             {**base, POSTURE_SOURCE_ENV: POSTURE_SOURCE_LIVE}
         ) != env_fingerprint({**base, POSTURE_SOURCE_ENV: POSTURE_SOURCE_SPAWN})

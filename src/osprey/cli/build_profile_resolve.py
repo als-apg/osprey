@@ -41,7 +41,11 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 
-from .build_profile_document import _read_profile_document, normalize_retired_write_keys
+from .build_profile_document import (
+    _read_profile_document,
+    normalize_retired_web_keys,
+    normalize_retired_write_keys,
+)
 from .build_profile_load import (
     CONNECTOR_CONFIG_KEY,
     CONNECTOR_PROFILE_KEY,
@@ -375,15 +379,19 @@ def cli_edit_layer(set_pairs: tuple[str, ...]) -> dict[str, Any]:
     (:func:`~osprey.cli.build_profile_document.normalize_retired_write_keys`,
     as a root named ``--set``): a retired-key pair states a
     ``control_system.writes`` value, and pairs spelling both forms are refused.
+    The retired ``web:`` keys are handled there too
+    (:func:`~osprey.cli.build_profile_document.normalize_retired_web_keys`).
 
     Raises:
         BuildProfileError: On an unparseable pair, an invalid ``connector``
             value, pairs naming both ``connector`` and
             ``config.control_system.type``, or pairs spelling both a retired
-            write-posture key and ``config.control_system.writes``.
+            write-posture key and ``config.control_system.writes``, or a
+            ``config.web.expert_view`` pair.
     """
     layer = _parse_set_pairs(set_pairs)
     normalize_retired_write_keys(layer, _CLI_LAYER_SOURCE)
+    normalize_retired_web_keys(layer, _CLI_LAYER_SOURCE)
     _reject_connector_type_conflict([layer])
     return _apply_port_base_shorthand(_apply_connector_shorthand(layer))
 

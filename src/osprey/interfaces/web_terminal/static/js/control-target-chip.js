@@ -21,8 +21,9 @@
  *
  * **The roster is a fact about the DEPLOYMENT, not about a session.** One
  * control-context record says where this deployment's control system points,
- * so the read carries no session id and nothing here subscribes to a session
- * change. That is also what lets this module load on a page that has no
+ * and nothing here subscribes to a session change. The one session-scoped field
+ * is `held`: a page that has a session names it through {@link setSessionSource},
+ * and a page without one reads the roster with no session id. That is also what lets this module load on a page that has no
  * terminal at all: THIS module imports only `control-target-facts.js`,
  * `api.js` and `activity-format.js` — the JupyterLab bar suite pins the
  * closure this module belongs to — and the JupyterLab bar mounts it by handing
@@ -130,8 +131,10 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 /**
  * The payload of `GET /api/terminal/posture`.
  * @typedef {object} PostureView
- * @property {null} session_id  the route echoes the query, and this read sends
- *   none — so it is always `null` here. Nothing may key behaviour on it
+ * @property {string|null} session_id  the route echoes the query. Nothing may key
+ *   behaviour on it
+ * @property {boolean} [held]  the named session has an unanswered watchdog hold,
+ *   so its writes are refused whatever the switch says
  * @property {string} control_target
  * @property {number|null} generation  the record's, and what a live server's
  *   `applied_generation` is compared against
@@ -197,6 +200,12 @@ export const REQUEST_TTL_S = 30;
  * second answer to "what is the context now".
  */
 export const CONTROL_CONTEXT_FRAME = 'control_context';
+
+/**
+ * The type prefix of a watchdog's change notice. A flag opened or answered moves
+ * the session's `held`, so each one is a refetch hint.
+ */
+export const WATCHDOG_FRAME_PREFIX = 'watchdog_';
 
 /**
  * The activity tool whose frame means "the control target may have moved".
@@ -271,6 +280,9 @@ let idleTimer = null;
 let fastTimer = null;
 /** @type {{stop: () => void}|null} */
 let sse = null;
+/** Who names the session `held` is read for; absent on a page with no session. */
+/** @type {(() => string|null)|null} */
+let sessionSource = null;
 
 /** Render subscribers (the popover). */
 /** @type {((state: PostureView|null) => void)[]} */
@@ -311,6 +323,15 @@ export function initControlTargetChip({ host } = {}) {
   if (!sse) sse = subscribeRefetchHints();
 
   void refetch();
+}
+
+/**
+ * Name the session the chip's `held` is read for. Injected rather than imported:
+ * this module's import closure is pinned, and it loads on pages with no terminal.
+ * @param {(() => string|null)|null} source
+ */
+export function setSessionSource(source) {
+  sessionSource = source;
 }
 
 /**
@@ -554,8 +575,8 @@ function refusalMessage(body, status) {
  * Re-read the roster and repaint.
  *
  * The one refresh path: mount, the pushed frame, the activity hint, the idle
- * tick, the fast tick and every popover mutation all land here. The read
- * carries no session id — one record answers for the whole deployment.
+ * tick, the fast tick and every popover mutation all land here. One record
+ * answers for the whole deployment; a session id only adds the `held` field.
  * @returns {Promise<void>}
  */
 export async function refetch() {
@@ -564,7 +585,12 @@ export async function refetch() {
 
   const seq = ++readSeq;
   try {
-    const data = await targetRequest('/api/terminal/posture');
+    const session = sessionSource?.();
+    const data = await targetRequest(
+      session
+        ? `/api/terminal/posture?session_id=${encodeURIComponent(session)}`
+        : '/api/terminal/posture'
+    );
     // A newer read has been issued since this one left — most importantly the
     // re-read a mutation does — so this answer is already history.
     if (seq !== readSeq) return;
@@ -767,7 +793,7 @@ function stopFastPolling() {
 /**
  * Subscribe to the server event stream for anything that means "read again".
  *
- * Two frames qualify, and both are HINTS and only hints — nothing is read out
+ * Three frames qualify, and all are HINTS and only hints — nothing is read out
  * of either, because the route is the only thing that knows what the context
  * now is:
  *
@@ -779,6 +805,7 @@ function stopFastPolling() {
  *   is broadcast on deployments whose terminal owns no context to push from.
  *   Its `detail` is the agent's narration of a switch that may belong to any
  *   client on this stream, so only the tool name is read.
+ * - any `watchdog_*` frame, since a flag moves the session's `held`.
  *
  * One subscription, and api.js shares one socket per URL across the page's
  * modules, so the chip adds no connection of its own to the browser's per-host
@@ -797,8 +824,16 @@ function subscribeRefetchHints() {
 
 /** @param {any} frame @returns {boolean} */
 function isRefetchHint(frame) {
-  if (frame.type === CONTROL_CONTEXT_FRAME) return true;
+  if (frame.type === CONTROL_CONTEXT_FRAME || isWatchdogFrame(frame)) return true;
   return frame.type === AGENT_ACTIVITY_FRAME && frame.tool === TARGET_SWITCH_TOOL;
+}
+
+/**
+ * @param {any} frame
+ * @returns {boolean} whether *frame* is a watchdog's change notice
+ */
+export function isWatchdogFrame(frame) {
+  return typeof frame?.type === 'string' && frame.type.startsWith(WATCHDOG_FRAME_PREFIX);
 }
 
 /* ---- render ---- */
@@ -1005,6 +1040,8 @@ function render() {
       chip.hidden = false;
       chip.dataset.targetKind = reading.kind;
       chip.dataset.state = reading.word;
+      const held = state.held === true;
+      chip.dataset.held = String(held);
       // A question about the CONTEXT, not about the switch: whether a target
       // switch made here would be written at all, or refused because there is
       // no context to write or because another terminal holds it. When it
@@ -1017,11 +1054,14 @@ function render() {
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the deployment is on until the
       // switch actually lands.
-      paintState(stateEl, reading.state);
+      // Held outranks the switch: a write here is refused until the flag is
+      // answered, whatever the switch says.
+      const phrase = held ? 'held' : reading.state;
+      paintState(stateEl, pending ? reading.state : phrase);
       chip.title = row.label || row.target;
       chip.setAttribute(
         'aria-label',
-        `Control target: ${reading.name} · ${pending ? 'switching' : reading.state}`
+        `Control target: ${reading.name} · ${pending ? 'switching' : phrase}`
       );
     }
   }

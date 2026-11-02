@@ -204,12 +204,12 @@ class TestLifespanOspreyConfig:
         from osprey_connectors.workspace import load_osprey_config
 
         config_file = project / "config.yml"
-        config_file.write_text(yaml.dump({"web": {"ui_mode": "expert"}}))
+        config_file.write_text(yaml.dump({"web": {"theme": "dark"}}))
         monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
-        assert load_osprey_config()["web"]["ui_mode"] == "expert"
-        config_file.write_text(yaml.dump({"web": {"ui_mode": "simple"}}))
+        assert load_osprey_config()["web"]["theme"] == "dark"
+        config_file.write_text(yaml.dump({"web": {"theme": "light"}}))
         monkeypatch.delenv("OSPREY_CONFIG")
 
         app = _run_lifespan(project)
 
-        assert app.state.web_ui_mode == "simple"
+        assert app.state.web_theme_id == "light"

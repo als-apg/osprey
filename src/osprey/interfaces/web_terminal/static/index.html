@@ -23,7 +23,7 @@
     present, because the resolver degrades to UTC rather than failing.
     design_system/static/js/facility-time.js reads it. Double-quoted because a
     zone id never contains a quote. -#}
-<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}"{% if web_expert_view is false %} data-expert-view="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
+<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %}{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -48,8 +48,8 @@
   <!-- FOUC prevention: applies data-theme before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
 
-  <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
-  <script src="{{ prefixed('/design-system/js/mode-boot.js') }}"></script>
+  <!-- FOUC prevention: a tab that opted into the terminal reopens on it -->
+  <script src="{{ prefixed('/static/js/agent-surface-boot.js') }}"></script>
 
   <!-- FOUC prevention: applies data-sidebar="collapsed" before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/sidebar-boot.js') }}"></script>
@@ -84,7 +84,7 @@
   <!-- DOMPurify: sanitizes marked's HTML output before it reaches the DOM -->
   <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
 
-  <!-- KaTeX: typesets math in the Simple chat's markdown -->
+  <!-- KaTeX: typesets math in the chat's markdown -->
   <link rel="stylesheet" href="{{ prefixed(vendor_url('KaTeX CSS', '/static/vendor/katex.min.css')) }}">
   <script src="{{ prefixed(vendor_url('KaTeX JS', '/static/vendor/katex.min.js')) }}"></script>
 
@@ -106,6 +106,7 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/feedback-modal.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/watchdog-alert.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
@@ -150,7 +151,7 @@
 
       <!-- Command palette trigger: reads as a search field. Cmd/Ctrl+K,
            filtering and keyboard nav are wired by palette-boot.js, which
-           resolves this button by id. Present in BOTH ui modes. -->
+           resolves this button by id. -->
       <button class="osprey-search" id="command-palette-btn" type="button"
               aria-label="Open command palette" data-tip="Search"
               data-tip-detail="Search settings, panels and actions">
@@ -313,8 +314,8 @@
           </div>
         </div>
 
-        <!-- Agent pane: the terminal / chat card. The header is Expert's (the
-             session selector and "+ New"); Simple's Agent bar is the chat
+        <!-- Agent pane: the chat / terminal card. The header is the terminal's
+             (the session selector, "+ New" and ⋯); the chat's Agent bar is the
              console's own. -->
         <div class="terminal-panel">
           <div class="terminal-card">
@@ -323,6 +324,7 @@
               <span class="terminal-label" id="terminal-label">Agent</span>
               <div class="session-selector" id="session-selector"></div>
               <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
+              <button class="osprey-icon-btn terminal-more-btn" id="terminal-more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
             </div>
             <div class="terminal-body" id="terminal-body">
               <div id="terminal-container"></div>
@@ -391,12 +393,6 @@
     </div>
     <div class="osprey-popover-sep" role="separator"></div>
     {% endif %}
-    <div role="group" aria-labelledby="more-view-label">
-      <div class="osprey-popover-title" id="more-view-label">View</div>
-      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-view="simple">Simple<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
-      <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-view="expert">Expert<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
-    </div>
-    <div class="osprey-popover-sep" role="separator"></div>
     <div role="group" aria-labelledby="more-appearance-label">
       <div class="osprey-popover-title" id="more-appearance-label">Appearance</div>
       <button class="osprey-popover-item" type="button" role="menuitemradio" aria-checked="false" data-appearance="auto">Match system<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
@@ -436,7 +432,7 @@
       <div><dt>Search everything</dt><dd><kbd class="osprey-kbd" data-chord="K">&#8984;K</kbd></dd></div>
       <div><dt>Show or hide sidebar labels</dt><dd><kbd class="osprey-kbd" data-chord="\">&#8984;\</kbd></dd></div>
       <div><dt>Open settings</dt><dd><kbd class="osprey-kbd" data-chord=",">&#8984;,</kbd></dd></div>
-      <div><dt>Focus the terminal</dt><dd><kbd class="osprey-kbd">Ctrl+`</kbd></dd></div>
+
     </dl>
   </div>
 

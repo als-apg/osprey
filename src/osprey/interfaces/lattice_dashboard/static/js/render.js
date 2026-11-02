@@ -359,23 +359,6 @@ export function createRenderer(figureNames, callbacks) {
       latticeNameEl.textContent = selection.model || 'No lattice loaded';
     }
 
-    // Simple-mode status line (hidden in Expert via CSS): a plain-language
-    // stand-in for the dense stat chips. Updated on every state render so it
-    // is correct the moment the mode is flipped to simple. It never names the
-    // model: the header already does (the tile bar's subtitle when embedded,
-    // #lattice-name standalone), and the notice banner says why a model did
-    // not load.
-    const simpleStatusEl = document.getElementById('lattice-simple-status');
-    if (simpleStatusEl) {
-      if (ready) {
-        simpleStatusEl.textContent = 'Showing beta functions and dispersion along the lattice';
-      } else if (selection.status === 'failed') {
-        simpleStatusEl.textContent = 'No optics to show';
-      } else {
-        simpleStatusEl.textContent = 'Optics appear when a lattice loads';
-      }
-    }
-
     // Summary stats
     updateSummaryStats(state.summary || {});
 

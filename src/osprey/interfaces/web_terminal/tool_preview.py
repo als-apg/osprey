@@ -1,4 +1,4 @@
-"""What a tool result shows in the Simple chat: a bounded, readable preview.
+"""What a tool result shows in the chat: a bounded, readable preview.
 
 A tool's result is text, and the chat shows a preview of it in the tool's row.
 The preview reaches the page twice: on the live stream (``operator_session``)

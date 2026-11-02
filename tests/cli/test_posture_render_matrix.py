@@ -301,7 +301,7 @@ _APP_BASE = {
     "web_panels": ["ariel"],
     "mcp_servers": {},
 }
-_APP_CONFIG = {"claude_code.servers.controls.enabled": False, "web.ui_mode": "expert"}
+_APP_CONFIG = {"claude_code.servers.controls.enabled": False, "web.theme": "retro"}
 
 
 def _write_yaml(path: Path, document: dict) -> Path:

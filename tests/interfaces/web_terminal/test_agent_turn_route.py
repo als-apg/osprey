@@ -74,7 +74,7 @@ def _post(client: TestClient, **overrides) -> dict:
         "session_id": KEY,
         "pool_key": KEY,
         "state": "busy",
-        "surface": "expert",
+        "surface": "terminal",
         "ts": 1000.0,
     }
     body.update(overrides)
@@ -86,13 +86,13 @@ def _post(client: TestClient, **overrides) -> dict:
 # ---- The surface filter ----
 
 
-@pytest.mark.parametrize("surface", ["simple", "", "Expert", "unknown"])
+@pytest.mark.parametrize("surface", ["chat", "", "Terminal", "unknown"])
 def test_reports_from_other_surfaces_are_dropped_not_refused(surface):
-    """Only ``expert`` is recorded; everything else is a 200 that changed nothing.
+    """Only ``terminal`` is recorded; everything else is a 200 that changed nothing.
 
     The empty case is the one that actually happens: a hook whose surface
     environment variable is unset. It must not 4xx into the operator's
-    terminal, and it must not be mistaken for an expert-view report either.
+    terminal, and it must not be mistaken for a terminal report either.
     """
     client = _make_client()
     assert _post(client, surface=surface) == {"ok": True, "recorded": False}
@@ -111,7 +111,7 @@ def test_idle_is_recorded_whatever_hook_event_reported_it(source):
 
     ``StopFailure`` fires where ``Stop`` does not, and the server must read
     both as idle — a key left busy because its turn failed would never release
-    for the other view. ``source`` is context, never a condition.
+    for the other surface. ``source`` is context, never a condition.
     """
     client = _make_client()
     body = {"state": "idle"}
@@ -126,7 +126,7 @@ def test_an_unknown_state_is_refused():
     client = _make_client()
     resp = client.post(
         "/api/agent-turn",
-        json={"session_id": KEY, "pool_key": KEY, "state": "thinking", "surface": "expert"},
+        json={"session_id": KEY, "pool_key": KEY, "state": "thinking", "surface": "terminal"},
     )
     assert resp.status_code == 422
     assert client.app.state.turn_state == {}
@@ -213,7 +213,7 @@ def test_the_server_stamps_the_time_when_the_hook_sends_none():
     before = time.time()
     resp = client.post(
         "/api/agent-turn",
-        json={"session_id": KEY, "pool_key": KEY, "state": "busy", "surface": "expert"},
+        json={"session_id": KEY, "pool_key": KEY, "state": "busy", "surface": "terminal"},
     )
     after = time.time()
     assert resp.json()["recorded"] is True
@@ -266,7 +266,7 @@ def test_a_transcript_equal_to_the_key_clears_a_stale_mapping():
 def test_a_dropped_report_never_touches_the_map():
     """The surface filter gates the map write too, not only the state write."""
     client = _make_client()
-    _post(client, session_id=TRANSCRIPT, pool_key=KEY, surface="simple")
+    _post(client, session_id=TRANSCRIPT, pool_key=KEY, surface="chat")
     assert transcript_map.get(client.app, KEY) == KEY
 
 
@@ -339,7 +339,7 @@ def test_the_panel_token_alone_reaches_the_route(panel_token_client):
     """The hook runs in the agent's own sandbox and carries nothing stronger."""
     resp = panel_token_client.post(
         "/api/agent-turn",
-        json={"session_id": KEY, "pool_key": KEY, "state": "idle", "surface": "expert"},
+        json={"session_id": KEY, "pool_key": KEY, "state": "idle", "surface": "terminal"},
         headers={"authorization": f"Bearer {PANEL_TOKEN}"},
     )
     assert resp.status_code == 200
@@ -351,7 +351,7 @@ def test_a_wrong_panel_token_is_refused(panel_token_client):
     """The route is panel-tier, not open."""
     resp = panel_token_client.post(
         "/api/agent-turn",
-        json={"session_id": KEY, "pool_key": KEY, "state": "idle", "surface": "expert"},
+        json={"session_id": KEY, "pool_key": KEY, "state": "idle", "surface": "terminal"},
         headers={"authorization": "Bearer not-the-token"},
     )
     assert resp.status_code == 401

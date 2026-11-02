@@ -78,7 +78,9 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials
+from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
+from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.routes.websocket import (
     _login_tier,
     _rendered_config,
@@ -91,6 +93,8 @@ from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.refusals import refusal_text
+from osprey_connectors.session_hold import is_held, is_safe_session_key
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +307,76 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
         path: The path segment below the panel id, without a leading slash.
     """
     return panel_id == _EVENTS_PANEL_ID and f"/{path}" == DISPATCHER_MCP_PATH
+
+
+#: The dispatcher tools that start a job; its other tools only read.
+_JOB_FIRING_TOOLS = frozenset({"manual_fire"})
+
+#: The header naming the calling session on the dispatcher's MCP server entry. The
+#: panel token is shared, so it is honest-path: it answers which session is asking,
+#: and is no proof of it.
+_SESSION_HEADER = "x-osprey-session"
+
+#: JSON-RPC's implementation-defined server error, for a call refused before it left.
+_JSONRPC_REFUSED = -32000
+
+
+def _job_firing_messages(body: bytes) -> list[dict] | None:
+    """The JSON-RPC requests of *body*, when one of them fires a job; else ``None``.
+
+    A body that does not parse is the transport's to answer.
+    """
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    messages = payload if isinstance(payload, list) else [payload]
+    requests = [message for message in messages if isinstance(message, dict)]
+    for message in requests:
+        params = message.get("params")
+        if (
+            message.get("method") == "tools/call"
+            and isinstance(params, dict)
+            and params.get("name") in _JOB_FIRING_TOOLS
+        ):
+            return requests
+    return None
+
+
+async def _refuse_job_firing(request: Request) -> Response | None:
+    """Refuse a job-firing call from a held session; ``None`` lets the request through.
+
+    Under a hold store the session must be named and live, so a key nobody runs
+    cannot fire past a hold it has no record of. With no store nothing is read.
+    A JSON-RPC error rather than an HTTP status, because the agent's client reads
+    the words of one and reports only a transport failure for the other. A batch
+    with a firing call in it is refused whole.
+    """
+    root = session_hold_root_of(request.app)
+    if root is None:
+        return None
+    messages = _job_firing_messages(await request.body())
+    if messages is None:
+        return None
+    key = request.headers.get(_SESSION_HEADER, "")
+    if not is_safe_session_key(key) or not session_is_live(request.app, key):
+        text = "Firing a job needs a live session; this call names none."
+    elif await asyncio.to_thread(is_held, key, root=root):
+        text = refusal_text("session_held", detail="Firing a job is refused while held.")
+    else:
+        return None
+    logger.warning("Refused a job-firing call on the dispatcher hop")
+    errors = [
+        {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "error": {"code": _JSONRPC_REFUSED, "message": text},
+        }
+        for message in messages
+        if "id" in message
+    ]
+    answer = errors[0] if len(messages) == 1 and errors else errors
+    return Response(content=json.dumps(answer), media_type="application/json")
 
 
 #: Request headers that are never forwarded to a panel backend.
@@ -1823,6 +1897,10 @@ async def _forward_to_panel(
     # same path literally and are held to the constant by tests. A hop that
     # rebuilt the path from the request would answer to none of them.
     dispatcher_mcp = _is_dispatcher_mcp_hop(panel_id, path)
+    if dispatcher_mcp and request.method == "POST":
+        refusal = await _refuse_job_firing(request)
+        if refusal is not None:
+            return refusal
     if dispatcher_mcp:
         target = f"{backend_url.rstrip('/')}{DISPATCHER_MCP_PATH}"
     else:

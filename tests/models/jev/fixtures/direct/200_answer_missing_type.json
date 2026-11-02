@@ -1,0 +1,19 @@
+{
+  "synthetic": true,
+  "note": "Synthetic fixture hand-written from the documented direct-route response and error shapes; not a recorded reply.",
+  "route": "typesafe",
+  "status": 200,
+  "headers": {},
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "q1": {
+        "noul": 0.42
+      }
+    },
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 5
+    }
+  }
+}

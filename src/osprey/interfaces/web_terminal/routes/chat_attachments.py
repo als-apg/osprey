@@ -1,4 +1,4 @@
-"""Files the operator attaches to a Simple-view message, kept for the agent to read.
+"""Files the operator attaches to a chat message, kept for the agent to read.
 
 The composer uploads each file as the operator picks it, before the message is
 sent. The message then names the stored paths, and the agent opens them with its

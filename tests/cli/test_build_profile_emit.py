@@ -105,7 +105,6 @@ def test_delta_keeps_the_preset_comments() -> None:
 
     unwrapped = _unwrapped_comments(text)
     assert "`never` wins over the deployment's own ceiling" in unwrapped
-    assert "Pared-down operator layout" in unwrapped
 
 
 def _unwrapped_comments(text: str, *, header_only: bool = False) -> str:

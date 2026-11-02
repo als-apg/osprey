@@ -2065,12 +2065,18 @@ def _render_project(
         live_standin_config_overrides,
         live_standin_duplicate_key_errors,
     )
+    from .build_profile_watchdogs import (
+        copy_enabled_watchdogs,
+        enabled_watchdogs,
+        watchdog_config_overrides,
+    )
     from .profile_conventions import (
         convention_selections,
         library_selection,
         profile_artifact_lists,
         render_convention_selections,
     )
+    from .templates.claude_code import watchdog_hook_selection
     from .validate_claude_artifacts import (
         agent_model_pin_errors,
         validate_agent_tools_against_permissions,
@@ -2100,6 +2106,16 @@ def _render_project(
     # the very resolver `create_project` applies, not a second implementation of
     # the same rule that can drift from it.
     effective_artifacts = manager._effective_artifacts(data_bundle, artifacts or None)
+    # The trigger hook follows the block, whatever `hooks:` says: an enabled
+    # watchdog watches every session, and with none the hook ships nowhere.
+    if effective_artifacts is not None:
+        effective_artifacts = {
+            **effective_artifacts,
+            "hooks": watchdog_hook_selection(
+                effective_artifacts.get("hooks") or [],
+                bool(enabled_watchdogs(build_profile.watchdogs)),
+            ),
+        }
 
     context = _repo_render_context(
         build_profile,
@@ -2171,6 +2187,7 @@ def _render_project(
             data_root=data_root,
         )
         progress("  ✓ Base template rendered")
+        copy_enabled_watchdogs(build_profile.watchdogs, repo_root, render_dir)
 
         # One fact, two homes: a profile that also spells a key the live stand-in
         # derives is refused rather than silently overwritten below — the same rule
@@ -2229,6 +2246,8 @@ def _render_project(
             # The resolved record block, defaults included, rendered as the
             # top-level `agent_record` key the record service reads.
             "agent_record": agent_record_config_overrides(build_profile.agent_record),
+            # The enabled watchdogs; no key at all when none is.
+            "watchdogs": watchdog_config_overrides(build_profile.watchdogs),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
             # that named none of its own.

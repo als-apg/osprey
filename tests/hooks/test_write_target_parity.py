@@ -1,7 +1,7 @@
 """The write placement: one in the package, one in the hook twin, pinned together.
 
 ``osprey_writes_check`` places every hooked call with the stdlib twin's
-``hook_write_target`` before it judges it; the Simple chat's approval card names
+``hook_write_target`` before it judges it; the chat's approval card names
 the machine before the hook has run, through
 :func:`osprey_connectors.write_target.write_target_for_tool`. Both are driven
 here over the same render, hook_config, record and call, for every write tool

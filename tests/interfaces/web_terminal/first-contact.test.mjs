@@ -36,10 +36,10 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
   onSessionChange: (fn) => term.listeners.push(fn),
   pasteToTerminal: term.paste,
   focusTerminal: term.focus,
-  // The Simple console tells the panels which session they are on when it
-  // binds in simple mode. Stubbed rather than omitted: a missing export on a
+  // The console tells the panels which session they are on when it binds.
+  // Stubbed rather than omitted: a missing export on a
   // mock throws at the point of use, so leaving it out would make the first
-  // test that mounts the console under data-ui-mode="simple" fail on the mock
+  // test that mounts the console in chat fail on the mock
   // rather than on what it is asserting.
   notifySessionChange: vi.fn(),
 }));
@@ -66,7 +66,7 @@ const transport = vi.hoisted(() => ({
   sendPrompt: vi.fn(() => ({ abort: vi.fn() })),
   interrupt: vi.fn(),
   // The console replays the session pointer's transcript when it binds and
-  // negotiates the hand-off when it is entered from the Expert view. Neither
+  // negotiates the hand-off when it is entered from the terminal. Neither
   // is reached by the mounts below, but both are named imports: see the note
   // on notifySessionChange above.
   fetchHistory: vi.fn(() => Promise.resolve([])),
@@ -91,13 +91,13 @@ beforeEach(async () => {
   term.listeners = [];
   chip.kind = null;
   chip.listeners = [];
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   document.body.innerHTML = '';
   fc = await import(MODULE);
 });
 
-/** The Simple view's input, in the shape insertPrompt looks for. */
-function mountSimpleInput({ disabled = false } = {}) {
+/** The chat's input, in the shape insertPrompt looks for. */
+function mountChatInput({ disabled = false } = {}) {
   document.body.innerHTML =
     '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>';
   const input = /** @type {HTMLTextAreaElement} */ (
@@ -213,8 +213,8 @@ describe('setFacts', () => {
 });
 
 describe('insertPrompt', () => {
-  test('expert pastes into the terminal, then focuses it', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+  test('the terminal surface pastes into the terminal, then focuses it', () => {
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
     fc.insertPrompt('What can you read right now?');
     expect(term.paste).toHaveBeenCalledWith('What can you read right now?');
     expect(term.focus).toHaveBeenCalledTimes(1);
@@ -223,17 +223,9 @@ describe('insertPrompt', () => {
     );
   });
 
-  test('an unrendered or unknown mode takes the terminal branch', () => {
-    fc.insertPrompt('no mode attribute');
-    document.documentElement.setAttribute('data-ui-mode', 'something-new');
-    fc.insertPrompt('unknown mode');
-    expect(term.paste).toHaveBeenCalledTimes(2);
-    expect(term.focus).toHaveBeenCalledTimes(2);
-  });
-
-  test('simple fills the chat input, raises input, and focuses it', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+  test('the chat fills its input, raises input, and focuses it', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     let seen = 0;
     input.addEventListener('input', () => {
       seen += 1;
@@ -247,9 +239,9 @@ describe('insertPrompt', () => {
     expect(term.paste).not.toHaveBeenCalled();
   });
 
-  test('simple does nothing while the input is disabled', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput({ disabled: true });
+  test('the chat does nothing while the input is disabled', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput({ disabled: true });
     let seen = 0;
     input.addEventListener('input', () => {
       seen += 1;
@@ -263,8 +255,8 @@ describe('insertPrompt', () => {
     expect(term.paste).not.toHaveBeenCalled();
   });
 
-  test('simple with no input on the page does not throw', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+  test('the chat with no input on the page does not throw', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
     expect(() => fc.insertPrompt('nowhere to go')).not.toThrow();
     expect(term.paste).not.toHaveBeenCalled();
   });
@@ -272,8 +264,8 @@ describe('insertPrompt', () => {
 
 describe('insertPrompt({ append: true })', () => {
   test('appends below what the operator already typed, on its own line', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'set these to nominal:';
     let seen = 0;
     input.addEventListener('input', () => {
@@ -289,8 +281,8 @@ describe('insertPrompt({ append: true })', () => {
   });
 
   test('does not stack blank lines on trailing whitespace', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'first line\n\n  ';
 
     fc.insertPrompt('SR:BPM1:X', { append: true });
@@ -299,8 +291,8 @@ describe('insertPrompt({ append: true })', () => {
   });
 
   test('replaces an empty input rather than opening with a newline', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
 
     fc.insertPrompt('SR:BPM1:X', { append: true });
 
@@ -308,8 +300,8 @@ describe('insertPrompt({ append: true })', () => {
   });
 
   test('an input holding only whitespace is replaced, not appended to', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = '   \n ';
 
     fc.insertPrompt('SR:BPM1:X', { append: true });
@@ -317,16 +309,16 @@ describe('insertPrompt({ append: true })', () => {
     expect(input.value).toBe('SR:BPM1:X');
   });
 
-  test('expert ignores append and pastes the text as-is', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+  test('the terminal surface ignores append and pastes the text as-is', () => {
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
     fc.insertPrompt('SR:BPM1:X SR:BPM2:X', { append: true });
     expect(term.paste).toHaveBeenCalledWith('SR:BPM1:X SR:BPM2:X');
     expect(term.focus).toHaveBeenCalledTimes(1);
   });
 
   test('the default is still replace, for the prompt chips', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
     input.value = 'half a question';
 
     fc.insertPrompt('What can you read right now?');
@@ -454,7 +446,7 @@ describe('onKindChange', () => {
   });
 });
 
-/* ---- the Simple view's empty state -------------------------------------- */
+/* ---- the chat's empty state -------------------------------------- */
 
 const CHAT_MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
 
@@ -520,7 +512,7 @@ describe('buildEmptyState', () => {
   });
 
   test('clicking a chip inserts that chip text', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
     chip.kind = 'real';
     fc.setFacts(null);
     const block = fc.buildEmptyState();
@@ -547,7 +539,7 @@ describe('renderEmptyStateContent', () => {
   });
 });
 
-describe('the Simple console', () => {
+describe('the console', () => {
   /** Mount the operator console and hand back its message list. */
   async function mountChat() {
     document.body.innerHTML = '<div id="operator-container"></div>';

@@ -182,7 +182,7 @@ beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = '';
   document.body.className = '';
-  document.documentElement.removeAttribute('data-ui-mode');
+  document.documentElement.removeAttribute('data-agent-surface');
   document.documentElement.removeAttribute('data-control-target');
   vi.clearAllMocks();
   // first-contact.js holds this deployment's facts as module state, and these
@@ -557,11 +557,11 @@ describe('prompt chips', () => {
     expect(chipTexts()).toContain('What can you read right now?');
   });
 
-  test('in Simple view the chip reaches the visible input, not the hidden terminal', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
+  test('in chat the chip reaches the visible input, not the hidden terminal', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
     serve({ kind: 'real' });
     reachTryIt();
-    // The Simple view's one prompt input, alongside the tour's own anchor.
+    // The chat's one prompt input, alongside the tour's own anchor.
     document.body.insertAdjacentHTML(
       'beforeend',
       '<div id="operator-container"><div class="op-input-area"><textarea></textarea></div></div>'

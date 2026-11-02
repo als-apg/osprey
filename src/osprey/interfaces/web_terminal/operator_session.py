@@ -18,7 +18,7 @@ from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any, Literal, TypeGuard
 
 from osprey.agent_runner import (
     HAS_SDK,
@@ -60,6 +60,7 @@ from osprey.interfaces.web_terminal.tool_preview import (
 )
 from osprey.utils.tool_rules import matches_denylist
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, ensure_session
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,29 @@ def resolve_agent_data_root(app: Any = None) -> str:
         return str(Path(fallback))
 
 
+def session_hold_root_of(app: Any) -> Path | None:
+    """The hold root this process resolved at startup; ``None`` when no watchdog runs here."""
+    root = getattr(getattr(app, "state", None), "session_hold_root", None)
+    return root if isinstance(root, Path) else None
+
+
+def stamp_session_hold(env: dict[str, str], session_key: str, app: Any) -> None:
+    """Give a child its session's hold store, when a watchdog runs here.
+
+    The session's record is created when absent and never rewritten. The stamp
+    goes on even when that fails: under the stamp a record that cannot be read
+    holds the session, which is the operator's to answer.
+    """
+    root = session_hold_root_of(app)
+    if root is None:
+        return
+    try:
+        ensure_session(session_key, root=root)
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.error("Session hold record not created: %s", type(exc).__name__)
+    env[HOLD_DIR_ENV_VAR] = str(root)
+
+
 def build_operator_child_env(
     project_cwd: str | None,
     session_key: str | None = None,
@@ -200,7 +224,7 @@ def build_operator_child_env(
     :func:`osprey_connectors.workspace.resolve_agent_data_root` reads to scope
     a child's execution root to ``sessions/<key>`` — where the python and
     sandbox executors put their run directories. One key, one root: a
-    conversation is one session whichever view is showing it, so the chat
+    conversation is one session whichever surface is showing it, so the chat
     child and the PTY child spawned under the same key work out of the same
     directory rather than each in a room of its own. Its PTY counterpart
     stamps the same name from the pool key
@@ -267,6 +291,7 @@ def build_operator_child_env(
         env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(app)
         env["OSPREY_SESSION_ID"] = session_key
         env.update(terminal_session_env(session_key, env))
+        stamp_session_hold(env, session_key, app)
 
     return env
 
@@ -285,6 +310,9 @@ _QUIESCE_TIMEOUT_S = 5.0
 #: waiting on a background agent: the CLI answers the stop with a model turn
 #: of its own, and that must be read off the stream before the next prompt.
 _BACKGROUND_DRAIN_S = 30.0
+
+#: How often a Stop looks for the end of a response no open turn is waiting on.
+_RESPONSE_POLL_S = 0.05
 
 #: Bound (seconds) for reading the context window at the end of a response. The
 #: reading is best-effort: a CLI that does not answer in time costs the meter
@@ -341,7 +369,7 @@ _ASYNC_LAUNCH_MARK = "Async agent launched"
 #: draws a fenced ``svg`` block (the terminal would show its source), so the
 #: guide rides on this session's system prompt, not on the shared rules.
 _SVG_CALLOUT_GUIDE = (
-    "Your replies are shown in the web terminal's Simple view, which renders markdown "
+    "Your replies are shown in the web terminal's operator chat, which renders markdown "
     "and draws a fenced `svg` code block as a picture in a box. Use a drawing only as a "
     "quick look at a result you saved as an artifact: the top few values, a handful of "
     "key numbers, or a small schematic of where something is. Make at most one drawing "
@@ -486,6 +514,21 @@ def _starts_response(event: AgentEvent) -> bool:
 #: background agent reports; a run of them means the stream is broken, and
 #: reading on would spin and keep every one of them in memory.
 _MAX_UNPROMPTED_RESPONSES = 20
+
+
+@dataclass(frozen=True)
+class TurnStop:
+    """What one stop of the turn found and did.
+
+    ``outcome`` is ``idle`` when nothing was running, ``stopped`` when what was
+    running ended within the bound, ``abandoned`` when it did not. ``denied``
+    names the tools whose pending approvals the stop declined; ``stopped_tasks``
+    names the background agents it stopped.
+    """
+
+    outcome: Literal["stopped", "abandoned", "idle"]
+    denied: tuple[str, ...] = ()
+    stopped_tasks: tuple[str, ...] = ()
 
 
 @dataclass
@@ -987,6 +1030,17 @@ class OperatorSession:
         # While any background agent is open the turn stays open (see
         # ``_stream_response``).
         self._background: set[str] = set()
+        # Background calls of an abandoned turn that have not reported, each with
+        # its task id when known: the turn is closed but they may still be running.
+        self._abandoned_background: dict[str, str | None] = {}
+        # Prompts the CLI has been given and owes an answer to. Abandoning a turn
+        # closes it and owes nothing less, and a turn may not yet have produced the
+        # event that opens a response, so this is what says the CLI can still write.
+        # A prompt the CLI drops leaves it high, which reads as still running: the
+        # safe direction, past which the operator's audited Continue gets.
+        self._unanswered_prompts = 0
+        # The response being read started with no prompt owed: its end answers none.
+        self._response_unprompted = False
         self._agent_calls: set[str] = set()
         self._task_calls: dict[str, str] = {}
         # True while the main agent is idle waiting on a background agent's
@@ -1084,11 +1138,11 @@ class OperatorSession:
         if session_env is not None:
             session_env["OSPREY_TELEMETRY_SESSION_ID"] = self._session_key
             session_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
-            # Mark the web surface this session serves: the operator chat IS the
-            # simple UX. The panels-context SessionStart hook reads this to tell
+            # Mark the web surface this session serves. The panels-context
+            # SessionStart hook reads this to tell
             # the agent which UI the operator is looking at (the PTY terminal
-            # sets "expert" — see routes/websocket.py's _build_extra_env).
-            session_env["OSPREY_WEB_UX"] = "simple"
+            # sets "terminal" — see routes/websocket.py's _build_extra_env).
+            session_env["OSPREY_WEB_UX"] = "chat"
 
         # The launch names exactly one identity keyword, or none: the two are
         # mutually exclusive, and the runner refuses both together.
@@ -1289,13 +1343,19 @@ class OperatorSession:
         )
         return True
 
-    def _deny_pending(self) -> None:
-        """Decline every request still waiting, so a stop never leaves the SDK hanging."""
+    def _deny_pending(self) -> tuple[str, ...]:
+        """Decline every request still waiting, so a stop never leaves the SDK hanging.
+
+        Returns the tools declined.
+        """
+        denied: list[str] = []
         for pending in list(self._permissions.values()):
             if not pending.future.done():
                 pending.future.set_result(
                     PermissionResultDeny(message="The operator stopped the turn.", interrupt=True)
                 )
+                denied.append(str(pending.frame.get("tool_name_raw", "")))
+        return tuple(denied)
 
     # ---- Frame fan-out ---- #
 
@@ -1341,6 +1401,10 @@ class OperatorSession:
         # it to fill, and the pump would stall on a full queue.
         if self._turn_open and self._consumers and self._orphan_token is None:
             await self._queue.put(frame)
+
+    async def post_notice(self, frame: dict[str, Any]) -> None:
+        """Send a frame that did not come from the agent down this session's feeds."""
+        await self._emit(frame)
 
     # ---- Turn lifecycle ---- #
 
@@ -1396,16 +1460,20 @@ class OperatorSession:
             self._queue.get_nowait()
         self._turn_prompt = prompt
         self._unprompted = 0
-        if self._in_response:
-            # The CLI is mid-way through a response of its own and reads this
-            # prompt after it, so this turn opens when that response ends.
+        if self._in_response or self._unanswered_prompts:
+            # The CLI is mid-way through a response, or still owes one to an
+            # abandoned turn, and reads this prompt after it, so this turn opens
+            # when that response ends.
             self._pending_turn = True
             self._turn_closed.clear()
         else:
             await self._open_turn(prompt)
+        # Counted first: the answer can arrive before the submit returns.
+        self._unanswered_prompts += 1
         try:
             await agent.submit(prompt)
         except BaseException:
+            self._unanswered_prompts = max(0, self._unanswered_prompts - 1)
             self._pending_turn = False
             self._close_turn()
             raise
@@ -1436,6 +1504,11 @@ class OperatorSession:
                 and (data.get("patch") or {}).get("status") in _TERMINAL_TASK_STATUSES
             ):
                 call = data.get("tool_use_id") or self._task_calls.get(task_id or "")
+                self._abandoned_background = {
+                    open_call: open_task
+                    for open_call, open_task in self._abandoned_background.items()
+                    if open_call != call and (task_id is None or open_task != task_id)
+                }
                 if call in self._background:
                     self._background.discard(call)
                     status = data.get("status") or (data.get("patch") or {}).get("status")
@@ -1448,17 +1521,27 @@ class OperatorSession:
                     }
         return None
 
-    async def _stop_background(self) -> None:
-        """Stop the background agents still open, so none reports after a Stop."""
+    async def _stop_background(self) -> tuple[str, ...]:
+        """Stop the background agents still open, so none reports after a Stop.
+
+        Returns the tasks the stop reached.
+        """
         agent = self._connected_agent
         if agent is None:
-            return
-        for task_id, call in list(self._task_calls.items()):
-            if call in self._background:
-                try:
-                    await agent.stop_task(task_id)
-                except Exception:
-                    logger.debug("Could not stop background task %s", task_id, exc_info=True)
+            return ()
+        stopped: list[str] = []
+        targets = [
+            task_id for task_id, call in self._task_calls.items() if call in self._background
+        ]
+        targets += [task_id for task_id in self._abandoned_background.values() if task_id]
+        for task_id in dict.fromkeys(targets):
+            try:
+                await agent.stop_task(task_id)
+            except Exception:
+                logger.debug("Could not stop background task %s", task_id, exc_info=True)
+            else:
+                stopped.append(task_id)
+        return tuple(stopped)
 
     async def _pump(self) -> None:
         """Read the agent's stream for the life of the session and route every frame.
@@ -1478,6 +1561,7 @@ class OperatorSession:
         open, and an open turn ends with it.
         """
         agent = self._agent
+        child_gone = False
         ended: dict[str, Any] = {
             "type": "error",
             "message": "The agent process ended.",
@@ -1491,6 +1575,9 @@ class OperatorSession:
                 async for event in agent.events():
                     if not self._in_response and _starts_response(event):
                         self._in_response = True
+                        self._response_unprompted = (
+                            not self._turn_open and not self._unanswered_prompts
+                        )
                         if not self._turn_open:
                             self._unprompted += 1
                             await self._emit({"type": "turn_start", "prompt": None})
@@ -1523,7 +1610,8 @@ class OperatorSession:
                     if is_terminal_event(frame):
                         await self._end_response()
                 if not saw_result:
-                    break  # the stream closed without a result: the child is gone
+                    child_gone = True  # the stream closed without a result
+                    break
                 if self._unprompted > _MAX_UNPROMPTED_RESPONSES:
                     logger.error(
                         "Chat %s: %d responses with no prompt; no longer reading its stream",
@@ -1534,6 +1622,7 @@ class OperatorSession:
                 # Give the loop back between responses, whatever the stream does.
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
+            self._unanswered_prompts = 0
             raise
         except AgentRunError as exc:
             ended = {"type": "error", "message": str(exc), "error_type": exc.error_type}
@@ -1545,6 +1634,10 @@ class OperatorSession:
             }
         # Not active from here: a prompt that arrives now gets a new child.
         self._stream_ended = True
+        # A stream can fail with the child alive, and its background agents with it.
+        if child_gone or self.process_exited is True:
+            self._abandoned_background.clear()
+        self._unanswered_prompts = 0
         self._in_response = False
         in_turn = self._turn_open or self._pending_turn
         if in_turn:
@@ -1576,6 +1669,9 @@ class OperatorSession:
     async def _end_response(self) -> None:
         """A terminal frame went out: close the open turn, and open the one waiting behind it."""
         self._in_response = False
+        if not self._response_unprompted:
+            self._unanswered_prompts = max(0, self._unanswered_prompts - 1)
+        self._response_unprompted = False
         self.last_activity = time.monotonic()
         if self._turn_open:
             self._close_turn()
@@ -1629,9 +1725,13 @@ class OperatorSession:
 
             deadline = loop.time() + timeout_s
             while True:
-                if self._permissions or self._background or self._pending_turn:
+                if (
+                    self._permissions
+                    or self._background
+                    or (self._pending_turn and self._in_response)
+                ):
                     # An approval waits on the operator, a background agent on
-                    # its own work, a pending turn on the CLI's own response —
+                    # its own work, a pending turn on a response being read —
                     # not on the SDK: the silence deadline does not run.
                     deadline = loop.time() + timeout_s
                 remaining = deadline - loop.time()
@@ -1710,14 +1810,20 @@ class OperatorSession:
         # there answers with a result of its own that would end the turn before
         # the stopped agent's follow-up arrives, so only the agent stops. With
         # nothing running there is nothing to interrupt either.
-        working = self._turn_open or self._pending_turn or self._in_response
+        working = (
+            self._turn_open or self._pending_turn or self._in_response or self._unanswered_prompts
+        )
         if agent is not None and working and not idle:
             await agent.interrupt()
 
-    async def cancel(self) -> None:
+    async def cancel(self) -> Literal["stopped", "abandoned", "idle"]:
+        """Interrupt the in-flight turn, wait for it to end; how that went."""
+        return (await self.stop_turn()).outcome
+
+    async def stop_turn(self) -> TurnStop:
         """Interrupt the in-flight turn and wait for it to end.
 
-        No-op short-circuit when nothing is running, so an idle cancel never
+        No-op short-circuit when nothing is running, so an idle stop never
         hangs. Otherwise:
 
         1. Stop any background agent, then await the runner's interrupt so the
@@ -1728,20 +1834,49 @@ class OperatorSession:
            turn of its own).
         3. A turn that has not ended by then is abandoned: its consumer is
            told, and whatever it still says reaches the feeds alone.
+
+        A response no turn is waiting on, the CLI's own or the one an earlier
+        abandon left running, gets the same bound and counts as abandoned when
+        it outlasts it, because abandoning closes the turn and not the response.
+        An abandoned turn is interrupted again and keeps the outcome abandoned
+        until the CLI has answered every prompt it was given or the stream ends,
+        whether or not the turn had started a response. Background agents an abandon left unreported
+        are stopped again and keep the outcome abandoned until they report or the
+        child ends. A turn closing does not prove it stopped, since an abandon
+        closes it too: the outcome is stopped only once the response has ended
+        and no other turn has opened.
         """
-        self._deny_pending()
-        if not (self._turn_open or self._pending_turn or self._in_response):
-            return
+        denied = self._deny_pending()
+        if not (
+            self._turn_open or self._pending_turn or self._in_response or self._unanswered_prompts
+        ):
+            if not self._abandoned_background:
+                return TurnStop("idle", denied)
+            stopped_tasks = await self._stop_background()
+            return TurnStop(
+                "abandoned" if self._abandoned_background else "stopped", denied, stopped_tasks
+            )
 
         idle = self._idle_wait
-        await self._stop_background()
+        stopped_tasks = await self._stop_background()
         agent = self._connected_agent
         if agent is not None and not idle:
             with suppress(Exception):
                 await agent.interrupt()
 
+        def report(outcome: Literal["stopped", "abandoned"]) -> TurnStop:
+            # What an abandon left behind may still be running.
+            if self._abandoned_background or self._unanswered_prompts:
+                outcome = "abandoned"
+            return TurnStop(outcome, denied, stopped_tasks)
+
         if not (self._turn_open or self._pending_turn):
-            return
+            if not await self._response_ended(_QUIESCE_TIMEOUT_S):
+                return report("abandoned")
+            # A prompt sent during that wait has opened a turn of its own, which
+            # the wait below sees out.
+            if not (self._turn_open or self._pending_turn):
+                return report("stopped")
         drain_s = _BACKGROUND_DRAIN_S if idle else _QUIESCE_TIMEOUT_S
         try:
             await asyncio.wait_for(self._turn_closed.wait(), timeout=drain_s)
@@ -1749,6 +1884,15 @@ class OperatorSession:
             if self._turn_open or self._pending_turn:
                 self._pending_turn = False
                 self._turn_open = True
+                tasks = {call: task for task, call in self._task_calls.items()}
+                self._abandoned_background.update(
+                    {call: tasks.get(call) for call in self._background}
+                )
+                # Idle waiting on an open background agent, the main agent has
+                # answered and owes nothing until the agent, on the list above,
+                # reports. Once the last one has, its follow-up is still owed.
+                if self._idle_wait and self._background:
+                    self._unanswered_prompts = max(0, self._unanswered_prompts - 1)
                 await self._emit(
                     {
                         "type": "error",
@@ -1757,6 +1901,30 @@ class OperatorSession:
                     }
                 )
                 self._close_turn()
+                return report("abandoned")
+        if not await self._response_ended(_QUIESCE_TIMEOUT_S):
+            return report("abandoned")
+        return report("abandoned" if self._turn_open or self._pending_turn else "stopped")
+
+    async def _response_ended(self, within_s: float) -> bool:
+        """Whether the response being read and what an abandon left owed end within *within_s* s.
+
+        An answer owed to an open or pending turn is that turn's to see out.
+        """
+        deadline = time.monotonic() + within_s
+        # A pump that is gone reads nothing, so its flag says nothing.
+        while (
+            (
+                self._in_response
+                or (self._unanswered_prompts and not (self._turn_open or self._pending_turn))
+            )
+            and self._pump_task is not None
+            and not self._pump_task.done()
+        ):
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(_RESPONSE_POLL_S)
+        return True
 
     def spawn_quiesce(self) -> asyncio.Task:
         """Spawn a detached task that quiesces the in-flight turn.
@@ -1887,8 +2055,8 @@ class OperatorSession:
     def pid(self) -> int | None:
         """The pid of this session's child process, or ``None`` when none is running.
 
-        The chat child is what holds a session on the Simple surface, the way
-        a PTY holds one on the Expert surface, so a caller addressing
+        The chat child is what holds a session on the chat surface, the way
+        a PTY holds one on the terminal surface, so a caller addressing
         something *to* the process behind a session key has to be able to ask
         which process that is. The runner keeps the handle after it closes, so
         a session whose runner has been closed still answers while its child
@@ -1927,11 +2095,11 @@ class OperatorSession:
 
 
 class OperatorRegistry:
-    """Manages operator sessions and composes the Simple-mode chat pool.
+    """Manages operator sessions and composes the operator-chat pool.
 
     * ``_sessions`` — persistent ``/ws/operator`` sessions keyed by a
       connection-derived id. Uncapped, single-writer per key.
-    * ``chats`` — a :class:`ChatSessionPool` of Simple-mode chat sessions
+    * ``chats`` — a :class:`ChatSessionPool` of operator-chat sessions
       (LRU-capped, idle-reaped). The ``*_chat_session`` methods below are a
       thin facade over it for route/app callers.
     """
@@ -1995,7 +2163,7 @@ class OperatorRegistry:
         if session is not None:
             await session.stop()
 
-    # ---- Chat pool facade (Simple-mode; see ChatSessionPool) ---- #
+    # ---- Chat pool facade (see ChatSessionPool) ---- #
 
     async def get_or_create_chat_session(
         self,
