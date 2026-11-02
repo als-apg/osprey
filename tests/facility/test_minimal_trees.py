@@ -172,8 +172,6 @@ def _line_with_a_span() -> dict[str, Any]:
             {"id": "LINE", "span": {"model": "LINE", "from_marker": "M0"}},
             {"id": "LINE/G", "span": {"model": "LINE", "from_marker": "M0", "to_marker": "M1"}},
         ],
-        "records/devices.yaml": [{"id": "LINE/Q1", "class": "Quadrupole"}],
-        "records/channels.yaml": [{"id": "LQ:SP", "role": "setpoint", "on": {"device": "LINE/Q1"}}],
         "models.yaml": [
             {
                 "name": "LINE",
@@ -196,11 +194,20 @@ def _line_with_a_span() -> dict[str, Any]:
     }
 
 
+#: The channel list the tree above is imported under: ``LQ:SP`` is the address its wiring names.
+_SPAN_LIST = (
+    "address,role,device,s,model\n"
+    "LQ:SP,setpoint,,,\n"
+    "L:G1:SP,setpoint,L/G1,3.5,LINE\n"
+    "L:G1:RB,,L/G1,3.5,LINE\n"
+)
+
+
 def test_a_listed_position_places_a_device_declared_nowhere_else(tmp_path: Path) -> None:
     pytest.importorskip("at")
     project, result = _import_list(
         tmp_path,
-        "address,role,device,s,model\nL:G1:SP,setpoint,L/G1,3.5,LINE\nL:G1:RB,,L/G1,3.5,LINE\n",
+        _SPAN_LIST,
         _line_with_a_span(),
     )
 
@@ -213,6 +220,36 @@ def test_a_listed_position_places_a_device_declared_nowhere_else(tmp_path: Path)
         {"layer": "list", "file": "imported/list/devices.yaml", "fields": ["model", "s"]}
     ]
     assert "s" not in provenance["defaults"]
+
+
+def test_import_list_refuses_beside_a_hand_written_device_list(tmp_path: Path) -> None:
+    from osprey.cli.main import cli
+    from tests._builds import init_project
+    from tests.facility._synthetic_trees import write_tree
+
+    pytest.importorskip("at")
+    repo = init_project(tmp_path, "hello-world", "demo")
+    facility = repo / "data" / "facility"
+    shutil.rmtree(facility)
+    write_tree(
+        facility,
+        {**_line_with_a_span(), "records/devices.yaml": [{"id": "LINE/Q1", "class": "Quadrupole"}]},
+    )
+    before = {path: path.read_bytes() for path in facility.rglob("*") if path.is_file()}
+    listing = tmp_path / "two.csv"
+    listing.write_text(_SPAN_LIST, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli, ["facility", "import", "list", str(listing), "--repo", str(repo)]
+    )
+
+    assert result.exit_code == 1
+    lines = result.stderr.splitlines()
+    assert lines[0] == (
+        "import list: data/facility/ holds hand-written device records, which this import writes:"
+    )
+    assert lines[1] == "data/facility/records/devices.yaml"
+    assert {path: path.read_bytes() for path in facility.rglob("*") if path.is_file()} == before
 
 
 def test_zero_sources_build_the_texture_model_alone(build_project: Build) -> None:

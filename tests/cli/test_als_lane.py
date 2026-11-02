@@ -11,10 +11,9 @@ names a line: every assertion runs over every model the facility file holds.
 
 The lane is the install a deployer types, on a control-assistant deployment:
 
-* ``init --preset control-assistant`` -> ``facility import mml`` past the stop
-  it makes over the preset's authored sources -> the reviewed
-  ``imported/mml/mapping.yaml`` -> ``facility import mml`` -> the stale
-  scenarios it lists removed exactly as listed;
+* ``init --preset control-assistant`` -> the reviewed
+  ``imported/mml/mapping.yaml`` -> ``facility import mml``, which replaces the
+  preset's bundled facility;
 * the isolation settings below -> ``build`` past the ``seed-invalid`` stops the
   imported tree carries, widening exactly the limits records ``facility
   validate`` names;
@@ -97,7 +96,6 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
 
 import ipaddress  # noqa: E402
 import re  # noqa: E402
-import shlex  # noqa: E402
 import shutil  # noqa: E402
 import subprocess  # noqa: E402
 import time  # noqa: E402
@@ -390,14 +388,6 @@ def _isolated_section(port: int = 45000) -> dict[str, Any]:
 # The install
 # ===================================================================
 
-#: The first line of the stop ``facility import mml`` prints over authored
-#: record sources; one ``rm`` line per file follows it.
-AUTHORED_PRESENT = "import mml: authored-present: "
-
-#: The header ``facility import mml`` prints over the scenario files a clean
-#: import leaves stale; one indented ``rm`` line per path follows it.
-STALE_SCENARIOS = "these scenario files name channels that no longer exist:"
-
 #: The line a build stage prints for a setpoint that starts outside its band.
 SEED_INVALID = re.compile(
     r"^facility: seed-invalid: channel (?P<address>.+?) — nominal (?P<nominal>\S+) lies "
@@ -418,20 +408,6 @@ def _ok(runner: CliRunner, *args: str) -> Result:
     result = _invoke(runner, *args)
     assert result.exit_code == 0, f"osprey {' '.join(args)} failed:\n{result.output}"
     return result
-
-
-def _remove_named(repo: Path, line: str) -> list[str]:
-    """Delete exactly the paths one printed ``rm`` line names."""
-    named = [word for word in shlex.split(line) if word not in ("rm", "-r")]
-    assert named, line
-    for relative in named:
-        target = repo / relative
-        assert target.exists(), f"{relative} was named but is not there"
-        if target.is_dir():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
-    return named
 
 
 def _widen(limits: Path, address: str, edge: str, nominal: float) -> None:
@@ -462,8 +438,6 @@ class Install:
         lane: The inputs it was installed from.
         repo: The deployment repo.
         port: The loopback port the VA is configured on.
-        cleared: The authored sources the first import named and were removed.
-        stale: The scenario paths the clean import listed and were removed.
         widened: The setpoints whose limits records were widened.
         built: The build that passed.
     """
@@ -471,8 +445,6 @@ class Install:
     lane: Lane
     repo: Path
     port: int
-    cleared: tuple[str, ...]
-    stale: tuple[str, ...]
     widened: tuple[str, ...]
     built: Result
 
@@ -527,24 +499,7 @@ def install(lane: Lane, repo: Path, port: int) -> Install:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(lane.mapping, target)
 
-    arguments = ("facility", "import", "mml", *exports, "--repo", str(repo))
-    imported = _invoke(runner, *arguments)
-    cleared: list[str] = []
-    if imported.exit_code != 0:
-        lines = imported.stderr.splitlines()
-        assert lines and lines[0].startswith(AUTHORED_PRESENT), imported.output
-        assert all(line.startswith("rm ") for line in lines[1:]), imported.stderr
-        for line in lines[1:]:
-            cleared += _remove_named(repo, line)
-        imported = _ok(runner, *arguments)
-
-    stale: list[str] = []
-    printed = imported.stderr.splitlines()
-    if STALE_SCENARIOS in printed:
-        listed = printed[printed.index(STALE_SCENARIOS) + 1 :]
-        assert listed and all(line.startswith("  rm ") for line in listed), imported.stderr
-        for line in listed:
-            stale += _remove_named(repo, line.strip())
+    _ok(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
 
     _ok(runner, "set", "--repo", str(repo), *isolation_settings(port, imported_probe(repo)))
 
@@ -573,8 +528,6 @@ def install(lane: Lane, repo: Path, port: int) -> Install:
         lane=lane,
         repo=repo,
         port=port,
-        cleared=tuple(cleared),
-        stale=tuple(stale),
         widened=tuple(widened),
         built=built,
     )
@@ -935,15 +888,6 @@ def test_every_model_the_mapping_names_is_in_the_facility_file(installed: Instal
     assert named, f"{installed.lane.mapping} names no model"
     missing = sorted(set(named) - set(installed.models()))
     assert not missing, f"{installed.lane.label}: the facility file holds no model {missing}"
-
-
-@needs_lane
-def test_every_stale_scenario_the_import_listed_is_gone(installed: Install) -> None:
-    scenarios = (FACILITY_DIR / "scenarios").as_posix()
-    outside = [path for path in installed.stale if not path.startswith(f"{scenarios}/")]
-    assert not outside, f"the import listed paths outside {scenarios}: {outside}"
-    remaining = [path for path in installed.stale if (installed.repo / path).exists()]
-    assert not remaining, remaining
 
 
 @needs_lane
