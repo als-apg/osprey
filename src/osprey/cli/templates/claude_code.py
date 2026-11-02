@@ -367,32 +367,6 @@ def panel_declared_context(declares_panel: Callable[[str], bool]) -> dict[str, b
     }
 
 
-def _shell_wire_note() -> str:
-    """What a shell command reaches with the panel token, for the gate warning.
-
-    The dispatcher's path is spelled here because the dispatcher is not a
-    sidecar panel; every other path is read off the registry, so a panel that
-    opens its transport to the agent is named without this text being edited.
-    """
-    from osprey.registry.mcp import panel_hop_paths
-
-    note = (
-        " The shell also reaches the dispatcher wire: the panel "
-        "token sits in the agent's process env, so a shell command "
-        "can POST to /panel/events/mcp and fire a job without the "
-        "approval prompt — the job still runs as the real user "
-        "under their chip."
-    )
-    hops = panel_hop_paths()
-    if hops:
-        note += (
-            " The same token opens the MCP transport of every panel that offers "
-            f"one to the agent ({', '.join(hops)}), so a shell command can call "
-            "those panels' tools without their approval prompts either."
-        )
-    return note
-
-
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read out of a project's ``config.yml`` and facts file.
 
@@ -1085,6 +1059,11 @@ def build_claude_code_context(
     # empty in the shipped artifact. Both paths come through this function, so
     # both carry the index.
     ctx["bluesky_plan_index"] = _build_bluesky_plan_index(config, project_dir, ctx)
+    # Build-time guide to the CANOPY screen library, for the bundled screens
+    # skill; here for the same reason as the plan index above.
+    from osprey.integrations.canopy.screen_guide import screen_guide_context
+
+    ctx["canopy_screen_guide"] = screen_guide_context(config, project_dir)
 
     # Approval-overlap guard: a facility permissions.remove_ask or
     # permissions.allow entry naming an approval-gated (ask) tool of an enabled
@@ -2530,22 +2509,15 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
         if covering:
             if all(src == _MATCHER_PROFILE for _, src in covering):
-                # The shell's reach is wider than the filesystem, so a facility
-                # weighing its own Bash or Monitor gate has to weigh the
-                # dispatcher wire too: OSPREY_PANEL_TOKEN is in the agent's
-                # process env, which is all it takes to fire a job from a shell
-                # command, in the foreground or the background.
-                shell_note = _shell_wire_note() if tool in SHELL_TOOLS else ""
                 logger.warning(
                     "%s is not in permissions.deny and is gated only by a "
                     "PreToolUse matcher this profile declares itself (%s). The "
                     "build checks that the rule exists, not that the hook "
                     "refuses anything — a hook that exits without a "
                     "permissionDecision allows the call. Verify that hook denies "
-                    "what it is there to deny.%s",
+                    "what it is there to deny.",
                     tool,
                     ", ".join(repr(m) for m, _ in covering),
-                    shell_note,
                 )
             continue
         floor_note = (

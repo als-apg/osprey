@@ -15,7 +15,6 @@ import pytest
 
 from osprey.agent_runner import write_tools
 from osprey.cli.templates.claude_code import (
-    _shell_wire_note,
     config_derived_context,
     panel_declared_context,
 )
@@ -27,7 +26,6 @@ from osprey.registry.mcp import (
     FRAMEWORK_SERVERS,
     ServerDefinition,
     derive_panel_servers,
-    panel_hop_paths,
     resolve_servers,
 )
 
@@ -391,28 +389,3 @@ def test_a_panel_without_the_hop_blocks_and_opens_nothing(monkeypatch):
     assert not [t for t in write_tools._registry_side_effect_tools() if "screens" in t]
     assert not [path for _method, path in panel_tier_routes() if path.startswith("/panel/screens")]
     assert CONDITION not in panel_declared_context(lambda _id: True)
-
-
-@pytest.mark.usefixtures("merged")
-def test_the_hop_paths_are_read_off_the_catalog():
-    assert "/panel/screens/mcp" in panel_hop_paths()
-    # The dispatcher is not a sidecar panel; its path is not derived.
-    assert "/panel/events/mcp" not in panel_hop_paths()
-
-
-@pytest.mark.usefixtures("merged")
-def test_the_shell_note_names_the_dispatcher_and_every_hop():
-    note = _shell_wire_note()
-
-    assert "/panel/events/mcp" in note
-    assert "/panel/screens/mcp" in note
-
-
-def test_the_shell_note_names_only_the_dispatcher_without_a_hop_panel(monkeypatch):
-    for name in [n for n, s in FRAMEWORK_SERVERS.items() if s.panel_id is not None]:
-        monkeypatch.delitem(FRAMEWORK_SERVERS, name)
-
-    note = _shell_wire_note()
-
-    assert "/panel/events/mcp" in note
-    assert note.count("/panel/") == 1

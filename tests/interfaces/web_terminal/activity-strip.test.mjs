@@ -62,6 +62,7 @@ import {
 import {
   formatActivity,
   formatRelativeTime,
+  WORKSPACE_TOOL,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-format.js';
 import { HISTORY_LIMIT } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-history.js';
 
@@ -801,5 +802,65 @@ describe('empty-strip focusability', () => {
     await operate(strip);
 
     expect(mount.getAttribute('tabindex')).toBe('0');
+  });
+});
+
+describe('set_workspace rows', () => {
+  /**
+   * A set_workspace row as the panel proxy records it.
+   * @param {object} workspace
+   * @returns {AgentActivityFrame}
+   */
+  const batchFrame = (workspace) =>
+    /** @type {AgentActivityFrame} */ (
+      /** @type {unknown} */ ({
+        type: 'agent_activity',
+        tool: WORKSPACE_TOOL,
+        target: { kind: 'panel', panel: 'canopy', workspace },
+        ts: 1234,
+      })
+    );
+  const commands = [
+    { cmd: 'open', key: 'library/sr-orbit' },
+    { cmd: 'close_others', key: 's:library/sr-orbit' },
+    { cmd: 'close_all' },
+  ];
+  const labelCanopy = (/** @type {string} */ id) => (id === 'canopy' ? 'CANOPY' : id);
+
+  test.each([
+    ['done', undefined, 'done'],
+    ['pending', undefined, 'pending'],
+    ['refused', 'no_window', 'refused: no_window'],
+  ])('a %s batch names its verbs, keys and returned status', (status, reason, shown) => {
+    const workspace = reason ? { commands, status, reason } : { commands, status };
+    expect(formatActivity(batchFrame(workspace), { labelOf: labelCanopy })).toEqual({
+      verb: 'agent sent CANOPY',
+      subject: `open library/sr-orbit, close others s:library/sr-orbit, close all (${shown})`,
+    });
+  });
+
+  test('commands past the listed ones are counted, and an empty batch still reads', () => {
+    expect(
+      formatActivity(batchFrame({ commands: [{ cmd: 'reopen' }], more: 4, status: 'done' })).subject
+    ).toBe('reopen, +4 more (done)');
+    expect(formatActivity(batchFrame({ status: 'error' })).subject).toBe('a batch (error)');
+    expect(formatActivity(batchFrame({})).subject).toBe('a batch (unanswered)');
+  });
+
+  test('without a catalog label the raw panel id is shown', () => {
+    expect(formatActivity(batchFrame({ commands, status: 'done' })).verb).toBe('agent sent canopy');
+  });
+
+  test('agent-chosen keys land as text, never markup', () => {
+    const strip = makeStrip();
+    strip.handleActivity(
+      batchFrame({
+        commands: [{ cmd: 'focus', key: '<img src=x onerror=alert(1)>' }],
+        status: 'done',
+      })
+    );
+
+    expect(mount.querySelector('img')).toBeNull();
+    expect(mount.textContent).toContain('focus <img src=x onerror=alert(1)> (done)');
   });
 });
